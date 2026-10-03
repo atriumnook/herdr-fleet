@@ -67,3 +67,34 @@ describe("locateFile", () => {
     expect(locateFile("/nowhere/demo.mp4", root)).toBeNull();
   });
 });
+
+describe("withinRoots", () => {
+  const made: string[] = [];
+  afterEach(() => { for (const root of made.splice(0)) rmSync(root, { recursive: true, force: true }); });
+
+  it("opens files under a root and refuses the rest, a symlink out or a sibling with the same prefix included", async () => {
+    const { mkdirSync, symlinkSync } = await import("node:fs");
+    const { withinRoots } = await import("./file-view.ts");
+    const base = mkdtempSync(join(tmpdir(), "herdr-roots-")); made.push(base);
+    const pane = join(base, "pane");
+    const outside = join(base, "pane-secrets");
+    mkdirSync(join(pane, "docs"), { recursive: true });
+    mkdirSync(outside);
+    writeFileSync(join(pane, "docs/shot.png"), "x");
+    writeFileSync(join(outside, "id_ed25519"), "key");
+    symlinkSync(join(outside, "id_ed25519"), join(pane, "link-out"));
+    expect(withinRoots(join(pane, "docs/shot.png"), [pane])).toBe(true);
+    expect(withinRoots(join(pane, "docs/../docs/shot.png"), [pane])).toBe(true);
+    expect(withinRoots(join(outside, "id_ed25519"), [pane])).toBe(false);
+    expect(withinRoots(join(pane, "../pane-secrets/id_ed25519"), [pane])).toBe(false);
+    expect(withinRoots(join(pane, "link-out"), [pane])).toBe(false);
+    expect(withinRoots(join(pane, "missing"), [pane])).toBe(false);
+    expect(withinRoots(join(outside, "id_ed25519"), [pane, outside])).toBe(true);
+  });
+
+  it("lets a file open from the temp folder without a pane, and from the pane's folder with one", async () => {
+    const { fileRoots } = await import("./file-view.ts");
+    expect(fileRoots(null)).toEqual([tmpdir()]);
+    expect(fileRoots("/work/app")).toEqual(["/work/app", tmpdir()]);
+  });
+});

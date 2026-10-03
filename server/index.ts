@@ -24,7 +24,7 @@ import { CompletionTracker } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
-import { fileResponse, locateFile } from "./file-view.ts";
+import { fileResponse, fileRoots, locateFile, withinRoots } from "./file-view.ts";
 import {
   agentManifests,
   agentPrompt,
@@ -207,6 +207,11 @@ interface PaneAttachment {
   heldRetry?: ReturnType<typeof setTimeout>;
   /** the next look for the terminal a pane lives on after herdr ended its attach; a closed attachment cancels it */
   relookup?: ReturnType<typeof setTimeout>;
+}
+
+/** A file outside the pane's folder and the temp folder (see fileRoots). */
+function outsideRoots(): Response {
+  return jsonResponse({ error: { code: "outside_roots", message: "only files in the pane's folder or the temp folder open here" } }, 403);
 }
 
 function send(client: Client, message: ServerMessage): number {
@@ -1015,8 +1020,14 @@ export function createServer(
         }
         const found = locateFile(url.searchParams.get("path") ?? "", cwd);
         if (found === null) return jsonResponse({ error: { code: "not_found", message: "no readable file at that path" } }, 404);
+        const roots = fileRoots(cwd);
         // several files end in that name: the viewer lists them to choose from
-        if ("candidates" in found) return jsonResponse({ error: { code: "ambiguous_path", message: "several files have that name", candidates: found.candidates } }, 409);
+        if ("candidates" in found) {
+          const candidates = found.candidates.filter((path) => withinRoots(path, roots));
+          if (candidates.length === 0) return outsideRoots();
+          return jsonResponse({ error: { code: "ambiguous_path", message: "several files have that name", candidates } }, 409);
+        }
+        if (!withinRoots(found.info.path, roots)) return outsideRoots();
         return pathname === "/api/fs/stat" ? jsonResponse(found.info) : fileResponse(found.info, url.searchParams.get("download") === "1");
       }
 

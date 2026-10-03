@@ -68,7 +68,8 @@ export function FileViewer({ path: asked, paneId, onClose, onOpen }: FileViewerP
         } catch { /* retain the file error when the target is not a readable directory */ }
       }
       if (cancelled) return;
-      setError(reason instanceof ApiError && reason.status === 404 ? t("No readable file at this path.") : t("The file could not be opened."));
+      setError(reason instanceof ApiError && reason.code === "outside_roots" ? t("Only files in the pane's folder or the temp folder open here.")
+        : reason instanceof ApiError && reason.status === 404 ? t("No readable file at this path.") : t("The file could not be opened."));
     });
     return () => { cancelled = true; };
   }, [path, paneId, fetchFileInfo, fileUrl, fetchDirectories, remote]);

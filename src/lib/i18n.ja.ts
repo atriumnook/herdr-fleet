@@ -265,6 +265,7 @@ export const JA: Record<string, string> = {
   "Open in a new tab": "新しいタブで開く",
   "Download": "ダウンロード",
   "Close file": "ファイルを閉じる",
+  "Only files in the pane's folder or the temp folder open here.": "開けるのはペインのフォルダーと一時フォルダー内のファイルだけです。",
   "No readable file at this path.": "このパスに読み取り可能なファイルはありません。",
   "The file could not be opened.": "ファイルを開けませんでした。",
   "Open {path}": "{path} を開く",
