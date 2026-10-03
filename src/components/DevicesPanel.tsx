@@ -101,7 +101,7 @@ export function DevicesPanel({ pairUrl, auth }: DevicesPanelProps) {
   return (
     <div className="devices-panel">
       {auth?.via !== undefined && <p className="settings-description">{t(VIA[auth.via])}</p>}
-      <p className="settings-description">{t("A paired device gets in on its own, from anywhere it can reach this server, until you revoke it here. A code comes from this screen on the PC or on a device already paired, or from the pair command in the PC's terminal.")}</p>
+      <p className="settings-description">{t("A paired device gets in on its own, from anywhere it can reach this server, until you revoke it here. A code comes from this screen on the PC or on a device already paired.")}</p>
       {devices === null ? <p className="settings-hint" role="status">{t("Loading…")}</p> : devices.length === 0 ? (
         <p className="settings-hint">{t("No devices paired yet.")}</p>
       ) : (

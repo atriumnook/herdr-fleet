@@ -56,8 +56,6 @@ import { MirrorSession } from "./mirror.ts";
 import { mirrorInput } from "./mirror-input.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
-import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
-import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { bridgeIdentity, registerBridge } from "./bridge.ts";
@@ -242,9 +240,6 @@ export function createServer(
     tailscaleOwner?: string | null;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
-    updates?: UpdateService;
-    /** updates herdr itself (server/herdr-update.ts); unset, the app offers no herdr update. Tests pass one that runs a stand-in herdr. */
-    herdrUpdate?: HerdrUpdater;
     machines?: boolean;
     registerBridge?: boolean;
     /** SUBMIT_DEADLINE_MS; tests shorten it */
@@ -952,10 +947,6 @@ export function createServer(
         } catch (error) { return errorResponse(error); }
       }
 
-      if (pathname === "/api/updates" || pathname.startsWith("/api/updates/")) {
-        return handleUpdateRequest(request, pathname, options.updates);
-      }
-      if (pathname === "/api/herdr/update") return handleHerdrUpdateRequest(request, options.herdrUpdate);
 
 
       if (pathname === "/api/push" || pathname.startsWith("/api/push/")) {
@@ -1769,7 +1760,7 @@ export function createServer(
 }
 
 if (import.meta.main) {
-  const instance = createServer({ updates: connectUpdater(), herdrUpdate: new HerdrUpdater(), registerBridge: true });
+  const instance = createServer({ registerBridge: true });
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;
@@ -1780,11 +1771,10 @@ if (import.meta.main) {
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
-  if (process.env["HERDR_WEB_MANAGED"] === "1") process.on("disconnect", shutdown);
   console.log(`herdr-web-ui listening on http://${instance.hostname}:${instance.port}`);
   if ((process.env["HERDR_WEB_TOKEN"] ?? "") === "" && !LOOPBACK_HOSTNAMES.has(instance.hostname)) {
     console.error(
-      `WARNING: listening on ${instance.hostname} without HERDR_WEB_TOKEN - until a device is paired (Settings → Devices, on this PC) anyone who can reach this address can type into your terminals; pair your devices, set HERDR_WEB_TOKEN=<token>, or keep HOST=127.0.0.1 and reach it through Tailscale or an SSH tunnel.`,
+      `NOTE: listening on ${instance.hostname} without HERDR_WEB_TOKEN - other devices need a pairing code (Settings → Devices, on this PC) to get in.`,
     );
   }
 }

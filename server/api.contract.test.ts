@@ -1,11 +1,9 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
-import { chmodSync, mkdtempSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, WorkspaceCreated } from "../shared/protocol.ts";
-import { HerdrUpdater } from "./herdr-update.ts";
-import type { HerdrUpdateStatus } from "../shared/update.ts";
 import { herdrRpc, ping, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 
@@ -30,87 +28,6 @@ afterAll(() => {
 });
 
 const base = () => `http://localhost:${server.port}`;
-
-describe("update API", () => {
-  it("reports unmanaged servers without performing network discovery", async () => {
-    const response = await fetch(`${base()}/api/updates`);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect((await response.json() as { managed: boolean }).managed).toBe(false);
-  });
-
-  it("refuses cross-site/form update requests and unmanaged installs", async () => {
-    for (const headers of [{}, { "x-herdr-update": "1", origin: "https://untrusted.invalid" },
-      { "x-herdr-update": "1", "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
-      const response = await fetch(`${base()}/api/updates/install`, { method: "POST", headers });
-      expect(response.status).toBe(403);
-    }
-    const response = await fetch(`${base()}/api/updates/install`, { method: "POST", headers: { "x-herdr-update": "1" } });
-    expect(response.status).toBe(409);
-    expect((await response.json() as ApiError).error.code).toBe("updates_unmanaged");
-  });
-
-  it("keeps status and update actions behind the token gate", async () => {
-    const protectedState = mkdtempSync(join(tmpdir(), "herdr-update-auth-"));
-    const protectedServer = createServer({ port: 0, stateDir: protectedState, token: "test-update-token" });
-    try {
-      for (const path of ["/api/updates", "/api/updates/check", "/api/updates/install"]) {
-        const response = await fetch(`http://localhost:${protectedServer.port}${path}`, {
-          method: path === "/api/updates" ? "GET" : "POST", headers: { "x-herdr-update": "1" },
-        });
-        expect(response.status).toBe(401);
-      }
-      for (const method of ["GET", "POST"]) {
-        const response = await fetch(`http://localhost:${protectedServer.port}/api/herdr/update`, { method, headers: { "x-herdr-update": "1" } });
-        expect(response.status).toBe(401);
-      }
-    } finally { protectedServer.stop(); rmSync(protectedState, { recursive: true, force: true }); }
-  });
-
-  it("offers no herdr update on a server started without the updater", async () => {
-    const response = await fetch(`${base()}/api/herdr/update`);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json() as HerdrUpdateStatus).toMatchObject({ supported: false, phase: "idle", output: null });
-    expect((await fetch(`${base()}/api/herdr/update`, { method: "POST" })).status).toBe(403);
-    const refused = await fetch(`${base()}/api/herdr/update`, { method: "POST", headers: { "x-herdr-update": "1" } });
-    expect(refused.status).toBe(409);
-    expect((await refused.json() as ApiError).error.code).toBe("herdr_update_unsupported");
-  });
-
-  it("updates herdr through the server and reports what herdr said", async () => {
-    // a stand-in: the real `herdr update` would replace the herdr on PATH and hand its server off
-    const state = mkdtempSync(join(tmpdir(), "herdr-update-api-"));
-    const standIn = join(state, "herdr");
-    writeFileSync(standIn, [
-      "#!/bin/sh",
-      `echo "$*" >> '${join(state, "calls")}'`,
-      'case "$1" in',
-      `  status) echo '{"client":{"version":"0.9.3","binary":"${standIn}"},"server":{"running":true,"version":"0.9.3","capabilities":{"live_handoff":true}},"update":{"server_binary_stale":false}}' ;;`,
-      "  update) echo 'already up to date (0.9.3)' >&2 ;;",
-      "  *) exit 2 ;;",
-      "esac",
-      "",
-    ].join("\n"));
-    chmodSync(standIn, 0o755);
-    const server = createServer({ port: 0, stateDir: state, token: "", herdrUpdate: new HerdrUpdater({ bin: standIn }) });
-    const url = `http://localhost:${server.port}/api/herdr/update`;
-    try {
-      expect(await (await fetch(url)).json() as HerdrUpdateStatus).toMatchObject({ supported: true, phase: "idle", server_version: "0.9.3", binary_version: "0.9.3", stale: false });
-      expect((await fetch(url, { method: "POST" })).status).toBe(403);
-      expect(existsSync(join(state, "calls")) ? readFileSync(join(state, "calls"), "utf8") : "").not.toContain("update --handoff");
-      const accepted = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
-      expect(accepted.status).toBe(202);
-      const deadline = Date.now() + 10_000;
-      let status = await (await fetch(url)).json() as HerdrUpdateStatus;
-      while (status.phase === "updating" || status.finished_at === null) {
-        if (Date.now() >= deadline) throw new Error("Timed out: the herdr update finished");
-        await Bun.sleep(20);
-        status = await (await fetch(url)).json() as HerdrUpdateStatus;
-      }
-      expect(status).toMatchObject({ phase: "idle", output: "already up to date (0.9.3)" });
-      expect(readFileSync(join(state, "calls"), "utf8")).toContain("update --handoff");
-    } finally { server.stop(); rmSync(state, { recursive: true, force: true }); }
-  });
-});
 
 describe("phone access", () => {
   it("says how a phone can reach this server, whatever Tailscale is doing on this machine", async () => {
@@ -1440,42 +1357,6 @@ describe("pairing and identity", () => {
     expect(await auth({ ...proxied(), cookie })).toMatchObject({ authenticated: false, reason: "pairing_required" });
     expect(await auth(proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
     expect(await auth()).toMatchObject({ authenticated: true, via: "local" });
-  });
-
-  it("the plugin script prints a code a headless PC's owner can hand to a phone", async () => {
-    const configDir = mkdtempSync(join(tmpdir(), "herdr-pair-cli-"));
-    try {
-      // spawned asynchronously: a synchronous spawn would block the very server the script asks
-      const pairCli = async (port: number) => {
-        const child = Bun.spawn(["bun", "scripts/plugin.ts", "pair"], { cwd: join(import.meta.dir, ".."), env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", HERDR_PLUGIN_CONFIG_DIR: configDir, HERDR_WEB_TOKEN: "" }, stdout: "pipe", stderr: "pipe" });
-        const [out, err, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-        return { out, err, exitCode };
-      };
-      const run = await pairCli(open.port);
-      const out = run.out;
-      expect(run.exitCode, run.err).toBe(0);
-      const code = /Pairing code: (\d{3}) (\d{3})/.exec(out);
-      expect(code).not.toBeNull();
-      expect(out).toContain("enter the code");
-      const paired = await fetch(`${base()}/api/devices/pair`, { method: "POST", headers: { ...guard, ...proxied() }, body: JSON.stringify({ code: `${code![1]}${code![2]}`, label: "Phone by CLI" }) });
-      expect(paired.status).toBe(204);
-      const list = (await (await fetch(`${base()}/api/devices`)).json()) as { devices: Array<{ label: string }> };
-      expect(list.devices.map((d) => d.label)).toContain("Phone by CLI");
-      // with a token configured, the script reads it from the plugin's .env file and gets past the gate
-      const tokenState = mkdtempSync(join(tmpdir(), "herdr-pair-cli-token-"));
-      const secured = createServer({ port: 0, stateDir: tokenState, token: "cli-t0k3n", tailscaleOwner: null });
-      try {
-        writeFileSync(join(configDir, ".env"), "HERDR_WEB_TOKEN=cli-t0k3n\n");
-        const withToken = await pairCli(secured.port);
-        expect(withToken.exitCode, withToken.err).toBe(0);
-        expect(withToken.out).toMatch(/Pairing code: \d{3} \d{3}/);
-        // `.env` wins over a stale token in the older `env` file
-        writeFileSync(join(configDir, "env"), "HERDR_WEB_TOKEN=stale\n");
-        const withLegacy = await pairCli(secured.port);
-        expect(withLegacy.exitCode, withLegacy.err).toBe(0);
-        expect(withLegacy.out).toMatch(/Pairing code: \d{3} \d{3}/);
-      } finally { secured.stop(); rmSync(tokenState, { recursive: true, force: true }); }
-    } finally { rmSync(configDir, { recursive: true, force: true }); }
   });
 
   it("a configured token gates this PC and its Tailscale login, and a paired device gets past it", async () => {

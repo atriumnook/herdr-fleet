@@ -102,7 +102,7 @@ export interface PushServiceOptions {
   canDeliver?: (deviceId: string | null | undefined) => boolean;
 }
 
-export { defaultStateDir } from "./update-state.ts";
+export { defaultStateDir } from "./state-dir.ts";
 
 function readJson(path: string): unknown {
   try {

@@ -9,7 +9,6 @@ import { SHORTCUTS, formatKeys, shortcutKeys, shortcutConflict } from "../lib/sh
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings, forgetPaneViews } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
-import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
 import { fetchRemoteAccess, machineRequest } from "../lib/api.ts";
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
@@ -17,13 +16,11 @@ import type { HealthAuth, RemoteAccess } from "../../shared/protocol.ts";
 import { DevicesPanel } from "./DevicesPanel.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
 import { PushTestControls } from "./PushTestControls.tsx";
-import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 
 export interface SettingsDialogProps {
   open: boolean;
   onClose: () => void;
   actions: AppActions;
-  updates: UpdatesModel;
   /** how this browser got in, from the last health check */
   auth: HealthAuth | null;
   onEnableNotifications: () => Promise<boolean>;
@@ -82,7 +79,7 @@ function FontFamilyInput({ value, label, onCommit }: { value: string; label: str
   );
 }
 
-export function SettingsDialog({ open, onClose, actions, updates, auth, onEnableNotifications }: SettingsDialogProps) {
+export function SettingsDialog({ open, onClose, actions, auth, onEnableNotifications }: SettingsDialogProps) {
   const { settings, update } = useSettings();
   const t = useT();
   const installPrompt = useInstallPrompt();
@@ -377,8 +374,6 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
             <a className="btn" href="https://github.com/devswha/herdr-web-ui" target="_blank" rel="noreferrer"><Star aria-hidden="true" />{t("Star on GitHub")}</a>
             <a href="https://devswha.github.io/herdr-web-ui/" target="_blank" rel="noreferrer">devswha.github.io/herdr-web-ui</a>
           </section>
-          <UpdateControls updates={updates} bridgesFollow={pcSettings?.auto_update_bridges === true} />
-          <HerdrUpdateControls enabled={open} />
         </div>
       </section>
     </div>
