@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -54,6 +54,19 @@ describe("paneFiles", () => {
     const files = await paneFiles(root, "", 100);
     expect(files).toContain("설계 문서.md");
     expect(files).toContain("line\nbreak.txt");
+  });
+
+  it("never runs a command the repository's own config names (core.fsmonitor)", async () => {
+    const root = fixture();
+    const marker = join(root, "fsmonitor-ran");
+    const git = (...args: string[]) => expect(Bun.spawnSync(["git", "-C", root, ...args]).exitCode).toBe(0);
+    git("init", "-q");
+    git("add", "README.md");
+    git("-c", "user.email=t@example.com", "-c", "user.name=t", "commit", "-qm", "init");
+    writeFileSync(join(root, "hook.sh"), `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 });
+    git("config", "core.fsmonitor", join(root, "hook.sh"));
+    expect(await paneFiles(root, "", 100)).toContain("src/api.ts");
+    expect(existsSync(marker)).toBe(false);
   });
 
   it("honors git ignores from a nested working directory", async () => {
