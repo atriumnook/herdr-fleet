@@ -1,0 +1,10 @@
+herdr-fleet
+
+This project is derived from herdr-web-ui by devswha, licensed under the MIT License
+(see LICENSE for the original copyright and permission notice).
+
+Upstream:    https://github.com/devswha/herdr-web-ui
+Base commit: 6bcb9bca4980b5a21b563dafac805a6a6c39ed61 (v0.3.45)
+
+The upstream history was not imported. Upstream changes are not merged
+automatically; they are reviewed and ported by hand.
