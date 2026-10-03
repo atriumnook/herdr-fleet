@@ -11,11 +11,9 @@ import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
 import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
-import { fetchRemoteAccess, fetchVoiceStatus, machineRequest, saveVoiceConfig } from "../lib/api.ts";
+import { fetchRemoteAccess, machineRequest } from "../lib/api.ts";
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
 import type { HealthAuth, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
-import type { VoiceStatus } from "../../shared/voice.ts";
-import { VOICE_CONFIG_EVENT } from "../lib/voice.ts";
 import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { DevicesPanel } from "./DevicesPanel.tsx";
@@ -161,36 +159,6 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
   // where a phone can open this app now, for the pairing QR code: the served address, else this one when it is not loopback
   const pairUrl = plan.kind === "here" || plan.kind === "served" ? plan.url : isLoopbackHost(window.location.hostname) ? null : window.location.origin;
 
-  // Voice input: the server only says whether it holds a key; the key typed here is never kept past a save
-  const [voice, setVoice] = useState<VoiceStatus | null>(null);
-  const [voiceKey, setVoiceKey] = useState("");
-  const [voiceBusy, setVoiceBusy] = useState(false);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-  const [micDenied, setMicDenied] = useState(false);
-  useEffect(() => {
-    if (open) fetchVoiceStatus().then(setVoice, () => setVoice(null));
-  }, [open]);
-  /** ask now, so the first dictation does not stop at the browser's permission prompt */
-  const toggleVoiceInput = async (voiceInput: boolean) => {
-    update({ voiceInput });
-    setMicDenied(false);
-    if (!voiceInput || !window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return;
-    try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach((track) => track.stop()); }
-    catch { setMicDenied(true); }
-  };
-  const changeVoiceKey = async (api_key: string | null) => {
-    setVoiceBusy(true);
-    try {
-      // the save answers the new status itself: no second request that could fail after it
-      const saved = await saveVoiceConfig({ api_key });
-      setVoiceKey("");
-      setVoiceError(null);
-      setVoice(saved);
-      window.dispatchEvent(new Event(VOICE_CONFIG_EVENT));
-    } catch (e) { setVoiceError(e instanceof Error ? e.message : String(e)); }
-    finally { setVoiceBusy(false); }
-  };
-
   const updatePcSettings = async (patch: Partial<MachineSettings>) => {
     try { setPcSettings(await machineRequest<MachineSettings>("/settings", "PATCH", patch)); setPcSettingsError(null); }
     catch (e) { setPcSettingsError(e instanceof Error ? e.message : String(e)); }
@@ -307,72 +275,6 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
               <div><span className="settings-label">{t("Suggestion chip")}</span><span className="settings-description">{t("On a touch screen, a chip above the message box puts the prompt Claude Code suggests next into the box. With a keyboard, Tab does it.")}</span></div>
               <Toggle label={t("Suggestion chip")} checked={settings.showSuggestionChip} onChange={(showSuggestionChip) => update({ showSuggestionChip })} />
             </div>
-          </section>
-
-          <section className="settings-section voice-settings">
-            <h3>{t("Voice input")}</h3>
-            <div className="voice-group">
-              <h4 className="voice-group-title">{t("Microphone")}</h4>
-              <div className="voice-group-body">
-                <div className="settings-row">
-                  <div><span className="settings-label">{t("Microphone button")}</span><span className="settings-description">{t("In the chat composer and the terminal input line")}</span></div>
-                  <Toggle label={t("Microphone button")} checked={settings.voiceInput} onChange={(voiceInput) => void toggleVoiceInput(voiceInput)} />
-                </div>
-                {settings.voiceInput && !window.isSecureContext && <p className="settings-hint voice-error">{t("Voice input needs HTTPS")}</p>}
-                {settings.voiceInput && window.isSecureContext && micDenied && <p className="settings-hint voice-error">{t("Microphone permission was denied")}</p>}
-              </div>
-            </div>
-
-            <div className="voice-group">
-              <h4 className="voice-group-title">{t("OpenAI API key")}</h4>
-              <div className="voice-group-body">
-                {voice && (
-                  <p className="settings-hint voice-status">
-                    {voice.configured ? t(voice.source === "env" ? "OpenAI key set by HERDR_WEB_OPENAI_API_KEY" : "OpenAI key saved on this PC") : t("No OpenAI key: the browser's speech recognition is used")}
-                  </p>
-                )}
-                {voice && voice.source !== "env" && (
-                  <form className="voice-key" onSubmit={(event) => { event.preventDefault(); if (voiceKey.trim()) void changeVoiceKey(voiceKey.trim()); }}>
-                    <input
-                      className="input voice-key-input"
-                      type="password"
-                      value={voiceKey}
-                      placeholder="sk-..."
-                      aria-label={t("OpenAI API key")}
-                      autoComplete="off"
-                      spellCheck={false}
-                      autoCapitalize="off"
-                      autoCorrect="off"
-                      onChange={(event) => setVoiceKey(event.target.value)}
-                    />
-                    <button type="submit" className="btn voice-key-save" disabled={voiceBusy || !voiceKey.trim()}>{t("Save key")}</button>
-                    <button type="button" className="btn btn-ghost voice-key-remove" disabled={voiceBusy || !voice.configured} onClick={() => void changeVoiceKey(null)}>{t("Remove key")}</button>
-                  </form>
-                )}
-                {voiceError && <p className="settings-hint voice-error" role="alert">{voiceError}</p>}
-                <p className="settings-hint voice-privacy">
-                  {voice && !voice.configured
-                    ? t("Without a key the browser recognizes the speech: Chrome and Edge send the audio to Google or Microsoft. Nothing is recorded until you press the mic.")
-                    : t("Audio is sent to OpenAI with your key. Nothing is recorded until you press the mic.")}
-                </p>
-              </div>
-            </div>
-
-            {settings.voiceInput && (
-              <div className="voice-group">
-                <h4 className="voice-group-title">{t("Tidy dictated text")}</h4>
-                <div className="voice-group-body">
-                  <div className="settings-row">
-                    <div><span className="settings-label">{t("In chat")}</span><span className="settings-description">{t("Drops fillers and fixes spacing; code and paths stay as spoken")}</span></div>
-                    <Toggle label={t("Tidy dictated text in chat")} checked={settings.voicePolishChat} onChange={(voicePolishChat) => update({ voicePolishChat })} />
-                  </div>
-                  <div className="settings-row">
-                    <div><span className="settings-label">{t("In the terminal")}</span><span className="settings-description">{t("Off keeps a command exactly as transcribed")}</span></div>
-                    <Toggle label={t("Tidy dictated text in the terminal")} checked={settings.voicePolishTerminal} onChange={(voicePolishTerminal) => update({ voicePolishTerminal })} />
-                  </div>
-                </div>
-              </div>
-            )}
           </section>
 
           <section className="settings-section">
@@ -504,7 +406,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
             <button className="btn" onClick={() => update({ shortcutOverrides: {} })}>{t("Reset shortcuts")}</button>
             <table className="settings-shortcuts">
               <tbody>{SHORTCUTS.map((shortcut) => (
-                <tr key={shortcut.id}><th scope="row">{t(shortcut.label)}</th><td>{shortcut.id === "voice" ? formatKeys(shortcut.keys).map((key) => <kbd className="kbd" key={key}>{key}</kbd>) : <select className="input" aria-label={t(shortcut.label)} value={Object.hasOwn(settings.shortcutOverrides, shortcut.id) ? settings.shortcutOverrides[shortcut.id] ?? "off" : "default"} onChange={(event) => {
+                <tr key={shortcut.id}><th scope="row">{t(shortcut.label)}</th><td><select className="input" aria-label={t(shortcut.label)} value={Object.hasOwn(settings.shortcutOverrides, shortcut.id) ? settings.shortcutOverrides[shortcut.id] ?? "off" : "default"} onChange={(event) => {
                   const next = { ...settings.shortcutOverrides };
                   if (event.target.value === "default") delete next[shortcut.id];
                   else next[shortcut.id] = event.target.value === "off" ? null : event.target.value;
@@ -516,7 +418,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
                     const conflict = shortcutConflict(shortcut.id, [key], settings.shortcutOverrides);
                     return <option key={key} value={key} disabled={conflict}>{compactKeys(["Mod", "Shift", key])}{conflict ? " — " + t("Already assigned") : ""}</option>;
                   })}
-                </select>}</td></tr>
+                </select></td></tr>
               ))}</tbody>
             </table>
           </section>

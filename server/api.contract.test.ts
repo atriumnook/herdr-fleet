@@ -7,7 +7,6 @@ import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAcces
 import { HerdrUpdater } from "./herdr-update.ts";
 import type { HerdrUpdateStatus } from "../shared/update.ts";
 import { UsageService } from "./usage.ts";
-import { VoiceService } from "./voice.ts";
 import { herdrRpc, ping, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 
@@ -48,50 +47,6 @@ describe("usage API", () => {
       const withToken = await fetch(`http://localhost:${gated.port}/api/usage`, { headers: { authorization: "Bearer test-usage-token" } });
       expect(withToken.status).toBe(200);
     } finally { open.stop(); gated.stop(); rmSync(usageState, { recursive: true, force: true }); }
-  });
-});
-
-describe("voice API", () => {
-  it("keeps the key on the server, refuses cross-site writes and streams a transcript", async () => {
-    const voiceState = mkdtempSync(join(tmpdir(), "herdr-voice-contract-"));
-    const key = "sk-contract-0123456789";
-    const provider = Bun.serve({
-      port: 0, hostname: "127.0.0.1",
-      async fetch(request) {
-        if (new URL(request.url).pathname !== "/v1/audio/transcriptions") return new Response("not found", { status: 404 });
-        expect(request.headers.get("authorization")).toBe(`Bearer ${key}`);
-        await request.formData();
-        return new Response(`data: ${JSON.stringify({ type: "transcript.text.done", text: "git status" })}\n\n`, { headers: { "content-type": "text/event-stream" } });
-      },
-    });
-    const voice = new VoiceService({ stateDir: voiceState, env: { HERDR_WEB_OPENAI_BASE_URL: `http://127.0.0.1:${provider.port}/v1` }, fetch });
-    const open = createServer({ port: 0, stateDir: voiceState, voice });
-    const gated = createServer({ port: 0, stateDir: voiceState, voice, token: "test-voice-token" });
-    const at = (path: string) => `http://localhost:${open.port}${path}`;
-    try {
-      expect((await fetch(`http://localhost:${gated.port}/api/voice`)).status).toBe(401);
-      expect(await (await fetch(at("/api/voice"))).json()).toMatchObject({ configured: false, source: null });
-
-      const crossSite = await fetch(at("/api/voice/config"), { method: "PUT", headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" }, body: JSON.stringify({ api_key: key }) });
-      expect(crossSite.status).toBe(403);
-      const saved = await fetch(at("/api/voice/config"), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ api_key: key }) });
-      expect(saved.status).toBe(200);
-      const status = await (await fetch(at("/api/voice"))).text();
-      expect(JSON.parse(status)).toMatchObject({ configured: true, source: "file" });
-      expect(status).not.toContain(key);
-      expect(statSync(join(voiceState, "voice.json")).mode & 0o777).toBe(0o600);
-
-      const form = new FormData();
-      form.append("audio", new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm" }), "voice.webm");
-      form.append("mode", "chat");
-      form.append("polish", "0");
-      const transcribed = await fetch(at("/api/voice/transcribe"), { method: "POST", body: form });
-      expect(transcribed.headers.get("content-type")).toContain("application/x-ndjson");
-      expect((await transcribed.text()).trim().split("\n").map((line) => JSON.parse(line))).toEqual([{ type: "done", text: "git status" }]);
-    } finally {
-      open.stop(); gated.stop(); provider.stop(true);
-      rmSync(voiceState, { recursive: true, force: true });
-    }
   });
 });
 

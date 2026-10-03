@@ -25,11 +25,6 @@
   margin-inline: auto;
 }
 
-/* the dictation pill floats above the composer, on the same column edge */
-.composer > .voice-pill[data-align="start"] {
-  left: calc(var(--space-4) + max(0px, (100% - 2 * var(--space-4) - var(--content-w)) / 2));
-}
-
 /* one row, always: a second row is taken from the conversation, and a phone has none to spare.
    What does not fit gives way in this order: the model's name shortens to a few letters, then
    the reasoning level, then the opened context text; nothing overlaps its neighbour, and the

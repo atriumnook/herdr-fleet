@@ -210,51 +210,6 @@
   min-width: 0;
 }
 
-/* Voice input: the key field and its buttons share a row, the notes stay dim */
-.voice-key {
-  display: flex;
-  gap: var(--space-2);
-  align-items: center;
-}
-
-.voice-key-input {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-
-.voice-error {
-  color: var(--danger-text);
-}
-
-/* Voice input: one card per concern (mic, key, tidying, usage), headed like the usage accounts card */
-.voice-group {
-  overflow: hidden;
-  border: var(--hairline) solid var(--border);
-  border-radius: var(--radius-md);
-}
-
-.voice-group-title {
-  display: flex;
-  align-items: center;
-  min-height: 30px;
-  margin: 0;
-  padding: 0 var(--space-3);
-  background: var(--bg-elevated);
-  border-bottom: var(--hairline) solid var(--border);
-  color: var(--text-dim);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
-}
-
-.voice-group-body {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-}
-
 /* Subscription usage: one card of accounts, a row each: mark, name, account, then move and show */
 .usage-accounts {
   margin-top: var(--space-2);

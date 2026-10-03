@@ -34,7 +34,6 @@ import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/menti
 import { quickReplyButtons, useSettings } from "../lib/settings.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { BackgroundTasks } from "./BackgroundTasks.tsx";
-import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 import { useT } from "../lib/i18n.ts";
 
 export interface ComposerProps {
@@ -395,28 +394,6 @@ export function Composer({
     if (selectedIndex >= choices.length) setSelectedIndex(Math.max(0, choices.length - 1));
   }, [choices.length, selectedIndex]);
 
-  // dictation lands at the caret without taking focus (a phone's keyboard stays as it was)
-  const dictation = useDictation({
-    mode: "chat",
-    connected,
-    polish: settings.voicePolishChat,
-    keywords: () => [...(agent ? [agentLabel] : []), ...commands.map((command) => command.name)],
-    box: textareaRef,
-    read: () => textRef.current,
-    // a dictation that does not fit is refused whole: cutting would drop the draft after the caret
-    maxLength: MAX_COMPOSER_CHARS,
-    write: (value, at) => {
-      textRef.current = value;
-      caretRef.current = at;
-      setText(value);
-      setCaret(at);
-      requestAnimationFrame(() => {
-        const element = textareaRef.current;
-        if (element) element.selectionStart = element.selectionEnd = at;
-      });
-    },
-    onNote: setNote,
-  });
 
   const setTextAndCaret = useCallback((nextText: string, nextCaret: number) => {
     const limitedText = nextText.slice(0, MAX_COMPOSER_CHARS);
@@ -543,8 +520,6 @@ export function Composer({
       setAttachments((current) => current.filter((attachment) => !sentAttachments.includes(attachment)));
     };
     if (!composerDrafts.begin(draftKey, sent)) return;
-    // a polish landing before the acknowledgement would count as an edit and keep the sent message here
-    dictation.forget();
     try {
       const result = onSend(text);
       if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
@@ -553,7 +528,7 @@ export function Composer({
       composerDrafts.end(draftKey);
       if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
     }
-  }, [attachments, connected, dictation.forget, draftKey, onSend, sending, text, uploading]);
+  }, [attachments, connected, draftKey, onSend, sending, text, uploading]);
 
   /** A quick reply goes the way a typed message does (queued mid-turn, an answer to an open menu), and leaves the box alone. */
   const sendQuick = useCallback((reply: string) => {
@@ -842,7 +817,6 @@ export function Composer({
           >
             <Paperclip aria-hidden="true" />
           </button>
-          {dictation.shown && <MicButton dictation={dictation} />}
         </div>
         <div className="composer-controls composer-controls-right">
           {queueMode && (
@@ -891,7 +865,6 @@ export function Composer({
         <div className="composer-hint">{t("{command} opens a tree the chat cannot show. It runs in the terminal — tap the terminal button at the top of the screen to choose a branch.", { command: `/${terminalOnly}` })}</div>
       )}
       {/* above the whole composer: inside the surface it would cover the agent status line */}
-      {dictation.shown && <VoiceRecordingPill dictation={dictation} align="start" />}
     </div>
   );
 }

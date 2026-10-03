@@ -76,11 +76,6 @@ export interface Settings {
   usageOrder: string[];
   /** accounts left out of the plan meters, strip and popover alike, by ProviderUsage.key */
   usageHidden: string[];
-  /** the microphone button in the composer and the terminal input line; off until chosen, as it sends audio out */
-  voiceInput: boolean;
-  voicePolishChat: boolean;
-  /** off by default: a terminal line is usually a command, kept as spoken */
-  voicePolishTerminal: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -112,9 +107,6 @@ export const DEFAULT_SETTINGS: Settings = {
   defaultView: "auto",
   usageOrder: [],
   usageHidden: [],
-  voiceInput: false,
-  voicePolishChat: true,
-  voicePolishTerminal: false,
 };
 
 export const QUICK_REPLIES_MAX = 12;
@@ -201,9 +193,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     defaultView: record["defaultView"] === "chat" || record["defaultView"] === "terminal" || record["defaultView"] === "auto" ? record["defaultView"] : DEFAULT_SETTINGS.defaultView,
     usageOrder: usageKeys(record["usageOrder"]),
     usageHidden: usageKeys(record["usageHidden"]),
-    voiceInput: typeof record["voiceInput"] === "boolean" ? record["voiceInput"] : DEFAULT_SETTINGS.voiceInput,
-    voicePolishChat: typeof record["voicePolishChat"] === "boolean" ? record["voicePolishChat"] : DEFAULT_SETTINGS.voicePolishChat,
-    voicePolishTerminal: typeof record["voicePolishTerminal"] === "boolean" ? record["voicePolishTerminal"] : DEFAULT_SETTINGS.voicePolishTerminal,
   };
 }
 
