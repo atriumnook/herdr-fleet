@@ -32,6 +32,8 @@
     "src",
     "server",
     "shared",
-    "vite.config.ts"
+    "vite.config.ts",
+    "bin",
+    "e2e"
   ]
 }
