@@ -169,15 +169,6 @@ describe("quick replies row", () => {
     expect(DEFAULT_SETTINGS.showQuickReplies).toBe(false);
     expect(sanitizeSettings({ showQuickReplies: true }).showQuickReplies).toBe(true);
     expect(sanitizeSettings({ showQuickReplies: "yes" }).showQuickReplies).toBe(false);
-    expect(DEFAULT_SETTINGS.showUsage).toBe(false);
-    expect(sanitizeSettings({ showUsage: true }).showUsage).toBe(true);
-    expect(sanitizeSettings({ showUsage: 1 }).showUsage).toBe(false);
-    expect(DEFAULT_SETTINGS.usageCount).toBe("used");
-    expect(sanitizeSettings({ usageCount: "left" }).usageCount).toBe("left");
-    expect(sanitizeSettings({ usageCount: "half" }).usageCount).toBe("used");
-    expect(sanitizeSettings({ usageOrder: ["codex:a", 3, "codex:a", "", "claude:b"] }).usageOrder).toEqual(["codex:a", "claude:b"]);
-    expect(sanitizeSettings({ usageHidden: Array.from({ length: 100 }, (_, index) => `k${index}`) }).usageHidden).toHaveLength(64);
-    expect(sanitizeSettings({ usageHidden: "codex:a" }).usageHidden).toEqual([]);
   });
 });
 
@@ -269,14 +260,6 @@ describe("agent marks", () => {
     const settings = sanitizeSettings({ claudeMark: "mascot", codexMark: "app" });
     expect(settings).not.toHaveProperty("claudeMark");
     expect(settings).not.toHaveProperty("codexMark");
-  });
-});
-
-describe("plan meter placement", () => {
-  it("sits beside Settings until the top of the list is chosen", () => {
-    expect(DEFAULT_SETTINGS.usagePlacement).toBe("footer");
-    expect(sanitizeSettings({ usagePlacement: "top" }).usagePlacement).toBe("top");
-    expect(sanitizeSettings({ usagePlacement: "left" }).usagePlacement).toBe("footer");
   });
 });
 

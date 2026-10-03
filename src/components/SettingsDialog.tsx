@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Eye, EyeOff, Minus, Monitor, Plus, Star, X } from "lucide-react";
+import { Minus, Monitor, Plus, Star, X } from "lucide-react";
 
 import "./SettingsDialog.css";
 
@@ -13,9 +13,7 @@ import type { UpdatesModel } from "../lib/updates.ts";
 import type { MachineSettings } from "../../shared/machines.ts";
 import { fetchRemoteAccess, machineRequest } from "../lib/api.ts";
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
-import type { HealthAuth, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
-import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
-import { AgentMark } from "./AgentMark.tsx";
+import type { HealthAuth, RemoteAccess } from "../../shared/protocol.ts";
 import { DevicesPanel } from "./DevicesPanel.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
 import { PushTestControls } from "./PushTestControls.tsx";
@@ -84,60 +82,8 @@ function FontFamilyInput({ value, label, onCommit }: { value: string; label: str
   );
 }
 
-/**
- * The accounts the plan meters know, in the strip's order, as one compact card: each row names the
- * account and carries its move up / move down and show / hide controls.
- */
-function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
-  const { settings, update } = useSettings();
-  const t = useT();
-  const ordered = orderProviders(providers, settings.usageOrder);
-  const keys = ordered.map((usage) => usage.key);
-  const move = (key: string, by: -1 | 1) => update({ usageOrder: moveInOrder(keys, settings.usageOrder, key, by) });
-  return (
-    <div className="usage-accounts">
-      <div className="usage-accounts-head">
-        <span id="usage-accounts-title">{t("Accounts")}</span>
-        {settings.usageOrder.length > 0 && (
-          <button type="button" className="usage-accounts-reset" onClick={() => update({ usageOrder: [] })}>{t("Nearest limit first")}</button>
-        )}
-      </div>
-      <ol aria-labelledby="usage-accounts-title">
-        {ordered.map((usage, index) => {
-          const name = usageName(usage);
-          const hidden = settings.usageHidden.includes(usage.key);
-          return (
-            <li key={usage.key} className={`usage-accounts-row${hidden ? " is-hidden" : ""}`}>
-              <AgentMark agent={PROVIDER_MARK[usage.id]} size={16} />
-              <span className="usage-accounts-name">{PROVIDER_NAME[usage.id]}</span>
-              <span className="usage-accounts-account" title={usage.account ?? undefined}>{usage.account}</span>
-              <span className="usage-accounts-actions">
-                <button type="button" className="icon-button" aria-label={t("Move {name} up", { name })} title={t("Move {name} up", { name })} disabled={index === 0} onClick={() => move(usage.key, -1)}><ChevronUp aria-hidden="true" /></button>
-                <button type="button" className="icon-button" aria-label={t("Move {name} down", { name })} title={t("Move {name} down", { name })} disabled={index === ordered.length - 1} onClick={() => move(usage.key, 1)}><ChevronDown aria-hidden="true" /></button>
-                <button
-                  type="button"
-                  className="icon-button usage-accounts-visibility"
-                  role="switch"
-                  aria-checked={!hidden}
-                  aria-label={t("Show {name}", { name })}
-                  title={t("Show {name}", { name })}
-                  onClick={() => update({ usageHidden: hidden ? settings.usageHidden.filter((key) => key !== usage.key) : [...settings.usageHidden, usage.key] })}
-                >
-                  {hidden ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-                </button>
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
-}
-
 export function SettingsDialog({ open, onClose, actions, updates, auth, onEnableNotifications }: SettingsDialogProps) {
   const { settings, update } = useSettings();
-  // the accounts to order and hide: the same report the meters show, from the server's cache
-  const usage = useUsage(open && settings.showUsage);
   const t = useT();
   const installPrompt = useInstallPrompt();
   const firstControlRef = useRef<HTMLButtonElement>(null);
@@ -365,39 +311,6 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
               <button type="button" className="btn" disabled={settings.quickReplies.length >= QUICK_REPLIES_MAX} onClick={() => update({ quickReplies: [...settings.quickReplies, ""] })}><Plus aria-hidden="true" />{t("Add reply")}</button>
               <button type="button" className="btn btn-ghost" onClick={() => update({ quickReplies: [...DEFAULT_SETTINGS.quickReplies] })}>{t("Restore defaults")}</button>
             </div>
-          </section>
-
-          <section className="settings-section">
-            <h3>{t("Subscription usage")}</h3>
-            <div className="settings-row">
-              <div><span className="settings-label">{t("Show plan limits")}</span><span className="settings-description">{t("Beside Settings, how much of each plan the AI tools on the server's PC have used. Turning it on sends their sign-ins to each provider's usage endpoint; they are never refreshed here.")}</span></div>
-              <Toggle label={t("Show plan limits")} checked={settings.showUsage} onChange={(showUsage) => update({ showUsage })} />
-            </div>
-            {settings.showUsage && (
-              <div className="settings-row">
-                <span className="settings-label">{t("Meters show")}</span>
-                <div className="segmented" aria-label={t("Meters show")}>
-                  {(["used", "left"] as const).map((usageCount) => (
-                    <button key={usageCount} type="button" aria-pressed={settings.usageCount === usageCount} onClick={() => update({ usageCount })}>
-                      {t(usageCount === "used" ? "Used" : "Remaining")}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {settings.showUsage && (
-              <div className="settings-row">
-                <span className="settings-label">{t("Where")}</span>
-                <div className="segmented" aria-label={t("Where")}>
-                  {(["footer", "top"] as const).map((usagePlacement) => (
-                    <button key={usagePlacement} type="button" aria-pressed={settings.usagePlacement === usagePlacement} onClick={() => update({ usagePlacement })}>
-                      {t(usagePlacement === "top" ? "Top of the list" : "Beside Settings")}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {settings.showUsage && usage.report && usage.report.providers.length > 0 && <UsageAccounts providers={usage.report.providers} />}
           </section>
 
           <section className="settings-section">

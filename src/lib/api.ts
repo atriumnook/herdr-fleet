@@ -15,7 +15,6 @@ import type {
   RemoteAccess,
   SessionSnapshot,
   SlashCommand,
-  UsageReport,
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
@@ -28,10 +27,6 @@ export function fetchRemoteAccess(): Promise<RemoteAccess> {
 }
 
 /** The sidebar's plan meters; `refresh` asks the providers again instead of the server's recent answer. */
-export function fetchUsage(refresh = false): Promise<UsageReport> {
-  return getJson<UsageReport>(refresh ? "/api/usage?refresh=1" : "/api/usage");
-}
-
 export function fetchUpdateStatus(): Promise<UpdateStatus> {
   return getJson<UpdateStatus>("/api/updates");
 }

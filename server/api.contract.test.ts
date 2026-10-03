@@ -3,10 +3,9 @@ import { chmodSync, mkdtempSync, existsSync, readFileSync, rmSync, statSync, wri
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
-import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated } from "../shared/protocol.ts";
+import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, WorkspaceCreated } from "../shared/protocol.ts";
 import { HerdrUpdater } from "./herdr-update.ts";
 import type { HerdrUpdateStatus } from "../shared/update.ts";
-import { UsageService } from "./usage.ts";
 import { herdrRpc, ping, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { startFakePushService, type FakePushService } from "./push.fake.ts";
 
@@ -31,24 +30,6 @@ afterAll(() => {
 });
 
 const base = () => `http://localhost:${server.port}`;
-
-describe("usage API", () => {
-  it("answers the report and keeps it behind the token gate", async () => {
-    const usageState = mkdtempSync(join(tmpdir(), "herdr-usage-auth-"));
-    const usage = new UsageService(undefined, []);
-    const open = createServer({ port: 0, stateDir: usageState, usage });
-    const gated = createServer({ port: 0, stateDir: usageState, usage, token: "test-usage-token" });
-    try {
-      const answered = await fetch(`http://localhost:${open.port}/api/usage`);
-      expect(answered.status).toBe(200);
-      expect(answered.headers.get("cache-control")).toBe("no-store");
-      expect(await answered.json() as UsageReport).toEqual({ providers: [] });
-      expect((await fetch(`http://localhost:${gated.port}/api/usage`)).status).toBe(401);
-      const withToken = await fetch(`http://localhost:${gated.port}/api/usage`, { headers: { authorization: "Bearer test-usage-token" } });
-      expect(withToken.status).toBe(200);
-    } finally { open.stop(); gated.stop(); rmSync(usageState, { recursive: true, force: true }); }
-  });
-});
 
 describe("update API", () => {
   it("reports unmanaged servers without performing network discovery", async () => {

@@ -49,10 +49,6 @@
   --status-done-tint: rgba(147, 195, 107, 0.14);
   --danger-tint: rgba(255, 123, 112, 0.12);
   --danger-text: #ffd9d4;
-  /* how much of a plan limit is left (UsageMeters.css): plenty, getting low, low */
-  --meter-ok: var(--status-done);
-  --meter-mid: #e2b93b;
-  --meter-low: var(--status-blocked);
 
   /* overlays */
   --scrim: rgba(8, 6, 4, 0.55);
@@ -155,7 +151,6 @@
 
 [data-theme="light"] {
   color-scheme: light;
-  --meter-mid: #865900;
   --bg: #eeeae2;
   --bg-panel: #faf8f3;
   --bg-elevated: #f2eee6;
