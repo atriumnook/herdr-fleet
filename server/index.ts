@@ -251,6 +251,8 @@ export function createServer(
     submitDeadlineMs?: number;
     /** how long a push alert waits for the pane to change first (server/push.ts); tests send at once */
     alertTiming?: Partial<AlertTiming>;
+    /** push endpoints this server stores; tests that serve their own push service accept it here */
+    pushEndpoint?: (url: URL) => boolean;
     /** ATTACH_RETRY_FOR_MS; tests shorten it */
     attachRetryForMs?: number;
     /** ATTACH_HELD_RETRY_MS; tests shorten it */
@@ -417,6 +419,7 @@ export function createServer(
   const push = createPushService({
     stateDir: options.stateDir ?? defaultStateDir(),
     timing: options.alertTiming,
+    ...(options.pushEndpoint ? { acceptEndpoint: options.pushEndpoint } : {}),
     // no owner (undefined) is a subscription from the removed open-LAN mode: it hears nothing
     canDeliver: (id) => id === null || (id !== undefined && devices.has(id)),
     lookupTitle: async (paneId) => {

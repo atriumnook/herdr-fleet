@@ -5,7 +5,7 @@ import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, WorkspaceCreated } from "../shared/protocol.ts";
 import { herdrRpc, ping, workspaceCreate, workspaceClose } from "./herdr/client.ts";
-import { startFakePushService, type FakePushService } from "./push.fake.ts";
+import { loopbackPush, startFakePushService, type FakePushService } from "./push.fake.ts";
 
 /**
  * Contract test for herdr-web-ui's HTTP + WS surface.
@@ -19,7 +19,7 @@ let server: { port: number; stop: () => void };
 const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-contract-"));
 
 beforeAll(() => {
-  server = createServer({ port: 0, stateDir, alertTiming: { short: 0, long: 0, longTurn: 0 } });
+  server = createServer({ port: 0, stateDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushEndpoint: loopbackPush });
 });
 
 afterAll(() => {
@@ -1128,7 +1128,7 @@ describe("web push", () => {
       cleanupDevice = device;
       await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "unknown" });
       bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: dir, machines: false,
-        alertTiming: { short: 0, long: 0, longTurn: 0 } });
+        alertTiming: { short: 0, long: 0, longTurn: 0 }, pushEndpoint: loopbackPush });
       const origin = `http://127.0.0.1:${bridge.port}`;
       watcher = await RecordingSocket.connect(`ws://127.0.0.1:${bridge.port}/ws`);
       const subscribe = await fetch(`${origin}/api/push/subscribe`, {
@@ -1219,7 +1219,7 @@ describe("web push", () => {
       const before = (await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {})).snapshot;
       expect(before.panes.find((pane) => pane.pane_id === watchedId)?.agent_status).toBe("working");
 
-      restarted = createServer({ port: 0, stateDir: restartDir, alertTiming: { short: 0, long: 0, longTurn: 0 } });
+      restarted = createServer({ port: 0, stateDir: restartDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushEndpoint: loopbackPush });
       const subscribe = await fetch(`http://localhost:${restarted.port}/api/push/subscribe`, {
         method: "POST",
         headers: { "content-type": "application/json" },
