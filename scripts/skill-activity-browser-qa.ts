@@ -60,17 +60,17 @@ try {
   mkdirSync("evidence/skill-activity", { recursive: true });
   await page.screenshot({ path: "evidence/skill-activity/desktop.png" });
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.evaluate(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "ko", theme: "light" })));
+  await page.evaluate(() => localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "ja", theme: "light" })));
   await page.reload();
-  await page.getByText("지침 읽음", { exact: true }).waitFor();
+  await page.getByText("指示を読み込み済み", { exact: true }).waitFor();
   await page.locator(".chat-skill summary").click();
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), "no horizontal mobile overflow");
-  await page.screenshot({ path: "evidence/skill-activity/mobile-ko.png" });
+  await page.screenshot({ path: "evidence/skill-activity/mobile-ja.png" });
   turns = [];
   await page.evaluate(() => window.qa.chat("empty"));
   await page.waitForFunction(() => document.querySelectorAll(".chat-skill").length === 0);
   assert.deepEqual(errors, []);
-  console.log("PASS Codex hidden instructions, expandable provenance, Korean/light/mobile layout and pane reset; no browser errors");
+  console.log("PASS Codex hidden instructions, expandable provenance, Japanese/light/mobile layout and pane reset; no browser errors");
 } finally {
   await browser?.close(); server?.stop(true); rmSync(root, { recursive: true, force: true });
 }
