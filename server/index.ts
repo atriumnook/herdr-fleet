@@ -58,6 +58,12 @@ import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { MachineManager } from "./machines.ts";
+import { discoverAgents } from "./fleet/agents.ts";
+import { handleFleetRequest } from "./fleet/api.ts";
+import { loadConfig } from "./fleet/config.ts";
+import { Orchestrator, type OrchestratorDeps } from "./fleet/orchestrator.ts";
+import { RunRegistry } from "./fleet/registry.ts";
+import { HerdrRuntime } from "./fleet/runtime.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 
 const MAX_REPLAY_BYTES = 256 * 1024;
@@ -130,6 +136,8 @@ const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input", "input-ready
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
+/** what an agent runs in its shell to reach the fleet: this Bun and bin/fleet.ts, both by absolute path */
+const FLEET_COMMAND = [process.execPath, resolve(import.meta.dir, "..", "bin", "fleet.ts")].map((part) => /^[\w./-]+$/.test(part) ? part : `'${part.replaceAll("'", "'\\''")}'`).join(" ");
 
 const AGENT_LABELS: Record<string, string> = {
   claude: "Claude Code",
@@ -257,6 +265,8 @@ export function createServer(
     terminalAttach?: boolean | (() => Promise<boolean>);
     /** whether this runtime can run the PTY sidecar; unset, server/pty/sidecar.ts says. Tests give a runtime without Node or node-pty, while herdr keeps its own answer. */
     sidecar?: boolean;
+    /** the fleet's runtime (herdr unless a test stands in one), roles and config; unset, the real ones */
+    fleet?: Partial<Pick<OrchestratorDeps, "runtime" | "agents" | "config">>;
   } = {},
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
@@ -445,6 +455,16 @@ export function createServer(
     return { ...snapshot, panes: snapshot.panes.map((pane) => omo.backgroundOf(pane.pane_id) > 0 ? { ...pane, background_tasks: omo.backgroundOf(pane.pane_id) } : pane) };
   };
   const machines = options.machines === false ? null : new MachineManager(completions, clientSnapshot);
+  /** agents started on callers' behalf (server/fleet): told of herdr's status events by the collector below */
+  let listeningPort = 0;
+  const fleet = new Orchestrator({
+    runtime: options.fleet?.runtime ?? new HerdrRuntime(),
+    registry: new RunRegistry(join(options.stateDir ?? defaultStateDir(), "fleet-runs.json")),
+    config: options.fleet?.config ?? ((cwd) => loadConfig(cwd)),
+    agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)),
+    fleetCommand: FLEET_COMMAND,
+    agentEnv: () => ({ HERDR_FLEET_URL: `http://127.0.0.1:${listeningPort}`, ...(token ? { HERDR_FLEET_TOKEN: token } : {}) }),
+  });
 
   function broadcast(paneId: string, message: ServerMessage): void {
     const attachment = attachments.get(paneId);
@@ -815,6 +835,7 @@ export function createServer(
 
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent, replay) => {
+      fleet.onPaneStatus(paneId);
       // read back from a snapshot around a gap between subscriptions. An OmO pane's status there
       // is OmO's own or herdr's by turns (server/omo-status.ts), and a difference is no change
       if (replay && (omo.runs(paneId) || !completions.replayed(paneId, raw, replay))) return;
@@ -838,10 +859,12 @@ export function createServer(
     // the tracker first: what it makes of each pane (a finish after work is done, not idle) is
     // what the alerts are measured against from here, or the next event would alert of it
     onResync: (panes, newer) => {
+      void fleet.reconcileAll();
       completions.resync(panes, newer);
       push.resync(panes.map((pane) => ({ ...pane, agent_status: completions.current(pane.pane_id) ?? pane.agent_status })), newer);
     },
     onPaneEnded: (paneId) => {
+      fleet.onPaneEnded(paneId);
       completions.forget(paneId);
       broadcastAll({ type: "pane-exited", pane_id: paneId });
       push.onEnded(paneId).catch(logPushError);
@@ -892,6 +915,11 @@ export function createServer(
         return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
       }
 
+      if (pathname === "/api/fleet" || pathname.startsWith("/api/fleet/")) {
+        // a spawn waits for the agent to start, a wait for its turn: Bun's 10 s idle limit is too short
+        bunServer.timeout(request, 0);
+        return handleFleetRequest(request, url, fleet);
+      }
       if (pathname === "/api/machines" || pathname.startsWith("/api/machines/")) {
         if (!machines) return jsonResponse({ error: { code: "bridge_only", message: "Manage PCs on the connection server" } }, 404);
         // /local aliases preserve every existing endpoint without a self-proxy.
@@ -1728,6 +1756,10 @@ export function createServer(
   }, 100);
   outputTimer.unref();
 
+  listeningPort = server.port ?? 0;
+  // runs from before a restart: read back from herdr, so the finished ones are not counted as working
+  void fleet.reconcileAll();
+
   return {
     port: server.port ?? 0,
     hostname,
@@ -1736,6 +1768,7 @@ export function createServer(
       collector.stop();
       omo.stop();
       machines?.stop();
+      fleet.stop();
       for (const paneId of [...attachments.keys()]) closeAttachment(paneId);
       server.stop(true);
     },
