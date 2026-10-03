@@ -6,7 +6,7 @@ import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
 
 import type { FileInfo } from "../../shared/protocol.ts";
 import { ApiError } from "../lib/api.ts";
-import { formatBytes } from "../lib/bridgeProgress.ts";
+import { formatBytes } from "../lib/formatBytes.ts";
 import { LOCAL_MACHINE } from "../../shared/machines.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";

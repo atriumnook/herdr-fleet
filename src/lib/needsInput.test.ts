@@ -4,7 +4,7 @@ import type { SessionSnapshot } from "../../shared/protocol.ts";
 import { panesNeedingInput } from "./needsInput.ts";
 
 function machine(id: string, state: Machine["state"] = "connected"): Machine {
-  return { id, name: id, kind: "ssh", enabled: true, state, error: null, snapshot: {
+  return { id, name: id, kind: "local", enabled: true, state, error: null, snapshot: {
     workspaces: [{ workspace_id: "second", label: "Second" }, { workspace_id: "first", label: "First" }],
     panes: [
       { workspace_id: "first", pane_id: "same-id", agent_status: "blocked" },

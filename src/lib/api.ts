@@ -1,4 +1,4 @@
-import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
+import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine } from "../../shared/machines.ts";
 import type {
   AgentKind,
   DirectoryListing,
@@ -382,11 +382,3 @@ export async function fetchMachines(signal?: AbortSignal): Promise<Machine[]> {
   if (!response.ok) throw await errorFrom("/api/machines", response);
   return ((await response.json()) as { machines: Machine[] }).machines;
 }
-export async function machineRequest<T>(path: string, method = "GET", body?: unknown): Promise<T> {
-  const response = await fetch(`/api/machines${path}`, { method, headers: { "content-type": "application/json", "x-herdr-machine": "1" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-  if (!response.ok) throw await errorFrom("/api/machines", response);
-  return response.json();
-}
-export const startMachineSetup = (request: SetupRequest) => machineRequest<SetupJob>("/setup", "POST", request);
-export const fetchMachineSetup = (id: string) => machineRequest<SetupJob>(`/setup/${encodeURIComponent(id)}`);
-export const answerMachineSetup = (id: string, action: SetupAction) => machineRequest<SetupJob>(`/setup/${encodeURIComponent(id)}`, "POST", action);

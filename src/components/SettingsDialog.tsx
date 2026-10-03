@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Minus, Monitor, Plus, Star, X } from "lucide-react";
+import { Minus, Plus, Star, X } from "lucide-react";
 
 import "./SettingsDialog.css";
 
@@ -9,8 +9,7 @@ import { SHORTCUTS, formatKeys, shortcutKeys, shortcutConflict } from "../lib/sh
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings, forgetPaneViews } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
-import type { MachineSettings } from "../../shared/machines.ts";
-import { fetchRemoteAccess, machineRequest } from "../lib/api.ts";
+import { fetchRemoteAccess } from "../lib/api.ts";
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
 import type { HealthAuth, RemoteAccess } from "../../shared/protocol.ts";
 import { DevicesPanel } from "./DevicesPanel.tsx";
@@ -84,13 +83,6 @@ export function SettingsDialog({ open, onClose, actions, auth, onEnableNotificat
   const t = useT();
   const installPrompt = useInstallPrompt();
   const firstControlRef = useRef<HTMLButtonElement>(null);
-  // server-side: the web server updates PC bridges, so it keeps this choice
-  const [pcSettings, setPcSettings] = useState<MachineSettings | null>(null);
-  const [pcSettingsError, setPcSettingsError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    machineRequest<MachineSettings>("/settings").then(setPcSettings, () => setPcSettings(null));
-  }, [open]);
   // Settings → Phone asks the server what Tailscale on its PC already serves
   const [access, setAccess] = useState<RemoteAccess | null | undefined>(undefined);
   const loadAccess = useCallback(() => {
@@ -101,11 +93,6 @@ export function SettingsDialog({ open, onClose, actions, auth, onEnableNotificat
   const plan = phonePlan({ protocol: window.location.protocol, hostname: window.location.hostname, origin: window.location.origin, secure: window.isSecureContext }, access ?? null);
   // where a phone can open this app now, for the pairing QR code: the served address, else this one when it is not loopback
   const pairUrl = plan.kind === "here" || plan.kind === "served" ? plan.url : isLoopbackHost(window.location.hostname) ? null : window.location.origin;
-
-  const updatePcSettings = async (patch: Partial<MachineSettings>) => {
-    try { setPcSettings(await machineRequest<MachineSettings>("/settings", "PATCH", patch)); setPcSettingsError(null); }
-    catch (e) { setPcSettingsError(e instanceof Error ? e.message : String(e)); }
-  };
 
   useEffect(() => {
     if (!open) return;
@@ -345,20 +332,6 @@ export function SettingsDialog({ open, onClose, actions, auth, onEnableNotificat
           <section className="settings-section">
             <h3>{t("Devices")}</h3>
             <DevicesPanel pairUrl={pairUrl} auth={auth} />
-          </section>
-
-          <section className="settings-section">
-            <h3>{t("Remote PCs")}</h3>
-            <div className="settings-row">
-              <div><span className="settings-label">{t("Add PC")}</span><span className="settings-description">{t("Connect another PC over an SSH alias or user@host. Its workspaces join the sidebar.")}</span></div>
-              <button type="button" className="btn" onClick={actions.openAddPc}><Monitor aria-hidden="true" />{t("Add PC")}</button>
-            </div>
-            {/* the switch is the server's and waits for its answer; Add PC never does */}
-            {pcSettings && <div className="settings-row">
-              <div><span className="settings-label">{t("Update PC bridges automatically")}</span><span className="settings-description">{t("When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.")}</span></div>
-              <Toggle label={t("Update PC bridges automatically")} checked={pcSettings.auto_update_bridges} onChange={(auto_update_bridges) => void updatePcSettings({ auto_update_bridges })} />
-            </div>}
-            {pcSettingsError && <p className="settings-hint" role="alert">{pcSettingsError}</p>}
           </section>
 
           <section className="settings-section">

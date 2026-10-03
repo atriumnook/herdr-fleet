@@ -12,8 +12,7 @@ import { dirname, join } from "node:path";
 import type { DeviceRole, PairedDevice } from "../shared/protocol.ts";
 import type { Access } from "./access.ts";
 import { deviceCookie, isSecureRequest, noContent } from "./auth.ts";
-import { badRequest, isJsonObject, jsonResponse } from "./http.ts";
-import { sameOrigin } from "./machine-security.ts";
+import { badRequest, isJsonObject, jsonResponse, sameOrigin } from "./http.ts";
 
 const CODE_TTL_MS = 10 * 60_000;
 const CODE_ATTEMPTS = 5;

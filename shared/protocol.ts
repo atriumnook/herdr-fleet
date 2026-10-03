@@ -30,23 +30,18 @@ export type HerdrTab = TabInfo;
 /** `background_tasks`: an OmO pane's `task` children still running, counted by the server; absent when none */
 export type HerdrPane = PaneInfo & { background_tasks?: number };
 
-export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAction, BridgeIdentity, BridgeHealth } from "./machines.ts";
+export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines.ts";
 
-/** Machine API (same token gate; mutations require X-Herdr-Machine: 1 + same origin)
+/** PC API (same token gate and same-origin check). This server shows this PC only.
  * GET /api/health?scope=bridge -> BridgeHealth, never waits for herdr
- * GET /api/bridge -> authenticated BridgeIdentity (socket + runtime compatibility)
  * GET /api/machines -> { machines: Machine[] }; GET /api/machines/events -> MachineEvent SSE
- * POST /api/machines/setup -> SetupJob; GET/POST/DELETE /api/machines/setup/:job_id
- * PATCH /api/machines/:id { name?, enabled? }; DELETE /api/machines/:id
- * /api/machines/:id/{session,agents,pane/*,workspace/*} -> existing target-local API
- * /ws?machine_id=:id -> immutable target, unchanged role + output ACK protocol
- * Legacy paths and missing machine IDs continue to mean local.
+ * /api/machines/local/{session,agents,pane/*,workspace/*} -> the same routes without the prefix
  */
 
 /** HTTP API
  *  GET    /api/health                    -> { ok: true, herdr: HerdrIdentity (shared/machines.ts; terminal_attach false on a
  *                                          Windows herdr and on a bridge that cannot run the PTY sidecar; terminal_mirror: its
- *                                          terminal lens is the pane's screen, repainted; /api/bridge tells the same herdr), auth: HealthAuth,
+ *                                          terminal lens is the pane's screen, repainted), auth: HealthAuth,
  *                                          web_ui: { boot_id: string | null, revision: string | null } }
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what

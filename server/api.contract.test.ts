@@ -1574,21 +1574,20 @@ describe("PC management API", () => {
     const local = await fetch(`${base()}/api/machines/local/session`);
     expect(local.status).toBe(200);
   });
-  it("rejects CSRF, malformed targets and remote forwarding outside the allowlist", async () => {
-    for (const headers of [{}, { "x-herdr-machine": "1", origin: "https://evil.invalid" }, { "x-herdr-machine": "1", "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
+  it("offers no PC setup, and no route to another PC", async () => {
+    for (const headers of [{ "x-herdr-machine": "1", origin: "https://evil.invalid" }, { "x-herdr-machine": "1", "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
       const response = await fetch(`${base()}/api/machines/setup`, { method: "POST", headers, body: JSON.stringify({ destination: "host" }) });
       expect(response.status).toBe(403);
     }
-    const bad = await fetch(`${base()}/api/machines/setup`, { method: "POST", headers: { "x-herdr-machine": "1" }, body: JSON.stringify({ destination: "-oProxyCommand=bad" }) });
-    expect(bad.status).toBe(400);
-    expect((await fetch(`${base()}/api/machines/missing/pane/read?pane_id=p1`)).status).toBe(503);
-    expect((await fetch(`${base()}/api/machines/missing/auth`)).status).toBe(404);
+    expect((await fetch(`${base()}/api/machines/setup`, { method: "POST", headers: { "x-herdr-machine": "1" }, body: JSON.stringify({ destination: "host" }) })).status).toBe(405);
+    expect((await fetch(`${base()}/api/machines/missing/pane/read?pane_id=p1`)).status).toBe(404);
+    expect((await fetch(`${base()}/api/bridge`)).status).toBe(404);
   });
-  it("gates PC metadata, setup and SSE behind the existing token", async () => {
+  it("gates PC metadata and SSE behind the existing token", async () => {
     const stateDir = mkdtempSync(join(tmpdir(), "herdr-machine-auth-"));
     const gated = createServer({ port: 0, token: "machine-test-secret", stateDir });
     try {
-      for (const path of ["/api/machines", "/api/machines/events", "/api/machines/setup", "/api/bridge"]) expect((await fetch(`http://localhost:${gated.port}${path}`)).status).toBe(401);
+      for (const path of ["/api/machines", "/api/machines/events"]) expect((await fetch(`http://localhost:${gated.port}${path}`)).status).toBe(401);
       const health = await fetch(`http://localhost:${gated.port}/api/health?scope=bridge`).then((r) => r.json()) as { auth: HealthAuth };
       expect(health.auth).toEqual({ required: true, authenticated: false, reason: "token_required" });
     } finally { gated.stop(); rmSync(stateDir, { recursive: true, force: true }); }
@@ -1597,7 +1596,7 @@ describe("PC management API", () => {
 
 describe("terminal lens of a bridge without the PTY sidecar", () => {
   const TOKEN = "sidecar-test-secret";
-  /** what /api/health and /api/bridge tell of herdr, from a bridge whose runtime has the sidecar or lacks it */
+  /** what /api/health tells of herdr, from a server whose runtime has the sidecar or lacks it */
   const told = async (sidecar: boolean) => {
     const dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-sidecar-"));
     const bridge = createServer({ port: 0, stateDir: dir, token: TOKEN, machines: false, sidecar });
@@ -1607,22 +1606,22 @@ describe("terminal lens of a bridge without the PTY sidecar", () => {
         expect(response.status).toBe(200);
         return (await response.json()) as { herdr: unknown };
       };
-      return { health: (await get("/api/health")).herdr, bridge: (await get("/api/bridge")).herdr };
+      return (await get("/api/health")).herdr;
     } finally { bridge.stop(); rmSync(dir, { recursive: true, force: true }); }
   };
 
-  it("reports a mirror from /api/health and /api/bridge though herdr itself can attach", async () => {
+  it("reports a mirror from /api/health though herdr itself can attach", async () => {
     const herdr = await ping();
     // the case only means something against a herdr that can attach
     expect(herdr.terminal_attach).toBe(true);
     const mirrored = { ...herdr, terminal_attach: false, terminal_mirror: true };
-    expect(await told(false)).toEqual({ health: mirrored, bridge: mirrored });
+    expect(await told(false)).toEqual(mirrored);
   });
 
   it("passes herdr's own answer through where the sidecar runs", async () => {
     const herdr = await ping();
     expect(herdr).not.toHaveProperty("terminal_mirror");
-    expect(await told(true)).toEqual({ health: herdr, bridge: herdr });
+    expect(await told(true)).toEqual(herdr);
   });
 });
 

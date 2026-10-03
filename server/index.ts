@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
@@ -13,7 +12,7 @@ import { DeviceStore, handleDeviceRequest } from "./devices.ts";
 import { remoteAccess, tailscaleIdentity } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
-import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
+import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse, sameOrigin } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
@@ -58,11 +57,8 @@ import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, Re
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
-import { bridgeIdentity, registerBridge } from "./bridge.ts";
 import { MachineManager } from "./machines.ts";
 import { handleMachineRequest } from "./machine-api.ts";
-import { MachineRelay } from "./machine-relay.ts";
-import { sameOrigin } from "./machine-security.ts";
 
 const MAX_REPLAY_BYTES = 256 * 1024;
 /**
@@ -172,7 +168,6 @@ interface SocketData {
   readOnly?: boolean;
   revoked?: boolean;
   unwatchDevice?: () => void;
-  relay?: MachineRelay;
   attached: Set<string>;
   output: Map<string, OutputWindow>;
   closing: boolean;
@@ -246,7 +241,6 @@ export function createServer(
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
     machines?: boolean;
-    registerBridge?: boolean;
     /** SUBMIT_DEADLINE_MS; tests shorten it */
     submitDeadlineMs?: number;
     /** how long a push alert waits for the pane to change first (server/push.ts); tests send at once */
@@ -267,7 +261,7 @@ export function createServer(
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
   /** whether this bridge can `terminal attach`: herdr is asked once, and the PTY sidecar has to be runnable here (server/pty/sidecar.ts) */
-  /** whether the sidecar can run, settled as the server starts so that attach, /api/health and /api/bridge tell one answer; a forced answer (tests) stands in for it */
+  /** whether the sidecar can run, settled as the server starts so that attach and /api/health tell one answer; a forced answer (tests) stands in for it */
   const sidecar = options.sidecar ?? (options.terminalAttach === undefined ? sidecarAvailable() : options.terminalAttach !== false);
   let terminalAttachKnown: boolean | null = typeof options.terminalAttach === "boolean" ? options.terminalAttach : null;
   const terminalAttach = async (): Promise<boolean> => {
@@ -450,8 +444,7 @@ export function createServer(
     if (!snapshot.panes.some((pane) => omo.backgroundOf(pane.pane_id) > 0)) return snapshot;
     return { ...snapshot, panes: snapshot.panes.map((pane) => omo.backgroundOf(pane.pane_id) > 0 ? { ...pane, background_tasks: omo.backgroundOf(pane.pane_id) } : pane) };
   };
-  const machines = options.machines === false ? null : new MachineManager(options.stateDir ?? defaultStateDir(), push, completions, clientSnapshot);
-  const bridgeToken = randomBytes(32).toString("hex");
+  const machines = options.machines === false ? null : new MachineManager(completions, clientSnapshot);
 
   function broadcast(paneId: string, message: ServerMessage): void {
     const attachment = attachments.get(paneId);
@@ -865,8 +858,6 @@ export function createServer(
     async fetch(request, bunServer) {
       const url = new URL(request.url);
       let { pathname } = url;
-      const bridgeAuthorized = isAuthenticated(request, bridgeToken);
-      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
       const access = decideAccess({
         loopback: ip !== null && isLoopbackAddress(ip.address),
@@ -879,7 +870,7 @@ export function createServer(
         tokenConfigured: token !== "",
         gated: devices.gated,
       });
-      const authenticated = access.level === "full" || (bridgePath && bridgeAuthorized);
+      const authenticated = access.level === "full";
 
       if (requiresAuth(pathname) && !authenticated) {
         // The WS client never parses a body, so the upgrade refusal stays plain text.
@@ -901,10 +892,6 @@ export function createServer(
         return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
       }
 
-      if (pathname === "/api/bridge") {
-        if (token === "" && !bridgeAuthorized) return unauthorizedJson();
-        try { return jsonResponse(await bridgeIdentity(sidecar)); } catch (error) { return errorResponse(error); }
-      }
       if (pathname === "/api/machines" || pathname.startsWith("/api/machines/")) {
         if (!machines) return jsonResponse({ error: { code: "bridge_only", message: "Manage PCs on the connection server" } }, 404);
         // /local aliases preserve every existing endpoint without a self-proxy.
@@ -925,19 +912,7 @@ export function createServer(
         if (!sameOrigin(request)) return new Response("invalid origin", { status: 403 });
         const deviceId = access.level === "full" ? access.device?.id : undefined;
         const machineId = url.searchParams.get("machine_id");
-        if (machineId && machineId !== "local") {
-          if (access.level === "none") return unauthorizedJson(access.reason);
-          if (!machines?.endpoint(machineId)) return jsonResponse({ error: { code: "machine_offline", message: "This PC is disconnected" } }, 503);
-          let relay: MachineRelay | undefined;
-          try {
-            relay = new MachineRelay(machines, machineId, readOnly);
-            await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, relay, deviceId, readOnly } });
-            if (upgraded) return undefined as unknown as Response;
-            relay.close();
-          } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
-          return new Response("websocket upgrade required", { status: 426 });
-        }
+        if (machineId && machineId !== "local") return jsonResponse({ error: { code: "not_found", message: "unknown PC" } }, 404);
         const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, deviceId, readOnly } });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
@@ -1432,12 +1407,10 @@ export function createServer(
             for (const paneId of client.data.attached) detach(paneId, client);
             client.data.attached.clear();
             client.data.output.clear();
-            client.data.relay?.close(1008, "Device access revoked");
             client.close(1008, "Device access revoked");
           });
           if (client.data.revoked) return;
         }
-        if (client.data.relay) { client.data.relay.bind(client as ServerWebSocket<unknown>); return; }
         clients.add(client);
         try {
           send(client, { type: "snapshot", snapshot: await clientSnapshot(), features: SERVER_FEATURES });
@@ -1449,7 +1422,6 @@ export function createServer(
 
       async message(client, raw) {
         if (client.data.closing) return;
-        if (client.data.relay) { client.data.relay.message(raw); return; }
         let message: ClientMessage;
         try {
           message = JSON.parse(String(raw)) as ClientMessage;
@@ -1741,7 +1713,6 @@ export function createServer(
 
       close(client) {
         client.data.unwatchDevice?.();
-        if (client.data.relay) { client.data.relay.close(); return; }
         clients.delete(client);
         for (const paneId of client.data.attached) detach(paneId, client);
         client.data.attached.clear();
@@ -1750,7 +1721,6 @@ export function createServer(
     },
   });
 
-  const registration = options.registerBridge ? registerBridge(server.port ?? 0, bridgeToken) : null;
 
   // ACKs can stop arriving entirely (a suspended tab). Bound the pause even then.
   const outputTimer = setInterval(() => {
@@ -1766,7 +1736,6 @@ export function createServer(
       collector.stop();
       omo.stop();
       machines?.stop();
-      registration?.close();
       for (const paneId of [...attachments.keys()]) closeAttachment(paneId);
       server.stop(true);
     },
@@ -1774,7 +1743,7 @@ export function createServer(
 }
 
 if (import.meta.main) {
-  const instance = createServer({ registerBridge: true });
+  const instance = createServer();
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;

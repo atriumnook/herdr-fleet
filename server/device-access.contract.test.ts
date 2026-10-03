@@ -3,8 +3,6 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DeviceStore } from "./devices.ts";
-import { MachineRelay } from "./machine-relay.ts";
-import type { MachineManager } from "./machines.ts";
 import { loopbackPush, startFakePushService } from "./push.fake.ts";
 import { createServer } from "./index.ts";
 import { workspaceCreate, workspaceClose } from "./herdr/client.ts";
@@ -98,7 +96,7 @@ it("a corrupt device registry refuses strangers while keeping local recovery and
   } finally { server.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
-it("watch credentials cannot mutate HTTP state, read credential files, or elevate local and relayed terminals", async () => {
+it("watch credentials cannot mutate HTTP state, read credential files, or elevate terminals", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-watch-access-"));
   const store = new DeviceStore(root);
   const watch = store.pair(store.startPairing().code, "Watch", "watch")!;
@@ -107,14 +105,6 @@ it("watch credentials cannot mutate HTTP state, read credential files, or elevat
   const cookie = `herdr_web_device=${watch.token}`;
   const headers = { ...guard, cookie };
   const sockets: WebSocket[] = [];
-  const relays: MachineRelay[] = [];
-  const manager = { endpoint: () => ({ url: base, token: "test-watch" }), trackTerminal: () => () => {} } as unknown as MachineManager;
-  const proxy = Bun.serve<{ relay: MachineRelay }>({ port: 0, hostname: "127.0.0.1", async fetch(request, instance) {
-    const relay = new MachineRelay(manager, "remote", true); relays.push(relay);
-    await relay.ready;
-    if (instance.upgrade(request, { data: { relay } })) return;
-    relay.close(); return new Response(null, { status: 426 });
-  }, websocket: { open(ws) { ws.data.relay.bind(ws); }, message(ws, raw) { ws.data.relay.message(raw); }, close(ws) { ws.data.relay.close(); } } });
   try {
     expect((await fetch(`${base}/api/session`, { headers })).status).toBe(200);
     for (const path of ["pane/input", "workspace/create", "machines/setup", "updates/install", "herdr/update"]) {
@@ -125,7 +115,7 @@ it("watch credentials cannot mutate HTTP state, read credential files, or elevat
     for (const path of ["api//fs/file", "api/machines/pc1//fs/file", "api/machines/pc1/fs//file"]) {
       expect((await fetch(`${base}/${path}?path=${encodeURIComponent(join(root, "devices.json"))}`, { headers })).status).toBe(404);
     }
-    for (const origin of [base, `http://127.0.0.1:${proxy.port}`]) {
+    for (const origin of [base]) {
       const client = await connect(`${origin.replace("http:", "ws:")}/ws`, cookie); sockets.push(client.socket);
       client.socket.send(JSON.stringify({ type: "role", mode: "interact" }));
       await until(() => client.messages.some((m) => m.type === "role-ack" && m.mode === "observe"));
@@ -141,8 +131,7 @@ it("watch credentials cannot mutate HTTP state, read credential files, or elevat
     }
   } finally {
     for (const socket of sockets) socket.close();
-    for (const relay of relays) relay.close();
-    proxy.stop(true); server.stop(); rmSync(root, { recursive: true, force: true });
+    server.stop(); rmSync(root, { recursive: true, force: true });
   }
 });
 
