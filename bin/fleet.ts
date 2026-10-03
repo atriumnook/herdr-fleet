@@ -1,0 +1,183 @@
+#!/usr/bin/env bun
+/**
+ * fleet: start agents in herdr panes and talk to them, through a running herdr-fleet server.
+ * Agents the fleet starts get this command in their instructions, with the environment below set.
+ *
+ *   HERDR_FLEET_URL    the server (default http://127.0.0.1:7317)
+ *   HERDR_FLEET_TOKEN  its access token, when it has one
+ *   HERDR_FLEET_GROUP  the fleet to act in; else one per herdr pane (HERDR_PANE_ID)
+ *   HERDR_FLEET_DEPTH  how deep this caller is (0 for a person or a top-level agent)
+ */
+import { parseArgs } from "node:util";
+
+const USAGE = `usage: fleet <command> [options]
+
+  spawn --role <role> --task <text> [--name <name>] [--model <provider/model>] [--thinking <level>]
+        [--cwd <dir>] [--worktree] [--interactive] [--direction right|down] [--wait] [--timeout <ms>]
+  send <agent> <message...>        hand an agent its next task
+  wait <agent> [--timeout <ms>]    until its turn settles; follows a re-spawn after a fallback
+  read <agent> [--lines <n>]       its recent output
+  list [--all]                     this fleet's agents (--all: every fleet)
+  interrupt <agent>                press Esc in its pane
+  focus <agent>                    bring its pane to front in herdr
+  close-done                       close the panes of finished non-interactive agents
+  roles [--cwd <dir>]              the roles that can be spawned
+
+  <agent> is a name, role, id or pane id. Add --json for machine-readable output.
+  exit status: 0 settled, 1 failed or error, 2 usage, 4 blocked on a question, 124 wait timed out`;
+
+interface Run {
+  id: string; name: string; role: string; agent: string; group: string; paneId: string; state: string;
+  model?: string; lastOutput?: string; lastError?: string; replacedBy?: string;
+}
+
+const env = process.env;
+const baseUrl = (env["HERDR_FLEET_URL"] || "http://127.0.0.1:7317").replace(/\/$/, "");
+const paneId = env["HERDR_PANE_ID"];
+const group = env["HERDR_FLEET_GROUP"] || (paneId ? `fleet-${paneId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}` : "fleet-default");
+const depth = Number.parseInt(env["HERDR_FLEET_DEPTH"] ?? "0", 10) || 0;
+
+class CliError extends Error {
+  constructor(message: string, readonly exitCode = 1, readonly body?: { run?: Run }) { super(message); }
+}
+
+async function call<T>(method: "GET" | "POST", path: string, body?: Record<string, unknown>): Promise<T> {
+  const headers: Record<string, string> = { "x-herdr-fleet": "1" };
+  if (env["HERDR_FLEET_TOKEN"]) headers["authorization"] = `Bearer ${env["HERDR_FLEET_TOKEN"]}`;
+  if (body) headers["content-type"] = "application/json";
+  let response: Response;
+  try {
+    response = await fetch(`${baseUrl}/api/fleet${path}`, { method, headers, ...(body ? { body: JSON.stringify(body) } : {}) });
+  } catch (error) {
+    throw new CliError(`cannot reach the fleet server at ${baseUrl}: ${error instanceof Error ? error.message : String(error)}. Start it with \`bun run start\` in herdr-fleet.`);
+  }
+  const data = await response.json().catch(() => ({})) as { error?: { code?: string; message?: string }; run?: Run };
+  if (!response.ok) {
+    const code = data.error?.code ?? `http_${response.status}`;
+    throw new CliError(`${code}: ${data.error?.message ?? response.statusText}`, code === "wait_timeout" ? 124 : 1, data);
+  }
+  return data as T;
+}
+
+const enc = encodeURIComponent;
+const describe = (run: Run): string => `${run.id}  ${run.name} (${run.role}, ${run.agent}${run.model ? `, ${run.model}` : ""})  ${run.state}  pane ${run.paneId}`;
+
+function print(json: boolean, value: unknown, text: () => string): void {
+  console.log(json ? JSON.stringify(value, null, 2) : text());
+}
+
+function statusOf(run: Run): number {
+  if (run.state === "blocked") return 4;
+  if (run.state === "failed" || run.state === "stopped") return 1;
+  return 0;
+}
+
+/** Waits for `target`; a run replaced after a failed first turn hands the wait to its replacement. */
+async function waitFor(target: string, timeout: number | undefined, json: boolean): Promise<number> {
+  let current = target;
+  for (;;) {
+    let run: Run;
+    try {
+      ({ run } = await call<{ run: Run }>("POST", `/runs/${enc(current)}/wait`, { group, ...(timeout ? { timeout_ms: timeout } : {}) }));
+    } catch (error) {
+      if (error instanceof CliError && error.exitCode === 124 && error.body?.run) {
+        print(json, error.body.run, () => `${describe(error.body!.run!)}\nwait timed out; the agent is still ${error.body!.run!.state}`);
+      }
+      throw error;
+    }
+    if (run.replacedBy) {
+      if (!json) console.error(`${run.name} failed on ${run.model ?? "its model"} (${run.lastError ?? "error"}); waiting for its re-spawn ${run.replacedBy}`);
+      current = run.replacedBy;
+      continue;
+    }
+    print(json, run, () => [describe(run), run.lastError ? `error: ${run.lastError}` : "", run.lastOutput ? `\n${run.lastOutput.trimEnd()}` : ""].filter(Boolean).join("\n"));
+    return statusOf(run);
+  }
+}
+
+async function main(argv: string[]): Promise<number> {
+  const [command, ...rest] = argv;
+  if (!command || command === "help" || command === "--help" || command === "-h") { console.log(USAGE); return command ? 0 : 2; }
+  const { values, positionals } = parseArgs({
+    args: rest, allowPositionals: true, strict: true,
+    options: {
+      role: { type: "string" }, task: { type: "string" }, name: { type: "string" }, model: { type: "string" }, thinking: { type: "string" },
+      cwd: { type: "string" }, worktree: { type: "boolean" }, interactive: { type: "boolean" }, direction: { type: "string" },
+      wait: { type: "boolean" }, timeout: { type: "string" }, lines: { type: "string" }, all: { type: "boolean" }, json: { type: "boolean" },
+    },
+  });
+  const json = values.json ?? false;
+  const timeout = values.timeout === undefined ? undefined : Number(values.timeout);
+  if (timeout !== undefined && (!Number.isFinite(timeout) || timeout < 1)) throw new CliError("--timeout must be a positive number of milliseconds", 2);
+  const target = (): string => {
+    const value = positionals[0];
+    if (!value) throw new CliError(`fleet ${command}: name the agent`, 2);
+    return value;
+  };
+
+  switch (command) {
+    case "spawn": {
+      if (!values.role || !values.task) throw new CliError("fleet spawn: --role and --task are required", 2);
+      const { run } = await call<{ run: Run }>("POST", "/spawn", {
+        role: values.role, task: values.task, name: values.name, model: values.model, thinking: values.thinking,
+        cwd: values.cwd ?? process.cwd(), worktree: values.worktree, interactive: values.interactive, direction: values.direction,
+        group, depth, caller_pane_id: paneId,
+      });
+      if (values.wait) return waitFor(run.id, timeout, json);
+      print(json, run, () => [describe(run), run.lastError ? `note: ${run.lastError}` : ""].filter(Boolean).join("\n"));
+      return run.state === "blocked" ? 4 : 0;
+    }
+    case "send": {
+      const message = positionals.slice(1).join(" ");
+      if (!message) throw new CliError("fleet send: give the message", 2);
+      const { run } = await call<{ run: Run }>("POST", `/runs/${enc(target())}/send`, { message, group });
+      print(json, run, () => describe(run));
+      return run.state === "failed" ? 1 : run.state === "blocked" ? 4 : 0;
+    }
+    case "wait":
+      return waitFor(target(), timeout, json);
+    case "read": {
+      const { text } = await call<{ text: string }>("GET", `/runs/${enc(target())}/read?group=${enc(group)}${values.lines ? `&lines=${enc(values.lines)}` : ""}`);
+      print(json, { text }, () => text.trimEnd());
+      return 0;
+    }
+    case "list": {
+      const { runs } = await call<{ runs: Run[] }>("GET", values.all ? "/runs" : `/runs?group=${enc(group)}`);
+      print(json, runs, () => runs.length ? runs.map((run) => `${describe(run)}${values.all ? `  [${run.group}]` : ""}`).join("\n") : "no agents");
+      return 0;
+    }
+    case "interrupt":
+    case "focus": {
+      const { run } = await call<{ run: Run }>("POST", `/runs/${enc(target())}/${command}`, { group });
+      print(json, run, () => describe(run));
+      return 0;
+    }
+    case "close-done": {
+      const { runs } = await call<{ runs: Run[] }>("POST", "/close-done", { group });
+      print(json, runs, () => runs.length ? runs.map((run) => `closed ${describe(run)}`).join("\n") : "nothing to close");
+      return 0;
+    }
+    case "roles": {
+      const { roles } = await call<{ roles: Array<{ name: string; description: string; agent: string; source: string }> }>("GET", `/roles?cwd=${enc(values.cwd ?? process.cwd())}`);
+      print(json, roles, () => roles.map((role) => `${role.name.padEnd(12)} ${role.agent.padEnd(6)} ${role.description}`).join("\n"));
+      return 0;
+    }
+    default:
+      throw new CliError(`unknown command: ${command}\n\n${USAGE}`, 2);
+  }
+}
+
+try {
+  process.exitCode = await main(process.argv.slice(2));
+} catch (error) {
+  if (error instanceof CliError) {
+    if (error.exitCode !== 124) console.error(`fleet: ${error.message}`);
+    process.exitCode = error.exitCode;
+  } else if (error instanceof Error && "code" in error && String(error.code).startsWith("ERR_PARSE_ARGS")) {
+    console.error(`fleet: ${error.message}\n\n${USAGE}`);
+    process.exitCode = 2;
+  } else {
+    console.error(`fleet: ${error instanceof Error ? error.message : String(error)}`);
+    process.exitCode = 1;
+  }
+}
