@@ -1,5 +1,5 @@
 /**
- * herdr-web-ui's own HTTP/WebSocket contract, shared by the Bun server and the React client.
+ * herdr-fleet's own HTTP/WebSocket contract, shared by the Bun server and the React client.
  *
  * The herdr WIRE types are NOT hand-written here: they are generated from herdr's
  * published API schema into ./herdr-api.generated.ts and re-exported below, so a
@@ -30,32 +30,22 @@ export type HerdrTab = TabInfo;
 /** `background_tasks`: an OmO pane's `task` children still running, counted by the server; absent when none */
 export type HerdrPane = PaneInfo & { background_tasks?: number };
 
-export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAction, BridgeIdentity, BridgeHealth } from "./machines.ts";
+export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines.ts";
 
-/** Machine API (same token gate; mutations require X-Herdr-Machine: 1 + same origin)
+/** PC API (same token gate and same-origin check). This server shows this PC only.
  * GET /api/health?scope=bridge -> BridgeHealth, never waits for herdr
- * GET /api/bridge -> authenticated BridgeIdentity (socket + runtime compatibility)
  * GET /api/machines -> { machines: Machine[] }; GET /api/machines/events -> MachineEvent SSE
- * POST /api/machines/setup -> SetupJob; GET/POST/DELETE /api/machines/setup/:job_id
- * PATCH /api/machines/:id { name?, enabled? }; DELETE /api/machines/:id
- * /api/machines/:id/{session,agents,pane/*,workspace/*} -> existing target-local API
- * /ws?machine_id=:id -> immutable target, unchanged role + output ACK protocol
- * Legacy paths and missing machine IDs continue to mean local.
+ * /api/machines/local/{session,agents,pane/*,workspace/*} -> the same routes without the prefix
  */
 
 /** HTTP API
  *  GET    /api/health                    -> { ok: true, herdr: HerdrIdentity (shared/machines.ts; terminal_attach false on a
  *                                          Windows herdr and on a bridge that cannot run the PTY sidecar; terminal_mirror: its
- *                                          terminal lens is the pane's screen, repainted; /api/bridge tells the same herdr), auth: HealthAuth,
+ *                                          terminal lens is the pane's screen, repainted), auth: HealthAuth,
  *                                          web_ui: { boot_id: string | null, revision: string | null } }
  *  GET    /api/session                   -> { snapshot: SessionSnapshot }
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what
  *         Tailscale on this PC already serves, or the command to run), no-store
- *  GET    /api/updates                   -> UpdateStatus (shared/update.ts), no-store
- *  POST   /api/updates/check             -> 202 { accepted: true }
- *  POST   /api/updates/install           -> 202 { accepted: true }
- *         Update POSTs require X-Herdr-Update: 1, same-origin browser requests,
- *         and the usual token gate. Managed starts only; status is polled during restart.
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
  *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
  *         for the new-session dialog)
@@ -75,7 +65,7 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *         session-changed broadcast removes it from every client's sidebar)
  *  POST   /api/pane/rename { pane_id, label } -> { ok: true } (pane.rename; empty label clears it)
  *  POST   /api/pane/image  { pane_id, content_type, data_base64 } -> { ok: true, path }
- *         pasted image -> file under <pane cwd>/.herdr-web-ui/, path for the prompt
+ *         pasted image -> file under <pane cwd>/.herdr-fleet/, path for the prompt
  *  GET    /api/pane/commands?pane_id=   -> { commands: SlashCommand[] } (the agent's slash
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
  *  GET    /api/pane/omo-tasks?pane_id=  -> OmoActivity (the background tasks and workflows the
@@ -95,25 +85,24 @@ export type { Machine, MachineEvent, PaneTarget, SetupJob, SetupRequest, SetupAc
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id } -> { ok: true }
- *  POST   /api/auth        { token }     -> 204 + Set-Cookie herdr_web_token (401 invalid_token on mismatch)
+ *  POST   /api/auth        { token }     -> 204 + Set-Cookie herdr_fleet_token (401 invalid_token on mismatch)
  *  DELETE /api/auth                      -> 204, clears the token and the device cookies
  *  GET    /api/devices                   -> { devices: PairedDevice[] } (the paired devices; `current` marks the caller's)
  *  POST   /api/devices/pair/start        -> PairingCode: a six-digit code good for ten minutes, replacing any pending one
  *         (X-Herdr-Machine: 1 + same origin, from a client with full access)
- *  POST   /api/devices/pair { code, label? } -> 204 + Set-Cookie herdr_web_device (public, like /api/auth;
+ *  POST   /api/devices/pair { code, label? } -> 204 + Set-Cookie herdr_fleet_device (public, like /api/auth;
  *         401 invalid_code when the code is wrong, spent after five tries, or expired)
  *  PATCH  /api/devices/:id  { label }    -> PairedDevice;  DELETE /api/devices/:id -> 204 (revoked at its next request)
  *  GET    /api/push                      -> PushKey (the VAPID application server key)
  *  POST   /api/push/subscribe { subscription }  -> 204 (a browser PushSubscription JSON; upsert by endpoint)
  *  DELETE /api/push/subscribe { endpoint }      -> 204
  *  POST   /api/push/test      { endpoint }      -> 204 | 404 subscription_not_found | 502 push_failed
- *  GET    /api/usage[?refresh=1]         -> UsageReport (plan limits of the AI subscriptions signed in on this PC)
  *  Errors: non-2xx with { error: { code, message } }
  *
  *  Access: every route above except /api/health, /api/auth and /api/devices/pair, plus the
  *  /ws upgrade, needs the request to be one of: from this PC itself (no proxy in front);
  *  the PC's own Tailscale login, as `tailscale serve` states it; a paired device's cookie;
- *  the shared token (HERDR_WEB_TOKEN) as cookie or `Authorization: Bearer <token>`. With a
+ *  the shared token (HERDR_FLEET_TOKEN) as cookie or `Authorization: Bearer <token>`. With a
  *  token configured, only the last two count, this PC and its Tailscale login included. Without one, and while no
  *  device is paired, anything that reaches the server is let in as before (the startup
  *  warning says so). Refusals answer 401 `unauthorized` (403 `other_user` for another Tailscale
@@ -123,54 +112,8 @@ export interface ApiError {
   error: { code: string; message: string };
 }
 
-/** The subscriptions whose plan limits GET /api/usage can read from a CLI's own sign-in. */
-export type UsageProviderId = "claude" | "codex" | "cursor" | "copilot" | "grok" | "antigravity";
-
-/** One limit of a plan: how much of it is used and when it starts over. */
-export interface UsageWindow {
-  /** the span the limit counts over: a rolling session (5 hours), a day, a week or a billing month */
-  readonly kind: "session" | "day" | "week" | "month";
-  /** the model or quota a plan limits on its own ("Sonnet", "Premium"); null for the plan-wide limit */
-  readonly scope: string | null;
-  /** 0 to 100 */
-  readonly used_percent: number;
-  /** ISO 8601; null when the provider does not say */
-  readonly resets_at: string | null;
-}
-
-/**
- * Why a provider's numbers are missing or old: its sign-in expired or was refused; the provider
- * asked to slow down; the request failed; the macOS keychain holding the sign-in could not be
- * read from this server's session.
- */
-export type UsageProblem = "expired" | "rate_limited" | "failed" | "locked";
-
-export interface ProviderUsage {
-  readonly id: UsageProviderId;
-  /**
-   * One account of one provider, stable across reads: the provider and its account id, or, for a
-   * sign-in that does not say whose it is, the provider and where it was found. A PC signed in to
-   * two accounts of one provider lists both.
-   */
-  readonly key: string;
-  /** whose plan this is, as its owner knows the account: an email, or a GitHub login; null when unknown */
-  readonly account: string | null;
-  /** the plan's name as the provider states it ("max", "pro"), when it does */
-  readonly plan: string | null;
-  /** the last numbers read; kept through a later failure, which `problem` then names */
-  readonly windows: readonly UsageWindow[];
-  readonly problem: UsageProblem | null;
-  /** ISO 8601 time `windows` were read; null when they never were */
-  readonly checked_at: string | null;
-}
-
-/** GET /api/usage: only providers a CLI on this PC is signed in to are listed, once per account. */
-export interface UsageReport {
-  readonly providers: readonly ProviderUsage[];
-}
-
 /** How a request got in, when it did. */
-export type AccessVia = "local" | "tailscale" | "device" | "token" | "open";
+export type AccessVia = "local" | "tailscale" | "device" | "token";
 /** Why a request did not. */
 export type AccessRefusal = "other_user" | "pairing_required" | "token_required";
 /** What a paired device may do: drive (type, answer, manage) or only watch. */

@@ -1,29 +1,25 @@
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
-import { chmodSync, mkdtempSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
-import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, UsageReport, WorkspaceCreated } from "../shared/protocol.ts";
-import { HerdrUpdater } from "./herdr-update.ts";
-import type { HerdrUpdateStatus } from "../shared/update.ts";
-import { UsageService } from "./usage.ts";
-import { VoiceService } from "./voice.ts";
+import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, WorkspaceCreated } from "../shared/protocol.ts";
 import { herdrRpc, ping, workspaceCreate, workspaceClose } from "./herdr/client.ts";
-import { startFakePushService, type FakePushService } from "./push.fake.ts";
+import { loopbackPush, startFakePushService, type FakePushService } from "./push.fake.ts";
 
 /**
- * Contract test for herdr-web-ui's HTTP + WS surface.
+ * Contract test for herdr-fleet's HTTP + WS surface.
  * Runs against the REAL herdr server on the developer's machine: these are the
  * integration seams the browser UI depends on, so a mock here would prove nothing.
  * Tests never mutate a user's pane; mutation cases create labeled workspaces and close them in afterAll.
  * Every server here keeps its push state (VAPID key, subscriptions) in a temp dir: the
- * user's ~/.config/herdr-web-ui holds their real devices, which a test must never page.
+ * user's ~/.config/herdr-fleet holds their real devices, which a test must never page.
  */
 let server: { port: number; stop: () => void };
-const stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-contract-"));
+const stateDir = mkdtempSync(join(tmpdir(), "herdr-fleet-contract-"));
 
 beforeAll(() => {
-  server = createServer({ port: 0, stateDir, alertTiming: { short: 0, long: 0, longTurn: 0 } });
+  server = createServer({ port: 0, stateDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushEndpoint: loopbackPush });
 });
 
 afterAll(() => {
@@ -32,149 +28,6 @@ afterAll(() => {
 });
 
 const base = () => `http://localhost:${server.port}`;
-
-describe("usage API", () => {
-  it("answers the report and keeps it behind the token gate", async () => {
-    const usageState = mkdtempSync(join(tmpdir(), "herdr-usage-auth-"));
-    const usage = new UsageService(undefined, []);
-    const open = createServer({ port: 0, stateDir: usageState, usage });
-    const gated = createServer({ port: 0, stateDir: usageState, usage, token: "test-usage-token" });
-    try {
-      const answered = await fetch(`http://localhost:${open.port}/api/usage`);
-      expect(answered.status).toBe(200);
-      expect(answered.headers.get("cache-control")).toBe("no-store");
-      expect(await answered.json() as UsageReport).toEqual({ providers: [] });
-      expect((await fetch(`http://localhost:${gated.port}/api/usage`)).status).toBe(401);
-      const withToken = await fetch(`http://localhost:${gated.port}/api/usage`, { headers: { authorization: "Bearer test-usage-token" } });
-      expect(withToken.status).toBe(200);
-    } finally { open.stop(); gated.stop(); rmSync(usageState, { recursive: true, force: true }); }
-  });
-});
-
-describe("voice API", () => {
-  it("keeps the key on the server, refuses cross-site writes and streams a transcript", async () => {
-    const voiceState = mkdtempSync(join(tmpdir(), "herdr-voice-contract-"));
-    const key = "sk-contract-0123456789";
-    const provider = Bun.serve({
-      port: 0, hostname: "127.0.0.1",
-      async fetch(request) {
-        if (new URL(request.url).pathname !== "/v1/audio/transcriptions") return new Response("not found", { status: 404 });
-        expect(request.headers.get("authorization")).toBe(`Bearer ${key}`);
-        await request.formData();
-        return new Response(`data: ${JSON.stringify({ type: "transcript.text.done", text: "git status" })}\n\n`, { headers: { "content-type": "text/event-stream" } });
-      },
-    });
-    const voice = new VoiceService({ stateDir: voiceState, env: { HERDR_WEB_OPENAI_BASE_URL: `http://127.0.0.1:${provider.port}/v1` }, fetch });
-    const open = createServer({ port: 0, stateDir: voiceState, voice });
-    const gated = createServer({ port: 0, stateDir: voiceState, voice, token: "test-voice-token" });
-    const at = (path: string) => `http://localhost:${open.port}${path}`;
-    try {
-      expect((await fetch(`http://localhost:${gated.port}/api/voice`)).status).toBe(401);
-      expect(await (await fetch(at("/api/voice"))).json()).toMatchObject({ configured: false, source: null });
-
-      const crossSite = await fetch(at("/api/voice/config"), { method: "PUT", headers: { "content-type": "application/json", "sec-fetch-site": "cross-site" }, body: JSON.stringify({ api_key: key }) });
-      expect(crossSite.status).toBe(403);
-      const saved = await fetch(at("/api/voice/config"), { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ api_key: key }) });
-      expect(saved.status).toBe(200);
-      const status = await (await fetch(at("/api/voice"))).text();
-      expect(JSON.parse(status)).toMatchObject({ configured: true, source: "file" });
-      expect(status).not.toContain(key);
-      expect(statSync(join(voiceState, "voice.json")).mode & 0o777).toBe(0o600);
-
-      const form = new FormData();
-      form.append("audio", new Blob([new Uint8Array([1, 2, 3])], { type: "audio/webm" }), "voice.webm");
-      form.append("mode", "chat");
-      form.append("polish", "0");
-      const transcribed = await fetch(at("/api/voice/transcribe"), { method: "POST", body: form });
-      expect(transcribed.headers.get("content-type")).toContain("application/x-ndjson");
-      expect((await transcribed.text()).trim().split("\n").map((line) => JSON.parse(line))).toEqual([{ type: "done", text: "git status" }]);
-    } finally {
-      open.stop(); gated.stop(); provider.stop(true);
-      rmSync(voiceState, { recursive: true, force: true });
-    }
-  });
-});
-
-describe("update API", () => {
-  it("reports unmanaged servers without performing network discovery", async () => {
-    const response = await fetch(`${base()}/api/updates`);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect((await response.json() as { managed: boolean }).managed).toBe(false);
-  });
-
-  it("refuses cross-site/form update requests and unmanaged installs", async () => {
-    for (const headers of [{}, { "x-herdr-update": "1", origin: "https://untrusted.invalid" },
-      { "x-herdr-update": "1", "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
-      const response = await fetch(`${base()}/api/updates/install`, { method: "POST", headers });
-      expect(response.status).toBe(403);
-    }
-    const response = await fetch(`${base()}/api/updates/install`, { method: "POST", headers: { "x-herdr-update": "1" } });
-    expect(response.status).toBe(409);
-    expect((await response.json() as ApiError).error.code).toBe("updates_unmanaged");
-  });
-
-  it("keeps status and update actions behind the token gate", async () => {
-    const protectedState = mkdtempSync(join(tmpdir(), "herdr-update-auth-"));
-    const protectedServer = createServer({ port: 0, stateDir: protectedState, token: "test-update-token" });
-    try {
-      for (const path of ["/api/updates", "/api/updates/check", "/api/updates/install"]) {
-        const response = await fetch(`http://localhost:${protectedServer.port}${path}`, {
-          method: path === "/api/updates" ? "GET" : "POST", headers: { "x-herdr-update": "1" },
-        });
-        expect(response.status).toBe(401);
-      }
-      for (const method of ["GET", "POST"]) {
-        const response = await fetch(`http://localhost:${protectedServer.port}/api/herdr/update`, { method, headers: { "x-herdr-update": "1" } });
-        expect(response.status).toBe(401);
-      }
-    } finally { protectedServer.stop(); rmSync(protectedState, { recursive: true, force: true }); }
-  });
-
-  it("offers no herdr update on a server started without the updater", async () => {
-    const response = await fetch(`${base()}/api/herdr/update`);
-    expect(response.headers.get("cache-control")).toBe("no-store");
-    expect(await response.json() as HerdrUpdateStatus).toMatchObject({ supported: false, phase: "idle", output: null });
-    expect((await fetch(`${base()}/api/herdr/update`, { method: "POST" })).status).toBe(403);
-    const refused = await fetch(`${base()}/api/herdr/update`, { method: "POST", headers: { "x-herdr-update": "1" } });
-    expect(refused.status).toBe(409);
-    expect((await refused.json() as ApiError).error.code).toBe("herdr_update_unsupported");
-  });
-
-  it("updates herdr through the server and reports what herdr said", async () => {
-    // a stand-in: the real `herdr update` would replace the herdr on PATH and hand its server off
-    const state = mkdtempSync(join(tmpdir(), "herdr-update-api-"));
-    const standIn = join(state, "herdr");
-    writeFileSync(standIn, [
-      "#!/bin/sh",
-      `echo "$*" >> '${join(state, "calls")}'`,
-      'case "$1" in',
-      `  status) echo '{"client":{"version":"0.9.3","binary":"${standIn}"},"server":{"running":true,"version":"0.9.3","capabilities":{"live_handoff":true}},"update":{"server_binary_stale":false}}' ;;`,
-      "  update) echo 'already up to date (0.9.3)' >&2 ;;",
-      "  *) exit 2 ;;",
-      "esac",
-      "",
-    ].join("\n"));
-    chmodSync(standIn, 0o755);
-    const server = createServer({ port: 0, stateDir: state, token: "", herdrUpdate: new HerdrUpdater({ bin: standIn }) });
-    const url = `http://localhost:${server.port}/api/herdr/update`;
-    try {
-      expect(await (await fetch(url)).json() as HerdrUpdateStatus).toMatchObject({ supported: true, phase: "idle", server_version: "0.9.3", binary_version: "0.9.3", stale: false });
-      expect((await fetch(url, { method: "POST" })).status).toBe(403);
-      expect(existsSync(join(state, "calls")) ? readFileSync(join(state, "calls"), "utf8") : "").not.toContain("update --handoff");
-      const accepted = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
-      expect(accepted.status).toBe(202);
-      const deadline = Date.now() + 10_000;
-      let status = await (await fetch(url)).json() as HerdrUpdateStatus;
-      while (status.phase === "updating" || status.finished_at === null) {
-        if (Date.now() >= deadline) throw new Error("Timed out: the herdr update finished");
-        await Bun.sleep(20);
-        status = await (await fetch(url)).json() as HerdrUpdateStatus;
-      }
-      expect(status).toMatchObject({ phase: "idle", output: "already up to date (0.9.3)" });
-      expect(readFileSync(join(state, "calls"), "utf8")).toContain("update --handoff");
-    } finally { server.stop(); rmSync(state, { recursive: true, force: true }); }
-  });
-});
 
 describe("phone access", () => {
   it("says how a phone can reach this server, whatever Tailscale is doing on this machine", async () => {
@@ -239,7 +92,7 @@ describe("mutation body validation", () => {
 describe("workspace and discovery endpoints", () => {
   let workspaceId: string | null = null;
   let paneId: string | null = null;
-  const label = `herdr-web-ui-test-${Math.random().toString(36).slice(2)}`;
+  const label = `herdr-fleet-test-${Math.random().toString(36).slice(2)}`;
   const fileName = `${label}-mention.txt`;
   const filePath = join(tmpdir(), fileName);
 
@@ -258,7 +111,7 @@ describe("workspace and discovery endpoints", () => {
   });
 
   it("offers omo and gjc, which herdr cannot start, exactly when they are on PATH", async () => {
-    const bin = mkdtempSync(join(tmpdir(), "herdr-web-ui-shell-agents-"));
+    const bin = mkdtempSync(join(tmpdir(), "herdr-fleet-shell-agents-"));
     const path = process.env["PATH"];
     const kinds = async () => ((await (await fetch(`${base()}/api/agents`)).json()) as { agents: AgentKind[] }).agents;
     try {
@@ -502,7 +355,7 @@ describe("POST /api/pane/close", () => {
   beforeAll(async () => {
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
       "workspace.create",
-      { label: "herdr-web-ui-test-close", cwd: "/tmp", focus: false },
+      { label: "herdr-fleet-test-close", cwd: "/tmp", focus: false },
     );
     workspaceId = created.workspace.workspace_id;
     paneId = created.root_pane.pane_id;
@@ -574,10 +427,10 @@ describe("POST /api/pane/image", () => {
     });
 
   beforeAll(async () => {
-    qaCwd = mkdtempSync(join(tmpdir(), "herdr-web-ui-image-"));
+    qaCwd = mkdtempSync(join(tmpdir(), "herdr-fleet-image-"));
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
       "workspace.create",
-      { label: "herdr-web-ui-test-image", cwd: qaCwd, focus: false },
+      { label: "herdr-fleet-test-image", cwd: qaCwd, focus: false },
     );
     qaWorkspaceId = created.workspace.workspace_id;
     qaPaneId = created.root_pane.pane_id;
@@ -595,7 +448,7 @@ describe("POST /api/pane/image", () => {
     expect(body.ok).toBe(true);
     // the prompt must reference a file the agent can read without leaving its project
     expect(body.path.startsWith(qaCwd!)).toBe(true);
-    expect(body.path.includes(".herdr-web-ui")).toBe(true);
+    expect(body.path.includes(".herdr-fleet")).toBe(true);
     expect(body.path.endsWith(".png")).toBe(true);
     const stored = statSync(body.path);
     expect(stored.size).toBeGreaterThan(0);
@@ -614,7 +467,7 @@ describe("POST /api/pane/image", () => {
     const res = await post({ pane_id: qaPaneId, content_type: "image/svg+xml", data_base64: svg, name: "../omo icon.SVG" });
     expect(res.status).toBe(200);
     const { path } = (await res.json()) as { path: string };
-    expect(path.startsWith(join(qaCwd!, ".herdr-web-ui") + "/")).toBe(true);
+    expect(path.startsWith(join(qaCwd!, ".herdr-fleet") + "/")).toBe(true);
     expect(basename(path)).toMatch(/^omo_icon-\d{8}-\d{6}-[0-9a-f]{8}\.svg$/);
     expect(readFileSync(path, "utf8")).toBe('<svg xmlns="http://www.w3.org/2000/svg"/>');
     // no name, or one without a usable extension: still stored, as .bin
@@ -656,7 +509,7 @@ describe("WebSocket /ws", () => {
   beforeAll(async () => {
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
       "workspace.create",
-      { label: "herdr-web-ui-test", cwd: "/tmp", focus: false },
+      { label: "herdr-fleet-test", cwd: "/tmp", focus: false },
     );
     qaWorkspaceId = created.workspace.workspace_id;
     qaPaneId = created.root_pane.pane_id;
@@ -779,7 +632,7 @@ describe("WebSocket roles and status push", () => {
   beforeAll(async () => {
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
       "workspace.create",
-      { label: "herdr-web-ui-test-roles", cwd: "/tmp", focus: false },
+      { label: "herdr-fleet-test-roles", cwd: "/tmp", focus: false },
     );
     qaWorkspaceId = created.workspace.workspace_id;
     qaPaneId = created.root_pane.pane_id;
@@ -859,7 +712,7 @@ describe("WebSocket roles and status push", () => {
   }, 40_000);
 
   it("leaves the shared pty's size alone for an attach whose grid the chat lens covers", async () => {
-    const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-keep-size" });
+    const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-keep-size" });
     const paneId = created.root_pane.pane_id;
     const chat = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
     const otherChat = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
@@ -899,7 +752,7 @@ describe("WebSocket roles and status push", () => {
   }, 60_000);
 
   it("applies a resize that arrives while a covered attach is still creating the pty", async () => {
-    const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-keep-size-switch" });
+    const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-keep-size-switch" });
     const paneId = created.root_pane.pane_id;
     const phone = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
     try {
@@ -960,7 +813,7 @@ describe("WebSocket roles and status push", () => {
       // a pane ending while unattached pushes pane-exited
       const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
         "workspace.create",
-        { label: "herdr-web-ui-test-exit", cwd: "/tmp", focus: false },
+        { label: "herdr-fleet-test-exit", cwd: "/tmp", focus: false },
       );
       exitWorkspaceId = created.workspace.workspace_id;
       const exitPaneId = created.root_pane.pane_id;
@@ -1002,7 +855,7 @@ describe("WebSocket observer-first attach", () => {
   beforeAll(async () => {
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
       "workspace.create",
-      { label: "herdr-web-ui-test-observe", cwd: "/tmp", focus: false },
+      { label: "herdr-fleet-test-observe", cwd: "/tmp", focus: false },
     );
     observeWorkspaceId = created.workspace.workspace_id;
     observePaneId = created.root_pane.pane_id;
@@ -1053,7 +906,7 @@ describe("WebSocket concurrent attach", () => {
   beforeAll(async () => {
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
       "workspace.create",
-      { label: "herdr-web-ui-test-race", cwd: "/tmp", focus: false },
+      { label: "herdr-fleet-test-race", cwd: "/tmp", focus: false },
     );
     raceWorkspaceId = created.workspace.workspace_id;
     racePaneId = created.root_pane.pane_id;
@@ -1124,7 +977,7 @@ describe("WebSocket client leaving mid-attach", () => {
   });
 
   it("never pins the pty for a client that disconnects before its attach is ready", async () => {
-    const { paneId, terminalId } = await createLeavePane("herdr-web-ui-test-leave-close");
+    const { paneId, terminalId } = await createLeavePane("herdr-fleet-test-leave-close");
     expect(attachProcessCount(terminalId)).toBe(0);
     const leaver = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
     const stayer = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
@@ -1143,7 +996,7 @@ describe("WebSocket client leaving mid-attach", () => {
   }, 40_000);
 
   it("never pins the pty for a client that detaches before its attach is ready", async () => {
-    const { paneId, terminalId } = await createLeavePane("herdr-web-ui-test-leave-detach");
+    const { paneId, terminalId } = await createLeavePane("herdr-fleet-test-leave-detach");
     expect(attachProcessCount(terminalId)).toBe(0);
     const switcher = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
     const stayer = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
@@ -1195,7 +1048,7 @@ describe("web push", () => {
     fake = await startFakePushService();
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
       "workspace.create",
-      { label: "herdr-web-ui-test-push", cwd: "/tmp", focus: false },
+      { label: "herdr-fleet-test-push", cwd: "/tmp", focus: false },
     );
     pushWorkspaceId = created.workspace.workspace_id;
     pushPaneId = created.root_pane.pane_id;
@@ -1266,16 +1119,16 @@ describe("web push", () => {
     let bridge: ReturnType<typeof createServer> | undefined;
     let watcher: RecordingSocket | undefined;
     try {
-      created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-codex-finish" });
-      probe = await workspaceCreate({ cwd: tmpdir(), label: "herdr-web-ui-test-codex-probe" });
+      created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-codex-finish" });
+      probe = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-codex-probe" });
       const paneId = created.root_pane.pane_id;
       const probeId = probe.root_pane.pane_id;
-      dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-codex-finish-"));
+      dir = mkdtempSync(join(tmpdir(), "herdr-fleet-codex-finish-"));
       const device = await startFakePushService();
       cleanupDevice = device;
       await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "unknown" });
       bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: dir, machines: false,
-        alertTiming: { short: 0, long: 0, longTurn: 0 } });
+        alertTiming: { short: 0, long: 0, longTurn: 0 }, pushEndpoint: loopbackPush });
       const origin = `http://127.0.0.1:${bridge.port}`;
       watcher = await RecordingSocket.connect(`ws://127.0.0.1:${bridge.port}/ws`);
       const subscribe = await fetch(`${origin}/api/push/subscribe`, {
@@ -1353,11 +1206,11 @@ describe("web push", () => {
         cwd: "/tmp",
         focus: false,
       });
-    const watched = await createPane("herdr-web-ui-test-push-restart");
-    const probe = await createPane("herdr-web-ui-test-push-probe");
+    const watched = await createPane("herdr-fleet-test-push-restart");
+    const probe = await createPane("herdr-fleet-test-push-probe");
     const watchedId = watched.root_pane.pane_id;
     const probeId = probe.root_pane.pane_id;
-    const restartDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-restart-"));
+    const restartDir = mkdtempSync(join(tmpdir(), "herdr-fleet-restart-"));
     const device = await startFakePushService();
     let restarted: { port: number; stop: () => void } | null = null;
     let watcher: RecordingSocket | null = null;
@@ -1366,7 +1219,7 @@ describe("web push", () => {
       const before = (await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {})).snapshot;
       expect(before.panes.find((pane) => pane.pane_id === watchedId)?.agent_status).toBe("working");
 
-      restarted = createServer({ port: 0, stateDir: restartDir, alertTiming: { short: 0, long: 0, longTurn: 0 } });
+      restarted = createServer({ port: 0, stateDir: restartDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushEndpoint: loopbackPush });
       const subscribe = await fetch(`http://localhost:${restarted.port}/api/push/subscribe`, {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -1446,10 +1299,10 @@ describe("pairing and identity", () => {
     expect(((await refused.json()) as ApiError).error.code).toBe("other_user");
   });
 
-  it("takes the login named in HERDR_WEB_TAILSCALE_OWNER for the PC's own, as a tagged node needs", async () => {
+  it("takes the login named in HERDR_FLEET_TAILSCALE_OWNER for the PC's own, as a tagged node needs", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-named-owner-"));
-    const before = process.env["HERDR_WEB_TAILSCALE_OWNER"];
-    process.env["HERDR_WEB_TAILSCALE_OWNER"] = " named@example.com ";
+    const before = process.env["HERDR_FLEET_TAILSCALE_OWNER"];
+    process.env["HERDR_FLEET_TAILSCALE_OWNER"] = " named@example.com ";
     const named = createServer({ port: 0, stateDir: state });
     try {
       const at = async (headers: Record<string, string>) => ((await (await fetch(`http://127.0.0.1:${named.port}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
@@ -1458,7 +1311,7 @@ describe("pairing and identity", () => {
       expect(await at(proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
     } finally {
       named.stop();
-      if (before === undefined) delete process.env["HERDR_WEB_TAILSCALE_OWNER"]; else process.env["HERDR_WEB_TAILSCALE_OWNER"] = before;
+      if (before === undefined) delete process.env["HERDR_FLEET_TAILSCALE_OWNER"]; else process.env["HERDR_FLEET_TAILSCALE_OWNER"] = before;
       rmSync(state, { recursive: true, force: true });
     }
   });
@@ -1479,7 +1332,7 @@ describe("pairing and identity", () => {
     const paired = await fetch(`${base()}/api/devices/pair`, { method: "POST", headers: { ...guard, ...proxied() }, body: JSON.stringify({ code, label: "  Test  phone " }) });
     expect(paired.status).toBe(204);
     const setCookie = paired.headers.get("set-cookie") ?? "";
-    expect(setCookie).toMatch(/^herdr_web_device=[0-9a-f]{64}; Path=\/; HttpOnly; SameSite=Strict; Max-Age=/);
+    expect(setCookie).toMatch(/^herdr_fleet_device=[0-9a-f]{64}; Path=\/; HttpOnly; SameSite=Strict; Max-Age=/);
     cookie = setCookie.split(";")[0]!;
     // the device is in, from anywhere; a stranger no longer is; this PC still is
     expect(await auth({ ...proxied(), cookie })).toMatchObject({ authenticated: true, via: "device" });
@@ -1497,49 +1350,13 @@ describe("pairing and identity", () => {
     const renamed = await fetch(`${base()}/api/devices/${deviceId}`, { method: "PATCH", headers: guard, body: JSON.stringify({ label: "Kitchen iPad" }) });
     expect(((await renamed.json()) as { label: string }).label).toBe("Kitchen iPad");
     const out = await fetch(`${base()}/api/auth`, { method: "DELETE", headers: { cookie } });
-    expect(out.headers.get("set-cookie") ?? "").toContain("herdr_web_device=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
+    expect(out.headers.get("set-cookie") ?? "").toContain("herdr_fleet_device=; Path=/; HttpOnly; SameSite=Strict; Max-Age=0");
     expect((await fetch(`${base()}/api/devices/${deviceId}`, { method: "DELETE", headers: guard })).status).toBe(204);
     expect((await fetch(`${base()}/api/devices/${deviceId}`, { method: "DELETE", headers: guard })).status).toBe(404);
     // the revoked device is out, and so are strangers: revoking the last device never reopens the gate
     expect(await auth({ ...proxied(), cookie })).toMatchObject({ authenticated: false, reason: "pairing_required" });
     expect(await auth(proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
     expect(await auth()).toMatchObject({ authenticated: true, via: "local" });
-  });
-
-  it("the plugin script prints a code a headless PC's owner can hand to a phone", async () => {
-    const configDir = mkdtempSync(join(tmpdir(), "herdr-pair-cli-"));
-    try {
-      // spawned asynchronously: a synchronous spawn would block the very server the script asks
-      const pairCli = async (port: number) => {
-        const child = Bun.spawn(["bun", "scripts/plugin.ts", "pair"], { cwd: join(import.meta.dir, ".."), env: { ...process.env, PORT: String(port), HOST: "127.0.0.1", HERDR_PLUGIN_CONFIG_DIR: configDir, HERDR_WEB_TOKEN: "" }, stdout: "pipe", stderr: "pipe" });
-        const [out, err, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-        return { out, err, exitCode };
-      };
-      const run = await pairCli(open.port);
-      const out = run.out;
-      expect(run.exitCode, run.err).toBe(0);
-      const code = /Pairing code: (\d{3}) (\d{3})/.exec(out);
-      expect(code).not.toBeNull();
-      expect(out).toContain("enter the code");
-      const paired = await fetch(`${base()}/api/devices/pair`, { method: "POST", headers: { ...guard, ...proxied() }, body: JSON.stringify({ code: `${code![1]}${code![2]}`, label: "Phone by CLI" }) });
-      expect(paired.status).toBe(204);
-      const list = (await (await fetch(`${base()}/api/devices`)).json()) as { devices: Array<{ label: string }> };
-      expect(list.devices.map((d) => d.label)).toContain("Phone by CLI");
-      // with a token configured, the script reads it from the plugin's .env file and gets past the gate
-      const tokenState = mkdtempSync(join(tmpdir(), "herdr-pair-cli-token-"));
-      const secured = createServer({ port: 0, stateDir: tokenState, token: "cli-t0k3n", tailscaleOwner: null });
-      try {
-        writeFileSync(join(configDir, ".env"), "HERDR_WEB_TOKEN=cli-t0k3n\n");
-        const withToken = await pairCli(secured.port);
-        expect(withToken.exitCode, withToken.err).toBe(0);
-        expect(withToken.out).toMatch(/Pairing code: \d{3} \d{3}/);
-        // `.env` wins over a stale token in the older `env` file
-        writeFileSync(join(configDir, "env"), "HERDR_WEB_TOKEN=stale\n");
-        const withLegacy = await pairCli(secured.port);
-        expect(withLegacy.exitCode, withLegacy.err).toBe(0);
-        expect(withLegacy.out).toMatch(/Pairing code: \d{3} \d{3}/);
-      } finally { secured.stop(); rmSync(tokenState, { recursive: true, force: true }); }
-    } finally { rmSync(configDir, { recursive: true, force: true }); }
   });
 
   it("a configured token gates this PC and its Tailscale login, and a paired device gets past it", async () => {
@@ -1638,7 +1455,7 @@ describe("token auth", () => {
     });
     expect(res.status).toBe(204);
     const cookie = res.headers.get("set-cookie") ?? "";
-    expect(cookie).toContain(`herdr_web_token=${TOKEN}`);
+    expect(cookie).toContain(`herdr_fleet_token=${TOKEN}`);
     expect(cookie).toContain("HttpOnly");
     expect(cookie).toContain("SameSite=Strict");
     expect(cookie).toContain("Max-Age=31536000");
@@ -1646,7 +1463,7 @@ describe("token auth", () => {
 
   it("accepts the session cookie", async () => {
     const res = await fetch(`${securedBase()}/api/session`, {
-      headers: { cookie: `herdr_web_token=${TOKEN}` },
+      headers: { cookie: `herdr_fleet_token=${TOKEN}` },
     });
     expect(res.status).toBe(200);
   });
@@ -1684,7 +1501,7 @@ describe("token auth", () => {
   }, 10000);
 
   it("upgrades a websocket that carries the cookie", async () => {
-    const ws = connectWithCookie(wsUrl(), `herdr_web_token=${TOKEN}`);
+    const ws = connectWithCookie(wsUrl(), `herdr_fleet_token=${TOKEN}`);
     const first = await new Promise<{ type: string }>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("no message within 5000ms")), 5000);
       ws.addEventListener("error", () => {
@@ -1757,21 +1574,20 @@ describe("PC management API", () => {
     const local = await fetch(`${base()}/api/machines/local/session`);
     expect(local.status).toBe(200);
   });
-  it("rejects CSRF, malformed targets and remote forwarding outside the allowlist", async () => {
-    for (const headers of [{}, { "x-herdr-machine": "1", origin: "https://evil.invalid" }, { "x-herdr-machine": "1", "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
+  it("offers no PC setup, and no route to another PC", async () => {
+    for (const headers of [{ "x-herdr-machine": "1", origin: "https://evil.invalid" }, { "x-herdr-machine": "1", "sec-fetch-site": "cross-site" }] as Record<string, string>[]) {
       const response = await fetch(`${base()}/api/machines/setup`, { method: "POST", headers, body: JSON.stringify({ destination: "host" }) });
       expect(response.status).toBe(403);
     }
-    const bad = await fetch(`${base()}/api/machines/setup`, { method: "POST", headers: { "x-herdr-machine": "1" }, body: JSON.stringify({ destination: "-oProxyCommand=bad" }) });
-    expect(bad.status).toBe(400);
-    expect((await fetch(`${base()}/api/machines/missing/pane/read?pane_id=p1`)).status).toBe(503);
-    expect((await fetch(`${base()}/api/machines/missing/auth`)).status).toBe(404);
+    expect((await fetch(`${base()}/api/machines/setup`, { method: "POST", headers: { "x-herdr-machine": "1" }, body: JSON.stringify({ destination: "host" }) })).status).toBe(405);
+    expect((await fetch(`${base()}/api/machines/missing/pane/read?pane_id=p1`)).status).toBe(404);
+    expect((await fetch(`${base()}/api/bridge`)).status).toBe(404);
   });
-  it("gates PC metadata, setup and SSE behind the existing token", async () => {
+  it("gates PC metadata and SSE behind the existing token", async () => {
     const stateDir = mkdtempSync(join(tmpdir(), "herdr-machine-auth-"));
     const gated = createServer({ port: 0, token: "machine-test-secret", stateDir });
     try {
-      for (const path of ["/api/machines", "/api/machines/events", "/api/machines/setup", "/api/bridge"]) expect((await fetch(`http://localhost:${gated.port}${path}`)).status).toBe(401);
+      for (const path of ["/api/machines", "/api/machines/events"]) expect((await fetch(`http://localhost:${gated.port}${path}`)).status).toBe(401);
       const health = await fetch(`http://localhost:${gated.port}/api/health?scope=bridge`).then((r) => r.json()) as { auth: HealthAuth };
       expect(health.auth).toEqual({ required: true, authenticated: false, reason: "token_required" });
     } finally { gated.stop(); rmSync(stateDir, { recursive: true, force: true }); }
@@ -1780,9 +1596,9 @@ describe("PC management API", () => {
 
 describe("terminal lens of a bridge without the PTY sidecar", () => {
   const TOKEN = "sidecar-test-secret";
-  /** what /api/health and /api/bridge tell of herdr, from a bridge whose runtime has the sidecar or lacks it */
+  /** what /api/health tells of herdr, from a server whose runtime has the sidecar or lacks it */
   const told = async (sidecar: boolean) => {
-    const dir = mkdtempSync(join(tmpdir(), "herdr-web-ui-sidecar-"));
+    const dir = mkdtempSync(join(tmpdir(), "herdr-fleet-sidecar-"));
     const bridge = createServer({ port: 0, stateDir: dir, token: TOKEN, machines: false, sidecar });
     try {
       const get = async (path: string) => {
@@ -1790,30 +1606,30 @@ describe("terminal lens of a bridge without the PTY sidecar", () => {
         expect(response.status).toBe(200);
         return (await response.json()) as { herdr: unknown };
       };
-      return { health: (await get("/api/health")).herdr, bridge: (await get("/api/bridge")).herdr };
+      return (await get("/api/health")).herdr;
     } finally { bridge.stop(); rmSync(dir, { recursive: true, force: true }); }
   };
 
-  it("reports a mirror from /api/health and /api/bridge though herdr itself can attach", async () => {
+  it("reports a mirror from /api/health though herdr itself can attach", async () => {
     const herdr = await ping();
     // the case only means something against a herdr that can attach
     expect(herdr.terminal_attach).toBe(true);
     const mirrored = { ...herdr, terminal_attach: false, terminal_mirror: true };
-    expect(await told(false)).toEqual({ health: mirrored, bridge: mirrored });
+    expect(await told(false)).toEqual(mirrored);
   });
 
   it("passes herdr's own answer through where the sidecar runs", async () => {
     const herdr = await ping();
     expect(herdr).not.toHaveProperty("terminal_mirror");
-    expect(await told(true)).toEqual({ health: herdr, bridge: herdr });
+    expect(await told(true)).toEqual(herdr);
   });
 });
 
 it("refuses cross-origin changes while allowing same-origin and CLI requests", async () => {
-  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-origin-"));
+  const root = mkdtempSync(join(tmpdir(), "herdr-fleet-origin-"));
   const instance = createServer({ port: 0, stateDir: root, token: "", tailscaleOwner: null, machines: false });
   const base = `http://127.0.0.1:${instance.port}`;
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-origin" });
+  const created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-origin" });
   try {
     for (const path of ["pane/input", "pane/keys", "pane/close", "workspace/create", "push/subscribe"]) {
       const response = await fetch(`${base}/api/${path}`, { method: "POST", headers: { origin: "http://other.example", "content-type": "text/plain" }, body: JSON.stringify({ pane_id: created.root_pane.pane_id, text: "must not type", keys: ["Enter"] }) });

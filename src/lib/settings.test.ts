@@ -169,15 +169,6 @@ describe("quick replies row", () => {
     expect(DEFAULT_SETTINGS.showQuickReplies).toBe(false);
     expect(sanitizeSettings({ showQuickReplies: true }).showQuickReplies).toBe(true);
     expect(sanitizeSettings({ showQuickReplies: "yes" }).showQuickReplies).toBe(false);
-    expect(DEFAULT_SETTINGS.showUsage).toBe(false);
-    expect(sanitizeSettings({ showUsage: true }).showUsage).toBe(true);
-    expect(sanitizeSettings({ showUsage: 1 }).showUsage).toBe(false);
-    expect(DEFAULT_SETTINGS.usageCount).toBe("used");
-    expect(sanitizeSettings({ usageCount: "left" }).usageCount).toBe("left");
-    expect(sanitizeSettings({ usageCount: "half" }).usageCount).toBe("used");
-    expect(sanitizeSettings({ usageOrder: ["codex:a", 3, "codex:a", "", "claude:b"] }).usageOrder).toEqual(["codex:a", "claude:b"]);
-    expect(sanitizeSettings({ usageHidden: Array.from({ length: 100 }, (_, index) => `k${index}`) }).usageHidden).toHaveLength(64);
-    expect(sanitizeSettings({ usageHidden: "codex:a" }).usageHidden).toEqual([]);
   });
 });
 
@@ -272,14 +263,6 @@ describe("agent marks", () => {
   });
 });
 
-describe("plan meter placement", () => {
-  it("sits beside Settings until the top of the list is chosen", () => {
-    expect(DEFAULT_SETTINGS.usagePlacement).toBe("footer");
-    expect(sanitizeSettings({ usagePlacement: "top" }).usagePlacement).toBe("top");
-    expect(sanitizeSettings({ usagePlacement: "left" }).usagePlacement).toBe("footer");
-  });
-});
-
 it("sanitizes input modes and shortcut overrides without accepting arbitrary commands", () => {
   expect(sanitizeSettings({ terminalInputMode: "bad" }).terminalInputMode).toBe("auto");
   expect(sanitizeSettings({ terminalInputMode: "line" }).terminalInputMode).toBe("line");
@@ -293,9 +276,9 @@ describe("default lens", () => {
     expect(sanitizeSettings({ defaultView: "split" }).defaultView).toBe("auto");
   });
   it("forgets every pane's own lens and nothing else", () => {
-    const data = new Map<string, string>([["herdr-web-ui:view:local:w1:p1", "terminal"], ["herdr-web-ui:view:remote:pc:w2:p1", "chat"], ["herdr-web-ui:settings", "{}"]]);
+    const data = new Map<string, string>([["herdr-fleet:view:local:w1:p1", "terminal"], ["herdr-fleet:view:remote:pc:w2:p1", "chat"], ["herdr-fleet:settings", "{}"]]);
     const storage = { get length() { return data.size; }, key: (i: number) => [...data.keys()][i] ?? null, removeItem: (k: string) => { data.delete(k); } };
     expect(forgetPaneViews(storage)).toBe(2);
-    expect([...data.keys()]).toEqual(["herdr-web-ui:settings"]);
+    expect([...data.keys()]).toEqual(["herdr-fleet:settings"]);
   });
 });

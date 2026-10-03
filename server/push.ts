@@ -1,9 +1,9 @@
 /**
- * Web Push: pane alerts that reach a device even when herdr-web-ui is closed there.
+ * Web Push: pane alerts that reach a device even when herdr-fleet is closed there.
  *
  * The browser hands us a subscription (an endpoint on its vendor's push service plus
  * the keys to encrypt for it); we POST encrypted payloads there, signed with our VAPID
- * key. Both halves persist in the state dir (default ~/.config/herdr-web-ui):
+ * key. Both halves persist in the state dir (default ~/.config/herdr-fleet):
  * - vapid.json: every subscription is bound to this key pair. Regenerating it silently
  *   orphans every subscribed device, so a malformed file is an error, never a rotation.
  * - push-subscriptions.json: survives restarts, so a reboot does not unsubscribe phones.
@@ -43,7 +43,7 @@ import { badRequest, jsonResponse } from "./http.ts";
 /** A blocked agent is still blocked when the phone gets signal back; a newer push for the pane replaces it anyway. */
 const PUSH_TTL_SECONDS = 12 * 60 * 60;
 const PUSH_TIMEOUT_MS = 10_000;
-const DEFAULT_SUBJECT = "https://github.com/devswha/herdr-web-ui";
+const DEFAULT_SUBJECT = "https://github.com/atriumnook/herdr-fleet";
 
 /** How long an alert waits for the pane to change first, and the turn a finish is worth telling. */
 export interface AlertTiming {
@@ -70,6 +70,8 @@ export type PushDelivery = { ok: true } | { ok: false; status: number | null; go
 
 export interface PushService {
   publicKey(): string;
+  /** the endpoint check this service stores subscriptions under (PushServiceOptions.acceptEndpoint) */
+  acceptEndpoint(url: URL): boolean;
   /** `alerts` absent keeps what the device chose before (a re-registration on load) */
   subscribe(subscription: PushSubscriptionRecord, alerts?: AlertPrefs, deviceId?: string | null): void;
   revokeDevice(id: string): void;
@@ -100,9 +102,11 @@ export interface PushServiceOptions {
   timing?: Partial<AlertTiming>;
   now?: () => number;
   canDeliver?: (deviceId: string | null | undefined) => boolean;
+  /** which endpoints may be stored; isPushServiceEndpoint unless a test serves its own */
+  acceptEndpoint?: (url: URL) => boolean;
 }
 
-export { defaultStateDir } from "./update-state.ts";
+export { defaultStateDir } from "./state-dir.ts";
 
 function readJson(path: string): unknown {
   try {
@@ -126,14 +130,26 @@ function decodedLength(value: unknown): number {
   return Buffer.from(value, "base64url").length;
 }
 
+/** The browser vendors' push services: Chrome (FCM), Firefox, Safari and Edge on Windows (WNS). */
+const PUSH_SERVICE_HOSTS = ["fcm.googleapis.com", "push.services.mozilla.com", "push.apple.com", "notify.windows.com"];
+
+/**
+ * Whether an endpoint is on a browser vendor's push service. The server POSTs to every stored
+ * endpoint, so any other address would let a client point it at the LAN or this PC's own ports.
+ */
+export function isPushServiceEndpoint(url: URL): boolean {
+  if (url.protocol !== "https:" || url.port !== "") return false;
+  const host = url.hostname.toLowerCase();
+  return PUSH_SERVICE_HOSTS.some((allowed) => host === allowed || host.endsWith(`.${allowed}`));
+}
+
 /** The PushSubscription JSON a browser produces, checked before anything is stored. */
-export function parseSubscription(value: unknown): PushSubscriptionRecord | null {
+export function parseSubscription(value: unknown, acceptEndpoint: (url: URL) => boolean = isPushServiceEndpoint): PushSubscriptionRecord | null {
   if (typeof value !== "object" || value === null) return null;
   const { endpoint, keys } = value as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } };
   if (typeof endpoint !== "string") return null;
   try {
-    const url = new URL(endpoint);
-    if (url.protocol !== "https:" && url.protocol !== "http:") return null;
+    if (!acceptEndpoint(new URL(endpoint))) return null;
   } catch {
     return null;
   }
@@ -153,7 +169,8 @@ export function endedMessage(paneId: string, title: string): PushPayload {
 export function createPushService(options: PushServiceOptions): PushService {
   const vapidPath = join(options.stateDir, "vapid.json");
   const subscriptionsPath = join(options.stateDir, "push-subscriptions.json");
-  const subject = options.subject ?? process.env["HERDR_WEB_PUSH_SUBJECT"] ?? DEFAULT_SUBJECT;
+  const subject = options.subject ?? process.env["HERDR_FLEET_PUSH_SUBJECT"] ?? DEFAULT_SUBJECT;
+  const acceptEndpoint = options.acceptEndpoint ?? isPushServiceEndpoint;
 
   let vapid: { publicKey: string; privateKey: string } | null = null;
   let subscriptions: Map<string, PushSubscriptionRecord> | null = null;
@@ -181,7 +198,7 @@ export function createPushService(options: PushServiceOptions): PushService {
     subscriptions = new Map();
     if (Array.isArray(stored)) {
       for (const entry of stored) {
-        const parsed = parseSubscription(entry);
+        const parsed = parseSubscription(entry, acceptEndpoint);
         const alerts = (entry as { alerts?: unknown } | null)?.alerts;
         if (parsed) {
           const owner = (entry as PushSubscriptionRecord).device_id;
@@ -302,6 +319,7 @@ export function createPushService(options: PushServiceOptions): PushService {
 
   return {
     publicKey: () => keys().publicKey,
+    acceptEndpoint,
 
     subscribe(subscription, alerts, deviceId) {
       const kept = alerts ?? store().get(subscription.endpoint)?.alerts;
@@ -442,8 +460,8 @@ export async function handlePushRequest(request: Request, pathname: string, push
   const body = (typeof payload === "object" && payload !== null ? payload : {}) as { subscription?: unknown; endpoint?: unknown; alerts?: unknown };
 
   if (route === "POST /api/push/subscribe") {
-    const subscription = parseSubscription(body.subscription);
-    if (!subscription) return badRequest("invalid_subscription", "subscription needs an http(s) endpoint and p256dh/auth keys");
+    const subscription = parseSubscription(body.subscription, (url) => push.acceptEndpoint(url));
+    if (!subscription) return badRequest("invalid_subscription", "subscription needs a browser push service endpoint and p256dh/auth keys");
     push.subscribe(subscription, body.alerts === undefined ? undefined : parseAlerts(body.alerts), deviceId);
     return new Response(null, { status: 204 });
   }

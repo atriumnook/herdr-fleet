@@ -14,12 +14,8 @@ export type ThemeSetting = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
 export type Density = "compact" | "comfortable";
 export type SidebarGrouping = "workspace" | "directory";
-/** what the plan meters count: the share of a limit used, or what is left of it */
-export type UsageCount = "used" | "left";
 /** amber: the herdr look (the default); report: the dark technical report look; charcoal: neutral Ghostty-style dark */
 export type Palette = "amber" | "report" | "charcoal";
-/** where the plan meters sit: chips beside Settings, or a panel at the top of the sidebar */
-export type UsagePlacement = "footer" | "top";
 /** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
 export type DefaultView = "auto" | "chat" | "terminal";
 
@@ -66,21 +62,8 @@ export interface Settings {
   showQuickReplies: boolean;
   /** touch screens: a chip above the message box takes the prompt Claude suggests next; off until chosen */
   showSuggestionChip: boolean;
-  /** the plan meters beside Settings in the sidebar (GET /api/usage); off until chosen, as it sends this PC's sign-ins out */
-  showUsage: boolean;
-  usageCount: UsageCount;
-  usagePlacement: UsagePlacement;
   /** every pane's lens until switched in that pane; changing it puts every pane back on it */
   defaultView: DefaultView;
-  /** the plan meters' order by ProviderUsage.key; accounts not in it follow, the one nearest a limit first */
-  usageOrder: string[];
-  /** accounts left out of the plan meters, strip and popover alike, by ProviderUsage.key */
-  usageHidden: string[];
-  /** the microphone button in the composer and the terminal input line; off until chosen, as it sends audio out */
-  voiceInput: boolean;
-  voicePolishChat: boolean;
-  /** off by default: a terminal line is usually a command, kept as spoken */
-  voicePolishTerminal: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -106,26 +89,11 @@ export const DEFAULT_SETTINGS: Settings = {
   quickReplies: ["continue", "yes", "no", "commit and push", "retry"],
   showQuickReplies: false,
   showSuggestionChip: false,
-  showUsage: false,
-  usageCount: "used",
-  usagePlacement: "footer",
   defaultView: "auto",
-  usageOrder: [],
-  usageHidden: [],
-  voiceInput: false,
-  voicePolishChat: true,
-  voicePolishTerminal: false,
 };
 
 export const QUICK_REPLIES_MAX = 12;
 /** accounts the usage order and hiding remember; more are a hand-edited record */
-export const USAGE_KEYS_MAX = 64;
-
-/** A list of usage keys: strings only, each once, bounded. */
-function usageKeys(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return [...new Set(value.filter((key): key is string => typeof key === "string" && key.length > 0 && key.length <= 512))].slice(0, USAGE_KEYS_MAX);
-}
 export const QUICK_REPLY_MAX_CHARS = 200;
 
 /** The replies worth a button: what the list holds, without the blank ones still being written. */
@@ -138,7 +106,7 @@ export function alertPrefs(settings: Settings): AlertPrefs {
   return { input: settings.alertInput, done: settings.alertDone };
 }
 
-const STORAGE_KEY = "herdr-web-ui:settings";
+const STORAGE_KEY = "herdr-fleet:settings";
 export const TERMINAL_FONT_MIN = 10;
 export const TERMINAL_FONT_MAX = 22;
 export const TERMINAL_WHEEL_SPEED_MIN = 1;
@@ -195,15 +163,7 @@ export function sanitizeSettings(raw: unknown): Settings {
       : [...DEFAULT_SETTINGS.quickReplies],
     showQuickReplies: typeof record["showQuickReplies"] === "boolean" ? record["showQuickReplies"] : DEFAULT_SETTINGS.showQuickReplies,
     showSuggestionChip: typeof record["showSuggestionChip"] === "boolean" ? record["showSuggestionChip"] : DEFAULT_SETTINGS.showSuggestionChip,
-    showUsage: typeof record["showUsage"] === "boolean" ? record["showUsage"] : DEFAULT_SETTINGS.showUsage,
-    usageCount: record["usageCount"] === "used" || record["usageCount"] === "left" ? record["usageCount"] : DEFAULT_SETTINGS.usageCount,
-    usagePlacement: record["usagePlacement"] === "top" || record["usagePlacement"] === "footer" ? record["usagePlacement"] : DEFAULT_SETTINGS.usagePlacement,
     defaultView: record["defaultView"] === "chat" || record["defaultView"] === "terminal" || record["defaultView"] === "auto" ? record["defaultView"] : DEFAULT_SETTINGS.defaultView,
-    usageOrder: usageKeys(record["usageOrder"]),
-    usageHidden: usageKeys(record["usageHidden"]),
-    voiceInput: typeof record["voiceInput"] === "boolean" ? record["voiceInput"] : DEFAULT_SETTINGS.voiceInput,
-    voicePolishChat: typeof record["voicePolishChat"] === "boolean" ? record["voicePolishChat"] : DEFAULT_SETTINGS.voicePolishChat,
-    voicePolishTerminal: typeof record["voicePolishTerminal"] === "boolean" ? record["voicePolishTerminal"] : DEFAULT_SETTINGS.voicePolishTerminal,
   };
 }
 
@@ -333,7 +293,7 @@ export function useSettings(): SettingsContextValue {
   return value;
 }
 
-export const PANE_VIEW_KEY_PREFIX = "herdr-web-ui:view:";
+export const PANE_VIEW_KEY_PREFIX = "herdr-fleet:view:";
 
 /** Forgets every pane's own lens on this device, so each opens in the default one again. */
 export function forgetPaneViews(given?: Pick<Storage, "length" | "key" | "removeItem">): number {

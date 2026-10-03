@@ -1,4 +1,3 @@
-import { randomBytes } from "node:crypto";
 import { statSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
@@ -13,7 +12,7 @@ import { DeviceStore, handleDeviceRequest } from "./devices.ts";
 import { remoteAccess, tailscaleIdentity } from "./tailscale.ts";
 import { paneCommands } from "./commands.ts";
 import { paneFiles } from "./files.ts";
-import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse } from "./http.ts";
+import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse, sameOrigin } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
@@ -24,7 +23,7 @@ import { CompletionTracker } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
-import { fileResponse, locateFile } from "./file-view.ts";
+import { fileResponse, fileRoots, locateFile, withinRoots } from "./file-view.ts";
 import {
   agentManifests,
   agentPrompt,
@@ -56,17 +55,10 @@ import { MirrorSession } from "./mirror.ts";
 import { mirrorInput } from "./mirror-input.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
-import { connectUpdater, handleUpdateRequest, type UpdateService } from "./update-api.ts";
-import { handleHerdrUpdateRequest, HerdrUpdater } from "./herdr-update.ts";
-import { handleUsageRequest, UsageService } from "./usage.ts";
-import { handleVoiceRequest, VoiceService } from "./voice.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
-import { bridgeIdentity, registerBridge } from "./bridge.ts";
 import { MachineManager } from "./machines.ts";
 import { handleMachineRequest } from "./machine-api.ts";
-import { MachineRelay } from "./machine-relay.ts";
-import { sameOrigin } from "./machine-security.ts";
 
 const MAX_REPLAY_BYTES = 256 * 1024;
 /**
@@ -176,7 +168,6 @@ interface SocketData {
   readOnly?: boolean;
   revoked?: boolean;
   unwatchDevice?: () => void;
-  relay?: MachineRelay;
   attached: Set<string>;
   output: Map<string, OutputWindow>;
   closing: boolean;
@@ -213,6 +204,11 @@ interface PaneAttachment {
   relookup?: ReturnType<typeof setTimeout>;
 }
 
+/** A file outside the pane's folder and the temp folder (see fileRoots). */
+function outsideRoots(): Response {
+  return jsonResponse({ error: { code: "outside_roots", message: "only files in the pane's folder or the temp folder open here" } }, 403);
+}
+
 function send(client: Client, message: ServerMessage): number {
   if (client.data.closing) return 0;
   try {
@@ -244,19 +240,13 @@ export function createServer(
     tailscaleOwner?: string | null;
     /** Native Codex store; defaults to CODEX_HOME. Tests use an isolated store. */
     codexHome?: string;
-    updates?: UpdateService;
-    /** updates herdr itself (server/herdr-update.ts); unset, the app offers no herdr update. Tests pass one that runs a stand-in herdr. */
-    herdrUpdate?: HerdrUpdater;
-    /** plan limits of the AI subscriptions signed in here; tests pass one without real sign-ins */
-    usage?: UsageService;
-    /** voice input's key, provider and models; tests pass one with their own env and fetch */
-    voice?: VoiceService;
     machines?: boolean;
-    registerBridge?: boolean;
     /** SUBMIT_DEADLINE_MS; tests shorten it */
     submitDeadlineMs?: number;
     /** how long a push alert waits for the pane to change first (server/push.ts); tests send at once */
     alertTiming?: Partial<AlertTiming>;
+    /** push endpoints this server stores; tests that serve their own push service accept it here */
+    pushEndpoint?: (url: URL) => boolean;
     /** ATTACH_RETRY_FOR_MS; tests shorten it */
     attachRetryForMs?: number;
     /** ATTACH_HELD_RETRY_MS; tests shorten it */
@@ -271,7 +261,7 @@ export function createServer(
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
   /** whether this bridge can `terminal attach`: herdr is asked once, and the PTY sidecar has to be runnable here (server/pty/sidecar.ts) */
-  /** whether the sidecar can run, settled as the server starts so that attach, /api/health and /api/bridge tell one answer; a forced answer (tests) stands in for it */
+  /** whether the sidecar can run, settled as the server starts so that attach and /api/health tell one answer; a forced answer (tests) stands in for it */
   const sidecar = options.sidecar ?? (options.terminalAttach === undefined ? sidecarAvailable() : options.terminalAttach !== false);
   let terminalAttachKnown: boolean | null = typeof options.terminalAttach === "boolean" ? options.terminalAttach : null;
   const terminalAttach = async (): Promise<boolean> => {
@@ -294,13 +284,11 @@ export function createServer(
   const lastTyped = new Map<string, number>();
   const hostname = options.hostname ?? process.env["HOST"] ?? "127.0.0.1";
   /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
-  const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
+  const token = options.token ?? process.env["HERDR_FLEET_TOKEN"] ?? "";
   /** paired devices (server/devices.ts) and the PC's Tailscale login: the two ways in besides the token and this PC itself */
   const devices = new DeviceStore(options.stateDir ?? defaultStateDir());
-  const usage = options.usage ?? new UsageService();
-  const voice = options.voice ?? new VoiceService({ stateDir: options.stateDir ?? defaultStateDir(), env: process.env, fetch });
-  /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
-  const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
+  /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_FLEET_TAILSCALE_OWNER) */
+  const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_FLEET_TAILSCALE_OWNER"]?.trim() || undefined;
   const identityOf = namedOwner !== undefined ? () => ({ owner: namedOwner, tagged: false }) : tailscaleIdentity;
   identityOf();
 
@@ -425,7 +413,9 @@ export function createServer(
   const push = createPushService({
     stateDir: options.stateDir ?? defaultStateDir(),
     timing: options.alertTiming,
-    canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
+    ...(options.pushEndpoint ? { acceptEndpoint: options.pushEndpoint } : {}),
+    // no owner (undefined) is a subscription from the removed open-LAN mode: it hears nothing
+    canDeliver: (id) => id === null || (id !== undefined && devices.has(id)),
     lookupTitle: async (paneId) => {
       const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
       return pane ? paneTitle(pane) : undefined;
@@ -454,8 +444,7 @@ export function createServer(
     if (!snapshot.panes.some((pane) => omo.backgroundOf(pane.pane_id) > 0)) return snapshot;
     return { ...snapshot, panes: snapshot.panes.map((pane) => omo.backgroundOf(pane.pane_id) > 0 ? { ...pane, background_tasks: omo.backgroundOf(pane.pane_id) } : pane) };
   };
-  const machines = options.machines === false ? null : new MachineManager(options.stateDir ?? defaultStateDir(), push, completions, clientSnapshot);
-  const bridgeToken = randomBytes(32).toString("hex");
+  const machines = options.machines === false ? null : new MachineManager(completions, clientSnapshot);
 
   function broadcast(paneId: string, message: ServerMessage): void {
     const attachment = attachments.get(paneId);
@@ -745,7 +734,7 @@ export function createServer(
         relookup();
       };
       const session = new PtySession({
-        command: process.env["HERDR_WEB_HERDR_BIN"] || "herdr",
+        command: process.env["HERDR_FLEET_HERDR_BIN"] || "herdr",
         args: ["terminal", "attach", attachedTerminal],
         // herdr's CLI reads HERDR_SOCKET_PATH, not HERDR_SOCKET: the stream must reach
         // the same session the RPCs talk to, or a named session's terminals are
@@ -869,8 +858,6 @@ export function createServer(
     async fetch(request, bunServer) {
       const url = new URL(request.url);
       let { pathname } = url;
-      const bridgeAuthorized = isAuthenticated(request, bridgeToken);
-      const bridgePath = pathname === "/api/bridge" || pathname === "/api/session" || pathname === "/api/agents" || pathname.startsWith("/api/pane/") || pathname.startsWith("/api/workspace/") || pathname.startsWith("/api/fs/") || pathname === "/ws";
       const ip = bunServer.requestIP(request);
       const access = decideAccess({
         loopback: ip !== null && isLoopbackAddress(ip.address),
@@ -883,7 +870,7 @@ export function createServer(
         tokenConfigured: token !== "",
         gated: devices.gated,
       });
-      const authenticated = access.level === "full" || (bridgePath && bridgeAuthorized);
+      const authenticated = access.level === "full";
 
       if (requiresAuth(pathname) && !authenticated) {
         // The WS client never parses a body, so the upgrade refusal stays plain text.
@@ -905,10 +892,6 @@ export function createServer(
         return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
       }
 
-      if (pathname === "/api/bridge") {
-        if (token === "" && !bridgeAuthorized) return unauthorizedJson();
-        try { return jsonResponse(await bridgeIdentity(sidecar)); } catch (error) { return errorResponse(error); }
-      }
       if (pathname === "/api/machines" || pathname.startsWith("/api/machines/")) {
         if (!machines) return jsonResponse({ error: { code: "bridge_only", message: "Manage PCs on the connection server" } }, 404);
         // /local aliases preserve every existing endpoint without a self-proxy.
@@ -929,19 +912,7 @@ export function createServer(
         if (!sameOrigin(request)) return new Response("invalid origin", { status: 403 });
         const deviceId = access.level === "full" ? access.device?.id : undefined;
         const machineId = url.searchParams.get("machine_id");
-        if (machineId && machineId !== "local") {
-          if (access.level === "none") return unauthorizedJson(access.reason);
-          if (!machines?.endpoint(machineId)) return jsonResponse({ error: { code: "machine_offline", message: "This PC is disconnected" } }, 503);
-          let relay: MachineRelay | undefined;
-          try {
-            relay = new MachineRelay(machines, machineId, readOnly);
-            await relay.ready;
-            const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, relay, deviceId, readOnly } });
-            if (upgraded) return undefined as unknown as Response;
-            relay.close();
-          } catch { relay?.close(); return new Response("remote websocket unavailable", { status: 502 }); }
-          return new Response("websocket upgrade required", { status: 426 });
-        }
+        if (machineId && machineId !== "local") return jsonResponse({ error: { code: "not_found", message: "unknown PC" } }, 404);
         const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, deviceId, readOnly } });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
@@ -959,21 +930,12 @@ export function createServer(
         } catch (error) { return errorResponse(error); }
       }
 
-      if (pathname === "/api/updates" || pathname.startsWith("/api/updates/")) {
-        return handleUpdateRequest(request, pathname, options.updates);
-      }
-      if (pathname === "/api/herdr/update") return handleHerdrUpdateRequest(request, options.herdrUpdate);
 
-      if (pathname === "/api/usage") return handleUsageRequest(request, url, usage);
-      // a long clip can keep the provider silent past Bun's 10 s idle limit before the first line
-      if (pathname === "/api/voice" || pathname.startsWith("/api/voice/")) { bunServer.timeout(request, 120); return handleVoiceRequest(request, pathname, voice); }
 
       if (pathname === "/api/push" || pathname.startsWith("/api/push/")) {
         try {
-          // a paired device owns its alerts; the open LAN (before any pairing) owns them only while
-          // it stays open, like a subscription from before owners (undefined); a local/token/
-          // Tailscale sign-in is the owner (null)
-          const owner = access.level !== "full" ? null : access.device?.id ?? (access.via === "open" ? undefined : null);
+          // a paired device owns its alerts; a local/token/Tailscale sign-in is the owner (null)
+          const owner = access.level !== "full" ? null : access.device?.id ?? null;
           const answered = await handlePushRequest(request, pathname, push, owner);
           if (answered) return answered;
         } catch (error) {
@@ -991,7 +953,7 @@ export function createServer(
           // a forced answer (tests) and a runtime without the PTY sidecar are told the way a Windows herdr's own would be
           const herdr = attachableIdentity(info, sidecar);
           return jsonResponse({ ok: true, herdr, auth,
-            web_ui: { boot_id: process.env["HERDR_WEB_BOOT_ID"] ?? null, revision: process.env["HERDR_WEB_REVISION"] ?? null } });
+            web_ui: { boot_id: process.env["HERDR_FLEET_BOOT_ID"] ?? null, revision: process.env["HERDR_FLEET_REVISION"] ?? null } });
         } catch (error) {
           return errorResponse(error);
         }
@@ -1036,8 +998,14 @@ export function createServer(
         }
         const found = locateFile(url.searchParams.get("path") ?? "", cwd);
         if (found === null) return jsonResponse({ error: { code: "not_found", message: "no readable file at that path" } }, 404);
+        const roots = fileRoots(cwd);
         // several files end in that name: the viewer lists them to choose from
-        if ("candidates" in found) return jsonResponse({ error: { code: "ambiguous_path", message: "several files have that name", candidates: found.candidates } }, 409);
+        if ("candidates" in found) {
+          const candidates = found.candidates.filter((path) => withinRoots(path, roots));
+          if (candidates.length === 0) return outsideRoots();
+          return jsonResponse({ error: { code: "ambiguous_path", message: "several files have that name", candidates } }, 409);
+        }
+        if (!withinRoots(found.info.path, roots)) return outsideRoots();
         return pathname === "/api/fs/stat" ? jsonResponse(found.info) : fileResponse(found.info, url.searchParams.get("download") === "1");
       }
 
@@ -1439,12 +1407,10 @@ export function createServer(
             for (const paneId of client.data.attached) detach(paneId, client);
             client.data.attached.clear();
             client.data.output.clear();
-            client.data.relay?.close(1008, "Device access revoked");
             client.close(1008, "Device access revoked");
           });
           if (client.data.revoked) return;
         }
-        if (client.data.relay) { client.data.relay.bind(client as ServerWebSocket<unknown>); return; }
         clients.add(client);
         try {
           send(client, { type: "snapshot", snapshot: await clientSnapshot(), features: SERVER_FEATURES });
@@ -1456,7 +1422,6 @@ export function createServer(
 
       async message(client, raw) {
         if (client.data.closing) return;
-        if (client.data.relay) { client.data.relay.message(raw); return; }
         let message: ClientMessage;
         try {
           message = JSON.parse(String(raw)) as ClientMessage;
@@ -1748,7 +1713,6 @@ export function createServer(
 
       close(client) {
         client.data.unwatchDevice?.();
-        if (client.data.relay) { client.data.relay.close(); return; }
         clients.delete(client);
         for (const paneId of client.data.attached) detach(paneId, client);
         client.data.attached.clear();
@@ -1757,7 +1721,6 @@ export function createServer(
     },
   });
 
-  const registration = options.registerBridge ? registerBridge(server.port ?? 0, bridgeToken) : null;
 
   // ACKs can stop arriving entirely (a suspended tab). Bound the pause even then.
   const outputTimer = setInterval(() => {
@@ -1773,7 +1736,6 @@ export function createServer(
       collector.stop();
       omo.stop();
       machines?.stop();
-      registration?.close();
       for (const paneId of [...attachments.keys()]) closeAttachment(paneId);
       server.stop(true);
     },
@@ -1781,7 +1743,7 @@ export function createServer(
 }
 
 if (import.meta.main) {
-  const instance = createServer({ updates: connectUpdater(), herdrUpdate: new HerdrUpdater(), registerBridge: true });
+  const instance = createServer();
   let stopping = false;
   const shutdown = () => {
     if (stopping) return;
@@ -1792,11 +1754,10 @@ if (import.meta.main) {
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
-  if (process.env["HERDR_WEB_MANAGED"] === "1") process.on("disconnect", shutdown);
-  console.log(`herdr-web-ui listening on http://${instance.hostname}:${instance.port}`);
-  if ((process.env["HERDR_WEB_TOKEN"] ?? "") === "" && !LOOPBACK_HOSTNAMES.has(instance.hostname)) {
+  console.log(`herdr-fleet listening on http://${instance.hostname}:${instance.port}`);
+  if ((process.env["HERDR_FLEET_TOKEN"] ?? "") === "" && !LOOPBACK_HOSTNAMES.has(instance.hostname)) {
     console.error(
-      `WARNING: listening on ${instance.hostname} without HERDR_WEB_TOKEN - until a device is paired (Settings → Devices, on this PC) anyone who can reach this address can type into your terminals; pair your devices, set HERDR_WEB_TOKEN=<token>, or keep HOST=127.0.0.1 and reach it through Tailscale or an SSH tunnel.`,
+      `NOTE: listening on ${instance.hostname} without HERDR_FLEET_TOKEN - other devices need a pairing code (Settings → Devices, on this PC) to get in.`,
     );
   }
 }

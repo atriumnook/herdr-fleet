@@ -3,9 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DeviceStore } from "./devices.ts";
-import { MachineRelay } from "./machine-relay.ts";
-import type { MachineManager } from "./machines.ts";
-import { startFakePushService } from "./push.fake.ts";
+import { loopbackPush, startFakePushService } from "./push.fake.ts";
 import { createServer } from "./index.ts";
 import { workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import type { ServerMessage } from "../shared/protocol.ts";
@@ -52,7 +50,7 @@ it("revocation closes an active device's terminal and roster stream without disc
     const cookieA = await pair("A");
     const cookieB = await pair("B");
     const { devices } = await (await fetch(`${base}/api/devices`, { headers: admin })).json() as { devices: { id: string; label: string }[] };
-    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-device-revocation" });
+    const created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-device-revocation" });
     workspaceId = created.workspace.workspace_id;
     const paneId = created.root_pane.pane_id;
     const a = await connect(`${base.replace("http:", "ws:")}/ws`, cookieA); sockets.push(a.socket);
@@ -98,23 +96,15 @@ it("a corrupt device registry refuses strangers while keeping local recovery and
   } finally { server.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
-it("watch credentials cannot mutate HTTP state, read credential files, or elevate local and relayed terminals", async () => {
+it("watch credentials cannot mutate HTTP state, read credential files, or elevate terminals", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-watch-access-"));
   const store = new DeviceStore(root);
   const watch = store.pair(store.startPairing().code, "Watch", "watch")!;
   const server = createServer({ port: 0, stateDir: root, token: "test-watch", tailscaleOwner: null, machines: false });
   const base = `http://127.0.0.1:${server.port}`;
-  const cookie = `herdr_web_device=${watch.token}`;
+  const cookie = `herdr_fleet_device=${watch.token}`;
   const headers = { ...guard, cookie };
   const sockets: WebSocket[] = [];
-  const relays: MachineRelay[] = [];
-  const manager = { endpoint: () => ({ url: base, token: "test-watch" }), trackTerminal: () => () => {} } as unknown as MachineManager;
-  const proxy = Bun.serve<{ relay: MachineRelay }>({ port: 0, hostname: "127.0.0.1", async fetch(request, instance) {
-    const relay = new MachineRelay(manager, "remote", true); relays.push(relay);
-    await relay.ready;
-    if (instance.upgrade(request, { data: { relay } })) return;
-    relay.close(); return new Response(null, { status: 426 });
-  }, websocket: { open(ws) { ws.data.relay.bind(ws); }, message(ws, raw) { ws.data.relay.message(raw); }, close(ws) { ws.data.relay.close(); } } });
   try {
     expect((await fetch(`${base}/api/session`, { headers })).status).toBe(200);
     for (const path of ["pane/input", "workspace/create", "machines/setup", "updates/install", "herdr/update"]) {
@@ -125,7 +115,7 @@ it("watch credentials cannot mutate HTTP state, read credential files, or elevat
     for (const path of ["api//fs/file", "api/machines/pc1//fs/file", "api/machines/pc1/fs//file"]) {
       expect((await fetch(`${base}/${path}?path=${encodeURIComponent(join(root, "devices.json"))}`, { headers })).status).toBe(404);
     }
-    for (const origin of [base, `http://127.0.0.1:${proxy.port}`]) {
+    for (const origin of [base]) {
       const client = await connect(`${origin.replace("http:", "ws:")}/ws`, cookie); sockets.push(client.socket);
       client.socket.send(JSON.stringify({ type: "role", mode: "interact" }));
       await until(() => client.messages.some((m) => m.type === "role-ack" && m.mode === "observe"));
@@ -141,14 +131,13 @@ it("watch credentials cannot mutate HTTP state, read credential files, or elevat
     }
   } finally {
     for (const socket of sockets) socket.close();
-    for (const relay of relays) relay.close();
-    proxy.stop(true); server.stop(); rmSync(root, { recursive: true, force: true });
+    server.stop(); rmSync(root, { recursive: true, force: true });
   }
 });
 
 it("revoking a paired device removes its persistent push subscription", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-device-push-"));
-  const server = createServer({ port: 0, stateDir: root, token: "test-push-owner", tailscaleOwner: null, machines: false });
+  const server = createServer({ port: 0, stateDir: root, token: "test-push-owner", tailscaleOwner: null, machines: false, pushEndpoint: loopbackPush });
   const fake = await startFakePushService();
   const base = `http://127.0.0.1:${server.port}`;
   const admin = { ...guard, authorization: "Bearer test-push-owner" };

@@ -51,7 +51,7 @@ const here: SidecarRuntime = {
 
 let known: boolean | null = null;
 
-/** This runtime's answer is taken once: every caller (attach, /api/health, /api/bridge) gets the same one. */
+/** This runtime's answer is taken once: every caller (attach, /api/health) gets the same one. */
 export function sidecarAvailable(runtime?: SidecarRuntime): boolean {
   if (runtime) return runtime.pty() && runtime.node();
   if (known === null) known = here.pty() && here.node();

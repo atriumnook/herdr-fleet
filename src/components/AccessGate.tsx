@@ -84,7 +84,7 @@ export function AccessGate({ reason, initialCode, onUnlocked }: AccessGateProps)
           <p className="access-gate-refused" role="status">{t("Tailscale says this device belongs to someone other than this PC's owner. The owner can still let it in with a pairing code.")}</p>
         )}
         <p className="access-gate-copy">
-          {t(reason === "token_required" ? "This server requires an access token or a pairing code." : "Pair this device with a code from the PC: Settings → Devices there, or the pair command in its terminal.")}
+          {t(reason === "token_required" ? "This server requires an access token or a pairing code." : "Pair this device with a code from the PC: Settings → Devices there.")}
         </p>
         <form aria-labelledby="access-gate-title" onSubmit={submitCode}>
           <label className="access-gate-label" htmlFor="access-gate-code">{t("Pairing code")}</label>

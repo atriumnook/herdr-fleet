@@ -6,8 +6,8 @@ import { join } from "node:path";
 import type { AlertPrefs } from "../shared/notify-policy.ts";
 import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { CompletionTracker } from "./completion.ts";
-import { createPushService, handlePushRequest, parseSubscription, type PushService } from "./push.ts";
-import { startFakePushService, type FakePushService } from "./push.fake.ts";
+import { createPushService as createRealPushService, handlePushRequest, isPushServiceEndpoint, parseSubscription, type PushService } from "./push.ts";
+import { loopbackPush, startFakePushService, type FakePushService } from "./push.fake.ts";
 
 /**
  * The server half of web push, end to end against a fake push service that decrypts
@@ -32,7 +32,7 @@ let stateDir: string;
 let fake: FakePushService;
 
 beforeEach(async () => {
-  stateDir = mkdtempSync(join(tmpdir(), "herdr-web-ui-push-"));
+  stateDir = mkdtempSync(join(tmpdir(), "herdr-fleet-push-"));
   fake = await startFakePushService();
 });
 
@@ -40,6 +40,10 @@ afterEach(() => {
   fake.stop();
   rmSync(stateDir, { recursive: true, force: true });
 });
+
+/** The fake push service listens on loopback, which the real endpoint check refuses. */
+const fakeEndpoint = loopbackPush;
+const createPushService = (options: Parameters<typeof createRealPushService>[0]) => createRealPushService({ acceptEndpoint: fakeEndpoint, ...options });
 
 /** Alerts go out at once, and each status change is awaited until its alert went out. */
 function subscribed(options: Partial<Parameters<typeof createPushService>[0]> = {}): PushService {
@@ -56,17 +60,38 @@ function subscribed(options: Partial<Parameters<typeof createPushService>[0]> = 
 describe("parseSubscription", () => {
   it("accepts what a browser's PushSubscription.toJSON() produces", () => {
     const browserJson = { ...fake.subscription, expirationTime: null };
-    expect(parseSubscription(browserJson)).toEqual(fake.subscription);
+    expect(parseSubscription(browserJson, fakeEndpoint)).toEqual(fake.subscription);
+  });
+
+  it("stores only endpoints on a browser vendor's push service unless told otherwise", () => {
+    const { keys } = fake.subscription;
+    for (const endpoint of ["https://fcm.googleapis.com/fcm/send/abc", "https://updates.push.services.mozilla.com/wpush/v2/abc",
+      "https://web.push.apple.com/abc", "https://wns2-par02p.notify.windows.com/w/?token=abc"]) {
+      expect(parseSubscription({ endpoint, keys })).toEqual({ endpoint, keys });
+    }
+    for (const endpoint of [fake.subscription.endpoint, "http://fcm.googleapis.com/fcm/send/abc", "https://fcm.googleapis.com:8443/x",
+      "https://192.168.1.1/x", "https://localhost/x", "https://fcm.googleapis.com.evil.example/x", "https://evilfcm.googleapis.com.example/x"]) {
+      expect(parseSubscription({ endpoint, keys })).toBeNull();
+    }
+    expect(isPushServiceEndpoint(new URL("https://FCM.googleapis.com/x"))).toBe(true);
+  });
+
+  it("refuses to subscribe a loopback endpoint through the API by default", async () => {
+    const push = createRealPushService({ stateDir });
+    const request = new Request("http://localhost/api/push/subscribe", {
+      method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: fake.subscription }),
+    });
+    expect((await handlePushRequest(request, "/api/push/subscribe", push, null))?.status).toBe(400);
   });
 
   it("rejects endpoints and keys a push service could never have issued", () => {
     const { endpoint, keys } = fake.subscription;
-    expect(parseSubscription({ endpoint: "ftp://push.example/x", keys })).toBeNull();
-    expect(parseSubscription({ endpoint: "not a url", keys })).toBeNull();
-    expect(parseSubscription({ endpoint, keys: { ...keys, p256dh: keys.p256dh.slice(0, 40) } })).toBeNull();
-    expect(parseSubscription({ endpoint, keys: { ...keys, auth: "AAAA" } })).toBeNull();
-    expect(parseSubscription({ endpoint })).toBeNull();
-    expect(parseSubscription("subscription")).toBeNull();
+    expect(parseSubscription({ endpoint: "ftp://push.example/x", keys }, fakeEndpoint)).toBeNull();
+    expect(parseSubscription({ endpoint: "not a url", keys }, fakeEndpoint)).toBeNull();
+    expect(parseSubscription({ endpoint, keys: { ...keys, p256dh: keys.p256dh.slice(0, 40) } }, fakeEndpoint)).toBeNull();
+    expect(parseSubscription({ endpoint, keys: { ...keys, auth: "AAAA" } }, fakeEndpoint)).toBeNull();
+    expect(parseSubscription({ endpoint }, fakeEndpoint)).toBeNull();
+    expect(parseSubscription("subscription", fakeEndpoint)).toBeNull();
   });
 });
 
@@ -161,7 +186,7 @@ describe("push delivery", () => {
     expect(received!.vapidValid).toBe(true);
     expect(received!.vapidKey).toBe(push.publicKey());
     expect(received!.vapidClaims.aud).toBe(new URL(fake.subscription.endpoint).origin);
-    expect(received!.vapidClaims.sub).toBe("https://github.com/devswha/herdr-web-ui");
+    expect(received!.vapidClaims.sub).toBe("https://github.com/atriumnook/herdr-fleet");
   });
 
   it("keeps equal pane IDs, titles, status baselines and push links separated by PC", async () => {
@@ -421,21 +446,16 @@ it("keeps a pending alert across re-registration but drops it after device revoc
   expect(fake.received).toHaveLength(1);
 });
 
-it("keeps a subscription made through the open LAN only while the LAN stays open", async () => {
-  let gated = false;
-  // the server's rule (index.ts): owners null always, undefined only while ungated
-  const push = createPushService({ stateDir, canDeliver: (id) => id === null || (id === undefined ? !gated : false) });
+it("delivers nothing to a subscription without an owner (from the removed open-LAN mode)", async () => {
+  // the server's rule (index.ts) with no device paired: owner null always, no owner never
+  const push = createPushService({ stateDir, canDeliver: (id) => id === null });
   const request = new Request("http://192.168.1.20:8787/api/push/subscribe", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: fake.subscription }),
   });
   expect((await handlePushRequest(request, "/api/push/subscribe", push, undefined))?.status).toBe(204);
   expect(JSON.parse(readFileSync(join(stateDir, "push-subscriptions.json"), "utf8"))[0]).not.toHaveProperty("device_id");
   await push.onEnded("w1:p1");
-  expect(fake.received).toHaveLength(1);
-  // pairing a device closes the open LAN: its earlier subscriber hears nothing more
-  gated = true;
-  await push.onEnded("w1:p2");
-  expect(fake.received).toHaveLength(1);
+  expect(fake.received).toHaveLength(0);
 });
 
 describe("push resync after lost status events", () => {

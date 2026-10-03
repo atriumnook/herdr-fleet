@@ -9,7 +9,7 @@ const stylesheets = (dir: string): string[] => readdirSync(dir, { withFileTypes:
 function smoothEndless(css: string): string[] {
   return css.replace(/\/\*[\s\S]*?\*\//g, "").split(/[;{}]/).map((declaration) => declaration.replace(/\s+/g, " ").trim())
     .filter((declaration) => /^animation\s*:/.test(declaration) && /\binfinite\b/.test(declaration)
-      && !/steps\(|var\(--ease-pulse\)/.test(declaration) && !/bridge-progress-slide/.test(declaration));
+      && !/steps\(|var\(--ease-pulse\)/.test(declaration));
 }
 
 describe("motion", () => {

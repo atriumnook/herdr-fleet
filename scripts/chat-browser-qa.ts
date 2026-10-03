@@ -10,7 +10,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 
-const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-chat-browser-"));
+const root = mkdtempSync(join(tmpdir(), "herdr-fleet-chat-browser-"));
 const codexHome = join(root, "codex");
 const rollout = join(codexHome, "sessions", "rollout.jsonl");
 const answer = "The conversation is now clean. Native transcript records preserve the user request and final answer while internal instructions stay hidden.";
@@ -39,7 +39,7 @@ try {
   add({ type: "function_call_output", call_id: "c1", output: "clean" }, 3);
   add(message("assistant", answer, "final_answer"), 8);
   persist();
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-chat-browser" });
+  const created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-chat-browser" });
   workspaceId = created.workspace.workspace_id;
   const paneId = created.root_pane.pane_id;
   await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "idle", agent_session_path: rollout });
@@ -48,7 +48,7 @@ try {
   browser = await chromium.launch({ executablePath: process.env["CHROME_PATH"] ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   // a pane opens its terminal the first time; this QA is about the chat lens
-  await page.addInitScript((id) => localStorage.setItem(`herdr-web-ui:view:${id}`, "chat"), paneId);
+  await page.addInitScript((id) => localStorage.setItem(`herdr-fleet:view:${id}`, "chat"), paneId);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));
   page.setDefaultTimeout(10_000);

@@ -82,6 +82,9 @@ async function verifyVapid(header: string | null): Promise<Pick<ReceivedPush, "v
   return { vapidValid, vapidKey: key, vapidClaims: JSON.parse(Buffer.from(claims, "base64url").toString("utf8")) };
 }
 
+/** The endpoint check a server under test needs to store this fake's loopback endpoint (createServer's pushEndpoint). */
+export const loopbackPush = (url: URL): boolean => url.hostname === "127.0.0.1";
+
 export async function startFakePushService(): Promise<FakePushService> {
   const device = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
   const devicePublic = new Uint8Array(await crypto.subtle.exportKey("raw", device.publicKey));

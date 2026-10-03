@@ -7,8 +7,15 @@ const MAX_DEPTH = 6;
 const SKIP: Record<string, true> = { ".git": true, node_modules: true, dist: true, target: true, ".venv": true };
 const cache = new Map<string, { expires: number; files: string[] }>();
 
+/**
+ * A pane's folder may be a repository nobody vetted, and its config can name commands git runs
+ * on its own: core.fsmonitor runs on `ls-files`. Turned off here; GIT_OPTIONAL_LOCKS=0 also
+ * keeps git from rewriting the index while it looks.
+ */
 async function gitFiles(cwd: string): Promise<string[] | null> {
-  const proc = Bun.spawn(["git", "-C", cwd, "ls-files", "-z", "-co", "--exclude-standard"], { stdout: "pipe", stderr: "ignore" });
+  const proc = Bun.spawn(["git", "-c", "core.fsmonitor=false", "-C", cwd, "ls-files", "-z", "-co", "--exclude-standard"], {
+    stdout: "pipe", stderr: "ignore", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" },
+  });
   const timer = setTimeout(() => proc.kill(), 3_000);
   try {
     const [output, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);

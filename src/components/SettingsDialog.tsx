@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronUp, Eye, EyeOff, Minus, Monitor, Plus, Star, X } from "lucide-react";
+import { Minus, Plus, X } from "lucide-react";
 
 import "./SettingsDialog.css";
 
@@ -9,25 +9,17 @@ import { SHORTCUTS, formatKeys, shortcutKeys, shortcutConflict } from "../lib/sh
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings, forgetPaneViews } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
-import type { UpdatesModel } from "../lib/updates.ts";
-import type { MachineSettings } from "../../shared/machines.ts";
-import { fetchRemoteAccess, fetchVoiceStatus, machineRequest, saveVoiceConfig } from "../lib/api.ts";
+import { fetchRemoteAccess } from "../lib/api.ts";
 import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
-import type { HealthAuth, ProviderUsage, RemoteAccess } from "../../shared/protocol.ts";
-import type { VoiceStatus } from "../../shared/voice.ts";
-import { VOICE_CONFIG_EVENT } from "../lib/voice.ts";
-import { moveInOrder, orderProviders, PROVIDER_MARK, PROVIDER_NAME, usageName, useUsage } from "../lib/usage.ts";
-import { AgentMark } from "./AgentMark.tsx";
+import type { HealthAuth, RemoteAccess } from "../../shared/protocol.ts";
 import { DevicesPanel } from "./DevicesPanel.tsx";
 import { PhonePanel } from "./PhonePanel.tsx";
 import { PushTestControls } from "./PushTestControls.tsx";
-import { HerdrUpdateControls, UpdateControls } from "./UpdateControls.tsx";
 
 export interface SettingsDialogProps {
   open: boolean;
   onClose: () => void;
   actions: AppActions;
-  updates: UpdatesModel;
   /** how this browser got in, from the last health check */
   auth: HealthAuth | null;
   onEnableNotifications: () => Promise<boolean>;
@@ -86,70 +78,11 @@ function FontFamilyInput({ value, label, onCommit }: { value: string; label: str
   );
 }
 
-/**
- * The accounts the plan meters know, in the strip's order, as one compact card: each row names the
- * account and carries its move up / move down and show / hide controls.
- */
-function UsageAccounts({ providers }: { providers: readonly ProviderUsage[] }) {
+export function SettingsDialog({ open, onClose, actions, auth, onEnableNotifications }: SettingsDialogProps) {
   const { settings, update } = useSettings();
-  const t = useT();
-  const ordered = orderProviders(providers, settings.usageOrder);
-  const keys = ordered.map((usage) => usage.key);
-  const move = (key: string, by: -1 | 1) => update({ usageOrder: moveInOrder(keys, settings.usageOrder, key, by) });
-  return (
-    <div className="usage-accounts">
-      <div className="usage-accounts-head">
-        <span id="usage-accounts-title">{t("Accounts")}</span>
-        {settings.usageOrder.length > 0 && (
-          <button type="button" className="usage-accounts-reset" onClick={() => update({ usageOrder: [] })}>{t("Nearest limit first")}</button>
-        )}
-      </div>
-      <ol aria-labelledby="usage-accounts-title">
-        {ordered.map((usage, index) => {
-          const name = usageName(usage);
-          const hidden = settings.usageHidden.includes(usage.key);
-          return (
-            <li key={usage.key} className={`usage-accounts-row${hidden ? " is-hidden" : ""}`}>
-              <AgentMark agent={PROVIDER_MARK[usage.id]} size={16} />
-              <span className="usage-accounts-name">{PROVIDER_NAME[usage.id]}</span>
-              <span className="usage-accounts-account" title={usage.account ?? undefined}>{usage.account}</span>
-              <span className="usage-accounts-actions">
-                <button type="button" className="icon-button" aria-label={t("Move {name} up", { name })} title={t("Move {name} up", { name })} disabled={index === 0} onClick={() => move(usage.key, -1)}><ChevronUp aria-hidden="true" /></button>
-                <button type="button" className="icon-button" aria-label={t("Move {name} down", { name })} title={t("Move {name} down", { name })} disabled={index === ordered.length - 1} onClick={() => move(usage.key, 1)}><ChevronDown aria-hidden="true" /></button>
-                <button
-                  type="button"
-                  className="icon-button usage-accounts-visibility"
-                  role="switch"
-                  aria-checked={!hidden}
-                  aria-label={t("Show {name}", { name })}
-                  title={t("Show {name}", { name })}
-                  onClick={() => update({ usageHidden: hidden ? settings.usageHidden.filter((key) => key !== usage.key) : [...settings.usageHidden, usage.key] })}
-                >
-                  {hidden ? <EyeOff aria-hidden="true" /> : <Eye aria-hidden="true" />}
-                </button>
-              </span>
-            </li>
-          );
-        })}
-      </ol>
-    </div>
-  );
-}
-
-export function SettingsDialog({ open, onClose, actions, updates, auth, onEnableNotifications }: SettingsDialogProps) {
-  const { settings, update } = useSettings();
-  // the accounts to order and hide: the same report the meters show, from the server's cache
-  const usage = useUsage(open && settings.showUsage);
   const t = useT();
   const installPrompt = useInstallPrompt();
   const firstControlRef = useRef<HTMLButtonElement>(null);
-  // server-side: the web server updates PC bridges, so it keeps this choice
-  const [pcSettings, setPcSettings] = useState<MachineSettings | null>(null);
-  const [pcSettingsError, setPcSettingsError] = useState<string | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    machineRequest<MachineSettings>("/settings").then(setPcSettings, () => setPcSettings(null));
-  }, [open]);
   // Settings → Phone asks the server what Tailscale on its PC already serves
   const [access, setAccess] = useState<RemoteAccess | null | undefined>(undefined);
   const loadAccess = useCallback(() => {
@@ -160,41 +93,6 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
   const plan = phonePlan({ protocol: window.location.protocol, hostname: window.location.hostname, origin: window.location.origin, secure: window.isSecureContext }, access ?? null);
   // where a phone can open this app now, for the pairing QR code: the served address, else this one when it is not loopback
   const pairUrl = plan.kind === "here" || plan.kind === "served" ? plan.url : isLoopbackHost(window.location.hostname) ? null : window.location.origin;
-
-  // Voice input: the server only says whether it holds a key; the key typed here is never kept past a save
-  const [voice, setVoice] = useState<VoiceStatus | null>(null);
-  const [voiceKey, setVoiceKey] = useState("");
-  const [voiceBusy, setVoiceBusy] = useState(false);
-  const [voiceError, setVoiceError] = useState<string | null>(null);
-  const [micDenied, setMicDenied] = useState(false);
-  useEffect(() => {
-    if (open) fetchVoiceStatus().then(setVoice, () => setVoice(null));
-  }, [open]);
-  /** ask now, so the first dictation does not stop at the browser's permission prompt */
-  const toggleVoiceInput = async (voiceInput: boolean) => {
-    update({ voiceInput });
-    setMicDenied(false);
-    if (!voiceInput || !window.isSecureContext || !navigator.mediaDevices?.getUserMedia) return;
-    try { (await navigator.mediaDevices.getUserMedia({ audio: true })).getTracks().forEach((track) => track.stop()); }
-    catch { setMicDenied(true); }
-  };
-  const changeVoiceKey = async (api_key: string | null) => {
-    setVoiceBusy(true);
-    try {
-      // the save answers the new status itself: no second request that could fail after it
-      const saved = await saveVoiceConfig({ api_key });
-      setVoiceKey("");
-      setVoiceError(null);
-      setVoice(saved);
-      window.dispatchEvent(new Event(VOICE_CONFIG_EVENT));
-    } catch (e) { setVoiceError(e instanceof Error ? e.message : String(e)); }
-    finally { setVoiceBusy(false); }
-  };
-
-  const updatePcSettings = async (patch: Partial<MachineSettings>) => {
-    try { setPcSettings(await machineRequest<MachineSettings>("/settings", "PATCH", patch)); setPcSettingsError(null); }
-    catch (e) { setPcSettingsError(e instanceof Error ? e.message : String(e)); }
-  };
 
   useEffect(() => {
     if (!open) return;
@@ -309,72 +207,6 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
             </div>
           </section>
 
-          <section className="settings-section voice-settings">
-            <h3>{t("Voice input")}</h3>
-            <div className="voice-group">
-              <h4 className="voice-group-title">{t("Microphone")}</h4>
-              <div className="voice-group-body">
-                <div className="settings-row">
-                  <div><span className="settings-label">{t("Microphone button")}</span><span className="settings-description">{t("In the chat composer and the terminal input line")}</span></div>
-                  <Toggle label={t("Microphone button")} checked={settings.voiceInput} onChange={(voiceInput) => void toggleVoiceInput(voiceInput)} />
-                </div>
-                {settings.voiceInput && !window.isSecureContext && <p className="settings-hint voice-error">{t("Voice input needs HTTPS")}</p>}
-                {settings.voiceInput && window.isSecureContext && micDenied && <p className="settings-hint voice-error">{t("Microphone permission was denied")}</p>}
-              </div>
-            </div>
-
-            <div className="voice-group">
-              <h4 className="voice-group-title">{t("OpenAI API key")}</h4>
-              <div className="voice-group-body">
-                {voice && (
-                  <p className="settings-hint voice-status">
-                    {voice.configured ? t(voice.source === "env" ? "OpenAI key set by HERDR_WEB_OPENAI_API_KEY" : "OpenAI key saved on this PC") : t("No OpenAI key: the browser's speech recognition is used")}
-                  </p>
-                )}
-                {voice && voice.source !== "env" && (
-                  <form className="voice-key" onSubmit={(event) => { event.preventDefault(); if (voiceKey.trim()) void changeVoiceKey(voiceKey.trim()); }}>
-                    <input
-                      className="input voice-key-input"
-                      type="password"
-                      value={voiceKey}
-                      placeholder="sk-..."
-                      aria-label={t("OpenAI API key")}
-                      autoComplete="off"
-                      spellCheck={false}
-                      autoCapitalize="off"
-                      autoCorrect="off"
-                      onChange={(event) => setVoiceKey(event.target.value)}
-                    />
-                    <button type="submit" className="btn voice-key-save" disabled={voiceBusy || !voiceKey.trim()}>{t("Save key")}</button>
-                    <button type="button" className="btn btn-ghost voice-key-remove" disabled={voiceBusy || !voice.configured} onClick={() => void changeVoiceKey(null)}>{t("Remove key")}</button>
-                  </form>
-                )}
-                {voiceError && <p className="settings-hint voice-error" role="alert">{voiceError}</p>}
-                <p className="settings-hint voice-privacy">
-                  {voice && !voice.configured
-                    ? t("Without a key the browser recognizes the speech: Chrome and Edge send the audio to Google or Microsoft. Nothing is recorded until you press the mic.")
-                    : t("Audio is sent to OpenAI with your key. Nothing is recorded until you press the mic.")}
-                </p>
-              </div>
-            </div>
-
-            {settings.voiceInput && (
-              <div className="voice-group">
-                <h4 className="voice-group-title">{t("Tidy dictated text")}</h4>
-                <div className="voice-group-body">
-                  <div className="settings-row">
-                    <div><span className="settings-label">{t("In chat")}</span><span className="settings-description">{t("Drops fillers and fixes spacing; code and paths stay as spoken")}</span></div>
-                    <Toggle label={t("Tidy dictated text in chat")} checked={settings.voicePolishChat} onChange={(voicePolishChat) => update({ voicePolishChat })} />
-                  </div>
-                  <div className="settings-row">
-                    <div><span className="settings-label">{t("In the terminal")}</span><span className="settings-description">{t("Off keeps a command exactly as transcribed")}</span></div>
-                    <Toggle label={t("Tidy dictated text in the terminal")} checked={settings.voicePolishTerminal} onChange={(voicePolishTerminal) => update({ voicePolishTerminal })} />
-                  </div>
-                </div>
-              </div>
-            )}
-          </section>
-
           <section className="settings-section">
             <h3>{t("Chat")}</h3>
             <div className="settings-row">
@@ -466,45 +298,12 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
           </section>
 
           <section className="settings-section">
-            <h3>{t("Subscription usage")}</h3>
-            <div className="settings-row">
-              <div><span className="settings-label">{t("Show plan limits")}</span><span className="settings-description">{t("Beside Settings, how much of each plan the AI tools on the server's PC have used. Turning it on sends their sign-ins to each provider's usage endpoint; they are never refreshed here.")}</span></div>
-              <Toggle label={t("Show plan limits")} checked={settings.showUsage} onChange={(showUsage) => update({ showUsage })} />
-            </div>
-            {settings.showUsage && (
-              <div className="settings-row">
-                <span className="settings-label">{t("Meters show")}</span>
-                <div className="segmented" aria-label={t("Meters show")}>
-                  {(["used", "left"] as const).map((usageCount) => (
-                    <button key={usageCount} type="button" aria-pressed={settings.usageCount === usageCount} onClick={() => update({ usageCount })}>
-                      {t(usageCount === "used" ? "Used" : "Remaining")}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {settings.showUsage && (
-              <div className="settings-row">
-                <span className="settings-label">{t("Where")}</span>
-                <div className="segmented" aria-label={t("Where")}>
-                  {(["footer", "top"] as const).map((usagePlacement) => (
-                    <button key={usagePlacement} type="button" aria-pressed={settings.usagePlacement === usagePlacement} onClick={() => update({ usagePlacement })}>
-                      {t(usagePlacement === "top" ? "Top of the list" : "Beside Settings")}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-            {settings.showUsage && usage.report && usage.report.providers.length > 0 && <UsageAccounts providers={usage.report.providers} />}
-          </section>
-
-          <section className="settings-section">
             <h3>{t("Shortcuts")}</h3>
             <p className="settings-description">{t("Some keys are reserved by the browser. Changes apply to this device.")}</p>
             <button className="btn" onClick={() => update({ shortcutOverrides: {} })}>{t("Reset shortcuts")}</button>
             <table className="settings-shortcuts">
               <tbody>{SHORTCUTS.map((shortcut) => (
-                <tr key={shortcut.id}><th scope="row">{t(shortcut.label)}</th><td>{shortcut.id === "voice" ? formatKeys(shortcut.keys).map((key) => <kbd className="kbd" key={key}>{key}</kbd>) : <select className="input" aria-label={t(shortcut.label)} value={Object.hasOwn(settings.shortcutOverrides, shortcut.id) ? settings.shortcutOverrides[shortcut.id] ?? "off" : "default"} onChange={(event) => {
+                <tr key={shortcut.id}><th scope="row">{t(shortcut.label)}</th><td><select className="input" aria-label={t(shortcut.label)} value={Object.hasOwn(settings.shortcutOverrides, shortcut.id) ? settings.shortcutOverrides[shortcut.id] ?? "off" : "default"} onChange={(event) => {
                   const next = { ...settings.shortcutOverrides };
                   if (event.target.value === "default") delete next[shortcut.id];
                   else next[shortcut.id] = event.target.value === "off" ? null : event.target.value;
@@ -516,7 +315,7 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
                     const conflict = shortcutConflict(shortcut.id, [key], settings.shortcutOverrides);
                     return <option key={key} value={key} disabled={conflict}>{compactKeys(["Mod", "Shift", key])}{conflict ? " — " + t("Already assigned") : ""}</option>;
                   })}
-                </select>}</td></tr>
+                </select></td></tr>
               ))}</tbody>
             </table>
           </section>
@@ -536,20 +335,6 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
           </section>
 
           <section className="settings-section">
-            <h3>{t("Remote PCs")}</h3>
-            <div className="settings-row">
-              <div><span className="settings-label">{t("Add PC")}</span><span className="settings-description">{t("Connect another PC over an SSH alias or user@host. Its workspaces join the sidebar.")}</span></div>
-              <button type="button" className="btn" onClick={actions.openAddPc}><Monitor aria-hidden="true" />{t("Add PC")}</button>
-            </div>
-            {/* the switch is the server's and waits for its answer; Add PC never does */}
-            {pcSettings && <div className="settings-row">
-              <div><span className="settings-label">{t("Update PC bridges automatically")}</span><span className="settings-description">{t("When an app update needs a newer bridge, PCs that connect with their saved key are updated in the background. PCs that need a password ask first.")}</span></div>
-              <Toggle label={t("Update PC bridges automatically")} checked={pcSettings.auto_update_bridges} onChange={(auto_update_bridges) => void updatePcSettings({ auto_update_bridges })} />
-            </div>}
-            {pcSettingsError && <p className="settings-hint" role="alert">{pcSettingsError}</p>}
-          </section>
-
-          <section className="settings-section">
             <h3>{t("Install")}</h3>
             {installPrompt.installed ? <p className="settings-hint">{t("Installed")}</p> : installPrompt.canInstall ? (
               <button type="button" className="btn btn-primary" onClick={() => void installPrompt.install()}>{t("Install app")}</button>
@@ -558,12 +343,10 @@ export function SettingsDialog({ open, onClose, actions, updates, auth, onEnable
 
           <section className="settings-section settings-about">
             <h3>{t("About")}</h3>
-            <p><strong>herdr web ui</strong></p>
-            <a className="btn" href="https://github.com/devswha/herdr-web-ui" target="_blank" rel="noreferrer"><Star aria-hidden="true" />{t("Star on GitHub")}</a>
-            <a href="https://devswha.github.io/herdr-web-ui/" target="_blank" rel="noreferrer">devswha.github.io/herdr-web-ui</a>
+            <p><strong>herdr fleet</strong></p>
+            <a href="https://github.com/atriumnook/herdr-fleet" target="_blank" rel="noreferrer">github.com/atriumnook/herdr-fleet</a>
+            <p className="settings-description">{t("Based on herdr web ui by devswha (MIT).")} <a href="https://github.com/devswha/herdr-web-ui" target="_blank" rel="noreferrer">github.com/devswha/herdr-web-ui</a></p>
           </section>
-          <UpdateControls updates={updates} bridgesFollow={pcSettings?.auto_update_bridges === true} />
-          <HerdrUpdateControls enabled={open} />
         </div>
       </section>
     </div>

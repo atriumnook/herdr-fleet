@@ -1,6 +1,6 @@
-import { closeSync, openSync, readSync, statSync } from "node:fs";
-import { homedir } from "node:os";
-import { basename, isAbsolute, resolve } from "node:path";
+import { closeSync, openSync, readSync, realpathSync, statSync } from "node:fs";
+import { homedir, tmpdir } from "node:os";
+import { basename, isAbsolute, resolve, sep } from "node:path";
 
 import type { FileInfo, FileKind } from "../shared/protocol.ts";
 import { filesNamed } from "./files.ts";
@@ -14,9 +14,25 @@ import { filesNamed } from "./files.ts";
  * plays and seeks without the server holding more than its socket buffers. Only the
  * first bytes of a file are read, to tell text from binary.
  *
- * It opens what this server's user can read, which is no more than the terminal the same
- * browser can already type into.
+ * Only files under the pane's folder or the system temp folder open (fileRoots): the rest of
+ * the home folder holds sign-ins and keys the viewer has no reason to see.
  */
+
+/** Where files may open from: the pane's folder, when there is a pane, and the temp folder. */
+export function fileRoots(cwd: string | null): string[] {
+  return cwd === null ? [tmpdir()] : [cwd, tmpdir()];
+}
+
+/** Whether `path`, symlinks resolved, lies inside one of `roots`. A path that cannot be resolved is outside. */
+export function withinRoots(path: string, roots: readonly string[]): boolean {
+  let real: string;
+  try { real = realpathSync(path); } catch { return false; }
+  return roots.some((root) => {
+    let base: string;
+    try { base = realpathSync(root); } catch { return false; }
+    return real === base || real.startsWith(base.endsWith(sep) ? base : base + sep);
+  });
+}
 
 /** A path as agents and people write it: absolute, `~/…`, or relative to the pane's folder. */
 export function resolveFilePath(input: string, cwd: string | null): string | null {

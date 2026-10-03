@@ -5,8 +5,6 @@ import "./TerminalInput.css";
 import { readTerminalDraft, writeTerminalDraft, TERMINAL_LINE_LIMIT, subscribeTerminalDraft, terminalDraftSending, setTerminalDraftSending, acknowledgeTerminalDraft } from "../lib/terminalDraft.ts";
 
 import { useT } from "../lib/i18n.ts";
-import { useSettings } from "../lib/settings.ts";
-import { MicButton, VoiceRecordingPill, useDictation } from "./VoiceInput.tsx";
 
 export interface TerminalInputProps {
   owner: string;
@@ -45,28 +43,6 @@ export function TerminalInput({ owner, connected, onSend, onEnter, onComposing }
   const [note, setNote] = useState<string | null>(null);
   const sending = useSyncExternalStore(subscribeTerminalDraft, () => terminalDraftSending(owner));
   const box = useRef<HTMLTextAreaElement>(null);
-  const textRef = useRef(text);
-  textRef.current = text;
-  const { settings } = useSettings();
-  const dictation = useDictation({
-    mode: "terminal",
-    connected,
-    polish: settings.voicePolishTerminal,
-    box,
-    read: () => textRef.current,
-    write: (value, caret) => {
-      textRef.current = value;
-      setText(value);
-      requestAnimationFrame(() => {
-        const element = box.current;
-        if (!element) return;
-        element.selectionStart = element.selectionEnd = caret;
-        // without focus the browser does not follow the caret: a wrapped dictation's end would stay hidden
-        if (caret === element.value.length) element.scrollTop = element.scrollHeight;
-      });
-    },
-    onNote: setNote,
-  });
 
   const send = useCallback(() => {
     if (!connected || terminalDraftSending(owner) || composing.current) return;
@@ -77,9 +53,6 @@ export function TerminalInput({ owner, connected, onSend, onEnter, onComposing }
     }
     const sent = onSend(text);
     if (sent === false) { setNote(t("Not sent: the terminal is disconnected.")); return; }
-    // a polish that lands before the acknowledgement would read as text typed meanwhile, and
-    // leave the sent command in the line
-    dictation.forget();
     setTerminalDraftSending(owner, true);
     void sent.then((result) => {
       if (result === true) {
@@ -87,7 +60,7 @@ export function TerminalInput({ owner, connected, onSend, onEnter, onComposing }
         acknowledgeTerminalDraft(owner);
       } else setNote(result);
     }).catch(() => setNote(t("Not confirmed. Check the terminal before sending again."))).finally(() => { setTerminalDraftSending(owner, false); });
-  }, [connected, dictation.forget, onEnter, onSend, owner, setText, t, text]);
+  }, [connected, onEnter, onSend, owner, setText, t, text]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Enter sends; Shift+Enter breaks the line; an IME keeps its Enter, including the committing
@@ -113,7 +86,7 @@ export function TerminalInput({ owner, connected, onSend, onEnter, onComposing }
   }, [text]);
   const rows = Math.min(MAX_ROWS, Math.max(wrappedRows, text.split("\n").length));
   return (
-    <div className={`terminal-input${dictation.shown ? " has-voice" : ""}`}>
+    <div className="terminal-input">
       <textarea
         ref={box}
         className="terminal-input-text"
@@ -129,7 +102,6 @@ export function TerminalInput({ owner, connected, onSend, onEnter, onComposing }
         onChange={(event) => { setText(event.target.value); setNote(null); }}
         onKeyDown={onKeyDown}
       />
-      {dictation.shown && <MicButton dictation={dictation} className="terminal-input-mic" />}
       <button
         type="button"
         className="terminal-input-send"
@@ -143,7 +115,6 @@ export function TerminalInput({ owner, connected, onSend, onEnter, onComposing }
         {text.length === 0 ? <CornerDownLeft aria-hidden="true" /> : <SendHorizontal aria-hidden="true" />}
       </button>
       {note !== null && <p className="terminal-input-note" role="alert">{note}</p>}
-      {dictation.shown && <VoiceRecordingPill dictation={dictation} align="end" />}
     </div>
   );
 }

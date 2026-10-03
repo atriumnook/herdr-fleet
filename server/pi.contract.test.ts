@@ -9,7 +9,7 @@ import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./he
 import type { ConversationResponse } from "../shared/protocol.ts";
 
 // Real herdr metadata + HTTP + native files, all under an owned workspace/store.
-const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-pi-contract-"));
+const root = mkdtempSync(join(tmpdir(), "herdr-fleet-pi-contract-"));
 const sessionDir = join(root, ".pi", "agent", "sessions");
 const slug = join(sessionDir, `--${root.replaceAll("/", "-")}--`);
 const transcript = join(slug, "session.jsonl");
@@ -47,7 +47,7 @@ beforeAll(async () => {
   const fakePi = join(bin, "pi");
   writeFileSync(fakePi, "#!/bin/sh\nsleep 600\n");
   chmodSync(fakePi, 0o755);
-  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-pi-contract" });
+  const created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-pi-contract" });
   workspaceId = created.workspace.workspace_id;
   paneId = created.root_pane.pane_id;
   await herdrRpc("pane.send_text", { pane_id: paneId, text: `${fakePi}\n` });

@@ -12,9 +12,7 @@ import { NewSessionDialog } from "./components/NewSessionDialog.tsx";
 import { SettingsDialog } from "./components/SettingsDialog.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
-import { MachineActionBanner, MachineSidebar } from "./components/MachineSidebar.tsx";
-import { MachineDialog } from "./components/MachineDialog.tsx";
-import { focusWorkspaceListToggle } from "./lib/focus.ts";
+import { MachineSidebar } from "./components/MachineSidebar.tsx";
 import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
@@ -33,8 +31,6 @@ import {
 } from "./lib/notifications.ts";
 import { ensurePushSubscription, pushSupported, removePushSubscription } from "./lib/push.ts";
 import { onNotificationTarget } from "./lib/notificationTarget.ts";
-import { useUpdates } from "./lib/updates.ts";
-import { UpdateNotice } from "./components/UpdateControls.tsx";
 import { FilesDialog } from "./components/FilesDialog.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
@@ -45,7 +41,7 @@ import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { Droplet } from "./components/Droplet.tsx";
 import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
 
-const APP_TITLE = "herdr web ui";
+const APP_TITLE = "herdr fleet";
 const POLL_MS = 5000;
 
 /**
@@ -63,7 +59,7 @@ function paneFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("pane");
 }
 
-const SELECTION_KEY = "herdr-web-ui:selection";
+const SELECTION_KEY = "herdr-fleet:selection";
 type StoredSelection = { machine_id?: string; pane_id?: string | null };
 
 /**
@@ -101,7 +97,7 @@ function storeSelection(machineId: string, paneId: string | null): void {
 function storedView(paneId: string, machineId: string, hasAgent: boolean | null, terminalAttach: boolean, defaultView: DefaultView): PaneView {
   if (!terminalAttach) return "chat";
   try {
-    const stored = window.localStorage.getItem(`herdr-web-ui:view:${paneStorageId(machineId, paneId)}`);
+    const stored = window.localStorage.getItem(`herdr-fleet:view:${paneStorageId(machineId, paneId)}`);
     if (stored === "chat" || stored === "terminal") return stored;
   } catch {
     /* private mode */
@@ -143,17 +139,6 @@ export function App() {
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
   const snapshot = selectedMachine?.snapshot ?? null;
   const machinesRef = useRef(machines); machinesRef.current = machines;
-  const [updateRemote, setUpdateRemote] = useState(false);
-  const [machineDialog, setMachineDialog] = useState<Machine | "new" | null>(null);
-  // Add PC from Settings or the palette leaves no trigger to return focus to once its dialog
-  // closes (Settings closed when it opened): the header's workspace-list toggle stands in
-  const addPcFocusReturn = useRef(false);
-  const closeMachineDialog = useCallback(() => {
-    setMachineDialog(null);
-    if (!addPcFocusReturn.current) return;
-    addPcFocusReturn.current = false;
-    focusWorkspaceListToggle();
-  }, []);
   const [newSessionMachineId, setNewSessionMachineId] = useState("local");
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -165,14 +150,13 @@ export function App() {
   const [pairCode] = useState(() => takePairCode());
   const [auth, setAuth] = useState<HealthAuth | null>(null);
   const canSignOut = auth?.authenticated === true && (auth.via === "token" || auth.via === "device");
-  // a device that is in only because nothing is paired yet still pairs from the QR code's address
+  // a device already in (token, Tailscale) still pairs from the QR code's address
   const pairedFromAddress = useRef(false);
   useEffect(() => {
     if (locked !== false || pairCode === "" || pairedFromAddress.current || auth?.via === "device") return;
     pairedFromAddress.current = true;
     pairDevice(pairCode, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0)).then(() => loadHealth()).catch(() => { /* the gate, if any, reports it */ });
   }, [locked, pairCode, auth]); // eslint-disable-line react-hooks/exhaustive-deps
-  const updates = useUpdates(locked === false);
   const [selectedPaneId, setSelectedPaneId] = useState<string | null>(() => {
     if (paneFromUrl()) return paneFromUrl();
     return storedSelection()?.pane_id ?? null;
@@ -510,7 +494,7 @@ export function App() {
       setAutoSelected(false);
       if (selectedPaneId === null) return;
       try {
-        window.localStorage.setItem(`herdr-web-ui:view:${paneStorageId(selectedMachineId, selectedPaneId)}`, next);
+        window.localStorage.setItem(`herdr-fleet:view:${paneStorageId(selectedMachineId, selectedPaneId)}`, next);
       } catch {
         /* private mode: the lens just stops being remembered */
       }
@@ -562,13 +546,6 @@ export function App() {
         setDrawerOpen(false);
         setSettingsOpen(true);
       },
-      openAddPc: () => {
-        // the new PC reports its progress in the sidebar: nothing should sit over it
-        setSettingsOpen(false);
-        setUpdateRemote(false);
-        addPcFocusReturn.current = true;
-        setMachineDialog("new");
-      },
       toggleSidebar: () => {
         if (window.matchMedia("(max-width: 768px)").matches) setDrawerOpen((open) => !open);
         else setSidebarCollapsed((collapsed) => !collapsed);
@@ -602,7 +579,7 @@ export function App() {
           <main className="terminal-host">
             <div className="terminal-placeholder">
               <div className="terminal-placeholder-inner">
-                <span>{t("Connecting to herdr web ui…")}</span>
+                <span>{t("Connecting to herdr fleet…")}</span>
               </div>
             </div>
           </main>
@@ -708,12 +685,10 @@ export function App() {
         </div>
       </header>
 
-      <UpdateNotice updates={updates} onOpen={() => setSettingsOpen(true)} />
-      <MachineActionBanner machines={machines} onSetup={(machine, update = false) => { setDrawerOpen(false); setUpdateRemote(update); setMachineDialog(machine); }} />
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
           {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>{t("Retry")}</button></div>}
-          <MachineSidebar version={health?.herdr?.version ?? null} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onSetup={(machine, update = false) => { setUpdateRemote(update); setMachineDialog(machine); }} onNew={(id) => { setNewSessionMachineId(id); setNewSessionOpen(true); setDrawerOpen(false); }} />
+          <MachineSidebar version={health?.herdr?.version ?? null} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onNew={(id) => { setNewSessionMachineId(id); setNewSessionOpen(true); setDrawerOpen(false); }} />
         </aside>
 
         {drawerOpen && <div className="scrim" aria-hidden="true" onClick={() => setDrawerOpen(false)} />}
@@ -756,7 +731,6 @@ export function App() {
           void load();
         }}
       /></MachineContext.Provider>
-      {machineDialog && <MachineDialog updateRemote={updateRemote} machine={machineDialog === "new" ? undefined : machineDialog} onClose={closeMachineDialog} onConnected={(id) => { closeMachineDialog(); selectTarget(id, null); void load(); }} />}
       <Droplet onOpen={(machineId, paneId) => {
         // an ended pane's card outlives the pane: the refetch has dropped it, and selecting it attaches nothing
         if (!machinesRef.current.find((m) => m.id === machineId)?.snapshot?.panes.some((p) => p.pane_id === paneId)) return;
@@ -764,7 +738,7 @@ export function App() {
         setFilesOpen(false);
         selectTargetRef.current(machineId, paneId);
       }} />
-      <SettingsDialog auth={auth} open={settingsOpen} onClose={closeSettings} actions={actions} updates={updates} onEnableNotifications={enableNotifications} />
+      <SettingsDialog auth={auth} open={settingsOpen} onClose={closeSettings} actions={actions} onEnableNotifications={enableNotifications} />
       {filesOpen && selectedPane && (
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} viewing={viewing !== null} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
       )}

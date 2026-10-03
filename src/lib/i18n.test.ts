@@ -2,8 +2,6 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { JA } from "./i18n.ja.ts";
-import { KO } from "./i18n.ko.ts";
-import { ZH } from "./i18n.zh.ts";
 import { resolveLanguage, translate } from "./i18n.ts";
 
 const root = join(import.meta.dir, "..");
@@ -67,13 +65,11 @@ function labelMapKeys(): string[] {
     ...grab("components/DevicesPanel.tsx", "VIA", value),
     ...grab("components/KeyBar.tsx", "ARROWS", /label: "([^"]+)"/g),
     ...grab("lib/shortcuts.ts", "SHORTCUTS", /label: "([^"]+)"/g),
-    ...grab("lib/bridgeProgress.ts", "STAGES", /label: "([^"]+)"/g),
     ...grab("lib/workBlocks.ts", "CATEGORY_LABEL", /\["([^"]+)", "([^"]+)"\]/g),
-    ...grab("lib/usage.ts", "WINDOW_LABEL", value),
   ];
 }
 
-const DICTIONARIES = { Korean: KO, Japanese: JA, Chinese: ZH };
+const DICTIONARIES = { Japanese: JA };
 
 describe.each(Object.entries(DICTIONARIES))("%s dictionary", (_name, dictionary) => {
   const inCode = keysInCode();
@@ -109,23 +105,20 @@ describe.each(Object.entries(DICTIONARIES))("%s dictionary", (_name, dictionary)
 describe("translate", () => {
   it("fills placeholders, falls back to English, and leaves unknown placeholders alone", () => {
     expect(translate("en", "Worked for {duration}", { duration: "7s" })).toBe("Worked for 7s");
-    expect(translate("ko", "Worked for {duration}", { duration: "7초" })).toBe(KO["Worked for {duration}"]!.replace("{duration}", "7초"));
-    expect(translate("ko", "not a key", { x: 1 })).toBe("not a key");
+    expect(translate("ja", "Worked for {duration}", { duration: "7秒" })).toBe(JA["Worked for {duration}"]!.replace("{duration}", "7秒"));
+    expect(translate("ja", "not a key", { x: 1 })).toBe("not a key");
     expect(translate("ja", "Settings")).toBe(JA["Settings"]!);
-    expect(translate("zh", "Settings")).toBe(ZH["Settings"]!);
     expect(translate("en", "{a} and {b}", { a: 1 })).toBe("1 and {b}");
   });
 
   it("follows the browser only when asked to", () => {
-    expect(resolveLanguage("system", ["ko-KR", "en-US"])).toBe("ko");
-    expect(resolveLanguage("system", ["en-US", "ko"])).toBe("ko");
+    expect(resolveLanguage("system", ["ja-JP", "en-US"])).toBe("ja");
+    expect(resolveLanguage("system", ["en-US", "ja"])).toBe("ja");
     expect(resolveLanguage("system", ["en-US"])).toBe("en");
     expect(resolveLanguage("system", [])).toBe("en");
-    expect(resolveLanguage("en", ["ko-KR"])).toBe("en");
-    expect(resolveLanguage("ko", ["en-US"])).toBe("ko");
+    expect(resolveLanguage("en", ["ja-JP"])).toBe("en");
+    expect(resolveLanguage("ja", ["en-US"])).toBe("ja");
     expect(resolveLanguage("system", ["ja-JP"])).toBe("ja");
-    expect(resolveLanguage("system", ["en-US", "zh-CN", "ko"])).toBe("zh");
-    expect(resolveLanguage("system", ["zh-TW"])).toBe("zh");
-    expect(resolveLanguage("ja", ["zh-CN"])).toBe("ja");
+    expect(resolveLanguage("system", ["ko-KR", "zh-CN"])).toBe("en");
   });
 });

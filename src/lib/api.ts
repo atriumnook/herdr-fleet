@@ -1,4 +1,4 @@
-import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine, type SetupAction, type SetupJob, type SetupRequest } from "../../shared/machines.ts";
+import { machinePath, type BridgeHealth, type HerdrIdentity, type Machine } from "../../shared/machines.ts";
 import type {
   AgentKind,
   DirectoryListing,
@@ -15,47 +15,18 @@ import type {
   RemoteAccess,
   SessionSnapshot,
   SlashCommand,
-  UsageReport,
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
-import type { HerdrUpdateStatus, UpdateCommand, UpdateStatus } from "../../shared/update.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { VoiceConfigUpdate, VoiceStatus } from "../../shared/voice.ts";
 
 /** Settings → Phone: what Tailscale on the server's PC already serves, or the command to run. */
 export function fetchRemoteAccess(): Promise<RemoteAccess> {
   return getJson<RemoteAccess>("/api/access");
 }
 
-/** The sidebar's plan meters; `refresh` asks the providers again instead of the server's recent answer. */
-export function fetchUsage(refresh = false): Promise<UsageReport> {
-  return getJson<UsageReport>(refresh ? "/api/usage?refresh=1" : "/api/usage");
-}
-
-export function fetchUpdateStatus(): Promise<UpdateStatus> {
-  return getJson<UpdateStatus>("/api/updates");
-}
-
-export async function requestUpdate(command: UpdateCommand): Promise<void> {
-  const url = `/api/updates/${command}`;
-  const response = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
-  if (!response.ok) throw await errorFrom(url, response);
-}
-
-/** Settings → Updates: herdr itself, on the PC the server runs on. */
-export function fetchHerdrUpdate(): Promise<HerdrUpdateStatus> {
-  return getJson<HerdrUpdateStatus>("/api/herdr/update");
-}
-
-export async function requestHerdrUpdate(): Promise<void> {
-  const url = "/api/herdr/update";
-  const response = await fetch(url, { method: "POST", headers: { "x-herdr-update": "1" } });
-  if (!response.ok) throw await errorFrom(url, response);
-}
-
 /**
- * A non-2xx answer from the herdr-web-ui API. `code` is the server's error-envelope
+ * A non-2xx answer from the herdr-fleet API. `code` is the server's error-envelope
  * code when it sent one, so callers can branch on `status` (401 = the token gate)
  * without parsing the message.
  */
@@ -410,26 +381,4 @@ export async function fetchMachines(signal?: AbortSignal): Promise<Machine[]> {
   const response = await fetch("/api/machines", { signal });
   if (!response.ok) throw await errorFrom("/api/machines", response);
   return ((await response.json()) as { machines: Machine[] }).machines;
-}
-export async function machineRequest<T>(path: string, method = "GET", body?: unknown): Promise<T> {
-  const response = await fetch(`/api/machines${path}`, { method, headers: { "content-type": "application/json", "x-herdr-machine": "1" }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
-  if (!response.ok) throw await errorFrom("/api/machines", response);
-  return response.json();
-}
-export const startMachineSetup = (request: SetupRequest) => machineRequest<SetupJob>("/setup", "POST", request);
-export const fetchMachineSetup = (id: string) => machineRequest<SetupJob>(`/setup/${encodeURIComponent(id)}`);
-export const answerMachineSetup = (id: string, action: SetupAction) => machineRequest<SetupJob>(`/setup/${encodeURIComponent(id)}`, "POST", action);
-
-/** GET /api/voice: whether the server holds a key; the key itself never comes back. */
-export async function fetchVoiceStatus(): Promise<VoiceStatus> {
-  const response = await fetch("/api/voice", { cache: "no-store" });
-  if (!response.ok) throw await errorFrom("/api/voice", response);
-  return (await response.json()) as VoiceStatus;
-}
-
-/** PUT /api/voice/config: ApiError 409 `key_from_env` when the key comes from HERDR_WEB_OPENAI_API_KEY. */
-export async function saveVoiceConfig(update: VoiceConfigUpdate): Promise<VoiceStatus> {
-  const response = await fetch("/api/voice/config", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(update) });
-  if (!response.ok) throw await errorFrom("/api/voice/config", response);
-  return (await response.json()) as VoiceStatus;
 }

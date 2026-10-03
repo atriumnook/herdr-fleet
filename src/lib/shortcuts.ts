@@ -14,8 +14,6 @@ export const SHORTCUTS = [
   { id: "previous-pane", label: "Previous pane", keys: ["Mod", "Shift", "ArrowUp"] },
   { id: "next-pane", label: "Next pane", keys: ["Mod", "Shift", "ArrowDown"] },
   { id: "settings", label: "Settings", keys: ["Mod", "Shift", ","] },
-  // listed only: held, not dispatched; VoiceInput.tsx listens for it itself (isVoiceShortcut)
-  { id: "voice", label: "Dictate (hold)", keys: ["Mod", "Shift", "Space"] },
 ] as const;
 
 export type ShortcutId = (typeof SHORTCUTS)[number]["id"];
@@ -57,17 +55,10 @@ export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean, 
   // Shift+Comma produces "<" on common keyboard layouts.
   const key = event.code === "Comma" ? "," : /^Digit[0-9]$/.test(event.code ?? "") ? event.code!.slice(-1) : event.key.length === 1 ? event.key.toLowerCase() : event.key;
   for (const shortcut of SHORTCUTS) {
-    if (shortcut.id === "voice") continue;
     if (Object.hasOwn(overrides, shortcut.id) && overrides[shortcut.id] === key) return shortcut.id;
   }
   const id = KEY_TO_ID[key];
   return id && !Object.hasOwn(overrides, id) ? id : null;
-}
-
-/** Mod+Shift+Space, held to dictate. matchShortcut never returns "voice": it has no action. */
-export function isVoiceShortcut(event: ShortcutEventLike, platformIsMac: boolean): boolean {
-  const hasMod = platformIsMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-  return hasMod && event.shiftKey && !event.altKey && (event.code === "Space" || event.key === " ");
 }
 
 /**

@@ -77,7 +77,7 @@ export interface PaneTerminalProps {
 
 
 /** Whether this device types in the terminal's input line or straight into the grid: remembered per device. */
-const DIRECT_TYPING_KEY = "herdr-web-ui:direct-typing";
+const DIRECT_TYPING_KEY = "herdr-fleet:direct-typing";
 
 function storedDirectTyping(): boolean {
   try { return window.localStorage.getItem(DIRECT_TYPING_KEY) === "1"; } catch { return false; }
@@ -188,7 +188,7 @@ export function PaneTerminal({
   const draftPaneRef = useRef<string | null>(null);
   useEffect(() => {
     if (!paneId || draftState.owner !== paneStorageId(machineId, paneId)) return;
-    const key = `herdr-web-ui:terminal-draft:${draftState.owner}`;
+    const key = `herdr-fleet:terminal-draft:${draftState.owner}`;
     try { if (draftIsEmpty(draft)) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(draft)); } catch {}
   }, [draftState, paneId, machineId, draft]);
   // transient OSC 52 feedback ("copied") — a pill in the banner column
@@ -733,7 +733,7 @@ export function PaneTerminal({
           term.options.disableStdin = true;
           return;
         }
-        term.writeln(`\r\n\u001b[31m[herdr-web-ui] ${message.code}: ${message.message}\u001b[0m`);
+        term.writeln(`\r\n\u001b[31m[herdr-fleet] ${message.code}: ${message.message}\u001b[0m`);
       }
       setConnected(socket.connected);
     });
@@ -1062,7 +1062,7 @@ export function PaneTerminal({
     term.options.disableStdin = observeRef.current;
     let saved = EMPTY_DRAFT;
     try {
-      const value = paneId ? JSON.parse(localStorage.getItem(`herdr-web-ui:terminal-draft:${paneStorageId(machineId, paneId)}`) ?? "null") : null;
+      const value = paneId ? JSON.parse(localStorage.getItem(`herdr-fleet:terminal-draft:${paneStorageId(machineId, paneId)}`) ?? "null") : null;
       if (value && typeof value.text === "string" && Number.isInteger(value.droppedSpecial)) saved = value;
     } catch {}
     setDraft(saved);
@@ -1308,7 +1308,7 @@ export function PaneTerminal({
         )}
         {paneId !== null && !chatView && !ended && !connected && (
           <div className="terminal-banner terminal-banner-warning" role="status">
-            reconnecting to herdr web ui…
+            reconnecting to herdr fleet…
             {!draftIsEmpty(draft) && <span className="draft-held"> input held: “{draft.text}”</span>}
           </div>
         )}

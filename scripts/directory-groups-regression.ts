@@ -7,7 +7,6 @@ import { chromium } from "playwright-core";
 import type { Page } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { HerdrError, herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
-import { UsageService } from "../server/usage.ts";
 
 type State = {
   readonly selector: string;
@@ -74,7 +73,7 @@ try {
   // any of those silently target the user's current socket.
   assert.notEqual(process.env.HERDR_TEST_LIVE, "1", "Live-session mode is forbidden");
   assert.notEqual(process.env.HERDR_TEST_MODE, "unit", "This regression requires isolated herdr");
-  process.env.HERDR_TEST_SESSION = "herdr-web-ui-test";
+  process.env.HERDR_TEST_SESSION = "herdr-fleet-test";
   const { testSocketPath } = await import("./test-herdr.ts");
   assert.equal(process.env.HERDR_SOCKET, testSocketPath(), "test-herdr must select its isolated socket");
 
@@ -101,12 +100,11 @@ try {
   const split = await herdrRpc<{ pane: { pane_id: string } }>("pane.split", {
     target_pane_id: other.paneId, direction: "down", focus: false, cwd: otherCwd,
   });
-  const workspaceFoldKey = `herdr-web-ui:workspace-collapsed:local:${other.workspaceId}`;
-  const directoryFoldKey = `herdr-web-ui:directory-collapsed:local:directory:${otherCwd}`;
+  const workspaceFoldKey = `herdr-fleet:workspace-collapsed:local:${other.workspaceId}`;
+  const directoryFoldKey = `herdr-fleet:directory-collapsed:local:directory:${otherCwd}`;
   server = createServer({
     port: 0, hostname: "127.0.0.1", token: "", tailscaleOwner: null,
     stateDir: join(root, "state"), codexHome: join(root, "codex"),
-    usage: new UsageService(undefined, []),
   });
   const origin = `http://127.0.0.1:${server.port}`;
   browser = await chromium.launch({
@@ -119,11 +117,11 @@ try {
   await context.addInitScript(({ ids, legacyFoldKey }) => {
     // Browser locale alone does not override the app's remembered language.
     // Preserve a language changed through Settings across subsequent reloads.
-    if (!localStorage.getItem("herdr-web-ui:settings")) {
-      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertsOn: false }));
+    if (!localStorage.getItem("herdr-fleet:settings")) {
+      localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en", alertsOn: false }));
       localStorage.setItem(legacyFoldKey, "1");
     }
-    for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
+    for (const id of ids) localStorage.setItem(`herdr-fleet:view:${id}`, "chat");
   }, { ids: [...fixtures.map(({ paneId }) => paneId), split.pane.pane_id], legacyFoldKey: workspaceFoldKey });
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
@@ -171,7 +169,7 @@ try {
       name: mode === "workspace" ? "By workspace" : "By folder", exact: true,
     }).getAttribute("aria-pressed"), "true");
     assert.equal(await page.evaluate(() => performance.timeOrigin), documentIdentity, "grouping must not replace the document");
-    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarGrouping), mode);
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-fleet:settings") ?? "{}").sidebarGrouping), mode);
     await changeState(page, [{ selector: ".settings-dialog", count: 0 }],
       () => page.keyboard.press("Escape"), "grouping Settings closes");
   };
@@ -193,7 +191,7 @@ try {
     assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .sidebar-drag-handle`).count(), 1);
   }
   // A fold stored while a single pane had a heading (0.3.44) must not hide a row that has no toggle.
-  const singleFoldKey = `herdr-web-ui:workspace-collapsed:local:${alpha.workspaceId}`;
+  const singleFoldKey = `herdr-fleet:workspace-collapsed:local:${alpha.workspaceId}`;
   await page.evaluate((key) => localStorage.setItem(key, "1"), singleFoldKey);
   await navigate(() => page.reload(), lone.paneId);
   await page.locator(paneSelector(alpha.paneId)).waitFor({ state: "visible" });
@@ -239,7 +237,7 @@ try {
   }
   await navigate(() => page.reload(), lone.paneId);
   await page.locator(`${distinct} > .directory-header[aria-expanded="false"]`).waitFor({ state: "attached" });
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarGrouping), "directory");
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-fleet:settings") ?? "{}").sidebarGrouping), "directory");
   assert.deepEqual(await page.evaluate((keys) => keys.map((key) => localStorage.getItem(key)),
     [workspaceFoldKey, directoryFoldKey]), ["1", "1"], "reload preserves grouping and independent folds");
   await changeState(page, [{ selector: `${distinct} ${paneSelector(split.pane.pane_id)}` }],
@@ -306,7 +304,7 @@ try {
   for (const fixture of [alpha, beta, lone]) {
     await changeState(page, [{ selector: paneSelector(fixture.paneId), attribute: ["aria-current", "true"] }],
       () => page.locator(paneSelector(fixture.paneId)).click(), `session click selects ${fixture.label}`);
-    const selected = await page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null"));
+    const selected = await page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-fleet:selection") ?? "null"));
     assert.equal(selected?.pane_id, fixture.paneId);
     assert.equal(await page.locator(".context-sub").textContent().then((text) => text?.includes(fixture.label)), true);
   }
@@ -359,7 +357,7 @@ try {
   // not a reason to wait an arbitrary number of animation frames.
   assert.equal(await page.locator(header).getAttribute("aria-expanded"), "false");
   assert.equal(await page.locator(`${shared} .directory-contents`).count(), 0);
-  const selection = await page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null"));
+  const selection = await page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-fleet:selection") ?? "null"));
   assert.equal(selection?.pane_id, beta.paneId, "status snapshots preserve selection as well as its deliberate fold");
   await fold(false);
   console.log("PASS folding survives reload, ?pane unfolds, and status snapshots preserve deliberate folds");
@@ -461,7 +459,7 @@ try {
     () => page.locator(header).focus(), "keyboard focus on directory header");
   await screenshot("focus");
 
-  // Switch through the real Settings surface for Korean evidence; fictional
+  // Switch through the real Settings surface for Japanese evidence; fictional
   // labels and owned temp paths are the only session data staged in this page.
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.locator(".settings-dialog").waitFor({ state: "attached" });
@@ -469,31 +467,31 @@ try {
   const groupingControl = await page.locator(grouping).elementHandle();
   assert.ok(groupingControl);
   await screenshot("settings-en");
-  await changeState(page, [{ selector: "html", attribute: ["lang", "ko-KR"] }],
-    () => page.locator(".settings-dialog").getByRole("button", { name: "한국어", exact: true }).click(),
-    "Settings changes the UI language to Korean");
+  await changeState(page, [{ selector: "html", attribute: ["lang", "ja-JP"] }],
+    () => page.locator(".settings-dialog").getByRole("button", { name: "日本語", exact: true }).click(),
+    "Settings changes the UI language to Japanese");
   await groupingControl.scrollIntoViewIfNeeded();
-  await screenshot("settings-ko");
+  await screenshot("settings-ja");
   await page.setViewportSize({ width: 375, height: 900 });
   await groupingControl.scrollIntoViewIfNeeded();
   const mobileGrouping = await groupingControl.boundingBox();
   assert.ok(mobileGrouping && mobileGrouping.x >= 0 && mobileGrouping.x + mobileGrouping.width <= 375, "mobile grouping choices fit the viewport");
-  await screenshot("settings-ko-375");
+  await screenshot("settings-ja-375");
   await page.setViewportSize({ width: 1280, height: 900 });
   await changeState(page, [{ selector: ".settings-dialog", count: 0 }],
-    () => page.keyboard.press("Escape"), "Korean Settings closes");
+    () => page.keyboard.press("Escape"), "Japanese Settings closes");
   for (const width of [1280, 768, 375]) {
     await page.setViewportSize({ width, height: 900 });
     if (await page.locator(".drawer-toggle").isVisible()
       && await page.locator(".drawer-toggle").getAttribute("aria-expanded") !== "true") {
       await changeState(page, [{ selector: "#workspace-drawer.is-open" }],
-        () => page.locator(".drawer-toggle").click(), `Korean drawer opens at ${width}`);
+        () => page.locator(".drawer-toggle").click(), `Japanese drawer opens at ${width}`);
     }
     assert.equal(await page.locator(header).isVisible(), true);
-    await screenshot(`ko-${width}`);
+    await screenshot(`ja-${width}`);
   }
   await page.setViewportSize({ width: 1280, height: 900 });
-  await page.getByRole("button", { name: "설정", exact: true }).click();
+  await page.getByRole("button", { name: "設定", exact: true }).click();
   await page.locator(".settings-dialog").waitFor({ state: "attached" });
   await changeState(page, [{ selector: "html", attribute: ["lang", "en-US"] }],
     () => page.locator(".settings-dialog").getByRole("button", { name: "English", exact: true }).click(),

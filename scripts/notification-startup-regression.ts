@@ -105,8 +105,8 @@ export async function checkNotificationStartup(browser: Browser, upstream: strin
     await driver.waitForFunction((pane) => (window as ProbeWindow).messages.some((message) => message.type === "probe-done" && message.pane === pane), newerPane);
     releaseJS();
     await app.waitForLoadState("load");
-    await app.waitForFunction((pane) => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null")?.pane_id === pane, newerPane);
-    const result = await app.evaluate(() => ({ selection: JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null"), selections: (window as ProbeWindow).selections }));
+    await app.waitForFunction((pane) => JSON.parse(sessionStorage.getItem("herdr-fleet:selection") ?? "null")?.pane_id === pane, newerPane);
+    const result = await app.evaluate(() => ({ selection: JSON.parse(sessionStorage.getItem("herdr-fleet:selection") ?? "null"), selections: (window as ProbeWindow).selections }));
     assert.deepEqual(result.selection, { machine_id: "local", pane_id: newerPane });
     assert.deepEqual(result.selections.at(-1), { type: "select-pane", machine_id: "local", pane_id: newerPane });
     assert.deepEqual(errors, []);

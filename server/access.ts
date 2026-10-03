@@ -12,7 +12,7 @@
  * on a PC whose Tailscale login is known: there, a request with no login header is a tagged
  * node (tailscale serve states no person for it), and a tailnet can hold many of those.
  * A PC whose own node is tagged has no login to compare with: its proxied requests pair, the
- * owner's included, unless HERDR_WEB_TAILSCALE_OWNER names the login to let in.
+ * owner's included, unless HERDR_FLEET_TAILSCALE_OWNER names the login to let in.
  *
  * A proxy on this PC connects from loopback like a local client does, so it is known only by
  * what it sends: a forwarding header, or a Host that is not a name for this machine. A proxy
@@ -91,8 +91,7 @@ export function decideAccess(input: AccessInput): Access {
     return { level: "none", reason: "other_user" };
   }
   if (input.loopback && !input.forwarded) return { level: "full", via: "local", role: "drive" };
-  if (input.loopback && input.forwarded && (input.owner !== null || input.tagged)) return { level: "none", reason: "pairing_required" };
-  // the public internet is never "open", whatever is paired
-  if (!input.gated && !input.funnel) return { level: "full", via: "open", role: "drive" };
+  // Everything else needs a token or a paired device, paired or not yet. A loopback request
+  // under a foreign Host (a DNS-rebound page, a proxy) is not "this PC".
   return { level: "none", reason: "pairing_required" };
 }

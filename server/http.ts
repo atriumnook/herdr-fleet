@@ -1,5 +1,5 @@
 /**
- * The `{ error: { code, message } }` envelope every herdr-web-ui route answers with.
+ * The `{ error: { code, message } }` envelope every herdr-fleet route answers with.
  *
  * It lives outside index.ts because the auth routes must fail in exactly the shape
  * the pane routes fail in: a second copy of this envelope is how one API ends up
@@ -35,4 +35,22 @@ export function errorResponse(error: unknown): Response {
 
 export function badRequest(code: string, message: string): Response {
   return jsonResponse({ error: { code, message } }, 400);
+}
+
+/**
+ * A browser request from this app's own pages: Sec-Fetch-Site same-origin (or a typed
+ * address), and an Origin, when there is one, equal to the request's own. A request with no
+ * Origin is not from a browser page (a CLI still needs the token).
+ */
+export function sameOrigin(request: Request): boolean {
+  const site = request.headers.get("sec-fetch-site");
+  if (site && site !== "same-origin" && site !== "none") return false;
+  const origin = request.headers.get("origin");
+  if (!origin) return true;
+  try {
+    const expected = new URL(request.url);
+    // Reverse proxies commonly terminate HTTPS; do not trust arbitrary forwarded hosts.
+    if (request.headers.get("x-forwarded-proto") === "https") expected.protocol = "https:";
+    return new URL(origin).origin === expected.origin;
+  } catch { return false; }
 }
