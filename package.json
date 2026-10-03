@@ -19,7 +19,8 @@
     "test:unit": "bun scripts/ci-tests.ts unit",
     "test:integration": "bun scripts/ci-tests.ts integration",
     "test:ui": "bun run build && bun scripts/ui-regression.ts",
-    "generate:types": "bun run scripts/generate-protocol-types.ts"
+    "generate:types": "bun run scripts/generate-protocol-types.ts",
+    "e2e": "bun e2e/fleet-live.ts"
   },
   "dependencies": {
     "@lydell/node-pty": "1.1.0",
