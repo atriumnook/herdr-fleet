@@ -122,7 +122,7 @@ describe("subscribeEvents", () => {
           clearTimeout(timer);
           resolve(error);
         },
-      }, "/nonexistent/herdr-web-ui-test.sock");
+      }, "/nonexistent/herdr-fleet-test.sock");
     });
     expect(await closed).toBe("connect_failed");
   });

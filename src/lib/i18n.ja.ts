@@ -78,7 +78,7 @@ export const JA: Record<string, string> = {
   "Installed": "インストール済み",
   "Install app": "アプリをインストール",
   "About": "情報",
-  "Star on GitHub": "GitHub で Star する",
+  "Based on herdr web ui by devswha (MIT).": "devswha 氏の herdr web ui(MIT)をもとにしています。",
 
   // ---- shortcuts (lib/shortcuts.ts labels) ----
   "Command palette": "コマンドパレット",
@@ -98,7 +98,7 @@ export const JA: Record<string, string> = {
   "Agent {status}": "エージェント {status}",
 
   // ---- app header and shell ----
-  "Connecting to herdr web ui…": "herdr web ui に接続しています…",
+  "Connecting to herdr fleet…": "herdr fleet に接続しています…",
   "Close workspace list": "ワークスペース一覧を閉じる",
   "Open workspace list": "ワークスペース一覧を開く",
   "Show workspace list": "ワークスペース一覧を表示",

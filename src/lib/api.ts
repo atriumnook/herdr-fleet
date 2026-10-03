@@ -26,7 +26,7 @@ export function fetchRemoteAccess(): Promise<RemoteAccess> {
 }
 
 /**
- * A non-2xx answer from the herdr-web-ui API. `code` is the server's error-envelope
+ * A non-2xx answer from the herdr-fleet API. `code` is the server's error-envelope
  * code when it sent one, so callers can branch on `status` (401 = the token gate)
  * without parsing the message.
  */

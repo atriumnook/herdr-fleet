@@ -64,9 +64,9 @@ const MAX_IMAGES_PER_ACTION = 4;
  */
 const PREVIEW_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"] as const;
 const COMMAND_CACHE_MS = 60_000;
-const SLASH_USAGE_KEY = "herdr-web-ui:slash-usage";
+const SLASH_USAGE_KEY = "herdr-fleet:slash-usage";
 /** One height for every pane on this device: it is the screen, not the conversation, that decides it. */
-const COMPOSER_HEIGHT_KEY = "herdr-web-ui:composer-height";
+const COMPOSER_HEIGHT_KEY = "herdr-fleet:composer-height";
 const COMPOSER_HEIGHT_MAX = 480;
 const COMPOSER_HEIGHT_STEP = 24;
 /** How far a press on the grip must travel to become a resize: a tap or a resting finger sets nothing. */
@@ -204,7 +204,7 @@ export function Composer({
   const attachmentsRef = useRef<Attachment[]>([]);
   const removedAttachments = useRef(new Set<number>());
   const fileRequest = useRef(0);
-  const draftKey = `herdr-web-ui:composer-draft:${paneStorageId(machineId, paneId)}`;
+  const draftKey = `herdr-fleet:composer-draft:${paneStorageId(machineId, paneId)}`;
   const { text, sending } = useSyncExternalStore(composerDrafts.subscribe, () => composerDrafts.read(draftKey));
   const setText = useCallback((value: string | ((previous: string) => string)) => composerDrafts.set(draftKey, value), [draftKey]);
   const mounted = useRef(true);

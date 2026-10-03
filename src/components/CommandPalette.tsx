@@ -13,7 +13,7 @@ import { displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
 import { placeLine } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
 
-const RECENT_KEY = "herdr-web-ui:recent-panes";
+const RECENT_KEY = "herdr-fleet:recent-panes";
 const RECENT_LIMIT = 8;
 
 interface CommandPaletteProps {

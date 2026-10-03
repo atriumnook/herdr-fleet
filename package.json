@@ -1,5 +1,5 @@
 {
-  "name": "herdr-web-ui",
+  "name": "herdr-fleet",
   "private": true,
   "version": "0.3.45",
   "type": "module",
@@ -7,7 +7,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/devswha/herdr-web-ui.git"
+    "url": "git+https://github.com/atriumnook/herdr-fleet.git"
   },
   "scripts": {
     "dev": "vite",

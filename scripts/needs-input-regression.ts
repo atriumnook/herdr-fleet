@@ -10,8 +10,8 @@ export async function checkNeedsInput(browser: Browser, origin: string, paneId: 
   let offline = false;
   try {
     await context.addInitScript(() => {
-      localStorage.setItem("herdr-web-ui:pc-collapsed:local", "1");
-      localStorage.setItem("herdr-web-ui:pc-collapsed:qa-remote", "1");
+      localStorage.setItem("herdr-fleet:pc-collapsed:local", "1");
+      localStorage.setItem("herdr-fleet:pc-collapsed:qa-remote", "1");
     });
     await context.route("**/api/machines/events", (route) => route.abort());
     await context.route("**/api/machines", async (route) => {

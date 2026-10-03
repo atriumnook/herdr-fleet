@@ -5,8 +5,8 @@ const files = [...new Bun.Glob("{src,shared,server,scripts}/**/*.test.ts").scanS
 const needsHerdr = (file: string) => file.endsWith(".contract.test.ts") || file.startsWith("server/herdr/") || file.startsWith("server/pty/");
 const selected = files.filter((file) => needsHerdr(file) === (suite === "integration"));
 if (!selected.length) throw new Error(`No ${suite} tests found`);
-if (suite === "integration" && !Bun.which(process.env["HERDR_WEB_HERDR_BIN"] || "herdr")) {
-  throw new Error("Integration tests require herdr on PATH (or HERDR_WEB_HERDR_BIN)");
+if (suite === "integration" && !Bun.which(process.env["HERDR_FLEET_HERDR_BIN"] || "herdr")) {
+  throw new Error("Integration tests require herdr on PATH (or HERDR_FLEET_HERDR_BIN)");
 }
 if (suite === "integration" && process.env["HERDR_TEST_LIVE"] === "1") {
   throw new Error("CI integration tests must use an isolated herdr session");

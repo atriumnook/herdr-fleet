@@ -1,6 +1,6 @@
 /**
  * Tests talk to their own herdr: a headless server for the named session
- * `herdr-web-ui-test` (HERDR_TEST_SESSION overrides), started on first use and left
+ * `herdr-fleet-test` (HERDR_TEST_SESSION overrides), started on first use and left
  * running for the next run. The workspaces, panes and agents the tests create never
  * show in the herdr the user works in.
  *
@@ -13,7 +13,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ping, sessionSnapshot, workspaceCreate } from "../server/herdr/client.ts";
 
-export const TEST_SESSION = process.env["HERDR_TEST_SESSION"] || "herdr-web-ui-test";
+export const TEST_SESSION = process.env["HERDR_TEST_SESSION"] || "herdr-fleet-test";
 
 /** Where herdr puts a named session's socket (it follows XDG_CONFIG_HOME, as remote-entry.ts does). */
 export function testSocketPath(): string {
@@ -22,7 +22,7 @@ export function testSocketPath(): string {
 }
 
 function herdrBinary(): string | null {
-  const configured = process.env["HERDR_WEB_HERDR_BIN"];
+  const configured = process.env["HERDR_FLEET_HERDR_BIN"];
   if (configured) return configured;
   const found = Bun.which("herdr");
   return found ?? null;
@@ -58,7 +58,7 @@ export async function useTestHerdr(): Promise<string | null> {
   // some tests read "a live workspace" without owning one: keep one resident, as a
   // session in use always has
   if ((await sessionSnapshot(socket)).workspaces.length === 0) {
-    await workspaceCreate({ cwd: homedir(), label: "herdr-web-ui-test-resident" }, socket);
+    await workspaceCreate({ cwd: homedir(), label: "herdr-fleet-test-resident" }, socket);
   }
   process.env["HERDR_SOCKET"] = socket;
   return socket;

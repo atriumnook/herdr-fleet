@@ -22,7 +22,7 @@ const ERROR_NOTE_MS = 5000;
 /** Folder folds belong to a PC and full path, not an individual workspace. */
 const collapsedKey = (machineId: string, groupKey: string) => {
   const workspace = groupKey.startsWith("workspace:");
-  return `herdr-web-ui:${workspace ? "workspace" : "directory"}-collapsed:${machineId}:${groupKey.slice(workspace ? "workspace:".length : "folder:".length)}`;
+  return `herdr-fleet:${workspace ? "workspace" : "directory"}-collapsed:${machineId}:${groupKey.slice(workspace ? "workspace:".length : "folder:".length)}`;
 };
 function storedCollapsed(machineId: string, directoryKeys: string[]): Set<string> {
   const collapsed = new Set<string>();

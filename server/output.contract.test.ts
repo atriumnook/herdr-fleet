@@ -29,7 +29,7 @@ async function until(check: () => boolean, label: string, timeout = 10_000): Pro
 
 async function pane(): Promise<string> {
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
-    "workspace.create", { label: "herdr-web-ui-test-output", cwd: root, focus: false },
+    "workspace.create", { label: "herdr-fleet-test-output", cwd: root, focus: false },
   );
   workspaces.push(created.workspace.workspace_id);
   return created.root_pane.pane_id;
@@ -179,7 +179,7 @@ describe("an attach herdr refuses over a read in progress", () => {
    * pane read of the same terminal, then attaches for real.
    */
   function refusingHerdr(refusals: number): { path: string; attempts: () => number } {
-    const real = process.env["HERDR_WEB_HERDR_BIN"] || Bun.which("herdr") || "herdr";
+    const real = process.env["HERDR_FLEET_HERDR_BIN"] || Bun.which("herdr") || "herdr";
     const dir = mkdtempSync(join(root, "refusing-herdr-"));
     const count = join(dir, "count");
     const path = join(dir, "herdr");
@@ -196,11 +196,11 @@ describe("an attach herdr refuses over a read in progress", () => {
   }
 
   async function withHerdr<T>(path: string, run: () => Promise<T>): Promise<T> {
-    const previous = process.env["HERDR_WEB_HERDR_BIN"];
-    process.env["HERDR_WEB_HERDR_BIN"] = path;
+    const previous = process.env["HERDR_FLEET_HERDR_BIN"];
+    process.env["HERDR_FLEET_HERDR_BIN"] = path;
     try { return await run(); } finally {
-      if (previous === undefined) delete process.env["HERDR_WEB_HERDR_BIN"];
-      else process.env["HERDR_WEB_HERDR_BIN"] = previous;
+      if (previous === undefined) delete process.env["HERDR_FLEET_HERDR_BIN"];
+      else process.env["HERDR_FLEET_HERDR_BIN"] = previous;
     }
   }
 

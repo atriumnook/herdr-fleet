@@ -80,5 +80,5 @@ export class ComposerDraftStore {
 }
 export const composerDrafts = new ComposerDraftStore();
 if (typeof window !== "undefined") window.addEventListener("storage", (event) => {
-  if (event.key?.startsWith("herdr-web-ui:composer-draft:")) composerDrafts.refresh(event.key);
+  if (event.key?.startsWith("herdr-fleet:composer-draft:")) composerDrafts.refresh(event.key);
 });

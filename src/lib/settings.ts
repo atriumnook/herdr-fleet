@@ -106,7 +106,7 @@ export function alertPrefs(settings: Settings): AlertPrefs {
   return { input: settings.alertInput, done: settings.alertDone };
 }
 
-const STORAGE_KEY = "herdr-web-ui:settings";
+const STORAGE_KEY = "herdr-fleet:settings";
 export const TERMINAL_FONT_MIN = 10;
 export const TERMINAL_FONT_MAX = 22;
 export const TERMINAL_WHEEL_SPEED_MIN = 1;
@@ -293,7 +293,7 @@ export function useSettings(): SettingsContextValue {
   return value;
 }
 
-export const PANE_VIEW_KEY_PREFIX = "herdr-web-ui:view:";
+export const PANE_VIEW_KEY_PREFIX = "herdr-fleet:view:";
 
 /** Forgets every pane's own lens on this device, so each opens in the default one again. */
 export function forgetPaneViews(given?: Pick<Storage, "length" | "key" | "removeItem">): number {

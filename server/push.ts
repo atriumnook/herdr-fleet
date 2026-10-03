@@ -1,9 +1,9 @@
 /**
- * Web Push: pane alerts that reach a device even when herdr-web-ui is closed there.
+ * Web Push: pane alerts that reach a device even when herdr-fleet is closed there.
  *
  * The browser hands us a subscription (an endpoint on its vendor's push service plus
  * the keys to encrypt for it); we POST encrypted payloads there, signed with our VAPID
- * key. Both halves persist in the state dir (default ~/.config/herdr-web-ui):
+ * key. Both halves persist in the state dir (default ~/.config/herdr-fleet):
  * - vapid.json: every subscription is bound to this key pair. Regenerating it silently
  *   orphans every subscribed device, so a malformed file is an error, never a rotation.
  * - push-subscriptions.json: survives restarts, so a reboot does not unsubscribe phones.
@@ -43,7 +43,7 @@ import { badRequest, jsonResponse } from "./http.ts";
 /** A blocked agent is still blocked when the phone gets signal back; a newer push for the pane replaces it anyway. */
 const PUSH_TTL_SECONDS = 12 * 60 * 60;
 const PUSH_TIMEOUT_MS = 10_000;
-const DEFAULT_SUBJECT = "https://github.com/devswha/herdr-web-ui";
+const DEFAULT_SUBJECT = "https://github.com/atriumnook/herdr-fleet";
 
 /** How long an alert waits for the pane to change first, and the turn a finish is worth telling. */
 export interface AlertTiming {
@@ -169,7 +169,7 @@ export function endedMessage(paneId: string, title: string): PushPayload {
 export function createPushService(options: PushServiceOptions): PushService {
   const vapidPath = join(options.stateDir, "vapid.json");
   const subscriptionsPath = join(options.stateDir, "push-subscriptions.json");
-  const subject = options.subject ?? process.env["HERDR_WEB_PUSH_SUBJECT"] ?? DEFAULT_SUBJECT;
+  const subject = options.subject ?? process.env["HERDR_FLEET_PUSH_SUBJECT"] ?? DEFAULT_SUBJECT;
   const acceptEndpoint = options.acceptEndpoint ?? isPushServiceEndpoint;
 
   let vapid: { publicKey: string; privateKey: string } | null = null;

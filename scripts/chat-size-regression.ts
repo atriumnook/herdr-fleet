@@ -12,10 +12,10 @@ import { herdrRpc, paneRead, paneSendKeys, paneSendText, workspaceClose, workspa
  * The size is the one the pane's own shell reports (`stty size`), not what either browser thinks.
  */
 export async function checkChatKeepsTerminalSize(browser: Browser, origin: string): Promise<void> {
-  const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-chat-size-"));
+  const root = mkdtempSync(join(tmpdir(), "herdr-fleet-chat-size-"));
   const cwd = join(root, "pane");
   mkdirSync(cwd);
-  const created = await workspaceCreate({ cwd, label: "herdr-web-ui-test-chat-size" });
+  const created = await workspaceCreate({ cwd, label: "herdr-fleet-test-chat-size" });
   const paneId = created.root_pane.pane_id;
   const contexts: BrowserContext[] = [];
   try {
@@ -39,7 +39,7 @@ export async function checkChatKeepsTerminalSize(browser: Browser, origin: strin
       const context = await browser.newContext({ locale: "en-US", ...options });
       contexts.push(context);
       await context.addInitScript((stored) => {
-        localStorage.setItem("herdr-web-ui:settings", JSON.stringify(stored));
+        localStorage.setItem("herdr-fleet:settings", JSON.stringify(stored));
         // every frame this page's socket sends and receives, to wait on the server's answers
         const frames: { dir: "in" | "out"; type: string; keep_size?: boolean }[] = [];
         (window as unknown as { frames_: typeof frames }).frames_ = frames;

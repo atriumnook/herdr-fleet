@@ -19,7 +19,7 @@
 
 ## アクセス制御
 
-- token(`HERDR_WEB_TOKEN`)も紐付け済みの端末もないリクエストは、このPC上からループバックの Host で来たものだけを通す。DNS rebinding で来たリクエスト(送信元はループバックでも Host が外部名)は拒否する
+- token(`HERDR_FLEET_TOKEN`)も紐付け済みの端末もないリクエストは、このPC上からループバックの Host で来たものだけを通す。DNS rebinding で来たリクエスト(送信元はループバックでも Host が外部名)は拒否する
 - 他の端末は、PC 上の 設定 → デバイス で発行したペアリングコードで紐付ける
 - ファイルの表示は、ペインの作業フォルダーと一時フォルダー(`os.tmpdir()`)の配下に限る。シンボリックリンクは解決してから判定する
 - push 通知の宛先は、ブラウザベンダーの push サービス(FCM / Mozilla / Apple / WNS)に限る
@@ -43,11 +43,11 @@ bun run start
 | 環境変数 | 意味 |
 |---|---|
 | `HOST` / `PORT` | 待ち受けアドレス(既定 `127.0.0.1` / `7317`) |
-| `HERDR_WEB_TOKEN` | アクセストークン。設定すると、ループバックからのアクセスにも token か紐付け済み端末が必要になる |
-| `HERDR_WEB_STATE_DIR` | 状態(紐付けた端末、push の鍵と購読)の保存先。既定は `~/.config/herdr-web-ui` |
-| `HERDR_WEB_HERDR_BIN` | 使う `herdr` 実行ファイル |
-| `HERDR_WEB_TAILSCALE_OWNER` | Tailscale 経由で入れる所有者のログイン名 |
-| `HERDR_WEB_PUSH_SUBJECT` | push 通知の VAPID subject |
+| `HERDR_FLEET_TOKEN` | アクセストークン。設定すると、ループバックからのアクセスにも token か紐付け済み端末が必要になる |
+| `HERDR_FLEET_STATE_DIR` | 状態(紐付けた端末、push の鍵と購読)の保存先。既定は `~/.config/herdr-fleet` |
+| `HERDR_FLEET_HERDR_BIN` | 使う `herdr` 実行ファイル |
+| `HERDR_FLEET_TAILSCALE_OWNER` | Tailscale 経由で入れる所有者のログイン名 |
+| `HERDR_FLEET_PUSH_SUBJECT` | push 通知の VAPID subject |
 
 ## 開発
 
@@ -58,7 +58,7 @@ bun run test:integration   # Herdr を使うテスト
 bun run build
 ```
 
-- `bun test` を実行すると、まず `scripts/test-herdr.ts` が preload され、テスト専用の Herdr セッション `herdr-web-ui-test` を起動する。このセッションはテスト後も常駐する。止めるときは `herdr --session herdr-web-ui-test server stop`
+- `bun test` を実行すると、まず `scripts/test-herdr.ts` が preload され、テスト専用の Herdr セッション `herdr-fleet-test` を起動する。このセッションはテスト後も常駐する。止めるときは `herdr --session herdr-fleet-test server stop`
 - `bun run test:unit` は `HERDR_TEST_MODE=unit` を付けて preload を止めるが、`HERDR_*` 環境変数はそのまま引き継ぐ。Herdr のペイン内で実行すると普段使いのセッションに接続しうるので、`HERDR_*` を外して実行する
 
 ## 今後

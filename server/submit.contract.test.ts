@@ -13,7 +13,7 @@ import { herdrRpc } from "./herdr/client.ts";
  * other runs under the name `claude` and is reported as that agent (herdr's
  * agent.prompt path).
  */
-const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-submit-"));
+const root = mkdtempSync(join(tmpdir(), "herdr-fleet-submit-"));
 let server: { port: number; stop: () => void };
 const workspaces: string[] = [];
 
@@ -51,7 +51,7 @@ async function received(recorder: Recorder, from: number, count: number): Promis
 
 async function recorder(label: string, program: string, screen = ""): Promise<Recorder> {
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
-    "workspace.create", { label: `herdr-web-ui-test-submit-${label}`, cwd: root, focus: false },
+    "workspace.create", { label: `herdr-fleet-test-submit-${label}`, cwd: root, focus: false },
   );
   workspaces.push(created.workspace.workspace_id);
   const log = join(root, `${label}.jsonl`);
@@ -344,7 +344,7 @@ describe("a herdr without terminal attach (Windows)", () => {
 
   it("mirrors the pane's screen: the pane's own grid first, then each changed screen, until the pane ends", async () => {
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
-      "workspace.create", { label: "herdr-web-ui-test-submit-mirror", cwd: root, focus: false },
+      "workspace.create", { label: "herdr-fleet-test-submit-mirror", cwd: root, focus: false },
     );
     workspaces.push(created.workspace.workspace_id);
     const pane = created.root_pane.pane_id;
@@ -381,7 +381,7 @@ describe("a herdr without terminal attach (Windows)", () => {
 
   it("hands several lines for an agent on a mirrored pane over as one paste, typed or sent, and bare where no agent is", async () => {
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
-      "workspace.create", { label: "herdr-web-ui-test-submit-mirror-paste", cwd: root, focus: false },
+      "workspace.create", { label: "herdr-fleet-test-submit-mirror-paste", cwd: root, focus: false },
     );
     workspaces.push(created.workspace.workspace_id);
     const pane = created.root_pane.pane_id;

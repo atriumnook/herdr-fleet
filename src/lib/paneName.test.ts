@@ -4,7 +4,7 @@ import { folderName, placeLine, shortPathTitle } from "./paneName.ts";
 it("shows a path title as its last folder, and leaves any other title alone", () => {
   expect(shortPathTitle("/tmp/audit-oDjsU2/lms-backend")).toBe("lms-backend");
   expect(shortPathTitle("/home/haemin/dev/api/")).toBe("api");
-  expect(shortPathTitle("~/dev/herdr web ui")).toBe("herdr web ui");
+  expect(shortPathTitle("~/dev/herdr fleet")).toBe("herdr fleet");
   expect(shortPathTitle("~")).toBe("~");
   expect(shortPathTitle("/")).toBe("/");
   expect(shortPathTitle("C:\\Users\\haemi\\work\\site")).toBe("site");

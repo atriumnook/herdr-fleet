@@ -28,7 +28,7 @@ it("calls a marker stale when its pid is gone or was handed to another program",
   expect(staleMarker(MARKER, () => null)).toBe(true);
   expect(staleMarker(MARKER, () => ({ name: "svchost", startedMs: DAEMON.startedMs }))).toBe(true);
   // a name that only contains herdr is not herdr
-  expect(staleMarker(MARKER, () => ({ name: "herdr-web-ui", startedMs: DAEMON.startedMs }))).toBe(true);
+  expect(staleMarker(MARKER, () => ({ name: "herdr-fleet", startedMs: DAEMON.startedMs }))).toBe(true);
 });
 
 it("calls a marker stale when another herdr holds its pid: it started at another time", () => {

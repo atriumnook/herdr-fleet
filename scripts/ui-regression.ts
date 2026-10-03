@@ -23,7 +23,7 @@ import { checkDroplet } from "./droplet-regression.ts";
 import { checkChatKeepsTerminalSize } from "./chat-size-regression.ts";
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
 
-const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-web-ui-browser-")));
+const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-fleet-browser-")));
 const workspaces: string[] = [];
 const releases: Array<() => void> = [];
 const errors: string[] = [];
@@ -47,7 +47,7 @@ try {
   for (const suffix of ["a", "b"]) {
     const cwd = join(root, suffix);
     mkdirSync(cwd);
-    const result = await workspaceCreate({ cwd, label: `herdr-web-ui-test-browser-${suffix}` });
+    const result = await workspaceCreate({ cwd, label: `herdr-fleet-test-browser-${suffix}` });
     workspaces.push(result.workspace.workspace_id);
     panes.push(result.root_pane.pane_id);
   }
@@ -62,8 +62,8 @@ try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript((ids) => {
     // only the first load: a reload must keep what Settings stored, such as the sidebar grouping
-    if (!localStorage.getItem("herdr-web-ui:settings")) localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en" }));
-    for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
+    if (!localStorage.getItem("herdr-fleet:settings")) localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" }));
+    for (const id of ids) localStorage.setItem(`herdr-fleet:view:${id}`, "chat");
   }, panes);
   const page = await context.newPage();
   let holdSubmitResult = false;
@@ -260,7 +260,7 @@ try {
   await bell.click();
   await until(async () => await bell.getAttribute("aria-pressed") === "false", "bell off");
   assert.equal(await bell.getAttribute("aria-label"), "Alerts off");
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").alertsOn), false);
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-fleet:settings") ?? "{}").alertsOn), false);
   assert.equal(await page.evaluate(async () => (await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription()) ?? null), null, "turning alerts off drops the push subscription");
   await bell.click();
   await until(async () => await bell.getAttribute("aria-pressed") === "true", "bell on again");
@@ -486,7 +486,7 @@ try {
   await page.getByRole("button", { name: /^New session on / }).click();
   const dialog = page.getByRole("dialog", { name: /^New session/ });
   await dialog.getByLabel(/^Directory/).fill(root);
-  await dialog.getByLabel(/^Name/).fill("herdr-web-ui-test-browser-created");
+  await dialog.getByLabel(/^Name/).fill("herdr-fleet-test-browser-created");
   await dialog.getByRole("button", { name: "Start session", exact: true }).click();
   await until(() => createRequests === 1, "creation started");
   await page.keyboard.press("Escape");
@@ -680,7 +680,7 @@ try {
   assert.equal(await mobilePage.getByTitle("Use the suggestion", { exact: true }).count(), 0, "no suggestion chip until Settings turns it on");
   await mobilePage.unroute(promptRoute);
   const chipPhone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
-  await chipPhone.addInitScript(() => { localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ showSuggestionChip: true })); });
+  await chipPhone.addInitScript(() => { localStorage.setItem("herdr-fleet:settings", JSON.stringify({ showSuggestionChip: true })); });
   const chipPage = await chipPhone.newPage();
   chipPage.on("pageerror", (error) => errors.push(error.message));
   await chipPage.route(promptRoute, (route) => route.fulfill(suggest));
@@ -786,7 +786,7 @@ try {
   await confirmClose.getByRole("button", { name: "Close", exact: true }).click();
   workspaces.splice(workspaces.indexOf(created.workspace_id), 1);
   await until(async () => {
-    const selected = JSON.parse(await page.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection") ?? "null"));
+    const selected = JSON.parse(await page.evaluate(() => sessionStorage.getItem("herdr-fleet:selection") ?? "null"));
     return selected?.pane_id && selected.pane_id !== created.pane_id;
   }, "closed pane selection recovered");
   // the pane selected in its place must not take the keyboard: a phone would raise it over
@@ -798,10 +798,10 @@ try {
   await page.locator(".pane-item.is-selected .pane-select").click();
   await until(async () => await page.evaluate(() => document.activeElement?.matches("textarea, input, [contenteditable]") ?? false),
     "picking the auto-selected pane focuses its input");
-  await page.evaluate(() => sessionStorage.setItem("herdr-web-ui:selection", JSON.stringify({ machine_id: "local", pane_id: "obsolete-pane" })));
+  await page.evaluate(() => sessionStorage.setItem("herdr-fleet:selection", JSON.stringify({ machine_id: "local", pane_id: "obsolete-pane" })));
   await page.reload();
   await until(async () => {
-    const selected = JSON.parse(await page.evaluate(() => sessionStorage.getItem("herdr-web-ui:selection") ?? "null"));
+    const selected = JSON.parse(await page.evaluate(() => sessionStorage.getItem("herdr-fleet:selection") ?? "null"));
     return selected?.pane_id && selected.pane_id !== "obsolete-pane";
   }, "obsolete saved selection recovered");
   console.log("PASS closed and obsolete saved panes recover their selection");
@@ -812,7 +812,7 @@ try {
   const securedOrigin = `http://127.0.0.1:${secured.port}`;
   const securedContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   // Use a new pane so this bridge never competes with the first server's attachments.
-  const securedWorkspace = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-browser-signout" });
+  const securedWorkspace = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-browser-signout" });
   workspaces.push(securedWorkspace.workspace.workspace_id);
   const securedPage = await securedContext.newPage();
   await securedContext.request.post(`${securedOrigin}/api/auth`, { data: { token: "browser-test-token" } });

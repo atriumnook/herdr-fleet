@@ -276,9 +276,9 @@ describe("default lens", () => {
     expect(sanitizeSettings({ defaultView: "split" }).defaultView).toBe("auto");
   });
   it("forgets every pane's own lens and nothing else", () => {
-    const data = new Map<string, string>([["herdr-web-ui:view:local:w1:p1", "terminal"], ["herdr-web-ui:view:remote:pc:w2:p1", "chat"], ["herdr-web-ui:settings", "{}"]]);
+    const data = new Map<string, string>([["herdr-fleet:view:local:w1:p1", "terminal"], ["herdr-fleet:view:remote:pc:w2:p1", "chat"], ["herdr-fleet:settings", "{}"]]);
     const storage = { get length() { return data.size; }, key: (i: number) => [...data.keys()][i] ?? null, removeItem: (k: string) => { data.delete(k); } };
     expect(forgetPaneViews(storage)).toBe(2);
-    expect([...data.keys()]).toEqual(["herdr-web-ui:settings"]);
+    expect([...data.keys()]).toEqual(["herdr-fleet:settings"]);
   });
 });

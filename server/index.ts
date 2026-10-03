@@ -284,11 +284,11 @@ export function createServer(
   const lastTyped = new Map<string, number>();
   const hostname = options.hostname ?? process.env["HOST"] ?? "127.0.0.1";
   /** Empty token = gate disabled; every route then behaves exactly as it did before auth existed. */
-  const token = options.token ?? process.env["HERDR_WEB_TOKEN"] ?? "";
+  const token = options.token ?? process.env["HERDR_FLEET_TOKEN"] ?? "";
   /** paired devices (server/devices.ts) and the PC's Tailscale login: the two ways in besides the token and this PC itself */
   const devices = new DeviceStore(options.stateDir ?? defaultStateDir());
-  /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_WEB_TAILSCALE_OWNER) */
-  const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_WEB_TAILSCALE_OWNER"]?.trim() || undefined;
+  /** a login named here is taken as it is: a tagged node has none of its own to read (HERDR_FLEET_TAILSCALE_OWNER) */
+  const namedOwner = options.tailscaleOwner !== undefined ? options.tailscaleOwner : process.env["HERDR_FLEET_TAILSCALE_OWNER"]?.trim() || undefined;
   const identityOf = namedOwner !== undefined ? () => ({ owner: namedOwner, tagged: false }) : tailscaleIdentity;
   identityOf();
 
@@ -734,7 +734,7 @@ export function createServer(
         relookup();
       };
       const session = new PtySession({
-        command: process.env["HERDR_WEB_HERDR_BIN"] || "herdr",
+        command: process.env["HERDR_FLEET_HERDR_BIN"] || "herdr",
         args: ["terminal", "attach", attachedTerminal],
         // herdr's CLI reads HERDR_SOCKET_PATH, not HERDR_SOCKET: the stream must reach
         // the same session the RPCs talk to, or a named session's terminals are
@@ -953,7 +953,7 @@ export function createServer(
           // a forced answer (tests) and a runtime without the PTY sidecar are told the way a Windows herdr's own would be
           const herdr = attachableIdentity(info, sidecar);
           return jsonResponse({ ok: true, herdr, auth,
-            web_ui: { boot_id: process.env["HERDR_WEB_BOOT_ID"] ?? null, revision: process.env["HERDR_WEB_REVISION"] ?? null } });
+            web_ui: { boot_id: process.env["HERDR_FLEET_BOOT_ID"] ?? null, revision: process.env["HERDR_FLEET_REVISION"] ?? null } });
         } catch (error) {
           return errorResponse(error);
         }
@@ -1754,10 +1754,10 @@ if (import.meta.main) {
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
-  console.log(`herdr-web-ui listening on http://${instance.hostname}:${instance.port}`);
-  if ((process.env["HERDR_WEB_TOKEN"] ?? "") === "" && !LOOPBACK_HOSTNAMES.has(instance.hostname)) {
+  console.log(`herdr-fleet listening on http://${instance.hostname}:${instance.port}`);
+  if ((process.env["HERDR_FLEET_TOKEN"] ?? "") === "" && !LOOPBACK_HOSTNAMES.has(instance.hostname)) {
     console.error(
-      `NOTE: listening on ${instance.hostname} without HERDR_WEB_TOKEN - other devices need a pairing code (Settings → Devices, on this PC) to get in.`,
+      `NOTE: listening on ${instance.hostname} without HERDR_FLEET_TOKEN - other devices need a pairing code (Settings → Devices, on this PC) to get in.`,
     );
   }
 }

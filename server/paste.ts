@@ -4,7 +4,7 @@
  * Code and friends) reads the path from the prompt text - the one image channel a pty
  * byte stream can carry; there is no clipboard or sixel hop in between.
  *
- * Files land in `<pane cwd>/.herdr-web-ui/`, not /tmp, on purpose: agents ask before
+ * Files land in `<pane cwd>/.herdr-fleet/`, not /tmp, on purpose: agents ask before
  * reading outside their project directory, and a path inside the project keeps the
  * attachment visible (and git-ignorable) next to the conversation. A pane without a
  * known cwd falls back to the OS temp dir - the path still works, it just may cost
@@ -83,7 +83,7 @@ export async function savePaneImage(options: {
   const pane = snapshot.panes.find((candidate) => candidate.pane_id === options.paneId);
   if (!pane) throw new HerdrError("pane_not_found", `pane ${options.paneId} not found`);
 
-  const directory = join(pane.cwd ?? join(tmpdir(), "herdr-web-ui"), ".herdr-web-ui");
+  const directory = join(pane.cwd ?? join(tmpdir(), "herdr-fleet"), ".herdr-fleet");
   mkdirSync(directory, { recursive: true });
   const stamp = new Date().toISOString().replace(/[-:]/g, "").replace("T", "-").slice(0, 15);
   const unique = `${stamp}-${crypto.randomUUID().slice(0, 8)}`;

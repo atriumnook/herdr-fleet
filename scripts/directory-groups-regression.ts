@@ -73,7 +73,7 @@ try {
   // any of those silently target the user's current socket.
   assert.notEqual(process.env.HERDR_TEST_LIVE, "1", "Live-session mode is forbidden");
   assert.notEqual(process.env.HERDR_TEST_MODE, "unit", "This regression requires isolated herdr");
-  process.env.HERDR_TEST_SESSION = "herdr-web-ui-test";
+  process.env.HERDR_TEST_SESSION = "herdr-fleet-test";
   const { testSocketPath } = await import("./test-herdr.ts");
   assert.equal(process.env.HERDR_SOCKET, testSocketPath(), "test-herdr must select its isolated socket");
 
@@ -100,8 +100,8 @@ try {
   const split = await herdrRpc<{ pane: { pane_id: string } }>("pane.split", {
     target_pane_id: other.paneId, direction: "down", focus: false, cwd: otherCwd,
   });
-  const workspaceFoldKey = `herdr-web-ui:workspace-collapsed:local:${other.workspaceId}`;
-  const directoryFoldKey = `herdr-web-ui:directory-collapsed:local:directory:${otherCwd}`;
+  const workspaceFoldKey = `herdr-fleet:workspace-collapsed:local:${other.workspaceId}`;
+  const directoryFoldKey = `herdr-fleet:directory-collapsed:local:directory:${otherCwd}`;
   server = createServer({
     port: 0, hostname: "127.0.0.1", token: "", tailscaleOwner: null,
     stateDir: join(root, "state"), codexHome: join(root, "codex"),
@@ -117,11 +117,11 @@ try {
   await context.addInitScript(({ ids, legacyFoldKey }) => {
     // Browser locale alone does not override the app's remembered language.
     // Preserve a language changed through Settings across subsequent reloads.
-    if (!localStorage.getItem("herdr-web-ui:settings")) {
-      localStorage.setItem("herdr-web-ui:settings", JSON.stringify({ language: "en", alertsOn: false }));
+    if (!localStorage.getItem("herdr-fleet:settings")) {
+      localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en", alertsOn: false }));
       localStorage.setItem(legacyFoldKey, "1");
     }
-    for (const id of ids) localStorage.setItem(`herdr-web-ui:view:${id}`, "chat");
+    for (const id of ids) localStorage.setItem(`herdr-fleet:view:${id}`, "chat");
   }, { ids: [...fixtures.map(({ paneId }) => paneId), split.pane.pane_id], legacyFoldKey: workspaceFoldKey });
   const page = await context.newPage();
   page.setDefaultTimeout(15_000);
@@ -169,7 +169,7 @@ try {
       name: mode === "workspace" ? "By workspace" : "By folder", exact: true,
     }).getAttribute("aria-pressed"), "true");
     assert.equal(await page.evaluate(() => performance.timeOrigin), documentIdentity, "grouping must not replace the document");
-    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarGrouping), mode);
+    assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-fleet:settings") ?? "{}").sidebarGrouping), mode);
     await changeState(page, [{ selector: ".settings-dialog", count: 0 }],
       () => page.keyboard.press("Escape"), "grouping Settings closes");
   };
@@ -191,7 +191,7 @@ try {
     assert.equal(await page.locator(`${itemSelector(fixture.paneId)} .sidebar-drag-handle`).count(), 1);
   }
   // A fold stored while a single pane had a heading (0.3.44) must not hide a row that has no toggle.
-  const singleFoldKey = `herdr-web-ui:workspace-collapsed:local:${alpha.workspaceId}`;
+  const singleFoldKey = `herdr-fleet:workspace-collapsed:local:${alpha.workspaceId}`;
   await page.evaluate((key) => localStorage.setItem(key, "1"), singleFoldKey);
   await navigate(() => page.reload(), lone.paneId);
   await page.locator(paneSelector(alpha.paneId)).waitFor({ state: "visible" });
@@ -237,7 +237,7 @@ try {
   }
   await navigate(() => page.reload(), lone.paneId);
   await page.locator(`${distinct} > .directory-header[aria-expanded="false"]`).waitFor({ state: "attached" });
-  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-web-ui:settings") ?? "{}").sidebarGrouping), "directory");
+  assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem("herdr-fleet:settings") ?? "{}").sidebarGrouping), "directory");
   assert.deepEqual(await page.evaluate((keys) => keys.map((key) => localStorage.getItem(key)),
     [workspaceFoldKey, directoryFoldKey]), ["1", "1"], "reload preserves grouping and independent folds");
   await changeState(page, [{ selector: `${distinct} ${paneSelector(split.pane.pane_id)}` }],
@@ -304,7 +304,7 @@ try {
   for (const fixture of [alpha, beta, lone]) {
     await changeState(page, [{ selector: paneSelector(fixture.paneId), attribute: ["aria-current", "true"] }],
       () => page.locator(paneSelector(fixture.paneId)).click(), `session click selects ${fixture.label}`);
-    const selected = await page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null"));
+    const selected = await page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-fleet:selection") ?? "null"));
     assert.equal(selected?.pane_id, fixture.paneId);
     assert.equal(await page.locator(".context-sub").textContent().then((text) => text?.includes(fixture.label)), true);
   }
@@ -357,7 +357,7 @@ try {
   // not a reason to wait an arbitrary number of animation frames.
   assert.equal(await page.locator(header).getAttribute("aria-expanded"), "false");
   assert.equal(await page.locator(`${shared} .directory-contents`).count(), 0);
-  const selection = await page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-web-ui:selection") ?? "null"));
+  const selection = await page.evaluate(() => JSON.parse(sessionStorage.getItem("herdr-fleet:selection") ?? "null"));
   assert.equal(selection?.pane_id, beta.paneId, "status snapshots preserve selection as well as its deliberate fold");
   await fold(false);
   console.log("PASS folding survives reload, ?pane unfolds, and status snapshots preserve deliberate folds");

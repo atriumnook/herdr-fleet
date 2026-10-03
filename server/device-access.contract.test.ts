@@ -50,7 +50,7 @@ it("revocation closes an active device's terminal and roster stream without disc
     const cookieA = await pair("A");
     const cookieB = await pair("B");
     const { devices } = await (await fetch(`${base}/api/devices`, { headers: admin })).json() as { devices: { id: string; label: string }[] };
-    const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-device-revocation" });
+    const created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-device-revocation" });
     workspaceId = created.workspace.workspace_id;
     const paneId = created.root_pane.pane_id;
     const a = await connect(`${base.replace("http:", "ws:")}/ws`, cookieA); sockets.push(a.socket);
@@ -102,7 +102,7 @@ it("watch credentials cannot mutate HTTP state, read credential files, or elevat
   const watch = store.pair(store.startPairing().code, "Watch", "watch")!;
   const server = createServer({ port: 0, stateDir: root, token: "test-watch", tailscaleOwner: null, machines: false });
   const base = `http://127.0.0.1:${server.port}`;
-  const cookie = `herdr_web_device=${watch.token}`;
+  const cookie = `herdr_fleet_device=${watch.token}`;
   const headers = { ...guard, cookie };
   const sockets: WebSocket[] = [];
   try {

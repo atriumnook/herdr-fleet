@@ -21,7 +21,7 @@ afterAll(async () => {
 });
 
 async function pane(paths: string[], screen = "", cwd = home): Promise<string> {
-  const created = await workspaceCreate({ cwd: home, label: "herdr-web-ui-test-gjc-binding" });
+  const created = await workspaceCreate({ cwd: home, label: "herdr-fleet-test-gjc-binding" });
   workspaces.push(created.workspace.workspace_id);
   const id = created.root_pane.pane_id;
   await herdrRpc("pane.send_text", { pane_id: id, text: `GJC_TEST_CWD='${cwd.replaceAll("'", "'\\''")}' GJC_TEST_SCREEN='${screen.replaceAll("'", "'\\''")}' ${process.execPath} ${script} ${paths.join(" ")}\n` });
@@ -147,7 +147,7 @@ it("restores a directory-only runtime by unique visible assistant text, never ne
 
 it("starts the gjc this server found on its PATH, by absolute path, and waits until it runs in the pane", async () => {
   const shell = async () => {
-    const created = await workspaceCreate({ cwd: home, label: "herdr-web-ui-test-gjc-start" });
+    const created = await workspaceCreate({ cwd: home, label: "herdr-fleet-test-gjc-start" });
     workspaces.push(created.workspace.workspace_id);
     return created.root_pane.pane_id;
   };

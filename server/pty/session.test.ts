@@ -9,7 +9,7 @@ import { PtySession } from "./session.ts";
  */
 describe("PtySession", () => {
   it("forwards extra env to the command running on the pty", async () => {
-    const sentinel = "/tmp/herdr-web-ui-session-test.sock";
+    const sentinel = "/tmp/herdr-fleet-session-test.sock";
     let output = "";
     const printed = new Promise<string>((resolve) => {
       new PtySession({

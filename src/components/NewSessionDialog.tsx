@@ -10,7 +10,7 @@ import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
 
-const LAST_AGENT_KEY = "herdr-web-ui:new-session-agent";
+const LAST_AGENT_KEY = "herdr-fleet:new-session-agent";
 
 export interface NewSessionDialogProps {
   open: boolean;

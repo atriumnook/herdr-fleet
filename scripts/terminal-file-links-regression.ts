@@ -9,7 +9,7 @@ import { paneSendText, workspaceCreate, workspaceClose } from "../server/herdr/c
 
 const cwd = process.cwd();
 const shortUri = "file:///etc/hosts";
-const workspace = await workspaceCreate({ cwd, label: "herdr-web-ui-test-file-links" });
+const workspace = await workspaceCreate({ cwd, label: "herdr-fleet-test-file-links" });
 const pane = workspace.root_pane.pane_id;
 // its own state dir: the default is the user's real devices and push registry
 const stateDir = mkdtempSync(join(tmpdir(), "herdr-file-links-"));
@@ -23,7 +23,7 @@ try {
   });
   for (const width of [1280, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 800 }, hasTouch: width === 390, isMobile: width === 390 });
-    await context.addInitScript((id) => localStorage.setItem(`herdr-web-ui:view:${id}`, "terminal"), pane);
+    await context.addInitScript((id) => localStorage.setItem(`herdr-fleet:view:${id}`, "terminal"), pane);
     const page = await context.newPage();
     page.setDefaultTimeout(15_000);
     await page.goto(`http://127.0.0.1:${server.port}/?pane=${encodeURIComponent(pane)}`);

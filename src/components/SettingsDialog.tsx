@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Minus, Plus, Star, X } from "lucide-react";
+import { Minus, Plus, X } from "lucide-react";
 
 import "./SettingsDialog.css";
 
@@ -343,9 +343,9 @@ export function SettingsDialog({ open, onClose, actions, auth, onEnableNotificat
 
           <section className="settings-section settings-about">
             <h3>{t("About")}</h3>
-            <p><strong>herdr web ui</strong></p>
-            <a className="btn" href="https://github.com/devswha/herdr-web-ui" target="_blank" rel="noreferrer"><Star aria-hidden="true" />{t("Star on GitHub")}</a>
-            <a href="https://devswha.github.io/herdr-web-ui/" target="_blank" rel="noreferrer">devswha.github.io/herdr-web-ui</a>
+            <p><strong>herdr fleet</strong></p>
+            <a href="https://github.com/atriumnook/herdr-fleet" target="_blank" rel="noreferrer">github.com/atriumnook/herdr-fleet</a>
+            <p className="settings-description">{t("Based on herdr web ui by devswha (MIT).")} <a href="https://github.com/devswha/herdr-web-ui" target="_blank" rel="noreferrer">github.com/devswha/herdr-web-ui</a></p>
           </section>
         </div>
       </section>

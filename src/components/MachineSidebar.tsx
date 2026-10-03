@@ -40,7 +40,7 @@ export function MachineSidebar(props: Props) {
         <button className="btn btn-ghost sidebar-footer-action" title={t("Settings (⌘⇧,)")} onClick={props.actions.openSettings}><Settings aria-hidden="true" />{t("Settings")}</button>
       </div>
       <div className="sidebar-brandline">
-        <span className="sidebar-app-name">herdr web ui v{__APP_VERSION__}</span>
+        <span className="sidebar-app-name">herdr fleet v{__APP_VERSION__}</span>
         {props.version && <span className="pill">herdr {props.version}</span>}
       </div>
     </footer>
@@ -49,12 +49,12 @@ export function MachineSidebar(props: Props) {
 
 function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
   const t = useT();
-  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(`herdr-web-ui:pc-collapsed:${machine.id}`) === "1"; } catch { return false; } });
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(`herdr-fleet:pc-collapsed:${machine.id}`) === "1"; } catch { return false; } });
   const online = machine.state === "connected";
   const actions: AppActions = { ...props.actions, selectPane: (id) => props.onSelect(machine.id, id), openNewSession: () => props.onNew(machine.id) };
   const toggle = () => {
     setCollapsed(!collapsed);
-    try { localStorage.setItem(`herdr-web-ui:pc-collapsed:${machine.id}`, collapsed ? "0" : "1"); } catch {}
+    try { localStorage.setItem(`herdr-fleet:pc-collapsed:${machine.id}`, collapsed ? "0" : "1"); } catch {}
   };
   return <section className={`machine-group${props.selectedMachineId === machine.id ? " is-current" : ""}`} aria-label={t("PC {name}", { name: machine.name })}>
     <header className="machine-header">

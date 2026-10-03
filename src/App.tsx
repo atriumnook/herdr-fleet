@@ -41,7 +41,7 @@ import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { Droplet } from "./components/Droplet.tsx";
 import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
 
-const APP_TITLE = "herdr web ui";
+const APP_TITLE = "herdr fleet";
 const POLL_MS = 5000;
 
 /**
@@ -59,7 +59,7 @@ function paneFromUrl(): string | null {
   return new URLSearchParams(window.location.search).get("pane");
 }
 
-const SELECTION_KEY = "herdr-web-ui:selection";
+const SELECTION_KEY = "herdr-fleet:selection";
 type StoredSelection = { machine_id?: string; pane_id?: string | null };
 
 /**
@@ -97,7 +97,7 @@ function storeSelection(machineId: string, paneId: string | null): void {
 function storedView(paneId: string, machineId: string, hasAgent: boolean | null, terminalAttach: boolean, defaultView: DefaultView): PaneView {
   if (!terminalAttach) return "chat";
   try {
-    const stored = window.localStorage.getItem(`herdr-web-ui:view:${paneStorageId(machineId, paneId)}`);
+    const stored = window.localStorage.getItem(`herdr-fleet:view:${paneStorageId(machineId, paneId)}`);
     if (stored === "chat" || stored === "terminal") return stored;
   } catch {
     /* private mode */
@@ -494,7 +494,7 @@ export function App() {
       setAutoSelected(false);
       if (selectedPaneId === null) return;
       try {
-        window.localStorage.setItem(`herdr-web-ui:view:${paneStorageId(selectedMachineId, selectedPaneId)}`, next);
+        window.localStorage.setItem(`herdr-fleet:view:${paneStorageId(selectedMachineId, selectedPaneId)}`, next);
       } catch {
         /* private mode: the lens just stops being remembered */
       }
@@ -579,7 +579,7 @@ export function App() {
           <main className="terminal-host">
             <div className="terminal-placeholder">
               <div className="terminal-placeholder-inner">
-                <span>{t("Connecting to herdr web ui…")}</span>
+                <span>{t("Connecting to herdr fleet…")}</span>
               </div>
             </div>
           </main>

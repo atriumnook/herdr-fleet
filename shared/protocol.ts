@@ -1,5 +1,5 @@
 /**
- * herdr-web-ui's own HTTP/WebSocket contract, shared by the Bun server and the React client.
+ * herdr-fleet's own HTTP/WebSocket contract, shared by the Bun server and the React client.
  *
  * The herdr WIRE types are NOT hand-written here: they are generated from herdr's
  * published API schema into ./herdr-api.generated.ts and re-exported below, so a
@@ -65,7 +65,7 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *         session-changed broadcast removes it from every client's sidebar)
  *  POST   /api/pane/rename { pane_id, label } -> { ok: true } (pane.rename; empty label clears it)
  *  POST   /api/pane/image  { pane_id, content_type, data_base64 } -> { ok: true, path }
- *         pasted image -> file under <pane cwd>/.herdr-web-ui/, path for the prompt
+ *         pasted image -> file under <pane cwd>/.herdr-fleet/, path for the prompt
  *  GET    /api/pane/commands?pane_id=   -> { commands: SlashCommand[] } (the agent's slash
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
  *  GET    /api/pane/omo-tasks?pane_id=  -> OmoActivity (the background tasks and workflows the
@@ -85,12 +85,12 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id } -> { ok: true }
- *  POST   /api/auth        { token }     -> 204 + Set-Cookie herdr_web_token (401 invalid_token on mismatch)
+ *  POST   /api/auth        { token }     -> 204 + Set-Cookie herdr_fleet_token (401 invalid_token on mismatch)
  *  DELETE /api/auth                      -> 204, clears the token and the device cookies
  *  GET    /api/devices                   -> { devices: PairedDevice[] } (the paired devices; `current` marks the caller's)
  *  POST   /api/devices/pair/start        -> PairingCode: a six-digit code good for ten minutes, replacing any pending one
  *         (X-Herdr-Machine: 1 + same origin, from a client with full access)
- *  POST   /api/devices/pair { code, label? } -> 204 + Set-Cookie herdr_web_device (public, like /api/auth;
+ *  POST   /api/devices/pair { code, label? } -> 204 + Set-Cookie herdr_fleet_device (public, like /api/auth;
  *         401 invalid_code when the code is wrong, spent after five tries, or expired)
  *  PATCH  /api/devices/:id  { label }    -> PairedDevice;  DELETE /api/devices/:id -> 204 (revoked at its next request)
  *  GET    /api/push                      -> PushKey (the VAPID application server key)
@@ -102,7 +102,7 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *  Access: every route above except /api/health, /api/auth and /api/devices/pair, plus the
  *  /ws upgrade, needs the request to be one of: from this PC itself (no proxy in front);
  *  the PC's own Tailscale login, as `tailscale serve` states it; a paired device's cookie;
- *  the shared token (HERDR_WEB_TOKEN) as cookie or `Authorization: Bearer <token>`. With a
+ *  the shared token (HERDR_FLEET_TOKEN) as cookie or `Authorization: Bearer <token>`. With a
  *  token configured, only the last two count, this PC and its Tailscale login included. Without one, and while no
  *  device is paired, anything that reaches the server is let in as before (the startup
  *  warning says so). Refusals answer 401 `unauthorized` (403 `other_user` for another Tailscale

@@ -1,5 +1,5 @@
 /**
- * Optional shared-token gate for herdr-web-ui.
+ * Optional shared-token gate for herdr-fleet.
  *
  * There is no user database here: the token is the whole authorization decision,
  * and whoever holds it can type into live terminals. Hence constant-time compares
@@ -17,9 +17,9 @@ import { timingSafeEqual } from "node:crypto";
 
 import { badRequest, jsonResponse } from "./http.ts";
 
-const COOKIE_NAME = "herdr_web_token";
+const COOKIE_NAME = "herdr_fleet_token";
 /** a paired device's own credential; the same flags as the token cookie */
-export const DEVICE_COOKIE = "herdr_web_device";
+export const DEVICE_COOKIE = "herdr_fleet_device";
 const COOKIE_MAX_AGE_SECONDS = 31536000;
 const BEARER_PREFIX = "bearer ";
 const encoder = new TextEncoder();
