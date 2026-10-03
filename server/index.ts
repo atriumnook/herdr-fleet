@@ -421,7 +421,8 @@ export function createServer(
   const push = createPushService({
     stateDir: options.stateDir ?? defaultStateDir(),
     timing: options.alertTiming,
-    canDeliver: (id) => id === null || (id === undefined ? !devices.gated : devices.has(id)),
+    // no owner (undefined) is a subscription from the removed open-LAN mode: it hears nothing
+    canDeliver: (id) => id === null || (id !== undefined && devices.has(id)),
     lookupTitle: async (paneId) => {
       const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
       return pane ? paneTitle(pane) : undefined;
@@ -964,10 +965,8 @@ export function createServer(
 
       if (pathname === "/api/push" || pathname.startsWith("/api/push/")) {
         try {
-          // a paired device owns its alerts; the open LAN (before any pairing) owns them only while
-          // it stays open, like a subscription from before owners (undefined); a local/token/
-          // Tailscale sign-in is the owner (null)
-          const owner = access.level !== "full" ? null : access.device?.id ?? (access.via === "open" ? undefined : null);
+          // a paired device owns its alerts; a local/token/Tailscale sign-in is the owner (null)
+          const owner = access.level !== "full" ? null : access.device?.id ?? null;
           const answered = await handlePushRequest(request, pathname, push, owner);
           if (answered) return answered;
         } catch (error) {

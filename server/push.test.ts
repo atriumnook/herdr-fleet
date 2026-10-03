@@ -421,21 +421,16 @@ it("keeps a pending alert across re-registration but drops it after device revoc
   expect(fake.received).toHaveLength(1);
 });
 
-it("keeps a subscription made through the open LAN only while the LAN stays open", async () => {
-  let gated = false;
-  // the server's rule (index.ts): owners null always, undefined only while ungated
-  const push = createPushService({ stateDir, canDeliver: (id) => id === null || (id === undefined ? !gated : false) });
+it("delivers nothing to a subscription without an owner (from the removed open-LAN mode)", async () => {
+  // the server's rule (index.ts) with no device paired: owner null always, no owner never
+  const push = createPushService({ stateDir, canDeliver: (id) => id === null });
   const request = new Request("http://192.168.1.20:8787/api/push/subscribe", {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ subscription: fake.subscription }),
   });
   expect((await handlePushRequest(request, "/api/push/subscribe", push, undefined))?.status).toBe(204);
   expect(JSON.parse(readFileSync(join(stateDir, "push-subscriptions.json"), "utf8"))[0]).not.toHaveProperty("device_id");
   await push.onEnded("w1:p1");
-  expect(fake.received).toHaveLength(1);
-  // pairing a device closes the open LAN: its earlier subscriber hears nothing more
-  gated = true;
-  await push.onEnded("w1:p2");
-  expect(fake.received).toHaveLength(1);
+  expect(fake.received).toHaveLength(0);
 });
 
 describe("push resync after lost status events", () => {

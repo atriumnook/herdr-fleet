@@ -170,7 +170,7 @@ export interface UsageReport {
 }
 
 /** How a request got in, when it did. */
-export type AccessVia = "local" | "tailscale" | "device" | "token" | "open";
+export type AccessVia = "local" | "tailscale" | "device" | "token";
 /** Why a request did not. */
 export type AccessRefusal = "other_user" | "pairing_required" | "token_required";
 /** What a paired device may do: drive (type, answer, manage) or only watch. */

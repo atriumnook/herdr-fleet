@@ -478,8 +478,6 @@ export const JA: Record<string, string> = {
   "You are in as this PC's Tailscale login.": "この PC の Tailscale ログインでアクセスしています。",
   "This is a paired device.": "ペアリング済みのデバイスです。",
   "You are in with the access token.": "アクセストークンでアクセスしています。",
-  "This browser is in only because nothing is paired yet: from anywhere that can reach this address, so would anyone.": "まだ何もペアリングされていないため、このブラウザーはアクセスできています。このアドレスに到達できる場所からなら、誰でも同様にアクセスできます。",
-  "Pair this device now": "今すぐこのデバイスをペアリング",
   "A paired device gets in on its own, from anywhere it can reach this server, until you revoke it here. A code comes from this screen on the PC or on a device already paired, or from the pair command in the PC's terminal.": "ペアリングされたデバイスは、ここで取り消すまで、このサーバーに到達できる場所ならどこからでも自動的にアクセスできます。コードは PC やペアリング済みデバイスのこの画面、または PC のターミナルの pair コマンドで取得できます。",
   "Or send this link to it:": "またはこのリンクをそのデバイスに送信してください:",
   "Loading…": "読み込んでいます…",

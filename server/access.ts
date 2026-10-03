@@ -91,8 +91,7 @@ export function decideAccess(input: AccessInput): Access {
     return { level: "none", reason: "other_user" };
   }
   if (input.loopback && !input.forwarded) return { level: "full", via: "local", role: "drive" };
-  if (input.loopback && input.forwarded && (input.owner !== null || input.tagged)) return { level: "none", reason: "pairing_required" };
-  // the public internet is never "open", whatever is paired
-  if (!input.gated && !input.funnel) return { level: "full", via: "open", role: "drive" };
+  // Everything else needs a token or a paired device, paired or not yet. A loopback request
+  // under a foreign Host (a DNS-rebound page, a proxy) is not "this PC".
   return { level: "none", reason: "pairing_required" };
 }

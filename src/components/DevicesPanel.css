@@ -91,13 +91,6 @@
   }
 }
 
-.devices-open {
-  padding: var(--space-2) var(--space-3);
-  border: var(--hairline) solid var(--status-blocked);
-  border-radius: var(--radius-sm);
-  background: var(--danger-tint);
-  color: var(--danger-text);
-}
 
 .devices-link {
   display: flex;

@@ -165,7 +165,7 @@ export function App() {
   const [pairCode] = useState(() => takePairCode());
   const [auth, setAuth] = useState<HealthAuth | null>(null);
   const canSignOut = auth?.authenticated === true && (auth.via === "token" || auth.via === "device");
-  // a device that is in only because nothing is paired yet still pairs from the QR code's address
+  // a device already in (token, Tailscale) still pairs from the QR code's address
   const pairedFromAddress = useRef(false);
   useEffect(() => {
     if (locked !== false || pairCode === "" || pairedFromAddress.current || auth?.via === "device") return;

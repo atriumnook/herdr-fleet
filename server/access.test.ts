@@ -11,10 +11,16 @@ describe("decideAccess", () => {
     expect(via({ forwarded: true, gated: true })).toBe("refused:pairing_required");
   });
 
-  it("keeps everything open, as before, while no token and no device exist", () => {
-    expect(via({ loopback: false })).toBe("open");
-    expect(via({ loopback: true, forwarded: true })).toBe("open");
+  it("never lets a request in without a token or a device, even before anything is paired", () => {
+    expect(via({ loopback: false })).toBe("refused:pairing_required");
+    expect(via({ loopback: true, forwarded: true })).toBe("refused:pairing_required");
     expect(via({ loopback: false, gated: true })).toBe("refused:pairing_required");
+  });
+
+  it("refuses a DNS-rebound page: loopback address, foreign Host, no Tailscale owner", () => {
+    const rebound = new Headers({ host: "evil.example:7317", origin: "http://evil.example:7317" });
+    expect(cameThroughProxy(rebound)).toBe(true);
+    expect(via({ loopback: true, forwarded: cameThroughProxy(rebound), owner: null })).toBe("refused:pairing_required");
   });
 
   it("never treats a Funnel request as open", () => {
@@ -33,7 +39,7 @@ describe("decideAccess", () => {
     expect(via({ forwarded: true, owner: "me@example.com" })).toBe("refused:pairing_required");
     expect(via({ forwarded: true, owner: "me@example.com", device })).toBe("device");
     // no owner known yet: the header decides nothing either way
-    expect(via({ forwarded: true, tailscaleLogin: "me@example.com", owner: null })).toBe("open");
+    expect(via({ forwarded: true, tailscaleLogin: "me@example.com", owner: null })).toBe("refused:pairing_required");
   });
 
   it("asks a tagged PC's visitors to pair, its owner included, and never calls them another user", () => {

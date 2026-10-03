@@ -3,9 +3,8 @@ import { Check, Pencil, RefreshCw, Trash2, X } from "lucide-react";
 
 import "./DevicesPanel.css";
 
-import { ApiError, fetchDevices, pairDevice, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, fetchDevices, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { copyText } from "../lib/clipboard.ts";
-import { deviceLabel } from "../lib/phone.ts";
 import type { HealthAuth, PairedDevice, PairingCode } from "../../shared/protocol.ts";
 import { QrCode } from "./QrCode.tsx";
 import { currentLocale, t as tt, useT } from "../lib/i18n.ts";
@@ -17,8 +16,6 @@ export interface DevicesPanelProps {
   pairUrl: string | null;
   /** how this browser got in */
   auth: HealthAuth | null;
-  /** after this browser paired itself: the health check tells the rest of the app */
-  onPaired?: () => void;
 }
 
 export const VIA: Record<NonNullable<HealthAuth["via"]>, string> = {
@@ -26,7 +23,6 @@ export const VIA: Record<NonNullable<HealthAuth["via"]>, string> = {
   tailscale: "You are in as this PC's Tailscale login.",
   device: "This is a paired device.",
   token: "You are in with the access token.",
-  open: "This browser is in only because nothing is paired yet: from anywhere that can reach this address, so would anyone.",
 };
 
 function lastSeen(value: string | null): string {
@@ -39,7 +35,7 @@ function lastSeen(value: string | null): string {
 }
 
 /** Settings → Devices: the paired devices, and a code to pair one more. */
-export function DevicesPanel({ pairUrl, auth, onPaired }: DevicesPanelProps) {
+export function DevicesPanel({ pairUrl, auth }: DevicesPanelProps) {
   const t = useT();
   const [devices, setDevices] = useState<PairedDevice[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -89,15 +85,6 @@ export function DevicesPanel({ pairUrl, auth, onPaired }: DevicesPanelProps) {
     setJustPaired(null);
     try { setCode(await startPairing()); setError(null); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
   };
-  /** an "open" browser pairs itself: a code, used at once, so the gate closes to everyone else */
-  const pairSelf = async () => {
-    try {
-      const fresh = await startPairing();
-      await pairDevice(fresh.code, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0));
-      await load();
-      onPaired?.();
-    } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
-  };
   const rename = async () => {
     if (!renaming) return;
     try { await renameDevice(renaming.id, renaming.label); setRenaming(null); await load(); } catch (e) { setError(e instanceof Error ? e.message : String(e)); }
@@ -113,8 +100,7 @@ export function DevicesPanel({ pairUrl, auth, onPaired }: DevicesPanelProps) {
 
   return (
     <div className="devices-panel">
-      {auth?.via !== undefined && <p className={auth.via === "open" ? "settings-hint devices-open" : "settings-description"}>{t(VIA[auth.via])}</p>}
-      {auth?.via === "open" && <div className="phone-actions"><button type="button" className="btn btn-primary" onClick={() => void pairSelf()}>{t("Pair this device now")}</button></div>}
+      {auth?.via !== undefined && <p className="settings-description">{t(VIA[auth.via])}</p>}
       <p className="settings-description">{t("A paired device gets in on its own, from anywhere it can reach this server, until you revoke it here. A code comes from this screen on the PC or on a device already paired, or from the pair command in the PC's terminal.")}</p>
       {devices === null ? <p className="settings-hint" role="status">{t("Loading…")}</p> : devices.length === 0 ? (
         <p className="settings-hint">{t("No devices paired yet.")}</p>
