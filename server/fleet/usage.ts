@@ -1,7 +1,10 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname } from "node:path";
+import type { UsageEntry, UsageReading, UsageWindow } from "../../shared/fleet.ts";
 import type { AgentKind } from "./types.ts";
+
+export type { Cooldown, UsageEntry, UsageReading, UsageWindow } from "../../shared/fleet.ts";
 
 /**
  * How much of each subscription is used, and which are cooling down after a rate limit: what the
@@ -9,35 +12,6 @@ import type { AgentKind } from "./types.ts";
  * (codex app-server, agy's and Claude Code's `/usage` in print mode, cursor's `/usage` screen); no
  * credential file is ever read.
  */
-
-/** One limit window: a share of it used, until it resets. */
-export interface UsageWindow {
-  /** "5h", "weekly", "monthly", … */
-  name: string;
-  usedPercent: number;
-  /** epoch ms; unknown for some sources */
-  resetsAt?: number;
-}
-
-export interface UsageReading {
-  windows: UsageWindow[];
-  readAt: number;
-}
-
-export interface Cooldown {
-  until: number;
-  reason: string;
-  since: number;
-}
-
-/** One account the fleet tracks: a CLI, or a part of one with its own limits (agy's model groups, pi's providers). */
-export interface UsageEntry {
-  key: string;
-  reading?: UsageReading;
-  cooldown?: Cooldown;
-  /** the last reading attempt failed; the reading kept is older */
-  error?: string;
-}
 
 /**
  * The account a candidate draws on. agy keeps separate limits for its Gemini models and for the
