@@ -1,13 +1,15 @@
 import { describe, expect, it } from "bun:test";
 import { adapterFor, isAgentKind, piTurnError, withThinking } from "./adapters.ts";
 
+const base = { name: "impl", systemPromptFile: "/tmp/i.md", systemPrompt: "", resultDir: "/state/results/r1" };
+
 describe("pi adapter", () => {
   const pi = adapterFor("pi");
 
   it("launches with the model at its thinking level, the role's tools, a fleet name and the instruction file", () => {
-    expect(pi.launchArgs({ model: "p/m", thinking: "low", tools: ["read", "bash"], name: "impl", systemPromptFile: "/tmp/i.md" }))
+    expect(pi.launchArgs({ ...base, model: "p/m", thinking: "low", tools: ["read", "bash"] }))
       .toEqual(["--model", "p/m:low", "--tools", "read,bash", "--name", "fleet:impl", "--append-system-prompt", "/tmp/i.md"]);
-    expect(pi.launchArgs({ name: "impl", systemPromptFile: "/tmp/i.md" })).toEqual(["--name", "fleet:impl", "--append-system-prompt", "/tmp/i.md"]);
+    expect(pi.launchArgs(base)).toEqual(["--name", "fleet:impl", "--append-system-prompt", "/tmp/i.md"]);
   });
 
   it("keeps a :level the model already carries", () => {

@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
@@ -19,6 +19,10 @@ interface PendingTurn {
   /** herdr reported `working` for this turn at least once */
   sawWorking: boolean;
 }
+
+/** the most of a result file a run keeps: a handoff, not a transcript */
+export const RESULT_MAX_BYTES = 64 * 1024;
+const RESULT_FILE = "handoff.md";
 
 /** A spawn whose configured fallbacks are still untried: consulted if its first turn fails. */
 interface SpawnPlan { request: SpawnRequest & { group: string }; fallbacks: string[] }
@@ -53,6 +57,8 @@ export interface OrchestratorDeps {
   fleetCommand: string;
   /** set in each agent's pane so its own fleet commands reach this server; read at each spawn */
   agentEnv: () => Record<string, string>;
+  /** each run's result folder goes here, removed with the run's record */
+  resultsDir: string;
   /** where the per-spawn instruction files go; os.tmpdir() unless a test says otherwise */
   promptDir?: string;
   /** PRE_VISUAL_GRACE_MS; tests shorten it */
@@ -87,6 +93,18 @@ export class Orchestrator {
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.grace = deps.preVisualGraceMs ?? PRE_VISUAL_GRACE_MS;
+    this.pruneResults();
+  }
+
+  /** A result folder outlives its pane but not its run: once the registry dropped the run, it goes. */
+  private pruneResults(): void {
+    let names: string[];
+    try { names = readdirSync(this.deps.resultsDir); } catch { return; }
+    for (const name of names) if (!this.deps.registry.get(name)) rmSync(join(this.deps.resultsDir, name), { recursive: true, force: true });
+  }
+
+  private resultFile(run: AgentRun): string {
+    return join(this.deps.resultsDir, run.id, RESULT_FILE);
   }
 
   list(group?: string): AgentRun[] {
@@ -198,15 +216,20 @@ export class Orchestrator {
       releaseGate();
     }
 
+    // the agent writes each turn's handoff here: a folder of its own, outside any workspace
+    const resultDir = join(this.deps.resultsDir, run.id);
+    mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
+    mkdirSync(resultDir, { mode: 0o700 });
+    const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE));
     // herdr refuses multiline argv: the instructions go to the agent as a file it reads at startup
     const promptDir = mkdtempSync(join(this.deps.promptDir ?? tmpdir(), "herdr-fleet-"));
     const promptFile = join(promptDir, "instructions.md");
-    writeFileSync(promptFile, this.instructions(definition, displayName, request.group, canSpawn), { mode: 0o600 });
+    writeFileSync(promptFile, instructions, { mode: 0o600 });
     try {
       try {
         run.state = await this.deps.runtime.start({
           kind, name: herdrName, paneId: run.paneId, signal, startupError: (screen) => adapter.startupError(screen),
-          args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile }),
+          args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
         });
         if (run.state === "blocked") run.lastError = "Agent stopped at a question before its first prompt; the task has not been sent.";
       } catch (error) {
@@ -246,7 +269,7 @@ export class Orchestrator {
     }
   }
 
-  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean): string {
+  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string): string {
     const fleet = this.deps.fleetCommand;
     return [
       definition.systemPrompt,
@@ -262,7 +285,7 @@ export class Orchestrator {
         : "Do not start other agents.",
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
       "Treat herdr's 'unknown' as uncertainty, not completion.",
-      "At the end of each delegated turn, finish with a compact HANDOFF section: outcome, changed files, verification, unresolved questions.",
+      `At the end of each delegated turn, write a compact HANDOFF section (outcome, changed files, verification, unresolved questions) to ${resultFile}, replacing what it holds, and end your reply with the same section.`,
     ].join("\n");
   }
 
@@ -337,6 +360,8 @@ export class Orchestrator {
     this.generations.set(run.id, generation);
     const pending: PendingTurn = { armed: false, blockedReported: false, generation, sawWorking: false };
     this.pending.set(run.id, pending);
+    // a result file found when the turn settles is this turn's
+    rmSync(this.resultFile(run), { force: true });
     try {
       const submitted = await this.deps.runtime.prompt(run.herdrName, text, signal);
       // herdr still shows the state from before the prompt: the turn IS running, so it counts as
@@ -433,8 +458,10 @@ export class Orchestrator {
     this.dropPending(run.id);
     const config = this.deps.config(run.cwd);
     run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
-    // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries are spent
-    const turnError = adapterFor(run.agent).turnError(run.lastOutput);
+    run.result = readResult(this.resultFile(run));
+    // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
+    // are spent; a turn that wrote its handoff did its work, whatever its screen quotes
+    const turnError = run.result === undefined ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
     if (turnError && isCompleted(run.state)) {
       run.state = "failed";
       run.lastError = turnError;
@@ -549,6 +576,32 @@ export class Orchestrator {
   private save(run: AgentRun): void {
     this.deps.registry.upsert(run);
     this.deps.onChanged?.(run);
+  }
+}
+
+/**
+ * The handoff a run's agent wrote, up to RESULT_MAX_BYTES. Only a regular file is read, never one
+ * reached through a symlink: an agent must not turn the result into a way to read other files.
+ */
+export function readResult(file: string): string | undefined {
+  let fd: number;
+  try { fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { return undefined; }
+  try {
+    if (!fstatSync(fd).isFile()) return undefined;
+    const buffer = Buffer.alloc(RESULT_MAX_BYTES);
+    let length = 0;
+    while (length < buffer.length) {
+      const read = readSync(fd, buffer, length, buffer.length - length, null);
+      if (read === 0) break;
+      length += read;
+    }
+    const text = buffer.subarray(0, length).toString("utf8").trim();
+    if (!text) return undefined;
+    return length === RESULT_MAX_BYTES ? `${text}\n[truncated at ${RESULT_MAX_BYTES} bytes]` : text;
+  } catch {
+    return undefined;
+  } finally {
+    closeSync(fd);
   }
 }
 

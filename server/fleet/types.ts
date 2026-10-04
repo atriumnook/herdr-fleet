@@ -101,6 +101,8 @@ export interface AgentRun {
   updatedAt: number;
   lastOutput?: string;
   lastError?: string;
+  /** the HANDOFF the agent wrote to its result file during its last settled turn; none if it wrote none then */
+  result?: string;
   /** the model this run replaced after a configured fallback */
   fallbackFrom?: string;
   /** the run that took this run's task over after its first turn failed */

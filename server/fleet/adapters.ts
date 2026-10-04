@@ -9,6 +9,10 @@ export interface LaunchOptions {
   name: string;
   /** a file holding the role and fleet instructions: herdr refuses multiline argv, so it never goes inline */
   systemPromptFile: string;
+  /** the same instructions as text, for a CLI that takes them in a config value */
+  systemPrompt: string;
+  /** the run's result folder: outside the workspace, so a CLI that confines writes is told it may write there */
+  resultDir: string;
 }
 
 /** What differs between agent CLIs: how one is launched, and how it says it failed. */
