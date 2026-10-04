@@ -66,6 +66,24 @@ export function piTurnError(output: string | undefined): string | undefined {
   return lastMatch(output, /^\s*Error: (.+?)\s*$/gm);
 }
 
+/**
+ * The question whose pattern shows last on the screen, after the CLI's last input line: one
+ * answered stays in the scrollback above the input drawn after it, and asks nothing any more.
+ */
+export function openQuestion(screen: string, input: RegExp, questions: Array<[RegExp, string]>): string | undefined {
+  const lastIndex = (pattern: RegExp) => {
+    const global = new RegExp(pattern.source, pattern.flags.includes("g") ? pattern.flags : `${pattern.flags}g`);
+    return [...screen.matchAll(global)].pop()?.index ?? -1;
+  };
+  const inputAt = lastIndex(input);
+  let open: { at: number; text: string } | undefined;
+  for (const [pattern, text] of questions) {
+    const at = lastIndex(pattern);
+    if (at > inputAt && (!open || at > open.at)) open = { at, text };
+  }
+  return open?.text;
+}
+
 /** A TOML basic string on one line: `-c key=<value>` is how codex takes a config value. */
 export function tomlString(text: string): string {
   return JSON.stringify(text).replace(/\x7f/g, "\\u007F");
@@ -150,6 +168,9 @@ export const codexAdapter: AgentAdapter = {
   },
 };
 
+/** cursor's empty input line */
+const CURSOR_INPUT = /Plan, search, build anything/;
+
 /**
  * Cursor Agent: no instruction option and no level (a model's variants carry it). It asks to trust
  * every folder it is given, after herdr already called it ready (which herdr reports as idle).
@@ -163,14 +184,13 @@ export const cursorAdapter: AgentAdapter = {
     return [...(model ? ["--model", model] : []), "--auto-review", "--add-dir", dirname(options.resultDir)];
   },
   inputReady(screen) {
-    return /Plan, search, build anything/.test(screen);
+    return CURSOR_INPUT.test(screen);
   },
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },
   question(screen) {
-    if (/Workspace Trust Required/.test(screen)) return "Cursor Agent asks whether to trust this folder.";
-    return undefined;
+    return openQuestion(screen, CURSOR_INPUT, [[/Workspace Trust Required/, "Cursor Agent asks whether to trust this folder."]]);
   },
   turnError(output) {
     return lastMatch(output, /^\s*(?:Error|error): (.+)$/gm);
@@ -199,10 +219,12 @@ export const agyAdapter: AgentAdapter = {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },
   question(screen) {
-    if (/Do you trust the contents of this project\?/.test(screen)) return "Antigravity CLI asks whether to trust this folder.";
-    if (/You are currently not signed in/.test(screen)) return "Antigravity CLI is not signed in.";
-    if (/Requesting permission for:/.test(screen)) return "Antigravity CLI asks for permission to use a tool.";
-    return undefined;
+    // its input is an empty `>` line between rules; a message or an option after `>` is not it
+    return openQuestion(screen, /^\s*>\s*$/m, [
+      [/Do you trust the contents of this project\?/, "Antigravity CLI asks whether to trust this folder."],
+      [/You are currently not signed in/, "Antigravity CLI is not signed in."],
+      [/Requesting permission for:/, "Antigravity CLI asks for permission to use a tool."],
+    ]);
   },
   readyError(screen) {
     const unknown = /model (\S+) is not recognized as a known model/.exec(screen);

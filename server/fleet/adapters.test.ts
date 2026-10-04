@@ -90,6 +90,11 @@ describe("cursor adapter", () => {
     expect(cursor.inputReady?.("❯ cursor-agent --model x\n")).toBe(false);
   });
 
+  it("no longer asks once its input is drawn after the answered question", () => {
+    const answered = "│  ⚠ Workspace Trust Required  │\n│  ⏳ Trusting workspace...  │\n  Cursor Agent\n  → Plan, search, build anything\n";
+    expect(cursor.question?.(answered)).toBeUndefined();
+  });
+
   it("has no instruction option or level: the instructions lead the first prompt", () => {
     expect(cursor.launchArgs({ ...base, model: "gpt-5:high", thinking: "low" })).toEqual(["--model", "gpt-5", "--auto-review", "--add-dir", "/state/results"]);
     expect(cursor.instructionsInPrompt).toBe(true);
@@ -114,6 +119,12 @@ describe("agy adapter", () => {
     expect(agy.question?.("Welcome to the Antigravity CLI. You are currently not signed in.")).toContain("not signed in");
     expect(agy.question?.("Requesting permission for:\n   ls -la /tmp\n\nRun this command?\n> 1. Yes, run command")).toContain("permission");
     expect(agy.question?.("● E2E-OK\n>")).toBeUndefined();
+  });
+
+  it("no longer asks once an approved tool ran and its input is back", () => {
+    const approved = "Requesting permission for:\n   ls\nRun this command?\n> 1. Yes, run command\n● Bash(ls)\n● E2E-OK\n──────\n>\n──────\n? for shortcuts";
+    expect(agy.question?.(approved)).toBeUndefined();
+    expect(agy.question?.("──────\n>\n──────\n> do it\n● Bash(ls)\nRequesting permission for:\n   ls\n> 1. Yes, run command")).toContain("permission");
   });
 
   it("refuses to run the default model in place of an unknown one", () => {
