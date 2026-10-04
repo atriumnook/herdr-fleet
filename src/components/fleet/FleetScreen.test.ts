@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup as renderBare } from "react-dom/server";
-import { SettingsProvider } from "../../lib/settings.ts";
+import { DEFAULT_SETTINGS, SettingsProvider } from "../../lib/settings.ts";
 import type { AgentRun } from "../../../shared/fleet.ts";
 import { fleetScreenModel } from "../../ui/fleetView.ts";
 import { INITIAL_STATE, type UiState } from "../../ui/state.ts";
@@ -23,7 +23,7 @@ function renderToStaticMarkup(element: ReturnType<typeof createElement>): string
   const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
   Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
   try {
-    return renderBare(createElement(SettingsProvider, null, element));
+    return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: element }));
   } finally {
     if (languages) Object.defineProperty(navigator, "languages", languages);
     else Reflect.deleteProperty(navigator, "languages");

@@ -1,12 +1,17 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
+import type { RemoteAccess } from "../../shared/protocol.ts";
+import type { Settings } from "../lib/settings.ts";
 import { INITIAL_STATE, transition, type Effect, type RequestAction, type UiEvent, type UiState } from "./state.ts";
 
-/** What the Mediator's effects reach: the server's fleet API, or a test's stand-in. */
+/** What the Mediator's effects reach: the server's API and this browser's storage, or a test's stand-in. */
 export interface EffectPorts {
   loadRuns(): Promise<AgentRun[]>;
   loadUsage(): Promise<UsageEntry[]>;
   refreshUsage(): Promise<UsageEntry[]>;
   runRequest(action: RequestAction): Promise<void>;
+  saveSettings(settings: Settings): void;
+  forgetPaneViews(): void;
+  loadRemoteAccess(): Promise<RemoteAccess>;
 }
 
 const message = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -53,6 +58,15 @@ export class Mediator {
         return;
       case "request":
         try { await this.ports.runRequest(effect.action); this.dispatch({ type: "request-done" }); } catch (error) { this.dispatch({ type: "request-failed", message: message(error) }); }
+        return;
+      case "save-settings":
+        this.ports.saveSettings(effect.settings);
+        return;
+      case "forget-pane-views":
+        this.ports.forgetPaneViews();
+        return;
+      case "load-remote-access":
+        try { this.dispatch({ type: "remote-access-loaded", access: await this.ports.loadRemoteAccess() }); } catch (error) { this.dispatch({ type: "remote-access-failed", message: message(error) }); }
         return;
     }
   }

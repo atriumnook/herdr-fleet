@@ -1,20 +1,28 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
+import type { RemoteAccess } from "../../shared/protocol.ts";
+import type { Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import type { RequestAction } from "./state.ts";
 
 const run: AgentRun = { id: "a", name: "impl", role: "worker", agent: "pi", group: "g1", herdrName: "h", paneId: "w1:p1", cwd: "/w", state: "working", depth: 1, interactive: false, worktree: false, startedAt: 1, updatedAt: 1 };
+const access: RemoteAccess = { port: 7000, tailscale: { state: "running", dns_name: "pc.tail.ts.net", serving_url: "https://pc.tail.ts.net", serve_command: null, serve_url: null } };
 const until = async (check: () => boolean) => { for (let i = 0; i < 100 && !check(); i++) await Bun.sleep(2); expect(check()).toBe(true); };
 
 function ports(overrides: Partial<EffectPorts> = {}) {
   const requests: RequestAction[] = [];
+  const saved: Settings[] = [];
+  const forgotten: number[] = [];
   const base: EffectPorts = {
     loadRuns: async () => [run],
     loadUsage: async (): Promise<UsageEntry[]> => [],
     refreshUsage: async (): Promise<UsageEntry[]> => [{ key: "codex" }],
     runRequest: async (action) => { requests.push(action); },
+    saveSettings: (settings) => { saved.push(settings); },
+    forgetPaneViews: () => { forgotten.push(1); },
+    loadRemoteAccess: async (): Promise<RemoteAccess> => access,
   };
-  return { ports: { ...base, ...overrides }, requests };
+  return { ports: { ...base, ...overrides }, requests, saved, forgotten };
 }
 
 describe("Mediator", () => {
@@ -62,5 +70,25 @@ describe("Mediator", () => {
     mediator.subscribe(() => { notified += 1; });
     mediator.dispatch({ type: "request-done" });
     expect(notified).toBe(0);
+  });
+
+  it("saves a settings change, and forgets the panes' own lenses when the lens for every pane changes", () => {
+    const { ports: p, saved, forgotten } = ports();
+    const mediator = new Mediator(p);
+    mediator.dispatch({ type: "choose-default-view", view: "terminal" });
+    expect(forgotten).toEqual([1]);
+    expect(saved.map((settings) => settings.defaultView)).toEqual(["terminal"]);
+  });
+
+  it("reads the remote access when Settings opens, and says when it could not", async () => {
+    const { ports: p } = ports();
+    const mediator = new Mediator(p);
+    mediator.dispatch({ type: "open-settings" });
+    await until(() => mediator.getState().remoteAccess.status === "ready");
+    expect(mediator.getState().remoteAccess.data).toEqual(access);
+    const failing = new Mediator(ports({ loadRemoteAccess: async () => { throw new Error("offline"); } }).ports);
+    failing.dispatch({ type: "open-settings" });
+    await until(() => failing.getState().remoteAccess.status === "error");
+    expect(failing.getState().remoteAccess.error).toBe("offline");
   });
 });

@@ -128,3 +128,74 @@ describe("bubbling", () => {
     expect(received).toEqual([{ type: "open-pane", runId: "a", group: "g1" }]);
   });
 });
+
+describe("settings", () => {
+  const opened = () => play([{ type: "open-settings" }]).state;
+
+  it("keeps a change and asks for it to be saved, as the settings tidy it", () => {
+    const { state, effects } = play([{ type: "change-settings", patch: { terminalFontSize: 99 } }]);
+    expect(state.settings.terminalFontSize).toBe(22);
+    expect(effects).toEqual([{ kind: "save-settings", settings: state.settings }]);
+  });
+
+  it("forgets every pane's own lens when the lens for every pane changes, and nothing when it stays", () => {
+    const { state, effects } = play([{ type: "choose-default-view", view: "chat" }]);
+    expect(state.settings.defaultView).toBe("chat");
+    expect(effects).toEqual([{ kind: "forget-pane-views" }, { kind: "save-settings", settings: state.settings }]);
+    expect(transition(state, { type: "choose-default-view", view: "chat" })).toEqual({ state, effects: [] });
+  });
+
+  it("reads how a phone can reach this PC each time the dialog opens, and again when asked", () => {
+    const { state, effects } = play([{ type: "open-settings" }]);
+    expect(state.settingsDialog).toEqual({ open: true, drafts: {} });
+    expect(effects).toEqual([{ kind: "load-remote-access" }]);
+    const access = { port: 7000, tailscale: { state: "missing", dns_name: null, serving_url: null, serve_command: null, serve_url: null } } as const;
+    const loaded = play([{ type: "remote-access-loaded", access }], state).state;
+    expect(loaded.remoteAccess).toMatchObject({ status: "ready", data: access });
+    const again = play([{ type: "load-remote-access" }], loaded);
+    expect(again.effects).toEqual([{ kind: "load-remote-access" }]);
+    // what was known goes while it is read again: the panel says it is checking
+    expect(again.state.remoteAccess).toMatchObject({ status: "loading", data: null });
+    expect(play([{ type: "remote-access-failed", message: "offline" }], again.state).state.remoteAccess).toMatchObject({ status: "error", data: null });
+  });
+
+  it("keeps a font list being typed apart from the settings, and saves it tidied when committed", () => {
+    const typed = play([{ type: "edit-font", field: "terminalFontFamily", text: "D2Coding, " }], opened()).state;
+    expect(typed.settingsDialog).toEqual({ open: true, drafts: { terminalFontFamily: "D2Coding, " } });
+    expect(typed.settings.terminalFontFamily).toBe("");
+    const { state, effects } = play([{ type: "commit-font", field: "terminalFontFamily" }], typed);
+    expect(state.settings.terminalFontFamily).toBe("D2Coding");
+    expect(state.settingsDialog).toEqual({ open: true, drafts: {} });
+    expect(effects).toEqual([{ kind: "save-settings", settings: state.settings }]);
+  });
+
+  it("saves nothing when a committed font list tidies to what is already set", () => {
+    const typed = play([{ type: "edit-font", field: "chatFontFamily", text: "  " }], opened()).state;
+    const { state, effects } = play([{ type: "commit-font", field: "chatFontFamily" }], typed);
+    expect(effects).toEqual([]);
+    expect(state.settingsDialog).toEqual({ open: true, drafts: {} });
+  });
+
+  it("commits the font lists still being typed when the dialog closes (Escape leaves no blur)", () => {
+    const typed = play([
+      { type: "edit-font", field: "terminalFontFamily", text: "D2Coding" },
+      { type: "edit-font", field: "chatFontFamily", text: "Inter" },
+    ], opened()).state;
+    const { state, effects } = play([{ type: "close-settings" }], typed);
+    expect(state.settingsDialog).toEqual({ open: false });
+    expect(state.settings).toMatchObject({ terminalFontFamily: "D2Coding", chatFontFamily: "Inter" });
+    expect(effects).toEqual([{ kind: "save-settings", settings: state.settings }]);
+  });
+
+  it("drops a font list being typed when the same setting changes elsewhere", () => {
+    const typed = play([{ type: "edit-font", field: "chatFontFamily", text: "Inter" }], opened()).state;
+    const { state } = play([{ type: "change-settings", patch: { chatFontFamily: "Menlo" } }], typed);
+    expect(state.settingsDialog).toEqual({ open: true, drafts: {} });
+    expect(state.settings.chatFontFamily).toBe("Menlo");
+  });
+
+  it("ignores typing into a closed dialog and closing it twice", () => {
+    expect(transition(INITIAL_STATE, { type: "edit-font", field: "chatFontFamily", text: "x" })).toEqual({ state: INITIAL_STATE, effects: [] });
+    expect(transition(INITIAL_STATE, { type: "close-settings" })).toEqual({ state: INITIAL_STATE, effects: [] });
+  });
+});

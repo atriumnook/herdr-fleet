@@ -1,28 +1,31 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { Minus, Plus, X } from "lucide-react";
 
 import "./SettingsDialog.css";
 
-import type { AppActions } from "../lib/actions.ts";
-import { useInstallPrompt } from "../lib/install.ts";
 import { SHORTCUTS, formatKeys, shortcutKeys, shortcutConflict } from "../lib/shortcuts.ts";
-import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, PALETTES, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, useSettings, forgetPaneViews } from "../lib/settings.ts";
+import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, PALETTES, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, type Settings } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
-import { FONT_FAMILY_MAX_CHARS, sanitizeFontFamily } from "../lib/fontFamily.ts";
-import { fetchRemoteAccess } from "../lib/api.ts";
-import { isLoopbackHost, phonePlan } from "../lib/phone.ts";
-import type { HealthAuth, RemoteAccess } from "../../shared/protocol.ts";
-import { DevicesPanel } from "./DevicesPanel.tsx";
+import { FONT_FAMILY_MAX_CHARS } from "../lib/fontFamily.ts";
+import type { Emit } from "../ui/bubble.ts";
+import type { SettingsDialogModel } from "../ui/settingsView.ts";
+import type { UiEvent } from "../ui/state.ts";
 import { PhonePanel } from "./PhonePanel.tsx";
-import { PushTestControls } from "./PushTestControls.tsx";
+
+/** What the dialog sends up: its own changes for the Mediator, and the install its parent handles. */
+export type SettingsDialogEvent =
+  | Extract<UiEvent, { type: "close-settings" | "change-settings" | "choose-default-view" | "edit-font" | "commit-font" | "load-remote-access" }>
+  | { type: "install-app" };
 
 export interface SettingsDialogProps {
-  open: boolean;
-  onClose: () => void;
-  actions: AppActions;
-  /** how this browser got in, from the last health check */
-  auth: HealthAuth | null;
-  onEnableNotifications: () => Promise<boolean>;
+  model: SettingsDialogModel;
+  /** whether this browser can install the app, has, or how to */
+  install: { installed: boolean; canInstall: boolean; help: string };
+  /** the parent's alert switches and its push test, drawn under Alerts */
+  alerts: ReactNode;
+  /** the parent's paired devices panel, drawn under Devices */
+  devices: ReactNode;
+  emit: Emit<SettingsDialogEvent>;
 }
 
 function Toggle({ checked, label, onChange }: { checked: boolean; label: string; onChange: (checked: boolean) => void }) {
@@ -39,74 +42,50 @@ function compactKeys(keys: readonly string[]): string {
 
 const FONT_FAMILY_PLACEHOLDER = 'D2Coding, "Cascadia Mono"';
 
-/**
- * A font family list, saved when the field is left, on Enter or when the dialog closes: saving
- * every keystroke would sanitize away the comma or space being typed, and each change of the
- * terminal's font refits the grid and resizes the pane.
- */
-function FontFamilyInput({ value, label, onCommit }: { value: string; label: string; onCommit: (family: string) => void }) {
-  const [draft, setDraft] = useState(value);
-  useEffect(() => setDraft(value), [value]);
-  const commit = (): void => {
-    const next = sanitizeFontFamily(draft);
-    setDraft(next);
-    if (next !== value) onCommit(next);
-  };
-  // closing the dialog with Escape unmounts the field without a blur
-  const commitRef = useRef(commit);
-  commitRef.current = commit;
-  useEffect(() => () => commitRef.current(), []);
+/** A font family list as typed: the Mediator keeps the draft and saves it when the field is left or on Enter. */
+function FontFamilyInput({ value, label, onEdit, onCommit }: { value: string; label: string; onEdit: (text: string) => void; onCommit: () => void }) {
   return (
     <input
       className="input settings-font-input"
-      value={draft}
+      value={value}
       placeholder={FONT_FAMILY_PLACEHOLDER}
       maxLength={FONT_FAMILY_MAX_CHARS}
       aria-label={label}
       spellCheck={false}
       autoCapitalize="off"
       autoCorrect="off"
-      onChange={(event) => setDraft(event.target.value)}
-      onBlur={commit}
+      onChange={(event) => onEdit(event.target.value)}
+      onBlur={onCommit}
       onKeyDown={(event) => {
         // an IME keeps its Enter, including the committing one WebKit can send after compositionend as key code 229
         if (event.key !== "Enter" || event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229) return;
         event.preventDefault();
-        commit();
+        onCommit();
       }}
     />
   );
 }
 
-export function SettingsDialog({ open, onClose, actions, auth, onEnableNotifications }: SettingsDialogProps) {
-  const { settings, update } = useSettings();
+/** Settings for this device, drawn while it is open. */
+export function SettingsDialog({ model, install, alerts, devices, emit }: SettingsDialogProps) {
+  const { settings, fonts, phone } = model;
   const t = useT();
-  const installPrompt = useInstallPrompt();
   const firstControlRef = useRef<HTMLButtonElement>(null);
-  // Settings → Phone asks the server what Tailscale on its PC already serves
-  const [access, setAccess] = useState<RemoteAccess | null | undefined>(undefined);
-  const loadAccess = useCallback(() => {
-    setAccess(undefined);
-    fetchRemoteAccess().then(setAccess, () => setAccess(null));
-  }, []);
-  useEffect(() => { if (open) loadAccess(); }, [open, loadAccess]);
-  const plan = phonePlan({ protocol: window.location.protocol, hostname: window.location.hostname, origin: window.location.origin, secure: window.isSecureContext }, access ?? null);
-  // where a phone can open this app now, for the pairing QR code: the served address, else this one when it is not loopback
-  const pairUrl = plan.kind === "here" || plan.kind === "served" ? plan.url : isLoopbackHost(window.location.hostname) ? null : window.location.origin;
+  const update = (patch: Partial<Settings>): void => emit({ type: "change-settings", patch });
+  const onClose = (): void => emit({ type: "close-settings" });
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
 
   useEffect(() => {
-    if (!open) return;
     firstControlRef.current?.focus();
     const closeOnEscape = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      onClose();
+      emitRef.current({ type: "close-settings" });
     };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [open, onClose]);
-
-  if (!open) return null;
+  }, []);
 
   return (
     <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
@@ -178,7 +157,7 @@ export function SettingsDialog({ open, onClose, actions, auth, onEnableNotificat
             </div>
             <div className="settings-row">
               <div><span className="settings-label">{t("Terminal font")}</span><span className="settings-description">{t("Comma-separated, tried in order. A font this device does not have falls back to the default.")}</span></div>
-              <FontFamilyInput value={settings.terminalFontFamily} label={t("Terminal font")} onCommit={(terminalFontFamily) => update({ terminalFontFamily })} />
+              <FontFamilyInput value={fonts.terminalFontFamily} label={t("Terminal font")} onEdit={(text) => emit({ type: "edit-font", field: "terminalFontFamily", text })} onCommit={() => emit({ type: "commit-font", field: "terminalFontFamily" })} />
             </div>
             <div className="settings-row">
               <div><span className="settings-label">{t("Wheel scroll speed")}</span><span className="settings-description">{t("How far one turn of the wheel scrolls the terminal")}</span></div>
@@ -213,12 +192,7 @@ export function SettingsDialog({ open, onClose, actions, auth, onEnableNotificat
               <div><span className="settings-label">{t("Panes open in")}</span><span className="settings-description">{t("Every pane on this device. Switching a pane's lens keeps it there until this changes. Auto: chat for an agent on a touch screen, else the terminal.")}</span></div>
               <div className="segmented" aria-label={t("Panes open in")}>
                 {(["auto", "chat", "terminal"] as const).map((defaultView) => (
-                  <button key={defaultView} type="button" aria-pressed={settings.defaultView === defaultView} onClick={() => {
-                    if (settings.defaultView === defaultView) return;
-                    // one choice for every pane: what each one remembered gives way to it
-                    forgetPaneViews();
-                    update({ defaultView });
-                  }}>
+                  <button key={defaultView} type="button" aria-pressed={settings.defaultView === defaultView} onClick={() => emit({ type: "choose-default-view", view: defaultView })}>
                     {t(defaultView === "auto" ? "Auto" : defaultView === "chat" ? "Chat" : "Terminal")}
                   </button>
                 ))}
@@ -238,14 +212,14 @@ export function SettingsDialog({ open, onClose, actions, auth, onEnableNotificat
             </div>
             <div className="settings-row">
               <div><span className="settings-label">{t("Chat font")}</span><span className="settings-description">{t("Message text; code stays monospace. Comma-separated, tried in order. A font this device does not have falls back to the default.")}</span></div>
-              <FontFamilyInput value={settings.chatFontFamily} label={t("Chat font")} onCommit={(chatFontFamily) => update({ chatFontFamily })} />
+              <FontFamilyInput value={fonts.chatFontFamily} label={t("Chat font")} onEdit={(text) => emit({ type: "edit-font", field: "chatFontFamily", text })} onCommit={() => emit({ type: "commit-font", field: "chatFontFamily" })} />
             </div>
           </section>
 
           <section className="settings-section">
             <h3>{t("Alerts")}</h3>
             <p className="settings-description">{t("For this device. An alert waits a little first, and none comes when the pane changes meanwhile, as when you answer at the PC.")}</p>
-            <PushTestControls onEnable={onEnableNotifications} />
+            {alerts}
             <div className="settings-row">
               <div><span className="settings-label">{t("Needs input")}</span><span className="settings-description">{t("An agent waits for an answer or a permission")}</span></div>
               <Toggle label={t("Needs input")} checked={settings.alertInput} onChange={(alertInput) => update({ alertInput })} />
@@ -326,19 +300,19 @@ export function SettingsDialog({ open, onClose, actions, auth, onEnableNotificat
               <div><span className="settings-label">{t("Keep screen on")}</span><span className="settings-description">{t("While a terminal or chat pane is open. Requires HTTPS or localhost and a supported browser.")}</span></div>
               <Toggle label={t("Keep screen on")} checked={settings.keepScreenOn} onChange={(keepScreenOn) => update({ keepScreenOn })} />
             </div>
-            <PhonePanel plan={plan} loading={access === undefined} onRefresh={loadAccess} />
+            <PhonePanel plan={phone.plan} loading={phone.loading} onRefresh={() => emit({ type: "load-remote-access" })} />
           </section>
 
           <section className="settings-section">
             <h3>{t("Devices")}</h3>
-            <DevicesPanel pairUrl={pairUrl} auth={auth} />
+            {devices}
           </section>
 
           <section className="settings-section">
             <h3>{t("Install")}</h3>
-            {installPrompt.installed ? <p className="settings-hint">{t("Installed")}</p> : installPrompt.canInstall ? (
-              <button type="button" className="btn btn-primary" onClick={() => void installPrompt.install()}>{t("Install app")}</button>
-            ) : <p className="settings-hint">{installPrompt.help}</p>}
+            {install.installed ? <p className="settings-hint">{t("Installed")}</p> : install.canInstall ? (
+              <button type="button" className="btn btn-primary" onClick={() => emit({ type: "install-app" })}>{t("Install app")}</button>
+            ) : <p className="settings-hint">{install.help}</p>}
           </section>
 
           <section className="settings-section settings-about">

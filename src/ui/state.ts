@@ -1,8 +1,12 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
+import type { RemoteAccess } from "../../shared/protocol.ts";
+import { sanitizeFontFamily } from "../lib/fontFamily.ts";
+import { DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type Settings } from "../lib/settings.ts";
 
 /**
  * The Root Mediator's state machine. One state with parallel regions (what Main shows, the fleet's
- * runs, the usage, the action in flight, the run whose detail is open), one entry for events, and
+ * runs, the usage, the action in flight, the run whose detail is open, this device's settings and
+ * their dialog), one entry for events, and
  * a pure transition: (state, event) → (next state, effects). The Mediator runs the effects and
  * feeds their outcome back as events.
  */
@@ -27,6 +31,18 @@ export type RequestState =
   | { status: "pending"; action: RequestAction }
   | { status: "failed"; action: RequestAction; message: string };
 
+/** The font lists Settings takes as typed text: saved when the field is left, on Enter or when the dialog closes. */
+export type FontField = "terminalFontFamily" | "chatFontFamily";
+
+/**
+ * The Settings dialog. A font list being typed stays a draft until committed: saving every
+ * keystroke would tidy away the comma or space being typed, and each change of the terminal's
+ * font refits the grid and resizes the pane.
+ */
+export type SettingsDialogState =
+  | { open: false }
+  | { open: true; drafts: Partial<Record<FontField, string>> };
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -41,6 +57,11 @@ export interface UiState {
    * this Mediator): `seq` makes asking for the same pane twice a new request.
    */
   paneRequest: { paneId: string; seq: number } | null;
+  /** this device's preferences, kept in localStorage */
+  settings: Settings;
+  settingsDialog: SettingsDialogState;
+  /** how a phone can reach this PC: what Tailscale on it already serves (Settings → Phone); null when unknown */
+  remoteAccess: Loadable<RemoteAccess | null>;
 }
 
 export type UiEvent =
@@ -68,13 +89,28 @@ export type UiEvent =
   | { type: "clear-cooldown"; key: string }
   | { type: "request-done" }
   | { type: "request-failed"; message: string }
-  | { type: "dismiss-error" };
+  | { type: "dismiss-error" }
+  | { type: "open-settings" }
+  /** the dialog closes: the font lists still being typed are committed */
+  | { type: "close-settings" }
+  | { type: "change-settings"; patch: Partial<Settings> }
+  /** the lens for every pane: choosing another one puts every pane back on it */
+  | { type: "choose-default-view"; view: DefaultView }
+  | { type: "edit-font"; field: FontField; text: string }
+  | { type: "commit-font"; field: FontField }
+  | { type: "load-remote-access" }
+  | { type: "remote-access-loaded"; access: RemoteAccess }
+  | { type: "remote-access-failed"; message: string };
 
 export type Effect =
   | { kind: "load-runs" }
   | { kind: "load-usage" }
   | { kind: "refresh-usage" }
-  | { kind: "request"; action: RequestAction };
+  | { kind: "request"; action: RequestAction }
+  | { kind: "save-settings"; settings: Settings }
+  /** every pane's own lens on this device is forgotten */
+  | { kind: "forget-pane-views" }
+  | { kind: "load-remote-access" };
 
 export interface Transition { state: UiState; effects: Effect[] }
 
@@ -86,6 +122,9 @@ export const INITIAL_STATE: UiState = {
   detail: null,
   paneRequest: null,
   canAct: true,
+  settings: DEFAULT_SETTINGS,
+  settingsDialog: { open: false },
+  remoteAccess: { status: "idle", data: null, again: false },
 };
 
 /** A run whose pane is gone: nothing to open or stop in it. */
@@ -174,7 +213,64 @@ export function transition(state: UiState, event: UiEvent): Transition {
       return next({ request: { status: "failed", action: state.request.action, message: event.message } });
     case "dismiss-error":
       return next({ request: state.request.status === "failed" ? { status: "none" } : state.request });
+    case "open-settings":
+      if (state.settingsDialog.open) return next({});
+      return next({ settingsDialog: { open: true, drafts: {} }, remoteAccess: readAccess(state.remoteAccess, effects) });
+    case "close-settings": {
+      if (!state.settingsDialog.open) return next({});
+      const fonts: Partial<Settings> = {};
+      for (const [field, text] of Object.entries(state.settingsDialog.drafts) as Array<[FontField, string]>) fonts[field] = sanitizeFontFamily(text);
+      return next(change(state, fonts, effects, { open: false }));
+    }
+    case "change-settings":
+      return next(change(state, event.patch, effects));
+    case "choose-default-view":
+      if (state.settings.defaultView === event.view) return next({});
+      effects.push({ kind: "forget-pane-views" });
+      return next(change(state, { defaultView: event.view }, effects));
+    case "edit-font":
+      if (!state.settingsDialog.open) return next({});
+      return next({ settingsDialog: { open: true, drafts: { ...state.settingsDialog.drafts, [event.field]: event.text } } });
+    case "commit-font": {
+      if (!state.settingsDialog.open) return next({});
+      const text = state.settingsDialog.drafts[event.field];
+      if (text === undefined) return next({});
+      return next(change(state, { [event.field]: sanitizeFontFamily(text) }, effects, withoutDraft(state.settingsDialog, event.field)));
+    }
+    case "load-remote-access":
+      return next({ remoteAccess: readAccess(state.remoteAccess, effects) });
+    case "remote-access-loaded":
+      return next({ remoteAccess: settle(state.remoteAccess, { status: "ready", data: event.access, error: undefined }, { kind: "load-remote-access" }, effects) });
+    case "remote-access-failed":
+      return next({ remoteAccess: settle(state.remoteAccess, { status: "error", data: null, error: event.message }, { kind: "load-remote-access" }, effects) });
   }
+}
+
+/** Read the remote access again; what was known goes meanwhile, so the panel says it is checking. */
+function readAccess(region: UiState["remoteAccess"], effects: Effect[]): UiState["remoteAccess"] {
+  return { ...load(region, { kind: "load-remote-access" }, effects), data: null };
+}
+
+function withoutDraft(dialog: SettingsDialogState, field: FontField): SettingsDialogState {
+  if (!dialog.open || !(field in dialog.drafts)) return dialog;
+  const { [field]: _dropped, ...drafts } = dialog.drafts;
+  return { open: true, drafts };
+}
+
+/**
+ * Apply a change to the settings, tidied as a stored record is, and save it. A font list being
+ * typed gives way to a change of the same setting made elsewhere.
+ */
+function change(state: UiState, patch: Partial<Settings>, effects: Effect[], dialog = state.settingsDialog): Partial<UiState> {
+  for (const field of ["terminalFontFamily", "chatFontFamily"] as const) {
+    if (field in patch) dialog = withoutDraft(dialog, field);
+  }
+  const settings = sanitizeSettings({ ...state.settings, ...patch });
+  // plain data: the tidied record holds new arrays and objects even where nothing changed
+  const same = (Object.keys(settings) as Array<keyof Settings>).every((key) => JSON.stringify(settings[key]) === JSON.stringify(state.settings[key]));
+  if (same) return { settingsDialog: dialog };
+  effects.push({ kind: "save-settings", settings });
+  return { settings, settingsDialog: dialog };
 }
 
 /** One action at a time: another one while it runs is ignored, as its button is disabled. */
