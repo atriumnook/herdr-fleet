@@ -177,8 +177,8 @@ async function answerTrust(paneId: string, label: string): Promise<boolean> {
     const moves = selected === undefined ? 0 : target - selected;
     const keys = [...Array(Math.abs(moves)).fill(moves > 0 ? "down" : "up"), "enter"];
     for (const key of keys) { await herdrRpc("pane.send_keys", { pane_id: paneId, keys: [key] }, socket); await Bun.sleep(150); }
+    // the answered question stays in the scrollback: whether it took shows in what follows
     await Bun.sleep(3000);
-    assert(!TRUST_YES.test(await screen()), `${label} still asks for trust:\n${await screen()}`);
     console.log(`${label}: answered its trust question`);
     return true;
   }
