@@ -2,10 +2,10 @@ import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, read
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
-import { adapterFor } from "./adapters.ts";
+import { adapterFor, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
-import { abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
+import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
 import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SpawnRequest, type ThinkingLevel } from "./types.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -36,6 +36,9 @@ export const isLive = (run: AgentRun): boolean => run.state !== "stopped" && run
  * state seen in this window, before the turn was ever seen working, is not a completion.
  */
 export const PRE_VISUAL_GRACE_MS = 2_500;
+/** how long a CLI herdr already calls ready may take to draw its input (adapter.inputReady) */
+export const READY_SCREEN_MS = 15_000;
+const READY_SCREEN_POLL_MS = 250;
 /** a run still `starting` may be inside a 30 s agent start: not-found is not its end yet */
 const START_GRACE_MS = 30_000;
 
@@ -63,6 +66,8 @@ export interface OrchestratorDeps {
   promptDir?: string;
   /** PRE_VISUAL_GRACE_MS; tests shorten it */
   preVisualGraceMs?: number;
+  /** READY_SCREEN_MS; tests shorten it */
+  readyScreenMs?: number;
   onChanged?: (run: AgentRun) => void;
 }
 
@@ -92,9 +97,11 @@ export class Orchestrator {
   private stopped = false;
 
   private readonly grace: number;
+  private readonly readyScreenMs: number;
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.grace = deps.preVisualGraceMs ?? PRE_VISUAL_GRACE_MS;
+    this.readyScreenMs = deps.readyScreenMs ?? READY_SCREEN_MS;
     this.pruneResults();
   }
 
@@ -238,7 +245,7 @@ export class Orchestrator {
         if (run.state === "blocked") run.lastError = "Agent stopped at a question before its first prompt; the task has not been sent.";
         else if (adapter.question || adapter.readyError) {
           // herdr calls some CLIs ready while they still ask something, or after they ignored the model
-          const screen = await this.deps.runtime.read(herdrName, config.recentReadLines).catch(() => "");
+          const screen = await this.readyScreen(adapter, herdrName, config, signal);
           const error = adapter.readyError?.(screen);
           if (error) throw new FleetError("agent_start_failed", error);
           const question = adapter.question?.(screen);
@@ -283,6 +290,21 @@ export class Orchestrator {
       throw error;
     } finally {
       rmSync(promptDir, { recursive: true, force: true });
+    }
+  }
+
+  /**
+   * The screen right after start. A CLI that draws its input or a question only after herdr called
+   * it ready is waited for: a task typed before would land in a question. Neither in time is a start
+   * not ready for prompts.
+   */
+  private async readyScreen(adapter: AgentAdapter, herdrName: string, config: FleetConfig, signal?: AbortSignal): Promise<string> {
+    const deadline = Date.now() + this.readyScreenMs;
+    while (true) {
+      const screen = await this.deps.runtime.read(herdrName, config.recentReadLines).catch(() => "");
+      if (!adapter.inputReady || adapter.inputReady(screen) || adapter.question?.(screen) || adapter.readyError?.(screen)) return screen;
+      if (Date.now() >= deadline) throw new FleetError("agent_not_ready", `${herdrName} showed no input within ${this.readyScreenMs / 1000}s`);
+      await abortableDelay(READY_SCREEN_POLL_MS, signal);
     }
   }
 

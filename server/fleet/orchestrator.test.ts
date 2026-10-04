@@ -71,7 +71,7 @@ function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown
   const config = mergeConfig(DEFAULT_CONFIG, options.config as Record<string, unknown> ?? {});
   const fleet = new Orchestrator({
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
-    fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), preVisualGraceMs: GRACE,
+    fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), preVisualGraceMs: GRACE, readyScreenMs: 300,
   });
   return { fleet, runtime, registry, root };
 }
@@ -471,12 +471,36 @@ describe("result files", () => {
 describe("agent kinds", () => {
   it("leads the first prompt with the instructions for a CLI that takes none at launch, and only the first", async () => {
     const { fleet, runtime } = setup({ agents: [role("worker", { agent: "cursor", interactive: true })] });
+    runtime.output = "→ Plan, search, build anything";
     const run = await spawn(fleet);
     expect(runtime.starts[0]!.kind).toBe("cursor");
     expect(runtime.prompts[0]!.text).toStartWith("You are worker.");
     expect(runtime.prompts[0]!.text).toEndWith("## Task\n\ndo it");
     await fleet.send(run.id, "next", "g1");
     expect(runtime.prompts[1]!.text).toBe("next");
+  });
+
+  it("waits for a CLI herdr calls ready too early to draw its input, and blocks on a question it draws instead", async () => {
+    const drawn = setup({ agents: [role("worker", { agent: "cursor" })] });
+    drawn.runtime.output = "❯ cursor-agent";
+    setTimeout(() => { drawn.runtime.output = "→ Plan, search, build anything"; }, 100);
+    expect((await spawn(drawn.fleet)).state).toBe("working");
+    expect(drawn.runtime.prompts).toHaveLength(1);
+
+    const asked = setup({ agents: [role("worker", { agent: "cursor" })] });
+    asked.runtime.output = "❯ cursor-agent";
+    setTimeout(() => { asked.runtime.output = "⚠ Workspace Trust Required\n▶ [a] Trust this workspace"; }, 100);
+    expect(await spawn(asked.fleet)).toMatchObject({ state: "blocked" });
+    expect(asked.runtime.prompts).toEqual([]);
+  });
+
+  it("does not send the task to a CLI that never drew its input", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "cursor" })] });
+    runtime.output = "❯ cursor-agent";
+    runtime.getStatus = "idle";
+    const run = await spawn(fleet);
+    expect(run.lastError).toContain("not ready for prompts");
+    expect(runtime.prompts).toEqual([]);
   });
 
   it("keeps the instructions for the first prompt a person sends after a block at startup", async () => {

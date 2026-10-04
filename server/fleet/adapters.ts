@@ -1,3 +1,4 @@
+import { dirname } from "node:path";
 import type { AgentKind, ThinkingLevel } from "./types.ts";
 
 export interface LaunchOptions {
@@ -31,6 +32,8 @@ export interface AgentAdapter {
   question?(screen: string): string | undefined;
   /** the screen once herdr calls the agent ready: a start that did not go as asked (an unknown model swapped for the default one) */
   readyError?(screen: string): string | undefined;
+  /** herdr calls the CLI ready before it draws its input or its questions: the screen once it has */
+  inputReady?(screen: string): boolean;
   /** a turn that settled without doing the work (an API error after the CLI's own retries) */
   turnError(output: string | undefined): string | undefined;
 }
@@ -147,13 +150,20 @@ export const codexAdapter: AgentAdapter = {
   },
 };
 
-/** Cursor Agent: no instruction option and no level (a model's variants carry it); herdr reports its trust question as idle. */
+/**
+ * Cursor Agent: no instruction option and no level (a model's variants carry it). It asks to trust
+ * every folder it is given, after herdr already called it ready (which herdr reports as idle).
+ */
 export const cursorAdapter: AgentAdapter = {
   kind: "cursor",
   instructionsInPrompt: true,
   launchArgs(options) {
     const { model } = splitThinking(options.model, options.thinking);
-    return [...(model ? ["--model", model] : []), "--auto-review", "--add-dir", options.resultDir];
+    // the folder holding every run's result folder: trusted once, not once per run
+    return [...(model ? ["--model", model] : []), "--auto-review", "--add-dir", dirname(options.resultDir)];
+  },
+  inputReady(screen) {
+    return /Plan, search, build anything/.test(screen);
   },
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);

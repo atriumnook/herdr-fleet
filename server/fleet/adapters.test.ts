@@ -81,8 +81,17 @@ describe("codex adapter", () => {
 describe("cursor adapter", () => {
   const cursor = adapterFor("cursor");
 
+  it("is given the folder of all result folders, so it asks to trust one folder once rather than one per run", () => {
+    expect(cursor.launchArgs(base).at(-1)).toBe("/state/results");
+  });
+
+  it("is ready once its input shows", () => {
+    expect(cursor.inputReady?.("  Cursor Agent\n  → Plan, search, build anything\n")).toBe(true);
+    expect(cursor.inputReady?.("❯ cursor-agent --model x\n")).toBe(false);
+  });
+
   it("has no instruction option or level: the instructions lead the first prompt", () => {
-    expect(cursor.launchArgs({ ...base, model: "gpt-5:high", thinking: "low" })).toEqual(["--model", "gpt-5", "--auto-review", "--add-dir", "/state/results/r1"]);
+    expect(cursor.launchArgs({ ...base, model: "gpt-5:high", thinking: "low" })).toEqual(["--model", "gpt-5", "--auto-review", "--add-dir", "/state/results"]);
     expect(cursor.instructionsInPrompt).toBe(true);
   });
 

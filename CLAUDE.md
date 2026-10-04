@@ -37,7 +37,7 @@ bun run build
 - **アクセス制御を緩めない。** token も紐付け済みの端末もない状態で通すのは、ループバックのアドレスからループバックの Host で来たリクエストだけ。DNS rebinding を防ぐため。ファイル表示はペインの作業フォルダーと `os.tmpdir()` の配下に限る。push 通知の宛先はブラウザベンダーの push サービスに限る。`git` は `core.fsmonitor=false` で実行する。いずれも回帰テストがある
 - **UI の文言は英語をキーにして、`src/lib/i18n.ja.ts` に日本語訳を置く。** `src/lib/i18n.test.ts` は、訳の欠けと使われていない訳の両方で失敗する。文言を消したら、対応する訳も消す
 - **Herdr の socket API の癖。** `agent.start` は `launch_pending` のまま即座に返る。準備完了は `agent.get` の `interactive_ready` で判定する(`server/fleet/runtime.ts`)。`herdrRpc` は既定で 10 秒でタイムアウトする。それより長く待つ呼び出しには `timeoutMs` を渡す
-- **エージェント CLI の癖。** cursor と agy は、信頼の確認画面やサインイン画面(agy はツール実行の承認画面も)を出していても herdr が `idle` と報告する。adapter の `question` が起動直後とターンの終わりに画面を見て、run を `blocked` にする。agy は未知のモデルを指定されると、警告だけ出して既定のモデルで起動する。これは `readyError` が起動失敗として扱う。承認は、各 CLI の auto mode(claude `--permission-mode auto`、codex `--approve-for-me`、cursor `--auto-review`、agy `--mode accept-edits`)に任せる。すべてを承認するモードは使わない結果は、run ごとの結果ファイル(`<stateDir>/fleet-results/<runId>/handoff.md`)で受け取る
+- **エージェント CLI の癖。** cursor と agy は、信頼の確認画面やサインイン画面(agy はツール実行の承認画面も)を出していても herdr が `idle` と報告する。adapter の `question` が起動直後とターンの終わりに画面を見て、run を `blocked` にする。cursor は herdr が ready と報告した後に画面を描き、`--add-dir` で渡したフォルダについても信頼を求める。そのため `inputReady` で入力欄が出るまで待ち、結果ディレクトリは run ごとではなく共通の親を渡す。agy は未知のモデルを指定されると、警告だけ出して既定のモデルで起動する。これは `readyError` が起動失敗として扱う。承認は、各 CLI の auto mode(claude `--permission-mode auto`、codex `--approve-for-me`、cursor `--auto-review`、agy `--mode accept-edits`)に任せる。すべてを承認するモードは使わない結果は、run ごとの結果ファイル(`<stateDir>/fleet-results/<runId>/handoff.md`)で受け取る
 - **CLI を実機で起動する検証の副作用。** gemini や agy は、起動しただけで自分自身を更新することがある。agy は `AGY_CLI_DISABLE_AUTO_UPDATE=true` で止まる(`1` では止まらない)。確認画面で止まっている CLI に選択肢を送ると、その CLI の設定(フォルダの信頼など)が永続的に書き換わる
 
 ## コミットと PR
