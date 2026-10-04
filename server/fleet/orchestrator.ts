@@ -228,6 +228,7 @@ export class Orchestrator {
     const promptDir = mkdtempSync(join(this.deps.promptDir ?? tmpdir(), "herdr-fleet-"));
     const promptFile = join(promptDir, "instructions.md");
     writeFileSync(promptFile, instructions, { mode: 0o600 });
+    let notReady = false;
     try {
       try {
         run.state = await this.deps.runtime.start({
@@ -249,6 +250,7 @@ export class Orchestrator {
       } catch (error) {
         if (isAbortError(error)) throw error;
         if (error instanceof FleetError && error.code === "agent_not_ready") {
+          notReady = true;
           run.state = await this.deps.runtime.get(herdrName).catch(() => "unknown" as const);
           run.lastError = "Agent started but is not ready for prompts; the task has not been sent.";
         } else {
@@ -270,7 +272,7 @@ export class Orchestrator {
       }).catch(() => undefined);
       if (signal?.aborted) throw abortError(signal);
       // not safely ready: the task stays unsent; the caller reads or focuses the pane, then sends it
-      if (run.state === "blocked" || run.state === "unknown") return run;
+      if (notReady || run.state === "blocked" || run.state === "unknown") return run;
       if (fallbacks.length) this.spawnPlans.set(run.id, { request, fallbacks });
       // returns once the task is handed over: the budget counts working runs, and a run still
       // `starting` would let the next spawn past the limit

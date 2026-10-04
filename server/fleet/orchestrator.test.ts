@@ -129,6 +129,16 @@ describe("spawn", () => {
     expect(runtime.prompts).toEqual([]);
   });
 
+  it("leaves the task unsent when the agent never became ready, whatever state herdr reads afterwards", async () => {
+    const { fleet, runtime } = setup();
+    runtime.startImpl = async () => { throw new FleetError("agent_not_ready", "not ready within 30s"); };
+    runtime.getStatus = "idle";
+    const run = await spawn(fleet);
+    expect(run).toMatchObject({ state: "idle" });
+    expect(run.lastError).toContain("not been sent");
+    expect(runtime.prompts).toEqual([]);
+  });
+
   it("checks the concurrency budget one spawn at a time, so parallel spawns cannot overshoot it", async () => {
     const { fleet, runtime } = setup({ config: { maxConcurrent: 2 } });
     runtime.createLocationImpl = async (options) => { await Bun.sleep(10); return { paneId: `w1:p${runtime.locations.length}`, cwd: options.cwd }; };
