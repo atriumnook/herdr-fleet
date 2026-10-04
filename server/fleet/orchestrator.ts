@@ -103,6 +103,8 @@ export class Orchestrator {
     this.grace = deps.preVisualGraceMs ?? PRE_VISUAL_GRACE_MS;
     this.readyScreenMs = deps.readyScreenMs ?? READY_SCREEN_MS;
     this.pruneResults();
+    // a restart read the runs back without their results: the result files hold them
+    for (const run of deps.registry.all()) run.result ??= readResult(this.resultFile(run));
   }
 
   /** A result folder outlives its pane but not its run: once the registry dropped the run, it goes. */

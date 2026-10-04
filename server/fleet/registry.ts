@@ -27,7 +27,8 @@ export const STALE_RUN_MS = 7 * 24 * 3_600_000;
 
 /**
  * Every run this server started, kept across restarts in one JSON file (0600). The last
- * turn's output is not kept on disk: it is the bulk of a record, and herdr has it again.
+ * turn's output and result are not kept in it: they are the bulk of a record, the file is
+ * rewritten on every change, and herdr and the run's result file have them again.
  */
 export class RunRegistry {
   private readonly runs = new Map<string, AgentRun>();
@@ -73,7 +74,7 @@ export class RunRegistry {
   private persist(): void {
     if (!this.filePath) return;
     mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
-    const data = this.all().map(({ lastOutput: _output, ...rest }) => rest);
+    const data = this.all().map(({ lastOutput: _output, result: _result, ...rest }) => rest);
     const tmp = `${this.filePath}.${process.pid}.tmp`;
     writeFileSync(tmp, JSON.stringify(data), { mode: 0o600 });
     chmodSync(tmp, 0o600);

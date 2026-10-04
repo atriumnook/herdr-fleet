@@ -457,6 +457,19 @@ describe("result files", () => {
     expect(readResult(join(root, "missing.md"))).toBeUndefined();
   });
 
+  it("keeps results out of the registry file, and reads them back from the result files after a restart", async () => {
+    const { fleet, runtime, root } = setup({ agents: [role("reviewer", { interactive: true })] });
+    const run = await spawn(fleet, { role: "reviewer" });
+    writeFileSync(resultFileOf(root, run.id), "outcome: kept");
+    expect((await settle(fleet, runtime, run)).result).toBe("outcome: kept");
+    expect(readFileSync(join(root, "runs.json"), "utf8")).not.toContain("outcome: kept");
+    const registry = new RunRegistry(join(root, "runs.json"));
+    new Orchestrator({
+      runtime, registry, config: () => DEFAULT_CONFIG, agents: () => [], fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(root, "results"), promptDir: root,
+    });
+    expect(registry.get(run.id)?.result).toBe("outcome: kept");
+  });
+
   it("removes the result folders of runs the registry no longer has", async () => {
     const { fleet, runtime, registry, root } = setup();
     const run = await spawn(fleet);
