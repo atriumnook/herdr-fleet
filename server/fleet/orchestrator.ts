@@ -300,7 +300,8 @@ export class Orchestrator {
         : "Do not start other agents.",
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
       "Treat herdr's 'unknown' as uncertainty, not completion.",
-      `At the end of each delegated turn, write a compact HANDOFF section (outcome, changed files, verification, unresolved questions) to ${resultFile}, replacing what it holds, and end your reply with the same section.`,
+      `Your result file is ${resultFile}.`,
+      "At the end of each delegated turn, write a compact HANDOFF section (outcome, changed files, verification, unresolved questions) to your result file, replacing what it holds, and end your reply with the same section.",
     ].join("\n");
   }
 
