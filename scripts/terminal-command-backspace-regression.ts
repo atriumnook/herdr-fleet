@@ -119,12 +119,22 @@ process.stdin.on("data", (data) => {
   try {
     const page = await nonMac.newPage();
     const inputs: string[] = [];
-    page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => {
-      const message = JSON.parse(String(payload));
-      if (message.type === "input") inputs.push(message.text);
-    }));
+    // a key pressed before the attachment takes input goes to the draft, not the pane
+    let markReady!: () => void;
+    const inputReady = new Promise<void>((resolve) => { markReady = resolve; });
+    page.on("websocket", (socket) => {
+      socket.on("framesent", ({ payload }) => {
+        const message = JSON.parse(String(payload));
+        if (message.type === "input") inputs.push(message.text);
+      });
+      socket.on("framereceived", ({ payload }) => {
+        const message = JSON.parse(String(payload));
+        if (message.type === "input-ready" && message.pane_id === paneId && message.ready !== false) markReady();
+      });
+    });
     await page.goto(`${origin}/?pane=${encodeURIComponent(paneId)}`);
     await page.locator(".conn-live").waitFor();
+    await inputReady;
     await page.locator(".xterm-helper-textarea").press("Meta+Backspace");
     await page.waitForTimeout(300);
     assert.deepEqual(inputs, ["\x7f"], "non-macOS Meta+Backspace keeps its native sequence");
