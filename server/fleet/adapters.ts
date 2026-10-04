@@ -212,17 +212,20 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 /**
  * cursor's `/usage` pager: `Included  12% used` (the plan's included usage, which on-demand would
- * extend; off for this fleet's user) and `Resets Oct 23`, a UTC date with no year: the next one.
+ * extend; off for this fleet's user) and `Resets Oct 23`, a UTC date with no year (the next one),
+ * written in the CLI's locale: `Resets 10月26日` under ja_JP.
  */
 export function cursorUsage(screen: string, now: number): UsageReading | undefined {
   const included = [...screen.matchAll(/Included:?\s+(\d+(?:\.\d+)?)% used/g)].pop();
   if (!included) return undefined;
-  const reset = [...screen.matchAll(/Resets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b/g)].pop();
+  const named = [...screen.matchAll(/Resets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b/g)].pop();
+  const numeric = [...screen.matchAll(/Resets (\d{1,2})月(\d{1,2})日/g)].pop();
+  const date = named ? { month: MONTHS.indexOf(named[1]!), day: Number(named[2]) } : numeric ? { month: Number(numeric[1]) - 1, day: Number(numeric[2]) } : undefined;
   let resetsAt: number | undefined;
-  if (reset) {
+  if (date) {
     const year = new Date(now).getUTCFullYear();
-    resetsAt = Date.UTC(year, MONTHS.indexOf(reset[1]!), Number(reset[2]));
-    if (resetsAt <= now) resetsAt = Date.UTC(year + 1, MONTHS.indexOf(reset[1]!), Number(reset[2]));
+    resetsAt = Date.UTC(year, date.month, date.day);
+    if (resetsAt <= now) resetsAt = Date.UTC(year + 1, date.month, date.day);
   }
   return { windows: [{ name: "monthly", usedPercent: Number(included[1]), ...(resetsAt ? { resetsAt } : {}) }], readAt: now };
 }

@@ -132,6 +132,24 @@ describe("cursor usage", () => {
     expect(cursorUsage(pager, now)).toEqual({ readAt: now, windows: [{ name: "monthly", usedPercent: 12, resetsAt: Date.parse("2026-10-23T00:00:00Z") }] });
   });
 
+  it("reads the pager as cursor-agent 2026.09.23 drew it under ja_JP", () => {
+    // captured from a live pane (`/usage` typed into cursor-agent; Esc closed it)
+    const live = [
+      "────────────────────────────────────────────────",
+      " Usage • Pro                                    Resets 10月26日",
+      " Monthly plan and on-demand usage",
+      " Category        Current             Usage",
+      " Included        1% used             █░░░░░░░░░░░░░░░░░░░░",
+      "   Auto          0% used             ░░░░░░░░░░░░░░░░░░░░░",
+      "   API           1% used             █░░░░░░░░░░░░░░░░░░░░",
+      " On-Demand       Disabled            ———————————————————————",
+      " On-demand usage is off",
+      " View in dashboard: cursor.com/dashboard?tab=usage",
+      " Esc to close",
+    ].join("\n");
+    expect(cursorUsage(live, now)).toEqual({ readAt: now, windows: [{ name: "monthly", usedPercent: 1, resetsAt: Date.parse("2026-10-26T00:00:00Z") }] });
+  });
+
   it("reads the narrow layout, a reset date in the next year, and nothing before the pager shows", () => {
     const narrow = "Usage · Pro\nResets Jan 2\nIncluded: 97% used\nAuto: 90% used";
     expect(cursorUsage(narrow, Date.parse("2026-12-20T00:00:00Z"))!.windows).toEqual([{ name: "monthly", usedPercent: 97, resetsAt: Date.parse("2027-01-02T00:00:00Z") }]);
