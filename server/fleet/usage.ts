@@ -144,8 +144,15 @@ export function rateLimitUntil(message: string, now = Date.now()): number | unde
   return undefined;
 }
 
+/**
+ * a window read without its reset time counts this long: a full one would otherwise hold its CLI
+ * back for good, since a CLI read only after its own turns (cursor) is never read again
+ */
+export const UNDATED_WINDOW_MS = 24 * 3_600_000;
+
 /** A window that still counts: it has not reset since it was read. */
-const current = (window: UsageWindow, now: number) => window.resetsAt === undefined || window.resetsAt > now;
+const current = (window: UsageWindow, reading: UsageReading, now: number) =>
+  window.resetsAt === undefined ? now - reading.readAt < UNDATED_WINDOW_MS : window.resetsAt > now;
 
 /** Reads the readings a CLI can give on demand: what it returns replaces everything known of that CLI but cooldowns. */
 export type UsageProbe = () => Promise<Record<string, UsageReading>>;
@@ -227,7 +234,8 @@ export class UsageTracker {
     const entry = this.entries.get(key);
     const now = this.now();
     if (entry?.cooldown && entry.cooldown.until > now) return `${key} is cooling down until ${new Date(entry.cooldown.until).toISOString()} (${entry.cooldown.reason})`;
-    const full = entry?.reading?.windows.find((window) => current(window, now) && window.usedPercent >= maxUsedPercent);
+    const reading = entry?.reading;
+    const full = reading?.windows.find((window) => current(window, reading, now) && window.usedPercent >= maxUsedPercent);
     if (full) return `${key} has used ${full.usedPercent}% of its ${full.name} limit${full.resetsAt ? ` (resets ${new Date(full.resetsAt).toISOString()})` : ""}`;
     return undefined;
   }
@@ -243,7 +251,8 @@ export class UsageTracker {
     if (until === null) return false;
     const key = usageKey(kind, model);
     const entry = this.entries.get(key) ?? { key };
-    const fullResets = entry.reading?.windows.filter((window) => current(window, now) && window.usedPercent >= 100 && window.resetsAt).map((window) => window.resetsAt!) ?? [];
+    const reading = entry.reading;
+    const fullResets = reading?.windows.filter((window) => current(window, reading, now) && window.usedPercent >= 100 && window.resetsAt).map((window) => window.resetsAt!) ?? [];
     entry.cooldown = { until: until ?? (fullResets.length ? Math.max(...fullResets) : now + defaultMinutes * 60_000), reason: message.slice(0, 200), since: now };
     this.entries.set(key, entry);
     this.persist();

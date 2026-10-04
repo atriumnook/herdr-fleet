@@ -114,6 +114,15 @@ describe("UsageTracker", () => {
     expect(await usage.unavailable("claude", undefined, 90)).toBeUndefined();
   });
 
+  it("counts a window read without its reset time for a day only", async () => {
+    let now = NOW;
+    const usage = new UsageTracker({ file: null, now: () => now });
+    usage.record("cursor", reading(95));
+    expect(await usage.unavailable("cursor", undefined, 90)).toContain("95%");
+    now = NOW + 24 * HOUR;
+    expect(await usage.unavailable("cursor", undefined, 90)).toBeUndefined();
+  });
+
   it("cools an account down on a rate limit, for the time named, else a full window's reset, else the default", async () => {
     let now = NOW;
     const usage = new UsageTracker({ file: null, now: () => now });
