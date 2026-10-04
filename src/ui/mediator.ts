@@ -49,7 +49,7 @@ export class Mediator {
         try { this.dispatch({ type: "usage-loaded", entries: await this.ports.loadUsage() }); } catch (error) { this.dispatch({ type: "usage-failed", message: message(error) }); }
         return;
       case "refresh-usage":
-        try { this.dispatch({ type: "usage-loaded", entries: await this.ports.refreshUsage() }); } catch (error) { this.dispatch({ type: "usage-failed", message: message(error) }); }
+        try { this.dispatch({ type: "usage-refreshed", entries: await this.ports.refreshUsage() }); } catch (error) { this.dispatch({ type: "usage-refresh-failed", message: message(error) }); }
         return;
       case "request":
         try { await this.ports.runRequest(effect.action); this.dispatch({ type: "request-done" }); } catch (error) { this.dispatch({ type: "request-failed", message: message(error) }); }

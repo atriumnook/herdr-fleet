@@ -22,15 +22,15 @@ function play(events: UiEvent[], from: UiState = INITIAL_STATE) {
 }
 
 describe("loading runs and usage", () => {
-  it("fetches both when the Root starts, and settles each with what came back", () => {
-    const { state, effects } = play([{ type: "started" }, { type: "runs-loaded", runs: [run("a")] }, { type: "usage-loaded", entries: usage }]);
+  it("fetches both on the first fleet-changed (the event stream opening), and settles each with what came back", () => {
+    const { state, effects } = play([{ type: "fleet-changed" }, { type: "runs-loaded", runs: [run("a")] }, { type: "usage-loaded", entries: usage }]);
     expect(effects).toEqual([{ kind: "load-runs" }, { kind: "load-usage" }]);
     expect(state.runs).toEqual({ status: "ready", data: [run("a")], again: false, error: undefined });
     expect(state.usage.status).toBe("ready");
   });
 
   it("fetches once more after the fetch in flight when a fleet-changed arrives meanwhile", () => {
-    const loading = play([{ type: "started" }]).state;
+    const loading = play([{ type: "fleet-changed" }]).state;
     const { state, effects } = play([{ type: "fleet-changed" }, { type: "fleet-changed" }], loading);
     expect(effects).toEqual([]);
     expect(state.runs.again).toBe(true);
@@ -40,21 +40,35 @@ describe("loading runs and usage", () => {
   });
 
   it("keeps the runs shown last when a fetch fails, with the error", () => {
-    const { state } = play([{ type: "started" }, { type: "runs-loaded", runs: [run("a")] }, { type: "fleet-changed" }, { type: "runs-failed", message: "offline" }]);
+    const { state } = play([{ type: "fleet-changed" }, { type: "runs-loaded", runs: [run("a")] }, { type: "fleet-changed" }, { type: "runs-failed", message: "offline" }]);
     expect(state.runs).toMatchObject({ status: "error", data: [run("a")], error: "offline" });
   });
 
   it("asks the CLIs again only once at a time, and a fleet-changed meanwhile waits for that answer", () => {
-    const ready = play([{ type: "started" }, { type: "runs-loaded", runs: [] }, { type: "usage-loaded", entries: [] }]).state;
+    const ready = play([{ type: "fleet-changed" }, { type: "runs-loaded", runs: [] }, { type: "usage-loaded", entries: [] }]).state;
     const { state, effects } = play([{ type: "refresh-usage" }, { type: "refresh-usage" }, { type: "fleet-changed" }], ready);
     expect(effects).toEqual([{ kind: "refresh-usage" }, { kind: "load-runs" }]);
     expect(state.usage.refreshing).toBe(true);
-    expect(transition(state, { type: "usage-loaded", entries: usage }).state.usage).toMatchObject({ refreshing: false, status: "ready", data: usage });
+    expect(transition(state, { type: "usage-refreshed", entries: usage }).state.usage).toMatchObject({ refreshing: false, status: "ready", data: usage });
+  });
+
+  it("keeps a refresh going until its own answer, and reads again after it when a read was in flight", () => {
+    const ready = play([{ type: "fleet-changed" }, { type: "runs-loaded", runs: [] }, { type: "usage-loaded", entries: [] }]).state;
+    // a read starts, then the person refreshes: the read answering first does not end the refresh
+    const reading = play([{ type: "fleet-changed" }, { type: "runs-loaded", runs: [] }, { type: "refresh-usage" }], ready).state;
+    const readFirst = transition(reading, { type: "usage-loaded", entries: [] }).state;
+    expect(readFirst.usage.refreshing).toBe(true);
+    expect(transition(readFirst, { type: "refresh-usage" }).effects).toEqual([]);
+    // the refresh answering while a read is in flight: that read may predate it, so another follows
+    const refreshedFirst = transition(reading, { type: "usage-refreshed", entries: usage });
+    expect(refreshedFirst.state.usage).toMatchObject({ refreshing: false, data: usage, status: "loading", again: true });
+    expect(transition(refreshedFirst.state, { type: "usage-loaded", entries: [] }).effects).toEqual([{ kind: "load-usage" }]);
+    expect(play([{ type: "refresh-usage" }, { type: "usage-refresh-failed", message: "agy exited with 1" }], ready).state.usage).toMatchObject({ refreshing: false, status: "error", error: "agy exited with 1" });
   });
 });
 
 describe("screens and the detail sheet", () => {
-  const withRuns = play([{ type: "started" }, { type: "runs-loaded", runs: [run("a"), run("gone", { state: "stopped" })] }]).state;
+  const withRuns = play([{ type: "fleet-changed" }, { type: "runs-loaded", runs: [run("a"), run("gone", { state: "stopped" })] }]).state;
 
   it("opens a run's detail, closes it when the run disappears, and leaves it on the way to a pane", () => {
     expect(play([{ type: "show-screen", screen: "fleet" }, { type: "show-run", runId: "a" }], withRuns).state).toMatchObject({ screen: "fleet", detail: "a" });
@@ -80,7 +94,7 @@ describe("actions", () => {
   });
 
   it("reads the usage again after clearing a cooldown, which no fleet-changed follows", () => {
-    const ready = play([{ type: "started" }, { type: "runs-loaded", runs: [] }, { type: "usage-loaded", entries: usage }]).state;
+    const ready = play([{ type: "fleet-changed" }, { type: "runs-loaded", runs: [] }, { type: "usage-loaded", entries: usage }]).state;
     const { effects } = play([{ type: "clear-cooldown", key: "cursor" }, { type: "request-done" }], ready);
     expect(effects).toEqual([{ kind: "request", action: { kind: "clear-cooldown", key: "cursor" } }, { kind: "load-usage" }]);
   });
@@ -91,6 +105,15 @@ describe("actions", () => {
     expect(transition(failed, { type: "dismiss-error" }).state.request).toEqual({ status: "none" });
     // an outcome with nothing pending changes nothing
     expect(transition(INITIAL_STATE, { type: "request-done" }).state).toBe(INITIAL_STATE);
+  });
+});
+
+describe("a watch-only device", () => {
+  it("changes nothing: no action and no refresh leave it", () => {
+    const watching = transition(INITIAL_STATE, { type: "access-known", canAct: false }).state;
+    for (const event of [{ type: "interrupt-run", runId: "a" }, { type: "close-done", group: "g1" }, { type: "clear-cooldown", key: "cursor" }, { type: "refresh-usage" }] as UiEvent[]) {
+      expect(transition(watching, event)).toEqual({ state: watching, effects: [] });
+    }
   });
 });
 

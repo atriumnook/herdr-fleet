@@ -487,6 +487,11 @@ export function App({ shell }: { shell: ShellProps }) {
     emitRef.current({ type: "pane-selected" });
   }, []);
 
+  // a paired watch-only device sees the fleet but changes nothing in it
+  useEffect(() => {
+    emitRef.current({ type: "access-known", canAct: auth?.role !== "watch" });
+  }, [auth?.role]);
+
   // the pane stays attached under the Fleet screen, out of reach of focus and screen readers
   const paneLayerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {

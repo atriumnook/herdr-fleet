@@ -44,6 +44,8 @@ export interface UsageCapsuleModel {
   level: "ok" | "mid" | "low";
   windows: UsageWindow[];
   cooldown?: { until: number; reason: string };
+  /** the cooldown can be ended from here */
+  canClear: boolean;
   readAt?: number;
   error?: string;
   busy: boolean;
@@ -62,6 +64,8 @@ export interface FleetScreenModel {
   /** the last action failed: what to tell the person */
   requestError?: string;
   busy: boolean;
+  /** this device may change things: a watch-only one gets no buttons that would be refused */
+  canAct: boolean;
 }
 
 const KINDS: readonly FleetAgentKind[] = ["pi", "claude", "codex", "cursor", "agy"];
@@ -96,7 +100,7 @@ function card(run: AgentRun, runs: AgentRun[], state: UiState): RunCardModel {
     skipped: run.skipped ?? [],
     result: run.result,
     canOpenPane: !isEnded(run),
-    canInterrupt: tone === "working" || tone === "needs",
+    canInterrupt: state.canAct && (tone === "working" || tone === "needs"),
     busy: pending?.kind === "interrupt" && pending.runId === run.id,
   };
 }
@@ -113,6 +117,7 @@ function capsule(entry: UsageEntry, state: UiState, now: number): UsageCapsuleMo
     level: worst ? meterLevel(worst.usedPercent) : "ok",
     windows,
     cooldown: entry.cooldown && entry.cooldown.until > now ? { until: entry.cooldown.until, reason: entry.cooldown.reason } : undefined,
+    canClear: state.canAct,
     readAt: entry.reading?.readAt,
     error: entry.error,
     busy: pending?.kind === "clear-cooldown" && pending.key === entry.key,
@@ -132,7 +137,7 @@ export function fleetScreenModel(state: UiState, now: number): FleetScreenModel 
     { tone: "working", runs: of("working").sort(byTree) },
     { tone: "done", runs: of("done").sort(byNewest) },
   ] as const).filter((section) => section.runs.length > 0).map((section) => ({ tone: section.tone, runs: [...section.runs] }));
-  const closableGroups = [...new Set(runs.filter((run) => !run.interactive && run.state === "done").map((run) => run.group))].sort();
+  const closableGroups = !state.canAct ? [] : [...new Set(runs.filter((run) => !run.interactive && run.state === "done").map((run) => run.group))].sort();
   const detailRun = state.detail ? cards.find((run) => run.id === state.detail) : undefined;
   return {
     status: state.runs.status === "error" ? "error" : state.runs.status === "ready" ? "ready" : "loading",
@@ -149,6 +154,7 @@ export function fleetScreenModel(state: UiState, now: number): FleetScreenModel 
     detail: detailRun,
     requestError: state.request.status === "failed" ? state.request.message : undefined,
     busy: state.request.status === "pending",
+    canAct: state.canAct,
   };
 }
 

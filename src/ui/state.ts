@@ -34,6 +34,8 @@ export interface UiState {
   request: RequestState;
   /** the run whose detail sheet is open */
   detail: string | null;
+  /** this device may change things (a paired watch-only device may not: the server answers read_only) */
+  canAct: boolean;
   /**
    * A pane the legacy shell should select (it still owns the pane selection until it moves to
    * this Mediator): `seq` makes asking for the same pane twice a new request.
@@ -42,17 +44,20 @@ export interface UiState {
 }
 
 export type UiEvent =
-  /** the Root mounted */
-  | { type: "started" }
   | { type: "show-screen"; screen: Screen }
+  /** what the server said this device may do */
+  | { type: "access-known"; canAct: boolean }
   /** the legacy shell selected a pane (sidebar, palette, notification) */
   | { type: "pane-selected" }
-  /** the server pushed fleet-changed */
+  /** the server pushed fleet-changed, or the event stream (re)opened and pushes may have been missed */
   | { type: "fleet-changed" }
   | { type: "runs-loaded"; runs: AgentRun[] }
   | { type: "runs-failed"; message: string }
   | { type: "usage-loaded"; entries: UsageEntry[] }
   | { type: "usage-failed"; message: string }
+  /** the CLIs answered a refresh: its own outcome, apart from a plain read of what is known */
+  | { type: "usage-refreshed"; entries: UsageEntry[] }
+  | { type: "usage-refresh-failed"; message: string }
   /** ask the CLIs again (runs codex, agy and claude probes on the server) */
   | { type: "refresh-usage" }
   | { type: "show-run"; runId: string }
@@ -80,6 +85,7 @@ export const INITIAL_STATE: UiState = {
   request: { status: "none" },
   detail: null,
   paneRequest: null,
+  canAct: true,
 };
 
 /** A run whose pane is gone: nothing to open or stop in it. */
@@ -107,8 +113,8 @@ export function transition(state: UiState, event: UiEvent): Transition {
   const next = (patch: Partial<UiState>): Transition =>
     ({ state: (Object.keys(patch) as Array<keyof UiState>).every((key) => patch[key] === state[key]) ? state : { ...state, ...patch }, effects });
   switch (event.type) {
-    case "started":
-      return next({ runs: load(state.runs, { kind: "load-runs" }, effects), usage: load(state.usage, { kind: "load-usage" }, effects) });
+    case "access-known":
+      return next({ canAct: event.canAct });
     case "show-screen":
       return next({ screen: event.screen, detail: event.screen === "pane" ? null : state.detail });
     case "pane-selected":
@@ -128,11 +134,18 @@ export function transition(state: UiState, event: UiEvent): Transition {
       // the runs shown last stay, marked stale by the error
       return next({ runs: settle(state.runs, { status: "error", error: event.message }, { kind: "load-runs" }, effects) });
     case "usage-loaded":
-      return next({ usage: settle(state.usage, { status: "ready", data: event.entries, error: undefined, refreshing: false }, { kind: "load-usage" }, effects) });
+      return next({ usage: settle(state.usage, { status: "ready", data: event.entries, error: undefined }, { kind: "load-usage" }, effects) });
     case "usage-failed":
-      return next({ usage: settle(state.usage, { status: "error", error: event.message, refreshing: false }, { kind: "load-usage" }, effects) });
+      return next({ usage: settle(state.usage, { status: "error", error: event.message }, { kind: "load-usage" }, effects) });
+    case "usage-refreshed": {
+      // a read still in flight may have read the server before the refresh landed: it is read again after
+      const usage = { ...state.usage, data: event.entries, error: undefined, refreshing: false, again: state.usage.status === "loading" ? true : state.usage.again };
+      return next({ usage: state.usage.status === "loading" ? usage : { ...usage, status: "ready" } });
+    }
+    case "usage-refresh-failed":
+      return next({ usage: { ...state.usage, refreshing: false, error: event.message, status: state.usage.status === "loading" ? "loading" : "error" } });
     case "refresh-usage":
-      if (state.usage.refreshing) return next({});
+      if (state.usage.refreshing || !state.canAct) return next({});
       effects.push({ kind: "refresh-usage" });
       return next({ usage: { ...state.usage, refreshing: true } });
     case "show-run":
@@ -166,6 +179,6 @@ export function transition(state: UiState, event: UiEvent): Transition {
 
 /** One action at a time: another one while it runs is ignored, as its button is disabled. */
 function request(state: UiState, action: RequestAction): Transition {
-  if (state.request.status === "pending") return { state, effects: [] };
+  if (state.request.status === "pending" || !state.canAct) return { state, effects: [] };
   return { state: { ...state, request: { status: "pending", action } }, effects: [{ kind: "request", action }] };
 }

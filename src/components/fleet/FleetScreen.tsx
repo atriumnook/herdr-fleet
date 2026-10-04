@@ -110,9 +110,11 @@ export function FleetScreen({ model, screen, emit }: { model: FleetScreenModel; 
           <button type="button" aria-pressed={screen === "pane"} onClick={() => emit({ type: "show-screen", screen: "pane" })}>{t("Pane")}</button>
           <button type="button" aria-pressed={screen === "fleet"} onClick={() => emit({ type: "show-screen", screen: "fleet" })}>{t("Fleet")}</button>
         </div>
-        <button type="button" className="fleet-cap" disabled={model.usage.refreshing} onClick={() => emit({ type: "refresh-usage" })}>
-          {model.usage.refreshing ? t("Refreshing…") : t("Refresh usage")}
-        </button>
+        {model.canAct && (
+          <button type="button" className="fleet-cap" disabled={model.usage.refreshing} onClick={() => emit({ type: "refresh-usage" })}>
+            {model.usage.refreshing ? t("Refreshing…") : t("Refresh usage")}
+          </button>
+        )}
       </div>
     </div>
   );

@@ -67,6 +67,15 @@ describe("fleet screen model", () => {
     expect(model.requestError).toBe("read_only");
   });
 
+  it("offers a watch-only device no button the server would refuse", () => {
+    const state = withRuns([run("w"), run("d", { state: "done" })], { canAct: false, usage: { status: "ready", again: false, refreshing: false, data: [{ key: "cursor", cooldown: { until: NOW + 1, reason: "r", since: 1 } }] } });
+    const model = fleetScreenModel(state, NOW);
+    expect(model.canAct).toBe(false);
+    expect(model.sections.flatMap((s) => s.runs).map((r) => [r.canInterrupt, r.canOpenPane])).toEqual([[false, true], [false, true]]);
+    expect(model.closableGroups).toEqual([]);
+    expect(model.usage.capsules[0]!.canClear).toBe(false);
+  });
+
   it("counts the runs waiting on the person for the Fleet button", () => {
     expect(needsCount(withRuns([run("a", { state: "blocked" }), run("b"), run("c", { state: "blocked" })]))).toBe(2);
   });

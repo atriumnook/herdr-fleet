@@ -23,7 +23,7 @@ describe("Mediator", () => {
     const mediator = new Mediator(p);
     let notified = 0;
     mediator.subscribe(() => { notified += 1; });
-    mediator.dispatch({ type: "started" });
+    mediator.dispatch({ type: "fleet-changed" });
     await until(() => mediator.getState().runs.status === "ready" && mediator.getState().usage.status === "ready");
     expect(mediator.getState().runs.data).toEqual([run]);
     expect(notified).toBeGreaterThanOrEqual(3);
@@ -32,7 +32,7 @@ describe("Mediator", () => {
   it("turns a failed effect into a failure event with its message", async () => {
     const { ports: p } = ports({ loadRuns: async () => { throw new Error("/api/fleet/runs failed (401): unauthorized"); } });
     const mediator = new Mediator(p);
-    mediator.dispatch({ type: "started" });
+    mediator.dispatch({ type: "fleet-changed" });
     await until(() => mediator.getState().runs.status === "error");
     expect(mediator.getState().runs.error).toContain("401");
   });
@@ -44,6 +44,15 @@ describe("Mediator", () => {
     expect(mediator.getState().request.status).toBe("pending");
     await until(() => mediator.getState().request.status === "none");
     expect(requests).toEqual([{ kind: "interrupt", runId: "a" }]);
+  });
+
+  it("answers a refresh with its own outcome", async () => {
+    const { ports: p } = ports();
+    const mediator = new Mediator(p);
+    mediator.dispatch({ type: "refresh-usage" });
+    expect(mediator.getState().usage.refreshing).toBe(true);
+    await until(() => !mediator.getState().usage.refreshing);
+    expect(mediator.getState().usage.data).toEqual([{ key: "codex" }]);
   });
 
   it("does not notify listeners when an event changes nothing", () => {
