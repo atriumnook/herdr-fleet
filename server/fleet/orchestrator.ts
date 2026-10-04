@@ -6,7 +6,7 @@ import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
-import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SpawnRequest, type ThinkingLevel } from "./types.ts";
+import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel } from "./types.ts";
 import { usageKey, type UsageTracker } from "./usage.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -204,6 +204,7 @@ export class Orchestrator {
     const roleKind = override.agent ?? definition.agent;
     const candidates: Array<string | undefined> = [primary, ...(fallbacks ?? override.fallbackModels ?? definition.fallbackModels ?? []).filter((m) => m !== primary)];
     const failures: string[] = [];
+    const skipped: SkippedCandidate[] = [];
     let started = false;
     for (let i = 0; i < candidates.length; i++) {
       const entry = candidates[i];
@@ -212,6 +213,7 @@ export class Orchestrator {
       const unusable = await this.deps.usage?.unavailable(kind, model, config.maxUsedPercent);
       if (unusable) {
         failures.push(`${entry ?? "default"}: ${unusable}`);
+        skipped.push({ candidate: entry ?? "default", reason: unusable });
         if (!last) continue;
         throw new FleetError(started ? "fallbacks_exhausted" : "usage_exhausted", `No candidate has usage left: ${failures.join("; ")}`);
       }
@@ -220,7 +222,7 @@ export class Orchestrator {
       try {
         started = true;
         return await this.spawnAttempt({ ...request, cwd }, config, definition, override, kind, model, thinking,
-          candidates.slice(i + 1).filter((m): m is string => !!m), i === 0 ? fallbackFrom : candidates[i - 1] ?? fallbackFrom, signal);
+          candidates.slice(i + 1).filter((m): m is string => !!m), i === 0 ? fallbackFrom : candidates[i - 1] ?? fallbackFrom, [...skipped], signal);
       } catch (error) {
         if (isAbortError(error)) throw error;
         const reason = error instanceof Error ? error.message : String(error);
@@ -231,13 +233,14 @@ export class Orchestrator {
           throw new FleetError("fallbacks_exhausted", `${reason}. Fallbacks exhausted: ${failures.join("; ")}`);
         }
         failures.push(`${entry ?? "default"}: ${reason}`);
+        skipped.push({ candidate: entry ?? "default", reason });
       }
     }
     throw new FleetError("no_candidates", "No model candidates to spawn.");
   }
 
   private async spawnAttempt(request: SpawnRequest & { cwd: string; group: string }, config: FleetConfig, definition: AgentDefinition, override: RoleOverride,
-    kind: AgentKind, model: string | undefined, thinking: ThinkingLevel | undefined, fallbacks: string[], fallbackFrom: string | undefined, signal?: AbortSignal): Promise<AgentRun> {
+    kind: AgentKind, model: string | undefined, thinking: ThinkingLevel | undefined, fallbacks: string[], fallbackFrom: string | undefined, skipped: SkippedCandidate[], signal?: AbortSignal): Promise<AgentRun> {
     const adapter = adapterFor(kind);
     const depth = (request.depth ?? 0) + 1;
     const worktree = request.worktree ?? override.worktree ?? definition.worktree ?? false;
@@ -268,6 +271,7 @@ export class Orchestrator {
       run = {
         id, name: displayName, role: definition.name, agent: kind, group: request.group, herdrName, paneId: location.paneId, workspaceId: location.workspaceId,
         cwd: location.cwd, model, thinking, fallbackFrom, state: "starting", depth, interactive, worktree, startedAt: now, updatedAt: now,
+        ...(skipped.length ? { skipped } : {}),
       };
       this.save(run);
     } finally {

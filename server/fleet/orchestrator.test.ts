@@ -412,6 +412,8 @@ describe("usage routing", () => {
     const { fleet, runtime } = setup({ agents: crossRole(), usage });
     const run = await spawn(fleet);
     expect(run).toMatchObject({ agent: "codex", model: "gpt-6", fallbackFrom: "p/primary", state: "working" });
+    // the run keeps why it is not on the primary, for the Fleet screen
+    expect(run.skipped).toEqual([{ candidate: "p/primary", reason: expect.stringContaining("pi:p has used 95% of its 5h limit") }]);
     expect(runtime.starts.map((s) => s.kind)).toEqual(["codex"]);
     expect(runtime.locations).toHaveLength(1);
   });
@@ -442,7 +444,8 @@ describe("usage routing", () => {
       if (options.kind === "pi") throw new FleetError("agent_start_failed", "429 Too Many Requests");
       return "idle";
     };
-    expect(await spawn(fleet)).toMatchObject({ agent: "codex" });
+    const run = await spawn(fleet);
+    expect(run).toMatchObject({ agent: "codex", skipped: [{ candidate: "p/primary", reason: "429 Too Many Requests" }] });
     expect(await usage.unavailable("pi", "p/primary", 90)).toContain("pi:p is cooling down");
   });
 

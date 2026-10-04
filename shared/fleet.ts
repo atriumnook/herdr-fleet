@@ -11,6 +11,13 @@ export type AgentState = "starting" | "working" | "idle" | "done" | "blocked" | 
 /** The agent CLIs the fleet can start: herdr's `agent start --kind` values it has an adapter for (server/fleet/adapters.ts). */
 export type FleetAgentKind = "pi" | "claude" | "codex" | "cursor" | "agy";
 
+/** A spawn candidate passed over before the one a run started on, and why. */
+export interface SkippedCandidate {
+  /** the candidate entry as configured: a model, or `<agent>:<model>` */
+  candidate: string;
+  reason: string;
+}
+
 export interface AgentRun {
   id: string;
   name: string;
@@ -39,6 +46,8 @@ export interface AgentRun {
   fallbackFrom?: string;
   /** the run that took this run's task over after its first turn failed */
   replacedBy?: string;
+  /** candidates passed over before this one: no usage left, cooling down, or failed to start */
+  skipped?: SkippedCandidate[];
 }
 
 /** One limit window: a share of it used, until it resets. */
