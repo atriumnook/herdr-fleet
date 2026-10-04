@@ -11,7 +11,9 @@
  * Then each other agent CLI (FLEET_E2E_KINDS, default claude,codex,cursor,agy) takes one turn on its
  * cheapest model at the lowest level, in a fixed folder (FLEET_E2E_KINDS_DIR, default
  * ~/.cache/herdr-fleet-e2e/project). A CLI that does not trust that folder yet is started there
- * first and its trust question answered: that is written to the CLI's own settings, once.
+ * first and its trust question answered: that is written to the CLI's own settings, once. The
+ * server keeps its state beside it (state/), so the result folders' root cursor is given stays the
+ * same, and its trust question too is answered once.
  *
  * Start the test session clean before a run: it hands its environment to every agent.
  *   herdr --session herdr-fleet-test server stop
@@ -28,13 +30,15 @@ const MODEL = process.env["FLEET_E2E_MODEL"] ?? "opencode-go/space-bunny-free";
 const THINKING = process.env["FLEET_E2E_THINKING"] ?? "off";
 /** each CLI's cheapest model; the level is the lowest it takes (thinking off maps to it) */
 const KIND_MODELS: Record<string, string> = {
-  claude: process.env["FLEET_E2E_CLAUDE_MODEL"] ?? "claude-haiku-4-5",
+  // the cheapest Claude model auto mode runs on: Haiku starts in manual mode
+  claude: process.env["FLEET_E2E_CLAUDE_MODEL"] ?? "claude-sonnet-5-5",
   codex: process.env["FLEET_E2E_CODEX_MODEL"] ?? "gpt-6-luna",
   cursor: process.env["FLEET_E2E_CURSOR_MODEL"] ?? "gemini-3.8-flash-low",
   agy: process.env["FLEET_E2E_AGY_MODEL"] ?? "gemini-3.8-flash-low",
 };
 const KINDS = (process.env["FLEET_E2E_KINDS"] ?? "claude,codex,cursor,agy").split(",").map((k) => k.trim()).filter(Boolean);
 const KINDS_DIR = resolve(process.env["FLEET_E2E_KINDS_DIR"] ?? join(homedir(), ".cache", "herdr-fleet-e2e", "project"));
+const STATE_DIR = join(KINDS_DIR, "..", "state");
 const TIMEOUT_MS = Number(process.env["FLEET_E2E_TIMEOUT_MS"] ?? 180_000);
 const FLEET = resolve(import.meta.dir, "..", "bin", "fleet.ts");
 
@@ -58,13 +62,13 @@ writeFileSync(join(project, ".herdr-fleet", "fleet.json"), JSON.stringify({ defa
 
 // the other CLIs' roles: the reply has to reach the result file, which is what is checked
 mkdirSync(join(KINDS_DIR, ".herdr-fleet", "agents"), { recursive: true });
-const kindPrompt = "You are an E2E fixture. Your HANDOFF is exactly the text the task gives, and nothing else: write it to your result file, then reply with it. Use no other tools.";
+const kindPrompt = "You are an E2E fixture. Your HANDOFF is exactly the text the task gives, and nothing else. Write it to your result file with your file-writing tool, then reply with it. Do nothing else.";
 for (const kind of KINDS) {
   writeFileSync(join(KINDS_DIR, ".herdr-fleet", "agents", `echo-${kind}.md`), `---\nname: echo-${kind}\ndescription: E2E fixture\nagent: ${kind}\nmodel: ${KIND_MODELS[kind]}\nthinking: off\ninteractive: false\n---\n${kindPrompt}\n`);
 }
 writeFileSync(join(KINDS_DIR, ".herdr-fleet", "fleet.json"), JSON.stringify({ maxConcurrent: 4, defaultWaitTimeoutMs: TIMEOUT_MS, recentReadLines: 80 }));
 
-const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), machines: false });
+const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: STATE_DIR, machines: false });
 const url = `http://127.0.0.1:${server.port}`;
 
 interface Run { id: string; name: string; role: string; model?: string; fallbackFrom?: string; state: string; paneId: string; lastOutput?: string; result?: string; lastError?: string }
@@ -157,33 +161,39 @@ const scenarios: Array<{ name: string; run: (group: string) => Promise<void> }> 
 const TRUST_YES = /Yes, I trust this folder|Trust and continue|Trust this workspace/;
 
 /**
- * Starts `kind` in the fixed folder and answers its trust question if it asks one: the cursor is
- * moved onto the trusting option, wherever the CLI put it, and confirmed. Sends no prompt.
+ * Answers the trust question on a pane if one shows within ~20 s: the cursor is moved onto the
+ * trusting option, wherever the CLI put it, and confirmed. False when none showed.
  */
+async function answerTrust(paneId: string, label: string): Promise<boolean> {
+  const screen = async () => (await herdrRpc<{ read?: { text?: string } }>("pane.read", { pane_id: paneId, source: "recent", lines: 60 }, socket)).read?.text ?? "";
+  for (let i = 0; i < 40; i++) {
+    await Bun.sleep(500);
+    const lines = (await screen()).split("\n");
+    const target = lines.findIndex((line) => TRUST_YES.test(line));
+    if (target < 0) continue;
+    // the marked option nearest the trusting one: a shell prompt above may use the same mark
+    const marked = lines.map((line, index) => /^[\s│]*[❯›>▶] /.test(line) ? index : -1).filter((index) => index >= 0 && Math.abs(index - target) <= 4);
+    const selected = marked.sort((a, b) => Math.abs(a - target) - Math.abs(b - target))[0];
+    const moves = selected === undefined ? 0 : target - selected;
+    const keys = [...Array(Math.abs(moves)).fill(moves > 0 ? "down" : "up"), "enter"];
+    for (const key of keys) { await herdrRpc("pane.send_keys", { pane_id: paneId, keys: [key] }, socket); await Bun.sleep(150); }
+    await Bun.sleep(3000);
+    assert(!TRUST_YES.test(await screen()), `${label} still asks for trust:\n${await screen()}`);
+    console.log(`${label}: answered its trust question`);
+    return true;
+  }
+  return false;
+}
+
+/** Starts `kind` in the fixed folder and answers its trust question if it asks one. Sends no prompt. */
 async function trustFolder(kind: string): Promise<void> {
   const created = await herdrRpc<{ root_pane?: { pane_id?: string } }>("workspace.create", { cwd: KINDS_DIR, label: `e2e-trust-${kind}`, focus: false }, socket);
   const paneId = created.root_pane?.pane_id;
   assert(paneId, "workspace.create returned no pane");
-  const screen = async () => (await herdrRpc<{ read?: { text?: string } }>("pane.read", { pane_id: paneId, source: "recent", lines: 60 }, socket)).read?.text ?? "";
   try {
     await Bun.sleep(1500);
     await herdrRpc("agent.start", { name: `e2e-trust-${kind}-${Date.now().toString(36)}`, kind, pane_id: paneId, args: [] }, socket, 15_000);
-    for (let i = 0; i < 40; i++) {
-      await Bun.sleep(500);
-      const lines = (await screen()).split("\n");
-      const target = lines.findIndex((line) => TRUST_YES.test(line));
-      if (target < 0) continue;
-      // the marked option nearest the trusting one: a shell prompt above may use the same mark
-      const marked = lines.map((line, index) => /^[\s│]*[❯›>▶] /.test(line) ? index : -1).filter((index) => index >= 0 && Math.abs(index - target) <= 4);
-      const selected = marked.sort((a, b) => Math.abs(a - target) - Math.abs(b - target))[0];
-      const moves = selected === undefined ? 0 : target - selected;
-      const keys = [...Array(Math.abs(moves)).fill(moves > 0 ? "down" : "up"), "enter"];
-      for (const key of keys) { await herdrRpc("pane.send_keys", { pane_id: paneId, keys: [key] }, socket); await Bun.sleep(150); }
-      await Bun.sleep(3000);
-      assert(!TRUST_YES.test(await screen()), `${kind} still asks to trust ${KINDS_DIR}:\n${await screen()}`);
-      console.log(`${kind}: trusted ${KINDS_DIR}`);
-      return;
-    }
+    await answerTrust(paneId, `${kind} in ${KINDS_DIR}`);
   } finally {
     await herdrRpc("pane.close", { pane_id: paneId }, socket).catch(() => undefined);
   }
@@ -195,10 +205,19 @@ for (const kind of KINDS) {
     async run(group) {
       await trustFolder(kind);
       const token = `E2E-${kind.toUpperCase()}-${Date.now().toString(36)}`;
-      const spawned = await fleetIn(KINDS_DIR, group, "spawn", "--role", `echo-${kind}`, "--task", `The text is: ${token}`, "--wait", "--timeout", String(TIMEOUT_MS));
-      const [run] = await runs(group);
-      assert(spawned.code === 0, `spawn --wait exited ${spawned.code} (${run?.state}: ${run?.lastError ?? ""}): ${spawned.err}${spawned.out}\n${run?.lastOutput ?? ""}`);
-      assert(run?.result?.includes(token), `the result file does not hold ${token}: ${JSON.stringify(run?.result)}\n${run?.lastOutput ?? ""}`);
+      const task = `The text is: ${token}`;
+      let waited = await fleetIn(KINDS_DIR, group, "spawn", "--role", `echo-${kind}`, "--task", task, "--wait", "--timeout", String(TIMEOUT_MS));
+      let [run] = await runs(group);
+      // cursor asks to trust the result folders' root at its first start: answered, then the task goes
+      if (run?.state === "blocked" && /trust this folder/.test(run.lastError ?? "")) {
+        assert(await answerTrust(run.paneId, `${kind} for the result folders`), `blocked with no trust question on screen: ${run.lastError}`);
+        await fleetIn(KINDS_DIR, group, "send", run.id, task);
+        waited = await fleetIn(KINDS_DIR, group, "wait", run.id, "--timeout", String(TIMEOUT_MS));
+        [run] = await runs(group);
+      }
+      const facts = `state ${run?.state}, error ${run?.lastError ?? "none"}\n${waited.err}${waited.out}\n--- screen\n${run?.lastOutput ?? "(none)"}`;
+      assert(waited.code === 0, `exited ${waited.code}; ${facts}`);
+      assert(run?.result?.includes(token), `the result file does not hold ${token} (${JSON.stringify(run?.result)}); ${facts}`);
     },
   });
 }
