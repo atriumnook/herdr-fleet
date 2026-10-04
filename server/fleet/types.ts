@@ -52,7 +52,10 @@ export interface RoleOverride {
   agent?: AgentKind;
   model?: string;
   thinking?: ThinkingLevel;
-  /** models to try, in order, when the primary one cannot start or fails its first turn */
+  /**
+   * candidates to try, in order, when the primary one cannot start, fails its first turn or has no
+   * usage left: a model of the role's CLI, or `<agent>:<model>` for another CLI's
+   */
   fallbackModels?: string[];
   worktree?: boolean;
   interactive?: boolean;
@@ -75,6 +78,10 @@ export interface FleetConfig {
   defaultWaitTimeoutMs: number;
   /** close a non-interactive agent's pane once its turn settles */
   closeOnSettle: boolean;
+  /** a spawn candidate is skipped while any limit window of its account is used this much (percent) */
+  maxUsedPercent: number;
+  /** how long an account sits out after a rate limit whose message names no time */
+  rateLimitCooldownMinutes: number;
   roles: Record<string, RoleOverride>;
   models: Record<string, ModelPolicy>;
 }

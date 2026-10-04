@@ -2,11 +2,12 @@ import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, read
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
-import { adapterFor, type AgentAdapter } from "./adapters.ts";
+import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
-import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SpawnRequest, type ThinkingLevel } from "./types.ts";
+import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SpawnRequest, type ThinkingLevel } from "./types.ts";
+import { usageKey, type UsageTracker } from "./usage.ts";
 
 /** One delegated turn, from the prompt until it settles. */
 interface PendingTurn {
@@ -24,7 +25,7 @@ interface PendingTurn {
 export const RESULT_MAX_BYTES = 64 * 1024;
 const RESULT_FILE = "handoff.md";
 
-/** A spawn whose configured fallbacks are still untried: consulted if its first turn fails. */
+/** A spawn whose configured fallbacks (candidate entries) are still untried: consulted if its first turn fails. */
 interface SpawnPlan { request: SpawnRequest & { group: string }; fallbacks: string[] }
 
 export const isCompleted = (state: AgentState): boolean => state === "idle" || state === "done";
@@ -39,6 +40,8 @@ export const PRE_VISUAL_GRACE_MS = 2_500;
 /** how long a CLI herdr already calls ready may take to draw its input (adapter.inputReady) */
 export const READY_SCREEN_MS = 15_000;
 const READY_SCREEN_POLL_MS = 250;
+/** how long a CLI's usage screen (cursor's `/usage`) may take to show */
+export const USAGE_SCREEN_MS = 10_000;
 /** a run still `starting` may be inside a 30 s agent start: not-found is not its end yet */
 const START_GRACE_MS = 30_000;
 
@@ -73,7 +76,24 @@ export interface OrchestratorDeps {
   preVisualGraceMs?: number;
   /** READY_SCREEN_MS; tests shorten it */
   readyScreenMs?: number;
+  /** USAGE_SCREEN_MS; tests shorten it */
+  usageScreenMs?: number;
+  /** what each account has used: candidates without usage left are skipped, rate limits start cooldowns */
+  usage?: Pick<UsageTracker, "unavailable" | "noteFailure" | "claimScreen" | "record">;
+  /** the statusLine command for the Claude Code sessions the fleet starts (bin/claude-statusline-tap.ts) */
+  claudeStatusLine?: string;
   onChanged?: (run: AgentRun) => void;
+}
+
+/**
+ * A candidate entry: `<agent>:<model>` names another CLI, anything else is a model of the role's
+ * own. A model's `:level` suffix stays with the model (`codex:gpt-6:high`).
+ */
+export function parseCandidate(entry: string | undefined, kind: AgentKind): { agent: AgentKind; model?: string } {
+  const colon = entry?.indexOf(":") ?? -1;
+  const prefix = colon > 0 ? entry!.slice(0, colon) : undefined;
+  if (prefix && isAgentKind(prefix)) return { agent: prefix, model: entry!.slice(colon + 1) || undefined };
+  return { agent: kind, model: entry };
 }
 
 function shortModel(model?: string): string {
@@ -165,10 +185,11 @@ export class Orchestrator {
   }
 
   /**
-   * The primary model, then each configured fallback in order. Only a model-caused startup
-   * failure (the CLI quit with an error before it was ready) moves on to the next; every other
-   * error is the caller's. `fallbacks` replaces the configured list for a re-spawn after a failed
-   * first turn, so models already tried are not tried again.
+   * The primary candidate, then each configured fallback in order. A candidate whose account has
+   * no usage left or is cooling down is skipped; one that fails to start (the CLI quit with an
+   * error before it was ready) moves on to the next, and a rate limit it quit on starts a cooldown.
+   * Every other error is the caller's. `fallbacks` replaces the configured list for a re-spawn after
+   * a failed first turn, so candidates already tried are not tried again.
    */
   private async spawnWithFallbacks(request: SpawnRequest & { group: string }, signal?: AbortSignal, fallbacks?: string[], fallbackFrom?: string): Promise<AgentRun> {
     const cwd = resolve(request.cwd ?? process.cwd());
@@ -182,32 +203,43 @@ export class Orchestrator {
     const primary = request.model ?? override.model ?? definition.model ?? config.defaultModel;
     const explicitThinking = request.thinking !== undefined ? request.thinking : override.thinking ?? definition.thinking;
     const baseThinking = requireThinkingLevel(explicitThinking ?? config.defaultThinking);
+    const roleKind = override.agent ?? definition.agent;
     const candidates: Array<string | undefined> = [primary, ...(fallbacks ?? override.fallbackModels ?? definition.fallbackModels ?? []).filter((m) => m !== primary)];
     const failures: string[] = [];
+    let started = false;
     for (let i = 0; i < candidates.length; i++) {
-      const model = candidates[i];
+      const entry = candidates[i];
+      const { agent: kind, model } = parseCandidate(entry, roleKind);
+      const last = i === candidates.length - 1;
+      const unusable = await this.deps.usage?.unavailable(kind, model, config.maxUsedPercent);
+      if (unusable) {
+        failures.push(`${entry ?? "default"}: ${unusable}`);
+        if (!last) continue;
+        throw new FleetError(started ? "fallbacks_exhausted" : "usage_exhausted", `No candidate has usage left: ${failures.join("; ")}`);
+      }
       // a fallback is bounded by its own allow-list rather than refused: a person listed it
       const thinking = applyModelPolicy(config, model, baseThinking, i === 0 && explicitThinking !== undefined);
       try {
-        return await this.spawnAttempt({ ...request, cwd }, config, definition, override, model, thinking,
+        started = true;
+        return await this.spawnAttempt({ ...request, cwd }, config, definition, override, kind, model, thinking,
           candidates.slice(i + 1).filter((m): m is string => !!m), i === 0 ? fallbackFrom : candidates[i - 1] ?? fallbackFrom, signal);
       } catch (error) {
         if (isAbortError(error)) throw error;
         const reason = error instanceof Error ? error.message : String(error);
         const modelFailure = error instanceof FleetError && error.code === "agent_start_failed";
-        if (!modelFailure || i === candidates.length - 1) {
+        if (modelFailure) this.deps.usage?.noteFailure(kind, model, reason, config.rateLimitCooldownMinutes);
+        if (!modelFailure || last) {
           if (!failures.length) throw error;
           throw new FleetError("fallbacks_exhausted", `${reason}. Fallbacks exhausted: ${failures.join("; ")}`);
         }
-        failures.push(`${model ?? "default"}: ${reason}`);
+        failures.push(`${entry ?? "default"}: ${reason}`);
       }
     }
     throw new FleetError("no_candidates", "No model candidates to spawn.");
   }
 
   private async spawnAttempt(request: SpawnRequest & { cwd: string; group: string }, config: FleetConfig, definition: AgentDefinition, override: RoleOverride,
-    model: string | undefined, thinking: ThinkingLevel | undefined, fallbacks: string[], fallbackFrom: string | undefined, signal?: AbortSignal): Promise<AgentRun> {
-    const kind = override.agent ?? definition.agent;
+    kind: AgentKind, model: string | undefined, thinking: ThinkingLevel | undefined, fallbacks: string[], fallbackFrom: string | undefined, signal?: AbortSignal): Promise<AgentRun> {
     const adapter = adapterFor(kind);
     const depth = (request.depth ?? 0) + 1;
     const worktree = request.worktree ?? override.worktree ?? definition.worktree ?? false;
@@ -262,7 +294,7 @@ export class Orchestrator {
       try {
         run.state = await this.deps.runtime.start({
           kind, name: herdrName, paneId: run.paneId, signal, startupError: (screen) => adapter.startupError(screen),
-          args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
+          args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir, statusLineCommand: this.deps.claudeStatusLine }),
         });
         if (run.state === "blocked") run.lastError = "Agent stopped at a question before its first prompt; the task has not been sent.";
         else if (adapter.question || adapter.readyError) {
@@ -355,6 +387,8 @@ export class Orchestrator {
 
   async send(target: string, message: string, group?: string, signal?: AbortSignal): Promise<AgentRun> {
     const run = this.get(target, group);
+    // a settlement still being handled (the fleet may be reading the usage in the pane) finishes first
+    await this.reconcileLocks.get(run.id);
     if (!isLive(run)) throw new FleetError("run_ended", `${run.name} has ${run.state}; start a new agent instead.`);
     return this.submit(run, message, signal);
   }
@@ -531,9 +565,12 @@ export class Orchestrator {
     if (turnError && isCompleted(run.state)) {
       run.state = "failed";
       run.lastError = turnError;
+      // a rate limit sits the account out: the re-spawn below and later spawns pass it over
+      this.deps.usage?.noteFailure(run.agent, run.model, turnError, config.rateLimitCooldownMinutes);
     }
     run.updatedAt = Date.now();
     this.save(run);
+    if (isCompleted(run.state)) await this.readUsageScreen(run, config);
     const plan = this.spawnPlans.get(run.id);
     this.spawnPlans.delete(run.id);
     if (run.state === "failed" && plan && pending.generation === 1) await this.respawn(run, plan);
@@ -557,6 +594,36 @@ export class Orchestrator {
     }
     run.updatedAt = Date.now();
     this.save(run);
+  }
+
+  /**
+   * A CLI that shows its usage only on its own screen (cursor's `/usage`) is asked once a turn
+   * settled, when neither the last reading nor the last try is recent: the command is typed, the
+   * screen read until the usage shows, and Esc closes it. Never in an interactive run's pane, where
+   * a person may be typing. This runs inside the run's reconcile lock and before the waiters hear of
+   * the settlement; send() waits for that lock, so neither herdr's events nor a next task interleave.
+   * It ends once herdr calls the CLI settled again, so the pane is not taken for a working one.
+   */
+  private async readUsageScreen(run: AgentRun, config: FleetConfig): Promise<void> {
+    const adapter = adapterFor(run.agent);
+    const usage = this.deps.usage;
+    if (run.interactive || !usage || !adapter.usageCommand || !adapter.usageScreen || !usage.claimScreen(run.agent, run.model)) return;
+    const wait = this.deps.usageScreenMs ?? USAGE_SCREEN_MS;
+    try {
+      await this.deps.runtime.prompt(run.herdrName, adapter.usageCommand);
+      const deadline = Date.now() + wait;
+      while (Date.now() < deadline) {
+        await Bun.sleep(READY_SCREEN_POLL_MS);
+        const reading = adapter.usageScreen(await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => ""), Date.now());
+        if (reading) { usage.record(usageKey(run.agent, run.model), reading); break; }
+      }
+    } catch {
+      // the usage is a hint for later spawns; this turn's outcome stands without it
+    } finally {
+      await this.deps.runtime.interrupt(run.herdrName).catch(() => undefined);
+      const deadline = Date.now() + wait;
+      while (Date.now() < deadline && !isCompleted(await this.deps.runtime.get(run.herdrName).catch(() => "idle" as const))) await Bun.sleep(READY_SCREEN_POLL_MS);
+    }
   }
 
   private async reportBlocked(run: AgentRun, pending: PendingTurn): Promise<void> {

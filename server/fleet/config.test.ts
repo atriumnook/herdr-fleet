@@ -51,11 +51,14 @@ describe("fleet config", () => {
 
   it("keeps only usable values: non-empty fallback names, known agents and levels, bounded counts", () => {
     const { userDir, cwd } = fixture(JSON.stringify({
-      maxConcurrent: 0, recentReadLines: 3, roles: { worker: { fallbackModels: ["p/b", "", 7], agent: "vim", thinking: "turbo" } },
+      maxConcurrent: 0, recentReadLines: 3, maxUsedPercent: 150, rateLimitCooldownMinutes: 0,
+      roles: { worker: { fallbackModels: ["p/b", "", 7], agent: "vim", thinking: "turbo" } },
     }));
     const config = loadConfig(cwd, [], userDir);
     expect(config.maxConcurrent).toBe(1);
     expect(config.recentReadLines).toBe(20);
+    expect(config.maxUsedPercent).toBe(100);
+    expect(config.rateLimitCooldownMinutes).toBe(1);
     expect(config.roles["worker"]).toEqual({ fallbackModels: ["p/b"] });
   });
 });

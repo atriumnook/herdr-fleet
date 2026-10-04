@@ -10,6 +10,8 @@ export const DEFAULT_CONFIG: FleetConfig = {
   recentReadLines: 160,
   defaultWaitTimeoutMs: 120_000,
   closeOnSettle: true,
+  maxUsedPercent: 90,
+  rateLimitCooldownMinutes: 60,
   roles: {},
   models: {},
 };
@@ -88,6 +90,8 @@ export function mergeConfig(base: FleetConfig, raw: Record<string, unknown>): Fl
     recentReadLines: count("recentReadLines", 20, base.recentReadLines),
     defaultWaitTimeoutMs: count("defaultWaitTimeoutMs", 1, base.defaultWaitTimeoutMs),
     closeOnSettle: typeof raw["closeOnSettle"] === "boolean" ? raw["closeOnSettle"] : base.closeOnSettle,
+    maxUsedPercent: typeof raw["maxUsedPercent"] === "number" ? Math.min(100, Math.max(1, raw["maxUsedPercent"])) : base.maxUsedPercent,
+    rateLimitCooldownMinutes: count("rateLimitCooldownMinutes", 1, base.rateLimitCooldownMinutes),
     roles,
     models,
   };
