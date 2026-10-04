@@ -1,6 +1,6 @@
 # herdr-fleet
 
-[Herdr](https://herdr.dev/) 上で動く複数のコーディングエージェント(pi / Claude Code / Codex / Cursor / Gemini など)を、ブラウザから見て操作するための個人用ツール。
+[Herdr](https://herdr.dev/) 上で動く複数のコーディングエージェント(pi / Claude Code / Codex / Cursor / Antigravity)を、ブラウザから見て操作するための個人用ツール。
 
 現時点の中身は、[herdr-web-ui](https://github.com/devswha/herdr-web-ui) v0.3.45 から派生した Web UI です。上流の履歴は取り込んでおらず、起点のコミットは [NOTICE](NOTICE) に記録しています。上流の変更は自動では取り込まず、差分を読んでから手で移します。
 
