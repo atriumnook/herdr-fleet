@@ -29,7 +29,7 @@ bun run build
 ```
 
 - integration テストのうち 2 件(attach 中の resize、Windows のミラー表示での paste)は、上流の v0.3.45 でも同じように失敗する。attach-held と output flow control の 2 件は、全件をまとめて走らせたときだけ負荷で失敗することがあり、単独で実行すれば通る
-- `bun run test:ui` は chromium を `CHROME_PATH`(この PC では `/usr/bin/chromium`)で指定して走らせる。main の時点で、Add PC(M0 で削除した機能)・wake lock・needs input・secret input・Meta+Backspace の確認が失敗し、1 つ目で止まる。fleet 画面だけなら `bun scripts/fleet-screen-regression.ts`(`FLEET_SCREENSHOTS=<dir>` でスクリーンショットを残す)
+- `bun run test:ui` は chromium を `CHROME_PATH`(この PC では `/usr/bin/chromium`)で指定して走らせる。1 つ目の失敗で止まる。fleet 画面だけなら `bun scripts/fleet-screen-regression.ts`(`FLEET_SCREENSHOTS=<dir>` でスクリーンショットを残す)
 - `bun run e2e` は実際の pi にプロンプトを送るので、モデルの利用料が発生する。実行の前にユーザーの承認を取る
 - テスト用セッションを止めるときは `herdr --session herdr-fleet-test server stop`
 
