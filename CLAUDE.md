@@ -8,7 +8,8 @@ Herdr 上で複数のコーディングエージェント(pi / Claude Code / Cod
 - `server/fleet/` — エージェントを起動してターンを追う orchestrator。エージェント CLI ごとの違いは `adapters.ts` に閉じ込め、orchestrator は種別に依存させない。HTTP API は `/api/fleet/*`(`api.ts`)
 - `bin/fleet.ts` — `/api/fleet` を呼ぶ薄い CLI。起動されたエージェントは、指示文と環境変数(`HERDR_FLEET_URL` / `HERDR_FLEET_GROUP` / `HERDR_FLEET_DEPTH`)を通じてこれを使う
 - `agents/*.md` — 同梱の役割定義。ユーザー分は `~/.config/herdr-fleet/agents/`、プロジェクト分は `.herdr-fleet/agents/` に置き、後に読んだものが同名の役割を上書きする
-- `src/` — React の Web UI。`shared/` はサーバとクライアントで共有する型
+- `src/` — React の Web UI。`shared/` はサーバとクライアントで共有する型(fleet の run と使用量は `shared/fleet.ts`)
+- `src/ui/` — Web UI の土台。すべてのコンポーネントは `Root` を頂点とする階層の下に置く。各コンポーネントは Passive View として描画用の値だけを受け取り、動作はイベントとして親に渡す(親は文脈を足して上へ渡すか、扱って止める: `relay`)。Root の `Mediator` が、並行する領域を持つ状態機械(`state.ts` の純粋な遷移関数)で裁定し、副作用(API の呼び出し)を実行する。View に置いてよいのは見た目だけの状態(hover、スクロール位置、開閉、xterm の内部、表示用の時計)。既存のコンポーネント(App 以下)はまだ移行前で、1 つずつ別の PR で移す
 
 ## 開発コマンド
 
@@ -28,6 +29,7 @@ bun run build
 ```
 
 - integration テストのうち 2 件(attach 中の resize、Windows のミラー表示での paste)は、上流の v0.3.45 でも同じように失敗する。attach-held と output flow control の 2 件は、全件をまとめて走らせたときだけ負荷で失敗することがあり、単独で実行すれば通る
+- `bun run test:ui` は chromium を `CHROME_PATH`(この PC では `/usr/bin/chromium`)で指定して走らせる。1 つ目の失敗で止まる。fleet 画面だけなら `bun scripts/fleet-screen-regression.ts`(`FLEET_SCREENSHOTS=<dir>` でスクリーンショットを残す)
 - `bun run e2e` は実際の pi にプロンプトを送るので、モデルの利用料が発生する。実行の前にユーザーの承認を取る
 - テスト用セッションを止めるときは `herdr --session herdr-fleet-test server stop`
 

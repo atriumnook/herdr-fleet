@@ -15,7 +15,8 @@ export type ResolvedTheme = "dark" | "light";
 export type Density = "compact" | "comfortable";
 export type SidebarGrouping = "workspace" | "directory";
 /** amber: the herdr look (the default); report: the dark technical report look; charcoal: neutral Ghostty-style dark */
-export type Palette = "amber" | "report" | "charcoal";
+export type Palette = "aurora" | "amber" | "report" | "charcoal";
+export const PALETTES: readonly Palette[] = ["aurora", "amber", "report", "charcoal"];
 /** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
 export type DefaultView = "auto" | "chat" | "terminal";
 
@@ -72,7 +73,7 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
   density: "comfortable",
   sidebarGrouping: "workspace",
-  palette: "amber",
+  palette: "aurora",
   terminalFontSize: 13,
   terminalWheelSpeed: 1,
   terminalFontFamily: "",
@@ -126,6 +127,20 @@ export function chatFontSize(settings: Settings): number {
   return settings.chatFontSize ?? CHAT_BASE_FONT[settings.density];
 }
 
+/**
+ * Aurora became the default with PALETTE_REVISION 2. Amber was the default before, and a record
+ * saved then holds it whether or not it was chosen: such a record moves to aurora once, and a
+ * record saved since keeps whatever it holds.
+ */
+const PALETTE_REVISION = 2;
+
+function storedPalette(record: Record<string, unknown>): Palette {
+  const palette = record["palette"];
+  if (!PALETTES.includes(palette as Palette)) return DEFAULT_SETTINGS.palette;
+  if (palette === "amber" && record["paletteRevision"] !== PALETTE_REVISION) return DEFAULT_SETTINGS.palette;
+  return palette as Palette;
+}
+
 /** Only known keys with the right type survive: a stale or hand-edited record never breaks the UI. */
 export function sanitizeSettings(raw: unknown): Settings {
   const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
@@ -139,7 +154,7 @@ export function sanitizeSettings(raw: unknown): Settings {
     theme: theme === "dark" || theme === "light" || theme === "system" ? theme : DEFAULT_SETTINGS.theme,
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
     sidebarGrouping: record["sidebarGrouping"] === "workspace" || record["sidebarGrouping"] === "directory" ? record["sidebarGrouping"] : DEFAULT_SETTINGS.sidebarGrouping,
-    palette: record["palette"] === "amber" || record["palette"] === "report" || record["palette"] === "charcoal" ? record["palette"] : DEFAULT_SETTINGS.palette,
+    palette: storedPalette(record),
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
     terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])
       ? Math.min(TERMINAL_WHEEL_SPEED_MAX, Math.max(TERMINAL_WHEEL_SPEED_MIN, Math.round(record["terminalWheelSpeed"])))
@@ -178,7 +193,7 @@ export function loadSettings(): Settings {
 
 function saveSettings(settings: Settings): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, paletteRevision: PALETTE_REVISION }));
   } catch {
     /* private mode: preferences last for the session */
   }
@@ -195,6 +210,10 @@ type TerminalColors = { background: string; foreground: string; cursor: string; 
 
 /** The xterm theme for a resolved theme and palette: the `--term-*` tokens of src/styles.css, verbatim. */
 const TERMINAL_THEMES: Record<Palette, Record<ResolvedTheme, TerminalColors>> = {
+  aurora: {
+    light: { background: "#f7faff", foreground: "#1c2638", cursor: "#00609a", selectionBackground: "#cfe3f7" },
+    dark: { background: "#0b1020", foreground: "#d6e2f5", cursor: "#7df9ff", selectionBackground: "#1d3557" },
+  },
   amber: {
     light: { background: "#faf8f3", foreground: "#2a251f", cursor: "#8c5000", selectionBackground: "#f0d9ae" },
     dark: { background: "#181613", foreground: "#d8d0c3", cursor: "#f0a830", selectionBackground: "#4a3d26" },
@@ -209,12 +228,13 @@ const TERMINAL_THEMES: Record<Palette, Record<ResolvedTheme, TerminalColors>> = 
   },
 };
 
-export function terminalTheme(theme: ResolvedTheme, palette: Palette = "amber"): TerminalColors {
+export function terminalTheme(theme: ResolvedTheme, palette: Palette = DEFAULT_SETTINGS.palette): TerminalColors {
   return TERMINAL_THEMES[palette][theme];
 }
 
 /** `<meta name="theme-color">` follows the panel surface so the PWA title bar matches. */
 const THEME_COLOR: Record<Palette, Record<ResolvedTheme, string>> = {
+  aurora: { dark: "#0b1020", light: "#f7faff" },
   amber: { dark: "#181613", light: "#faf8f3" },
   report: { dark: "#0f1319", light: "#fafaf9" },
   charcoal: { dark: "#171717", light: "#fafaf9" },

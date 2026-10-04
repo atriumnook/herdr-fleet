@@ -173,13 +173,21 @@ describe("quick replies row", () => {
 });
 
 describe("palette", () => {
-  it("defaults to amber, the look before this setting, and keeps only a known palette", () => {
-    expect(DEFAULT_SETTINGS.palette).toBe("amber");
+  it("defaults to aurora and keeps only a known palette", () => {
+    expect(DEFAULT_SETTINGS.palette).toBe("aurora");
     // settings stored before palettes existed carry no palette key
-    expect(sanitizeSettings({ theme: "light" }).palette).toBe("amber");
+    expect(sanitizeSettings({ theme: "light" }).palette).toBe("aurora");
     expect(sanitizeSettings({ palette: "report" }).palette).toBe("report");
     expect(sanitizeSettings({ palette: "charcoal" }).palette).toBe("charcoal");
-    expect(sanitizeSettings({ palette: "pink" }).palette).toBe("amber");
+    expect(sanitizeSettings({ palette: "pink" }).palette).toBe("aurora");
+  });
+
+  it("moves amber saved while it was the default to aurora once, and keeps amber chosen since", () => {
+    // saved before aurora: amber was the default, chosen or not
+    expect(sanitizeSettings({ palette: "amber" }).palette).toBe("aurora");
+    // saved since: the record carries the revision, so amber there was chosen
+    expect(sanitizeSettings({ palette: "amber", paletteRevision: 2 }).palette).toBe("amber");
+    expect(sanitizeSettings({ palette: "report" }).palette).toBe("report");
   });
 
   const css = readFileSync(join(import.meta.dir, "..", "styles.css"), "utf8");
@@ -191,6 +199,8 @@ describe("palette", () => {
   const paper = '[data-theme="light"]:is([data-palette="report"], [data-palette="charcoal"])';
   // each case lists its blocks from the most specific to the base; the first one naming a token wins
   const cases = [
+    { theme: "dark", palette: "aurora", layers: ['[data-theme="dark"][data-palette="aurora"]', ":root"] },
+    { theme: "light", palette: "aurora", layers: ['[data-theme="light"][data-palette="aurora"]', '[data-theme="light"]', ":root"] },
     { theme: "dark", palette: "amber", layers: [":root"] },
     { theme: "light", palette: "amber", layers: ['[data-theme="light"]', ":root"] },
     { theme: "dark", palette: "report", layers: ['[data-theme="dark"][data-palette="report"]', ":root"] },
@@ -246,12 +256,13 @@ describe("palette", () => {
     expect(failures).toEqual([]);
   });
 
-  it("paints amber before settings load: the base blocks are the default palette's", () => {
-    const css = readFileSync(join(import.meta.dir, "..", "styles.css"), "utf8");
-    const root = css.slice(css.indexOf(":root {"), css.indexOf("}", css.indexOf(":root {")));
-    expect(root).toContain(`--term-bg: ${terminalTheme("dark").background};`);
-    expect(root).toContain(`--term-cursor: ${terminalTheme("dark").cursor};`);
-    expect(terminalTheme("dark")).toEqual(terminalTheme("dark", "amber"));
+  it("paints the default palette before settings load: the page starts in it", () => {
+    const html = readFileSync(join(import.meta.dir, "..", "..", "index.html"), "utf8");
+    expect(html).toContain(`data-palette="${DEFAULT_SETTINGS.palette}"`);
+    expect(html).toContain(`data-theme="${DEFAULT_SETTINGS.theme}"`);
+    // the title bar before settings load is the default palette's panel, which is also its terminal
+    expect(html).toContain(`<meta name="theme-color" content="${terminalTheme("dark").background}" />`);
+    expect(terminalTheme("dark")).toEqual(terminalTheme("dark", "aurora"));
   });
 });
 

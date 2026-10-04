@@ -65,6 +65,8 @@ fleet はエージェントを起動する前に、その CLI のサブスクの
 
 役割の `fallbackModels` には、同じ CLI のモデルのほかに、`<agent>:<model>` の形で別の CLI を並べられます(例: `["codex:gpt-6", "claude:claude-sonnet-5-5"]`)。fleet は、最初に使える候補で起動します。どの候補も使えなければ、理由を並べて起動を断ります。`fleet spawn --model codex:gpt-6` のように、呼び出し側から別の CLI を指定することもできます。
 
+Web UI では、ヘッダーの Fleet ボタン(対応が必要な run の数を表示)から Fleet 画面を開けます。対応が必要なもの、失敗したもの、作業中のもの、完了したものの順に run を並べ、使用量とクールダウンを見出しの横に表示します。run を選ぶと、問いかけ、振り分けの経緯、結果を見られます。
+
 ```bash
 fleet usage             # 使用量とクールダウンの一覧(古い値は取り直す。--refresh ですべて取り直す)
 fleet usage clear agy   # クールダウンを解除する(アカウント名、CLI 名、または省略ですべて)
@@ -84,7 +86,7 @@ bun run build
 
 ## 今後
 
-Web UI に、fleet のエージェントの一覧と使用量の表示を追加する予定です。
+既存の画面を、Passive View と状態機械の Mediator からなる構成(`src/ui/`)と、Liquid / Spatial UI の見た目に、1 つずつ移していく予定です。
 
 ## ライセンス
 

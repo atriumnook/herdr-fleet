@@ -137,6 +137,8 @@ const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input", "input-ready
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
+/** how long a burst of fleet run changes is gathered before clients are told once */
+const FLEET_CHANGED_MS = 200;
 /** what an agent runs in its shell to reach the fleet: this Bun and bin/fleet.ts, both by absolute path */
 const FLEET_COMMAND = [process.execPath, resolve(import.meta.dir, "..", "bin", "fleet.ts")].map((part) => /^[\w./-]+$/.test(part) ? part : `'${part.replaceAll("'", "'\\''")}'`).join(" ");
 
@@ -458,6 +460,12 @@ export function createServer(
   const machines = options.machines === false ? null : new MachineManager(completions, clientSnapshot);
   /** agents started on callers' behalf (server/fleet): told of herdr's status events by the collector below */
   let listeningPort = 0;
+  /** run saves come in bursts (a spawn writes several): clients hear of a burst once, after it */
+  let fleetChangedTimer: ReturnType<typeof setTimeout> | null = null;
+  const fleetChanged = () => {
+    if (fleetChangedTimer) return;
+    fleetChangedTimer = setTimeout(() => { fleetChangedTimer = null; broadcastAll({ type: "fleet-changed" }); }, FLEET_CHANGED_MS);
+  };
   /** each subscription's usage, asked of the CLIs themselves; rate limits the fleet meets add cooldowns */
   const usage = options.fleet?.usage ?? new UsageTracker({
     file: join(options.stateDir ?? defaultStateDir(), "fleet-usage.json"),
@@ -472,6 +480,7 @@ export function createServer(
     agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)),
     fleetCommand: FLEET_COMMAND,
     usage,
+    onChanged: fleetChanged,
     agentEnv: () => ({ HERDR_FLEET_URL: `http://127.0.0.1:${listeningPort}`, ...(token ? { HERDR_FLEET_TOKEN: token } : {}) }),
   });
 
@@ -1778,6 +1787,7 @@ export function createServer(
       omo.stop();
       machines?.stop();
       fleet.stop();
+      if (fleetChangedTimer) clearTimeout(fleetChangedTimer);
       for (const paneId of [...attachments.keys()]) closeAttachment(paneId);
       server.stop(true);
     },

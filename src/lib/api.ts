@@ -17,6 +17,7 @@ import type {
   SlashCommand,
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
+import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 
@@ -381,4 +382,42 @@ export async function fetchMachines(signal?: AbortSignal): Promise<Machine[]> {
   const response = await fetch("/api/machines", { signal });
   if (!response.ok) throw await errorFrom("/api/machines", response);
   return ((await response.json()) as { machines: Machine[] }).machines;
+}
+
+// ---- fleet (server/fleet/api.ts): this PC's server only, never another machine's ----
+
+/** A fleet change needs X-Herdr-Fleet: 1, which a page on another site cannot send without a preflight. */
+async function sendFleet<T>(path: string, body: Record<string, unknown> = {}): Promise<T> {
+  const url = `/api/fleet${path}`;
+  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", "x-herdr-fleet": "1" }, body: JSON.stringify(body) });
+  if (!response.ok) throw await errorFrom(url, response);
+  return (await response.json()) as T;
+}
+
+export async function fetchFleetRuns(): Promise<AgentRun[]> {
+  return (await getJson<{ runs: AgentRun[] }>("/api/fleet/runs")).runs;
+}
+
+/** What the fleet knows of each subscription's usage: no CLI is asked. */
+export async function fetchFleetUsage(): Promise<UsageEntry[]> {
+  return (await getJson<{ usage: UsageEntry[] }>("/api/fleet/usage")).usage;
+}
+
+/** Asks every CLI the fleet can ask for its usage again, then answers with what is known. */
+export async function refreshFleetUsage(): Promise<UsageEntry[]> {
+  return (await sendFleet<{ usage: UsageEntry[] }>("/usage/refresh", { all: true })).usage;
+}
+
+/** Esc in the run's pane. */
+export async function interruptFleetRun(runId: string): Promise<void> {
+  await sendFleet(`/runs/${encodeURIComponent(runId)}/interrupt`);
+}
+
+/** Closes the panes of the group's finished non-interactive runs. */
+export async function closeDoneFleetRuns(group: string): Promise<void> {
+  await sendFleet("/close-done", { group });
+}
+
+export async function clearFleetCooldown(key: string): Promise<void> {
+  await sendFleet("/usage/clear", { key });
 }

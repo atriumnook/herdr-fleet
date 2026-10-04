@@ -50,6 +50,26 @@
   --danger-tint: rgba(255, 123, 112, 0.12);
   --danger-text: #ffd9d4;
 
+  /* usage meters: plenty, getting low, low */
+  --meter-ok: var(--status-done);
+  --meter-mid: #e2b93b;
+  --meter-low: var(--status-blocked);
+
+  /* Liquid / Spatial glass: layers that float over the app's backdrop. Derived from each
+     palette's own surfaces, so every palette has them; aurora sets its own below. */
+  --glass: color-mix(in srgb, var(--bg-panel) 55%, transparent);
+  --glass-strong: color-mix(in srgb, var(--bg-panel) 82%, transparent);
+  --glass-edge: color-mix(in srgb, var(--text-strong) 14%, transparent);
+  --glass-hi: color-mix(in srgb, var(--text-strong) 22%, transparent);
+  --glass-sheen-a: color-mix(in srgb, var(--accent) 10%, transparent);
+  --glass-sheen-b: transparent;
+  --glass-shadow: rgba(0, 0, 0, 0.45);
+  --glass-blur: blur(24px) saturate(170%);
+  --backdrop-glow-a: color-mix(in srgb, var(--accent) 18%, transparent);
+  --backdrop-glow-b: color-mix(in srgb, var(--status-working) 16%, transparent);
+  --backdrop-glow-c: color-mix(in srgb, var(--status-done) 10%, transparent);
+  --backdrop-grid: transparent;
+
   /* overlays */
   --scrim: rgba(8, 6, 4, 0.55);
   --shadow-drawer: 0 0 40px rgba(0, 0, 0, 0.6);
@@ -151,6 +171,8 @@
 
 [data-theme="light"] {
   color-scheme: light;
+  --meter-mid: #865900;
+  --glass-shadow: rgba(40, 32, 22, 0.16);
   --bg: #eeeae2;
   --bg-panel: #faf8f3;
   --bg-elevated: #f2eee6;
@@ -304,6 +326,106 @@
   --accent-tint: rgba(36, 36, 36, 0.08);
   --term-cursor: #242424;
   --term-selection: #dedad3;
+}
+
+/* Aurora: a navy-black stage lit by cyan and violet, glass that carries a faint iridescent
+   sheen, an ice-cyan accent. The agent states stay apart from the accent by lightness as well
+   as hue: working periwinkle, waiting magenta-red, done mint. The default palette. */
+[data-theme="dark"][data-palette="aurora"] {
+  --bg: #05070d;
+  --bg-panel: #0b1020;
+  --bg-elevated: #121a2e;
+  --bg-hover: #18223a;
+  --bg-input: #0a0f1c;
+  --border: #1c2742;
+  --border-strong: #2a3858;
+  --text: #d6e2f5;
+  --text-dim: #93a1bb;
+  --text-strong: #f2f7ff;
+  --accent: #7df9ff;
+  --accent-tint: rgba(125, 249, 255, 0.13);
+  --primary: #7df9ff;
+  --primary-hover: #b8fcff;
+  --primary-text: #021018;
+  --primary-tint: rgba(125, 249, 255, 0.16);
+  --status-idle: #93a1bb;
+  --status-working: #8fa8ff;
+  --status-blocked: #ff6b8a;
+  --status-done: #5cf2b0;
+  --status-working-tint: rgba(143, 168, 255, 0.14);
+  --status-blocked-tint: rgba(255, 107, 138, 0.14);
+  --status-done-tint: rgba(92, 242, 176, 0.12);
+  --danger-tint: rgba(255, 107, 138, 0.12);
+  --danger-text: #ffd3dc;
+  --meter-mid: #ffd166;
+  --scrim: rgba(2, 4, 10, 0.6);
+  --shadow-drawer: 0 0 40px rgba(0, 4, 16, 0.7);
+  --shadow-pop: 0 16px 48px rgba(0, 4, 16, 0.6), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(0, 4, 16, 0.45);
+  --glass: rgba(16, 22, 38, 0.46);
+  --glass-strong: rgba(24, 32, 54, 0.78);
+  --glass-edge: rgba(150, 200, 255, 0.2);
+  --glass-hi: rgba(220, 240, 255, 0.28);
+  --glass-sheen-a: rgba(125, 249, 255, 0.12);
+  --glass-sheen-b: rgba(160, 140, 255, 0.08);
+  --glass-shadow: rgba(0, 4, 16, 0.6);
+  --glass-blur: blur(28px) saturate(180%);
+  --backdrop-glow-a: rgba(80, 220, 255, 0.2);
+  --backdrop-glow-b: rgba(140, 110, 255, 0.22);
+  --backdrop-glow-c: rgba(40, 255, 200, 0.1);
+  --backdrop-grid: rgba(140, 190, 255, 0.07);
+  --term-bg: #0b1020;
+  --term-fg: #d6e2f5;
+  --term-cursor: #7df9ff;
+  --term-selection: #1d3557;
+}
+
+[data-theme="light"][data-palette="aurora"] {
+  --bg: #eaf0f8;
+  --bg-panel: #f7faff;
+  --bg-elevated: #edf2fa;
+  --bg-hover: #e1e9f5;
+  --bg-input: #ffffff;
+  --border: #d3dcea;
+  --border-strong: #b9c6da;
+  --text: #1c2638;
+  --text-dim: #4a576e;
+  --text-strong: #0a1222;
+  --accent: #00609a;
+  --accent-tint: rgba(0, 96, 154, 0.1);
+  --primary: #006aa6;
+  --primary-hover: #0a7cc0;
+  --primary-text: #ffffff;
+  --primary-tint: rgba(0, 106, 166, 0.12);
+  --status-idle: #4a576e;
+  --status-working: #3049c0;
+  --status-blocked: #a6183e;
+  --status-done: #0a6443;
+  --status-working-tint: rgba(48, 73, 192, 0.1);
+  --status-blocked-tint: rgba(166, 24, 62, 0.1);
+  --status-done-tint: rgba(10, 100, 67, 0.1);
+  --danger-tint: rgba(166, 24, 62, 0.1);
+  --danger-text: #8f1838;
+  --meter-mid: #8a5a00;
+  --scrim: rgba(20, 40, 90, 0.25);
+  --shadow-drawer: 0 0 40px rgba(20, 40, 90, 0.2);
+  --shadow-pop: 0 16px 48px rgba(20, 40, 90, 0.14), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(20, 40, 90, 0.07);
+  --glass: rgba(255, 255, 255, 0.52);
+  --glass-strong: rgba(255, 255, 255, 0.82);
+  --glass-edge: rgba(255, 255, 255, 0.9);
+  --glass-hi: rgba(255, 255, 255, 1);
+  --glass-sheen-a: rgba(60, 190, 255, 0.1);
+  --glass-sheen-b: rgba(130, 100, 255, 0.07);
+  --glass-shadow: rgba(20, 40, 90, 0.16);
+  --backdrop-glow-a: rgba(60, 190, 255, 0.28);
+  --backdrop-glow-b: rgba(130, 100, 255, 0.22);
+  --backdrop-glow-c: rgba(0, 200, 160, 0.14);
+  --backdrop-grid: rgba(30, 60, 120, 0.07);
+  --term-bg: #f7faff;
+  --term-fg: #1c2638;
+  --term-cursor: #00609a;
+  --term-selection: #cfe3f7;
 }
 
 [data-density="compact"] {

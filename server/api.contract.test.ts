@@ -1642,3 +1642,47 @@ it("refuses cross-origin changes while allowing same-origin and CLI requests", a
     }
   } finally { instance.stop(); await workspaceClose(created.workspace.workspace_id); rmSync(root, { recursive: true, force: true }); }
 });
+
+describe("fleet change push", () => {
+  it("tells event-stream clients once after a burst of fleet run changes", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-fleet-contract-fleet-"));
+    const { UsageTracker } = await import("./fleet/usage.ts");
+    let panes = 0;
+    const fleetServer = createServer({
+      port: 0, hostname: "127.0.0.1", token: "", stateDir: dir,
+      fleet: {
+        runtime: {
+          createLocation: async (options) => ({ paneId: `w9:p${++panes}`, cwd: options.cwd }),
+          start: async () => "idle", prompt: async () => "working", get: async () => "working", read: async () => "",
+          closePane: async () => {}, interrupt: async () => {}, focus: async () => {}, reportMetadata: async () => {},
+        },
+        agents: () => [{ name: "worker", description: "w", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" }],
+        usage: new UsageTracker({ file: null }),
+      },
+    });
+    const abort = new AbortController();
+    try {
+      const url = `http://127.0.0.1:${fleetServer.port}`;
+      const events = await fetch(`${url}/api/machines/events`, { signal: abort.signal });
+      const reader = events.body!.getReader();
+      const decoder = new TextDecoder();
+      let text = "";
+      const spawned = await fetch(`${url}/api/fleet/spawn`, { method: "POST", headers: { "content-type": "application/json", "x-herdr-fleet": "1" }, body: JSON.stringify({ role: "worker", task: "t", cwd: dir }) });
+      expect(spawned.status).toBe(201);
+      const deadline = Date.now() + 3000;
+      while (!text.includes('"fleet-changed"') && Date.now() < deadline) text += decoder.decode((await reader.read()).value, { stream: true });
+      // a spawn saves its run several times; the burst arrives as one push
+      await Bun.sleep(400);
+      while (true) {
+        const next = await Promise.race([reader.read(), Bun.sleep(50).then(() => null)]);
+        if (!next || next.done) break;
+        text += decoder.decode(next.value, { stream: true });
+      }
+      expect(text.split('"fleet-changed"').length - 1).toBe(1);
+    } finally {
+      abort.abort();
+      fleetServer.stop();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
