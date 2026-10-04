@@ -15,8 +15,6 @@ export interface LaunchOptions {
   systemPrompt: string;
   /** the run's result folder: outside the workspace, so a CLI that confines writes is told it may write there */
   resultDir: string;
-  /** a statusLine command that keeps the session's rate limits for the fleet (Claude Code) */
-  statusLineCommand?: string;
 }
 
 /** What differs between agent CLIs: how one is launched, and how it says it failed. */
@@ -139,8 +137,6 @@ export const claudeAdapter: AgentAdapter = {
       "--name", `fleet:${options.name}`,
       "--append-system-prompt-file", options.systemPromptFile,
       "--add-dir", options.resultDir,
-      // a settings layer over the person's: only the statusLine, which feeds the fleet's usage
-      ...(options.statusLineCommand ? ["--settings", JSON.stringify({ statusLine: { type: "command", command: options.statusLineCommand } })] : []),
     ];
   },
   startupError(screen) {

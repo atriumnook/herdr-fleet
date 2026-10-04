@@ -66,7 +66,7 @@ const role = (name: string, extra: Partial<AgentDefinition> = {}): AgentDefiniti
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown>; agents?: AgentDefinition[]; usage?: UsageTracker; claudeStatusLine?: string } = {}) {
+function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown>; agents?: AgentDefinition[]; usage?: UsageTracker } = {}) {
   const root = mkdtempSync(join(tmpdir(), "fleet-orchestrator-"));
   roots.push(root);
   const runtime = new FakeRuntime();
@@ -75,7 +75,7 @@ function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown
   const fleet = new Orchestrator({
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
-    usage: options.usage, claudeStatusLine: options.claudeStatusLine, usageScreenMs: 300,
+    usage: options.usage, usageScreenMs: 300,
   });
   return { fleet, runtime, registry, root };
 }
@@ -460,12 +460,6 @@ describe("usage routing", () => {
     // opus draws on the same claude account: the replacement skips it
     expect(fleet.get(failed.replacedBy!, "g1")).toMatchObject({ agent: "codex", model: "gpt-6", fallbackFrom: "opus" });
     expect(usage.list().find((e) => e.key === "claude")!.cooldown!.until).toBeGreaterThan(Date.now() + 7_000_000);
-  });
-
-  it("gives the Claude Code sessions it starts the fleet's statusLine", async () => {
-    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "claude" })], claudeStatusLine: "tap /state/claude.json" });
-    await spawn(fleet);
-    expect(runtime.starts[0]!.args).toContain(JSON.stringify({ statusLine: { type: "command", command: "tap /state/claude.json" } }));
   });
 
   describe("cursor's /usage screen", () => {
