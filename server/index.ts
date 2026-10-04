@@ -62,7 +62,7 @@ import { discoverAgents } from "./fleet/agents.ts";
 import { handleFleetRequest } from "./fleet/api.ts";
 import { loadConfig } from "./fleet/config.ts";
 import { Orchestrator, type OrchestratorDeps } from "./fleet/orchestrator.ts";
-import { agyProbe, claudeFileProbe, codexProbe, UsageTracker } from "./fleet/usage.ts";
+import { agyProbe, claudeProbe, codexProbe, UsageTracker } from "./fleet/usage.ts";
 import { RunRegistry } from "./fleet/registry.ts";
 import { HerdrRuntime } from "./fleet/runtime.ts";
 import { handleMachineRequest } from "./machine-api.ts";
@@ -137,10 +137,8 @@ const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input", "input-ready
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
-/** argv as one shell command line: a word with anything but plain path characters is single-quoted */
-const shellCommand = (parts: string[]): string => parts.map((part) => /^[\w./-]+$/.test(part) ? part : `'${part.replaceAll("'", "'\\''")}'`).join(" ");
 /** what an agent runs in its shell to reach the fleet: this Bun and bin/fleet.ts, both by absolute path */
-const FLEET_COMMAND = shellCommand([process.execPath, resolve(import.meta.dir, "..", "bin", "fleet.ts")]);
+const FLEET_COMMAND = [process.execPath, resolve(import.meta.dir, "..", "bin", "fleet.ts")].map((part) => /^[\w./-]+$/.test(part) ? part : `'${part.replaceAll("'", "'\\''")}'`).join(" ");
 
 const AGENT_LABELS: Record<string, string> = {
   claude: "Claude Code",
@@ -460,11 +458,10 @@ export function createServer(
   const machines = options.machines === false ? null : new MachineManager(completions, clientSnapshot);
   /** agents started on callers' behalf (server/fleet): told of herdr's status events by the collector below */
   let listeningPort = 0;
-  const claudeRateLimits = join(options.stateDir ?? defaultStateDir(), "claude-rate-limits.json");
   /** each subscription's usage, asked of the CLIs themselves; rate limits the fleet meets add cooldowns */
   const usage = options.fleet?.usage ?? new UsageTracker({
     file: join(options.stateDir ?? defaultStateDir(), "fleet-usage.json"),
-    probes: { codex: codexProbe(), agy: agyProbe(), claude: claudeFileProbe(claudeRateLimits) },
+    probes: { codex: codexProbe(), agy: agyProbe(), claude: claudeProbe() },
   });
   const fleet = new Orchestrator({
     runtime: options.fleet?.runtime ?? new HerdrRuntime(),
@@ -475,7 +472,6 @@ export function createServer(
     agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)),
     fleetCommand: FLEET_COMMAND,
     usage,
-    claudeStatusLine: shellCommand([process.execPath, resolve(import.meta.dir, "..", "bin", "claude-statusline-tap.ts"), claudeRateLimits]),
     agentEnv: () => ({ HERDR_FLEET_URL: `http://127.0.0.1:${listeningPort}`, ...(token ? { HERDR_FLEET_TOKEN: token } : {}) }),
   });
 

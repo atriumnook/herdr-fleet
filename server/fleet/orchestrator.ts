@@ -80,8 +80,6 @@ export interface OrchestratorDeps {
   usageScreenMs?: number;
   /** what each account has used: candidates without usage left are skipped, rate limits start cooldowns */
   usage?: Pick<UsageTracker, "unavailable" | "noteFailure" | "claimScreen" | "record">;
-  /** the statusLine command for the Claude Code sessions the fleet starts (bin/claude-statusline-tap.ts) */
-  claudeStatusLine?: string;
   onChanged?: (run: AgentRun) => void;
 }
 
@@ -294,7 +292,7 @@ export class Orchestrator {
       try {
         run.state = await this.deps.runtime.start({
           kind, name: herdrName, paneId: run.paneId, signal, startupError: (screen) => adapter.startupError(screen),
-          args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir, statusLineCommand: this.deps.claudeStatusLine }),
+          args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
         });
         if (run.state === "blocked") run.lastError = "Agent stopped at a question before its first prompt; the task has not been sent.";
         else if (adapter.question || adapter.readyError) {

@@ -41,13 +41,6 @@ describe("claude adapter", () => {
     expect(claude.instructionsInPrompt).toBe(false);
   });
 
-  it("sets the fleet's statusLine in a settings layer of one argv line, when it has one", () => {
-    const args = claude.launchArgs({ ...base, statusLineCommand: "/bin/bun '/opt/fleet/bin/claude-statusline-tap.ts' /state/claude-rate-limits.json" });
-    expect(args.slice(-2)).toEqual(["--settings", JSON.stringify({ statusLine: { type: "command", command: "/bin/bun '/opt/fleet/bin/claude-statusline-tap.ts' /state/claude-rate-limits.json" } })]);
-    expect(args.at(-1)).not.toContain("\n");
-    expect(claude.launchArgs(base)).not.toContain("--settings");
-  });
-
   it("takes a :level suffix as the effort, and has no level below low", () => {
     expect(claude.launchArgs({ ...base, model: "sonnet:xhigh", thinking: "low" }).slice(0, 4)).toEqual(["--model", "sonnet", "--effort", "xhigh"]);
     expect(claude.launchArgs({ ...base, thinking: "off" }).slice(0, 2)).toEqual(["--effort", "low"]);

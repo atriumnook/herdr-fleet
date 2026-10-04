@@ -6,7 +6,7 @@ import type { AgentKind } from "./types.ts";
 /**
  * How much of each subscription is used, and which are cooling down after a rate limit: what the
  * fleet skips a spawn candidate for. Every number comes from the CLI's own way of telling it
- * (codex app-server, agy's `/usage`, Claude Code's statusLine, cursor's `/usage` screen); no
+ * (codex app-server, agy's and Claude Code's `/usage` in print mode, cursor's `/usage` screen); no
  * credential file is ever read.
  */
 
@@ -95,20 +95,49 @@ export function parseAgyUsage(output: unknown, now = Date.now()): Record<string,
   return readings;
 }
 
-/**
- * What the statusLine tap (bin/claude-statusline-tap.ts) wrote: Claude Code's `rate_limits`. Only
- * the windows every model shares: a per-model weekly window would wrongly hold back the others.
- */
-export function parseClaudeRateLimits(stored: unknown): UsageReading | undefined {
-  if (!isObject(stored) || !isObject(stored["rate_limits"]) || !finite(stored["writtenAt"])) return undefined;
-  const limits = stored["rate_limits"];
-  const windows: UsageWindow[] = [];
-  for (const [key, name] of [["five_hour", "5h"], ["seven_day", "weekly"]] as const) {
-    const window = limits[key];
-    if (!isObject(window) || !finite(window["used_percentage"])) continue;
-    windows.push({ name, usedPercent: window["used_percentage"], ...(finite(window["resets_at"]) ? { resetsAt: window["resets_at"] * 1000 } : {}) });
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/** epoch ms of a wall-clock time in an IANA zone; NaN for a zone Intl does not know */
+function zonedTime(year: number, month: number, day: number, hours: number, minutes: number, zone: string): number {
+  const guess = Date.UTC(year, month, day, hours, minutes);
+  let parts: Intl.DateTimeFormatPart[];
+  try {
+    parts = new Intl.DateTimeFormat("en-US", { timeZone: zone, hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric" }).formatToParts(guess);
+  } catch {
+    return NaN;
   }
-  return windows.length ? { windows, readAt: stored["writtenAt"] } : undefined;
+  const part = (type: string) => Number(parts.find((p) => p.type === type)?.value);
+  const shown = Date.UTC(part("year"), part("month") - 1, part("day"), part("hour"), part("minute"));
+  return guess - (shown - guess);
+}
+
+/** `Oct 4, 9:50pm (Asia/Tokyo)`: no year, so the next such time, at most a day in the past */
+function claudeResetTime(text: string, now: number): number | undefined {
+  const match = /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2}), (\d{1,2})(?::(\d{2}))?\s*(am|pm)\s*\(([^)]+)\)/i.exec(text.trim());
+  if (!match) return undefined;
+  const month = MONTHS.indexOf(match[1]!.slice(0, 1).toUpperCase() + match[1]!.slice(1, 3).toLowerCase());
+  const hours = (Number(match[3]) % 12) + (match[5]!.toLowerCase() === "pm" ? 12 : 0);
+  const year = new Date(now).getUTCFullYear();
+  let at = zonedTime(year, month, Number(match[2]), hours, Number(match[4] ?? 0), match[6]!);
+  if (Number.isFinite(at) && at < now - 86_400_000) at = zonedTime(year + 1, month, Number(match[2]), hours, Number(match[4] ?? 0), match[6]!);
+  return Number.isFinite(at) ? at : undefined;
+}
+
+/**
+ * `claude -p /usage`'s text: `Current session: 7% used · resets Oct 4, 9:50pm (Asia/Tokyo)` and
+ * `Current week (all models): …`. Only the windows every model shares: a per-model weekly window
+ * would wrongly hold back the others. An API-key session has none.
+ */
+export function parseClaudeUsage(text: string, now = Date.now()): UsageReading | undefined {
+  const windows: UsageWindow[] = [];
+  for (const [label, name] of [["Current session", "5h"], ["Current week (all models)", "weekly"]] as const) {
+    const line = text.split("\n").find((l) => l.trim().startsWith(`${label}:`));
+    const match = line && /:\s*(\d+(?:\.\d+)?)% used(?:\s*·\s*resets (.+))?/.exec(line);
+    if (!match) continue;
+    const resetsAt = match[2] ? claudeResetTime(match[2], now) : undefined;
+    windows.push({ name, usedPercent: Number(match[1]), ...(resetsAt ? { resetsAt } : {}) });
+  }
+  return windows.length ? { windows, readAt: now } : undefined;
 }
 
 const RATE_LIMITED = /rate.?limit|usage limit|limit reached|quota|too many requests|\b429\b|resource.?exhausted|out of credits/i;
@@ -413,12 +442,17 @@ export function agyProbe(command = "agy"): UsageProbe {
   return async () => parseAgyUsage(JSON.parse(await run([command, "-p", "/usage", "--output-format", "json"], { timeoutMs: 30_000, env: { AGY_CLI_DISABLE_AUTO_UPDATE: "true" } })));
 }
 
-/** The file the statusLine tap writes, read at each ask: cheap, and as fresh as the last Claude Code session made it. */
-export function claudeFileProbe(file: string): UsageProbe {
+/**
+ * `claude -p /usage`: a local command in print mode, answered without a model turn. No session is
+ * kept, and the person's settings are not loaded, so their hooks and plugins do not run at every
+ * probe (the sign-in is not a setting: it still applies). It runs in the temp folder, whose project
+ * folder Claude Code still makes, empty.
+ */
+export function claudeProbe(command = "claude"): UsageProbe {
   return async (): Promise<Record<string, UsageReading>> => {
-    let stored: unknown;
-    try { stored = JSON.parse(readFileSync(file, "utf8")); } catch { return {}; }
-    const reading = parseClaudeRateLimits(stored);
+    const output = JSON.parse(await run([command, "-p", "/usage", "--no-session-persistence", "--setting-sources", "project", "--output-format", "json"], { timeoutMs: 30_000 })) as { is_error?: boolean; result?: unknown };
+    if (output.is_error || typeof output.result !== "string") throw new Error("claude: /usage gave no answer");
+    const reading = parseClaudeUsage(output.result);
     return reading ? { claude: reading } : {};
   };
 }

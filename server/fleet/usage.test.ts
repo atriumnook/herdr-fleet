@@ -2,8 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { tap } from "../../bin/claude-statusline-tap.ts";
-import { claudeFileProbe, parseAgyUsage, parseClaudeRateLimits, parseCodexRateLimits, rateLimitUntil, usageKey, UsageTracker, type UsageReading } from "./usage.ts";
+import { claudeProbe, parseAgyUsage, parseClaudeUsage, parseCodexRateLimits, rateLimitUntil, usageKey, UsageTracker, type UsageReading } from "./usage.ts";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -61,22 +60,45 @@ describe("readings", () => {
     expect(parseAgyUsage({ status: "ERROR" }, NOW)).toEqual({});
   });
 
-  it("keeps Claude Code's shared windows from the tap's file, not the per-model ones", () => {
-    const stored = { writtenAt: NOW, rate_limits: { five_hour: { used_percentage: 33.5, resets_at: 1791103555 }, seven_day: { used_percentage: 10 }, seven_day_sonnet: { used_percentage: 99 } } };
-    expect(parseClaudeRateLimits(stored)).toEqual({ readAt: NOW, windows: [{ name: "5h", usedPercent: 33.5, resetsAt: 1791103555000 }, { name: "weekly", usedPercent: 10 }] });
-    expect(parseClaudeRateLimits({ rate_limits: {} })).toBeUndefined();
+  // claude -p /usage --output-format json, `result` as Claude Code 2.1.289 printed it (no model turn, 0 tokens)
+  const CLAUDE_USAGE = [
+    "You are currently using your subscription to power your Claude Code usage",
+    "",
+    "Current session: 7% used · resets Oct 4, 9:50pm (Asia/Tokyo)",
+    "Current week (all models): 27% used · resets Oct 8, 12am (Asia/Tokyo)",
+    "Current week (Fable): 95% used · resets Oct 8, 12am (Asia/Tokyo)",
+    "",
+    "What's contributing to your limits usage?",
+    "Last 24h · 1285 requests · 14 sessions",
+    "  90% of your usage was at >150k context",
+  ].join("\n");
+
+  it("reads Claude Code's /usage: the shared windows, not a per-model one, with their reset in the named zone", () => {
+    expect(parseClaudeUsage(CLAUDE_USAGE, NOW)).toEqual({ readAt: NOW, windows: [
+      { name: "5h", usedPercent: 7, resetsAt: Date.parse("2026-10-04T12:50:00Z") },
+      { name: "weekly", usedPercent: 27, resetsAt: Date.parse("2026-10-07T15:00:00Z") },
+    ] });
   });
 
-  it("the tap writes what claudeFileProbe reads, privately, and skips input without rate limits", async () => {
-    const file = join(tempDir(), "state", "claude-rate-limits.json");
-    tap(JSON.stringify({ model: { id: "x" } }), file, NOW);
-    expect(await claudeFileProbe(file)()).toEqual({});
-    tap(JSON.stringify({ rate_limits: { five_hour: { used_percentage: 50, resets_at: 1791103555 } } }), file, NOW);
-    expect(statSync(file).mode & 0o777).toBe(0o600);
-    expect(await claudeFileProbe(file)()).toEqual({ claude: { readAt: NOW, windows: [{ name: "5h", usedPercent: 50, resetsAt: 1791103555000 }] } });
-    // not JSON: the file keeps the last reading
-    tap("not json", file, NOW + 1);
-    expect(JSON.parse(readFileSync(file, "utf8")).writtenAt).toBe(NOW);
+  it("takes a reset with no year as the next one, keeps a window whose reset it cannot read, and reads nothing from an API-key session", () => {
+    const newYear = parseClaudeUsage("Current session: 50% used · resets Jan 1, 9am (UTC)", Date.parse("2026-12-31T20:00:00Z"));
+    expect(newYear!.windows).toEqual([{ name: "5h", usedPercent: 50, resetsAt: Date.parse("2027-01-01T09:00:00Z") }]);
+    expect(parseClaudeUsage("Current session: 3% used · resets soon (Mars/Base)", NOW)!.windows).toEqual([{ name: "5h", usedPercent: 3 }]);
+    expect(parseClaudeUsage("You are currently using an API key", NOW)).toBeUndefined();
+  });
+
+  it("asks claude for /usage without keeping a session or loading the person's settings, and fails on an error answer", async () => {
+    const dir = tempDir();
+    const fake = (name: string, answer: unknown) => {
+      const file = join(dir, name);
+      writeFileSync(file, `#!/bin/sh\necho "$@" > "${file}.args"\ncat <<'JSON'\n${JSON.stringify(answer)}\nJSON\n`, { mode: 0o755 });
+      return file;
+    };
+    const ok = fake("claude-ok", { is_error: false, num_turns: 0, result: CLAUDE_USAGE });
+    const readings = await claudeProbe(ok)();
+    expect(readings["claude"]!.windows.map((w) => [w.name, w.usedPercent])).toEqual([["5h", 7], ["weekly", 27]]);
+    expect(readFileSync(`${ok}.args`, "utf8").trim()).toBe("-p /usage --no-session-persistence --setting-sources project --output-format json");
+    await expect(claudeProbe(fake("claude-error", { is_error: true, result: "Not logged in" }))()).rejects.toThrow("/usage gave no answer");
   });
 });
 
