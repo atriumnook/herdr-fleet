@@ -49,6 +49,36 @@ bun run start
 | `HERDR_FLEET_TAILSCALE_OWNER` | Tailscale 経由で入れる所有者のログイン名 |
 | `HERDR_FLEET_PUSH_SUBJECT` | push 通知の VAPID subject |
 
+## 使用量と振り分け
+
+fleet はエージェントを起動する前に、その CLI のサブスクの使用量を確かめます。どちらかの枠(5 時間・週・月)の使用率が `maxUsedPercent`(既定 90)以上なら、その候補を飛ばします。rate limit のエラーで止まった CLI もクールダウンに入れて飛ばします。クールダウンは、エラー文に解除時刻があればその時刻まで、なければ `rateLimitCooldownMinutes`(既定 60 分)の間続きます。
+
+使用量は、各 CLI 自身に問い合わせて取得します。認証情報のファイルは読みません。
+
+| CLI | 取得方法 |
+|---|---|
+| Codex | `codex app-server` の `account/rateLimits/read` |
+| Claude Code | statusLine に渡される `rate_limits`。`bin/claude-statusline-tap.ts` がファイルに書き出す |
+| Antigravity | `agy -p /usage`(モデルを呼ばないので、トークンを消費しない)。Gemini とそれ以外のモデル群で別々に数える |
+| Cursor | ターンが終わったペインで `/usage` を開いて画面から読む。前回の値から 10 分以上たったときだけ読む |
+| pi | 取得しない。エラー検知によるクールダウンだけで扱う |
+
+役割の `fallbackModels` には、同じ CLI のモデルのほかに、`<agent>:<model>` の形で別の CLI を並べられます(例: `["codex:gpt-6", "claude:claude-sonnet-5-5"]`)。fleet は、最初に使える候補で起動します。どの候補も使えなければ、理由を並べて起動を断ります。`fleet spawn --model codex:gpt-6` のように、呼び出し側から別の CLI を指定することもできます。
+
+```bash
+fleet usage             # 使用量とクールダウンの一覧(古い値は取り直す。--refresh ですべて取り直す)
+fleet usage clear agy   # クールダウンを解除する(アカウント名、CLI 名、または省略ですべて)
+```
+
+fleet が起動する Claude Code には、tap を statusLine に自動で設定します。自分で使う Claude Code の値も反映させたい場合は、`~/.claude/settings.json` の statusLine を tap 経由にします。tap は、受け取った入力を後ろに書いたコマンドにそのまま渡すので、いまの表示は変わりません。
+
+```json
+"statusLine": {
+  "type": "command",
+  "command": "bun ~/git/herdr-fleet/bin/claude-statusline-tap.ts ~/.config/herdr-fleet/claude-rate-limits.json <いまの statusLine のコマンド>"
+}
+```
+
 ## 開発
 
 ```bash
@@ -63,7 +93,7 @@ bun run build
 
 ## 今後
 
-この Web UI をもとに、エージェント間のメッセージ送受信と役割分担(例: 実装は pi、レビューは Claude / Codex)を担うオーケストレータと、各サブスクの残量に応じた振り分けを追加する予定です。
+Web UI に、fleet のエージェントの一覧と使用量の表示を追加する予定です。
 
 ## ライセンス
 
