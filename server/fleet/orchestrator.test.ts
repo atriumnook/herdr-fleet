@@ -494,6 +494,17 @@ describe("agent kinds", () => {
     expect(asked.runtime.prompts).toEqual([]);
   });
 
+  it("keeps a run blocked on a question herdr reports as idle when it is read back, until the question goes", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "cursor" })] });
+    runtime.output = "⚠ Workspace Trust Required";
+    runtime.getStatus = "idle";
+    const run = await spawn(fleet);
+    expect(run.state).toBe("blocked");
+    expect((await fleet.wait(run.id, 500, "g1")).state).toBe("blocked");
+    runtime.output = "→ Plan, search, build anything";
+    expect((await fleet.wait(run.id, 500, "g1")).state).toBe("idle");
+  });
+
   it("does not send the task to a CLI that never drew its input", async () => {
     const { fleet, runtime } = setup({ agents: [role("worker", { agent: "cursor" })] });
     runtime.output = "❯ cursor-agent";

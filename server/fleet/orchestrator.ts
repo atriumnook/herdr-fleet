@@ -469,21 +469,16 @@ export class Orchestrator {
       if (this.stopped) return;
       try {
         if (!isLive(run)) return;
-        let current = await this.deps.runtime.get(run.herdrName);
+        const reported = await this.deps.runtime.get(run.herdrName);
         // the pane ended while herdr was asked: what it said is older than that
         if (!isLive(run)) return;
         const pending = this.pending.get(run.id);
-        if (pending && current === "working") pending.sawWorking = true;
+        if (pending && reported === "working") pending.sawWorking = true;
         // the paste is still going and herdr still answers with the idle from before: not a
         // settlement. The check scheduled at submission looks again after the grace period.
-        if (pending?.armed && !pending.sawWorking && isCompleted(current) && pending.submittedAt !== undefined && Date.now() - pending.submittedAt < this.grace) return;
-        // a question herdr takes for idle (an approval) leaves the turn open: the run is blocked
-        const adapter = adapterFor(run.agent);
-        if (pending?.armed && isCompleted(current) && adapter.question) {
-          const screen = await this.deps.runtime.read(run.herdrName, this.deps.config(run.cwd).recentReadLines).catch(() => "");
-          if (!isLive(run)) return;
-          if (adapter.question(screen)) current = "blocked";
-        }
+        if (pending?.armed && !pending.sawWorking && isCompleted(reported) && pending.submittedAt !== undefined && Date.now() - pending.submittedAt < this.grace) return;
+        const current = await this.observed(run, reported);
+        if (!isLive(run)) return;
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
@@ -567,9 +562,20 @@ export class Orchestrator {
   }
 
   /** herdr's state for the run now; undefined when herdr cannot say (never a reason to close a pane). */
+  /**
+   * herdr's state, corrected for a question herdr takes for idle (cursor's and agy's trust and
+   * approval screens): while one shows, the run is blocked, at startup and mid-turn alike.
+   */
+  private async observed(run: AgentRun, reported: AgentState): Promise<AgentState> {
+    const adapter = adapterFor(run.agent);
+    if (!isCompleted(reported) || !adapter.question) return reported;
+    const screen = await this.deps.runtime.read(run.herdrName, this.deps.config(run.cwd).recentReadLines).catch(() => "");
+    return adapter.question(screen) ? "blocked" : reported;
+  }
+
   private async liveState(run: AgentRun): Promise<AgentState | undefined> {
     try {
-      const current = await this.deps.runtime.get(run.herdrName);
+      const current = await this.observed(run, await this.deps.runtime.get(run.herdrName));
       if (!isLive(run)) return undefined;
       if (current !== run.state) this.updateState(run, current);
       return current;
