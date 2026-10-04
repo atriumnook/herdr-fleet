@@ -58,7 +58,7 @@ fleet はエージェントを起動する前に、その CLI のサブスクの
 | CLI | 取得方法 |
 |---|---|
 | Codex | `codex app-server` の `account/rateLimits/read` |
-| Claude Code | statusLine に渡される `rate_limits`。`bin/claude-statusline-tap.ts` がファイルに書き出す |
+| Claude Code | `claude -p /usage`(モデルを呼ばず、セッションも保存しない)。全モデル共通の 5 時間枠と週枠を使う |
 | Antigravity | `agy -p /usage`(モデルを呼ばないので、トークンを消費しない)。Gemini とそれ以外のモデル群で別々に数える |
 | Cursor | ターンが終わったペインで `/usage` を開いて画面から読む。前回の値から 10 分以上たったときだけ読む |
 | pi | 取得しない。エラー検知によるクールダウンだけで扱う |
@@ -68,15 +68,6 @@ fleet はエージェントを起動する前に、その CLI のサブスクの
 ```bash
 fleet usage             # 使用量とクールダウンの一覧(古い値は取り直す。--refresh ですべて取り直す)
 fleet usage clear agy   # クールダウンを解除する(アカウント名、CLI 名、または省略ですべて)
-```
-
-fleet が起動する Claude Code には、tap を statusLine に自動で設定します。自分で使う Claude Code の値も反映させたい場合は、`~/.claude/settings.json` の statusLine を tap 経由にします。tap は、受け取った入力を後ろに書いたコマンドにそのまま渡すので、いまの表示は変わりません。
-
-```json
-"statusLine": {
-  "type": "command",
-  "command": "bun ~/git/herdr-fleet/bin/claude-statusline-tap.ts ~/.config/herdr-fleet/claude-rate-limits.json <いまの statusLine のコマンド>"
-}
 ```
 
 ## 開発
