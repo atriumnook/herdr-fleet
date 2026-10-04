@@ -6,17 +6,25 @@ value. When a component needs a value that is not here, add it to both first.
 
 ## 1. Atmosphere & Identity
 
-A warm terminal: an amber-phosphor console on lamp-lit graphite (dark) or ledger paper (light),
-with chat-app clarity. Tonal surfaces and hairlines keep the chrome out of the way. There is ONE
-chrome color, amber: selection, focus, the terminal cursor and the user's own action (Send, primary
-buttons). Agent states carry the remaining saturated colors and none of them is amber. The user's
-chat turns are neutral raised cards, so a long thread never turns into a wall of color. Dark is the
-default, light follows the same hierarchy, and comfortable or compact density changes scale without
-changing information architecture. A dark report look and a neutral charcoal one are opt-in palettes
-(Settings → Appearance → Colors); amber stays the default and the look before settings load.
+A fleet console seen through glass: a navy-black stage lit by cyan and violet aurora (dark) or pale
+ice (light), with chat-app clarity. This is the **aurora** palette, the default since M4 and the
+look before settings load (`index.html` starts with `data-palette="aurora"`). Its one chrome color
+is ice cyan: selection, focus, the terminal cursor and the user's own action (Send, primary
+buttons). Agent states carry the remaining saturated colors, apart from the accent in lightness as
+well as hue: working periwinkle, waiting magenta-red, done mint. The user's chat turns are neutral
+raised cards, so a long thread never turns into a wall of color. Dark is the default, light follows
+the same hierarchy, and comfortable or compact density changes scale without changing information
+architecture. Amber (the warm terminal this UI started as), a dark report look and a neutral
+charcoal one stay opt-in palettes (Settings → Appearance → Colors).
 
-The signature is the amber status rail: a 3px bar on the selected pane row (whose mark box also
-takes an amber edge), the same amber on focus, the chosen lens glyph and the terminal cursor, tying
+The structure is **Liquid / Spatial**: chrome floats over the app's backdrop as translucent glass
+layers, depth is told by shadow (what needs the person now is nearest), and switching between whole
+screens sits in a floating ornament. Text a person reads at length — the terminal and the chat
+transcript — stays on opaque surfaces. The glass structure lands screen by screen as each one moves
+to the Passive View architecture; the Fleet screen is the first (section 7).
+
+The signature is the accent status rail: a 3px bar on the selected pane row (whose mark box also
+takes an accent edge), the same accent on focus, the chosen lens glyph and the terminal cursor, tying
 “what I am looking at” to “where I am typing.”
 
 ## 2. Color
@@ -60,6 +68,32 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Popover shadow | `--shadow-pop` | `0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border)` | `0 16px 48px rgba(40, 32, 22, 0.16), 0 0 0 1px var(--border)` |
 | Card shadow | `--shadow-card` | `0 4px 16px rgba(0, 0, 0, 0.35)` | `0 4px 16px rgba(40, 32, 22, 0.07)` |
 
+### Aurora palette (default)
+
+`[data-theme][data-palette="aurora"]` blocks of `src/styles.css` hold the complete values; the
+table lists the ones a component reaches for most.
+
+| Role | Token | Dark | Light |
+|------|-------|------|-------|
+| Surface/base | `--bg` | `#05070d` | `#eaf0f8` |
+| Surface/panel | `--bg-panel` | `#0b1020` | `#f7faff` |
+| Surface/elevated | `--bg-elevated` | `#121a2e` | `#edf2fa` |
+| Text/primary | `--text` | `#d6e2f5` | `#1c2638` |
+| Text/dim | `--text-dim` | `#93a1bb` | `#4a576e` |
+| Text/strong | `--text-strong` | `#f2f7ff` | `#0a1222` |
+| Accent | `--accent` | `#7df9ff` | `#00609a` |
+| Primary | `--primary` | `#7df9ff` | `#006aa6` |
+| Primary/text | `--primary-text` | `#021018` | `#ffffff` |
+| Status/working | `--status-working` | `#8fa8ff` | `#3049c0` |
+| Status/blocked | `--status-blocked` | `#ff6b8a` | `#a6183e` |
+| Status/done | `--status-done` | `#5cf2b0` | `#0a6443` |
+| Meter/getting low | `--meter-mid` | `#ffd166` | `#8a5a00` |
+| Terminal | `--term-bg` / `--term-cursor` | `#0b1020` / `#7df9ff` | `#f7faff` / `#00609a` |
+
+A record saved while amber was the default holds `palette: "amber"` whether or not it was chosen:
+`sanitizeSettings` moves such a record to aurora once, and every save since carries
+`paletteRevision: 2`, so amber chosen afterwards stays.
+
 ### Dark report and charcoal palettes
 
 `settings.palette` (`amber` default, `report`, `charcoal`) is written as `data-palette`. The
@@ -93,9 +127,9 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 | Selection | `--term-selection` | `#4a3d26` | `#f0d9ae` | `selectionBackground` |
 
 ### Rules
-- Amber is the one chrome color. Accent (selected, focused, informational) and primary (the user's
-  action: Send, primary buttons) are both amber; in light, accent is the darker text-safe ochre and
-  primary the brighter fill carrying ink text. Agent states never use amber. The report palette
+- Each palette has one chrome color: ice cyan in aurora, amber in amber. Accent (selected, focused,
+  informational) and primary (the user's action: Send, primary buttons) are both that color; in
+  light, accent is the darker text-safe shade and primary the fill. Agent states never use it. The report palette
   keeps the same split, accent (blue) marks and primary (white, or ink on paper) acts, and there
   agent states never use blue.
 - Agent state is always written as a label as well as colored. Unknown uses dim text and a dashed
@@ -524,6 +558,27 @@ One set for both themes: the card is island black wherever it shows.
 | Drawer shadow | `--shadow-drawer` | Mobile drawer |
 | Overlay shadow | `--shadow-pop` | Menus, palette and modal cards |
 | Card shadow | `--shadow-card` | The composer's input box — the one resting card in chat mode |
+
+### Glass layers (Liquid / Spatial)
+
+Screens built on the Passive View architecture (the Fleet screen first) float their chrome over a
+backdrop instead of tiling opaque panels. Every palette has these tokens: aurora sets its own,
+the others derive them from their surfaces with `color-mix`.
+
+| Token | Use |
+|-------|-----|
+| `--backdrop-glow-a/b/c`, `--backdrop-grid` | The screen's backdrop: three soft glows over `--bg`, plus aurora's dot grid |
+| `--glass`, `--glass-strong` | A floating layer's fill: `--glass` for groups, `--glass-strong` for the item lifted inside one and for sheets |
+| `--glass-edge`, `--glass-hi` | Its 1px edge and the inset highlight along its top |
+| `--glass-sheen-a/b` | The faint iridescent sweep across a layer (aurora) |
+| `--glass-blur` | `backdrop-filter` of a layer |
+| `--glass-shadow` | Depth: the nearer a layer, the larger its shadow |
+
+- Depth carries meaning: what waits on the person is nearest (largest shadow, a state-colored edge),
+  finished work recedes (smaller shadow, lower opacity).
+- `prefers-reduced-transparency: reduce` and browsers without `backdrop-filter` get `--glass-strong`
+  without blur; `prefers-reduced-motion` drops the lift on hover.
+- The terminal and the chat transcript never sit on glass.
 
 ## 8. Accessibility Constraints & Accepted Debt
 
