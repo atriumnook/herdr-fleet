@@ -28,7 +28,7 @@ const USAGE = `usage: fleet <command> [options]
 
 interface Run {
   id: string; name: string; role: string; agent: string; group: string; paneId: string; state: string;
-  model?: string; lastOutput?: string; lastError?: string; replacedBy?: string;
+  model?: string; lastOutput?: string; result?: string; lastError?: string; replacedBy?: string;
 }
 
 const env = process.env;
@@ -72,6 +72,12 @@ function statusOf(run: Run): number {
   return 0;
 }
 
+/** The handoff the agent wrote to its result file; without one, its screen. */
+function resultText(run: Run): string {
+  if (run.result) return `\n${run.result.trimEnd()}`;
+  return run.lastOutput ? `\n${run.lastOutput.trimEnd()}` : "";
+}
+
 /** Waits for `target`; a run replaced after a failed first turn hands the wait to its replacement. */
 async function waitFor(target: string, timeout: number | undefined, json: boolean): Promise<number> {
   let current = target;
@@ -90,7 +96,7 @@ async function waitFor(target: string, timeout: number | undefined, json: boolea
       current = run.replacedBy;
       continue;
     }
-    print(json, run, () => [describe(run), run.lastError ? `error: ${run.lastError}` : "", run.lastOutput ? `\n${run.lastOutput.trimEnd()}` : ""].filter(Boolean).join("\n"));
+    print(json, run, () => [describe(run), run.lastError ? `error: ${run.lastError}` : "", resultText(run)].filter(Boolean).join("\n"));
     return statusOf(run);
   }
 }

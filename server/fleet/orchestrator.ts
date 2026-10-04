@@ -1,11 +1,11 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
-import { adapterFor } from "./adapters.ts";
+import { adapterFor, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
-import { abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
+import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
 import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SpawnRequest, type ThinkingLevel } from "./types.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -20,6 +20,10 @@ interface PendingTurn {
   sawWorking: boolean;
 }
 
+/** the most of a result file a run keeps: a handoff, not a transcript */
+export const RESULT_MAX_BYTES = 64 * 1024;
+const RESULT_FILE = "handoff.md";
+
 /** A spawn whose configured fallbacks are still untried: consulted if its first turn fails. */
 interface SpawnPlan { request: SpawnRequest & { group: string }; fallbacks: string[] }
 
@@ -32,6 +36,9 @@ export const isLive = (run: AgentRun): boolean => run.state !== "stopped" && run
  * state seen in this window, before the turn was ever seen working, is not a completion.
  */
 export const PRE_VISUAL_GRACE_MS = 2_500;
+/** how long a CLI herdr already calls ready may take to draw its input (adapter.inputReady) */
+export const READY_SCREEN_MS = 15_000;
+const READY_SCREEN_POLL_MS = 250;
 /** a run still `starting` may be inside a 30 s agent start: not-found is not its end yet */
 const START_GRACE_MS = 30_000;
 
@@ -53,10 +60,19 @@ export interface OrchestratorDeps {
   fleetCommand: string;
   /** set in each agent's pane so its own fleet commands reach this server; read at each spawn */
   agentEnv: () => Record<string, string>;
+  /** each run's result folder goes here, removed with the run's record */
+  resultsDir: string;
+  /**
+   * instructions still to lead the first prompt of a CLI that takes none at launch, a file per run
+   * so a restart keeps them; apart from the result folders, which agents may write
+   */
+  instructionsDir: string;
   /** where the per-spawn instruction files go; os.tmpdir() unless a test says otherwise */
   promptDir?: string;
   /** PRE_VISUAL_GRACE_MS; tests shorten it */
   preVisualGraceMs?: number;
+  /** READY_SCREEN_MS; tests shorten it */
+  readyScreenMs?: number;
   onChanged?: (run: AgentRun) => void;
 }
 
@@ -84,9 +100,39 @@ export class Orchestrator {
   private stopped = false;
 
   private readonly grace: number;
+  private readonly readyScreenMs: number;
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.grace = deps.preVisualGraceMs ?? PRE_VISUAL_GRACE_MS;
+    this.readyScreenMs = deps.readyScreenMs ?? READY_SCREEN_MS;
+    this.pruneResults();
+    // a restart read the runs back without their results: the result files hold them
+    for (const run of deps.registry.all()) run.result ??= readResult(this.resultFile(run));
+  }
+
+  /** A result folder outlives its pane but not its run: once the registry dropped the run, it goes. So do undelivered instructions. */
+  private pruneResults(): void {
+    for (const dir of [this.deps.resultsDir, this.deps.instructionsDir]) {
+      let names: string[];
+      try { names = readdirSync(dir); } catch { continue; }
+      for (const name of names) if (!this.deps.registry.get(name.replace(/\.md$/, ""))) rmSync(join(dir, name), { recursive: true, force: true });
+    }
+  }
+
+  private undeliveredFile(run: AgentRun): string {
+    return join(this.deps.instructionsDir, `${run.id}.md`);
+  }
+
+  private undelivered(run: AgentRun): string | undefined {
+    try { return readFileSync(this.undeliveredFile(run), "utf8"); } catch { return undefined; }
+  }
+
+  private dropUndelivered(run: AgentRun): void {
+    rmSync(this.undeliveredFile(run), { force: true });
+  }
+
+  private resultFile(run: AgentRun): string {
+    return join(this.deps.resultsDir, run.id, RESULT_FILE);
   }
 
   list(group?: string): AgentRun[] {
@@ -198,26 +244,49 @@ export class Orchestrator {
       releaseGate();
     }
 
+    // the agent writes each turn's handoff here: a folder of its own, outside any workspace
+    const resultDir = join(this.deps.resultsDir, run.id);
+    mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
+    mkdirSync(resultDir, { mode: 0o700 });
+    const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE));
+    if (adapter.instructionsInPrompt) {
+      mkdirSync(this.deps.instructionsDir, { recursive: true, mode: 0o700 });
+      writeFileSync(this.undeliveredFile(run), instructions, { mode: 0o600 });
+    }
     // herdr refuses multiline argv: the instructions go to the agent as a file it reads at startup
     const promptDir = mkdtempSync(join(this.deps.promptDir ?? tmpdir(), "herdr-fleet-"));
     const promptFile = join(promptDir, "instructions.md");
-    writeFileSync(promptFile, this.instructions(definition, displayName, request.group, canSpawn), { mode: 0o600 });
+    writeFileSync(promptFile, instructions, { mode: 0o600 });
+    let notReady = false;
     try {
       try {
         run.state = await this.deps.runtime.start({
           kind, name: herdrName, paneId: run.paneId, signal, startupError: (screen) => adapter.startupError(screen),
-          args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile }),
+          args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
         });
         if (run.state === "blocked") run.lastError = "Agent stopped at a question before its first prompt; the task has not been sent.";
+        else if (adapter.question || adapter.readyError) {
+          // herdr calls some CLIs ready while they still ask something, or after they ignored the model
+          const screen = await this.readyScreen(adapter, herdrName, config, signal);
+          const error = adapter.readyError?.(screen);
+          if (error) throw new FleetError("agent_start_failed", error);
+          const question = adapter.question?.(screen);
+          if (question) {
+            run.state = "blocked";
+            run.lastError = `${question} The task has not been sent.`;
+          }
+        }
       } catch (error) {
         if (isAbortError(error)) throw error;
         if (error instanceof FleetError && error.code === "agent_not_ready") {
+          notReady = true;
           run.state = await this.deps.runtime.get(herdrName).catch(() => "unknown" as const);
           run.lastError = "Agent started but is not ready for prompts; the task has not been sent.";
         } else {
           run.state = "failed";
           run.lastError = error instanceof Error ? error.message : String(error);
           run.updatedAt = Date.now();
+          this.dropUndelivered(run);
           this.save(run);
           // the agent never started: an empty pane left behind would be an orphan
           await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
@@ -232,7 +301,7 @@ export class Orchestrator {
       }).catch(() => undefined);
       if (signal?.aborted) throw abortError(signal);
       // not safely ready: the task stays unsent; the caller reads or focuses the pane, then sends it
-      if (run.state === "blocked" || run.state === "unknown") return run;
+      if (notReady || run.state === "blocked" || run.state === "unknown") return run;
       if (fallbacks.length) this.spawnPlans.set(run.id, { request, fallbacks });
       // returns once the task is handed over: the budget counts working runs, and a run still
       // `starting` would let the next spawn past the limit
@@ -246,7 +315,22 @@ export class Orchestrator {
     }
   }
 
-  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean): string {
+  /**
+   * The screen right after start. A CLI that draws its input or a question only after herdr called
+   * it ready is waited for: a task typed before would land in a question. Neither in time is a start
+   * not ready for prompts.
+   */
+  private async readyScreen(adapter: AgentAdapter, herdrName: string, config: FleetConfig, signal?: AbortSignal): Promise<string> {
+    const deadline = Date.now() + this.readyScreenMs;
+    while (true) {
+      const screen = await this.deps.runtime.read(herdrName, config.recentReadLines).catch(() => "");
+      if (!adapter.inputReady || adapter.inputReady(screen) || adapter.question?.(screen) || adapter.readyError?.(screen)) return screen;
+      if (Date.now() >= deadline) throw new FleetError("agent_not_ready", `${herdrName} showed no input within ${this.readyScreenMs / 1000}s`);
+      await abortableDelay(READY_SCREEN_POLL_MS, signal);
+    }
+  }
+
+  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string): string {
     const fleet = this.deps.fleetCommand;
     return [
       definition.systemPrompt,
@@ -262,7 +346,8 @@ export class Orchestrator {
         : "Do not start other agents.",
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
       "Treat herdr's 'unknown' as uncertainty, not completion.",
-      "At the end of each delegated turn, finish with a compact HANDOFF section: outcome, changed files, verification, unresolved questions.",
+      `Your result file is ${resultFile}.`,
+      "At the end of each delegated turn, write a compact HANDOFF section (outcome, changed files, verification, unresolved questions) to your result file, replacing what it holds, and end your reply with the same section.",
     ].join("\n");
   }
 
@@ -337,8 +422,12 @@ export class Orchestrator {
     this.generations.set(run.id, generation);
     const pending: PendingTurn = { armed: false, blockedReported: false, generation, sawWorking: false };
     this.pending.set(run.id, pending);
+    // a result file found when the turn settles is this turn's
+    rmSync(this.resultFile(run), { force: true });
+    const instructions = this.undelivered(run);
     try {
-      const submitted = await this.deps.runtime.prompt(run.herdrName, text, signal);
+      const submitted = await this.deps.runtime.prompt(run.herdrName, instructions ? `${instructions}\n\n## Task\n\n${text}` : text, signal);
+      this.dropUndelivered(run);
       // herdr still shows the state from before the prompt: the turn IS running, so it counts as
       // working (the budget, the UI) until herdr reports a real settlement
       this.updateState(run, submitted === "idle" || submitted === "unknown" || submitted === "done" ? "working" : submitted);
@@ -402,14 +491,16 @@ export class Orchestrator {
       if (this.stopped) return;
       try {
         if (!isLive(run)) return;
-        const current = await this.deps.runtime.get(run.herdrName);
+        const reported = await this.deps.runtime.get(run.herdrName);
         // the pane ended while herdr was asked: what it said is older than that
         if (!isLive(run)) return;
         const pending = this.pending.get(run.id);
-        if (pending && current === "working") pending.sawWorking = true;
+        if (pending && reported === "working") pending.sawWorking = true;
         // the paste is still going and herdr still answers with the idle from before: not a
         // settlement. The check scheduled at submission looks again after the grace period.
-        if (pending?.armed && !pending.sawWorking && isCompleted(current) && pending.submittedAt !== undefined && Date.now() - pending.submittedAt < this.grace) return;
+        if (pending?.armed && !pending.sawWorking && isCompleted(reported) && pending.submittedAt !== undefined && Date.now() - pending.submittedAt < this.grace) return;
+        const current = await this.observed(run, reported);
+        if (!isLive(run)) return;
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
@@ -433,8 +524,10 @@ export class Orchestrator {
     this.dropPending(run.id);
     const config = this.deps.config(run.cwd);
     run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
-    // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries are spent
-    const turnError = adapterFor(run.agent).turnError(run.lastOutput);
+    run.result = readResult(this.resultFile(run));
+    // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
+    // are spent; a turn that wrote its handoff did its work, whatever its screen quotes
+    const turnError = run.result === undefined ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
     if (turnError && isCompleted(run.state)) {
       run.state = "failed";
       run.lastError = turnError;
@@ -490,10 +583,21 @@ export class Orchestrator {
     return true;
   }
 
+  /**
+   * herdr's state, corrected for a question herdr takes for idle (cursor's and agy's trust and
+   * approval screens): while one shows, the run is blocked, at startup and mid-turn alike.
+   */
+  private async observed(run: AgentRun, reported: AgentState): Promise<AgentState> {
+    const adapter = adapterFor(run.agent);
+    if (!isCompleted(reported) || !adapter.question) return reported;
+    const screen = await this.deps.runtime.read(run.herdrName, this.deps.config(run.cwd).recentReadLines).catch(() => "");
+    return adapter.question(screen) ? "blocked" : reported;
+  }
+
   /** herdr's state for the run now; undefined when herdr cannot say (never a reason to close a pane). */
   private async liveState(run: AgentRun): Promise<AgentState | undefined> {
     try {
-      const current = await this.deps.runtime.get(run.herdrName);
+      const current = await this.observed(run, await this.deps.runtime.get(run.herdrName));
       if (!isLive(run)) return undefined;
       if (current !== run.state) this.updateState(run, current);
       return current;
@@ -515,6 +619,7 @@ export class Orchestrator {
 
   private async abandonSpawn(run: AgentRun): Promise<void> {
     this.dropPending(run.id);
+    this.dropUndelivered(run);
     await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
     run.state = "stopped";
     run.lastError = "Spawn cancelled.";
@@ -549,6 +654,32 @@ export class Orchestrator {
   private save(run: AgentRun): void {
     this.deps.registry.upsert(run);
     this.deps.onChanged?.(run);
+  }
+}
+
+/**
+ * The handoff a run's agent wrote, up to RESULT_MAX_BYTES. Only a regular file is read, never one
+ * reached through a symlink: an agent must not turn the result into a way to read other files.
+ */
+export function readResult(file: string): string | undefined {
+  let fd: number;
+  try { fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { return undefined; }
+  try {
+    if (!fstatSync(fd).isFile()) return undefined;
+    const buffer = Buffer.alloc(RESULT_MAX_BYTES);
+    let length = 0;
+    while (length < buffer.length) {
+      const read = readSync(fd, buffer, length, buffer.length - length, null);
+      if (read === 0) break;
+      length += read;
+    }
+    const text = buffer.subarray(0, length).toString("utf8").trim();
+    if (!text) return undefined;
+    return length === RESULT_MAX_BYTES ? `${text}\n[truncated at ${RESULT_MAX_BYTES} bytes]` : text;
+  } catch {
+    return undefined;
+  } finally {
+    closeSync(fd);
   }
 }
 

@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { DEFAULT_CONFIG, mergeConfig } from "./config.ts";
-import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator } from "./orchestrator.ts";
+import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES } from "./orchestrator.ts";
 import { RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, type AgentMetadata, type AgentRuntime, type CreateLocationOptions, type RuntimeLocation, type StartOptions } from "./runtime.ts";
 import type { AgentDefinition, AgentState, FleetConfig } from "./types.ts";
@@ -35,7 +35,8 @@ class FakeRuntime implements AgentRuntime {
   }
   async start(options: StartOptions): Promise<AgentState> {
     this.starts.push(options);
-    const file = options.args[options.args.indexOf("--append-system-prompt") + 1];
+    const flag = options.args.findIndex((arg) => arg.startsWith("--append-system-prompt"));
+    const file = flag >= 0 ? options.args[flag + 1] : undefined;
     if (file && existsSync(file)) this.instructions.push(readFileSync(file, "utf8"));
     if (this.startImpl) return this.startImpl(options);
     if (options.signal?.aborted) throw abortError(options.signal);
@@ -70,7 +71,7 @@ function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown
   const config = mergeConfig(DEFAULT_CONFIG, options.config as Record<string, unknown> ?? {});
   const fleet = new Orchestrator({
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
-    fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, preVisualGraceMs: GRACE,
+    fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
   });
   return { fleet, runtime, registry, root };
 }
@@ -124,6 +125,16 @@ describe("spawn", () => {
     runtime.startImpl = async () => "blocked";
     const run = await spawn(fleet);
     expect(run.state).toBe("blocked");
+    expect(run.lastError).toContain("not been sent");
+    expect(runtime.prompts).toEqual([]);
+  });
+
+  it("leaves the task unsent when the agent never became ready, whatever state herdr reads afterwards", async () => {
+    const { fleet, runtime } = setup();
+    runtime.startImpl = async () => { throw new FleetError("agent_not_ready", "not ready within 30s"); };
+    runtime.getStatus = "idle";
+    const run = await spawn(fleet);
+    expect(run).toMatchObject({ state: "idle" });
     expect(run.lastError).toContain("not been sent");
     expect(runtime.prompts).toEqual([]);
   });
@@ -394,5 +405,182 @@ describe("registry", () => {
     expect(reloaded.get(run.id)).toMatchObject({ id: run.id, state: "working" });
     expect(reloaded.get(run.id)?.lastOutput).toBeUndefined();
     expect(new RunRegistry(join(root, "runs.json"), Date.now() + 8 * 24 * 3_600_000).all()).toEqual([]);
+  });
+});
+
+describe("result files", () => {
+  const settle = async (fleet: Orchestrator, runtime: FakeRuntime, run: { id: string; paneId: string }) => {
+    const waiting = fleet.wait(run.id, 2000, "g1");
+    runtime.getStatus = "idle";
+    await Bun.sleep(GRACE + 10);
+    fleet.onPaneStatus(run.paneId);
+    return waiting;
+  };
+  const resultFileOf = (root: string, id: string) => join(root, "results", id, "handoff.md");
+
+  it("tells the agent a result file in a private folder of its own, and returns what it wrote there", async () => {
+    const { fleet, runtime, root } = setup({ agents: [role("reviewer", { interactive: true })] });
+    const run = await spawn(fleet, { role: "reviewer" });
+    const file = resultFileOf(root, run.id);
+    expect(runtime.instructions[0]).toContain(file);
+    expect(statSync(join(root, "results", run.id)).mode & 0o777).toBe(0o700);
+    writeFileSync(file, "HANDOFF\noutcome: reviewed\n");
+    expect((await settle(fleet, runtime, run)).result).toBe("HANDOFF\noutcome: reviewed");
+  });
+
+  it("does not hand a follow-up turn the result of the turn before", async () => {
+    const { fleet, runtime, root } = setup({ agents: [role("reviewer", { interactive: true })] });
+    const run = await spawn(fleet, { role: "reviewer" });
+    writeFileSync(resultFileOf(root, run.id), "first");
+    expect((await settle(fleet, runtime, run)).result).toBe("first");
+    runtime.getStatus = "working";
+    await fleet.send(run.id, "again", "g1");
+    expect((await settle(fleet, runtime, run)).result).toBeUndefined();
+  });
+
+  it("does not fail a turn that wrote its result, whatever error its screen quotes", async () => {
+    const { fleet, runtime, root } = setup({ agents: [role("reviewer", { interactive: true })] });
+    const run = await spawn(fleet, { role: "reviewer" });
+    runtime.output = "Error: tests failed before the fix";
+    writeFileSync(resultFileOf(root, run.id), "outcome: fixed");
+    expect((await settle(fleet, runtime, run)).state).toBe("idle");
+  });
+
+  it("never reads a result through a symlink, and cuts a long one short", async () => {
+    const { root } = setup();
+    const secret = join(root, "secret");
+    writeFileSync(secret, "do not leak");
+    symlinkSync(secret, join(root, "link.md"));
+    expect(readResult(join(root, "link.md"))).toBeUndefined();
+    writeFileSync(join(root, "long.md"), "x".repeat(RESULT_MAX_BYTES + 10));
+    expect(readResult(join(root, "long.md"))).toEndWith(`[truncated at ${RESULT_MAX_BYTES} bytes]`);
+    expect(readResult(join(root, "missing.md"))).toBeUndefined();
+  });
+
+  it("keeps results out of the registry file, and reads them back from the result files after a restart", async () => {
+    const { fleet, runtime, root } = setup({ agents: [role("reviewer", { interactive: true })] });
+    const run = await spawn(fleet, { role: "reviewer" });
+    writeFileSync(resultFileOf(root, run.id), "outcome: kept");
+    expect((await settle(fleet, runtime, run)).result).toBe("outcome: kept");
+    expect(readFileSync(join(root, "runs.json"), "utf8")).not.toContain("outcome: kept");
+    const registry = new RunRegistry(join(root, "runs.json"));
+    new Orchestrator({
+      runtime, registry, config: () => DEFAULT_CONFIG, agents: () => [], fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root,
+    });
+    expect(registry.get(run.id)?.result).toBe("outcome: kept");
+  });
+
+  it("removes the result folders of runs the registry no longer has", async () => {
+    const { fleet, runtime, registry, root } = setup();
+    const run = await spawn(fleet);
+    mkdirSync(join(root, "results", "gone1"));
+    new Orchestrator({
+      runtime, registry, config: () => DEFAULT_CONFIG, agents: () => [], fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root,
+    });
+    expect(readdirSync(join(root, "results"))).toEqual([run.id]);
+  });
+});
+
+describe("agent kinds", () => {
+  it("leads the first prompt with the instructions for a CLI that takes none at launch, and only the first", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "cursor", interactive: true })] });
+    runtime.output = "→ Plan, search, build anything";
+    const run = await spawn(fleet);
+    expect(runtime.starts[0]!.kind).toBe("cursor");
+    expect(runtime.prompts[0]!.text).toStartWith("You are worker.");
+    expect(runtime.prompts[0]!.text).toEndWith("## Task\n\ndo it");
+    await fleet.send(run.id, "next", "g1");
+    expect(runtime.prompts[1]!.text).toBe("next");
+  });
+
+  it("waits for a CLI herdr calls ready too early to draw its input, and blocks on a question it draws instead", async () => {
+    const drawn = setup({ agents: [role("worker", { agent: "cursor" })] });
+    drawn.runtime.output = "❯ cursor-agent";
+    setTimeout(() => { drawn.runtime.output = "→ Plan, search, build anything"; }, 100);
+    expect((await spawn(drawn.fleet)).state).toBe("working");
+    expect(drawn.runtime.prompts).toHaveLength(1);
+
+    const asked = setup({ agents: [role("worker", { agent: "cursor" })] });
+    asked.runtime.output = "❯ cursor-agent";
+    setTimeout(() => { asked.runtime.output = "⚠ Workspace Trust Required\n▶ [a] Trust this workspace"; }, 100);
+    expect(await spawn(asked.fleet)).toMatchObject({ state: "blocked" });
+    expect(asked.runtime.prompts).toEqual([]);
+  });
+
+  it("keeps a run blocked on a question herdr reports as idle when it is read back, until the question goes", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "cursor" })] });
+    runtime.output = "⚠ Workspace Trust Required";
+    runtime.getStatus = "idle";
+    const run = await spawn(fleet);
+    expect(run.state).toBe("blocked");
+    expect((await fleet.wait(run.id, 500, "g1")).state).toBe("blocked");
+    runtime.output = "→ Plan, search, build anything";
+    expect((await fleet.wait(run.id, 500, "g1")).state).toBe("idle");
+  });
+
+  it("does not send the task to a CLI that never drew its input", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "cursor" })] });
+    runtime.output = "❯ cursor-agent";
+    runtime.getStatus = "idle";
+    const run = await spawn(fleet);
+    expect(run.lastError).toContain("not ready for prompts");
+    expect(runtime.prompts).toEqual([]);
+  });
+
+  it("keeps the instructions for the first prompt a person sends after a block at startup", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy" })] });
+    runtime.output = "Do you trust the contents of this project?\n> Yes, I trust this folder";
+    const run = await spawn(fleet);
+    expect(run).toMatchObject({ state: "blocked" });
+    expect(run.lastError).toContain("trust this folder");
+    expect(runtime.prompts).toEqual([]);
+    await fleet.send(run.id, "do it", "g1");
+    expect(runtime.prompts[0]!.text).toStartWith("You are worker.");
+  });
+
+  it("keeps undelivered instructions across a restart, and drops them once sent", async () => {
+    const { fleet, runtime, registry, root } = setup({ agents: [role("worker", { agent: "agy" })] });
+    runtime.output = "Do you trust the contents of this project?\n> Yes, I trust this folder";
+    const run = await spawn(fleet);
+    fleet.stop();
+    runtime.output = "──\n>\n──";
+    const restarted = new Orchestrator({
+      runtime, registry, config: () => DEFAULT_CONFIG, agents: () => [], fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root,
+    });
+    await restarted.send(run.id, "do it", "g1");
+    expect(runtime.prompts[0]!.text).toStartWith("You are worker.");
+    expect(readdirSync(join(root, "instructions"))).toEqual([]);
+  });
+
+  it("blocks a turn on a question herdr reports as idle, and settles it once the agent is done", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy", interactive: true })] });
+    runtime.output = "ready";
+    const run = await spawn(fleet);
+    const waiting = fleet.wait(run.id, 2000, "g1");
+    runtime.getStatus = "idle";
+    runtime.output = "Requesting permission for:\n  ls\nRun this command?";
+    await Bun.sleep(GRACE + 10);
+    fleet.onPaneStatus(run.paneId);
+    expect(await waiting).toMatchObject({ state: "blocked" });
+    runtime.getStatus = "working";
+    fleet.onPaneStatus(run.paneId);
+    await until(() => fleet.get(run.id).state === "working", "working again");
+    const settled = fleet.wait(run.id, 2000, "g1");
+    runtime.getStatus = "idle";
+    runtime.output = "● done";
+    fleet.onPaneStatus(run.paneId);
+    expect(await settled).toMatchObject({ state: "idle" });
+  });
+
+  it("treats a start that ignored the model as a failed start, so the next model is tried", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy", model: "no-such", fallbackModels: ["gemini-pro"] })] });
+    runtime.startImpl = async (options) => {
+      runtime.output = options.args.includes("no-such") ? "model no-such is not recognized as a known model or custom model" : "ready";
+      return "idle";
+    };
+    const run = await spawn(fleet);
+    expect(run).toMatchObject({ model: "gemini-pro", fallbackFrom: "no-such", state: "working" });
+    expect(runtime.closed).toEqual(["w1:p1"]);
   });
 });

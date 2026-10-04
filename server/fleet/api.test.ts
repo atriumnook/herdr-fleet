@@ -1,10 +1,16 @@
-import { describe, expect, it } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { handleFleetRequest } from "./api.ts";
 import { DEFAULT_CONFIG } from "./config.ts";
 import { Orchestrator } from "./orchestrator.ts";
 import { RunRegistry } from "./registry.ts";
 import type { AgentRuntime } from "./runtime.ts";
 import type { AgentState } from "./types.ts";
+
+const resultsRoot = mkdtempSync(join(tmpdir(), "fleet-api-"));
+afterAll(() => rmSync(resultsRoot, { recursive: true, force: true }));
 
 function fleet() {
   let panes = 0;
@@ -21,7 +27,7 @@ function fleet() {
     reportMetadata: async () => {},
   };
   const orchestrator = new Orchestrator({
-    runtime, registry: new RunRegistry(null), config: () => DEFAULT_CONFIG, fleetCommand: "fleet", agentEnv: () => ({}),
+    runtime, registry: new RunRegistry(null), config: () => DEFAULT_CONFIG, fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(resultsRoot, "results"), instructionsDir: join(resultsRoot, "instructions"), promptDir: resultsRoot,
     agents: () => [{ name: "worker", description: "implements", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" }],
   });
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = { "x-herdr-fleet": "1" }) => {
