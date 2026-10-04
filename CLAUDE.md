@@ -33,11 +33,12 @@ bun run build
 
 ## 守ること
 
-- **上流から削除した機能を戻さない。** 自己更新、SSH リモート PC と bridge の登録、OAuth トークンを読む使用量メータ、音声入力の4つ。いずれも、他人のコードを取得して実行するか、認証情報や音声を外部に送る作りだった。使用量は、公式の経路(`codex app-server` の `account/rateLimits/read`、Claude の statusLine の `rate_limits`)と、エラー検知によるクールダウンだけで取得する
+- **上流から削除した機能を戻さない。** 自己更新、SSH リモート PC と bridge の登録、OAuth トークンを読む使用量メータ、音声入力の4つ。いずれも、他人のコードを取得して実行するか、認証情報や音声を外部に送る作りだった。使用量は、各 CLI 自身が答える経路(`codex app-server` の `account/rateLimits/read`、Claude の statusLine の `rate_limits`、`agy -p /usage`、cursor の対話画面の `/usage`)と、エラー検知によるクールダウンだけで取得する(`server/fleet/usage.ts`)
 - **アクセス制御を緩めない。** token も紐付け済みの端末もない状態で通すのは、ループバックのアドレスからループバックの Host で来たリクエストだけ。DNS rebinding を防ぐため。ファイル表示はペインの作業フォルダーと `os.tmpdir()` の配下に限る。push 通知の宛先はブラウザベンダーの push サービスに限る。`git` は `core.fsmonitor=false` で実行する。いずれも回帰テストがある
 - **UI の文言は英語をキーにして、`src/lib/i18n.ja.ts` に日本語訳を置く。** `src/lib/i18n.test.ts` は、訳の欠けと使われていない訳の両方で失敗する。文言を消したら、対応する訳も消す
 - **Herdr の socket API の癖。** `agent.start` は `launch_pending` のまま即座に返る。準備完了は `agent.get` の `interactive_ready` で判定する(`server/fleet/runtime.ts`)。`herdrRpc` は既定で 10 秒でタイムアウトする。それより長く待つ呼び出しには `timeoutMs` を渡す
 - **エージェント CLI の癖。** cursor と agy は、信頼の確認画面やサインイン画面(agy はツール実行の承認画面も)を出していても herdr が `idle` と報告する。adapter の `question` が起動直後とターンの終わりに画面を見て、run を `blocked` にする。cursor は herdr が ready と報告した後に画面を描き、`--add-dir` で渡したフォルダについても信頼を求める。そのため `inputReady` で入力欄が出るまで待ち、結果ディレクトリは run ごとではなく共通の親を渡す。agy は未知のモデルを指定されると、警告だけ出して既定のモデルで起動する。これは `readyError` が起動失敗として扱う。承認は、各 CLI の auto mode(claude `--permission-mode auto`、codex `--approve-for-me`、cursor `--auto-review`、agy `--mode accept-edits`)に任せる。すべてを承認するモードは使わない。cursor の auto-review は作業フォルダの外への書き込みを承認しないので、cursor の `permissions.allow`(`~/.config/cursor/cli-config.json`)に結果ディレクトリへの `Write(<stateDir>/fleet-results/**)` を足しておく結果は、run ごとの結果ファイル(`<stateDir>/fleet-results/<runId>/handoff.md`)で受け取る
+- **使用量の取得口の癖。** `agy -p /usage --output-format json` はモデルを呼ばずに答える(トークン 0)。cursor の `/usage` は対話画面にしかなく、`-p` で送るとモデルに渡る可能性がある。そのため fleet は、ターンが終わった cursor のペインで `/usage` を打ち、Esc で閉じる(実機で確認済み)。解除日はロケールに従って書かれる(ja_JP では `Resets 10月26日`)。Claude の `rate_limits` は statusLine の入力にしか現れず、届くのは最初の API 応答の後
 - **CLI を実機で起動する検証の副作用。** gemini や agy は、起動しただけで自分自身を更新することがある。agy は `AGY_CLI_DISABLE_AUTO_UPDATE=true` で止まる(`1` では止まらない)。確認画面で止まっている CLI に選択肢を送ると、その CLI の設定(フォルダの信頼など)が永続的に書き換わる
 
 ## コミットと PR

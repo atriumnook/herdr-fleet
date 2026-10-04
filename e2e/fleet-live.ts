@@ -68,6 +68,8 @@ for (const kind of KINDS) {
 }
 writeFileSync(join(KINDS_DIR, ".herdr-fleet", "fleet.json"), JSON.stringify({ maxConcurrent: 4, defaultWaitTimeoutMs: TIMEOUT_MS, recentReadLines: 80 }));
 
+// a recent usage reading from an earlier run would keep this run from reading cursor's screen again
+rmSync(join(STATE_DIR, "fleet-usage.json"), { force: true });
 const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: STATE_DIR, machines: false });
 const url = `http://127.0.0.1:${server.port}`;
 
@@ -204,6 +206,7 @@ for (const kind of KINDS) {
     name: `${kind} takes a turn on ${KIND_MODELS[kind]} and hands its result back through the result file`,
     async run(group) {
       await trustFolder(kind);
+      const startedAt = Date.now();
       const token = `E2E-${kind.toUpperCase()}-${Date.now().toString(36)}`;
       const task = `The text is: ${token}`;
       let waited = await fleetIn(KINDS_DIR, group, "spawn", "--role", `echo-${kind}`, "--task", task, "--wait", "--timeout", String(TIMEOUT_MS));
@@ -218,6 +221,14 @@ for (const kind of KINDS) {
       const facts = `state ${run?.state}, error ${run?.lastError ?? "none"}\n${waited.err}${waited.out}\n--- screen\n${run?.lastOutput ?? "(none)"}`;
       assert(waited.code === 0, `exited ${waited.code}; ${facts}`);
       assert(run?.result?.includes(token), `the result file does not hold ${token} (${JSON.stringify(run?.result)}); ${facts}`);
+      // cursor tells its usage only on its /usage screen: the fleet reads it once the turn settled, before the wait returns
+      if (kind === "cursor") {
+        const { usage } = await (await fetch(`${url}/api/fleet/usage`)).json() as { usage: Array<{ key: string; reading?: { readAt: number; windows: Array<{ resetsAt?: number }> } }> };
+        const entry = usage.find((e) => e.key === "cursor");
+        assert(entry?.reading && entry.reading.readAt >= startedAt && entry.reading.windows.length, `no cursor usage was read from its /usage screen this turn: ${JSON.stringify(entry)}`);
+        assert(entry.reading.windows.every((w) => w.resetsAt), `cursor's reset date was not read: ${JSON.stringify(entry.reading)}`);
+        console.log(`cursor usage: ${JSON.stringify(entry.reading.windows)}`);
+      }
     },
   });
 }

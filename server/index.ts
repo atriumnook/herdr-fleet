@@ -62,6 +62,7 @@ import { discoverAgents } from "./fleet/agents.ts";
 import { handleFleetRequest } from "./fleet/api.ts";
 import { loadConfig } from "./fleet/config.ts";
 import { Orchestrator, type OrchestratorDeps } from "./fleet/orchestrator.ts";
+import { agyProbe, claudeFileProbe, codexProbe, UsageTracker } from "./fleet/usage.ts";
 import { RunRegistry } from "./fleet/registry.ts";
 import { HerdrRuntime } from "./fleet/runtime.ts";
 import { handleMachineRequest } from "./machine-api.ts";
@@ -136,8 +137,10 @@ const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input", "input-ready
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
+/** argv as one shell command line: a word with anything but plain path characters is single-quoted */
+const shellCommand = (parts: string[]): string => parts.map((part) => /^[\w./-]+$/.test(part) ? part : `'${part.replaceAll("'", "'\\''")}'`).join(" ");
 /** what an agent runs in its shell to reach the fleet: this Bun and bin/fleet.ts, both by absolute path */
-const FLEET_COMMAND = [process.execPath, resolve(import.meta.dir, "..", "bin", "fleet.ts")].map((part) => /^[\w./-]+$/.test(part) ? part : `'${part.replaceAll("'", "'\\''")}'`).join(" ");
+const FLEET_COMMAND = shellCommand([process.execPath, resolve(import.meta.dir, "..", "bin", "fleet.ts")]);
 
 const AGENT_LABELS: Record<string, string> = {
   claude: "Claude Code",
@@ -266,7 +269,7 @@ export function createServer(
     /** whether this runtime can run the PTY sidecar; unset, server/pty/sidecar.ts says. Tests give a runtime without Node or node-pty, while herdr keeps its own answer. */
     sidecar?: boolean;
     /** the fleet's runtime (herdr unless a test stands in one), roles and config; unset, the real ones */
-    fleet?: Partial<Pick<OrchestratorDeps, "runtime" | "agents" | "config">>;
+    fleet?: Partial<Pick<OrchestratorDeps, "runtime" | "agents" | "config">> & { usage?: UsageTracker };
   } = {},
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
@@ -457,6 +460,12 @@ export function createServer(
   const machines = options.machines === false ? null : new MachineManager(completions, clientSnapshot);
   /** agents started on callers' behalf (server/fleet): told of herdr's status events by the collector below */
   let listeningPort = 0;
+  const claudeRateLimits = join(options.stateDir ?? defaultStateDir(), "claude-rate-limits.json");
+  /** each subscription's usage, asked of the CLIs themselves; rate limits the fleet meets add cooldowns */
+  const usage = options.fleet?.usage ?? new UsageTracker({
+    file: join(options.stateDir ?? defaultStateDir(), "fleet-usage.json"),
+    probes: { codex: codexProbe(), agy: agyProbe(), claude: claudeFileProbe(claudeRateLimits) },
+  });
   const fleet = new Orchestrator({
     runtime: options.fleet?.runtime ?? new HerdrRuntime(),
     registry: new RunRegistry(join(options.stateDir ?? defaultStateDir(), "fleet-runs.json")),
@@ -465,6 +474,8 @@ export function createServer(
     config: options.fleet?.config ?? ((cwd) => loadConfig(cwd)),
     agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)),
     fleetCommand: FLEET_COMMAND,
+    usage,
+    claudeStatusLine: shellCommand([process.execPath, resolve(import.meta.dir, "..", "bin", "claude-statusline-tap.ts"), claudeRateLimits]),
     agentEnv: () => ({ HERDR_FLEET_URL: `http://127.0.0.1:${listeningPort}`, ...(token ? { HERDR_FLEET_TOKEN: token } : {}) }),
   });
 
@@ -920,7 +931,7 @@ export function createServer(
       if (pathname === "/api/fleet" || pathname.startsWith("/api/fleet/")) {
         // a spawn waits for the agent to start, a wait for its turn: Bun's 10 s idle limit is too short
         bunServer.timeout(request, 0);
-        return handleFleetRequest(request, url, fleet);
+        return handleFleetRequest(request, url, fleet, usage);
       }
       if (pathname === "/api/machines" || pathname.startsWith("/api/machines/")) {
         if (!machines) return jsonResponse({ error: { code: "bridge_only", message: "Manage PCs on the connection server" } }, 404);

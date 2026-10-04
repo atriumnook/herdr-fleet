@@ -1,5 +1,6 @@
 import { dirname } from "node:path";
 import type { AgentKind, ThinkingLevel } from "./types.ts";
+import type { UsageReading } from "./usage.ts";
 
 export interface LaunchOptions {
   model?: string;
@@ -14,6 +15,8 @@ export interface LaunchOptions {
   systemPrompt: string;
   /** the run's result folder: outside the workspace, so a CLI that confines writes is told it may write there */
   resultDir: string;
+  /** a statusLine command that keeps the session's rate limits for the fleet (Claude Code) */
+  statusLineCommand?: string;
 }
 
 /** What differs between agent CLIs: how one is launched, and how it says it failed. */
@@ -36,6 +39,10 @@ export interface AgentAdapter {
   inputReady?(screen: string): boolean;
   /** a turn that settled without doing the work (an API error after the CLI's own retries) */
   turnError(output: string | undefined): string | undefined;
+  /** what to type into a settled CLI to show its usage, for a CLI that tells it no other way (cursor) */
+  readonly usageCommand?: string;
+  /** the usage on that screen, once it shows */
+  usageScreen?(screen: string, now: number): UsageReading | undefined;
 }
 
 /** `model` as pi takes it: a `:level` suffix sets thinking; one already there wins. */
@@ -132,6 +139,8 @@ export const claudeAdapter: AgentAdapter = {
       "--name", `fleet:${options.name}`,
       "--append-system-prompt-file", options.systemPromptFile,
       "--add-dir", options.resultDir,
+      // a settings layer over the person's: only the statusLine, which feeds the fleet's usage
+      ...(options.statusLineCommand ? ["--settings", JSON.stringify({ statusLine: { type: "command", command: options.statusLineCommand } })] : []),
     ];
   },
   startupError(screen) {
@@ -195,7 +204,31 @@ export const cursorAdapter: AgentAdapter = {
   turnError(output) {
     return lastMatch(output, /^\s*(?:Error|error): (.+)$/gm);
   },
+  usageCommand: "/usage",
+  usageScreen: cursorUsage,
 };
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * cursor's `/usage` pager: `Included  12% used` (the plan's included usage, which on-demand would
+ * extend; off for this fleet's user) and `Resets Oct 23`, a UTC date with no year (the next one),
+ * written in the CLI's locale: `Resets 10月26日` under ja_JP.
+ */
+export function cursorUsage(screen: string, now: number): UsageReading | undefined {
+  const included = [...screen.matchAll(/Included:?\s+(\d+(?:\.\d+)?)% used/g)].pop();
+  if (!included) return undefined;
+  const named = [...screen.matchAll(/Resets (Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) (\d{1,2})\b/g)].pop();
+  const numeric = [...screen.matchAll(/Resets (\d{1,2})月(\d{1,2})日/g)].pop();
+  const date = named ? { month: MONTHS.indexOf(named[1]!), day: Number(named[2]) } : numeric ? { month: Number(numeric[1]) - 1, day: Number(numeric[2]) } : undefined;
+  let resetsAt: number | undefined;
+  if (date) {
+    const year = new Date(now).getUTCFullYear();
+    resetsAt = Date.UTC(year, date.month, date.day);
+    if (resetsAt <= now) resetsAt = Date.UTC(year + 1, date.month, date.day);
+  }
+  return { windows: [{ name: "monthly", usedPercent: Number(included[1]), ...(resetsAt ? { resetsAt } : {}) }], readAt: now };
+}
 
 /**
  * Antigravity CLI: no instruction option. herdr reports its trust, sign-in and approval screens as

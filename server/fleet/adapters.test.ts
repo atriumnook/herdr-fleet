@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { adapterFor, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
+import { adapterFor, cursorUsage, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
 
 const base = { name: "impl", systemPromptFile: "/tmp/i.md", systemPrompt: "Be brief.\nSay \"done\".", resultDir: "/state/results/r1" };
 
@@ -39,6 +39,13 @@ describe("claude adapter", () => {
       "--model", "opus", "--effort", "high", "--permission-mode", "auto", "--name", "fleet:impl", "--append-system-prompt-file", "/tmp/i.md", "--add-dir", "/state/results/r1",
     ]);
     expect(claude.instructionsInPrompt).toBe(false);
+  });
+
+  it("sets the fleet's statusLine in a settings layer of one argv line, when it has one", () => {
+    const args = claude.launchArgs({ ...base, statusLineCommand: "/bin/bun '/opt/fleet/bin/claude-statusline-tap.ts' /state/claude-rate-limits.json" });
+    expect(args.slice(-2)).toEqual(["--settings", JSON.stringify({ statusLine: { type: "command", command: "/bin/bun '/opt/fleet/bin/claude-statusline-tap.ts' /state/claude-rate-limits.json" } })]);
+    expect(args.at(-1)).not.toContain("\n");
+    expect(claude.launchArgs(base)).not.toContain("--settings");
   });
 
   it("takes a :level suffix as the effort, and has no level below low", () => {
@@ -103,6 +110,50 @@ describe("cursor adapter", () => {
   it("calls the workspace trust question herdr reports as idle a block", () => {
     expect(cursor.question?.("│  ⚠ Workspace Trust Required  │\n│  ▶ [a] Trust this workspace │")).toBe("Cursor Agent asks whether to trust this folder.");
     expect(cursor.question?.("→ Plan, search, build anything")).toBeUndefined();
+  });
+});
+
+describe("cursor usage", () => {
+  // as cursor-agent 2026.09.23 draws its /usage pager (src/components/usage-pager.tsx)
+  const pager = [
+    "Usage · Pro                                        Resets Oct 23",
+    "Monthly plan and on-demand usage",
+    "Category        Current         Usage",
+    "Included        12% used        ███░░░░░░░░░░░░░░░░░",
+    "  Auto          10% used        ██░░░░░░░░░░░░░░░░░░",
+    "  API           2% used         █░░░░░░░░░░░░░░░░░░░",
+    "On-Demand       Disabled        ————————————————————",
+    "On-demand usage is off",
+  ].join("\n");
+  const now = Date.parse("2026-10-04T07:00:00Z");
+
+  it("is typed as /usage and read as the included share, until the next reset date", () => {
+    expect(adapterFor("cursor").usageCommand).toBe("/usage");
+    expect(cursorUsage(pager, now)).toEqual({ readAt: now, windows: [{ name: "monthly", usedPercent: 12, resetsAt: Date.parse("2026-10-23T00:00:00Z") }] });
+  });
+
+  it("reads the pager as cursor-agent 2026.09.23 drew it under ja_JP", () => {
+    // captured from a live pane (`/usage` typed into cursor-agent; Esc closed it)
+    const live = [
+      "────────────────────────────────────────────────",
+      " Usage • Pro                                    Resets 10月26日",
+      " Monthly plan and on-demand usage",
+      " Category        Current             Usage",
+      " Included        1% used             █░░░░░░░░░░░░░░░░░░░░",
+      "   Auto          0% used             ░░░░░░░░░░░░░░░░░░░░░",
+      "   API           1% used             █░░░░░░░░░░░░░░░░░░░░",
+      " On-Demand       Disabled            ———————————————————————",
+      " On-demand usage is off",
+      " View in dashboard: cursor.com/dashboard?tab=usage",
+      " Esc to close",
+    ].join("\n");
+    expect(cursorUsage(live, now)).toEqual({ readAt: now, windows: [{ name: "monthly", usedPercent: 1, resetsAt: Date.parse("2026-10-26T00:00:00Z") }] });
+  });
+
+  it("reads the narrow layout, a reset date in the next year, and nothing before the pager shows", () => {
+    const narrow = "Usage · Pro\nResets Jan 2\nIncluded: 97% used\nAuto: 90% used";
+    expect(cursorUsage(narrow, Date.parse("2026-12-20T00:00:00Z"))!.windows).toEqual([{ name: "monthly", usedPercent: 97, resetsAt: Date.parse("2027-01-02T00:00:00Z") }]);
+    expect(cursorUsage("Loading usage data...", now)).toBeUndefined();
   });
 });
 

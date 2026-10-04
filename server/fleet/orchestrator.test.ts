@@ -8,6 +8,7 @@ import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESU
 import { RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, type AgentMetadata, type AgentRuntime, type CreateLocationOptions, type RuntimeLocation, type StartOptions } from "./runtime.ts";
 import type { AgentDefinition, AgentState, FleetConfig } from "./types.ts";
+import { UsageTracker } from "./usage.ts";
 
 const GRACE = 60;
 
@@ -51,7 +52,9 @@ class FakeRuntime implements AgentRuntime {
   }
   async get(name: string): Promise<AgentState> { return this.getImpl ? this.getImpl(name) : this.getStatus; }
   async read(): Promise<string> { return this.output; }
-  async interrupt(): Promise<void> {}
+  interrupts = 0;
+  interruptImpl?: () => void;
+  async interrupt(): Promise<void> { this.interrupts += 1; this.interruptImpl?.(); }
   async focus(): Promise<void> {}
   async reportMetadata(_metadata: AgentMetadata): Promise<void> {}
 }
@@ -63,7 +66,7 @@ const role = (name: string, extra: Partial<AgentDefinition> = {}): AgentDefiniti
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown>; agents?: AgentDefinition[] } = {}) {
+function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown>; agents?: AgentDefinition[]; usage?: UsageTracker; claudeStatusLine?: string } = {}) {
   const root = mkdtempSync(join(tmpdir(), "fleet-orchestrator-"));
   roots.push(root);
   const runtime = new FakeRuntime();
@@ -72,6 +75,7 @@ function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown
   const fleet = new Orchestrator({
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
+    usage: options.usage, claudeStatusLine: options.claudeStatusLine, usageScreenMs: 300,
   });
   return { fleet, runtime, registry, root };
 }
@@ -394,6 +398,155 @@ describe("model fallbacks", () => {
     expect(await waiting).toMatchObject({ state: "failed", lastError: "quota" });
     expect(fleet.get(run.id).replacedBy).toBeUndefined();
     expect(runtime.starts).toHaveLength(1);
+  });
+});
+
+describe("usage routing", () => {
+  const NOW = Date.now();
+  const full = { readAt: NOW, windows: [{ name: "5h", usedPercent: 95, resetsAt: NOW + 3_600_000 }] };
+  const crossRole = () => [role("worker", { model: "p/primary", fallbackModels: ["codex:gpt-6", "claude:sonnet"] })];
+
+  it("skips a candidate whose account is used past the threshold, onto another CLI", async () => {
+    const usage = new UsageTracker({ file: null });
+    usage.record("pi:p", full);
+    const { fleet, runtime } = setup({ agents: crossRole(), usage });
+    const run = await spawn(fleet);
+    expect(run).toMatchObject({ agent: "codex", model: "gpt-6", fallbackFrom: "p/primary", state: "working" });
+    expect(runtime.starts.map((s) => s.kind)).toEqual(["codex"]);
+    expect(runtime.locations).toHaveLength(1);
+  });
+
+  it("refuses the spawn, before any pane, when no candidate has usage left", async () => {
+    const usage = new UsageTracker({ file: null });
+    for (const key of ["pi:p", "codex"]) usage.record(key, full);
+    usage.noteFailure("claude", "sonnet", "rate limit reached", 60);
+    const { fleet, runtime } = setup({ agents: crossRole(), usage, config: { maxUsedPercent: 95 } });
+    const error = await spawn(fleet).catch((e) => e);
+    expect(error).toMatchObject({ code: "usage_exhausted" });
+    expect(error.message).toContain("p/primary: pi:p has used 95% of its 5h limit");
+    expect(error.message).toContain("claude:sonnet: claude is cooling down");
+    expect(runtime.locations).toEqual([]);
+  });
+
+  it("lets a caller pick another CLI with an <agent>:<model> model", async () => {
+    const { fleet, runtime } = setup();
+    const run = await spawn(fleet, { model: "agy:gemini-pro" });
+    expect(run).toMatchObject({ agent: "agy", model: "gemini-pro" });
+    expect(runtime.starts[0]!.kind).toBe("agy");
+  });
+
+  it("cools down the account a start quit on with a rate limit, and moves on", async () => {
+    const usage = new UsageTracker({ file: null });
+    const { fleet, runtime } = setup({ agents: crossRole(), usage });
+    runtime.startImpl = async (options) => {
+      if (options.kind === "pi") throw new FleetError("agent_start_failed", "429 Too Many Requests");
+      return "idle";
+    };
+    expect(await spawn(fleet)).toMatchObject({ agent: "codex" });
+    expect(await usage.unavailable("pi", "p/primary", 90)).toContain("pi:p is cooling down");
+  });
+
+  it("cools down the account a first turn hit a rate limit on, and re-spawns past it", async () => {
+    const usage = new UsageTracker({ file: null });
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "claude", model: "sonnet", fallbackModels: ["opus", "codex:gpt-6"] })], usage });
+    const run = await spawn(fleet);
+    const waiting = fleet.wait(run.id, 2000, "g1");
+    runtime.getStatus = "idle";
+    runtime.output = "⎿  API Error: Claude usage limit reached. Your limit will reset in 2 hours";
+    await Bun.sleep(GRACE + 5);
+    fleet.onPaneStatus(run.paneId);
+    const failed = await waiting;
+    expect(failed).toMatchObject({ state: "failed" });
+    // opus draws on the same claude account: the replacement skips it
+    expect(fleet.get(failed.replacedBy!, "g1")).toMatchObject({ agent: "codex", model: "gpt-6", fallbackFrom: "opus" });
+    expect(usage.list().find((e) => e.key === "claude")!.cooldown!.until).toBeGreaterThan(Date.now() + 7_000_000);
+  });
+
+  it("gives the Claude Code sessions it starts the fleet's statusLine", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "claude" })], claudeStatusLine: "tap /state/claude.json" });
+    await spawn(fleet);
+    expect(runtime.starts[0]!.args).toContain(JSON.stringify({ statusLine: { type: "command", command: "tap /state/claude.json" } }));
+  });
+
+  describe("cursor's /usage screen", () => {
+    const INPUT = "→ Plan, search, build anything";
+    const PAGER = "Usage · Pro    Resets Oct 23\nIncluded        12% used        ███░░░";
+
+    async function settleCursorTurn(usage: UsageTracker, pagerAfterPrompt = true, interactive = false) {
+      const { fleet, runtime } = setup({ agents: [role("worker", { agent: "cursor", interactive })], usage });
+      runtime.output = INPUT;
+      const run = await spawn(fleet);
+      runtime.promptImpl = async (name, text) => {
+        runtime.prompts.push({ name, text });
+        if (text === "/usage") {
+          // herdr calls it working while the pager loads, and idle a moment after Esc
+          runtime.getStatus = "working";
+          fleet.onPaneStatus(run.paneId);
+          if (pagerAfterPrompt) runtime.output = `${INPUT}\n${PAGER}`;
+        }
+        return "working";
+      };
+      runtime.interruptImpl = () => { setTimeout(() => { runtime.getStatus = "idle"; }, 100); };
+      const waiting = fleet.wait(run.id, 2000, "g1");
+      runtime.getStatus = "idle";
+      runtime.output = `${INPUT}\n● done`;
+      await Bun.sleep(GRACE + 5);
+      fleet.onPaneStatus(run.paneId);
+      return { settled: await waiting, runtime, fleet, run };
+    }
+
+    it("is read once a turn settles, then closed, and the run stays settled", async () => {
+      const usage = new UsageTracker({ file: null });
+      const { settled, runtime, fleet, run } = await settleCursorTurn(usage);
+      expect(settled.state).toBe("idle");
+      // the non-interactive pane closes on settle: herdr's working during the pager did not hold it open
+      await until(() => runtime.closed.includes(run.paneId), "pane closed");
+      expect(fleet.get(run.id).state).toBe("stopped");
+      expect(runtime.prompts.map((p) => p.text).at(-1)).toBe("/usage");
+      expect(runtime.interrupts).toBe(1);
+      expect(usage.list().find((e) => e.key === "cursor")!.reading!.windows[0]).toMatchObject({ name: "monthly", usedPercent: 12 });
+    });
+
+    it("holds a send made while it reads until the pager is closed", async () => {
+      const usage = new UsageTracker({ file: null });
+      const { fleet, runtime } = setup({ agents: [role("worker", { agent: "cursor" })], usage, config: { closeOnSettle: false } });
+      runtime.output = INPUT;
+      const run = await spawn(fleet);
+      let sent: Promise<unknown> | undefined;
+      runtime.promptImpl = async (name, text) => {
+        runtime.prompts.push({ name, text });
+        if (text === "/usage") {
+          runtime.output = `${INPUT}\n${PAGER}`;
+          sent = fleet.send(run.id, "next task", "g1");
+        }
+        return "working";
+      };
+      runtime.interruptImpl = () => { runtime.prompts.push({ name: run.herdrName, text: "<esc>" }); };
+      runtime.getStatus = "idle";
+      runtime.output = `${INPUT}\n● done`;
+      await Bun.sleep(GRACE + 5);
+      fleet.onPaneStatus(run.paneId);
+      await until(() => sent !== undefined, "send made during the read");
+      await sent;
+      // Esc closed the pager before the next task was typed, not after
+      expect(runtime.prompts.map((p) => p.text).slice(-3)).toEqual(["/usage", "<esc>", "next task"]);
+    });
+
+    it("is not asked in an interactive run or while the last reading is fresh, and a screen that never shows it costs only the wait", async () => {
+      const fresh = new UsageTracker({ file: null });
+      fresh.record("cursor", { readAt: Date.now(), windows: [] });
+      const first = await settleCursorTurn(fresh);
+      expect(first.runtime.prompts.map((p) => p.text)).not.toContain("/usage");
+      // a person may be typing in an interactive run's pane
+      const interactive = await settleCursorTurn(new UsageTracker({ file: null }), true, true);
+      expect(interactive.runtime.prompts.map((p) => p.text)).not.toContain("/usage");
+
+      const empty = new UsageTracker({ file: null });
+      const second = await settleCursorTurn(empty, false);
+      expect(second.settled.state).toBe("idle");
+      expect(second.runtime.interrupts).toBe(1);
+      expect(empty.list()).toEqual([]);
+    });
   });
 });
 
