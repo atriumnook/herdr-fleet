@@ -8,6 +8,7 @@ import { Orchestrator } from "./orchestrator.ts";
 import { RunRegistry } from "./registry.ts";
 import type { AgentRuntime } from "./runtime.ts";
 import type { AgentState } from "./types.ts";
+import { UsageTracker } from "./usage.ts";
 
 const resultsRoot = mkdtempSync(join(tmpdir(), "fleet-api-"));
 afterAll(() => rmSync(resultsRoot, { recursive: true, force: true }));
@@ -30,12 +31,14 @@ function fleet() {
     runtime, registry: new RunRegistry(null), config: () => DEFAULT_CONFIG, fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(resultsRoot, "results"), instructionsDir: join(resultsRoot, "instructions"), promptDir: resultsRoot,
     agents: () => [{ name: "worker", description: "implements", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" }],
   });
+  let probes = 0;
+  const usage = new UsageTracker({ file: null, probes: { codex: async () => { probes += 1; return { codex: { readAt: 1, windows: [{ name: "5h", usedPercent: 20 }] } }; } } });
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = { "x-herdr-fleet": "1" }) => {
     const url = new URL(`http://127.0.0.1:7317/api/fleet${path}`);
-    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator);
+    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage);
     return { status: response.status, body: await response.json() as Record<string, any> };
   };
-  return { call, state };
+  return { call, state, usage, probes: () => probes };
 }
 
 describe("fleet API", () => {
@@ -60,6 +63,24 @@ describe("fleet API", () => {
     state.get = "working";
     expect((await call("POST", `/runs/${id}/send`, { group: "g1", message: "and test it" })).body["run"].state).toBe("working");
     expect((await call("GET", "/roles")).body["roles"]).toEqual([{ name: "worker", description: "implements", agent: "pi", source: "bundled" }]);
+  });
+
+  it("lists usage without running a CLI, refreshes stale probes (all with all: true) only on a POST, and clears cooldowns", async () => {
+    const { call, usage, probes } = fleet();
+    expect((await call("GET", "/usage")).body["usage"]).toEqual([]);
+    // a page on another site can send a GET: it must not make the server run CLIs
+    expect((await call("POST", "/usage/refresh", {}, {})).status).toBe(403);
+    expect(probes()).toBe(0);
+    expect((await call("POST", "/usage/refresh", {})).body["usage"]).toEqual([{ key: "codex", reading: { readAt: 1, windows: [{ name: "5h", usedPercent: 20 }] } }]);
+    await call("POST", "/usage/refresh", {});
+    expect(probes()).toBe(1);
+    await call("POST", "/usage/refresh", { all: true });
+    expect(probes()).toBe(2);
+    expect((await call("GET", "/usage")).body["usage"]).toHaveLength(1);
+    usage.noteFailure("cursor", undefined, "rate limit", 60);
+    expect((await call("POST", "/usage/clear", { key: "cursor" }, {})).status).toBe(403);
+    expect((await call("POST", "/usage/clear", { key: "cursor" })).body).toEqual({ cleared: ["cursor"] });
+    expect(await call("POST", "/usage/clear", { key: 3 })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
   });
 
   it("answers bad requests with the reason", async () => {

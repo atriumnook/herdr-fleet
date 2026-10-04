@@ -3,6 +3,7 @@ import { isJsonObject, jsonResponse } from "../http.ts";
 import { AgentWaitTimeoutError, type Orchestrator } from "./orchestrator.ts";
 import { FleetError } from "./runtime.ts";
 import type { SpawnRequest } from "./types.ts";
+import type { UsageTracker } from "./usage.ts";
 
 /**
  * Fleet HTTP API, behind the same gate as the rest of /api. Changes need X-Herdr-Fleet: 1: a page
@@ -18,8 +19,12 @@ import type { SpawnRequest } from "./types.ts";
  *  POST /api/fleet/runs/:target/interrupt { group? } -> { run }
  *  POST /api/fleet/runs/:target/focus     { group? } -> { run }
  *  POST /api/fleet/close-done             { group? } -> { runs }
+ *  GET  /api/fleet/usage                            -> { usage: UsageEntry[] }; what is known, asking no CLI
+ *  POST /api/fleet/usage/refresh          { all? }   -> { usage }; asks the CLIs whose reading is stale (all with all: true).
+ *                                                       A POST: it runs CLIs, so it needs the header like every change
+ *  POST /api/fleet/usage/clear            { key? }   -> { cleared: string[] }; ends cooldowns: one account, a CLI's, or all
  */
-export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator): Promise<Response> {
+export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator, usage?: Pick<UsageTracker, "list" | "refresh" | "clearCooldown">): Promise<Response> {
   const parts = url.pathname.slice("/api/fleet".length).split("/").filter(Boolean).map(decodeURIComponent);
   const method = request.method;
   try {
@@ -44,6 +49,20 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
       const body = await readBody();
       const run = await fleet.spawn(spawnRequest(body), request.signal);
       return jsonResponse({ run }, 201);
+    }
+    if (parts[0] === "usage" && usage) {
+      if (parts.length === 1 && method === "GET") return jsonResponse({ usage: usage.list() });
+      if (parts.length === 2 && parts[1] === "refresh" && method === "POST") {
+        const all = (await readBody())["all"];
+        if (all !== undefined && typeof all !== "boolean") throw new FleetError("invalid_body", "all must be true or false");
+        await usage.refresh(all === true);
+        return jsonResponse({ usage: usage.list() });
+      }
+      if (parts.length === 2 && parts[1] === "clear" && method === "POST") {
+        const key = (await readBody())["key"];
+        if (key !== undefined && (typeof key !== "string" || key === "")) throw new FleetError("invalid_body", "key must be a non-empty string");
+        return jsonResponse({ cleared: usage.clearCooldown(key as string | undefined) });
+      }
     }
     if (parts[0] === "close-done" && parts.length === 1 && method === "POST") {
       return jsonResponse({ runs: await fleet.closeDone(group(await readBody())) });
@@ -114,7 +133,7 @@ function spawnRequest(body: Record<string, unknown>): SpawnRequest {
 
 const STATUS: Record<string, number> = {
   run_not_found: 404, unknown_role: 404, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
-  agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504,
+  agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429,
 };
 
 function fleetError(error: unknown): Response {

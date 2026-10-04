@@ -22,6 +22,8 @@ const USAGE = `usage: fleet <command> [options]
   focus <agent>                    bring its pane to front in herdr
   close-done                       close the panes of finished non-interactive agents
   roles [--cwd <dir>]              the roles that can be spawned
+  usage [--refresh]                what each subscription has used, and which are cooling down
+  usage clear [<key>]              end a cooldown: one account (agy:gemini), a CLI's (agy), or all
 
   <agent> is a name, role, id or pane id. Add --json for machine-readable output.
   exit status: 0 settled, 1 failed or error, 2 usage, 4 blocked on a question, 124 wait timed out`;
@@ -59,7 +61,23 @@ async function call<T>(method: "GET" | "POST", path: string, body?: Record<strin
   return data as T;
 }
 
+interface UsageEntry {
+  key: string; error?: string;
+  reading?: { readAt: number; windows: Array<{ name: string; usedPercent: number; resetsAt?: number }> };
+  cooldown?: { until: number; reason: string };
+}
+
 const enc = encodeURIComponent;
+const time = (ms: number): string => new Date(ms).toLocaleString();
+
+function describeUsage(entry: UsageEntry): string {
+  const windows = entry.reading?.windows.map((w) => `${w.name} ${w.usedPercent}%${w.resetsAt ? ` (resets ${time(w.resetsAt)})` : ""}`).join(", ");
+  return [
+    `${entry.key.padEnd(12)} ${windows ?? "no reading"}${entry.reading ? `  read ${time(entry.reading.readAt)}` : ""}`,
+    entry.cooldown && entry.cooldown.until > Date.now() ? `             cooling down until ${time(entry.cooldown.until)}: ${entry.cooldown.reason}` : "",
+    entry.error ? `             last read failed: ${entry.error}` : "",
+  ].filter(Boolean).join("\n");
+}
 const describe = (run: Run): string => `${run.id}  ${run.name} (${run.role}, ${run.agent}${run.model ? `, ${run.model}` : ""})  ${run.state}  pane ${run.paneId}`;
 
 function print(json: boolean, value: unknown, text: () => string): void {
@@ -110,6 +128,7 @@ async function main(argv: string[]): Promise<number> {
       role: { type: "string" }, task: { type: "string" }, name: { type: "string" }, model: { type: "string" }, thinking: { type: "string" },
       cwd: { type: "string" }, worktree: { type: "boolean" }, interactive: { type: "boolean" }, direction: { type: "string" },
       wait: { type: "boolean" }, timeout: { type: "string" }, lines: { type: "string" }, all: { type: "boolean" }, json: { type: "boolean" },
+      refresh: { type: "boolean" },
     },
   });
   const json = values.json ?? false;
@@ -166,6 +185,17 @@ async function main(argv: string[]): Promise<number> {
     case "roles": {
       const { roles } = await call<{ roles: Array<{ name: string; description: string; agent: string; source: string }> }>("GET", `/roles?cwd=${enc(values.cwd ?? process.cwd())}`);
       print(json, roles, () => roles.map((role) => `${role.name.padEnd(12)} ${role.agent.padEnd(6)} ${role.description}`).join("\n"));
+      return 0;
+    }
+    case "usage": {
+      if (positionals[0] === "clear") {
+        const { cleared } = await call<{ cleared: string[] }>("POST", "/usage/clear", positionals[1] ? { key: positionals[1] } : {});
+        print(json, cleared, () => cleared.length ? `cleared ${cleared.join(", ")}` : "nothing was cooling down");
+        return 0;
+      }
+      if (positionals.length) throw new CliError("fleet usage: the only subcommand is clear", 2);
+      const { usage } = await call<{ usage: UsageEntry[] }>("POST", "/usage/refresh", { all: values.refresh ?? false });
+      print(json, usage, () => usage.length ? usage.map(describeUsage).join("\n") : "no usage known yet");
       return 0;
     }
     default:
