@@ -94,6 +94,9 @@ export const piAdapter: AgentAdapter = {
   turnError: piTurnError,
 };
 
+// Every CLI starts in its auto-approval mode: what it judges safe runs, the rest is asked and the
+// run blocks for a person. No mode that approves everything.
+
 /** Claude Code: `--effort` has no off; an unknown model starts anyway and fails at its first request. */
 export const claudeAdapter: AgentAdapter = {
   kind: "claude",
@@ -104,6 +107,7 @@ export const claudeAdapter: AgentAdapter = {
     return [
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
+      "--permission-mode", "auto",
       "--name", `fleet:${options.name}`,
       "--append-system-prompt-file", options.systemPromptFile,
       "--add-dir", options.resultDir,
@@ -129,6 +133,8 @@ export const codexAdapter: AgentAdapter = {
       ...(model ? ["--model", model] : []),
       ...(effort ? ["-c", `model_reasoning_effort=${tomlString(effort)}`] : []),
       "-c", `developer_instructions=${tomlString(options.systemPrompt)}`,
+      // approvals go to codex's automatic review; commands stay in the workspace-write sandbox
+      "--approve-for-me",
       "--add-dir", options.resultDir,
     ];
   },
@@ -147,7 +153,7 @@ export const cursorAdapter: AgentAdapter = {
   instructionsInPrompt: true,
   launchArgs(options) {
     const { model } = splitThinking(options.model, options.thinking);
-    return [...(model ? ["--model", model] : []), "--add-dir", options.resultDir];
+    return [...(model ? ["--model", model] : []), "--auto-review", "--add-dir", options.resultDir];
   },
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
@@ -174,6 +180,8 @@ export const agyAdapter: AgentAdapter = {
     return [
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
+      // agy has no auto mode: edits go through, commands are asked
+      "--mode", "accept-edits",
       "--add-dir", options.resultDir,
     ];
   },

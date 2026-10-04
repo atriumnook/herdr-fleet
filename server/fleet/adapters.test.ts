@@ -36,7 +36,7 @@ describe("claude adapter", () => {
 
   it("appends the instruction file, names the session and lets the agent write its result folder", () => {
     expect(claude.launchArgs({ ...base, model: "opus", thinking: "high", tools: ["read"] })).toEqual([
-      "--model", "opus", "--effort", "high", "--name", "fleet:impl", "--append-system-prompt-file", "/tmp/i.md", "--add-dir", "/state/results/r1",
+      "--model", "opus", "--effort", "high", "--permission-mode", "auto", "--name", "fleet:impl", "--append-system-prompt-file", "/tmp/i.md", "--add-dir", "/state/results/r1",
     ]);
     expect(claude.instructionsInPrompt).toBe(false);
   });
@@ -58,7 +58,7 @@ describe("codex adapter", () => {
   it("passes the instructions as developer_instructions on one argv line, and the level as reasoning effort", () => {
     const args = codex.launchArgs({ ...base, model: "gpt-5.5", thinking: "max" });
     expect(args).toEqual([
-      "--model", "gpt-5.5", "-c", 'model_reasoning_effort="max"', "-c", 'developer_instructions="Be brief.\\nSay \\"done\\"."', "--add-dir", "/state/results/r1",
+      "--model", "gpt-5.5", "-c", 'model_reasoning_effort="max"', "-c", 'developer_instructions="Be brief.\\nSay \\"done\\"."', "--approve-for-me", "--add-dir", "/state/results/r1",
     ]);
     expect(args.some((arg) => arg.includes("\n"))).toBe(false);
   });
@@ -82,7 +82,7 @@ describe("cursor adapter", () => {
   const cursor = adapterFor("cursor");
 
   it("has no instruction option or level: the instructions lead the first prompt", () => {
-    expect(cursor.launchArgs({ ...base, model: "gpt-5:high", thinking: "low" })).toEqual(["--model", "gpt-5", "--add-dir", "/state/results/r1"]);
+    expect(cursor.launchArgs({ ...base, model: "gpt-5:high", thinking: "low" })).toEqual(["--model", "gpt-5", "--auto-review", "--add-dir", "/state/results/r1"]);
     expect(cursor.instructionsInPrompt).toBe(true);
   });
 
@@ -96,7 +96,7 @@ describe("agy adapter", () => {
   const agy = adapterFor("agy");
 
   it("takes the model and effort, with instructions in the first prompt", () => {
-    expect(agy.launchArgs({ ...base, model: "gemini-3.8-pro", thinking: "xhigh" })).toEqual(["--model", "gemini-3.8-pro", "--effort", "high", "--add-dir", "/state/results/r1"]);
+    expect(agy.launchArgs({ ...base, model: "gemini-3.8-pro", thinking: "xhigh" })).toEqual(["--model", "gemini-3.8-pro", "--effort", "high", "--mode", "accept-edits", "--add-dir", "/state/results/r1"]);
     expect(agy.instructionsInPrompt).toBe(true);
   });
 
