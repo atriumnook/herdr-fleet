@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { adapterFor, isAgentKind, piTurnError, withThinking } from "./adapters.ts";
+import { adapterFor, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
 
-const base = { name: "impl", systemPromptFile: "/tmp/i.md", systemPrompt: "", resultDir: "/state/results/r1" };
+const base = { name: "impl", systemPromptFile: "/tmp/i.md", systemPrompt: "Be brief.\nSay \"done\".", resultDir: "/state/results/r1" };
 
 describe("pi adapter", () => {
   const pi = adapterFor("pi");
@@ -10,6 +10,7 @@ describe("pi adapter", () => {
     expect(pi.launchArgs({ ...base, model: "p/m", thinking: "low", tools: ["read", "bash"] }))
       .toEqual(["--model", "p/m:low", "--tools", "read,bash", "--name", "fleet:impl", "--append-system-prompt", "/tmp/i.md"]);
     expect(pi.launchArgs(base)).toEqual(["--name", "fleet:impl", "--append-system-prompt", "/tmp/i.md"]);
+    expect(pi.instructionsInPrompt).toBe(false);
   });
 
   it("keeps a :level the model already carries", () => {
@@ -28,10 +29,99 @@ describe("pi adapter", () => {
     expect(piTurnError("Error: test failed earlier\nHANDOFF\noutcome: fixed")).toBeUndefined();
     expect(piTurnError(undefined)).toBeUndefined();
   });
+});
+
+describe("claude adapter", () => {
+  const claude = adapterFor("claude");
+
+  it("appends the instruction file, names the session and lets the agent write its result folder", () => {
+    expect(claude.launchArgs({ ...base, model: "opus", thinking: "high", tools: ["read"] })).toEqual([
+      "--model", "opus", "--effort", "high", "--name", "fleet:impl", "--append-system-prompt-file", "/tmp/i.md", "--add-dir", "/state/results/r1",
+    ]);
+    expect(claude.instructionsInPrompt).toBe(false);
+  });
+
+  it("takes a :level suffix as the effort, and has no level below low", () => {
+    expect(claude.launchArgs({ ...base, model: "sonnet:xhigh", thinking: "low" }).slice(0, 4)).toEqual(["--model", "sonnet", "--effort", "xhigh"]);
+    expect(claude.launchArgs({ ...base, thinking: "off" }).slice(0, 2)).toEqual(["--effort", "low"]);
+  });
+
+  it("fails a turn on the API error it settled with", () => {
+    expect(claude.turnError("❯ do it\n  ⎿  API Error: 404 model: no-such-model\n")).toBe("404 model: no-such-model");
+    expect(claude.turnError("● Done.\n")).toBeUndefined();
+  });
+});
+
+describe("codex adapter", () => {
+  const codex = adapterFor("codex");
+
+  it("passes the instructions as developer_instructions on one argv line, and the level as reasoning effort", () => {
+    const args = codex.launchArgs({ ...base, model: "gpt-5.5", thinking: "max" });
+    expect(args).toEqual([
+      "--model", "gpt-5.5", "-c", 'model_reasoning_effort="max"', "-c", 'developer_instructions="Be brief.\\nSay \\"done\\"."', "--add-dir", "/state/results/r1",
+    ]);
+    expect(args.some((arg) => arg.includes("\n"))).toBe(false);
+  });
+
+  it("runs the lowest level as low, the lowest effort codex's models take", () => {
+    expect(codex.launchArgs({ ...base, thinking: "off" }).slice(0, 2)).toEqual(["-c", 'model_reasoning_effort="low"']);
+    expect(codex.launchArgs({ ...base, thinking: "minimal" }).slice(0, 2)).toEqual(["-c", 'model_reasoning_effort="low"']);
+  });
+
+  it("escapes what a TOML basic string cannot hold raw", () => {
+    expect(tomlString("a\tb\\c\u0001\u007f")).toBe('"a\\tb\\\\c\\u0001\\u007F"');
+  });
+
+  it("fails a turn on codex's last error line", () => {
+    expect(codex.turnError("› do it\n■ unexpected status 401 Unauthorized\n")).toBe("unexpected status 401 Unauthorized");
+    expect(codex.turnError("• Done.\n")).toBeUndefined();
+  });
+});
+
+describe("cursor adapter", () => {
+  const cursor = adapterFor("cursor");
+
+  it("has no instruction option or level: the instructions lead the first prompt", () => {
+    expect(cursor.launchArgs({ ...base, model: "gpt-5:high", thinking: "low" })).toEqual(["--model", "gpt-5", "--add-dir", "/state/results/r1"]);
+    expect(cursor.instructionsInPrompt).toBe(true);
+  });
+
+  it("calls the workspace trust question herdr reports as idle a block", () => {
+    expect(cursor.readyCheck?.("│  ⚠ Workspace Trust Required  │\n│  ▶ [a] Trust this workspace │")).toEqual({ blocked: "Cursor Agent asks whether to trust this folder." });
+    expect(cursor.readyCheck?.("→ Plan, search, build anything")).toBeUndefined();
+  });
+});
+
+describe("agy adapter", () => {
+  const agy = adapterFor("agy");
+
+  it("takes the model and effort, with instructions in the first prompt", () => {
+    expect(agy.launchArgs({ ...base, model: "gemini-3.8-pro", thinking: "xhigh" })).toEqual(["--model", "gemini-3.8-pro", "--effort", "high", "--add-dir", "/state/results/r1"]);
+    expect(agy.instructionsInPrompt).toBe(true);
+  });
+
+  it("blocks on the trust and sign-in screens herdr reports as idle", () => {
+    expect(agy.readyCheck?.("Do you trust the contents of this project?\n> Yes, I trust this folder")?.blocked).toContain("trust");
+    expect(agy.readyCheck?.("Welcome to the Antigravity CLI. You are currently not signed in.")?.blocked).toContain("not signed in");
+  });
+
+  it("refuses to run the default model in place of an unknown one", () => {
+    const screen = '⚠ Warning\n  ⎿  model no-such-model is not recognized as a known model or custom model in settings. Using "Gemini 3.8 Flash\n';
+    expect(agy.readyCheck?.(screen)?.error).toContain("Unknown model no-such-model");
+    expect(agy.readyCheck?.("Antigravity CLI 1.2.16\n>")).toBeUndefined();
+  });
+});
+
+describe("kinds", () => {
+  it("splits a :level suffix off a model for the CLIs that take the level apart", () => {
+    expect(splitThinking("m:low", "high")).toEqual({ model: "m", thinking: "low" });
+    expect(splitThinking("m", "high")).toEqual({ model: "m", thinking: "high" });
+    expect(splitThinking(undefined)).toEqual({ model: undefined, thinking: undefined });
+  });
 
   it("knows only the kinds it has an adapter for", () => {
-    expect(isAgentKind("pi")).toBe(true);
-    expect(isAgentKind("claude")).toBe(false);
+    for (const kind of ["pi", "claude", "codex", "cursor", "agy"]) expect(isAgentKind(kind)).toBe(true);
+    expect(isAgentKind("gemini")).toBe(false);
     expect(isAgentKind("toString")).toBe(false);
   });
 });

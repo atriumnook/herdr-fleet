@@ -83,6 +83,8 @@ export class Orchestrator {
   private readonly reconcileLocks = new Map<string, Promise<void>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
+  /** instructions still to lead the first prompt, for a CLI that takes none at launch */
+  private readonly undelivered = new Map<string, string>();
   /** callers waiting for a run's turn to settle or block */
   private readonly waiters = new Map<string, Set<(run: AgentRun) => void>>();
   /** the concurrency check and the run's first save happen as one step */
@@ -221,6 +223,7 @@ export class Orchestrator {
     mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
     mkdirSync(resultDir, { mode: 0o700 });
     const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE));
+    if (adapter.instructionsInPrompt) this.undelivered.set(run.id, instructions);
     // herdr refuses multiline argv: the instructions go to the agent as a file it reads at startup
     const promptDir = mkdtempSync(join(this.deps.promptDir ?? tmpdir(), "herdr-fleet-"));
     const promptFile = join(promptDir, "instructions.md");
@@ -232,6 +235,15 @@ export class Orchestrator {
           args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
         });
         if (run.state === "blocked") run.lastError = "Agent stopped at a question before its first prompt; the task has not been sent.";
+        else if (adapter.readyCheck) {
+          // herdr calls some CLIs ready while they still ask something, or after they ignored the model
+          const check = adapter.readyCheck(await this.deps.runtime.read(herdrName, config.recentReadLines).catch(() => ""));
+          if (check?.error) throw new FleetError("agent_start_failed", check.error);
+          if (check?.blocked) {
+            run.state = "blocked";
+            run.lastError = `${check.blocked} The task has not been sent.`;
+          }
+        }
       } catch (error) {
         if (isAbortError(error)) throw error;
         if (error instanceof FleetError && error.code === "agent_not_ready") {
@@ -241,6 +253,7 @@ export class Orchestrator {
           run.state = "failed";
           run.lastError = error instanceof Error ? error.message : String(error);
           run.updatedAt = Date.now();
+          this.undelivered.delete(run.id);
           this.save(run);
           // the agent never started: an empty pane left behind would be an orphan
           await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
@@ -362,8 +375,10 @@ export class Orchestrator {
     this.pending.set(run.id, pending);
     // a result file found when the turn settles is this turn's
     rmSync(this.resultFile(run), { force: true });
+    const instructions = this.undelivered.get(run.id);
     try {
-      const submitted = await this.deps.runtime.prompt(run.herdrName, text, signal);
+      const submitted = await this.deps.runtime.prompt(run.herdrName, instructions ? `${instructions}\n\n## Task\n\n${text}` : text, signal);
+      this.undelivered.delete(run.id);
       // herdr still shows the state from before the prompt: the turn IS running, so it counts as
       // working (the budget, the UI) until herdr reports a real settlement
       this.updateState(run, submitted === "idle" || submitted === "unknown" || submitted === "done" ? "working" : submitted);
@@ -542,6 +557,7 @@ export class Orchestrator {
 
   private async abandonSpawn(run: AgentRun): Promise<void> {
     this.dropPending(run.id);
+    this.undelivered.delete(run.id);
     await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
     run.state = "stopped";
     run.lastError = "Spawn cancelled.";

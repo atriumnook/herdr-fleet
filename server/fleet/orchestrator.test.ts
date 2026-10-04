@@ -458,3 +458,36 @@ describe("result files", () => {
   });
 });
 
+describe("agent kinds", () => {
+  it("leads the first prompt with the instructions for a CLI that takes none at launch, and only the first", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "cursor", interactive: true })] });
+    const run = await spawn(fleet);
+    expect(runtime.starts[0]!.kind).toBe("cursor");
+    expect(runtime.prompts[0]!.text).toStartWith("You are worker.");
+    expect(runtime.prompts[0]!.text).toEndWith("## Task\n\ndo it");
+    await fleet.send(run.id, "next", "g1");
+    expect(runtime.prompts[1]!.text).toBe("next");
+  });
+
+  it("keeps the instructions for the first prompt a person sends after a block at startup", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy" })] });
+    runtime.output = "Do you trust the contents of this project?\n> Yes, I trust this folder";
+    const run = await spawn(fleet);
+    expect(run).toMatchObject({ state: "blocked" });
+    expect(run.lastError).toContain("trust this folder");
+    expect(runtime.prompts).toEqual([]);
+    await fleet.send(run.id, "do it", "g1");
+    expect(runtime.prompts[0]!.text).toStartWith("You are worker.");
+  });
+
+  it("treats a start that ignored the model as a failed start, so the next model is tried", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy", model: "no-such", fallbackModels: ["gemini-pro"] })] });
+    runtime.startImpl = async (options) => {
+      runtime.output = options.args.includes("no-such") ? "model no-such is not recognized as a known model or custom model" : "ready";
+      return "idle";
+    };
+    const run = await spawn(fleet);
+    expect(run).toMatchObject({ model: "gemini-pro", fallbackFrom: "no-such", state: "working" });
+    expect(runtime.closed).toEqual(["w1:p1"]);
+  });
+});

@@ -26,7 +26,7 @@ export function requireThinkingLevel(value: unknown): ThinkingLevel | undefined 
 export type AgentState = "starting" | "working" | "idle" | "done" | "blocked" | "unknown" | "failed" | "stopped";
 
 /** The agent CLIs the fleet can start: herdr's `agent start --kind` values it has an adapter for (adapters.ts). */
-export type AgentKind = "pi";
+export type AgentKind = "pi" | "claude" | "codex" | "cursor" | "agy";
 
 /** A role: what an agent is told to be (the markdown body) and how it runs, from agents/*.md. */
 export interface AgentDefinition {
