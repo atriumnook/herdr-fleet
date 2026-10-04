@@ -5,7 +5,7 @@ import { createRoot } from "react-dom/client";
 // stylesheets override, and Vite emits CSS in import order
 import "./styles.css";
 import "katex/dist/katex.min.css";
-import { App } from "./App.tsx";
+import { Root } from "./ui/Root.tsx";
 import { SettingsProvider } from "./lib/settings.ts";
 import "./lib/viewport.ts";
 
@@ -15,7 +15,7 @@ if (!container) throw new Error("#root is missing from index.html");
 createRoot(container).render(
   <StrictMode>
     <SettingsProvider>
-      <App />
+      <Root />
     </SettingsProvider>
   </StrictMode>,
 );

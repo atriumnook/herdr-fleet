@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, FolderOpen, Lock, Menu, MessageSquare, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
+import { Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
 import type { AgentStatus, ClientRole, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
 import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, sendTestPush, signOut, type HealthInfo } from "./lib/api.ts";
@@ -39,6 +39,10 @@ import { useT } from "./lib/i18n.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { Droplet } from "./components/Droplet.tsx";
+import { FleetScreen } from "./components/fleet/FleetScreen.tsx";
+import type { Emit } from "./ui/bubble.ts";
+import type { FleetScreenModel } from "./ui/fleetView.ts";
+import type { Screen, UiEvent } from "./ui/state.ts";
 import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
 
 const APP_TITLE = "herdr fleet";
@@ -119,8 +123,23 @@ function Brand() {
   );
 }
 
-export function App() {
+/**
+ * What the Root hands the legacy shell: the Mediator's screen and the Fleet screen's values, and
+ * the Emit its events go up through. The shell still owns the pane selection; `paneRequest` asks it
+ * to select a pane, until that selection moves to the Mediator too.
+ */
+export interface ShellProps {
+  screen: Screen;
+  fleet: FleetScreenModel;
+  needs: number;
+  paneRequest: { paneId: string; seq: number } | null;
+  emit: Emit<UiEvent>;
+}
+
+export function App({ shell }: { shell: ShellProps }) {
   const t = useT();
+  const emitRef = useRef(shell.emit);
+  emitRef.current = shell.emit;
   const { settings, resolvedTheme, update: updateSettings } = useSettings();
   // this device's alert choices: sent with its push subscription, and applied to tab alerts here
   const alerts = useMemo(() => alertPrefs(settings), [settings.alertInput, settings.alertDone]);
@@ -293,6 +312,8 @@ export function App() {
       }
     };
     const events = new EventSource("/api/machines/events");
+    // the stream opened, or opened again: fleet changes made meanwhile never arrived as pushes
+    events.onopen = () => emitRef.current({ type: "fleet-changed" });
     events.onmessage = (event) => {
       let payload: MachineEvent;
       try { payload = JSON.parse(event.data); } catch { return; }
@@ -337,6 +358,8 @@ export function App() {
         if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
       }
       if (message.type === "session-changed" || message.type === "pane-exited") scheduleRefetch();
+      // the fleet lives on this PC's server only
+      if (message.type === "fleet-changed" && machine.kind === "local") emitRef.current({ type: "fleet-changed" });
     };
     return () => events.close();
   }, [locked, scheduleRefetch, dropIn]);
@@ -433,6 +456,7 @@ export function App() {
     setSelectedMachineId(machineId); setSelectedPaneId(paneId); setAutoSelected(false); setDrawerOpen(false);
     setOutputStopped(false);
     storeSelection(machineId, paneId);
+    emitRef.current({ type: "pane-selected" });
   }, []);
   const selectTargetRef = useRef(selectTarget); selectTargetRef.current = selectTarget;
   useEffect(() => {
@@ -460,7 +484,19 @@ export function App() {
     setSelectedPaneId(paneId);
     setAutoSelected(false);
     setDrawerOpen(false);
+    emitRef.current({ type: "pane-selected" });
   }, []);
+
+  // the pane stays attached under the Fleet screen, out of reach of focus and screen readers
+  const paneLayerRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    paneLayerRef.current?.toggleAttribute("inert", shell.screen === "fleet");
+  }, [shell.screen]);
+
+  // the Mediator asked for a fleet run's pane: it lives on this PC
+  useEffect(() => {
+    if (shell.paneRequest) selectTargetRef.current("local", shell.paneRequest.paneId);
+  }, [shell.paneRequest]);
 
   // a tapped notification focuses this window and names the pane (public/sw.js)
   useEffect(() => onNotificationTarget((target) => selectTargetRef.current(target.machine_id, target.pane_id)), []);
@@ -662,6 +698,17 @@ export function App() {
               <FolderOpen />
             </button>
           )}
+          <button
+            type="button"
+            className={`icon-button fleet-button${shell.needs > 0 ? " has-needs" : ""}`}
+            aria-label={shell.needs > 0 ? t("Fleet: {count} waiting on you", { count: shell.needs }) : t("Fleet")}
+            aria-pressed={shell.screen === "fleet"}
+            title={t("Fleet")}
+            onClick={() => shell.emit({ type: "show-screen", screen: shell.screen === "fleet" ? "pane" : "fleet" })}
+          >
+            <Orbit />
+            {shell.needs > 0 && <span className="fleet-button-count" aria-hidden="true">{shell.needs}</span>}
+          </button>
           <button type="button" className="icon-button" aria-label={t("Command palette")} title={t("Command palette (⌘⇧K)")} onClick={() => setPaletteOpen(true)}>
             <Search />
           </button>
@@ -696,6 +743,7 @@ export function App() {
         {/* a file path in the chat opens in the viewer, relative to the selected pane's folder */}
         <OpenFileContext.Provider value={selectedPaneId !== null ? viewFile : null}>
         <main className="terminal-host">
+          <div className="pane-layer" ref={paneLayerRef}>
           <PaneTerminal
             key={selectedMachineId}
             paneId={selectedPane?.restore_error ? null : selectedPaneId}
@@ -715,6 +763,8 @@ export function App() {
             onConnectionChange={(next) => { setConnected(next); if (next) setOutputStopped(false); }}
             onServerMessage={handleServerMessage}
           />
+          </div>
+          {shell.screen === "fleet" && <FleetScreen model={shell.fleet} screen={shell.screen} emit={shell.emit} />}
         </main>
         </OpenFileContext.Provider>
       </div>
