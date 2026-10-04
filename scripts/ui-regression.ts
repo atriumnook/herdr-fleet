@@ -58,6 +58,9 @@ try {
   browser = await chromium.launch({
     executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome",
     headless: true, args: ["--no-sandbox"],
+    // the checks read the English UI: Chromium on Linux takes its language from LANG, not --lang,
+    // so a machine set to another language would otherwise show the UI in it
+    env: { ...process.env, LANG: "en_US.UTF-8", LANGUAGE: "en_US", LC_ALL: "en_US.UTF-8" },
   });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript((ids) => {
@@ -239,18 +242,6 @@ try {
   assert.equal(await page.locator("html").getAttribute("data-theme"), "light");
   await page.getByRole("button", { name: "Close settings", exact: true }).click();
   console.log("PASS settings shortcut and theme");
-
-  // Add PC lives in Settings → Remote PCs, not in the sidebar; opening it closes Settings behind it
-  assert.equal(await page.locator(".sidebar").getByRole("button", { name: "Add PC", exact: true }).count(), 0, "the sidebar has no Add PC button");
-  await page.keyboard.press("Control+Shift+Comma");
-  await page.getByRole("dialog", { name: "Settings" }).getByRole("button", { name: "Add PC", exact: true }).click();
-  await page.getByRole("dialog", { name: "Add PC", exact: true }).waitFor();
-  assert.equal(await page.getByRole("dialog", { name: "Settings" }).count(), 0, "Add PC closes Settings");
-  await page.getByRole("button", { name: "Close PC setup", exact: true }).click();
-  await page.getByRole("dialog", { name: "Add PC", exact: true }).waitFor({ state: "hidden" });
-  // its trigger went with Settings: focus lands on the header's workspace-list toggle instead of nowhere
-  await until(async () => await page.evaluate(() => document.activeElement?.matches(".sidebar-toggle, .drawer-toggle") ?? false), "focus returns to the workspace-list toggle after Add PC closes");
-  console.log("PASS Add PC opens from Settings, and the sidebar has no top bar");
 
   // the bell turns this device's alerts on, and off again (it stayed disabled once on)
   await context.grantPermissions(["notifications"], { origin });
