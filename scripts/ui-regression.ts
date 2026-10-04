@@ -58,6 +58,9 @@ try {
   browser = await chromium.launch({
     executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome",
     headless: true, args: ["--no-sandbox"],
+    // the checks read the English UI: Chromium on Linux takes its language from LANG, not --lang,
+    // so a machine set to another language would otherwise show the UI in it
+    env: { ...process.env, LANG: "en_US.UTF-8", LANGUAGE: "en_US", LC_ALL: "en_US.UTF-8" },
   });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript((ids) => {
