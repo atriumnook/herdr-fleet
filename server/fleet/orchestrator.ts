@@ -235,13 +235,15 @@ export class Orchestrator {
           args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
         });
         if (run.state === "blocked") run.lastError = "Agent stopped at a question before its first prompt; the task has not been sent.";
-        else if (adapter.readyCheck) {
+        else if (adapter.question || adapter.readyError) {
           // herdr calls some CLIs ready while they still ask something, or after they ignored the model
-          const check = adapter.readyCheck(await this.deps.runtime.read(herdrName, config.recentReadLines).catch(() => ""));
-          if (check?.error) throw new FleetError("agent_start_failed", check.error);
-          if (check?.blocked) {
+          const screen = await this.deps.runtime.read(herdrName, config.recentReadLines).catch(() => "");
+          const error = adapter.readyError?.(screen);
+          if (error) throw new FleetError("agent_start_failed", error);
+          const question = adapter.question?.(screen);
+          if (question) {
             run.state = "blocked";
-            run.lastError = `${check.blocked} The task has not been sent.`;
+            run.lastError = `${question} The task has not been sent.`;
           }
         }
       } catch (error) {
@@ -442,7 +444,7 @@ export class Orchestrator {
       if (this.stopped) return;
       try {
         if (!isLive(run)) return;
-        const current = await this.deps.runtime.get(run.herdrName);
+        let current = await this.deps.runtime.get(run.herdrName);
         // the pane ended while herdr was asked: what it said is older than that
         if (!isLive(run)) return;
         const pending = this.pending.get(run.id);
@@ -450,6 +452,13 @@ export class Orchestrator {
         // the paste is still going and herdr still answers with the idle from before: not a
         // settlement. The check scheduled at submission looks again after the grace period.
         if (pending?.armed && !pending.sawWorking && isCompleted(current) && pending.submittedAt !== undefined && Date.now() - pending.submittedAt < this.grace) return;
+        // a question herdr takes for idle (an approval) leaves the turn open: the run is blocked
+        const adapter = adapterFor(run.agent);
+        if (pending?.armed && isCompleted(current) && adapter.question) {
+          const screen = await this.deps.runtime.read(run.herdrName, this.deps.config(run.cwd).recentReadLines).catch(() => "");
+          if (!isLive(run)) return;
+          if (adapter.question(screen)) current = "blocked";
+        }
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);

@@ -87,8 +87,8 @@ describe("cursor adapter", () => {
   });
 
   it("calls the workspace trust question herdr reports as idle a block", () => {
-    expect(cursor.readyCheck?.("│  ⚠ Workspace Trust Required  │\n│  ▶ [a] Trust this workspace │")).toEqual({ blocked: "Cursor Agent asks whether to trust this folder." });
-    expect(cursor.readyCheck?.("→ Plan, search, build anything")).toBeUndefined();
+    expect(cursor.question?.("│  ⚠ Workspace Trust Required  │\n│  ▶ [a] Trust this workspace │")).toBe("Cursor Agent asks whether to trust this folder.");
+    expect(cursor.question?.("→ Plan, search, build anything")).toBeUndefined();
   });
 });
 
@@ -100,15 +100,17 @@ describe("agy adapter", () => {
     expect(agy.instructionsInPrompt).toBe(true);
   });
 
-  it("blocks on the trust and sign-in screens herdr reports as idle", () => {
-    expect(agy.readyCheck?.("Do you trust the contents of this project?\n> Yes, I trust this folder")?.blocked).toContain("trust");
-    expect(agy.readyCheck?.("Welcome to the Antigravity CLI. You are currently not signed in.")?.blocked).toContain("not signed in");
+  it("blocks on the trust, sign-in and approval screens herdr reports as idle", () => {
+    expect(agy.question?.("Do you trust the contents of this project?\n> Yes, I trust this folder")).toContain("trust");
+    expect(agy.question?.("Welcome to the Antigravity CLI. You are currently not signed in.")).toContain("not signed in");
+    expect(agy.question?.("Requesting permission for:\n   ls -la /tmp\n\nRun this command?\n> 1. Yes, run command")).toContain("permission");
+    expect(agy.question?.("● E2E-OK\n>")).toBeUndefined();
   });
 
   it("refuses to run the default model in place of an unknown one", () => {
     const screen = '⚠ Warning\n  ⎿  model no-such-model is not recognized as a known model or custom model in settings. Using "Gemini 3.8 Flash\n';
-    expect(agy.readyCheck?.(screen)?.error).toContain("Unknown model no-such-model");
-    expect(agy.readyCheck?.("Antigravity CLI 1.2.16\n>")).toBeUndefined();
+    expect(agy.readyError?.(screen)).toContain("Unknown model no-such-model");
+    expect(agy.readyError?.("Antigravity CLI 1.2.16\n>")).toBeUndefined();
   });
 });
 

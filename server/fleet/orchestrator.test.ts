@@ -480,6 +480,26 @@ describe("agent kinds", () => {
     expect(runtime.prompts[0]!.text).toStartWith("You are worker.");
   });
 
+  it("blocks a turn on a question herdr reports as idle, and settles it once the agent is done", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy", interactive: true })] });
+    runtime.output = "ready";
+    const run = await spawn(fleet);
+    const waiting = fleet.wait(run.id, 2000, "g1");
+    runtime.getStatus = "idle";
+    runtime.output = "Requesting permission for:\n  ls\nRun this command?";
+    await Bun.sleep(GRACE + 10);
+    fleet.onPaneStatus(run.paneId);
+    expect(await waiting).toMatchObject({ state: "blocked" });
+    runtime.getStatus = "working";
+    fleet.onPaneStatus(run.paneId);
+    await until(() => fleet.get(run.id).state === "working", "working again");
+    const settled = fleet.wait(run.id, 2000, "g1");
+    runtime.getStatus = "idle";
+    runtime.output = "● done";
+    fleet.onPaneStatus(run.paneId);
+    expect(await settled).toMatchObject({ state: "idle" });
+  });
+
   it("treats a start that ignored the model as a failed start, so the next model is tried", async () => {
     const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy", model: "no-such", fallbackModels: ["gemini-pro"] })] });
     runtime.startImpl = async (options) => {

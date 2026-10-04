@@ -25,11 +25,12 @@ export interface AgentAdapter {
   /** the CLI gave up while starting: the screen it left, read once no agent runs in the pane */
   startupError(screen: string): string | undefined;
   /**
-   * The screen once herdr calls the agent ready, for what herdr cannot see: a question it reports
-   * as idle (`blocked`), or a start that did not go as asked (`error`, like an unknown model swapped
-   * for the default one).
+   * A question on the screen that herdr reports as idle: what it asks. Looked at once the agent is
+   * ready and whenever a turn seems to settle, so the run blocks instead of passing for done.
    */
-  readyCheck?(screen: string): { blocked?: string; error?: string } | undefined;
+  question?(screen: string): string | undefined;
+  /** the screen once herdr calls the agent ready: a start that did not go as asked (an unknown model swapped for the default one) */
+  readyError?(screen: string): string | undefined;
   /** a turn that settled without doing the work (an API error after the CLI's own retries) */
   turnError(output: string | undefined): string | undefined;
 }
@@ -151,8 +152,8 @@ export const cursorAdapter: AgentAdapter = {
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },
-  readyCheck(screen) {
-    if (/Workspace Trust Required/.test(screen)) return { blocked: "Cursor Agent asks whether to trust this folder." };
+  question(screen) {
+    if (/Workspace Trust Required/.test(screen)) return "Cursor Agent asks whether to trust this folder.";
     return undefined;
   },
   turnError(output) {
@@ -161,8 +162,8 @@ export const cursorAdapter: AgentAdapter = {
 };
 
 /**
- * Antigravity CLI: no instruction option. herdr reports its trust and sign-in screens as idle, and
- * an unknown model is swapped for the default one with only a warning.
+ * Antigravity CLI: no instruction option. herdr reports its trust, sign-in and approval screens as
+ * idle, and an unknown model is swapped for the default one with only a warning.
  */
 export const agyAdapter: AgentAdapter = {
   kind: "agy",
@@ -179,12 +180,15 @@ export const agyAdapter: AgentAdapter = {
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },
-  readyCheck(screen) {
-    if (/Do you trust the contents of this project\?/.test(screen)) return { blocked: "Antigravity CLI asks whether to trust this folder." };
-    if (/You are currently not signed in/.test(screen)) return { blocked: "Antigravity CLI is not signed in." };
-    const unknown = /model (\S+) is not recognized as a known model/.exec(screen);
-    if (unknown) return { error: `Unknown model ${unknown[1]}: Antigravity CLI would run its default model instead.` };
+  question(screen) {
+    if (/Do you trust the contents of this project\?/.test(screen)) return "Antigravity CLI asks whether to trust this folder.";
+    if (/You are currently not signed in/.test(screen)) return "Antigravity CLI is not signed in.";
+    if (/Requesting permission for:/.test(screen)) return "Antigravity CLI asks for permission to use a tool.";
     return undefined;
+  },
+  readyError(screen) {
+    const unknown = /model (\S+) is not recognized as a known model/.exec(screen);
+    return unknown ? `Unknown model ${unknown[1]}: Antigravity CLI would run its default model instead.` : undefined;
   },
   turnError(output) {
     return lastMatch(output, /^\s*(?:Error|error): (.+)$/gm);
