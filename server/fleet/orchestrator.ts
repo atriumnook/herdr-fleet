@@ -563,7 +563,6 @@ export class Orchestrator {
     return true;
   }
 
-  /** herdr's state for the run now; undefined when herdr cannot say (never a reason to close a pane). */
   /**
    * herdr's state, corrected for a question herdr takes for idle (cursor's and agy's trust and
    * approval screens): while one shows, the run is blocked, at startup and mid-turn alike.
@@ -575,6 +574,7 @@ export class Orchestrator {
     return adapter.question(screen) ? "blocked" : reported;
   }
 
+  /** herdr's state for the run now; undefined when herdr cannot say (never a reason to close a pane). */
   private async liveState(run: AgentRun): Promise<AgentState | undefined> {
     try {
       const current = await this.observed(run, await this.deps.runtime.get(run.herdrName));
