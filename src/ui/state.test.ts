@@ -194,6 +194,21 @@ describe("settings", () => {
     expect(state.settings.chatFontFamily).toBe("Menlo");
   });
 
+  it("reads the remote access once more after the read in flight, showing nothing it answered meanwhile", () => {
+    const access = { port: 7000, tailscale: { state: "missing", dns_name: null, serving_url: null, serve_command: null, serve_url: null } } as const;
+    const asked = play([{ type: "open-settings" }, { type: "load-remote-access" }]);
+    expect(asked.effects).toEqual([{ kind: "load-remote-access" }]);
+    const { state, effects } = play([{ type: "remote-access-loaded", access }], asked.state);
+    expect(effects).toEqual([{ kind: "load-remote-access" }]);
+    expect(state.remoteAccess).toMatchObject({ status: "loading", data: null, again: false });
+  });
+
+  it("keeps the state itself when Settings is opened while open", () => {
+    const state = opened();
+    expect(transition(state, { type: "open-settings" })).toEqual({ state, effects: [] });
+    expect(transition(state, { type: "open-settings" }).state).toBe(state);
+  });
+
   it("ignores typing into a closed dialog and closing it twice", () => {
     expect(transition(INITIAL_STATE, { type: "edit-font", field: "chatFontFamily", text: "x" })).toEqual({ state: INITIAL_STATE, effects: [] });
     expect(transition(INITIAL_STATE, { type: "close-settings" })).toEqual({ state: INITIAL_STATE, effects: [] });

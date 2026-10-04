@@ -240,15 +240,21 @@ export function transition(state: UiState, event: UiEvent): Transition {
     case "load-remote-access":
       return next({ remoteAccess: readAccess(state.remoteAccess, effects) });
     case "remote-access-loaded":
-      return next({ remoteAccess: settle(state.remoteAccess, { status: "ready", data: event.access, error: undefined }, { kind: "load-remote-access" }, effects) });
+      return next({ remoteAccess: settleAccess(state.remoteAccess, { status: "ready", data: event.access, error: undefined }, effects) });
     case "remote-access-failed":
-      return next({ remoteAccess: settle(state.remoteAccess, { status: "error", data: null, error: event.message }, { kind: "load-remote-access" }, effects) });
+      return next({ remoteAccess: settleAccess(state.remoteAccess, { status: "error", data: null, error: event.message }, effects) });
   }
 }
 
 /** Read the remote access again; what was known goes meanwhile, so the panel says it is checking. */
 function readAccess(region: UiState["remoteAccess"], effects: Effect[]): UiState["remoteAccess"] {
   return { ...load(region, { kind: "load-remote-access" }, effects), data: null };
+}
+
+/** A read of the remote access answered; one asked for meanwhile reads again, and shows nothing until it answers. */
+function settleAccess(region: UiState["remoteAccess"], outcome: Partial<UiState["remoteAccess"]>, effects: Effect[]): UiState["remoteAccess"] {
+  const settled = settle(region, outcome, { kind: "load-remote-access" }, effects);
+  return settled.status === "loading" ? { ...settled, data: null } : settled;
 }
 
 function withoutDraft(dialog: SettingsDialogState, field: FontField): SettingsDialogState {
