@@ -71,7 +71,7 @@ function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown
   const config = mergeConfig(DEFAULT_CONFIG, options.config as Record<string, unknown> ?? {});
   const fleet = new Orchestrator({
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
-    fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), preVisualGraceMs: GRACE, readyScreenMs: 300,
+    fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
   });
   return { fleet, runtime, registry, root };
 }
@@ -465,7 +465,7 @@ describe("result files", () => {
     expect(readFileSync(join(root, "runs.json"), "utf8")).not.toContain("outcome: kept");
     const registry = new RunRegistry(join(root, "runs.json"));
     new Orchestrator({
-      runtime, registry, config: () => DEFAULT_CONFIG, agents: () => [], fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(root, "results"), promptDir: root,
+      runtime, registry, config: () => DEFAULT_CONFIG, agents: () => [], fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root,
     });
     expect(registry.get(run.id)?.result).toBe("outcome: kept");
   });
@@ -475,7 +475,7 @@ describe("result files", () => {
     const run = await spawn(fleet);
     mkdirSync(join(root, "results", "gone1"));
     new Orchestrator({
-      runtime, registry, config: () => DEFAULT_CONFIG, agents: () => [], fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(root, "results"), promptDir: root,
+      runtime, registry, config: () => DEFAULT_CONFIG, agents: () => [], fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root,
     });
     expect(readdirSync(join(root, "results"))).toEqual([run.id]);
   });
@@ -536,6 +536,21 @@ describe("agent kinds", () => {
     expect(runtime.prompts).toEqual([]);
     await fleet.send(run.id, "do it", "g1");
     expect(runtime.prompts[0]!.text).toStartWith("You are worker.");
+  });
+
+  it("keeps undelivered instructions across a restart, and drops them once sent", async () => {
+    const { fleet, runtime, registry, root } = setup({ agents: [role("worker", { agent: "agy" })] });
+    runtime.output = "Do you trust the contents of this project?\n> Yes, I trust this folder";
+    const run = await spawn(fleet);
+    fleet.stop();
+    runtime.output = "──\n>\n──";
+    const restarted = new Orchestrator({
+      runtime, registry, config: () => DEFAULT_CONFIG, agents: () => [], fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root,
+    });
+    await restarted.send(run.id, "do it", "g1");
+    expect(runtime.prompts[0]!.text).toStartWith("You are worker.");
+    expect(readdirSync(join(root, "instructions"))).toEqual([]);
   });
 
   it("blocks a turn on a question herdr reports as idle, and settles it once the agent is done", async () => {

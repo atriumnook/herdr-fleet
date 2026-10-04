@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
@@ -62,6 +62,11 @@ export interface OrchestratorDeps {
   agentEnv: () => Record<string, string>;
   /** each run's result folder goes here, removed with the run's record */
   resultsDir: string;
+  /**
+   * instructions still to lead the first prompt of a CLI that takes none at launch, a file per run
+   * so a restart keeps them; apart from the result folders, which agents may write
+   */
+  instructionsDir: string;
   /** where the per-spawn instruction files go; os.tmpdir() unless a test says otherwise */
   promptDir?: string;
   /** PRE_VISUAL_GRACE_MS; tests shorten it */
@@ -88,8 +93,6 @@ export class Orchestrator {
   private readonly reconcileLocks = new Map<string, Promise<void>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
-  /** instructions still to lead the first prompt, for a CLI that takes none at launch */
-  private readonly undelivered = new Map<string, string>();
   /** callers waiting for a run's turn to settle or block */
   private readonly waiters = new Map<string, Set<(run: AgentRun) => void>>();
   /** the concurrency check and the run's first save happen as one step */
@@ -107,11 +110,25 @@ export class Orchestrator {
     for (const run of deps.registry.all()) run.result ??= readResult(this.resultFile(run));
   }
 
-  /** A result folder outlives its pane but not its run: once the registry dropped the run, it goes. */
+  /** A result folder outlives its pane but not its run: once the registry dropped the run, it goes. So do undelivered instructions. */
   private pruneResults(): void {
-    let names: string[];
-    try { names = readdirSync(this.deps.resultsDir); } catch { return; }
-    for (const name of names) if (!this.deps.registry.get(name)) rmSync(join(this.deps.resultsDir, name), { recursive: true, force: true });
+    for (const dir of [this.deps.resultsDir, this.deps.instructionsDir]) {
+      let names: string[];
+      try { names = readdirSync(dir); } catch { continue; }
+      for (const name of names) if (!this.deps.registry.get(name.replace(/\.md$/, ""))) rmSync(join(dir, name), { recursive: true, force: true });
+    }
+  }
+
+  private undeliveredFile(run: AgentRun): string {
+    return join(this.deps.instructionsDir, `${run.id}.md`);
+  }
+
+  private undelivered(run: AgentRun): string | undefined {
+    try { return readFileSync(this.undeliveredFile(run), "utf8"); } catch { return undefined; }
+  }
+
+  private dropUndelivered(run: AgentRun): void {
+    rmSync(this.undeliveredFile(run), { force: true });
   }
 
   private resultFile(run: AgentRun): string {
@@ -232,7 +249,10 @@ export class Orchestrator {
     mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
     mkdirSync(resultDir, { mode: 0o700 });
     const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE));
-    if (adapter.instructionsInPrompt) this.undelivered.set(run.id, instructions);
+    if (adapter.instructionsInPrompt) {
+      mkdirSync(this.deps.instructionsDir, { recursive: true, mode: 0o700 });
+      writeFileSync(this.undeliveredFile(run), instructions, { mode: 0o600 });
+    }
     // herdr refuses multiline argv: the instructions go to the agent as a file it reads at startup
     const promptDir = mkdtempSync(join(this.deps.promptDir ?? tmpdir(), "herdr-fleet-"));
     const promptFile = join(promptDir, "instructions.md");
@@ -266,7 +286,7 @@ export class Orchestrator {
           run.state = "failed";
           run.lastError = error instanceof Error ? error.message : String(error);
           run.updatedAt = Date.now();
-          this.undelivered.delete(run.id);
+          this.dropUndelivered(run);
           this.save(run);
           // the agent never started: an empty pane left behind would be an orphan
           await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
@@ -404,10 +424,10 @@ export class Orchestrator {
     this.pending.set(run.id, pending);
     // a result file found when the turn settles is this turn's
     rmSync(this.resultFile(run), { force: true });
-    const instructions = this.undelivered.get(run.id);
+    const instructions = this.undelivered(run);
     try {
       const submitted = await this.deps.runtime.prompt(run.herdrName, instructions ? `${instructions}\n\n## Task\n\n${text}` : text, signal);
-      this.undelivered.delete(run.id);
+      this.dropUndelivered(run);
       // herdr still shows the state from before the prompt: the turn IS running, so it counts as
       // working (the budget, the UI) until herdr reports a real settlement
       this.updateState(run, submitted === "idle" || submitted === "unknown" || submitted === "done" ? "working" : submitted);
@@ -599,7 +619,7 @@ export class Orchestrator {
 
   private async abandonSpawn(run: AgentRun): Promise<void> {
     this.dropPending(run.id);
-    this.undelivered.delete(run.id);
+    this.dropUndelivered(run);
     await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
     run.state = "stopped";
     run.lastError = "Spawn cancelled.";

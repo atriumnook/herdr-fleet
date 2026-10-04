@@ -27,7 +27,7 @@ function fleet() {
     reportMetadata: async () => {},
   };
   const orchestrator = new Orchestrator({
-    runtime, registry: new RunRegistry(null), config: () => DEFAULT_CONFIG, fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(resultsRoot, "results"), promptDir: resultsRoot,
+    runtime, registry: new RunRegistry(null), config: () => DEFAULT_CONFIG, fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(resultsRoot, "results"), instructionsDir: join(resultsRoot, "instructions"), promptDir: resultsRoot,
     agents: () => [{ name: "worker", description: "implements", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" }],
   });
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = { "x-herdr-fleet": "1" }) => {
