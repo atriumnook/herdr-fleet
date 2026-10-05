@@ -1,6 +1,6 @@
 import { useCallback, useMemo, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { clearFleetCooldown, closeDoneFleetRuns, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage } from "../lib/api.ts";
+import { ApiError, clearFleetCooldown, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -19,6 +19,12 @@ const FLEET_PORTS: EffectPorts = {
   saveSettings,
   forgetPaneViews: () => void forgetPaneViews(),
   loadRemoteAccess: fetchRemoteAccess,
+  // the demo, or an older server, has no device list (404)
+  loadDevices: () => fetchDevices().catch((error: unknown) => { if (error instanceof ApiError && error.status === 404) return null; throw error; }),
+  startPairing,
+  renameDevice: async (id, label) => { await renameDevice(id, label); },
+  revokeDevice,
+  later: (ms, then) => { window.setTimeout(then, ms); },
 };
 
 /** Hands the settings the Mediator holds to the views that read them from context (`useSettings`). */

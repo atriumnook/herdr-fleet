@@ -1,5 +1,5 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
-import type { RemoteAccess } from "../../shared/protocol.ts";
+import type { PairedDevice, PairingCode, RemoteAccess } from "../../shared/protocol.ts";
 import type { Settings } from "../lib/settings.ts";
 import { INITIAL_STATE, transition, type Effect, type RequestAction, type UiEvent, type UiState } from "./state.ts";
 
@@ -12,6 +12,13 @@ export interface EffectPorts {
   saveSettings(settings: Settings): void;
   forgetPaneViews(): void;
   loadRemoteAccess(): Promise<RemoteAccess>;
+  /** null: the server keeps no devices */
+  loadDevices(): Promise<PairedDevice[] | null>;
+  startPairing(): Promise<PairingCode>;
+  renameDevice(id: string, label: string): Promise<void>;
+  revokeDevice(id: string): Promise<void>;
+  /** runs `then` after `ms`: the clock the state machine's `later` effects wait on */
+  later(ms: number, then: () => void): void;
 }
 
 const message = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -67,6 +74,24 @@ export class Mediator {
         return;
       case "load-remote-access":
         try { this.dispatch({ type: "remote-access-loaded", access: await this.ports.loadRemoteAccess() }); } catch (error) { this.dispatch({ type: "remote-access-failed", message: message(error) }); }
+        return;
+      case "load-devices":
+        try {
+          const devices = await this.ports.loadDevices();
+          this.dispatch(devices === null ? { type: "devices-failed", message: "", unavailable: true, session: effect.session } : { type: "devices-loaded", devices, session: effect.session });
+        } catch (error) { this.dispatch({ type: "devices-failed", message: message(error), unavailable: false, session: effect.session }); }
+        return;
+      case "start-pairing":
+        try { this.dispatch({ type: "pairing-started", code: await this.ports.startPairing(), at: Date.now(), session: effect.session }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
+        return;
+      case "rename-device":
+        try { await this.ports.renameDevice(effect.id, effect.label); this.dispatch({ type: "device-renamed", session: effect.session }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
+        return;
+      case "revoke-device":
+        try { await this.ports.revokeDevice(effect.id); this.dispatch({ type: "device-changed", session: effect.session }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
+        return;
+      case "later":
+        this.ports.later(effect.ms, () => this.dispatch(effect.event));
         return;
     }
   }

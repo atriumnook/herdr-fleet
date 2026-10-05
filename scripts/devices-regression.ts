@@ -1,0 +1,67 @@
+/** Settings → Devices against the test server's own device store (in its temporary state folder). */
+import assert from "node:assert/strict";
+import type { Browser } from "playwright-core";
+
+/** Pairs a device from a browser of its own, as a phone that typed the code would. */
+async function pairFrom(browser: Browser, origin: string, code: string, label: string): Promise<void> {
+  const context = await browser.newContext();
+  try {
+    const page = await context.newPage();
+    await page.goto(`${origin}/api/health`);
+    const status = await page.evaluate(async ({ code, label }) => (await fetch("/api/devices/pair", {
+      method: "POST", headers: { "content-type": "application/json", "x-herdr-machine": "1" }, body: JSON.stringify({ code, label }),
+    })).status, { code, label });
+    assert.equal(status, 204, `pairing ${label} with ${code}`);
+  } finally {
+    await context.close();
+  }
+}
+
+export async function checkDevices(browser: Browser, origin: string): Promise<void> {
+  const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  try {
+    await context.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" })));
+    const page = await context.newPage();
+    page.setDefaultTimeout(10_000);
+    await page.goto(origin);
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    const panel = page.locator(".devices-panel");
+    await panel.getByText("No devices paired yet.").waitFor();
+
+    // a code, then the device it lets in shows up on its own (the panel polls while the code is out)
+    await panel.getByRole("button", { name: "Pair a device", exact: true }).click();
+    const codeText = panel.locator(".devices-code");
+    await codeText.waitFor();
+    await pairFrom(browser, origin, (await codeText.textContent())!.replace(/\s/g, ""), "First phone");
+    await panel.getByText("First phone", { exact: true }).waitFor({ timeout: 8000 });
+    await panel.getByRole("button", { name: "Done", exact: true }).click();
+    await panel.getByRole("button", { name: "Pair a device", exact: true }).waitFor();
+
+    // with a device known, the next one to pair is named, and its code is put away
+    await panel.getByRole("button", { name: "Pair a device", exact: true }).click();
+    await codeText.waitFor();
+    await pairFrom(browser, origin, (await codeText.textContent())!.replace(/\s/g, ""), "Second phone");
+    await panel.getByText("Paired: Second phone.").waitFor({ timeout: 8000 });
+    assert.equal(await codeText.count(), 0, "the code goes once its device paired");
+
+    // a rename keeps the name being typed until saved
+    await panel.getByRole("button", { name: "Rename Second phone", exact: true }).click();
+    await panel.getByRole("textbox", { name: "Device name", exact: true }).fill("Tablet");
+    await panel.getByRole("button", { name: "Save name", exact: true }).click();
+    await panel.getByText("Tablet", { exact: true }).waitFor();
+
+    // revoking asks for a second press
+    const firstRow = panel.locator(".devices-row", { hasText: "First phone" });
+    await firstRow.getByRole("button", { name: "Revoke", exact: true }).click();
+    await firstRow.getByRole("button", { name: "Revoke?", exact: true }).click();
+    await panel.getByText("First phone", { exact: true }).waitFor({ state: "detached" });
+
+    // the list is read again each time Settings opens
+    await page.getByRole("button", { name: "Close settings", exact: true }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await panel.getByText("Tablet", { exact: true }).waitFor();
+    console.log("PASS Settings devices: pair, the next one named, rename, revoke on the second press, read on open");
+  } finally {
+    await context.close();
+  }
+}
