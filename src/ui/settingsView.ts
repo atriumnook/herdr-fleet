@@ -13,7 +13,7 @@ export interface SettingsDialogModel {
 }
 
 /** The dialog's values while it is open; null while it is closed. */
-export function settingsDialogModel(state: UiState, page: PageLocation): SettingsDialogModel | null {
+export function settingsDialogModel(state: Pick<UiState, "settings" | "settingsDialog" | "remoteAccess">, page: PageLocation): SettingsDialogModel | null {
   const dialog = state.settingsDialog;
   if (!dialog.open) return null;
   const plan = phonePlan(page, state.remoteAccess.data);
