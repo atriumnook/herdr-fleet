@@ -49,7 +49,7 @@ import { DevicesPanelPresenter } from "./ui/DevicesPanelPresenter.tsx";
 import { FleetPresenter } from "./ui/FleetPresenter.tsx";
 import { MachineSidebarPresenter } from "./ui/MachineSidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
-import { useSelected } from "./ui/presenter.ts";
+import { useSelected, useStateNow } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
 import type { UiEvent } from "./ui/state.ts";
 import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
@@ -498,10 +498,14 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   }), [emit, openNewSession, installPrompt.install, leavePane]);
 
   // a fleet run's pane opens on this PC: the shell resets what it keeps for the pane it leaves
+  // (only when the Mediator did select it: a run that ended meanwhile has no pane to open)
+  const stateNow = useStateNow();
   const fleetEmit = useMemo(() => relay<FleetScreenEvent, UiEvent>(emit, (event, pass) => {
-    if (event.type === "open-pane") leavePane("local");
+    const before = stateNow().selection;
     pass(event);
-  }), [emit, leavePane]);
+    const after = stateNow().selection;
+    if (after !== before) leavePane(after.machineId);
+  }), [emit, leavePane, stateNow]);
 
   // a tapped notification focuses this window and names the pane (public/sw.js)
   useEffect(() => onNotificationTarget((target) => selectTargetRef.current(target.machine_id, target.pane_id)), []);
