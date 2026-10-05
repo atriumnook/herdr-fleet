@@ -180,8 +180,6 @@ export type UiEvent =
   | { type: "access-known"; canAct: boolean }
   /** the person picked a pane (sidebar, palette, notification, a new session) */
   | { type: "select-pane"; machineId: string; paneId: string | null }
-  /** the selected pane `from` closed: the shell picked `paneId` in its place */
-  | { type: "fall-back-pane"; from: string | null; paneId: string | null; auto: boolean }
   /** the person chose a lens in the pane the shell picked: it is theirs now */
   | { type: "selection-confirmed" }
   /** the server pushed fleet-changed, or the event stream (re)opened and pushes may have been missed */
@@ -380,9 +378,6 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return next({ screen: event.screen, detail: event.screen === "pane" ? null : state.detail });
     case "select-pane":
       return next({ screen: "pane", detail: null, selection: select(event.machineId, event.paneId, false, effects) });
-    case "fall-back-pane":
-      if (state.selection.paneId !== event.from) return next({});
-      return next({ selection: select(state.selection.machineId, event.paneId, event.auto || state.selection.auto, effects) });
     case "selection-confirmed":
       return next(state.selection.auto ? { selection: { ...state.selection, auto: false } } : {});
     case "fleet-changed":

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { Machine } from "../../shared/machines.ts";
-import type { HealthAuth, PairedDevice } from "../../shared/protocol.ts";
+import type { HealthAuth, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { INITIAL_STATE, transition, treeOf, type UiEvent, type UiState } from "./state.ts";
 
@@ -96,18 +96,21 @@ describe("the selected pane", () => {
     expect(effects).toEqual([{ kind: "store-selection", machineId: "pc2", paneId: "w2:p1" }]);
   });
 
-  it("takes the pane the shell falls back to when the selected one closed, marked as its own pick", () => {
+  // the PC answered that the selected pane closed: the state machine picks herdr's focused one (state.ts settle)
+  const gone = { panes: [{ pane_id: "w1:p1" }], focused_pane_id: "w1:p1" } as unknown as SessionSnapshot;
+
+  it("takes another pane once the PC confirms the selected one closed, marked as its own pick", () => {
     const selected = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }]).state;
-    const { state, effects } = play([{ type: "fall-back-pane", from: "w1:gone", paneId: "w1:p1", auto: true }], selected);
+    const { state, effects } = play([{ type: "pane-session-read", machineId: "local", paneId: "w1:gone", session: gone }], selected);
     expect(state.selection).toEqual({ machineId: "local", paneId: "w1:p1", auto: true });
     expect(effects).toEqual([{ kind: "store-selection", machineId: "local", paneId: "w1:p1" }]);
-    // a fallback worked out for a pane no longer selected comes too late
+    // an answer about a pane no longer selected comes too late
     const moved = play([{ type: "select-pane", machineId: "local", paneId: "w1:new" }], selected).state;
-    expect(transition(moved, { type: "fall-back-pane", from: "w1:gone", paneId: "w1:p1", auto: true }).state).toBe(moved);
+    expect(transition(moved, { type: "pane-session-read", machineId: "local", paneId: "w1:gone", session: gone }).state.selection).toBe(moved.selection);
   });
 
   it("drops the shell's own pick once the person chooses a lens there", () => {
-    const picked = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }, { type: "fall-back-pane", from: "w1:gone", paneId: "w1:p1", auto: true }]).state;
+    const picked = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }, { type: "pane-session-read", machineId: "local", paneId: "w1:gone", session: gone }]).state;
     expect(play([{ type: "selection-confirmed" }], picked).state.selection.auto).toBe(false);
     expect(transition(INITIAL_STATE, { type: "selection-confirmed" }).state).toBe(INITIAL_STATE);
   });
