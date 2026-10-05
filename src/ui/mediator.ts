@@ -4,6 +4,10 @@ import type { BridgeHealth } from "../../shared/machines.ts";
 import type { PairedDevice, PairingCode, RemoteAccess, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
+import type { NotificationState } from "../lib/notifications.ts";
+import type { DropletKind } from "../lib/droplet.ts";
+import type { AlertPrefs } from "../../shared/notify-policy.ts";
+import type { HerdrPane } from "../../shared/protocol.ts";
 import type { Settings } from "../lib/settings.ts";
 import { INITIAL_STATE, transition, type Effect, type RequestAction, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
 
@@ -36,6 +40,16 @@ export interface EffectPorts {
   loadSession(machineId: string): Promise<SessionSnapshot>;
   /** opens the stream of every PC's changes; the function returned closes it */
   openStream(on: { opened(): void; event(event: MachineEvent): void }): () => void;
+  /** the browser's notification permission, asked for when not yet given */
+  requestPermission(): Promise<NotificationState>;
+  /** registers this device's push subscription with these alerts; its endpoint, null when push is not there */
+  subscribePush(prefs: AlertPrefs): Promise<string | null>;
+  /** one push to this endpoint: it proves the whole path to this device */
+  confirmPush(endpoint: string): Promise<void>;
+  removePush(): Promise<void>;
+  dropIn(alert: { machineId: string; machineName: string | null; pane: HerdrPane; alert: DropletKind }): void;
+  /** the tab's own alert; `open` selects the pane when it is tapped */
+  notifyPane(alert: { machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" }, open: () => void): void;
   /** keeps the lens chosen in a pane on this device */
   storeLens(storageId: string, view: PaneView): void;
   /** keeps the selected pane for this window's next load */
@@ -54,7 +68,6 @@ const message = (error: unknown): string => error instanceof Error ? error.messa
 export class Mediator {
   private state: UiState;
   private readonly listeners = new Set<() => void>();
-  private readonly observers = new Set<(event: UiEvent, before: UiState) => void>();
   private closeStream: (() => void) | null = null;
 
   constructor(private readonly ports: EffectPorts, initial: UiState = INITIAL_STATE) {
@@ -68,17 +81,7 @@ export class Mediator {
     return () => this.listeners.delete(listener);
   };
 
-  /**
-   * Shows every event to `observer` with the state it arrives in, before the state machine takes
-   * it: for the shell's own alerts on pushes, until they move into the state machine.
-   */
-  observe = (observer: (event: UiEvent, before: UiState) => void): (() => void) => {
-    this.observers.add(observer);
-    return () => this.observers.delete(observer);
-  };
-
   dispatch = (event: UiEvent): void => {
-    for (const observer of [...this.observers]) observer(event, this.state);
     const { state, effects } = transition(this.state, event);
     if (state !== this.state) {
       this.state = state;
@@ -159,7 +162,7 @@ export class Mediator {
         this.closeStream?.();
         this.closeStream = this.ports.openStream({
           opened: () => this.dispatch({ type: "stream-opened" }),
-          event: (event) => this.dispatch(event.type === "machines" ? { type: "machines-pushed", machines: event.machines } : { type: "machine-message", machineId: event.machine_id, message: event.message }),
+          event: (event) => this.dispatch(event.type === "machines" ? { type: "machines-pushed", machines: event.machines } : { type: "machine-message", machineId: event.machine_id, message: event.message, at: Date.now() }),
         });
         return;
       case "close-stream":
@@ -169,6 +172,36 @@ export class Mediator {
       case "confirm-pane-gone":
         try { this.dispatch({ type: "pane-session-read", machineId: effect.machineId, paneId: effect.paneId, session: await this.ports.loadSession(effect.machineId) }); }
         catch { this.dispatch({ type: "pane-session-failed", machineId: effect.machineId, paneId: effect.paneId }); }
+        return;
+      case "enable-alerts": {
+        const permission = await this.ports.requestPermission();
+        this.dispatch({ type: "alerts-permission", permission });
+        let ok = false;
+        if (permission === "granted") {
+          try {
+            const endpoint = await this.ports.subscribePush(effect.prefs);
+            this.dispatch({ type: "push-subscribed", on: endpoint !== null, seq: null });
+            if (endpoint !== null) await this.ports.confirmPush(endpoint);
+            ok = endpoint !== null;
+          } catch (error) {
+            console.warn("web push unavailable, alerts stay tab-only", error);
+          }
+        }
+        this.dispatch({ type: "alerts-enabled", ok, session: effect.session });
+        return;
+      }
+      case "remove-push":
+        await this.ports.removePush().catch((error: unknown) => console.warn("could not drop the push subscription", error));
+        return;
+      case "subscribe-push":
+        try { this.dispatch({ type: "push-subscribed", on: (await this.ports.subscribePush(effect.prefs)) !== null, seq: effect.seq }); }
+        catch { this.dispatch({ type: "push-subscribed", on: false, seq: effect.seq }); }
+        return;
+      case "drop-in":
+        this.ports.dropIn(effect);
+        return;
+      case "notify-pane":
+        this.ports.notifyPane(effect, () => this.dispatch({ type: "select-pane", machineId: effect.machineId, paneId: effect.pane.pane_id }));
         return;
       case "store-lens":
         this.ports.storeLens(effect.storageId, effect.view);

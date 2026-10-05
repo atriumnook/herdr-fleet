@@ -3,7 +3,7 @@ import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { PairedDevice, RemoteAccess } from "../../shared/protocol.ts";
 import type { Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
-import type { RequestAction } from "./state.ts";
+import { INITIAL_STATE, type RequestAction } from "./state.ts";
 
 const run: AgentRun = { id: "a", name: "impl", role: "worker", agent: "pi", group: "g1", herdrName: "h", paneId: "w1:p1", cwd: "/w", state: "working", depth: 1, interactive: false, worktree: false, startedAt: 1, updatedAt: 1 };
 const access: RemoteAccess = { port: 7000, tailscale: { state: "running", dns_name: "pc.tail.ts.net", serving_url: "https://pc.tail.ts.net", serve_command: null, serve_url: null } };
@@ -39,6 +39,12 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     loadSession: async () => { throw new Error("no session"); },
     openStream: () => () => {},
     storeLens: () => {},
+    requestPermission: async () => "granted",
+    subscribePush: async () => "https://push.example/1",
+    confirmPush: async () => {},
+    removePush: async () => {},
+    dropIn: () => {},
+    notifyPane: () => {},
   };
   return { ports: { ...base, ...overrides }, requests, saved, forgotten, timers };
 }
@@ -151,5 +157,24 @@ describe("Mediator", () => {
     expect(mediator.getState().machines.list.map((machine) => machine.id)).toEqual(["local"]);
     mediator.dispatch({ type: "access-loaded", auth: { required: true, authenticated: false } });
     expect(closed).toBe(1);
+  });
+
+  it("turns alerts on: the permission, the subscription, then the confirmation push", async () => {
+    const confirmed: string[] = [];
+    const mediator = new Mediator(ports({ confirmPush: async (endpoint) => { confirmed.push(endpoint); } }).ports, { ...INITIAL_STATE, settings: { ...INITIAL_STATE.settings, alertsOn: false } });
+    mediator.dispatch({ type: "enable-alerts" });
+    await until(() => mediator.getState().alerts.push);
+    expect(mediator.getState().settings.alertsOn).toBe(true);
+    expect(confirmed).toEqual(["https://push.example/1"]);
+  });
+
+  it("selects the pane a tapped tab alert is about", () => {
+    let tap: (() => void) | null = null;
+    const mediator = new Mediator(ports({ notifyPane: (_alert, open) => { tap = open; } }).ports);
+    mediator.dispatch({ type: "machines-pushed", machines: [{ id: "local", name: "pc", kind: "local", enabled: true, state: "connected", error: null, snapshot: { version: "x", protocol: 1, focused_workspace_id: null, focused_tab_id: null, focused_pane_id: null, workspaces: [], tabs: [], agents: [], panes: [{ pane_id: "w1:p1", workspace_id: "w1", tab_id: "w1:t1", focused: false, agent_status: "idle" }] } as never }] });
+    mediator.dispatch({ type: "machine-message", machineId: "local", message: { type: "pane-status", pane_id: "w1:p1", agent_status: "blocked" }, at: 1 });
+    expect(tap).not.toBeNull();
+    tap!();
+    expect(mediator.getState().selection).toMatchObject({ machineId: "local", paneId: "w1:p1" });
   });
 });

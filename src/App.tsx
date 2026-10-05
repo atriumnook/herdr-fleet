@@ -1,34 +1,22 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
-import type { AgentStatus, ServerMessage, HerdrPane } from "../shared/protocol.ts";
-import { ApiError, sendTestPush } from "./lib/api.ts";
+import type { HerdrPane, ServerMessage } from "../shared/protocol.ts";
 import { displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog } from "./components/NewSessionDialog.tsx";
 import type { SettingsDialogEvent } from "./components/SettingsDialog.tsx";
-import type { PushTestEvent } from "./components/PushTestControls.tsx";
 import { useInstallPrompt } from "./lib/install.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
 import type { MachineSidebarEvent } from "./components/MachineSidebar.tsx";
 import { paneStorageId, type Machine } from "../shared/machines.ts";
-import { alertPrefs, useSettings, type DefaultView } from "./lib/settings.ts";
+import { useSettings, type DefaultView } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
 import type { AppActions, PaneView } from "./lib/actions.ts";
-import {
-  notificationState,
-  requestNotificationPermission,
-  shouldNotifyStatus,
-  alertsAllow,
-  showPaneEndedNotification,
-  showPaneStatusNotification,
-  type NotificationState,
-} from "./lib/notifications.ts";
-import { ensurePushSubscription, pushSupported, removePushSubscription } from "./lib/push.ts";
-import { onNotificationTarget } from "./lib/notificationTarget.ts";
+import { pushSupported } from "./lib/push.ts";
 import { FilesDialog } from "./components/FilesDialog.tsx";
 import { FileViewer } from "./components/FileViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
@@ -45,10 +33,9 @@ import { FleetPresenter } from "./ui/FleetPresenter.tsx";
 import { MachineSidebarPresenter } from "./ui/MachineSidebarPresenter.tsx";
 import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
-import { useObserver, useSelected } from "./ui/presenter.ts";
+import { useSelected } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
 import type { UiEvent } from "./ui/state.ts";
-import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
 
 const APP_TITLE = "herdr fleet";
 /**
@@ -103,14 +90,8 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   // phone's keyboard (over the drawer the close was tapped in) until the user picks a pane or lens
   const autoSelected = selection.auto;
   const { settings, resolvedTheme, update: updateSettings } = useSettings();
-  // this device's alert choices: sent with its push subscription, and applied to tab alerts here
-  const alerts = useMemo(() => alertPrefs(settings), [settings.alertInput, settings.alertDone]);
-  const alertsRef = useRef(alerts);
-  alertsRef.current = alerts;
   // the bell's switch for this device: off drops its push subscription and silences tab alerts
   const alertsOn = settings.alertsOn;
-  const alertsOnRef = useRef(alertsOn);
-  alertsOnRef.current = alertsOn;
   // the server, as the Mediator reads it: each value on its own, so a poll that changed nothing re-renders nothing
   const machines = useSelected((state) => state.machines.list);
   const error = useSelected((state) => state.machines.error);
@@ -153,143 +134,20 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const connected = useSelected((state) => state.pane.connected);
   const outputStopped = useSelected((state) => state.pane.outputStopped);
   const role = useSelected((state) => state.pane.role);
-  const [notifications, setNotifications] = useState<NotificationState>(() => notificationState());
-  // this device has a server-side push subscription: alerts come from the server, not the tab
-  const [pushOn, setPushOn] = useState(false);
-  const pushOnRef = useRef(pushOn);
-  pushOnRef.current = pushOn;
-  // last-seen agent status per pane: the baseline that decides whether a push is news
-  const statusRef = useRef<Map<string, AgentStatus>>(new Map());
-  // when each pane's turn began, so an in-app alert knows a long turn from a quick one
-  const turnStartRef = useRef<Map<string, number>>(new Map());
-  // how long each pane's last finished turn took: a pane that ends is told by it too
-  const lastTurnRef = useRef<Map<string, number>>(new Map());
-  const alertInAppRef = useRef(settings.alertInApp);
-  alertInAppRef.current = settings.alertInApp;
+  // this device's alerts, as the Mediator keeps them: the browser's permission, and whether
+  // the server pushes them (else the tab tells them itself)
+  const notifications = useSelected((state) => state.alerts.permission);
+  const pushOn = useSelected((state) => state.alerts.push);
   const snapshotRef = useRef<typeof snapshot>(null);
   snapshotRef.current = snapshot;
-
-  // In-app alerts (components/Droplet.tsx): only while the app is on screen - a hidden app has
-  // its system notifications - and never for the pane already open in front of the user.
-  const dropIn = useCallback((machine: Machine, pane: HerdrPane, kind: DropletKind) => {
-    if (!alertsOnRef.current || !alertInAppRef.current || document.visibilityState !== "visible") return;
-    const open = selectionRef.current;
-    if (open.machineId === machine.id && open.paneId === pane.pane_id && !drawerOpenRef.current) return;
-    showDroplet({
-      machineId: machine.id,
-      paneId: pane.pane_id,
-      agent: pane.agent ?? null,
-      title: displayPaneTitle(pane),
-      machine: machinesRef.current.length > 1 ? machine.name : null,
-      kind,
-    });
-  }, []);
-
-  // Alerts on what the server pushes: the Mediator keeps the PCs, this shell still decides
-  // which change is news (until the alerts move into the Mediator too)
-  useObserver((event, before) => {
-    if (event.type === "machines-pushed") {
-      for (const machine of event.machines) for (const pane of machine.snapshot?.panes ?? []) {
-        statusRef.current.set(paneStorageId(machine.id, pane.pane_id), pane.agent_status);
-      }
-      return;
-    }
-    if (event.type !== "machine-message") return;
-    const machine = before.machines.list.find((m) => m.id === event.machineId);
-    if (!machine) return;
-    const message = event.message;
-    if (message.type === "pane-status") {
-      const key = paneStorageId(machine.id, message.pane_id);
-      const previous = statusRef.current.get(key);
-      statusRef.current.set(key, message.agent_status);
-      const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
-      const worked = trackTurn(turnStartRef.current, key, previous, message.agent_status, Date.now());
-      if (worked !== null) lastTurnRef.current.set(key, worked);
-      if (pane && shouldNotifyStatus(previous, message.agent_status) && dropletAllows(alertsRef.current, message.agent_status, worked)) dropIn(machine, pane, message.agent_status === "blocked" ? "blocked" : "done");
-      if (pane && shouldNotifyStatus(previous, message.agent_status) && alertsOnRef.current && !pushOnRef.current && alertsAllow(alertsRef.current, message.agent_status)) showPaneStatusNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, message.agent_status, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
-    }
-    if (message.type === "pane-exited") {
-      const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
-      const worked = endedTurn(turnStartRef.current, lastTurnRef.current, paneStorageId(machine.id, message.pane_id), Date.now());
-      if (pane && dropletAllows(alertsRef.current, "done", worked)) dropIn(machine, pane, "ended");
-    }
-    if (message.type === "pane-exited" && alertsOnRef.current && !pushOnRef.current && alertsRef.current.done !== "off") {
-      const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
-      if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
-    }
-  });
 
   const handleServerMessage = useCallback((message: ServerMessage) => {
     if (message.type === "error" && message.code === "output_stalled") emitRef.current({ type: "output-stalled" });
   }, []);
 
-  const enableNotifications = useCallback(async () => {
-    const next = notificationState() === "granted" ? "granted" : await requestNotificationPermission();
-    setNotifications(next);
-    if (next !== "granted") return false;
-    updateSettings({ alertsOn: true });
-    try {
-      const endpoint = await ensurePushSubscription(alertsRef.current);
-      setPushOn(endpoint !== null);
-      // the confirmation push proves the whole path (server -> push service -> this device)
-      if (endpoint) await sendTestPush(endpoint);
-      return endpoint !== null;
-    } catch (err) {
-      console.warn("web push unavailable, alerts stay tab-only", err);
-      return false;
-    }
-  }, [updateSettings]);
-
-  // The browser's permission cannot be taken back from the page: turning alerts off drops
-  // this device's push subscription (the server forgets it) and silences the tab's own.
-  const settingsSession = useSelected((state) => state.settingsSession);
-  const settingsSessionRef = useRef(settingsSession);
-  settingsSessionRef.current = settingsSession;
-  // Settings → Alerts: a test push goes up to the Mediator; turning alerts on again is this
-  // shell's (it holds the permission and the subscription), and only its outcome goes up
-  const pushTestEmit = useMemo(() => relay<PushTestEvent, UiEvent>(emit, (event, pass) => {
-    if (event.type !== "repair-alerts") { pass(event); return; }
-    // its outcome belongs to this opening of Settings
-    const session = settingsSessionRef.current;
-    pass({ type: "push-repair-started" });
-    enableNotifications().then(
-      (ok) => pass({ type: "push-tested", result: ok ? "sent" : "failed", session }),
-      (error: unknown) => pass({ type: "push-tested", result: error instanceof ApiError && error.code === "subscription_not_found" ? "missing" : "failed", session }),
-    );
-  }), [emit, enableNotifications]);
-
-  const disableNotifications = useCallback(async () => {
-    updateSettings({ alertsOn: false });
-    setPushOn(false);
-    await removePushSubscription().catch((err) => console.warn("could not drop the push subscription", err));
-  }, [updateSettings]);
-
-  // a device that already allowed alerts re-registers on every load: idempotent, and it
-  // brings the device back if the server lost its subscriptions; a changed choice of
-  // alerts goes the same way
-  useEffect(() => {
-    if (locked !== false || notifications !== "granted" || !alertsOn || !pushSupported()) return;
-    let cancelled = false;
-    ensurePushSubscription(alerts)
-      .then((endpoint) => {
-        if (!cancelled) setPushOn(endpoint !== null);
-      })
-      .catch(() => {
-        if (!cancelled) setPushOn(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [locked, notifications, alerts, alertsOn]);
-
-  const lock = useCallback(async () => {
-    setDrawerOpen(false);
-    // before signing out: the unsubscribe call needs the cookie, and a locked device must stop
-    // receiving pane titles
-    await removePushSubscription().catch(() => undefined);
-    setPushOn(false);
-    emitRef.current({ type: "sign-out" });
-  }, []);
+  const enableNotifications = useCallback(() => emitRef.current({ type: "enable-alerts" }), []);
+  const disableNotifications = useCallback(() => emitRef.current({ type: "disable-alerts" }), []);
+  const lock = useCallback(() => emitRef.current({ type: "sign-out" }), []);
 
   const selectedMachineRef = useRef(selectedMachineId);
   selectedMachineRef.current = selectedMachineId;
@@ -320,9 +178,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     else if (event.type === "select-pane") pass(event);
     else { setDrawerOpen(false); pass(event); }
   }), [emit, openNewSession, installPrompt.install, setDrawerOpen]);
-
-  // a tapped notification focuses this window and names the pane (public/sw.js)
-  useEffect(() => onNotificationTarget((target) => selectTargetRef.current(target.machine_id, target.pane_id)), []);
 
   // the ?pane= a notification opened us with has done its job once it selected the pane
   useEffect(() => {
@@ -358,7 +213,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     [selectedPaneId, selectedMachineId, lensKey],
   );
 
-  const bell: { label: string; title: string; on: boolean; run: () => Promise<unknown> } =
+  const bell: { label: string; title: string; on: boolean; run: () => void } =
     notifications !== "granted"
       ? { label: t("Enable notifications"), title: t("Notify me when a pane needs input or finishes"), on: false, run: enableNotifications }
       : !alertsOn
@@ -618,7 +473,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       }} />
       <SettingsDialogPresenter
         install={installPrompt}
-        alerts={<PushTestPresenter emit={pushTestEmit} />}
+        alerts={<PushTestPresenter emit={emit} />}
         devices={(pairUrl) => <DevicesPanelPresenter pairUrl={pairUrl} auth={auth} emit={emit} />}
         emit={settingsEmit}
       />

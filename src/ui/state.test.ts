@@ -376,10 +376,10 @@ describe("the push test", () => {
     expect(play([{ type: "send-test-push" }], sending).effects).toEqual([]);
   });
 
-  it("follows a repair the shell runs: sending until it answers", () => {
-    const repairing = play([{ type: "push-repair-started" }], opened()).state;
+  it("turns alerts on again: sending until it answers", () => {
+    const repairing = play([{ type: "repair-alerts" }], opened()).state;
     expect(repairing.pushTest).toBe("sending");
-    expect(play([{ type: "push-tested", result: "sent", session }], repairing).state.pushTest).toBe("sent");
+    expect(play([{ type: "alerts-enabled", ok: false, session }], repairing).state.pushTest).toBe("failed");
   });
 
   it("drops a result that arrives after Settings closed, or in a later opening", () => {
@@ -517,7 +517,8 @@ describe("the connection to the server", () => {
       { type: "machine-message", machineId: "local", message: { type: "session-changed" } },
       { type: "machine-message", machineId: "local", message: { type: "pane-exited", pane_id: "w1:p1" } },
     ], state);
-    expect(burst.effects).toEqual([{ kind: "later", ms: 500, event: { type: "refetch-machines" } }]);
+    // (a pane that ended is also told, as an alert: see "alerts")
+    expect(burst.effects.filter((effect) => effect.kind === "later")).toEqual([{ kind: "later", ms: 500, event: { type: "refetch-machines" } }]);
     expect(kinds(play([{ type: "refetch-machines" }], burst.state).effects)).toEqual(["load-machines"]);
   });
 
@@ -593,5 +594,92 @@ describe("the open pane", () => {
   it("opens and closes the drawer, and toggles it", () => {
     expect(play([{ type: "toggle-drawer" }]).state.drawerOpen).toBe(true);
     expect(play([{ type: "toggle-drawer" }, { type: "drawer", open: false }]).state.drawerOpen).toBe(false);
+  });
+});
+
+describe("alerts", () => {
+  const pane = (status: string) => ({ pane_id: "w1:p1", workspace_id: "w1", tab_id: "w1:t1", focused: false, agent_status: status, agent: "claude" });
+  const pc = (status: string): Machine => ({
+    id: "local", name: "omarchy", kind: "local", enabled: true, state: "connected", error: null,
+    snapshot: { version: "0.9.1", protocol: 22, focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: "w1:p1", workspaces: [], tabs: [], agents: [], panes: [pane(status)] } as never,
+  });
+  const kinds = (effects: { kind: string }[]) => effects.map((effect) => effect.kind);
+  /** in, alerts allowed, the PC pushed with its pane idle, another pane open */
+  const watching = (extra: Partial<UiState> = {}) => {
+    const booted = play([{ type: "boot", linkToken: null, alerts: { permission: "granted", supported: true } }]).state;
+    const inside = play([{ type: "machines-loaded", machines: [pc("idle")], revision: booted.machines.revision }, { type: "machines-pushed", machines: [pc("idle")] }, { type: "select-pane", machineId: "local", paneId: "w1:other" }], booted).state;
+    return { ...inside, ...extra };
+  };
+  const status = (agent_status: string, at = 1_000) => ({ type: "machine-message" as const, machineId: "local", message: { type: "pane-status" as const, pane_id: "w1:p1", agent_status: agent_status as never }, at });
+
+  it("tells of a pane that started waiting on the person, in the tab and in the app", () => {
+    const { effects } = play([status("blocked")], watching());
+    expect(kinds(effects)).toEqual(["drop-in", "notify-pane"]);
+    expect(effects[0]).toMatchObject({ kind: "drop-in", machineId: "local", alert: "blocked" });
+  });
+
+  it("leaves the tab's own alert to the push service once this device is subscribed", () => {
+    const pushed = watching();
+    expect(kinds(play([status("blocked")], { ...pushed, alerts: { ...pushed.alerts, push: true } }).effects)).toEqual(["drop-in"]);
+  });
+
+  it("drops nothing in for the pane open in front of the person, unless the drawer covers it", () => {
+    const open = play([{ type: "select-pane", machineId: "local", paneId: "w1:p1" }], watching()).state;
+    expect(kinds(play([status("blocked")], open).effects)).toEqual(["notify-pane"]);
+    expect(kinds(play([{ type: "drawer", open: true }, status("blocked")], open).effects)).toEqual(["drop-in", "notify-pane"]);
+  });
+
+  it("says nothing of a status that is no news, nor with alerts off", () => {
+    const state = watching();
+    expect(play([status("idle")], state).effects).toEqual([]);
+    const off = play([{ type: "change-settings", patch: { alertsOn: false } }], state).state;
+    expect(play([status("blocked")], off).effects.filter((effect) => effect.kind === "drop-in" || effect.kind === "notify-pane")).toEqual([]);
+  });
+
+  it("drops in a finished turn only when it was long, by default; the tab's alert, as before, takes no timing", () => {
+    const working = play([status("working", 0)], watching()).state;
+    expect(kinds(play([status("done", 10_000)], working).effects)).toEqual(["notify-pane"]);
+    expect(kinds(play([status("done", 120_000)], working).effects)).toEqual(["drop-in", "notify-pane"]);
+  });
+
+  it("asks for the permission, turns alerts on, subscribes and confirms with a push", () => {
+    const off = watching({ settings: { ...INITIAL_STATE.settings, alertsOn: false } });
+    const asked = play([{ type: "enable-alerts" }], off);
+    expect(asked.effects).toEqual([{ kind: "enable-alerts", prefs: { input: true, done: "long" }, session: null }]);
+    const granted = play([{ type: "alerts-permission", permission: "granted" }], asked.state).state;
+    expect(granted.settings.alertsOn).toBe(true);
+    expect(play([{ type: "push-subscribed", on: true, seq: null }], granted).state.alerts.push).toBe(true);
+  });
+
+  it("turns alerts off: no push subscription, no tab alerts", () => {
+    const on = watching();
+    const { state, effects } = play([{ type: "disable-alerts" }], { ...on, alerts: { ...on.alerts, push: true } });
+    expect(state.settings.alertsOn).toBe(false);
+    expect(state.alerts.push).toBe(false);
+    expect(kinds(effects)).toContain("remove-push");
+  });
+
+  it("registers this device's subscription again once in, and when its choice of alerts changes", () => {
+    const booted = play([{ type: "boot", linkToken: null, alerts: { permission: "granted", supported: true } }]).state;
+    const inside = play([{ type: "machines-loaded", machines: [], revision: booted.machines.revision }], booted);
+    expect(inside.effects).toContainEqual({ kind: "subscribe-push", prefs: { input: true, done: "long" }, seq: 1 });
+    const changed = play([{ type: "change-settings", patch: { alertDone: "always" } }], inside.state);
+    expect(changed.effects).toContainEqual({ kind: "subscribe-push", prefs: { input: true, done: "always" }, seq: 2 });
+    // an answer to an older registration is superseded
+    expect(play([{ type: "push-subscribed", on: false, seq: 1 }], changed.state).state.alerts.push).toBe(changed.state.alerts.push);
+  });
+
+  it("turns alerts on again from Settings and reports the outcome there", () => {
+    const opened = play([{ type: "open-settings" }], watching()).state;
+    const repairing = play([{ type: "repair-alerts" }], opened);
+    expect(repairing.state.pushTest).toBe("sending");
+    expect(repairing.effects).toContainEqual({ kind: "enable-alerts", prefs: { input: true, done: "long" }, session: opened.settingsSession });
+    expect(play([{ type: "alerts-enabled", ok: true, session: opened.settingsSession }], repairing.state).state.pushTest).toBe("sent");
+  });
+
+  it("drops the subscription and closes the drawer on the way out", () => {
+    const on = watching({ drawerOpen: true });
+    const { state } = play([{ type: "sign-out" }], { ...on, alerts: { ...on.alerts, push: true } });
+    expect(state).toMatchObject({ drawerOpen: false, alerts: { push: false } });
   });
 });
