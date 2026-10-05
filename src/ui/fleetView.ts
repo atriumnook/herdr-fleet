@@ -1,6 +1,10 @@
 import type { AgentRun, AgentState, FleetAgentKind, SkippedCandidate, ThinkingLevel, UsageEntry, UsageWindow } from "../../shared/fleet.ts";
 import { isEnded, type UiState } from "./state.ts";
 
+/** The regions the Fleet screen draws: its Presenter re-renders when one of them changes. */
+export const FLEET_REGIONS = ["runs", "usage", "request", "detail", "canAct"] as const;
+export type FleetState = Pick<UiState, (typeof FLEET_REGIONS)[number]>;
+
 /**
  * What the Fleet screen draws, built from the Mediator's state: the views take these values and
  * nothing else. Runs are ordered by what they ask of the person: waiting on them first, then
@@ -86,7 +90,7 @@ export function meterLevel(usedPercent: number): UsageCapsuleModel["level"] {
   return usedPercent < 50 ? "ok" : usedPercent < 80 ? "mid" : "low";
 }
 
-function card(run: AgentRun, runs: AgentRun[], state: UiState): RunCardModel {
+function card(run: AgentRun, runs: AgentRun[], state: FleetState): RunCardModel {
   const tone = toneOf(run.state);
   const pending = state.request.status === "pending" ? state.request.action : undefined;
   const replacement = run.replacedBy ? runs.find((other) => other.id === run.replacedBy) : undefined;
@@ -105,7 +109,7 @@ function card(run: AgentRun, runs: AgentRun[], state: UiState): RunCardModel {
   };
 }
 
-function capsule(entry: UsageEntry, state: UiState, now: number): UsageCapsuleModel {
+function capsule(entry: UsageEntry, state: FleetState, now: number): UsageCapsuleModel {
   const windows = (entry.reading?.windows ?? []).filter((window) => window.resetsAt === undefined || window.resetsAt > now);
   const worst = windows.reduce<UsageWindow | undefined>((top, window) => (!top || window.usedPercent > top.usedPercent ? window : top), undefined);
   const prefix = entry.key.split(":")[0] as FleetAgentKind;
@@ -124,7 +128,7 @@ function capsule(entry: UsageEntry, state: UiState, now: number): UsageCapsuleMo
   };
 }
 
-export function fleetScreenModel(state: UiState, now: number): FleetScreenModel {
+export function fleetScreenModel(state: FleetState, now: number): FleetScreenModel {
   const runs = state.runs.data;
   const cards = runs.map((run) => card(run, runs, state));
   const byNewest = (a: RunCardModel, b: RunCardModel) => b.updatedAt - a.updatedAt;
@@ -159,6 +163,6 @@ export function fleetScreenModel(state: UiState, now: number): FleetScreenModel 
 }
 
 /** How many runs wait on the person: the count the Fleet button carries. */
-export function needsCount(state: UiState): number {
+export function needsCount(state: Pick<UiState, "runs">): number {
   return state.runs.data.filter((run) => run.state === "blocked").length;
 }

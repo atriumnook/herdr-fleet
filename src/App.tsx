@@ -9,7 +9,7 @@ import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog } from "./components/NewSessionDialog.tsx";
-import { SettingsDialog, type SettingsDialogEvent } from "./components/SettingsDialog.tsx";
+import type { SettingsDialogEvent } from "./components/SettingsDialog.tsx";
 import { DevicesPanel } from "./components/DevicesPanel.tsx";
 import { PushTestControls } from "./components/PushTestControls.tsx";
 import { useInstallPrompt } from "./lib/install.ts";
@@ -42,11 +42,12 @@ import { useT } from "./lib/i18n.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { Droplet } from "./components/Droplet.tsx";
-import { FleetScreen } from "./components/fleet/FleetScreen.tsx";
 import { relay, type Emit } from "./ui/bubble.ts";
-import type { FleetScreenModel } from "./ui/fleetView.ts";
-import type { SettingsDialogModel } from "./ui/settingsView.ts";
-import type { Screen, UiEvent } from "./ui/state.ts";
+import { needsCount } from "./ui/fleetView.ts";
+import { FleetPresenter } from "./ui/FleetPresenter.tsx";
+import { useSelected } from "./ui/presenter.ts";
+import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
+import type { UiEvent } from "./ui/state.ts";
 import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
 
 const APP_TITLE = "herdr fleet";
@@ -128,24 +129,16 @@ function Brand() {
 }
 
 /**
- * What the Root hands the legacy shell: the Mediator's screen, the Fleet screen's and the Settings
- * dialog's values, and the Emit its events go up through. The shell still owns the pane selection; `paneRequest` asks it
- * to select a pane, until that selection moves to the Mediator too.
+ * The legacy shell, under the Root: it reads what it draws of the Mediator's state (the screen,
+ * the runs waiting on the person, a pane the Mediator asks for) and sends events up through `emit`.
  */
-export interface ShellProps {
-  screen: Screen;
-  fleet: FleetScreenModel;
-  needs: number;
-  paneRequest: { paneId: string; seq: number } | null;
-  /** null while the dialog is closed */
-  settingsDialog: SettingsDialogModel | null;
-  emit: Emit<UiEvent>;
-}
-
-export function App({ shell }: { shell: ShellProps }) {
+export function App({ emit }: { emit: Emit<UiEvent> }) {
   const t = useT();
-  const emitRef = useRef(shell.emit);
-  emitRef.current = shell.emit;
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
+  const screen = useSelected((state) => state.screen);
+  const needs = useSelected(needsCount);
+  const paneRequest = useSelected((state) => state.paneRequest);
   const { settings, resolvedTheme, update: updateSettings } = useSettings();
   // this device's alert choices: sent with its push subscription, and applied to tab alerts here
   const alerts = useMemo(() => alertPrefs(settings), [settings.alertInput, settings.alertDone]);
@@ -207,10 +200,10 @@ export function App({ shell }: { shell: ShellProps }) {
   }, [openFile, selectedPaneId, selectedMachineId]);
   // the install prompt is the browser's: the Settings dialog asks for it, and this shell handles it
   const installPrompt = useInstallPrompt();
-  const settingsEmit = useMemo(() => relay<SettingsDialogEvent, UiEvent>(shell.emit, (event, pass) => {
+  const settingsEmit = useMemo(() => relay<SettingsDialogEvent, UiEvent>(emit, (event, pass) => {
     if (event.type === "install-app") void installPrompt.install();
     else pass(event);
-  }), [shell.emit, installPrompt.install]);
+  }), [emit, installPrompt.install]);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [outputStopped, setOutputStopped] = useState(false);
@@ -506,13 +499,13 @@ export function App({ shell }: { shell: ShellProps }) {
   // the pane stays attached under the Fleet screen, out of reach of focus and screen readers
   const paneLayerRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    paneLayerRef.current?.toggleAttribute("inert", shell.screen === "fleet");
-  }, [shell.screen]);
+    paneLayerRef.current?.toggleAttribute("inert", screen === "fleet");
+  }, [screen]);
 
   // the Mediator asked for a fleet run's pane: it lives on this PC
   useEffect(() => {
-    if (shell.paneRequest) selectTargetRef.current("local", shell.paneRequest.paneId);
-  }, [shell.paneRequest]);
+    if (paneRequest) selectTargetRef.current("local", paneRequest.paneId);
+  }, [paneRequest]);
 
   // a tapped notification focuses this window and names the pane (public/sw.js)
   useEffect(() => onNotificationTarget((target) => selectTargetRef.current(target.machine_id, target.pane_id)), []);
@@ -722,14 +715,14 @@ export function App({ shell }: { shell: ShellProps }) {
           )}
           <button
             type="button"
-            className={`icon-button fleet-button${shell.needs > 0 ? " has-needs" : ""}`}
-            aria-label={shell.needs > 0 ? t("Fleet: {count} waiting on you", { count: shell.needs }) : t("Fleet")}
-            aria-pressed={shell.screen === "fleet"}
+            className={`icon-button fleet-button${needs > 0 ? " has-needs" : ""}`}
+            aria-label={needs > 0 ? t("Fleet: {count} waiting on you", { count: needs }) : t("Fleet")}
+            aria-pressed={screen === "fleet"}
             title={t("Fleet")}
-            onClick={() => shell.emit({ type: "show-screen", screen: shell.screen === "fleet" ? "pane" : "fleet" })}
+            onClick={() => emit({ type: "show-screen", screen: screen === "fleet" ? "pane" : "fleet" })}
           >
             <Orbit />
-            {shell.needs > 0 && <span className="fleet-button-count" aria-hidden="true">{shell.needs}</span>}
+            {needs > 0 && <span className="fleet-button-count" aria-hidden="true">{needs}</span>}
           </button>
           <button type="button" className="icon-button" aria-label={t("Command palette")} title={t("Command palette (⌘⇧K)")} onClick={() => setPaletteOpen(true)}>
             <Search />
@@ -786,7 +779,7 @@ export function App({ shell }: { shell: ShellProps }) {
             onServerMessage={handleServerMessage}
           />
           </div>
-          {shell.screen === "fleet" && <FleetScreen model={shell.fleet} screen={shell.screen} emit={shell.emit} />}
+          {screen === "fleet" && <FleetPresenter screen={screen} emit={emit} />}
         </main>
         </OpenFileContext.Provider>
       </div>
@@ -810,13 +803,12 @@ export function App({ shell }: { shell: ShellProps }) {
         setFilesOpen(false);
         selectTargetRef.current(machineId, paneId);
       }} />
-      {shell.settingsDialog && <SettingsDialog
-        model={shell.settingsDialog}
+      <SettingsDialogPresenter
         install={installPrompt}
         alerts={<PushTestControls onEnable={enableNotifications} />}
-        devices={<DevicesPanel pairUrl={shell.settingsDialog.pairUrl} auth={auth} />}
+        devices={(pairUrl) => <DevicesPanel pairUrl={pairUrl} auth={auth} />}
         emit={settingsEmit}
-      />}
+      />
       {filesOpen && selectedPane && (
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} viewing={viewing !== null} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
       )}

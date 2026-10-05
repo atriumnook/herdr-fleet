@@ -9,7 +9,7 @@ Herdr 上で複数のコーディングエージェント(pi / Claude Code / Cod
 - `bin/fleet.ts` — `/api/fleet` を呼ぶ薄い CLI。起動されたエージェントは、指示文と環境変数(`HERDR_FLEET_URL` / `HERDR_FLEET_GROUP` / `HERDR_FLEET_DEPTH`)を通じてこれを使う
 - `agents/*.md` — 同梱の役割定義。ユーザー分は `~/.config/herdr-fleet/agents/`、プロジェクト分は `.herdr-fleet/agents/` に置き、後に読んだものが同名の役割を上書きする
 - `src/` — React の Web UI。`shared/` はサーバとクライアントで共有する型(fleet の run と使用量は `shared/fleet.ts`)
-- `src/ui/` — Web UI の土台。すべてのコンポーネントは `Root` を頂点とする階層の下に置く。各コンポーネントは Passive View として描画用の値だけを受け取り、動作はイベントとして親に渡す(親は文脈を足して上へ渡すか、扱って止める: `relay`)。Root の `Mediator` が、並行する領域を持つ状態機械(`state.ts` の純粋な遷移関数)で裁定し、副作用(API の呼び出し)を実行する。View に置いてよいのは見た目だけの状態(hover、スクロール位置、開閉、xterm の内部、表示用の時計)。既存のコンポーネント(App 以下)はまだ移行前で、1 つずつ別の PR で移す
+- `src/ui/` — Web UI の土台。すべてのコンポーネントは `Root` を頂点とする階層の下に置く。各コンポーネントは Passive View として描画用の値だけを受け取り、動作はイベントとして親に渡す(親は文脈を足して上へ渡すか、扱って止める: `relay`)。Root の `Mediator` が、並行する領域を持つ状態機械(`state.ts` の純粋な遷移関数)で裁定し、副作用(API の呼び出し)を実行する。状態は、View ごとの Presenter(`FleetPresenter` など)が、その View が描く領域だけを `useRegions` / `useSelected`(`presenter.ts`)で購読して view model にし、View に渡す。状態全体を上から配らない(ある領域の変化で、関係のない画面まで再描画しないため)。View に置いてよいのは見た目だけの状態(hover、スクロール位置、開閉、xterm の内部、表示用の時計)。既存のコンポーネント(App 以下)はまだ移行前で、1 つずつ別の PR で移す
 
 ## 開発コマンド
 
