@@ -17,6 +17,8 @@ export interface EffectPorts {
   startPairing(): Promise<PairingCode>;
   renameDevice(id: string, label: string): Promise<void>;
   revokeDevice(id: string): Promise<void>;
+  /** a test push to this device's own subscription; `missing` when the server no longer has it */
+  testPush(): Promise<"sent" | "unsupported" | "permission" | "missing">;
   /** runs `then` after `ms`: the clock the state machine's `later` effects wait on */
   later(ms: number, then: () => void): void;
 }
@@ -89,6 +91,9 @@ export class Mediator {
         return;
       case "revoke-device":
         try { await this.ports.revokeDevice(effect.id); this.dispatch({ type: "device-changed", session: effect.session }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
+        return;
+      case "test-push":
+        try { this.dispatch({ type: "push-tested", result: await this.ports.testPush(), session: effect.session }); } catch { this.dispatch({ type: "push-tested", result: "failed", session: effect.session }); }
         return;
       case "later":
         this.ports.later(effect.ms, () => this.dispatch(effect.event));

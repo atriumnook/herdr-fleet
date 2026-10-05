@@ -10,7 +10,7 @@ import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog } from "./components/NewSessionDialog.tsx";
 import type { SettingsDialogEvent } from "./components/SettingsDialog.tsx";
-import { PushTestControls } from "./components/PushTestControls.tsx";
+import type { PushTestEvent } from "./components/PushTestControls.tsx";
 import { useInstallPrompt } from "./lib/install.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
@@ -45,6 +45,7 @@ import { relay, type Emit } from "./ui/bubble.ts";
 import { needsCount } from "./ui/fleetView.ts";
 import { DevicesPanelPresenter } from "./ui/DevicesPanelPresenter.tsx";
 import { FleetPresenter } from "./ui/FleetPresenter.tsx";
+import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
 import { useSelected } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
 import type { UiEvent } from "./ui/state.ts";
@@ -391,6 +392,22 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
 
   // The browser's permission cannot be taken back from the page: turning alerts off drops
   // this device's push subscription (the server forgets it) and silences the tab's own.
+  const settingsSession = useSelected((state) => state.settingsSession);
+  const settingsSessionRef = useRef(settingsSession);
+  settingsSessionRef.current = settingsSession;
+  // Settings → Alerts: a test push goes up to the Mediator; turning alerts on again is this
+  // shell's (it holds the permission and the subscription), and only its outcome goes up
+  const pushTestEmit = useMemo(() => relay<PushTestEvent, UiEvent>(emit, (event, pass) => {
+    if (event.type !== "repair-alerts") { pass(event); return; }
+    // its outcome belongs to this opening of Settings
+    const session = settingsSessionRef.current;
+    pass({ type: "push-repair-started" });
+    enableNotifications().then(
+      (ok) => pass({ type: "push-tested", result: ok ? "sent" : "failed", session }),
+      (error: unknown) => pass({ type: "push-tested", result: error instanceof ApiError && error.code === "subscription_not_found" ? "missing" : "failed", session }),
+    );
+  }), [emit, enableNotifications]);
+
   const disableNotifications = useCallback(async () => {
     updateSettings({ alertsOn: false });
     setPushOn(false);
@@ -805,7 +822,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       }} />
       <SettingsDialogPresenter
         install={installPrompt}
-        alerts={<PushTestControls onEnable={enableNotifications} />}
+        alerts={<PushTestPresenter emit={pushTestEmit} />}
         devices={(pairUrl) => <DevicesPanelPresenter pairUrl={pairUrl} auth={auth} emit={emit} />}
         emit={settingsEmit}
       />

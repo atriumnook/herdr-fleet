@@ -4,6 +4,7 @@ import { ApiError, clearFleetCooldown, closeDoneFleetRuns, fetchDevices, fetchFl
 import { forgetPaneViews, loadSettings, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
+import { testDevicePush } from "../lib/push.ts";
 import { INITIAL_STATE } from "./state.ts";
 
 /** The Mediator's effects against this PC's server and this browser's storage. */
@@ -25,6 +26,8 @@ const FLEET_PORTS: EffectPorts = {
   renameDevice: async (id, label) => { await renameDevice(id, label); },
   revokeDevice,
   later: (ms, then) => { window.setTimeout(then, ms); },
+  // a subscription the server no longer has is what the test is for: it says so, not that it failed
+  testPush: () => testDevicePush().catch((error: unknown) => { if (error instanceof ApiError && error.code === "subscription_not_found") return "missing" as const; throw error; }),
 };
 
 /** Hands the settings the Mediator holds to the views that read them from context (`useSettings`). */
