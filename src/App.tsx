@@ -4,7 +4,7 @@ import { Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, 
 import type { AgentStatus, ClientRole, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
 import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, sendTestPush, signOut, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
-import { displayPaneTitle, Sidebar } from "./components/Sidebar.tsx";
+import { displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
@@ -48,6 +48,7 @@ import { needsCount } from "./ui/fleetView.ts";
 import { DevicesPanelPresenter } from "./ui/DevicesPanelPresenter.tsx";
 import { FleetPresenter } from "./ui/FleetPresenter.tsx";
 import { MachineSidebarPresenter } from "./ui/MachineSidebarPresenter.tsx";
+import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
 import { useSelected, useStateNow } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
@@ -609,16 +610,16 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     }),
     [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications, load],
   );
-  // a connected PC's sessions: the legacy tree, with this shell's actions aimed at that PC
+  // a connected PC's sessions: a pane picked and a new session go as from the sidebar; the tree's
+  // own changes go up as they are
+  const treeEmit = useMemo(() => relay<SidebarEvent, UiEvent>(emit, (event, pass) => {
+    if (event.type === "select-pane") { leavePane(event.machineId); pass(event); }
+    else if (event.type === "new-session") openNewSession(event.machineId);
+    else pass(event);
+  }), [emit, leavePane, openNewSession]);
   const machineTree = useCallback((machine: Machine) => (
-    <MachineContext.Provider value={machine.id}>
-      <Sidebar
-        snapshot={machine.snapshot}
-        selectedPaneId={selectedMachineId === machine.id ? selectedPaneId : null}
-        actions={{ ...actions, selectPane: (id) => selectTarget(machine.id, id), openNewSession: () => openNewSession(machine.id) }}
-      />
-    </MachineContext.Provider>
-  ), [actions, selectedMachineId, selectedPaneId, selectTarget, openNewSession]);
+    <SidebarPresenter machineId={machine.id} snapshot={machine.snapshot} selectedPaneId={selectedMachineId === machine.id ? selectedPaneId : null} emit={treeEmit} />
+  ), [selectedMachineId, selectedPaneId, treeEmit]);
 
   useShortcuts(actions, locked === false);
 
