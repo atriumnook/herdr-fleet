@@ -6,7 +6,6 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import "katex/dist/katex.min.css";
 import { Root } from "./ui/Root.tsx";
-import { SettingsProvider } from "./lib/settings.ts";
 import "./lib/viewport.ts";
 
 const container = document.getElementById("root");
@@ -14,8 +13,6 @@ if (!container) throw new Error("#root is missing from index.html");
 
 createRoot(container).render(
   <StrictMode>
-    <SettingsProvider>
-      <Root />
-    </SettingsProvider>
+    <Root />
   </StrictMode>,
 );

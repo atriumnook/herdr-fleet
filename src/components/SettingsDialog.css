@@ -1,5 +1,15 @@
+/* Liquid / Spatial (DESIGN.md §7, glass layers): the dialog floats as a sheet, each section a group on it */
 .settings-dialog {
   width: min(100%, var(--content-w));
+  border: var(--hairline) solid var(--glass-edge);
+  background: linear-gradient(135deg, var(--glass-sheen-a), var(--glass-sheen-b) 40%, transparent 70%), var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 60px var(--primary-tint), 0 40px 90px var(--glass-shadow);
+}
+
+.settings-dialog .modal-header {
+  border-bottom-color: var(--glass-edge);
 }
 
 .settings-dialog .icon-button svg {
@@ -17,6 +27,28 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  padding: var(--space-4);
+  border: var(--hairline) solid var(--glass-edge);
+  border-radius: var(--radius-lg);
+  background: var(--glass);
+  box-shadow: inset 0 1px 0 var(--glass-hi);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .settings-dialog {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+
+  .settings-section {
+    background: var(--glass-strong);
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .settings-section {
+    background: var(--glass-strong);
+  }
 }
 
 .settings-section h3 {

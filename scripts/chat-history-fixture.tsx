@@ -1,7 +1,7 @@
 /** Browser-only regression fixture, bundled by chat-history-browser-qa.ts. */
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
-import { SettingsProvider } from "../src/lib/settings.ts";
+import { loadSettings, SettingsProvider } from "../src/lib/settings.ts";
 import { ChatView } from "../src/components/ChatView.tsx";
 import { useWholeOutput } from "../src/lib/useWholeOutput.ts";
 import { MachineContext } from "../src/lib/machineContext.tsx";
@@ -29,4 +29,4 @@ function Fixture() {
   return <><button id="fetch-output" onClick={() => { output.load(); output.load(); }}>Load output</button><output id="output">{output.state}:{output.text}</output>
     <div style={{ position: "relative", height: 600 }}><MachineContext.Provider value={machine}><ChatView key={machine} paneId={pane} refreshKey={refresh} connected={false} ended={false} agent={null} agentStatus={null} /></MachineContext.Provider></div></>;
 }
-createRoot(document.getElementById("root")!).render(<React.StrictMode><SettingsProvider><Fixture /></SettingsProvider></React.StrictMode>);
+createRoot(document.getElementById("root")!).render(<React.StrictMode><SettingsProvider settings={loadSettings()} onChange={() => {}}><Fixture /></SettingsProvider></React.StrictMode>);

@@ -1,11 +1,12 @@
 /**
- * User preferences: one localStorage record, one React context, applied to the
+ * User preferences: one localStorage record, held by the Root's Mediator and handed down through
+ * one React context, applied to the
  * document as `data-theme` / `data-density` attributes that src/styles.css keys
  * its token overrides on. xterm reads no CSS, so `terminalTheme()` mirrors the
  * `--term-*` tokens of each theme for PaneTerminal's theme object.
  */
 
-import { createContext, createElement, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, createElement, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 import { chatFontStack, sanitizeFontFamily } from "./fontFamily.ts";
@@ -191,7 +192,7 @@ export function loadSettings(): Settings {
   }
 }
 
-function saveSettings(settings: Settings): void {
+export function saveSettings(settings: Settings): void {
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, paletteRevision: PALETTE_REVISION }));
   } catch {
@@ -267,8 +268,11 @@ interface SettingsContextValue {
 
 const SettingsContext = createContext<SettingsContextValue | null>(null);
 
-export function SettingsProvider({ children }: { children: ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(loadSettings);
+/**
+ * Hands the settings the Root holds to every view below it: `update` sends a change up as
+ * `onChange`, and the Root's Mediator decides and saves it (src/ui/state.ts).
+ */
+export function SettingsProvider({ settings, onChange, children }: { settings: Settings; onChange: (patch: Partial<Settings>) => void; children: ReactNode }) {
   const [systemDark, setSystemDark] = useState(() => resolveTheme("system") === "dark");
 
   useEffect(() => {
@@ -295,15 +299,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     applyToDocument(settings, resolvedTheme, resolvedLanguage);
   }, [settings, resolvedTheme, resolvedLanguage]);
 
-  const update = useCallback((patch: Partial<Settings>) => {
-    setSettings((current) => {
-      const next = sanitizeSettings({ ...current, ...patch });
-      saveSettings(next);
-      return next;
-    });
-  }, []);
-
-  const value = useMemo(() => ({ settings, resolvedTheme, resolvedLanguage, update }), [settings, resolvedTheme, resolvedLanguage, update]);
+  const value = useMemo(() => ({ settings, resolvedTheme, resolvedLanguage, update: onChange }), [settings, resolvedTheme, resolvedLanguage, onChange]);
   return createElement(SettingsContext.Provider, { value }, children);
 }
 

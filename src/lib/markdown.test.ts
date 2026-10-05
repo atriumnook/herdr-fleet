@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { Markdown } from "../components/Markdown.tsx";
-import { SettingsProvider } from "./settings.ts";
+import { DEFAULT_SETTINGS, SettingsProvider } from "./settings.ts";
 import { FOLD_CODE_AFTER_LINES, FOLDED_CODE_LINES, foldCode, parseInline, parseMarkdown, safeMarkdownHref, type InlineNode, type ListBlock } from "./markdown.ts";
 
 describe("parseMarkdown", () => {
@@ -10,7 +10,7 @@ describe("parseMarkdown", () => {
     const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
     Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
     try {
-      const html = renderToStaticMarkup(createElement(SettingsProvider, { children: createElement(Markdown, { children: "\\(x_i\\)\n\n\\[\\mathrm{ECA@}k=\\frac{1}{N}\\sum_i\\mathbf{1}[\\text{예측}_i=\\text{정답}_i]\\]" }) }));
+      const html = renderToStaticMarkup(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(Markdown, { children: "\\(x_i\\)\n\n\\[\\mathrm{ECA@}k=\\frac{1}{N}\\sum_i\\mathbf{1}[\\text{예측}_i=\\text{정답}_i]\\]" }) }));
       expect(html).toContain("katex-display");
       expect(html).toContain("katex-html");
       expect(html).not.toContain("katex-error");
@@ -221,7 +221,7 @@ describe("numbered lists as agents write them", () => {
     const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
     Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
     try {
-      return renderToStaticMarkup(createElement(SettingsProvider, { children: createElement(Markdown, { children: source }) }));
+      return renderToStaticMarkup(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(Markdown, { children: source }) }));
     } finally {
       if (languages) Object.defineProperty(navigator, "languages", languages);
       else Reflect.deleteProperty(navigator, "languages");

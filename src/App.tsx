@@ -9,7 +9,10 @@ import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog } from "./components/NewSessionDialog.tsx";
-import { SettingsDialog } from "./components/SettingsDialog.tsx";
+import { SettingsDialog, type SettingsDialogEvent } from "./components/SettingsDialog.tsx";
+import { DevicesPanel } from "./components/DevicesPanel.tsx";
+import { PushTestControls } from "./components/PushTestControls.tsx";
+import { useInstallPrompt } from "./lib/install.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
 import { MachineSidebar } from "./components/MachineSidebar.tsx";
@@ -40,8 +43,9 @@ import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { Droplet } from "./components/Droplet.tsx";
 import { FleetScreen } from "./components/fleet/FleetScreen.tsx";
-import type { Emit } from "./ui/bubble.ts";
+import { relay, type Emit } from "./ui/bubble.ts";
 import type { FleetScreenModel } from "./ui/fleetView.ts";
+import type { SettingsDialogModel } from "./ui/settingsView.ts";
 import type { Screen, UiEvent } from "./ui/state.ts";
 import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
 
@@ -124,8 +128,8 @@ function Brand() {
 }
 
 /**
- * What the Root hands the legacy shell: the Mediator's screen and the Fleet screen's values, and
- * the Emit its events go up through. The shell still owns the pane selection; `paneRequest` asks it
+ * What the Root hands the legacy shell: the Mediator's screen, the Fleet screen's and the Settings
+ * dialog's values, and the Emit its events go up through. The shell still owns the pane selection; `paneRequest` asks it
  * to select a pane, until that selection moves to the Mediator too.
  */
 export interface ShellProps {
@@ -133,6 +137,8 @@ export interface ShellProps {
   fleet: FleetScreenModel;
   needs: number;
   paneRequest: { paneId: string; seq: number } | null;
+  /** null while the dialog is closed */
+  settingsDialog: SettingsDialogModel | null;
   emit: Emit<UiEvent>;
 }
 
@@ -199,8 +205,12 @@ export function App({ shell }: { shell: ShellProps }) {
   const viewFile = useCallback((path: string) => {
     openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
   }, [openFile, selectedPaneId, selectedMachineId]);
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const closeSettings = useCallback(() => setSettingsOpen(false), []);
+  // the install prompt is the browser's: the Settings dialog asks for it, and this shell handles it
+  const installPrompt = useInstallPrompt();
+  const settingsEmit = useMemo(() => relay<SettingsDialogEvent, UiEvent>(shell.emit, (event, pass) => {
+    if (event.type === "install-app") void installPrompt.install();
+    else pass(event);
+  }), [shell.emit, installPrompt.install]);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const [connected, setConnected] = useState(false);
   const [outputStopped, setOutputStopped] = useState(false);
@@ -592,7 +602,7 @@ export function App({ shell }: { shell: ShellProps }) {
       openPalette: () => setPaletteOpen(true),
       openSettings: () => {
         setDrawerOpen(false);
-        setSettingsOpen(true);
+        emitRef.current({ type: "open-settings" });
       },
       toggleSidebar: () => {
         if (window.matchMedia("(max-width: 768px)").matches) setDrawerOpen((open) => !open);
@@ -800,7 +810,13 @@ export function App({ shell }: { shell: ShellProps }) {
         setFilesOpen(false);
         selectTargetRef.current(machineId, paneId);
       }} />
-      <SettingsDialog auth={auth} open={settingsOpen} onClose={closeSettings} actions={actions} onEnableNotifications={enableNotifications} />
+      {shell.settingsDialog && <SettingsDialog
+        model={shell.settingsDialog}
+        install={installPrompt}
+        alerts={<PushTestControls onEnable={enableNotifications} />}
+        devices={<DevicesPanel pairUrl={shell.settingsDialog.pairUrl} auth={auth} />}
+        emit={settingsEmit}
+      />}
       {filesOpen && selectedPane && (
         <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} viewing={viewing !== null} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
       )}
