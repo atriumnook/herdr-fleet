@@ -230,8 +230,23 @@ try {
     await until(async () => !(await selectedTitle())?.startsWith(`${paneA} —`), `${key} leaves the pane`);
     await page.waitForTimeout(NO_SEND_WAIT_MS);
     assert.deepEqual(inputs.slice(beforeSwitch), [], `${key} must not reach a pane`);
+    // the first pane opens in its terminal lens, and never for a frame in the chat lens of the pane
+    // left (its message box would take the keyboard from the terminal)
+    await page.evaluate(() => {
+      const scope = window as unknown as { chatDrawn: boolean; chatWatch?: MutationObserver };
+      const left = document.querySelector(".composer-text");
+      scope.chatDrawn = false;
+      scope.chatWatch?.disconnect();
+      scope.chatWatch = new MutationObserver(() => {
+        const box = document.querySelector(".composer-text");
+        if (box !== null && box !== left) scope.chatDrawn = true;
+      });
+      scope.chatWatch.observe(document.body, { subtree: true, childList: true });
+    });
     await page.locator(`.pane-select[title^="${paneA} —"]`).click();
     await until(async () => (await selectedTitle())?.startsWith(`${paneA} —`) === true, "back on the first pane");
+    await page.waitForTimeout(NO_SEND_WAIT_MS);
+    assert.equal(await page.evaluate(() => (window as unknown as { chatDrawn: boolean }).chatDrawn), false, "a pane opening in its terminal lens drew a chat lens first");
   }
   await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
   await composer.waitFor();
