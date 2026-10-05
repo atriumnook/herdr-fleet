@@ -1,5 +1,8 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
-import type { PairedDevice, PairingCode, RemoteAccess } from "../../shared/protocol.ts";
+import type { Machine } from "../../shared/machines.ts";
+import type { AccessRefusal, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { HealthInfo } from "../lib/api.ts";
+import { applyPaneStatus } from "../lib/snapshot.ts";
 import { sanitizeFontFamily } from "../lib/fontFamily.ts";
 import { DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type Settings } from "../lib/settings.ts";
 
@@ -109,6 +112,39 @@ export const EMPTY_TREE: TreeState = { paneRename: null, workspaceRename: null, 
 /** A PC's tree, empty until something happens in it. */
 export const treeOf = (state: UiState, machineId: string): TreeState => state.trees[machineId] ?? EMPTY_TREE;
 
+/** how often health and the PCs are read while the page is on screen */
+export const POLL_MS = 5000;
+/** pushes that change a PC's sessions come in bursts: one read after them */
+export const REFETCH_DEBOUNCE_MS = 500;
+
+/** This browser and the server: may it in, what the server says of itself. */
+export interface ConnectionState {
+  /** null until the server said whether this browser may in */
+  locked: boolean | null;
+  reason: AccessRefusal | null;
+  auth: HealthAuth | null;
+  health: HealthInfo | null;
+  /** the code a scanned QR brought along (`?pair=CODE`): this browser pairs with it once in */
+  pairCode: string;
+  pairing: "none" | "asked";
+  /** the page is on screen: a hidden one reads nothing, and catches up on return */
+  visible: boolean;
+  /** the poll chain running: one at a time */
+  pollSeq: number;
+}
+
+/** Every PC and its sessions, as the server reads and pushes them. */
+export interface MachinesState {
+  list: Machine[];
+  error: string | null;
+  /** reads and pushes so far: a read counts only when nothing newer came while it ran */
+  revision: number;
+  /** a read after a burst of session changes waits */
+  refetching: boolean;
+  /** the selected pane the PC is being asked about, as the roster no longer lists it */
+  checking: string | null;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -134,6 +170,8 @@ export interface UiState {
   pushTest: PushTest;
   /** each PC's session tree, by machine id */
   trees: Record<string, TreeState>;
+  connection: ConnectionState;
+  machines: MachinesState;
 }
 
 export type UiEvent =
@@ -200,7 +238,37 @@ export type UiEvent =
   /** the shell turns alerts on again (permission, subscription, then a confirmation push) */
   | { type: "push-repair-started" }
   | { type: "push-tested"; result: Exclude<PushTest, "idle" | "sending">; session: number }
-  | TreeEvent;
+  | TreeEvent
+  | ConnectionEvent;
+
+/** The server, as this page reads it and is pushed by it. */
+export type ConnectionEvent =
+  /** the page loaded: `linkToken` from a bookmarked `#auth=` link, `pairCode` from a scanned QR */
+  | { type: "boot"; linkToken: string | null; pairCode?: string }
+  | { type: "poll"; seq: number }
+  | { type: "visibility"; visible: boolean }
+  | { type: "authenticated"; reason: "boot" | "link" }
+  | { type: "authentication-failed"; reason: "boot" | "link" }
+  /** the auth link pasted into an open tab */
+  | { type: "auth-link"; token: string }
+  /** the access gate let this browser in */
+  | { type: "unlocked" }
+  | { type: "access-loaded"; auth: HealthAuth }
+  | { type: "health-loaded"; health: HealthInfo }
+  | { type: "health-failed" }
+  | { type: "machines-loaded"; machines: Machine[]; revision: number }
+  | { type: "machines-failed"; message: string; unauthorized: boolean; revision: number }
+  /** Retry, or Refresh */
+  | { type: "reload-machines" }
+  | { type: "refetch-machines" }
+  | { type: "stream-opened" }
+  | { type: "machines-pushed"; machines: Machine[] }
+  | { type: "machine-message"; machineId: string; message: ServerMessage }
+  | { type: "paired-from-address" }
+  | { type: "sign-out" }
+  | { type: "signed-out" }
+  | { type: "pane-session-read"; machineId: string; paneId: string; session: SessionSnapshot }
+  | { type: "pane-session-failed"; machineId: string; paneId: string };
 
 /** What a PC's session tree sends up; every one names its PC. */
 export type TreeEvent = { machineId: string } & (
@@ -243,7 +311,18 @@ export type Effect =
   | { kind: "test-push"; session: number }
   | { kind: "store-selection"; machineId: string; paneId: string | null }
   /** `revert`: the order to go back to when herdr refuses a reorder */
-  | { kind: "tree-request"; machineId: string; request: TreeRequest; viaConfirm: boolean; revert: ShownOrder | null };
+  | { kind: "tree-request"; machineId: string; request: TreeRequest; viaConfirm: boolean; revert: ShownOrder | null }
+  /** this browser's access, then the server's health */
+  | { kind: "load-health" }
+  | { kind: "load-machines"; revision: number }
+  | { kind: "authenticate"; token: string; reason: "boot" | "link" }
+  | { kind: "pair-from-address"; code: string }
+  | { kind: "sign-out" }
+  /** the stream of every PC's changes */
+  | { kind: "open-stream" }
+  | { kind: "close-stream" }
+  /** ask the PC itself whether the selected pane closed: the roster can lag a pane just made */
+  | { kind: "confirm-pane-gone"; machineId: string; paneId: string };
 
 export interface Transition { state: UiState; effects: Effect[] }
 
@@ -262,6 +341,8 @@ export const INITIAL_STATE: UiState = {
   settingsSession: 0,
   pushTest: "idle",
   trees: {},
+  connection: { locked: null, reason: null, auth: null, health: null, pairCode: "", pairing: "none", visible: true, pollSeq: 0 },
+  machines: { list: [], error: null, revision: 0, refetching: false, checking: null },
 };
 
 /** A run whose pane is gone: nothing to open or stop in it. */
@@ -284,6 +365,10 @@ function settle<T extends Loadable<unknown>>(region: T, outcome: Partial<T>, eff
 }
 
 export function transition(state: UiState, event: UiEvent): Transition {
+  return followUp(state, transitionOnly(state, event));
+}
+
+function transitionOnly(state: UiState, event: UiEvent): Transition {
   const effects: Effect[] = [];
   // an event that changes nothing keeps the state object itself, so nobody re-renders for it
   const next = (patch: Partial<UiState>): Transition =>
@@ -433,6 +518,29 @@ export function transition(state: UiState, event: UiEvent): Transition {
       const tree = treeTransition(current, event, effects);
       return next(tree === current ? {} : { trees: { ...state.trees, [event.machineId]: tree } });
     }
+    case "boot":
+    case "poll":
+    case "visibility":
+    case "authenticated":
+    case "authentication-failed":
+    case "auth-link":
+    case "unlocked":
+    case "access-loaded":
+    case "health-loaded":
+    case "health-failed":
+    case "machines-loaded":
+    case "machines-failed":
+    case "reload-machines":
+    case "refetch-machines":
+    case "stream-opened":
+    case "machines-pushed":
+    case "machine-message":
+    case "paired-from-address":
+    case "sign-out":
+    case "signed-out":
+    case "pane-session-read":
+    case "pane-session-failed":
+      return connectionTransition(state, event, effects);
     case "remote-access-failed":
       return next({ remoteAccess: settleAccess(state.remoteAccess, { status: "error", data: null, error: event.message }, effects) });
   }
@@ -570,6 +678,167 @@ function treeTransition(tree: TreeState, event: TreeEvent, effects: Effect[]): T
     case "tree-clear-failure":
       return tree.failure?.seq === event.seq ? { ...tree, failure: null } : tree;
   }
+}
+
+/** The pane to show on a PC when none is, or the one shown closed: herdr's focused one, else the first. */
+function fallbackPane(snapshot: SessionSnapshot): string | null {
+  return snapshot.panes.find((pane) => pane.pane_id === snapshot.focused_pane_id)?.pane_id ?? snapshot.panes[0]?.pane_id ?? null;
+}
+
+/** Data the same as before keeps its object, so nobody re-renders for a read that changed nothing. */
+function same<T>(previous: T, next: T): T {
+  return JSON.stringify(previous) === JSON.stringify(next) ? previous : next;
+}
+
+function connectionTransition(state: UiState, event: ConnectionEvent, effects: Effect[]): Transition {
+  const { connection, machines } = state;
+  const next = (patch: Partial<UiState>): Transition => ({ state: { ...state, ...patch }, effects });
+  const readMachines = (): MachinesState => {
+    const revision = machines.revision + 1;
+    effects.push({ kind: "load-machines", revision });
+    return { ...machines, revision };
+  };
+  /** read health, and the PCs too unless this browser is locked out (it only watches health then) */
+  const read = (): Partial<UiState> => {
+    effects.push({ kind: "load-health" });
+    return connection.locked === true ? {} : { machines: readMachines() };
+  };
+  const startPolling = (): Transition => {
+    const pollSeq = connection.pollSeq + 1;
+    const patch = read();
+    effects.push({ kind: "later", ms: POLL_MS, event: { type: "poll", seq: pollSeq } });
+    return next({ ...patch, connection: { ...connection, pollSeq } });
+  };
+  switch (event.type) {
+    case "boot": {
+      const booted = { ...state, connection: { ...connection, pairCode: event.pairCode ?? "" } };
+      if (event.linkToken === null) return connectionTransition(booted, { type: "authentication-failed", reason: "boot" }, effects);
+      effects.push({ kind: "authenticate", token: event.linkToken, reason: "boot" });
+      return { state: booted, effects };
+    }
+    case "authenticated":
+    case "authentication-failed":
+      if (event.reason === "boot") return startPolling();
+      return event.type === "authenticated" ? connectionTransition(state, { type: "unlocked" }, effects) : next({});
+    case "poll": {
+      if (event.seq !== connection.pollSeq) return next({});
+      const patch = connection.visible ? read() : {};
+      effects.push({ kind: "later", ms: POLL_MS, event: { type: "poll", seq: event.seq } });
+      return next(patch);
+    }
+    case "visibility":
+      // each time the page shows (again), it catches up at once
+      return next({ ...(event.visible ? read() : {}), connection: connection.visible === event.visible ? connection : { ...connection, visible: event.visible } });
+    case "auth-link":
+      effects.push({ kind: "authenticate", token: event.token, reason: "link" });
+      return next({});
+    case "unlocked":
+      effects.push({ kind: "load-health" });
+      return next({ connection: { ...connection, locked: false }, machines: readMachines() });
+    case "access-loaded": {
+      const auth = connection.auth === null ? event.auth : same(connection.auth, event.auth);
+      const locked = auth.required && !auth.authenticated;
+      let pairing = connection.pairing;
+      // a device already in (token, Tailscale) still pairs from the QR code's address
+      if (!locked && connection.pairCode !== "" && pairing === "none" && auth.via !== "device") {
+        pairing = "asked";
+        effects.push({ kind: "pair-from-address", code: connection.pairCode });
+      }
+      // a paired watch-only device sees the fleet but changes nothing in it
+      return next({ connection: { ...connection, auth, locked, reason: auth.reason ?? null, pairing }, canAct: auth.role !== "watch" });
+    }
+    case "health-loaded":
+      return next({ connection: { ...connection, health: same(connection.health, event.health) } });
+    case "health-failed":
+      return next(connection.health === null ? {} : { connection: { ...connection, health: null } });
+    case "machines-loaded":
+      if (event.revision !== machines.revision) return next({});
+      return next({ machines: { ...machines, list: same(machines.list, event.machines), error: null }, connection: connection.locked === false ? connection : { ...connection, locked: false } });
+    case "machines-failed":
+      if (event.revision !== machines.revision) return next({});
+      if (event.unauthorized) return next({ connection: { ...connection, locked: true } });
+      return next({ machines: { ...machines, error: event.message } });
+    case "reload-machines":
+      return next({ machines: readMachines() });
+    case "refetch-machines":
+      return next({ machines: connection.locked === true ? { ...machines, refetching: false } : { ...readMachines(), refetching: false } });
+    case "stream-opened":
+      // the stream opened, or opened again: fleet changes made meanwhile never arrived as pushes
+      return transitionOnly(state, { type: "fleet-changed" });
+    case "machines-pushed":
+      // a read started before this push can carry an older roster
+      return next({ machines: { ...machines, list: same(machines.list, event.machines), revision: machines.revision + 1 } });
+    case "machine-message": {
+      const machine = machines.list.find((candidate) => candidate.id === event.machineId);
+      if (!machine) return next({});
+      const message = event.message;
+      let list = machines.list;
+      let refetching = machines.refetching;
+      if (message.type === "pane-status" && machine.snapshot) {
+        const snapshot = applyPaneStatus(machine.snapshot, message.pane_id, message.agent_status, message.background_tasks);
+        if (snapshot !== machine.snapshot) list = list.map((candidate) => (candidate === machine ? { ...machine, snapshot } : candidate));
+      }
+      if ((message.type === "session-changed" || message.type === "pane-exited") && !refetching) {
+        refetching = true;
+        effects.push({ kind: "later", ms: REFETCH_DEBOUNCE_MS, event: { type: "refetch-machines" } });
+      }
+      const pushed: UiState = { ...state, machines: { ...machines, list, refetching, revision: machines.revision + 1 } };
+      // the fleet lives on this PC's server only
+      if (message.type === "fleet-changed" && machine.kind === "local") return transitionOnly(pushed, { type: "fleet-changed" });
+      return { state: pushed, effects };
+    }
+    case "paired-from-address":
+      effects.push({ kind: "load-health" });
+      return next({});
+    case "sign-out":
+      effects.push({ kind: "sign-out" });
+      return next({});
+    case "signed-out":
+      // the cookie may still be set: the health answer decides whether the gate shows
+      effects.push({ kind: "load-health" });
+      return next({});
+    case "pane-session-read": {
+      const asked = `${event.machineId}\n${event.paneId}`;
+      const cleared = { ...machines, checking: machines.checking === asked ? null : machines.checking };
+      const { selection } = state;
+      if (selection.machineId !== event.machineId || selection.paneId !== event.paneId || event.session.panes.some((pane) => pane.pane_id === event.paneId)) return next({ machines: cleared });
+      return next({ machines: cleared, selection: select(event.machineId, fallbackPane(event.session), true, effects) });
+    }
+    case "pane-session-failed": {
+      // a failed read is not evidence that the pane disappeared
+      const asked = `${event.machineId}\n${event.paneId}`;
+      return next(machines.checking === asked ? { machines: { ...machines, checking: null } } : {});
+    }
+  }
+}
+
+/**
+ * What follows from any step: the event stream runs while this browser is in, and a selected
+ * pane the roster no longer lists is looked into (or, with none selected, herdr's focused one taken).
+ */
+function followUp(before: UiState, step: Transition): Transition {
+  let { state } = step;
+  const effects = [...step.effects];
+  if (before.connection.locked !== false && state.connection.locked === false) effects.push({ kind: "open-stream" });
+  if (before.connection.locked === false && state.connection.locked !== false) effects.push({ kind: "close-stream" });
+  if (state.machines.list !== before.machines.list || state.selection !== before.selection) {
+    const { selection } = state;
+    const machine = state.machines.list.find((candidate) => candidate.id === selection.machineId);
+    // an offline PC's cached roster cannot invalidate a selection
+    if (machine?.snapshot && machine.state === "connected" && !machine.snapshot.panes.some((pane) => pane.pane_id === selection.paneId)) {
+      if (selection.paneId === null) {
+        const paneId = fallbackPane(machine.snapshot);
+        if (paneId !== null) state = { ...state, selection: select(selection.machineId, paneId, selection.auto, effects) };
+      } else {
+        const asked = `${selection.machineId}\n${selection.paneId}`;
+        if (state.machines.checking !== asked) {
+          effects.push({ kind: "confirm-pane-gone", machineId: selection.machineId, paneId: selection.paneId });
+          state = { ...state, machines: { ...state.machines, checking: asked } };
+        }
+      }
+    }
+  }
+  return state === step.state && effects.length === step.effects.length ? step : { state, effects };
 }
 
 /** A pane selected, and kept for the next load. */

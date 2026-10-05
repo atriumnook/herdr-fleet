@@ -30,6 +30,14 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     testPush: async () => "sent",
     storeSelection: () => {},
     treeRequest: async () => {},
+    loadAccess: async () => ({ ok: true, auth: { required: false, authenticated: true, via: "local" }, bridge_protocol: 1 }),
+    loadHealth: async () => ({ ok: true }) as never,
+    loadMachines: async () => [],
+    authenticate: async () => {},
+    pairFromAddress: async () => {},
+    signOut: async () => {},
+    loadSession: async () => { throw new Error("no session"); },
+    openStream: () => () => {},
   };
   return { ports: { ...base, ...overrides }, requests, saved, forgotten, timers };
 }
@@ -130,5 +138,17 @@ describe("Mediator", () => {
     mediator.dispatch({ type: "tree-close-pane", machineId: "local", paneId: "w1:p2" });
     await until(() => mediator.getState().trees["local"]?.failure !== null && mediator.getState().trees["local"]?.failure !== undefined);
     expect(mediator.getState().trees["local"]?.failure).toMatchObject({ kind: "close", reason: "pane is busy", paneId: "w1:p2" });
+  });
+
+  it("opens the stream once this browser is in, feeds its pushes to the state machine, and closes it when locked out", async () => {
+    let on: { opened(): void; event(event: import("../../shared/machines.ts").MachineEvent): void } | null = null;
+    let closed = 0;
+    const mediator = new Mediator(ports({ openStream: (handlers) => { on = handlers; return () => { closed += 1; }; } }).ports);
+    mediator.dispatch({ type: "boot", linkToken: null });
+    await until(() => on !== null);
+    on!.event({ type: "machines", machines: [{ id: "local", name: "pc", kind: "local", enabled: true, state: "connected", error: null, snapshot: null }] });
+    expect(mediator.getState().machines.list.map((machine) => machine.id)).toEqual(["local"]);
+    mediator.dispatch({ type: "access-loaded", auth: { required: true, authenticated: false } });
+    expect(closed).toBe(1);
   });
 });

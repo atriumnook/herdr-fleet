@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
 import { testDevicePush } from "../lib/push.ts";
 import { initialSelection, storeSelection } from "../lib/selection.ts";
+import { takeAuthTokenFromUrl } from "../lib/authLink.ts";
+import { deviceLabel, takePairCode } from "../lib/phone.ts";
 import { INITIAL_STATE } from "./state.ts";
 
 /** The Mediator's effects against this PC's server and this browser's storage. */
@@ -37,6 +39,24 @@ const FLEET_PORTS: EffectPorts = {
     else if (request.kind === "rename-workspace") await renameWorkspace(request.workspaceId, request.label, machineId);
     else await moveWorkspace(request.workspaceId, request.index, machineId);
   },
+  loadAccess: fetchBridgeHealth,
+  loadHealth: fetchHealth,
+  loadMachines: () => fetchMachines().catch((error: unknown) => { if (error instanceof ApiError && error.status === 401) return "unauthorized" as const; throw error; }),
+  authenticate,
+  pairFromAddress: (code) => pairDevice(code, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0)),
+  signOut,
+  loadSession: fetchSession,
+  // one stream watches every PC, even when no pane is selected
+  openStream: ({ opened, event }) => {
+    const events = new EventSource("/api/machines/events");
+    events.onopen = opened;
+    events.onmessage = (message) => {
+      let payload;
+      try { payload = JSON.parse(message.data); } catch { return; }
+      event(payload);
+    };
+    return () => events.close();
+  },
 };
 
 /** Hands the settings the Mediator holds to the views that read them from context (`useSettings`). */
@@ -58,6 +78,29 @@ export function Root() {
   useEffect(() => {
     const { machineId, paneId } = mediator.getState().selection;
     storeSelection(machineId, paneId);
+  }, [mediator]);
+  // the page starts reading the server once: a bookmarked `#auth=` link and a scanned QR's code
+  // are taken off the address as it does (twice would find them gone)
+  const booted = useRef(false);
+  useEffect(() => {
+    if (booted.current) return;
+    booted.current = true;
+    mediator.dispatch({ type: "boot", linkToken: takeAuthTokenFromUrl(), pairCode: takePairCode() });
+  }, [mediator]);
+  useEffect(() => {
+    // a hidden tab (or a phone app in the background) reads nothing; it catches up on return
+    const onVisibility = (): void => mediator.dispatch({ type: "visibility", visible: document.visibilityState !== "hidden" });
+    // pasting the auth link into an open tab navigates the fragment alone: no reload, so no boot
+    const onHashChange = (): void => {
+      const token = takeAuthTokenFromUrl();
+      if (token !== null) mediator.dispatch({ type: "auth-link", token });
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("hashchange", onHashChange);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("hashchange", onHashChange);
+    };
   }, [mediator]);
   return (
     <MediatorContext.Provider value={mediator}>
