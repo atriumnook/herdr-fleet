@@ -93,7 +93,7 @@ export class Mediator {
         try { await this.ports.revokeDevice(effect.id); this.dispatch({ type: "device-changed", session: effect.session }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
         return;
       case "test-push":
-        try { this.dispatch({ type: "push-tested", result: await this.ports.testPush() }); } catch { this.dispatch({ type: "push-tested", result: "failed" }); }
+        try { this.dispatch({ type: "push-tested", result: await this.ports.testPush(), session: effect.session }); } catch { this.dispatch({ type: "push-tested", result: "failed", session: effect.session }); }
         return;
       case "later":
         this.ports.later(effect.ms, () => this.dispatch(effect.event));

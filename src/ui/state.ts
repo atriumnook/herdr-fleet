@@ -161,7 +161,7 @@ export type UiEvent =
   | { type: "send-test-push" }
   /** the shell turns alerts on again (permission, subscription, then a confirmation push) */
   | { type: "push-repair-started" }
-  | { type: "push-tested"; result: Exclude<PushTest, "idle" | "sending"> };
+  | { type: "push-tested"; result: Exclude<PushTest, "idle" | "sending">; session: number };
 
 export type Effect =
   | { kind: "load-runs" }
@@ -178,7 +178,7 @@ export type Effect =
   | { kind: "revoke-device"; id: string; session: number }
   /** an event the state machine sends itself after a while */
   | { kind: "later"; ms: number; event: UiEvent }
-  | { kind: "test-push" };
+  | { kind: "test-push"; session: number };
 
 export interface Transition { state: UiState; effects: Effect[] }
 
@@ -335,12 +335,12 @@ export function transition(state: UiState, event: UiEvent): Transition {
     }
     case "send-test-push":
       if (!state.settingsDialog.open || state.pushTest === "sending") return next({});
-      effects.push({ kind: "test-push" });
+      effects.push({ kind: "test-push", session: state.settingsSession });
       return next({ pushTest: "sending" });
     case "push-repair-started":
       return next(state.settingsDialog.open ? { pushTest: "sending" } : {});
     case "push-tested":
-      return next(state.settingsDialog.open ? { pushTest: event.result } : {});
+      return next(state.settingsDialog.open && event.session === state.settingsSession ? { pushTest: event.result } : {});
     case "remote-access-failed":
       return next({ remoteAccess: settleAccess(state.remoteAccess, { status: "error", data: null, error: event.message }, effects) });
   }

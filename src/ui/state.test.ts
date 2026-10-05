@@ -325,6 +325,8 @@ describe("paired devices", () => {
 });
 
 describe("the push test", () => {
+  // the first opening of Settings is session 1
+  const session = 1;
   const opened = () => play([{ type: "open-settings" }]).state;
 
   it("starts from nothing each time Settings opens", () => {
@@ -335,8 +337,8 @@ describe("the push test", () => {
   it("sends a test push and keeps what came of it", () => {
     const { state, effects } = play([{ type: "send-test-push" }], opened());
     expect(state.pushTest).toBe("sending");
-    expect(effects).toEqual([{ kind: "test-push" }]);
-    expect(play([{ type: "push-tested", result: "missing" }], state).state.pushTest).toBe("missing");
+    expect(effects).toEqual([{ kind: "test-push", session }]);
+    expect(play([{ type: "push-tested", result: "missing", session }], state).state.pushTest).toBe("missing");
   });
 
   it("sends one test at a time", () => {
@@ -347,11 +349,13 @@ describe("the push test", () => {
   it("follows a repair the shell runs: sending until it answers", () => {
     const repairing = play([{ type: "push-repair-started" }], opened()).state;
     expect(repairing.pushTest).toBe("sending");
-    expect(play([{ type: "push-tested", result: "sent" }], repairing).state.pushTest).toBe("sent");
+    expect(play([{ type: "push-tested", result: "sent", session }], repairing).state.pushTest).toBe("sent");
   });
 
-  it("drops a result that arrives after Settings closed", () => {
+  it("drops a result that arrives after Settings closed, or in a later opening", () => {
     const sending = play([{ type: "send-test-push" }, { type: "close-settings" }], opened()).state;
-    expect(play([{ type: "push-tested", result: "sent" }], sending).state.pushTest).toBe("sending");
+    expect(play([{ type: "push-tested", result: "sent", session }], sending).state.pushTest).toBe("sending");
+    const reopened = play([{ type: "open-settings" }], sending).state;
+    expect(play([{ type: "push-tested", result: "sent", session }], reopened).state.pushTest).toBe("idle");
   });
 });

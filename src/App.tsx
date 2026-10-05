@@ -392,14 +392,19 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
 
   // The browser's permission cannot be taken back from the page: turning alerts off drops
   // this device's push subscription (the server forgets it) and silences the tab's own.
+  const settingsSession = useSelected((state) => state.settingsSession);
+  const settingsSessionRef = useRef(settingsSession);
+  settingsSessionRef.current = settingsSession;
   // Settings → Alerts: a test push goes up to the Mediator; turning alerts on again is this
   // shell's (it holds the permission and the subscription), and only its outcome goes up
   const pushTestEmit = useMemo(() => relay<PushTestEvent, UiEvent>(emit, (event, pass) => {
     if (event.type !== "repair-alerts") { pass(event); return; }
+    // its outcome belongs to this opening of Settings
+    const session = settingsSessionRef.current;
     pass({ type: "push-repair-started" });
     enableNotifications().then(
-      (ok) => pass({ type: "push-tested", result: ok ? "sent" : "failed" }),
-      (error: unknown) => pass({ type: "push-tested", result: error instanceof ApiError && error.code === "subscription_not_found" ? "missing" : "failed" }),
+      (ok) => pass({ type: "push-tested", result: ok ? "sent" : "failed", session }),
+      (error: unknown) => pass({ type: "push-tested", result: error instanceof ApiError && error.code === "subscription_not_found" ? "missing" : "failed", session }),
     );
   }), [emit, enableNotifications]);
 
