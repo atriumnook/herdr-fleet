@@ -566,3 +566,32 @@ describe("the connection to the server", () => {
     expect(play([{ type: "machines-pushed", machines: [pc(["w1:p1"], { state: "reconnecting" })] }], selected).effects).toEqual([]);
   });
 });
+
+describe("the open pane", () => {
+  const live = play([{ type: "pane-connection", connected: true }]).state;
+
+  it("follows the pane's socket: live, and no longer stopped once it is live again", () => {
+    expect(live.pane.connected).toBe(true);
+    const stalled = play([{ type: "output-stalled" }], live).state;
+    expect(stalled.pane.outputStopped).toBe(true);
+    expect(play([{ type: "pane-connection", connected: false }, { type: "pane-connection", connected: true }], stalled).state.pane.outputStopped).toBe(false);
+  });
+
+  it("closes the drawer and forgets a stalled output for a pane picked, and the live socket only for another PC's", () => {
+    const stalled = play([{ type: "drawer", open: true }, { type: "output-stalled" }], live).state;
+    const samePc = play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }], stalled).state;
+    expect(samePc).toMatchObject({ drawerOpen: false, pane: { connected: true, outputStopped: false } });
+    expect(play([{ type: "select-pane", machineId: "pc2", paneId: "w1:p1" }], stalled).state.pane.connected).toBe(false);
+  });
+
+  it("keeps a lens chosen in a pane, saves it for the pane, and makes the shell's own pick the person's", () => {
+    const { state, effects } = play([{ type: "choose-lens", key: "w1:p1\nauto\ntrue", storageId: "w1:p1", view: "chat" }]);
+    expect(state.pane.lens).toEqual({ key: "w1:p1\nauto\ntrue", view: "chat" });
+    expect(effects).toEqual([{ kind: "store-lens", storageId: "w1:p1", view: "chat" }]);
+  });
+
+  it("opens and closes the drawer, and toggles it", () => {
+    expect(play([{ type: "toggle-drawer" }]).state.drawerOpen).toBe(true);
+    expect(play([{ type: "toggle-drawer" }, { type: "drawer", open: false }]).state.drawerOpen).toBe(false);
+  });
+});

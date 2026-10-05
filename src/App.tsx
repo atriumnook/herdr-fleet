@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
-import type { AgentStatus, ClientRole, ServerMessage, HerdrPane } from "../shared/protocol.ts";
+import type { AgentStatus, ServerMessage, HerdrPane } from "../shared/protocol.ts";
 import { ApiError, sendTestPush } from "./lib/api.ts";
 import { displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
@@ -38,7 +38,6 @@ import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { Droplet } from "./components/Droplet.tsx";
 import { relay, type Emit } from "./ui/bubble.ts";
-import type { FleetScreenEvent } from "./components/fleet/FleetScreen.tsx";
 import { paneFromUrl } from "./lib/selection.ts";
 import { needsCount } from "./ui/fleetView.ts";
 import { DevicesPanelPresenter } from "./ui/DevicesPanelPresenter.tsx";
@@ -46,7 +45,7 @@ import { FleetPresenter } from "./ui/FleetPresenter.tsx";
 import { MachineSidebarPresenter } from "./ui/MachineSidebarPresenter.tsx";
 import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
-import { useObserver, useSelected, useStateNow } from "./ui/presenter.ts";
+import { useObserver, useSelected } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
 import type { UiEvent } from "./ui/state.ts";
 import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
@@ -127,15 +126,15 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const machinesRef = useRef(machines); machinesRef.current = machines;
   const [newSessionMachineId, setNewSessionMachineId] = useState("local");
   const canSignOut = auth?.authenticated === true && (auth.via === "token" || auth.via === "device");
-  const [drawerOpen, setDrawerOpen] = useState(false);
+  const drawerOpen = useSelected((state) => state.drawerOpen);
   const drawerOpenRef = useRef(drawerOpen); drawerOpenRef.current = drawerOpen;
+  const setDrawerOpen = useCallback((open: boolean) => emitRef.current({ type: "drawer", open }), []);
   const selectionRef = useRef({ machineId: selectedMachineId, paneId: selectedPaneId });
   selectionRef.current = { machineId: selectedMachineId, paneId: selectedPaneId };
   // on a phone the drawer follows a swipe in from the left edge, and a swipe back (lib/edgeSwipe.ts)
   useEffect(() => watchDrawerSwipe(() => drawerOpenRef.current, setDrawerOpen), []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  // the lens chosen in the selected pane: kept here too, for a browser that cannot store it
-  const [lensChoice, setLensChoice] = useState<{ key: string; view: PaneView } | null>(null);
+  const lensChoice = useSelected((state) => state.pane.lens);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
@@ -150,10 +149,10 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     else pass(event);
   }), [emit, installPrompt.install]);
   const [newSessionOpen, setNewSessionOpen] = useState(false);
-  const [connected, setConnected] = useState(false);
-  const [outputStopped, setOutputStopped] = useState(false);
-  // the connection's role: the server's role-ack confirms it (no UI control today)
-  const [role, setRole] = useState<ClientRole>("interact");
+  // the open pane's socket, as the Mediator keeps it
+  const connected = useSelected((state) => state.pane.connected);
+  const outputStopped = useSelected((state) => state.pane.outputStopped);
+  const role = useSelected((state) => state.pane.role);
   const [notifications, setNotifications] = useState<NotificationState>(() => notificationState());
   // this device has a server-side push subscription: alerts come from the server, not the tab
   const [pushOn, setPushOn] = useState(false);
@@ -221,7 +220,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   });
 
   const handleServerMessage = useCallback((message: ServerMessage) => {
-    if (message.type === "error" && message.code === "output_stalled") setOutputStopped(true);
+    if (message.type === "error" && message.code === "output_stalled") emitRef.current({ type: "output-stalled" });
   }, []);
 
   const enableNotifications = useCallback(async () => {
@@ -294,22 +293,12 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
 
   const selectedMachineRef = useRef(selectedMachineId);
   selectedMachineRef.current = selectedMachineId;
-  /** what this shell resets for a pane the person picks, before the Mediator selects it */
-  const leavePane = useCallback((machineId: string) => {
-    if (machineId !== selectedMachineRef.current) setConnected(false);
-    setDrawerOpen(false);
-    setOutputStopped(false);
-  }, []);
+  // a pane picked closes the drawer and resets what the open pane kept (state.ts pick)
   const selectTarget = useCallback((machineId: string, paneId: string | null) => {
-    // Only another PC mounts a new terminal (and socket), which reports its own state. A pane
-    // on the same PC keeps the connected socket, which never reports again: resetting here
-    // left the header on "reconnecting" after every pane switch.
-    leavePane(machineId);
     emitRef.current({ type: "select-pane", machineId, paneId });
   }, []);
   const selectTargetRef = useRef(selectTarget); selectTargetRef.current = selectTarget;
   const selectPane = useCallback((paneId: string) => {
-    setDrawerOpen(false);
     emitRef.current({ type: "select-pane", machineId: selectedMachineRef.current, paneId });
   }, []);
 
@@ -324,24 +313,13 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     setNewSessionOpen(true);
     setDrawerOpen(false);
   }, []);
-  // the sidebar: a pane picked goes up once this shell reset what it keeps for the pane it leaves;
-  // a new session and the install prompt are this shell's
+  // the sidebar: a new session and the install prompt are this shell's
   const sidebarEmit = useMemo(() => relay<MachineSidebarEvent, UiEvent>(emit, (event, pass) => {
     if (event.type === "new-session") openNewSession(event.machineId);
     else if (event.type === "install-app") void installPrompt.install();
-    else if (event.type === "select-pane") { leavePane(event.machineId); pass(event); }
+    else if (event.type === "select-pane") pass(event);
     else { setDrawerOpen(false); pass(event); }
-  }), [emit, openNewSession, installPrompt.install, leavePane]);
-
-  // a fleet run's pane opens on this PC: the shell resets what it keeps for the pane it leaves
-  // (only when the Mediator did select it: a run that ended meanwhile has no pane to open)
-  const stateNow = useStateNow();
-  const fleetEmit = useMemo(() => relay<FleetScreenEvent, UiEvent>(emit, (event, pass) => {
-    const before = stateNow().selection;
-    pass(event);
-    const after = stateNow().selection;
-    if (after !== before) leavePane(after.machineId);
-  }), [emit, leavePane, stateNow]);
+  }), [emit, openNewSession, installPrompt.install, setDrawerOpen]);
 
   // a tapped notification focuses this window and names the pane (public/sw.js)
   useEffect(() => onNotificationTarget((target) => selectTargetRef.current(target.machine_id, target.pane_id)), []);
@@ -376,16 +354,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const view: PaneView = lensChoice !== null && lensChoice.key === lensKey ? lensChoice.view : storedLens;
 
   const setView = useCallback(
-    (next: PaneView) => {
-      setLensChoice({ key: lensKey, view: next });
-      emitRef.current({ type: "selection-confirmed" });
-      if (selectedPaneId === null) return;
-      try {
-        window.localStorage.setItem(`herdr-fleet:view:${paneStorageId(selectedMachineId, selectedPaneId)}`, next);
-      } catch {
-        /* private mode: the lens just stops being remembered */
-      }
-    },
+    (next: PaneView) => emitRef.current({ type: "choose-lens", key: lensKey, storageId: selectedPaneId === null ? null : paneStorageId(selectedMachineId, selectedPaneId), view: next }),
     [selectedPaneId, selectedMachineId, lensKey],
   );
 
@@ -434,7 +403,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         emitRef.current({ type: "open-settings" });
       },
       toggleSidebar: () => {
-        if (window.matchMedia("(max-width: 768px)").matches) setDrawerOpen((open) => !open);
+        if (window.matchMedia("(max-width: 768px)").matches) emitRef.current({ type: "toggle-drawer" });
         else setSidebarCollapsed((collapsed) => !collapsed);
       },
       toggleTheme: () => updateSettings({ theme: resolvedTheme === "dark" ? "light" : "dark" }),
@@ -445,13 +414,11 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     }),
     [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications],
   );
-  // a connected PC's sessions: a pane picked and a new session go as from the sidebar; the tree's
-  // own changes go up as they are
+  // a connected PC's sessions: a new session is this shell's; the rest goes up as it is
   const treeEmit = useMemo(() => relay<SidebarEvent, UiEvent>(emit, (event, pass) => {
-    if (event.type === "select-pane") { leavePane(event.machineId); pass(event); }
-    else if (event.type === "new-session") openNewSession(event.machineId);
+    if (event.type === "new-session") openNewSession(event.machineId);
     else pass(event);
-  }), [emit, leavePane, openNewSession]);
+  }), [emit, openNewSession]);
   const machineTree = useCallback((machine: Machine) => (
     <SidebarPresenter machineId={machine.id} snapshot={machine.snapshot} selectedPaneId={selectedMachineId === machine.id ? selectedPaneId : null} emit={treeEmit} />
   ), [selectedMachineId, selectedPaneId, treeEmit]);
@@ -495,7 +462,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
           aria-label={t(drawerOpen ? "Close workspace list" : "Open workspace list")}
           aria-expanded={drawerOpen}
           aria-controls="workspace-drawer"
-          onClick={() => setDrawerOpen((open) => !open)}
+          onClick={() => emit({ type: "toggle-drawer" })}
         >
           {drawerOpen ? <X /> : <Menu />}
         </button>
@@ -620,12 +587,12 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
             theme={resolvedTheme}
             palette={settings.palette}
             role={role}
-            onRoleAck={setRole}
-            onConnectionChange={(next) => { setConnected(next); if (next) setOutputStopped(false); }}
+            onRoleAck={(next) => emit({ type: "role-ack", role: next })}
+            onConnectionChange={(next) => emit({ type: "pane-connection", connected: next })}
             onServerMessage={handleServerMessage}
           />
           </div>
-          {screen === "fleet" && <FleetPresenter screen={screen} emit={fleetEmit} />}
+          {screen === "fleet" && <FleetPresenter screen={screen} emit={emit} />}
         </main>
         </OpenFileContext.Provider>
       </div>
