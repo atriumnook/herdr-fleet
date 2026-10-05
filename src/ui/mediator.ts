@@ -174,7 +174,8 @@ export class Mediator {
         catch { this.dispatch({ type: "pane-session-failed", machineId: effect.machineId, paneId: effect.paneId }); }
         return;
       case "enable-alerts": {
-        const permission = await this.ports.requestPermission();
+        // an older browser can throw instead of answering: that is no permission
+        const permission = await this.ports.requestPermission().catch((): NotificationState => "default");
         this.dispatch({ type: "alerts-permission", permission });
         let ok = false;
         if (permission === "granted") {

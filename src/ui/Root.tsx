@@ -108,7 +108,7 @@ export function Root() {
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
-    mediator.dispatch({ type: "boot", linkToken: takeAuthTokenFromUrl(), pairCode: takePairCode(), alerts: { permission: notificationState(), supported: pushSupported() } });
+    mediator.dispatch({ type: "boot", linkToken: takeAuthTokenFromUrl(), pairCode: takePairCode(), alerts: { permission: notificationState(), supported: pushSupported() }, visible: document.visibilityState !== "hidden" });
   }, [mediator]);
   useEffect(() => {
     // a hidden tab (or a phone app in the background) reads nothing; it catches up on return

@@ -212,8 +212,6 @@ export interface UiState {
 
 export type UiEvent =
   | { type: "show-screen"; screen: Screen }
-  /** what the server said this device may do */
-  | { type: "access-known"; canAct: boolean }
   /** the person picked a pane (sidebar, palette, notification, a new session) */
   | { type: "select-pane"; machineId: string; paneId: string | null }
   /** the person chose a lens in the pane the shell picked: it is theirs now */
@@ -293,7 +291,7 @@ export type UiEvent =
 /** The server, as this page reads it and is pushed by it. */
 export type ConnectionEvent =
   /** the page loaded: `linkToken` from a bookmarked `#auth=` link, `pairCode` from a scanned QR, what the browser allows of alerts */
-  | { type: "boot"; linkToken: string | null; pairCode?: string; alerts?: { permission: NotificationState; supported: boolean } }
+  | { type: "boot"; linkToken: string | null; pairCode?: string; alerts?: { permission: NotificationState; supported: boolean }; visible?: boolean }
   | { type: "poll"; seq: number }
   | { type: "visibility"; visible: boolean }
   | { type: "authenticated"; reason: "boot" | "link" }
@@ -436,8 +434,6 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
   const next = (patch: Partial<UiState>): Transition =>
     ({ state: (Object.keys(patch) as Array<keyof UiState>).every((key) => patch[key] === state[key]) ? state : { ...state, ...patch }, effects });
   switch (event.type) {
-    case "access-known":
-      return next({ canAct: event.canAct });
     case "show-screen":
       return next({ screen: event.screen, detail: event.screen === "pane" ? null : state.detail });
     case "select-pane":
@@ -576,7 +572,8 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "disable-alerts":
       // the browser's permission cannot be taken back from the page: off drops the subscription and silences the tab
       effects.push({ kind: "remove-push" });
-      return next({ ...change(state, { alertsOn: false }, effects), alerts: { ...state.alerts, push: false } });
+      // a registration still on its way answers a choice no longer there
+      return next({ ...change(state, { alertsOn: false }, effects), alerts: { ...state.alerts, push: false, subscribeSeq: state.alerts.subscribeSeq + 1 } });
     case "alerts-permission": {
       const alerts = { ...state.alerts, permission: event.permission };
       return next({ ...(event.permission === "granted" ? change(state, { alertsOn: true }, effects) : {}), alerts });
@@ -796,13 +793,14 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
   };
   const startPolling = (): Transition => {
     const pollSeq = connection.pollSeq + 1;
-    const patch = read();
+    // a tab loaded in the background reads nothing until it shows
+    const patch = connection.visible ? read() : {};
     effects.push({ kind: "later", ms: POLL_MS, event: { type: "poll", seq: pollSeq } });
     return next({ ...patch, connection: { ...connection, pollSeq } });
   };
   switch (event.type) {
     case "boot": {
-      const booted = { ...state, connection: { ...connection, pairCode: event.pairCode ?? "" }, alerts: event.alerts ? { ...state.alerts, ...event.alerts } : state.alerts };
+      const booted = { ...state, connection: { ...connection, pairCode: event.pairCode ?? "", visible: event.visible ?? connection.visible }, alerts: event.alerts ? { ...state.alerts, ...event.alerts } : state.alerts };
       if (event.linkToken === null) return connectionTransition(booted, { type: "authentication-failed", reason: "boot" }, effects);
       effects.push({ kind: "authenticate", token: event.linkToken, reason: "boot" });
       return { state: booted, effects };
@@ -888,7 +886,7 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
     case "sign-out":
       // the subscription goes first, while the cookie still lets it: a device locked out must stop receiving pane titles
       effects.push({ kind: "sign-out" });
-      return next({ drawerOpen: false, alerts: { ...state.alerts, push: false } });
+      return next({ drawerOpen: false, alerts: { ...state.alerts, push: false, subscribeSeq: state.alerts.subscribeSeq + 1 } });
     case "signed-out":
       // the cookie may still be set: the health answer decides whether the gate shows
       effects.push({ kind: "load-health" });
@@ -970,9 +968,11 @@ function followUp(before: UiState, step: Transition): Transition {
     effects.push({ kind: "subscribe-push", prefs: alertPrefs(state.settings), seq: subscribeSeq });
     state = { ...state, alerts: { ...state.alerts, subscribeSeq } };
   }
-  if (state.machines.list !== before.machines.list || state.selection !== before.selection) {
+  const selectedPc = (of: UiState) => of.machines.list.find((candidate) => candidate.id === of.selection.machineId);
+  const machine = selectedPc(state);
+  // only the selected PC's sessions, or the selection itself, say anything about the selected pane
+  if (state.selection !== before.selection || machine?.snapshot !== selectedPc(before)?.snapshot || machine?.state !== selectedPc(before)?.state) {
     const { selection } = state;
-    const machine = state.machines.list.find((candidate) => candidate.id === selection.machineId);
     // an offline PC's cached roster cannot invalidate a selection
     if (machine?.snapshot && machine.state === "connected" && !machine.snapshot.panes.some((pane) => pane.pane_id === selection.paneId)) {
       if (selection.paneId === null) {

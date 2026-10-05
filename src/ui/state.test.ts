@@ -141,7 +141,7 @@ describe("actions", () => {
 
 describe("a watch-only device", () => {
   it("changes nothing: no action and no refresh leave it", () => {
-    const watching = transition(INITIAL_STATE, { type: "access-known", canAct: false }).state;
+    const watching = transition(INITIAL_STATE, { type: "access-loaded", auth: { required: true, authenticated: true, via: "device", role: "watch" } }).state;
     for (const event of [{ type: "interrupt-run", runId: "a" }, { type: "close-done", group: "g1" }, { type: "clear-cooldown", key: "cursor" }, { type: "refresh-usage" }] as UiEvent[]) {
       expect(transition(watching, event)).toEqual({ state: watching, effects: [] });
     }
@@ -683,3 +683,37 @@ describe("alerts", () => {
     expect(state).toMatchObject({ drawerOpen: false, alerts: { push: false } });
   });
 });
+
+describe("after the review of the App's move", () => {
+  const kinds = (effects: { kind: string }[]) => effects.map((effect) => effect.kind);
+
+  it("reads nothing at boot in a tab loaded in the background, and catches up once it shows", () => {
+    const { state, effects } = play([{ type: "boot", linkToken: null, visible: false }]);
+    expect(kinds(effects)).toEqual(["later"]);
+    expect(kinds(play([{ type: "visibility", visible: true }], state).effects)).toEqual(["load-health", "load-machines"]);
+  });
+
+  it("drops a registration's answer that comes after alerts went off, or after signing out", () => {
+    const booted = play([{ type: "boot", linkToken: null, alerts: { permission: "granted", supported: true } }]).state;
+    const inside = play([{ type: "machines-loaded", machines: [], revision: booted.machines.revision }], booted).state;
+    const asked = inside.alerts.subscribeSeq;
+    const off = play([{ type: "disable-alerts" }], inside).state;
+    expect(play([{ type: "push-subscribed", on: true, seq: asked }], off).state.alerts.push).toBe(false);
+    const out = play([{ type: "sign-out" }], inside).state;
+    expect(play([{ type: "push-subscribed", on: true, seq: asked }], out).state.alerts.push).toBe(false);
+  });
+
+  it("looks into a selected pane missing from its PC only when that PC's sessions change", () => {
+    const snapshot = (paneIds: string[]) => ({ version: "x", protocol: 1, focused_workspace_id: null, focused_tab_id: null, focused_pane_id: null, workspaces: [], tabs: [], agents: [], panes: paneIds.map((pane_id) => ({ pane_id, workspace_id: "w1", tab_id: "w1:t1", focused: false, agent_status: "idle" })) }) as never;
+    const pc = (id: string, paneIds: string[]): Machine => ({ id, name: id, kind: "local", enabled: true, state: "connected", error: null, snapshot: snapshot(paneIds) });
+    const booted = play([{ type: "boot", linkToken: null }]).state;
+    const inside = play([{ type: "machines-loaded", machines: [pc("local", ["w1:p1"]), pc("pc2", ["w2:p1"])], revision: booted.machines.revision }, { type: "select-pane", machineId: "local", paneId: "w1:gone" }], booted).state;
+    // asked once already; the PC could not answer
+    const failed = play([{ type: "pane-session-failed", machineId: "local", paneId: "w1:gone" }], inside).state;
+    const elsewhere = play([{ type: "machines-pushed", machines: [failed.machines.list[0]!, pc("pc2", ["w2:p1", "w2:p2"])] }], failed);
+    expect(kinds(elsewhere.effects)).not.toContain("confirm-pane-gone");
+    const here = play([{ type: "machines-pushed", machines: [pc("local", ["w1:p1", "w1:p3"]), elsewhere.state.machines.list[1]!] }], elsewhere.state);
+    expect(kinds(here.effects)).toContain("confirm-pane-gone");
+  });
+});
+

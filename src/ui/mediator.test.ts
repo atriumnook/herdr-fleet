@@ -177,4 +177,11 @@ describe("Mediator", () => {
     tap!();
     expect(mediator.getState().selection).toMatchObject({ machineId: "local", paneId: "w1:p1" });
   });
+
+  it("reports turning alerts on again as failed when the browser throws for the permission", async () => {
+    const mediator = new Mediator(ports({ requestPermission: async () => { throw new Error("old browser"); } }).ports);
+    mediator.dispatch({ type: "open-settings" });
+    mediator.dispatch({ type: "repair-alerts" });
+    await until(() => mediator.getState().pushTest === "failed");
+  });
 });
