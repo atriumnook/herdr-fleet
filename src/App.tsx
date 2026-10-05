@@ -189,7 +189,8 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   // on a phone the drawer follows a swipe in from the left edge, and a swipe back (lib/edgeSwipe.ts)
   useEffect(() => watchDrawerSwipe(() => drawerOpenRef.current, setDrawerOpen), []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [view, setViewState] = useState<PaneView>("terminal");
+  // the lens chosen in the selected pane: kept here too, for a browser that cannot store it
+  const [lensChoice, setLensChoice] = useState<{ key: string; view: PaneView } | null>(null);
   const [paletteOpen, setPaletteOpen] = useState(false);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
@@ -526,15 +527,21 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   // a server that repaints the pane's screen instead (terminal_mirror) has a terminal lens too
   const terminalAttach = targetHerdr?.terminal_attach !== false || targetHerdr?.terminal_mirror === true;
 
-  // the lens follows the selected pane: each pane remembers its own
-  useEffect(() => {
-    if (selectedPaneId === null) return;
-    setViewState(storedView(selectedPaneId, selectedMachineId, selectedPane ? selectedAgent !== null : null, terminalAttach, settings.defaultView));
-  }, [selectedPaneId, selectedMachineId, selectedPane !== null, selectedAgent !== null, terminalAttach, settings.defaultView]);
+  // the lens follows the selected pane, each remembering its own. It is read as the pane is drawn:
+  // read after, a pane showed for a frame in the lens of the one before, and the message box of
+  // that chat lens took the keyboard from the terminal being opened
+  const hasAgent = selectedPane ? selectedAgent !== null : null;
+  // a choice holds while the pane and what decides its lens stay as they were
+  const lensKey = `${selectedPaneId === null ? "" : paneStorageId(selectedMachineId, selectedPaneId)}\n${settings.defaultView}\n${terminalAttach}`;
+  const storedLens = useMemo(
+    () => (selectedPaneId === null ? "terminal" : storedView(selectedPaneId, selectedMachineId, hasAgent, terminalAttach, settings.defaultView)),
+    [selectedPaneId, selectedMachineId, hasAgent, terminalAttach, settings.defaultView],
+  );
+  const view: PaneView = lensChoice !== null && lensChoice.key === lensKey ? lensChoice.view : storedLens;
 
   const setView = useCallback(
     (next: PaneView) => {
-      setViewState(next);
+      setLensChoice({ key: lensKey, view: next });
       setAutoSelected(false);
       if (selectedPaneId === null) return;
       try {
@@ -543,7 +550,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         /* private mode: the lens just stops being remembered */
       }
     },
-    [selectedPaneId, selectedMachineId],
+    [selectedPaneId, selectedMachineId, lensKey],
   );
 
   const bell: { label: string; title: string; on: boolean; run: () => Promise<unknown> } =
