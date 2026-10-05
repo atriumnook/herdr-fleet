@@ -149,7 +149,7 @@ describe("settings", () => {
   it("reads how a phone can reach this PC each time the dialog opens, and again when asked", () => {
     const { state, effects } = play([{ type: "open-settings" }]);
     expect(state.settingsDialog).toEqual({ open: true, drafts: {} });
-    expect(effects).toEqual([{ kind: "load-devices" }, { kind: "load-remote-access" }]);
+    expect(effects).toEqual([{ kind: "load-devices", session: 1 }, { kind: "load-remote-access" }]);
     const access = { port: 7000, tailscale: { state: "missing", dns_name: null, serving_url: null, serve_command: null, serve_url: null } } as const;
     const loaded = play([{ type: "remote-access-loaded", access }], state).state;
     expect(loaded.remoteAccess).toMatchObject({ status: "ready", data: access });
@@ -198,7 +198,7 @@ describe("settings", () => {
   it("reads the remote access once more after the read in flight, showing nothing it answered meanwhile", () => {
     const access = { port: 7000, tailscale: { state: "missing", dns_name: null, serving_url: null, serve_command: null, serve_url: null } } as const;
     const asked = play([{ type: "open-settings" }, { type: "load-remote-access" }]);
-    expect(asked.effects).toEqual([{ kind: "load-devices" }, { kind: "load-remote-access" }]);
+    expect(asked.effects).toEqual([{ kind: "load-devices", session: 1 }, { kind: "load-remote-access" }]);
     const { state, effects } = play([{ type: "remote-access-loaded", access }], asked.state);
     expect(effects).toEqual([{ kind: "load-remote-access" }]);
     expect(state.remoteAccess).toMatchObject({ status: "loading", data: null, again: false });
@@ -220,74 +220,106 @@ describe("paired devices", () => {
   const device = (id: string, label = id): PairedDevice => ({ id, label, role: "drive", created_at: "2026-10-01T00:00:00Z", last_seen_at: null, current: false });
   const code = { code: "123456", expires_at: "2026-10-05T10:10:00Z" };
   const AT = Date.parse("2026-10-05T10:00:00Z");
+  // the first opening of Settings is session 1: what its effects answer carries it
+  const session = 1;
   const opened = () => play([{ type: "open-settings" }]).state;
-  const listed = (devices: PairedDevice[]) => play([{ type: "devices-loaded", devices }], opened()).state;
+  const listed = (devices: PairedDevice[]) => play([{ type: "devices-loaded", devices, session }], opened()).state;
+  const pairing = (from = listed([device("a")])) => play([{ type: "pairing-started", code, at: AT, session }], from);
 
   it("reads the devices each time Settings opens, starting from nothing", () => {
     const { state, effects } = play([{ type: "open-settings" }], { ...INITIAL_STATE, devices: { ...INITIAL_STATE.devices, list: [device("old")], justPaired: "x" } });
-    expect(effects).toContainEqual({ kind: "load-devices" });
+    expect(effects).toContainEqual({ kind: "load-devices", session });
     expect(state.devices).toEqual(INITIAL_STATE.devices);
   });
 
   it("lists what came back, and says when the server keeps no devices", () => {
     expect(listed([device("a")]).devices.list).toEqual([device("a")]);
-    const missing = play([{ type: "devices-failed", message: "x", unavailable: true }], opened()).state.devices;
+    const missing = play([{ type: "devices-failed", message: "x", unavailable: true, session }], opened()).state.devices;
     expect(missing).toMatchObject({ list: [], unavailable: true, failure: { kind: "unavailable" } });
-    expect(play([{ type: "devices-failed", message: "offline", unavailable: false }], opened()).state.devices.failure).toEqual({ kind: "message", message: "offline" });
+    expect(play([{ type: "devices-failed", message: "offline", unavailable: false, session }], opened()).state.devices.failure).toEqual({ kind: "message", message: "offline" });
   });
 
   it("shows a code once the server hands one out, polls for the device it lets in, and drops it when it expires", () => {
     const asked = play([{ type: "pair-device" }], listed([device("a")]));
-    expect(asked.effects).toEqual([{ kind: "start-pairing" }]);
-    const { state, effects } = play([{ type: "pairing-started", code, at: AT }], asked.state);
+    expect(asked.effects).toEqual([{ kind: "start-pairing", session }]);
+    const { state, effects } = pairing(asked.state);
     expect(state.devices.code).toEqual(code);
     expect(effects).toEqual([
-      { kind: "later", ms: 3000, event: { type: "poll-devices" } },
-      { kind: "later", ms: 600_000, event: { type: "pairing-expired", code: "123456" } },
+      { kind: "later", ms: 3000, event: { type: "poll-devices", session, seq: 1 } },
+      { kind: "later", ms: 600_000, event: { type: "pairing-expired", code: "123456", session } },
     ]);
-    expect(play([{ type: "poll-devices" }], state).effects).toEqual([{ kind: "load-devices" }]);
-    expect(play([{ type: "devices-loaded", devices: [device("a")] }], state).effects).toEqual([{ kind: "later", ms: 3000, event: { type: "poll-devices" } }]);
-    expect(play([{ type: "pairing-expired", code: "123456" }], state).state.devices.code).toBeNull();
+    // each poll reads the list and arms the next one, whatever the read brings
+    expect(play([{ type: "poll-devices", session, seq: 1 }], state).effects).toEqual([
+      { kind: "load-devices", session },
+      { kind: "later", ms: 3000, event: { type: "poll-devices", session, seq: 1 } },
+    ]);
+    expect(play([{ type: "devices-loaded", devices: [device("a")], session }], state).effects).toEqual([]);
+    expect(play([{ type: "pairing-expired", code: "123456", session }], state).state.devices.code).toBeNull();
     // a newer code outlives the expiry of the one before
-    const newer = play([{ type: "pairing-started", code: { ...code, code: "654321" }, at: AT }], state).state;
-    expect(play([{ type: "pairing-expired", code: "123456" }], newer).state.devices.code?.code).toBe("654321");
+    const newer = play([{ type: "pairing-started", code: { ...code, code: "654321" }, at: AT, session }], state).state;
+    expect(play([{ type: "pairing-expired", code: "123456", session }], newer).state.devices.code?.code).toBe("654321");
+  });
+
+  it("keeps polling after a read that failed while the code is out", () => {
+    const out = pairing().state;
+    const failed = play([{ type: "devices-failed", message: "offline", unavailable: false, session }], out).state;
+    expect(failed.devices.code).toEqual(code);
+    expect(play([{ type: "poll-devices", session, seq: 1 }], failed).effects).toContainEqual({ kind: "load-devices", session });
+  });
+
+  it("polls on one chain: a new code ends the chain of the one before", () => {
+    const first = pairing().state;
+    const second = play([{ type: "pairing-started", code: { ...code, code: "654321" }, at: AT, session }], first).state;
+    expect(play([{ type: "poll-devices", session, seq: 1 }], second).effects).toEqual([]);
+    expect(play([{ type: "poll-devices", session, seq: 2 }], second).effects).toContainEqual({ kind: "load-devices", session });
+    // a rename or a revoke reads the list once, and starts no chain of its own
+    expect(play([{ type: "device-changed", session }], second).effects).toEqual([{ kind: "load-devices", session }]);
   });
 
   it("names a device that appears while a code is out, and puts the code away", () => {
-    const out = play([{ type: "pairing-started", code, at: AT }], listed([device("a")])).state;
-    const { state } = play([{ type: "devices-loaded", devices: [device("a"), device("b", "iPhone")] }], out);
+    const { state } = play([{ type: "devices-loaded", devices: [device("a"), device("b", "iPhone")], session }], pairing().state);
     expect(state.devices).toMatchObject({ justPaired: "iPhone", code: null });
   });
 
   it("stops polling once the dialog closes or the code is put away", () => {
-    const out = play([{ type: "pairing-started", code, at: AT }], listed([device("a")])).state;
-    expect(play([{ type: "end-pairing" }, { type: "poll-devices" }], out).effects).toEqual([]);
-    expect(play([{ type: "close-settings" }, { type: "poll-devices" }], out).effects).toEqual([]);
+    const out = pairing().state;
+    expect(play([{ type: "end-pairing" }, { type: "poll-devices", session, seq: 1 }], out).effects).toEqual([]);
+    expect(play([{ type: "close-settings" }, { type: "poll-devices", session, seq: 1 }], out).effects).toEqual([]);
+  });
+
+  it("drops what an earlier opening of Settings left on its way: answers and timers", () => {
+    const out = pairing().state;
+    const reopened = play([{ type: "close-settings" }, { type: "open-settings" }], out).state;
+    expect(play([{ type: "poll-devices", session, seq: 1 }], reopened).effects).toEqual([]);
+    expect(transition(reopened, { type: "devices-loaded", devices: [device("old")], session }).state).toBe(reopened);
+    const confirming = play([{ type: "revoke-device", id: "a" }], listed([device("a")])).state;
+    const again = play([{ type: "close-settings" }, { type: "open-settings" }, { type: "devices-loaded", devices: [device("a")], session: 2 }, { type: "revoke-device", id: "a" }], confirming).state;
+    expect(play([{ type: "unconfirm-revoke", id: "a", session, seq: 1 }], again).state.devices.confirming).toBe("a");
   });
 
   it("renames with the name being typed, and reads the list again", () => {
     const typed = play([{ type: "start-rename", id: "a", label: "a" }, { type: "edit-rename", label: "Desk" }], listed([device("a")])).state;
     expect(typed.devices.renaming).toEqual({ id: "a", label: "Desk" });
     const { state, effects } = play([{ type: "save-rename" }], typed);
-    expect(effects).toEqual([{ kind: "rename-device", id: "a", label: "Desk" }]);
-    const done = play([{ type: "device-renamed" }], state);
+    expect(effects).toEqual([{ kind: "rename-device", id: "a", label: "Desk", session }]);
+    const done = play([{ type: "device-renamed", session }], state);
     expect(done.state.devices.renaming).toBeNull();
-    expect(done.effects).toEqual([{ kind: "load-devices" }]);
+    expect(done.effects).toEqual([{ kind: "load-devices", session }]);
     expect(play([{ type: "cancel-rename" }], typed).state.devices.renaming).toBeNull();
   });
 
   it("revokes on the second press only, and forgets the first press after a while", () => {
     const first = play([{ type: "revoke-device", id: "a" }], listed([device("a")]));
     expect(first.state.devices.confirming).toBe("a");
-    expect(first.effects).toEqual([{ kind: "later", ms: 4000, event: { type: "unconfirm-revoke", id: "a" } }]);
-    expect(play([{ type: "unconfirm-revoke", id: "a" }], first.state).state.devices.confirming).toBeNull();
+    expect(first.effects).toEqual([{ kind: "later", ms: 4000, event: { type: "unconfirm-revoke", id: "a", session, seq: 1 } }]);
+    expect(play([{ type: "unconfirm-revoke", id: "a", session, seq: 1 }], first.state).state.devices.confirming).toBeNull();
     const second = play([{ type: "revoke-device", id: "a" }], first.state);
     expect(second.state.devices.confirming).toBeNull();
-    expect(second.effects).toEqual([{ kind: "revoke-device", id: "a" }]);
+    expect(second.effects).toEqual([{ kind: "revoke-device", id: "a", session }]);
   });
 
   it("keeps a failed change's message beside the list", () => {
-    const { state } = play([{ type: "device-change-failed", message: "denied" }], listed([device("a")]));
+    const { state } = play([{ type: "device-change-failed", message: "denied", session }], listed([device("a")]));
     expect(state.devices).toMatchObject({ list: [device("a")], failure: { kind: "message", message: "denied" } });
   });
 });

@@ -63,9 +63,13 @@ export interface DevicesState {
   renaming: { id: string; label: string } | null;
   /** the device whose Revoke was pressed once */
   confirming: string | null;
+  /** the poll chain running for the code out: one at a time, a later one ends the one before */
+  pollSeq: number;
+  /** the press on Revoke whose timeout counts: pressing again re-arms it */
+  confirmSeq: number;
 }
 
-export const NO_DEVICES: DevicesState = { list: null, known: [], unavailable: false, failure: null, code: null, justPaired: null, renaming: null, confirming: null };
+export const NO_DEVICES: DevicesState = { list: null, known: [], unavailable: false, failure: null, code: null, justPaired: null, renaming: null, confirming: null, pollSeq: 0, confirmSeq: 0 };
 
 export interface UiState {
   screen: Screen;
@@ -87,6 +91,11 @@ export interface UiState {
   /** how a phone can reach this PC: what Tailscale on it already serves (Settings → Phone); null when unknown */
   remoteAccess: Loadable<RemoteAccess | null>;
   devices: DevicesState;
+  /**
+   * Counts the openings of Settings. What its panels asked for (an answer, a timer) carries the
+   * opening it was asked in, and is dropped in a later one, as the panels it was for are gone.
+   */
+  settingsSession: number;
 }
 
 export type UiEvent =
@@ -126,25 +135,25 @@ export type UiEvent =
   | { type: "load-remote-access" }
   | { type: "remote-access-loaded"; access: RemoteAccess }
   | { type: "remote-access-failed"; message: string }
-  | { type: "devices-loaded"; devices: PairedDevice[] }
+  | { type: "devices-loaded"; devices: PairedDevice[]; session: number }
   /** `unavailable`: the server keeps no devices */
-  | { type: "devices-failed"; message: string; unavailable: boolean }
-  | { type: "poll-devices" }
+  | { type: "devices-failed"; message: string; unavailable: boolean; session: number }
+  | { type: "poll-devices"; session: number; seq: number }
   | { type: "pair-device" }
   /** `at`: when the code arrived, to time its expiry */
-  | { type: "pairing-started"; code: PairingCode; at: number }
-  | { type: "pairing-expired"; code: string }
+  | { type: "pairing-started"; code: PairingCode; at: number; session: number }
+  | { type: "pairing-expired"; code: string; session: number }
   | { type: "end-pairing" }
   | { type: "start-rename"; id: string; label: string }
   | { type: "edit-rename"; label: string }
   | { type: "cancel-rename" }
   | { type: "save-rename" }
   | { type: "revoke-device"; id: string }
-  | { type: "unconfirm-revoke"; id: string }
-  | { type: "device-renamed" }
+  | { type: "unconfirm-revoke"; id: string; session: number; seq: number }
+  | { type: "device-renamed"; session: number }
   /** a revoke the server took */
-  | { type: "device-changed" }
-  | { type: "device-change-failed"; message: string };
+  | { type: "device-changed"; session: number }
+  | { type: "device-change-failed"; message: string; session: number };
 
 export type Effect =
   | { kind: "load-runs" }
@@ -155,10 +164,10 @@ export type Effect =
   /** every pane's own lens on this device is forgotten */
   | { kind: "forget-pane-views" }
   | { kind: "load-remote-access" }
-  | { kind: "load-devices" }
-  | { kind: "start-pairing" }
-  | { kind: "rename-device"; id: string; label: string }
-  | { kind: "revoke-device"; id: string }
+  | { kind: "load-devices"; session: number }
+  | { kind: "start-pairing"; session: number }
+  | { kind: "rename-device"; id: string; label: string; session: number }
+  | { kind: "revoke-device"; id: string; session: number }
   /** an event the state machine sends itself after a while */
   | { kind: "later"; ms: number; event: UiEvent };
 
@@ -176,6 +185,7 @@ export const INITIAL_STATE: UiState = {
   settingsDialog: { open: false },
   remoteAccess: { status: "idle", data: null, again: false },
   devices: NO_DEVICES,
+  settingsSession: 0,
 };
 
 /** A run whose pane is gone: nothing to open or stop in it. */
@@ -266,8 +276,8 @@ export function transition(state: UiState, event: UiEvent): Transition {
       return next({ request: state.request.status === "failed" ? { status: "none" } : state.request });
     case "open-settings":
       if (state.settingsDialog.open) return next({});
-      effects.push({ kind: "load-devices" });
-      return next({ settingsDialog: { open: true, drafts: {} }, remoteAccess: readAccess(state.remoteAccess, effects), devices: NO_DEVICES });
+      effects.push({ kind: "load-devices", session: state.settingsSession + 1 });
+      return next({ settingsDialog: { open: true, drafts: {} }, remoteAccess: readAccess(state.remoteAccess, effects), devices: NO_DEVICES, settingsSession: state.settingsSession + 1 });
     case "close-settings": {
       if (!state.settingsDialog.open) return next({});
       const fonts: Partial<Settings> = {};
@@ -309,40 +319,42 @@ export function transition(state: UiState, event: UiEvent): Transition {
     case "device-renamed":
     case "device-changed":
     case "device-change-failed": {
-      // devices exist only while Settings is open: what arrives after it closed is dropped
-      if (!state.settingsDialog.open) return next({});
-      return next({ devices: devicesTransition(state.devices, event, effects) });
+      // devices exist only while Settings is open: what arrives after it closed, or from an earlier opening, is dropped
+      if (!state.settingsDialog.open || ("session" in event && event.session !== state.settingsSession)) return next({});
+      return next({ devices: devicesTransition(state.devices, event, state.settingsSession, effects) });
     }
     case "remote-access-failed":
       return next({ remoteAccess: settleAccess(state.remoteAccess, { status: "error", data: null, error: event.message }, effects) });
   }
 }
 
-function devicesTransition(devices: DevicesState, event: UiEvent, effects: Effect[]): DevicesState {
+function devicesTransition(devices: DevicesState, event: UiEvent, session: number, effects: Effect[]): DevicesState {
   switch (event.type) {
     case "devices-loaded": {
       const fresh = event.devices.filter((device) => !devices.known.includes(device.id));
       // as before the migration: a device counts as just paired only once some were known
       const paired = devices.known.length > 0 || event.devices.length === 0 ? fresh.at(-1) : undefined;
       const code = paired ? null : devices.code;
-      if (code !== null) effects.push({ kind: "later", ms: DEVICE_POLL_MS, event: { type: "poll-devices" } });
       return { ...devices, list: event.devices, failure: null, known: event.devices.map((device) => device.id), justPaired: paired?.label ?? devices.justPaired, code };
     }
     case "devices-failed":
       return { ...devices, list: [], unavailable: devices.unavailable || event.unavailable, failure: event.unavailable ? { kind: "unavailable" } : { kind: "message", message: event.message } };
     case "poll-devices":
-      if (devices.code === null) return devices;
-      effects.push({ kind: "load-devices" });
+      // the chain of an earlier code, or of no code any more, ends here
+      if (devices.code === null || event.seq !== devices.pollSeq) return devices;
+      effects.push({ kind: "load-devices", session }, { kind: "later", ms: DEVICE_POLL_MS, event: { type: "poll-devices", session, seq: event.seq } });
       return devices;
     case "pair-device":
-      effects.push({ kind: "start-pairing" });
+      effects.push({ kind: "start-pairing", session });
       return { ...devices, justPaired: null };
-    case "pairing-started":
+    case "pairing-started": {
+      const pollSeq = devices.pollSeq + 1;
       effects.push(
-        { kind: "later", ms: DEVICE_POLL_MS, event: { type: "poll-devices" } },
-        { kind: "later", ms: Math.max(0, Date.parse(event.code.expires_at) - event.at), event: { type: "pairing-expired", code: event.code.code } },
+        { kind: "later", ms: DEVICE_POLL_MS, event: { type: "poll-devices", session, seq: pollSeq } },
+        { kind: "later", ms: Math.max(0, Date.parse(event.code.expires_at) - event.at), event: { type: "pairing-expired", code: event.code.code, session } },
       );
-      return { ...devices, code: event.code, failure: null };
+      return { ...devices, code: event.code, failure: null, pollSeq };
+    }
     case "pairing-expired":
       return devices.code?.code === event.code ? { ...devices, code: null } : devices;
     case "end-pairing":
@@ -355,22 +367,23 @@ function devicesTransition(devices: DevicesState, event: UiEvent, effects: Effec
       return { ...devices, renaming: null };
     case "save-rename":
       if (!devices.renaming) return devices;
-      effects.push({ kind: "rename-device", id: devices.renaming.id, label: devices.renaming.label });
+      effects.push({ kind: "rename-device", id: devices.renaming.id, label: devices.renaming.label, session });
       return devices;
     case "revoke-device":
       if (devices.confirming !== event.id) {
-        effects.push({ kind: "later", ms: REVOKE_CONFIRM_MS, event: { type: "unconfirm-revoke", id: event.id } });
-        return { ...devices, confirming: event.id };
+        const confirmSeq = devices.confirmSeq + 1;
+        effects.push({ kind: "later", ms: REVOKE_CONFIRM_MS, event: { type: "unconfirm-revoke", id: event.id, session, seq: confirmSeq } });
+        return { ...devices, confirming: event.id, confirmSeq };
       }
-      effects.push({ kind: "revoke-device", id: event.id });
+      effects.push({ kind: "revoke-device", id: event.id, session });
       return { ...devices, confirming: null };
     case "unconfirm-revoke":
-      return devices.confirming === event.id ? { ...devices, confirming: null } : devices;
+      return devices.confirming === event.id && devices.confirmSeq === event.seq ? { ...devices, confirming: null } : devices;
     case "device-renamed":
-      effects.push({ kind: "load-devices" });
+      effects.push({ kind: "load-devices", session });
       return { ...devices, renaming: null };
     case "device-changed":
-      effects.push({ kind: "load-devices" });
+      effects.push({ kind: "load-devices", session });
       return devices;
     case "device-change-failed":
       return { ...devices, failure: { kind: "message", message: event.message } };

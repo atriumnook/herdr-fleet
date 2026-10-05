@@ -78,17 +78,17 @@ export class Mediator {
       case "load-devices":
         try {
           const devices = await this.ports.loadDevices();
-          this.dispatch(devices === null ? { type: "devices-failed", message: "", unavailable: true } : { type: "devices-loaded", devices });
-        } catch (error) { this.dispatch({ type: "devices-failed", message: message(error), unavailable: false }); }
+          this.dispatch(devices === null ? { type: "devices-failed", message: "", unavailable: true, session: effect.session } : { type: "devices-loaded", devices, session: effect.session });
+        } catch (error) { this.dispatch({ type: "devices-failed", message: message(error), unavailable: false, session: effect.session }); }
         return;
       case "start-pairing":
-        try { this.dispatch({ type: "pairing-started", code: await this.ports.startPairing(), at: Date.now() }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error) }); }
+        try { this.dispatch({ type: "pairing-started", code: await this.ports.startPairing(), at: Date.now(), session: effect.session }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
         return;
       case "rename-device":
-        try { await this.ports.renameDevice(effect.id, effect.label); this.dispatch({ type: "device-renamed" }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error) }); }
+        try { await this.ports.renameDevice(effect.id, effect.label); this.dispatch({ type: "device-renamed", session: effect.session }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
         return;
       case "revoke-device":
-        try { await this.ports.revokeDevice(effect.id); this.dispatch({ type: "device-changed" }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error) }); }
+        try { await this.ports.revokeDevice(effect.id); this.dispatch({ type: "device-changed", session: effect.session }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
         return;
       case "later":
         this.ports.later(effect.ms, () => this.dispatch(effect.event));
