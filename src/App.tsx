@@ -10,7 +10,6 @@ import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import { NewSessionDialog } from "./components/NewSessionDialog.tsx";
 import type { SettingsDialogEvent } from "./components/SettingsDialog.tsx";
-import { DevicesPanel } from "./components/DevicesPanel.tsx";
 import { PushTestControls } from "./components/PushTestControls.tsx";
 import { useInstallPrompt } from "./lib/install.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
@@ -44,6 +43,7 @@ import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { Droplet } from "./components/Droplet.tsx";
 import { relay, type Emit } from "./ui/bubble.ts";
 import { needsCount } from "./ui/fleetView.ts";
+import { DevicesPanelPresenter } from "./ui/DevicesPanelPresenter.tsx";
 import { FleetPresenter } from "./ui/FleetPresenter.tsx";
 import { useSelected } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
@@ -806,7 +806,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       <SettingsDialogPresenter
         install={installPrompt}
         alerts={<PushTestControls onEnable={enableNotifications} />}
-        devices={(pairUrl) => <DevicesPanel pairUrl={pairUrl} auth={auth} />}
+        devices={(pairUrl) => <DevicesPanelPresenter pairUrl={pairUrl} auth={auth} emit={emit} />}
         emit={settingsEmit}
       />
       {filesOpen && selectedPane && (

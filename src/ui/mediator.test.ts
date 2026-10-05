@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
-import type { RemoteAccess } from "../../shared/protocol.ts";
+import type { PairedDevice, RemoteAccess } from "../../shared/protocol.ts";
 import type { Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import type { RequestAction } from "./state.ts";
@@ -13,6 +13,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
   const requests: RequestAction[] = [];
   const saved: Settings[] = [];
   const forgotten: number[] = [];
+  const timers: Array<{ ms: number; then: () => void }> = [];
   const base: EffectPorts = {
     loadRuns: async () => [run],
     loadUsage: async (): Promise<UsageEntry[]> => [],
@@ -21,8 +22,13 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     saveSettings: (settings) => { saved.push(settings); },
     forgetPaneViews: () => { forgotten.push(1); },
     loadRemoteAccess: async (): Promise<RemoteAccess> => access,
+    loadDevices: async (): Promise<PairedDevice[] | null> => [],
+    startPairing: async () => ({ code: "123456", expires_at: new Date(Date.now() + 600_000).toISOString() }),
+    renameDevice: async () => {},
+    revokeDevice: async () => {},
+    later: (ms, then) => { timers.push({ ms, then }); },
   };
-  return { ports: { ...base, ...overrides }, requests, saved, forgotten };
+  return { ports: { ...base, ...overrides }, requests, saved, forgotten, timers };
 }
 
 describe("Mediator", () => {
@@ -90,5 +96,29 @@ describe("Mediator", () => {
     failing.dispatch({ type: "open-settings" });
     await until(() => failing.getState().remoteAccess.status === "error");
     expect(failing.getState().remoteAccess.error).toBe("offline");
+  });
+
+  it("says the server keeps no devices when it has no device list, and a failure as it came", async () => {
+    const none = new Mediator(ports({ loadDevices: async () => null }).ports);
+    none.dispatch({ type: "open-settings" });
+    await until(() => none.getState().devices.unavailable);
+    expect(none.getState().devices.failure).toEqual({ kind: "unavailable" });
+    const failing = new Mediator(ports({ loadDevices: async () => { throw new Error("offline"); } }).ports);
+    failing.dispatch({ type: "open-settings" });
+    await until(() => failing.getState().devices.failure !== null);
+    expect(failing.getState().devices.failure).toEqual({ kind: "message", message: "offline" });
+  });
+
+  it("sends the state machine's later events on the clock it is given", async () => {
+    const { ports: p, timers } = ports();
+    const mediator = new Mediator(p);
+    mediator.dispatch({ type: "open-settings" });
+    await until(() => mediator.getState().devices.list !== null);
+    mediator.dispatch({ type: "pair-device" });
+    await until(() => mediator.getState().devices.code !== null);
+    expect(timers.map((timer) => timer.ms)).toEqual([3000, expect.any(Number)]);
+    expect(timers[1]!.ms).toBeGreaterThan(590_000);
+    timers[1]!.then();
+    expect(mediator.getState().devices.code).toBeNull();
   });
 });
