@@ -8,6 +8,7 @@ import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
 import type { WorkspaceCreated } from "../shared/protocol.ts";
+import { checkDevices } from "./devices-regression.ts";
 import { checkPushSettings } from "./push-settings-regression.ts";
 import { checkWakeLock } from "./wake-lock-regression.ts";
 import { checkNeedsInput } from "./needs-input-regression.ts";
@@ -274,6 +275,7 @@ try {
   console.log("PASS the bell turns alerts off and on again");
 
   await checkPushSettings(browser, origin);
+  await checkDevices(browser, origin);
   await checkWakeLock(browser, origin, paneA);
   await checkNeedsInput(browser, origin, paneA);
   await checkSecretInput(browser, origin);
