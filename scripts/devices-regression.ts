@@ -33,11 +33,12 @@ export async function checkDevices(browser: Browser, origin: string): Promise<vo
     const codeText = panel.locator(".devices-code");
     await codeText.waitFor();
     await pairFrom(browser, origin, (await codeText.textContent())!.replace(/\s/g, ""), "First phone");
-    await panel.getByText("First phone", { exact: true }).waitFor({ timeout: 8000 });
-    await panel.getByRole("button", { name: "Done", exact: true }).click();
-    await panel.getByRole("button", { name: "Pair a device", exact: true }).waitFor();
+    // the first device to pair is named too, and its code is put away
+    await panel.getByText("Paired: First phone.").waitFor({ timeout: 8000 });
+    assert.equal(await codeText.count(), 0, "the code goes once its device paired");
+    await panel.getByText("First phone", { exact: true }).waitFor();
 
-    // with a device known, the next one to pair is named, and its code is put away
+    // so is the next one
     await panel.getByRole("button", { name: "Pair a device", exact: true }).click();
     await codeText.waitFor();
     await pairFrom(browser, origin, (await codeText.textContent())!.replace(/\s/g, ""), "Second phone");
@@ -60,7 +61,7 @@ export async function checkDevices(browser: Browser, origin: string): Promise<vo
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await panel.getByText("Tablet", { exact: true }).waitFor();
-    console.log("PASS Settings devices: pair, the next one named, rename, revoke on the second press, read on open");
+    console.log("PASS Settings devices: pair (the first device named too), the next one named, rename, revoke on the second press, read on open");
   } finally {
     await context.close();
   }

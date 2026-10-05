@@ -302,6 +302,16 @@ describe("paired devices", () => {
     expect(play([{ type: "device-changed", session }], second).effects).toEqual([{ kind: "load-devices", session }]);
   });
 
+  it("names the first device to pair as well, once the list was read empty", () => {
+    const out = pairing(listed([])).state;
+    const { state } = play([{ type: "devices-loaded", devices: [device("a", "iPhone")], session }], out);
+    expect(state.devices).toMatchObject({ justPaired: "iPhone", code: null });
+  });
+
+  it("takes the first read as it is: what was there already did not just pair", () => {
+    expect(listed([device("a")]).devices.justPaired).toBeNull();
+  });
+
   it("names a device that appears while a code is out, and puts the code away", () => {
     const { state } = play([{ type: "devices-loaded", devices: [device("a"), device("b", "iPhone")], session }], pairing().state);
     expect(state.devices).toMatchObject({ justPaired: "iPhone", code: null });
