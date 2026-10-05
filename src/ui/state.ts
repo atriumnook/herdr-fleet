@@ -74,6 +74,9 @@ export const NO_DEVICES: DevicesState = { list: null, known: [], unavailable: fa
 /** Settings → Alerts' test push: what came of the last one, on this device. */
 export type PushTest = "idle" | "sending" | "sent" | "unsupported" | "permission" | "missing" | "failed";
 
+/** `auto`: picked by the shell for a pane that closed; it raises no phone keyboard until the person picks a pane or lens */
+export interface Selection { machineId: string; paneId: string | null; auto: boolean }
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -83,11 +86,8 @@ export interface UiState {
   detail: string | null;
   /** this device may change things (a paired watch-only device may not: the server answers read_only) */
   canAct: boolean;
-  /**
-   * A pane the legacy shell should select (it still owns the pane selection until it moves to
-   * this Mediator): `seq` makes asking for the same pane twice a new request.
-   */
-  paneRequest: { paneId: string; seq: number } | null;
+  /** the pane shown: on which PC, and whether the shell picked it itself (the one selected closed) */
+  selection: Selection;
   /** this device's preferences, kept in localStorage */
   settings: Settings;
   settingsDialog: SettingsDialogState;
@@ -106,8 +106,12 @@ export type UiEvent =
   | { type: "show-screen"; screen: Screen }
   /** what the server said this device may do */
   | { type: "access-known"; canAct: boolean }
-  /** the legacy shell selected a pane (sidebar, palette, notification) */
-  | { type: "pane-selected" }
+  /** the person picked a pane (sidebar, palette, notification, a new session) */
+  | { type: "select-pane"; machineId: string; paneId: string | null }
+  /** the selected pane `from` closed: the shell picked `paneId` in its place */
+  | { type: "fall-back-pane"; from: string | null; paneId: string | null; auto: boolean }
+  /** the person chose a lens in the pane the shell picked: it is theirs now */
+  | { type: "selection-confirmed" }
   /** the server pushed fleet-changed, or the event stream (re)opened and pushes may have been missed */
   | { type: "fleet-changed" }
   | { type: "runs-loaded"; runs: AgentRun[] }
@@ -178,7 +182,8 @@ export type Effect =
   | { kind: "revoke-device"; id: string; session: number }
   /** an event the state machine sends itself after a while */
   | { kind: "later"; ms: number; event: UiEvent }
-  | { kind: "test-push"; session: number };
+  | { kind: "test-push"; session: number }
+  | { kind: "store-selection"; machineId: string; paneId: string | null };
 
 export interface Transition { state: UiState; effects: Effect[] }
 
@@ -188,7 +193,7 @@ export const INITIAL_STATE: UiState = {
   usage: { status: "idle", data: [], again: false, refreshing: false },
   request: { status: "none" },
   detail: null,
-  paneRequest: null,
+  selection: { machineId: "local", paneId: null, auto: false },
   canAct: true,
   settings: DEFAULT_SETTINGS,
   settingsDialog: { open: false },
@@ -227,8 +232,13 @@ export function transition(state: UiState, event: UiEvent): Transition {
       return next({ canAct: event.canAct });
     case "show-screen":
       return next({ screen: event.screen, detail: event.screen === "pane" ? null : state.detail });
-    case "pane-selected":
-      return next({ screen: "pane", detail: null });
+    case "select-pane":
+      return next({ screen: "pane", detail: null, selection: select(event.machineId, event.paneId, false, effects) });
+    case "fall-back-pane":
+      if (state.selection.paneId !== event.from) return next({});
+      return next({ selection: select(state.selection.machineId, event.paneId, event.auto || state.selection.auto, effects) });
+    case "selection-confirmed":
+      return next(state.selection.auto ? { selection: { ...state.selection, auto: false } } : {});
     case "fleet-changed":
       // a refresh in flight answers with the new usage itself
       return next({
@@ -265,7 +275,8 @@ export function transition(state: UiState, event: UiEvent): Transition {
     case "open-pane": {
       const run = state.runs.data.find((candidate) => candidate.id === event.runId);
       if (!run || isEnded(run)) return next({});
-      return next({ screen: "pane", detail: null, paneRequest: { paneId: run.paneId, seq: (state.paneRequest?.seq ?? 0) + 1 } });
+      // a fleet run's pane lives on this PC
+      return next({ screen: "pane", detail: null, selection: select("local", run.paneId, false, effects) });
     }
     case "interrupt-run":
       return request(state, { kind: "interrupt", runId: event.runId });
@@ -408,6 +419,12 @@ function devicesTransition(devices: DevicesState, event: UiEvent, session: numbe
     default:
       return devices;
   }
+}
+
+/** A pane selected, and kept for the next load. */
+function select(machineId: string, paneId: string | null, auto: boolean, effects: Effect[]): Selection {
+  effects.push({ kind: "store-selection", machineId, paneId });
+  return { machineId, paneId, auto };
 }
 
 /** Read the remote access again; what was known goes meanwhile, so the panel says it is checking. */

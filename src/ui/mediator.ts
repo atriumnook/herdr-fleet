@@ -19,6 +19,8 @@ export interface EffectPorts {
   revokeDevice(id: string): Promise<void>;
   /** a test push to this device's own subscription; `missing` when the server no longer has it */
   testPush(): Promise<"sent" | "unsupported" | "permission" | "missing">;
+  /** keeps the selected pane for this window's next load */
+  storeSelection(machineId: string, paneId: string | null): void;
   /** runs `then` after `ms`: the clock the state machine's `later` effects wait on */
   later(ms: number, then: () => void): void;
 }
@@ -94,6 +96,9 @@ export class Mediator {
         return;
       case "test-push":
         try { this.dispatch({ type: "push-tested", result: await this.ports.testPush(), session: effect.session }); } catch { this.dispatch({ type: "push-tested", result: "failed", session: effect.session }); }
+        return;
+      case "store-selection":
+        this.ports.storeSelection(effect.machineId, effect.paneId);
         return;
       case "later":
         this.ports.later(effect.ms, () => this.dispatch(effect.event));

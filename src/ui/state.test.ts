@@ -75,14 +75,40 @@ describe("screens and the detail sheet", () => {
     expect(play([{ type: "show-screen", screen: "fleet" }, { type: "show-run", runId: "a" }], withRuns).state).toMatchObject({ screen: "fleet", detail: "a" });
     expect(play([{ type: "show-run", runId: "nobody" }], withRuns).state.detail).toBeNull();
     expect(play([{ type: "show-run", runId: "a" }, { type: "runs-loaded", runs: [] }], withRuns).state.detail).toBeNull();
-    expect(play([{ type: "show-screen", screen: "fleet" }, { type: "show-run", runId: "a" }, { type: "pane-selected" }], withRuns).state).toMatchObject({ screen: "pane", detail: null });
+    expect(play([{ type: "show-screen", screen: "fleet" }, { type: "show-run", runId: "a" }, { type: "select-pane", machineId: "local", paneId: "w1:x" }], withRuns).state).toMatchObject({ screen: "pane", detail: null });
   });
 
-  it("opens a live run's pane through the legacy shell, a new request each time, and not an ended run's", () => {
-    const first = play([{ type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "a" }], withRuns).state;
-    expect(first).toMatchObject({ screen: "pane", paneRequest: { paneId: "w1:a", seq: 1 } });
-    expect(transition(first, { type: "open-pane", runId: "a" }).state.paneRequest).toEqual({ paneId: "w1:a", seq: 2 });
-    expect(play([{ type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "gone" }], withRuns).state).toMatchObject({ screen: "fleet", paneRequest: null });
+  it("selects a live run's pane on this PC, again when asked again, and not an ended run's", () => {
+    const first = play([{ type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "a" }], withRuns);
+    expect(first.state).toMatchObject({ screen: "pane", selection: { machineId: "local", paneId: "w1:a", auto: false } });
+    expect(first.effects).toEqual([{ kind: "store-selection", machineId: "local", paneId: "w1:a" }]);
+    const elsewhere = play([{ type: "select-pane", machineId: "local", paneId: "w1:b" }, { type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "a" }], first.state).state;
+    expect(elsewhere.selection.paneId).toBe("w1:a");
+    expect(play([{ type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "gone" }], withRuns).state).toMatchObject({ screen: "fleet", selection: INITIAL_STATE.selection });
+  });
+});
+
+describe("the selected pane", () => {
+  it("selects a pane on a PC and keeps the choice for the next load", () => {
+    const { state, effects } = play([{ type: "select-pane", machineId: "pc2", paneId: "w2:p1" }]);
+    expect(state.selection).toEqual({ machineId: "pc2", paneId: "w2:p1", auto: false });
+    expect(effects).toEqual([{ kind: "store-selection", machineId: "pc2", paneId: "w2:p1" }]);
+  });
+
+  it("takes the pane the shell falls back to when the selected one closed, marked as its own pick", () => {
+    const selected = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }]).state;
+    const { state, effects } = play([{ type: "fall-back-pane", from: "w1:gone", paneId: "w1:p1", auto: true }], selected);
+    expect(state.selection).toEqual({ machineId: "local", paneId: "w1:p1", auto: true });
+    expect(effects).toEqual([{ kind: "store-selection", machineId: "local", paneId: "w1:p1" }]);
+    // a fallback worked out for a pane no longer selected comes too late
+    const moved = play([{ type: "select-pane", machineId: "local", paneId: "w1:new" }], selected).state;
+    expect(transition(moved, { type: "fall-back-pane", from: "w1:gone", paneId: "w1:p1", auto: true }).state).toBe(moved);
+  });
+
+  it("drops the shell's own pick once the person chooses a lens there", () => {
+    const picked = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }, { type: "fall-back-pane", from: "w1:gone", paneId: "w1:p1", auto: true }]).state;
+    expect(play([{ type: "selection-confirmed" }], picked).state.selection.auto).toBe(false);
+    expect(transition(INITIAL_STATE, { type: "selection-confirmed" }).state).toBe(INITIAL_STATE);
   });
 });
 

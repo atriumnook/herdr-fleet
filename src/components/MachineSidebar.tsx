@@ -1,11 +1,8 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronRight, Download, Monitor, Plus, Settings } from "lucide-react";
 import type { Machine, MachineState } from "../../shared/machines.ts";
-import { MachineContext } from "../lib/machineContext.tsx";
-import type { AppActions } from "../lib/actions.ts";
-import { useInstallPrompt } from "../lib/install.ts";
-import { Sidebar } from "./Sidebar.tsx";
-import { NeedsInput } from "./NeedsInput.tsx";
+import type { Emit } from "../ui/bubble.ts";
+import { NeedsInput, type NeedsInputEvent } from "./NeedsInput.tsx";
 import "./Machines.css";
 import { useT } from "../lib/i18n.ts";
 
@@ -20,43 +17,66 @@ export const STATE_WORD: Readonly<Record<MachineState, string>> = {
   error: "Connection error",
 };
 
-interface Props { machines: Machine[]; selectedMachineId: string; selectedPaneId: string | null; actions: AppActions; version: string | null; onSelect(machineId: string, paneId: string | null): void; onNew(machineId: string): void }
+/** What the sidebar sends up: a pane picked, the Settings dialog for the Mediator; a new session and the install prompt for the shell. */
+export type MachineSidebarEvent =
+  | NeedsInputEvent
+  | { type: "open-settings" }
+  | { type: "new-session"; machineId: string }
+  | { type: "install-app" };
+
+export interface MachineSidebarModel {
+  machines: Machine[];
+  selectedMachineId: string;
+  selectedPaneId: string | null;
+  /** herdr's version on this PC */
+  version: string | null;
+  install: { installed: boolean; canInstall: boolean; help: string };
+}
+
+interface Props {
+  model: MachineSidebarModel;
+  /** a connected PC's sessions, drawn by the shell */
+  tree: (machine: Machine) => ReactNode;
+  emit: Emit<MachineSidebarEvent>;
+}
+
 export function MachineSidebar(props: Props) {
   const t = useT();
-  const { canInstall, installed, install, help } = useInstallPrompt();
+  const { machines, selectedMachineId, selectedPaneId, version, install: { canInstall, installed, help } } = props.model;
+  const emit = props.emit;
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
   // no top bar: a session starts from its PC's header
   return <div className="sidebar-shell">
     <div className="machine-list" aria-label={t("PCs and workspaces")}>
-      <NeedsInput machines={props.machines} selectedMachineId={props.selectedMachineId} selectedPaneId={props.selectedPaneId} onSelect={props.onSelect} />
-      {props.machines.map((machine) => <MachineGroup key={machine.id} {...props} machine={machine} />)}
-      {!props.machines.length && <p className="tree-state" role="status">{t("Loading PCs…")}</p>}
+      <NeedsInput machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} emit={emit} />
+      {machines.map((machine) => <MachineGroup key={machine.id} machine={machine} current={selectedMachineId === machine.id} tree={props.tree} emit={emit} />)}
+      {!machines.length && <p className="tree-state" role="status">{t("Loading PCs…")}</p>}
     </div>
     <footer className="sidebar-footer">
       {/* browsers without an install prompt (iOS, plain HTTP) get the steps instead */}
-      {!installed && <button className="btn btn-ghost sidebar-footer-action" aria-expanded={canInstall ? undefined : installHelpOpen} onClick={() => { if (canInstall) void install(); else setInstallHelpOpen(!installHelpOpen); }}><Download aria-hidden="true" />{t("Install app")}</button>}
+      {!installed && <button className="btn btn-ghost sidebar-footer-action" aria-expanded={canInstall ? undefined : installHelpOpen} onClick={() => { if (canInstall) emit({ type: "install-app" }); else setInstallHelpOpen(!installHelpOpen); }}><Download aria-hidden="true" />{t("Install app")}</button>}
       {!installed && !canInstall && installHelpOpen && <p className="sidebar-install-help" role="status">{help}</p>}
       <div className="sidebar-footer-row">
-        <button className="btn btn-ghost sidebar-footer-action" title={t("Settings (⌘⇧,)")} onClick={props.actions.openSettings}><Settings aria-hidden="true" />{t("Settings")}</button>
+        <button className="btn btn-ghost sidebar-footer-action" title={t("Settings (⌘⇧,)")} onClick={() => emit({ type: "open-settings" })}><Settings aria-hidden="true" />{t("Settings")}</button>
       </div>
       <div className="sidebar-brandline">
         <span className="sidebar-app-name">herdr fleet v{__APP_VERSION__}</span>
-        {props.version && <span className="pill">herdr {props.version}</span>}
+        {version && <span className="pill">herdr {version}</span>}
       </div>
     </footer>
   </div>;
 }
 
-function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
+/** One PC: its header, its state when not connected, and its sessions. Folding it is the view's own, kept per PC. */
+function MachineGroup({ machine, current, tree, emit }: { machine: Machine; current: boolean; tree: Props["tree"]; emit: Emit<MachineSidebarEvent> }) {
   const t = useT();
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(`herdr-fleet:pc-collapsed:${machine.id}`) === "1"; } catch { return false; } });
   const online = machine.state === "connected";
-  const actions: AppActions = { ...props.actions, selectPane: (id) => props.onSelect(machine.id, id), openNewSession: () => props.onNew(machine.id) };
   const toggle = () => {
     setCollapsed(!collapsed);
     try { localStorage.setItem(`herdr-fleet:pc-collapsed:${machine.id}`, collapsed ? "0" : "1"); } catch {}
   };
-  return <section className={`machine-group${props.selectedMachineId === machine.id ? " is-current" : ""}`} aria-label={t("PC {name}", { name: machine.name })}>
+  return <section className={`machine-group${current ? " is-current" : ""}`} aria-label={t("PC {name}", { name: machine.name })}>
     <header className="machine-header">
       <button className="machine-toggle" aria-expanded={!collapsed} onClick={toggle}>
         {collapsed ? <ChevronRight className="machine-caret" aria-hidden="true" /> : <ChevronDown className="machine-caret" aria-hidden="true" />}
@@ -66,7 +86,7 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
         {machine.kind === "local" && <span className="machine-kind" title={t("The computer this app runs on")}>{t("Host")}</span>}
         <span className={`machine-dot is-${machine.state}`} title={t(STATE_WORD[machine.state])} aria-hidden="true" />
       </button>
-      <button className="sidebar-row-action" disabled={!online} aria-label={t("New session on {name}", { name: machine.name })} title={t("New session")} onClick={() => props.onNew(machine.id)}><Plus aria-hidden="true" /></button>
+      <button className="sidebar-row-action" disabled={!online} aria-label={t("New session on {name}", { name: machine.name })} title={t("New session")} onClick={() => emit({ type: "new-session", machineId: machine.id })}><Plus aria-hidden="true" /></button>
     </header>
     {/* connected is the norm and says nothing new; every other state is spelled out */}
     <p className={`machine-state is-${machine.state}${online ? " visually-hidden" : ""}`} role="status" title={machine.error ?? undefined}>
@@ -74,7 +94,7 @@ function MachineGroup({ machine, ...props }: Props & { machine: Machine }) {
       {machine.error && <span className="machine-state-detail">{machine.error}</span>}
     </p>
     {!collapsed && <div className={online ? "" : "machine-offline"} {...(!online ? { inert: "" } : {})}>
-      {!online && !machine.snapshot ? <p className="tree-state machine-empty" role="status">{t("No saved sessions")}</p> : <MachineContext.Provider value={machine.id}><Sidebar snapshot={machine.snapshot} selectedPaneId={props.selectedMachineId === machine.id ? props.selectedPaneId : null} actions={actions} /></MachineContext.Provider>}
+      {!online && !machine.snapshot ? <p className="tree-state machine-empty" role="status">{t("No saved sessions")}</p> : tree(machine)}
     </div>}
   </section>;
 }

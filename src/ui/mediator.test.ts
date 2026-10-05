@@ -28,6 +28,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     revokeDevice: async () => {},
     later: (ms, then) => { timers.push({ ms, then }); },
     testPush: async () => "sent",
+    storeSelection: () => {},
   };
   return { ports: { ...base, ...overrides }, requests, saved, forgotten, timers };
 }

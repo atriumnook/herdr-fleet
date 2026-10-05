@@ -1,10 +1,11 @@
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { App } from "../App.tsx";
 import { ApiError, clearFleetCooldown, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
 import { testDevicePush } from "../lib/push.ts";
+import { initialSelection, storeSelection } from "../lib/selection.ts";
 import { INITIAL_STATE } from "./state.ts";
 
 /** The Mediator's effects against this PC's server and this browser's storage. */
@@ -26,6 +27,7 @@ const FLEET_PORTS: EffectPorts = {
   renameDevice: async (id, label) => { await renameDevice(id, label); },
   revokeDevice,
   later: (ms, then) => { window.setTimeout(then, ms); },
+  storeSelection,
   // a subscription the server no longer has is what the test is for: it says so, not that it failed
   testPush: () => testDevicePush().catch((error: unknown) => { if (error instanceof ApiError && error.code === "subscription_not_found") return "missing" as const; throw error; }),
 };
@@ -44,7 +46,12 @@ function SettingsFromMediator({ mediator, children }: { mediator: Mediator; chil
  * moves to Passive Views one part at a time.
  */
 export function Root() {
-  const mediator = useMemo(() => new Mediator(FLEET_PORTS, { ...INITIAL_STATE, settings: loadSettings() }), []);
+  const mediator = useMemo(() => new Mediator(FLEET_PORTS, { ...INITIAL_STATE, settings: loadSettings(), selection: { ...initialSelection(), auto: false } }), []);
+  // the pane a notification's address named is this window's from now on
+  useEffect(() => {
+    const { machineId, paneId } = mediator.getState().selection;
+    storeSelection(machineId, paneId);
+  }, [mediator]);
   return (
     <MediatorContext.Provider value={mediator}>
       <SettingsFromMediator mediator={mediator}><App emit={mediator.dispatch} /></SettingsFromMediator>
