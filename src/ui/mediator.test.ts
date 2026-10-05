@@ -27,6 +27,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     renameDevice: async () => {},
     revokeDevice: async () => {},
     later: (ms, then) => { timers.push({ ms, then }); },
+    testPush: async () => "sent",
   };
   return { ports: { ...base, ...overrides }, requests, saved, forgotten, timers };
 }

@@ -1,35 +1,31 @@
-import { useState } from "react";
-import { ApiError } from "../lib/api.ts";
 import { useT } from "../lib/i18n.ts";
-import { pushSupported, testDevicePush } from "../lib/push.ts";
-import { useSettings } from "../lib/settings.ts";
+import type { Emit } from "../ui/bubble.ts";
+import type { PushTest } from "../ui/state.ts";
 
-type Result = Awaited<ReturnType<typeof testDevicePush>> | "failed" | "sending" | null;
+/** What Settings → Alerts' test row draws. */
+export interface PushTestModel {
+  alertsOn: boolean;
+  /** this browser can take push alerts at all */
+  supported: boolean;
+  /** notifications are blocked in the browser's settings */
+  denied: boolean;
+  result: PushTest;
+}
 
-export function PushTestControls({ onEnable }: { onEnable: () => Promise<boolean> }) {
-  const { settings } = useSettings();
+/** A test push for the Mediator, or turning alerts on again, which the shell does. */
+export type PushTestEvent = { type: "send-test-push" } | { type: "repair-alerts" };
+
+export function PushTestControls({ model, emit }: { model: PushTestModel; emit: Emit<PushTestEvent> }) {
   const t = useT();
-  const [result, setResult] = useState<Result>(null);
-  const supported = pushSupported();
-  const denied = globalThis.Notification?.permission === "denied";
+  const { alertsOn, supported, denied, result } = model;
   const busy = result === "sending";
-  const enable = !settings.alertsOn || result === "missing" || result === "permission";
-
-  const send = async (repair: boolean) => {
-    setResult("sending");
-    try {
-      if (repair) setResult(await onEnable() ? "sent" : "failed");
-      else setResult(await testDevicePush());
-    } catch (error) {
-      setResult(error instanceof ApiError && error.code === "subscription_not_found" ? "missing" : "failed");
-    }
-  };
+  const enable = !alertsOn || result === "missing" || result === "permission";
 
   return (
     <>
       <div className="settings-row">
         <div><span className="settings-label">{t("Test notification")}</span><span className="settings-description">{t("Check whether this device can receive push alerts")}</span></div>
-        <button type="button" className="btn" disabled={busy || !settings.alertsOn || !supported || denied} onClick={() => void send(false)}>{busy ? t("Sending…") : t("Send test")}</button>
+        <button type="button" className="btn" disabled={busy || !alertsOn || !supported || denied} onClick={() => emit({ type: "send-test-push" })}>{busy ? t("Sending…") : t("Send test")}</button>
       </div>
       <p className="settings-hint" role="status">
         {!supported || result === "unsupported" ? t("Push alerts need HTTPS or localhost, and on iPhone the home-screen app.")
@@ -38,10 +34,10 @@ export function PushTestControls({ onEnable }: { onEnable: () => Promise<boolean
           : result === "missing" ? t("This device's push subscription is missing. Turn alerts on again.")
           : result === "permission" ? t("Allow notifications to test alerts on this device.")
           : result === "failed" ? t("Could not send the test notification. Try again.")
-          : !settings.alertsOn ? t("Alerts off") : null}
+          : !alertsOn ? t("Alerts off") : null}
       </p>
       {enable && supported && !denied && <div className="phone-actions">
-        <button type="button" className="btn" disabled={busy} onClick={() => void send(true)}>{t("Turn alerts on again")}</button>
+        <button type="button" className="btn" disabled={busy} onClick={() => emit({ type: "repair-alerts" })}>{t("Turn alerts on again")}</button>
       </div>}
     </>
   );

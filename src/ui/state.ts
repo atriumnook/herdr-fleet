@@ -71,6 +71,9 @@ export interface DevicesState {
 
 export const NO_DEVICES: DevicesState = { list: null, known: [], unavailable: false, failure: null, code: null, justPaired: null, renaming: null, confirming: null, pollSeq: 0, confirmSeq: 0 };
 
+/** Settings → Alerts' test push: what came of the last one, on this device. */
+export type PushTest = "idle" | "sending" | "sent" | "unsupported" | "permission" | "missing" | "failed";
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -96,6 +99,7 @@ export interface UiState {
    * opening it was asked in, and is dropped in a later one, as the panels it was for are gone.
    */
   settingsSession: number;
+  pushTest: PushTest;
 }
 
 export type UiEvent =
@@ -153,7 +157,11 @@ export type UiEvent =
   | { type: "device-renamed"; session: number }
   /** a revoke the server took */
   | { type: "device-changed"; session: number }
-  | { type: "device-change-failed"; message: string; session: number };
+  | { type: "device-change-failed"; message: string; session: number }
+  | { type: "send-test-push" }
+  /** the shell turns alerts on again (permission, subscription, then a confirmation push) */
+  | { type: "push-repair-started" }
+  | { type: "push-tested"; result: Exclude<PushTest, "idle" | "sending"> };
 
 export type Effect =
   | { kind: "load-runs" }
@@ -169,7 +177,8 @@ export type Effect =
   | { kind: "rename-device"; id: string; label: string; session: number }
   | { kind: "revoke-device"; id: string; session: number }
   /** an event the state machine sends itself after a while */
-  | { kind: "later"; ms: number; event: UiEvent };
+  | { kind: "later"; ms: number; event: UiEvent }
+  | { kind: "test-push" };
 
 export interface Transition { state: UiState; effects: Effect[] }
 
@@ -186,6 +195,7 @@ export const INITIAL_STATE: UiState = {
   remoteAccess: { status: "idle", data: null, again: false },
   devices: NO_DEVICES,
   settingsSession: 0,
+  pushTest: "idle",
 };
 
 /** A run whose pane is gone: nothing to open or stop in it. */
@@ -277,7 +287,7 @@ export function transition(state: UiState, event: UiEvent): Transition {
     case "open-settings":
       if (state.settingsDialog.open) return next({});
       effects.push({ kind: "load-devices", session: state.settingsSession + 1 });
-      return next({ settingsDialog: { open: true, drafts: {} }, remoteAccess: readAccess(state.remoteAccess, effects), devices: NO_DEVICES, settingsSession: state.settingsSession + 1 });
+      return next({ settingsDialog: { open: true, drafts: {} }, remoteAccess: readAccess(state.remoteAccess, effects), devices: NO_DEVICES, settingsSession: state.settingsSession + 1, pushTest: "idle" });
     case "close-settings": {
       if (!state.settingsDialog.open) return next({});
       const fonts: Partial<Settings> = {};
@@ -323,6 +333,14 @@ export function transition(state: UiState, event: UiEvent): Transition {
       if (!state.settingsDialog.open || ("session" in event && event.session !== state.settingsSession)) return next({});
       return next({ devices: devicesTransition(state.devices, event, state.settingsSession, effects) });
     }
+    case "send-test-push":
+      if (!state.settingsDialog.open || state.pushTest === "sending") return next({});
+      effects.push({ kind: "test-push" });
+      return next({ pushTest: "sending" });
+    case "push-repair-started":
+      return next(state.settingsDialog.open ? { pushTest: "sending" } : {});
+    case "push-tested":
+      return next(state.settingsDialog.open ? { pushTest: event.result } : {});
     case "remote-access-failed":
       return next({ remoteAccess: settleAccess(state.remoteAccess, { status: "error", data: null, error: event.message }, effects) });
   }

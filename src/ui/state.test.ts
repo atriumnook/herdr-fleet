@@ -323,3 +323,35 @@ describe("paired devices", () => {
     expect(state.devices).toMatchObject({ list: [device("a")], failure: { kind: "message", message: "denied" } });
   });
 });
+
+describe("the push test", () => {
+  const opened = () => play([{ type: "open-settings" }]).state;
+
+  it("starts from nothing each time Settings opens", () => {
+    const { state } = play([{ type: "open-settings" }], { ...INITIAL_STATE, pushTest: "sent" });
+    expect(state.pushTest).toBe("idle");
+  });
+
+  it("sends a test push and keeps what came of it", () => {
+    const { state, effects } = play([{ type: "send-test-push" }], opened());
+    expect(state.pushTest).toBe("sending");
+    expect(effects).toEqual([{ kind: "test-push" }]);
+    expect(play([{ type: "push-tested", result: "missing" }], state).state.pushTest).toBe("missing");
+  });
+
+  it("sends one test at a time", () => {
+    const sending = play([{ type: "send-test-push" }], opened()).state;
+    expect(play([{ type: "send-test-push" }], sending).effects).toEqual([]);
+  });
+
+  it("follows a repair the shell runs: sending until it answers", () => {
+    const repairing = play([{ type: "push-repair-started" }], opened()).state;
+    expect(repairing.pushTest).toBe("sending");
+    expect(play([{ type: "push-tested", result: "sent" }], repairing).state.pushTest).toBe("sent");
+  });
+
+  it("drops a result that arrives after Settings closed", () => {
+    const sending = play([{ type: "send-test-push" }, { type: "close-settings" }], opened()).state;
+    expect(play([{ type: "push-tested", result: "sent" }], sending).state.pushTest).toBe("sending");
+  });
+});
