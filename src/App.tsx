@@ -4,7 +4,7 @@ import { Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, 
 import type { AgentStatus, ClientRole, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
 import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, sendTestPush, signOut, type HealthInfo } from "./lib/api.ts";
 import { deviceLabel, takePairCode } from "./lib/phone.ts";
-import { displayPaneTitle } from "./components/Sidebar.tsx";
+import { displayPaneTitle, Sidebar } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
@@ -14,7 +14,7 @@ import type { PushTestEvent } from "./components/PushTestControls.tsx";
 import { useInstallPrompt } from "./lib/install.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
-import { MachineSidebar } from "./components/MachineSidebar.tsx";
+import type { MachineSidebarEvent } from "./components/MachineSidebar.tsx";
 import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
 import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
 import { applyPaneStatus } from "./lib/snapshot.ts";
@@ -42,11 +42,14 @@ import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { Droplet } from "./components/Droplet.tsx";
 import { relay, type Emit } from "./ui/bubble.ts";
+import type { FleetScreenEvent } from "./components/fleet/FleetScreen.tsx";
+import { paneFromUrl } from "./lib/selection.ts";
 import { needsCount } from "./ui/fleetView.ts";
 import { DevicesPanelPresenter } from "./ui/DevicesPanelPresenter.tsx";
 import { FleetPresenter } from "./ui/FleetPresenter.tsx";
+import { MachineSidebarPresenter } from "./ui/MachineSidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
-import { useSelected } from "./ui/presenter.ts";
+import { useSelected, useStateNow } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
 import type { UiEvent } from "./ui/state.ts";
 import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
@@ -65,35 +68,6 @@ function sameData(a: unknown, b: unknown): boolean {
 const REFETCH_DEBOUNCE_MS = 500;
 
 /** A notification tapped while the app was closed opens `/?pane=<id>` (public/sw.js). */
-function paneFromUrl(): string | null {
-  return new URLSearchParams(window.location.search).get("pane");
-}
-
-const SELECTION_KEY = "herdr-fleet:selection";
-type StoredSelection = { machine_id?: string; pane_id?: string | null };
-
-/**
- * The pane to open: this window's own (sessionStorage is per window and survives
- * its reloads), else the last one any window showed, for a newly opened window.
- */
-function storedSelection(): StoredSelection | null {
-  for (const storage of ["sessionStorage", "localStorage"] as const) {
-    try {
-      const value: unknown = JSON.parse(window[storage].getItem(SELECTION_KEY) ?? "null");
-      if (value !== null && typeof value === "object") return value as StoredSelection;
-    } catch {
-      /* private mode */
-    }
-  }
-  return null;
-}
-
-function storeSelection(machineId: string, paneId: string | null): void {
-  for (const storage of ["sessionStorage", "localStorage"] as const) {
-    try { window[storage].setItem(SELECTION_KEY, JSON.stringify({ machine_id: machineId, pane_id: paneId })); } catch {}
-  }
-}
-
 /**
  * The lens a pane opens in: remembered per pane. A pane seen for the first time opens its
  * terminal, except an agent pane on a touch screen, which opens its chat: a phone reads a
@@ -139,7 +113,12 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   emitRef.current = emit;
   const screen = useSelected((state) => state.screen);
   const needs = useSelected(needsCount);
-  const paneRequest = useSelected((state) => state.paneRequest);
+  const selection = useSelected((state) => state.selection);
+  const selectedMachineId = selection.machineId;
+  const selectedPaneId = selection.paneId;
+  // App picked the selected pane itself because the one selected closed: it must not raise a
+  // phone's keyboard (over the drawer the close was tapped in) until the user picks a pane or lens
+  const autoSelected = selection.auto;
   const { settings, resolvedTheme, update: updateSettings } = useSettings();
   // this device's alert choices: sent with its push subscription, and applied to tab alerts here
   const alerts = useMemo(() => alertPrefs(settings), [settings.alertInput, settings.alertDone]);
@@ -150,11 +129,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const alertsOnRef = useRef(alertsOn);
   alertsOnRef.current = alertsOn;
   const [machines, setMachines] = useState<Machine[]>([]);
-  const [selectedMachineId, setSelectedMachineId] = useState(() => {
-    const query = new URLSearchParams(window.location.search);
-    if (query.has("pane")) return query.get("machine") ?? "local";
-    return storedSelection()?.machine_id ?? "local";
-  });
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
   const snapshot = selectedMachine?.snapshot ?? null;
   const machinesRef = useRef(machines); machinesRef.current = machines;
@@ -176,13 +150,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     pairedFromAddress.current = true;
     pairDevice(pairCode, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0)).then(() => loadHealth()).catch(() => { /* the gate, if any, reports it */ });
   }, [locked, pairCode, auth]); // eslint-disable-line react-hooks/exhaustive-deps
-  const [selectedPaneId, setSelectedPaneId] = useState<string | null>(() => {
-    if (paneFromUrl()) return paneFromUrl();
-    return storedSelection()?.pane_id ?? null;
-  });
-  // App picked the selected pane itself because the one selected closed: it must not raise a
-  // phone's keyboard (over the drawer the close was tapped in) until the user picks a pane or lens
-  const [autoSelected, setAutoSelected] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerOpenRef = useRef(drawerOpen); drawerOpenRef.current = drawerOpen;
   const selectionRef = useRef({ machineId: selectedMachineId, paneId: selectedPaneId });
@@ -469,15 +436,18 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
 
   const selectedMachineRef = useRef(selectedMachineId);
   selectedMachineRef.current = selectedMachineId;
+  /** what this shell resets for a pane the person picks, before the Mediator selects it */
+  const leavePane = useCallback((machineId: string) => {
+    if (machineId !== selectedMachineRef.current) setConnected(false);
+    setDrawerOpen(false);
+    setOutputStopped(false);
+  }, []);
   const selectTarget = useCallback((machineId: string, paneId: string | null) => {
     // Only another PC mounts a new terminal (and socket), which reports its own state. A pane
     // on the same PC keeps the connected socket, which never reports again: resetting here
     // left the header on "reconnecting" after every pane switch.
-    if (machineId !== selectedMachineRef.current) setConnected(false);
-    setSelectedMachineId(machineId); setSelectedPaneId(paneId); setAutoSelected(false); setDrawerOpen(false);
-    setOutputStopped(false);
-    storeSelection(machineId, paneId);
-    emitRef.current({ type: "pane-selected" });
+    leavePane(machineId);
+    emitRef.current({ type: "select-pane", machineId, paneId });
   }, []);
   const selectTargetRef = useRef(selectTarget); selectTargetRef.current = selectTarget;
   useEffect(() => {
@@ -486,26 +456,20 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     if (!snapshot || selectedMachine?.state !== "connected") return;
     if (snapshot.panes.some((pane) => pane.pane_id === selectedPaneId)) return;
     const fallback = (current: typeof snapshot) => current.panes.find((pane) => pane.pane_id === current.focused_pane_id)?.pane_id ?? current.panes[0]?.pane_id ?? null;
-    if (selectedPaneId === null) { setSelectedPaneId(fallback(snapshot)); return; }
+    if (selectedPaneId === null) { emitRef.current({ type: "fall-back-pane", from: null, paneId: fallback(snapshot), auto: false }); return; }
     // The combined roster is cached: a newly created pane can be selected before it
     // appears there. Confirm absence against this PC before discarding the selection.
     let cancelled = false;
     void fetchSession(selectedMachineId).then((current) => {
       if (cancelled || current.panes.some((pane) => pane.pane_id === selectedPaneId)) return;
-      setSelectedPaneId(fallback(current));
-      setAutoSelected(true);
+      emitRef.current({ type: "fall-back-pane", from: selectedPaneId, paneId: fallback(current), auto: true });
     }).catch(() => { /* a failed read is not evidence that the pane disappeared */ });
     return () => { cancelled = true; };
   }, [snapshot, selectedPaneId, selectedMachineId, selectedMachine?.state]);
-  useEffect(() => {
-    storeSelection(selectedMachineId, selectedPaneId);
-  }, [selectedMachineId, selectedPaneId]);
 
   const selectPane = useCallback((paneId: string) => {
-    setSelectedPaneId(paneId);
-    setAutoSelected(false);
     setDrawerOpen(false);
-    emitRef.current({ type: "pane-selected" });
+    emitRef.current({ type: "select-pane", machineId: selectedMachineRef.current, paneId });
   }, []);
 
   // a paired watch-only device sees the fleet but changes nothing in it
@@ -519,10 +483,29 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     paneLayerRef.current?.toggleAttribute("inert", screen === "fleet");
   }, [screen]);
 
-  // the Mediator asked for a fleet run's pane: it lives on this PC
-  useEffect(() => {
-    if (paneRequest) selectTargetRef.current("local", paneRequest.paneId);
-  }, [paneRequest]);
+  const openNewSession = useCallback((machineId: string) => {
+    setNewSessionMachineId(machineId);
+    setNewSessionOpen(true);
+    setDrawerOpen(false);
+  }, []);
+  // the sidebar: a pane picked goes up once this shell reset what it keeps for the pane it leaves;
+  // a new session and the install prompt are this shell's
+  const sidebarEmit = useMemo(() => relay<MachineSidebarEvent, UiEvent>(emit, (event, pass) => {
+    if (event.type === "new-session") openNewSession(event.machineId);
+    else if (event.type === "install-app") void installPrompt.install();
+    else if (event.type === "select-pane") { leavePane(event.machineId); pass(event); }
+    else { setDrawerOpen(false); pass(event); }
+  }), [emit, openNewSession, installPrompt.install, leavePane]);
+
+  // a fleet run's pane opens on this PC: the shell resets what it keeps for the pane it leaves
+  // (only when the Mediator did select it: a run that ended meanwhile has no pane to open)
+  const stateNow = useStateNow();
+  const fleetEmit = useMemo(() => relay<FleetScreenEvent, UiEvent>(emit, (event, pass) => {
+    const before = stateNow().selection;
+    pass(event);
+    const after = stateNow().selection;
+    if (after !== before) leavePane(after.machineId);
+  }), [emit, leavePane, stateNow]);
 
   // a tapped notification focuses this window and names the pane (public/sw.js)
   useEffect(() => onNotificationTarget((target) => selectTargetRef.current(target.machine_id, target.pane_id)), []);
@@ -559,7 +542,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const setView = useCallback(
     (next: PaneView) => {
       setLensChoice({ key: lensKey, view: next });
-      setAutoSelected(false);
+      emitRef.current({ type: "selection-confirmed" });
       if (selectedPaneId === null) return;
       try {
         window.localStorage.setItem(`herdr-fleet:view:${paneStorageId(selectedMachineId, selectedPaneId)}`, next);
@@ -626,6 +609,16 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     }),
     [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications, load],
   );
+  // a connected PC's sessions: the legacy tree, with this shell's actions aimed at that PC
+  const machineTree = useCallback((machine: Machine) => (
+    <MachineContext.Provider value={machine.id}>
+      <Sidebar
+        snapshot={machine.snapshot}
+        selectedPaneId={selectedMachineId === machine.id ? selectedPaneId : null}
+        actions={{ ...actions, selectPane: (id) => selectTarget(machine.id, id), openNewSession: () => openNewSession(machine.id) }}
+      />
+    </MachineContext.Provider>
+  ), [actions, selectedMachineId, selectedPaneId, selectTarget, openNewSession]);
 
   useShortcuts(actions, locked === false);
 
@@ -767,7 +760,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
           {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>{t("Retry")}</button></div>}
-          <MachineSidebar version={health?.herdr?.version ?? null} machines={machines} selectedMachineId={selectedMachineId} selectedPaneId={selectedPaneId} actions={actions} onSelect={selectTarget} onNew={(id) => { setNewSessionMachineId(id); setNewSessionOpen(true); setDrawerOpen(false); }} />
+          <MachineSidebarPresenter version={health?.herdr?.version ?? null} machines={machines} install={installPrompt} tree={machineTree} emit={sidebarEmit} />
         </aside>
 
         {drawerOpen && <div className="scrim" aria-hidden="true" onClick={() => setDrawerOpen(false)} />}
@@ -796,7 +789,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
             onServerMessage={handleServerMessage}
           />
           </div>
-          {screen === "fleet" && <FleetPresenter screen={screen} emit={emit} />}
+          {screen === "fleet" && <FleetPresenter screen={screen} emit={fleetEmit} />}
         </main>
         </OpenFileContext.Provider>
       </div>

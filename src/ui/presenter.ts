@@ -30,10 +30,23 @@ export function sameRegions<T extends object>(a: T, b: T): boolean {
   return (Object.keys(a) as Array<keyof T>).every((key) => a[key] === b[key]);
 }
 
+function useMediator(): Mediator {
+  const mediator = useContext(MediatorContext);
+  if (mediator === null) throw new Error("a Presenter needs the Root's MediatorContext above it");
+  return mediator;
+}
+
+/**
+ * Reads the Mediator's state at the moment of an event, re-rendering for nothing: for a parent
+ * on the chain that acts on what an event it passed up changed (the Mediator decides at once).
+ */
+export function useStateNow(): () => UiState {
+  return useMediator().getState;
+}
+
 /** Reads one value from the Mediator's state, re-rendering only when it changes. */
 export function useSelected<T>(select: (state: UiState) => T, isEqual?: (a: T, b: T) => boolean): T {
-  const mediator = useContext(MediatorContext);
-  if (mediator === null) throw new Error("useSelected needs the Root's MediatorContext above it");
+  const mediator = useMediator();
   const cache = useRef<Kept<T> | null>(null);
   const read = (): T => (cache.current = keep(cache.current, mediator.getState(), select, isEqual)).value;
   return useSyncExternalStore(mediator.subscribe, read, read);
