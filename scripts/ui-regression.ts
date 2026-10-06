@@ -249,6 +249,30 @@ try {
     await page.waitForTimeout(NO_SEND_WAIT_MS);
     assert.equal(await page.evaluate(() => (window as unknown as { chatDrawn: boolean }).chatDrawn), false, "a pane opening in its terminal lens drew a chat lens first");
   }
+  // the command palette: a pane found by search opens, and an action runs; either way it closes
+  const palette = page.getByRole("dialog", { name: "Command palette", exact: true });
+  await page.getByRole("button", { name: "Command palette", exact: true }).click();
+  await palette.waitFor();
+  await palette.getByRole("searchbox", { name: "Search panes and actions", exact: true }).fill("test-browser-b");
+  await page.keyboard.press("Enter");
+  await palette.waitFor({ state: "hidden" });
+  await until(async () => (await selectedTitle())?.startsWith(`${paneB} —`) === true, "the palette opens the pane found");
+  const themeBefore = await page.evaluate(() => document.documentElement.dataset["theme"]);
+  const theme = () => page.evaluate(() => document.documentElement.dataset["theme"]);
+  const toggleTheme = async (): Promise<void> => {
+    await page.getByRole("button", { name: "Command palette", exact: true }).click();
+    await palette.waitFor();
+    await palette.getByRole("searchbox", { name: "Search panes and actions", exact: true }).fill("Toggle theme");
+    await page.keyboard.press("Enter");
+    await palette.waitFor({ state: "hidden" });
+  };
+  await toggleTheme();
+  await until(async () => (await theme()) !== themeBefore, "the palette runs an action");
+  await toggleTheme();
+  await until(async () => (await theme()) === themeBefore, "the palette runs it again");
+  await page.locator(`.pane-select[title^="${paneA} —"]`).click();
+  await until(async () => (await selectedTitle())?.startsWith(`${paneA} —`) === true, "back on the first pane after the palette");
+  console.log("PASS the command palette opens a pane found by search and runs an action, closing either way");
   await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
   await composer.waitFor();
   console.log("PASS terminal clipboard paste sends text once and preserves Ctrl+C");
