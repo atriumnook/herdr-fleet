@@ -4,7 +4,7 @@ import type { Machine } from "../../shared/machines.ts";
 import type { FileInfo, HealthAuth, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
-import { INITIAL_STATE, transition, treeOf, type Effect, type UiEvent, type UiState } from "./state.ts";
+import { BACKGROUND_TASKS_POLL_MS, INITIAL_STATE, transition, treeOf, type Effect, type UiEvent, type UiState } from "./state.ts";
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, name: id, role: "worker", agent: "pi", group: "g1", herdrName: `h-${id}`, paneId: `w1:${id}`, cwd: "/w",
@@ -1155,5 +1155,47 @@ describe("the in-app alert", () => {
     const going = play([blocked("w1:p1"), { type: "droplet-dismiss" }], watching()).state;
     expect(play([{ type: "droplet-open" }], going).state.selection.paneId).toBe("w1:open");
     expect(kinds(play([{ type: "droplet-press" }, { type: "droplet-release" }], going).effects)).toEqual([]);
+  });
+});
+
+describe("the background tasks list", () => {
+  const activity = { tasks: [], runs: [], serverTime: "2026-10-06T00:00:10.000Z" };
+  const opened = play([{ type: "open-background-tasks", machineId: "local", paneId: "w1:p1" }]);
+  const { seq } = opened.state.backgroundTasks;
+
+  it("reads the pane's tasks as it opens, and again a while after each answer", () => {
+    expect(opened.state.backgroundTasks).toMatchObject({ open: { machineId: "local", paneId: "w1:p1" }, activity: null, failed: false });
+    expect(opened.effects).toEqual([{ kind: "load-background-tasks", machineId: "local", paneId: "w1:p1", seq }]);
+    const read = play([{ type: "background-tasks-read", seq, activity, at: 1_000 }], opened.state);
+    // the times are on the PC's clock: the offset says how far it is from this browser's
+    expect(read.state.backgroundTasks.activity).toEqual({ tasks: [], runs: [], offset: Date.parse(activity.serverTime) - 1_000, readAt: 1_000 });
+    expect(read.effects).toEqual([{ kind: "later", ms: BACKGROUND_TASKS_POLL_MS, event: { type: "poll-background-tasks", seq } }]);
+    expect(play([{ type: "poll-background-tasks", seq }], read.state).effects).toEqual([{ kind: "load-background-tasks", machineId: "local", paneId: "w1:p1", seq }]);
+  });
+
+  it("keeps what it read last when a read fails, and tries again", () => {
+    const read = play([{ type: "background-tasks-read", seq, activity, at: 1_000 }], opened.state).state;
+    const failed = play([{ type: "background-tasks-failed", seq }], read);
+    expect(failed.state.backgroundTasks).toMatchObject({ failed: true, activity: { readAt: 1_000 } });
+    expect(failed.effects).toEqual([{ kind: "later", ms: BACKGROUND_TASKS_POLL_MS, event: { type: "poll-background-tasks", seq } }]);
+    expect(play([{ type: "background-tasks-read", seq, activity, at: 4_000 }], failed.state).state.backgroundTasks.failed).toBe(false);
+  });
+
+  it("stops reading once closed, and forgets what it read: it opens on a fresh read", () => {
+    const read = play([{ type: "background-tasks-read", seq, activity, at: 1_000 }], opened.state).state;
+    const closed = play([{ type: "close-background-tasks", machineId: "local", paneId: "w1:p1" }], read).state;
+    expect(closed.backgroundTasks).toMatchObject({ open: null, activity: null, failed: false });
+    expect(play([{ type: "poll-background-tasks", seq }], closed).effects).toEqual([]);
+    expect(play([{ type: "background-tasks-read", seq, activity, at: 2_000 }], closed).state.backgroundTasks.activity).toBeNull();
+    const again = play([{ type: "open-background-tasks", machineId: "local", paneId: "w1:p1" }], closed).state;
+    expect(play([{ type: "background-tasks-read", seq, activity, at: 2_000 }], again).state.backgroundTasks.activity).toBeNull();
+  });
+
+  it("is closed only by the pane it is open on: another pane's composer going leaves it", () => {
+    expect(play([{ type: "close-background-tasks", machineId: "local", paneId: "w1:p2" }], opened.state).state.backgroundTasks.open).not.toBeNull();
+    expect(play([{ type: "close-background-tasks", machineId: "pc2", paneId: "w1:p1" }], opened.state).state.backgroundTasks.open).not.toBeNull();
+    // another pane's list opened instead reads that pane
+    const other = play([{ type: "open-background-tasks", machineId: "local", paneId: "w1:p2" }], opened.state);
+    expect(other.effects).toEqual([{ kind: "load-background-tasks", machineId: "local", paneId: "w1:p2", seq: other.state.backgroundTasks.seq }]);
   });
 });

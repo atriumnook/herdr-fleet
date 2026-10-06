@@ -6,7 +6,7 @@ import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AgentKind, HerdrPane, WorkspaceCreated } from "../../shared/protocol.ts";
+import type { AgentKind, HerdrPane, OmoRun, OmoTask, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { Settings } from "../lib/settings.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
 import { INITIAL_STATE, transition, type Effect, type FileOutcome, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
@@ -71,6 +71,8 @@ export interface EffectPorts {
   leavePreview(): boolean;
   /** what the server says of a path; throws for anything but these */
   loadFileInfo(machineId: string, path: string, paneId: string | null): Promise<Exclude<FileOutcome, { kind: "failed" }>>;
+  /** a pane's OmO background tasks and workflows, with the PC's clock they are timed on */
+  loadBackgroundTasks(machineId: string, paneId: string): Promise<{ tasks: OmoTask[]; runs: OmoRun[]; serverTime: string | null }>;
   /** the start of a text file */
   loadFileText(machineId: string, path: string, paneId: string | null): Promise<string>;
   /** the folder at a path, as listed (absolute) */
@@ -282,6 +284,10 @@ export class Mediator {
         // a path that is not a readable folder either keeps the file's error
         try { this.dispatch({ type: "file-folder", seq: effect.seq, path: await this.ports.listFolder(effect.machineId, effect.path, effect.paneId) }); }
         catch { this.dispatch({ type: "file-folder", seq: effect.seq, path: null }); }
+        return;
+      case "load-background-tasks":
+        try { this.dispatch({ type: "background-tasks-read", seq: effect.seq, activity: await this.ports.loadBackgroundTasks(effect.machineId, effect.paneId), at: Date.now() }); }
+        catch { this.dispatch({ type: "background-tasks-failed", seq: effect.seq }); }
         return;
       case "later":
         this.ports.later(effect.ms, () => this.dispatch(effect.event));

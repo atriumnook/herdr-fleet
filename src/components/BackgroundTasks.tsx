@@ -3,13 +3,12 @@ import { ChevronDown, ChevronRight, Circle, CircleAlert, CircleCheck, CircleDot,
 
 import "./BackgroundTasks.css";
 
-import { useMachineApi } from "../lib/machineContext.tsx";
-import { clockOffsetMs, endedSummary, formatElapsed, runGoing, spanMs, taskElapsedMs } from "../lib/omoTasks.ts";
+import { endedSummary, formatElapsed, runGoing, spanMs, taskElapsedMs } from "../lib/omoTasks.ts";
 import { formatTokens } from "../lib/compose.ts";
 import { useT } from "../lib/i18n.ts";
 import type { OmoRun, OmoRunNode, OmoTask } from "../../shared/protocol.ts";
-
-const POLL_MS = 3000;
+import type { Emit } from "../ui/bubble.ts";
+import type { BackgroundTasksState } from "../ui/state.ts";
 
 const ICONS: Record<OmoTask["status"], ComponentType<LucideProps>> = {
   running: CircleDot, completed: CircleCheck, failed: CircleX, cancelled: CircleSlash, lost: CircleAlert,
@@ -26,18 +25,31 @@ const NODE_ICONS: Record<OmoRunNode["state"], ComponentType<LucideProps>> = {
  * The server keeps the newest ten ended tasks and five ended workflows of the last day, so the
  * line counts those, and says "recently", not "in the last day".
  */
-export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count: number; omo: boolean }) {
+export interface BackgroundTasksModel {
+  /** the tasks running, as the pane's status says */
+  count: number;
+  /** an OmO pane: the line shows while nothing runs too */
+  omo: boolean;
+  open: boolean;
+  /** the list as read last, null until the first read */
+  activity: BackgroundTasksState["activity"];
+  failed: boolean;
+}
+
+export type BackgroundTasksEvent = { type: "open-background-tasks" } | { type: "close-background-tasks" };
+
+export function BackgroundTasks({ model, emit }: { model: BackgroundTasksModel; emit: Emit<BackgroundTasksEvent> }) {
   const t = useT();
-  const { fetchPaneOmoActivity } = useMachineApi();
-  const [open, setOpen] = useState(false);
+  const { count, omo, open, activity, failed } = model;
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
   const [seen, setSeen] = useState(count > 0);
   useEffect(() => { if (count > 0) setSeen(true); }, [count]);
-  const [tasks, setTasks] = useState<OmoTask[] | null>(null);
-  const [runs, setRuns] = useState<OmoRun[]>([]);
-  const [failed, setFailed] = useState(false);
-  const [now, setNow] = useState(() => Date.now());
-  /** the PC's clock minus this browser's: task times are on the PC's */
-  const [offset, setOffset] = useState(0);
+  const tasks = activity?.tasks ?? null;
+  const runs = activity?.runs ?? [];
+  // times are read on the PC's clock, as of the last read
+  const now = activity?.readAt ?? 0;
+  const offset = activity?.offset ?? 0;
   const [showEnded, setShowEnded] = useState(false);
   const root = useRef<HTMLSpanElement>(null);
   const toggle = useRef<HTMLButtonElement>(null);
@@ -49,33 +61,12 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
 
   useEffect(() => {
     if (!open) return;
-    let alive = true;
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const load = async (): Promise<void> => {
-      try {
-        const next = await fetchPaneOmoActivity(paneId);
-        if (!alive) return;
-        const received = Date.now();
-        setTasks(next.tasks); setRuns(next.runs); setFailed(false); setOffset(clockOffsetMs(next.serverTime, received)); setNow(received);
-      } catch {
-        // the clock stops with the list: a running task's time is no longer known to run on
-        if (alive) setFailed(true);
-      }
-      if (!alive) return;
-      timer = setTimeout(() => void load(), POLL_MS);
-    };
-    void load();
-    return () => { alive = false; clearTimeout(timer); };
-  }, [open, paneId, fetchPaneOmoActivity]);
-
-  useEffect(() => {
-    if (!open) return;
-    const outside = (event: PointerEvent): void => { if (!root.current?.contains(event.target as Node)) setOpen(false); };
+    const outside = (event: PointerEvent): void => { if (!root.current?.contains(event.target as Node)) emitRef.current({ type: "close-background-tasks" }); };
     const escape = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
       // the list unmounts with whatever inside it held the focus: hand it back to the toggle
       if (root.current?.contains(document.activeElement)) toggle.current?.focus();
-      setOpen(false);
+      emitRef.current({ type: "close-background-tasks" });
     };
     window.addEventListener("pointerdown", outside);
     window.addEventListener("keydown", escape);
@@ -159,7 +150,7 @@ export function BackgroundTasks({ paneId, count, omo }: { paneId: string; count:
   const label = count === 0 ? t("Background tasks") : t(count === 1 ? "{n} background task" : "{n} background tasks", { n: count });
   // a phone's status line has one row: there the words give way to the icon and the number
   return <span className="bg-tasks" ref={root}>
-    <button type="button" ref={toggle} className={`bg-tasks-toggle${count === 0 ? " is-idle" : ""}`} aria-label={label} title={label} aria-expanded={open} aria-controls={id} onClick={() => setOpen(!open)}>
+    <button type="button" ref={toggle} className={`bg-tasks-toggle${count === 0 ? " is-idle" : ""}`} aria-label={label} title={label} aria-expanded={open} aria-controls={id} onClick={() => emit({ type: open ? "close-background-tasks" : "open-background-tasks" })}>
       <Layers aria-hidden="true" /><span className="bg-tasks-label">{label}</span>{count > 0 && <span className="bg-tasks-count" aria-hidden="true">{count}</span>}
     </button>
     {open && <div id={id} ref={menu} className="menu bg-tasks-menu" role="dialog" aria-live="off" aria-label={t("Background tasks")}>

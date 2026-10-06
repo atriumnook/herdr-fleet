@@ -1,13 +1,14 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { alertsAllow, shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, FileInfo, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, FileInfo, HerdrPane, OmoRun, OmoTask, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS, dropletAllows, endedTurn, trackTurn, type DropletNotice } from "../lib/droplet.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import { applyPaneStatus } from "../lib/snapshot.ts";
+import { clockOffsetMs } from "../lib/omoTasks.ts";
 import { sanitizeFontFamily } from "../lib/fontFamily.ts";
 import { alertPrefs, DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type Settings } from "../lib/settings.ts";
 
@@ -269,6 +270,21 @@ export interface DropletState {
   reducedMotion: boolean;
 }
 
+/** how often an open background tasks list reads the pane's tasks again */
+export const BACKGROUND_TASKS_POLL_MS = 3000;
+
+/** The status line's background tasks list (OmO's), read while it is open. */
+export interface BackgroundTasksState {
+  /** the pane whose list is open */
+  open: { machineId: string; paneId: string } | null;
+  /** read last: `offset` is the PC's clock minus this browser's, as task times are on the PC's */
+  activity: { tasks: OmoTask[]; runs: OmoRun[]; offset: number; readAt: number } | null;
+  /** the last read failed: the list is as it read before */
+  failed: boolean;
+  /** the read chain running: one at a time, closing ends it */
+  seq: number;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -302,6 +318,7 @@ export interface UiState {
   palette: PaletteState;
   files: FilesState;
   droplet: DropletState;
+  backgroundTasks: BackgroundTasksState;
   gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
@@ -416,6 +433,13 @@ export type UiEvent =
   /** it folded away */
   | { type: "droplet-gone"; seq: number }
   | { type: "motion-preference"; reduced: boolean }
+  | { type: "open-background-tasks"; machineId: string; paneId: string }
+  /** the list closed, or the composer it is in went (another pane, another lens) */
+  | { type: "close-background-tasks"; machineId: string; paneId: string }
+  | { type: "poll-background-tasks"; seq: number }
+  /** `at`: when it arrived, on this browser's clock */
+  | { type: "background-tasks-read"; seq: number; activity: { tasks: OmoTask[]; runs: OmoRun[]; serverTime: string | null }; at: number }
+  | { type: "background-tasks-failed"; seq: number }
   | { type: "open-files" }
   | { type: "close-files" }
   /** a file named in the selected pane (its chat, its terminal, Files): `path` is read from the pane's folder */
@@ -537,6 +561,7 @@ export type Effect =
   /** the file as a history entry: a new one, or in place of the open one's */
   | { kind: "history-preview"; preview: FilePreview; replace: boolean }
   | { kind: "history-back" }
+  | { kind: "load-background-tasks"; machineId: string; paneId: string; seq: number }
   | { kind: "load-file"; machineId: string; paneId: string | null; path: string; seq: number }
   | { kind: "load-file-text"; machineId: string; paneId: string | null; path: string; seq: number }
   | { kind: "list-folder"; machineId: string; paneId: string | null; path: string; seq: number }
@@ -570,6 +595,7 @@ export const INITIAL_STATE: UiState = {
   palette: { open: false },
   files: { dialog: false, viewer: null, seq: 0 },
   droplet: { shown: null, phase: "in", next: null, lastShown: {}, count: 0, timerSeq: 0, reducedMotion: false },
+  backgroundTasks: { open: null, activity: null, failed: false, seq: 0 },
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
@@ -646,6 +672,12 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "droplet-gone":
     case "motion-preference":
       return dropletTransition(state, event, effects);
+    case "open-background-tasks":
+    case "close-background-tasks":
+    case "poll-background-tasks":
+    case "background-tasks-read":
+    case "background-tasks-failed":
+      return next({ backgroundTasks: backgroundTasksTransition(state.backgroundTasks, event, effects) });
     case "open-files":
     case "close-files":
     case "open-file":
@@ -1370,6 +1402,31 @@ function readFile(state: UiState, effects: Effect[], now = true): UiState {
   const seq = state.files.seq + 1;
   if (now) effects.push({ kind: "load-file", machineId: viewer.preview.machineId, paneId: viewer.preview.paneId, path: viewer.path, seq });
   return { ...state, files: { ...state.files, seq, viewer: { ...viewer, content: { kind: "opening" } } } };
+}
+
+type BackgroundTasksEvent = Extract<UiEvent, { type: "open-background-tasks" | "close-background-tasks" | "poll-background-tasks" | "background-tasks-read" | "background-tasks-failed" }>;
+
+function backgroundTasksTransition(list: BackgroundTasksState, event: BackgroundTasksEvent, effects: Effect[]): BackgroundTasksState {
+  switch (event.type) {
+    case "open-background-tasks": {
+      // each opening reads anew: what an earlier one asked answers too late
+      const seq = list.seq + 1;
+      effects.push({ kind: "load-background-tasks", machineId: event.machineId, paneId: event.paneId, seq });
+      return { open: { machineId: event.machineId, paneId: event.paneId }, activity: null, failed: false, seq };
+    }
+    case "close-background-tasks":
+      if (list.open?.machineId !== event.machineId || list.open.paneId !== event.paneId) return list;
+      return { open: null, activity: null, failed: false, seq: list.seq + 1 };
+  }
+  if (list.open === null || event.seq !== list.seq) return list;
+  if (event.type === "poll-background-tasks") {
+    effects.push({ kind: "load-background-tasks", ...list.open, seq: list.seq });
+    return list;
+  }
+  effects.push({ kind: "later", ms: BACKGROUND_TASKS_POLL_MS, event: { type: "poll-background-tasks", seq: list.seq } });
+  if (event.type === "background-tasks-failed") return { ...list, failed: true };
+  const { tasks, runs, serverTime } = event.activity;
+  return { ...list, activity: { tasks, runs, offset: clockOffsetMs(serverTime, event.at), readAt: event.at }, failed: false };
 }
 
 type FilesEvent = Extract<UiEvent, { type: "open-files" | "close-files" | "open-file" | "viewer-open" | "choose-candidate" | "close-file" | "file-history" | "file-loaded" | "file-text" | "file-folder" }>;
