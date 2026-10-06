@@ -787,6 +787,12 @@ try {
   await touchPage.getByRole("button", { name: "Type straight into the terminal", exact: true }).click();
   assert.equal(await touchPage.locator(".terminal-input").count(), 0);
   assert.equal(await touchPage.locator(".xterm-helper-textarea").getAttribute("inputmode"), null);
+  // Control armed from the bar makes the next key typed its control code, once
+  const armed = touchSent.length;
+  await ctrl.click();
+  await touchPage.keyboard.press("c");
+  await until(() => touchSent.length > armed && touchSent.at(-1)?.type === "input" && touchSent.at(-1)?.text === "\x03", "Ctrl armed from the key bar, then c");
+  assert.equal(await ctrl.getAttribute("aria-pressed"), "false");
   await touchPage.getByRole("button", { name: "Type straight into the terminal", exact: true }).click();
   await line.waitFor();
   assert.equal(await line.inputValue(), "unsent 한글 😀", "mode switches preserve the unsent line");
