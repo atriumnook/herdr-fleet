@@ -36,6 +36,8 @@ try {
     await row.waitFor();
     await page.waitForFunction((uri) => document.querySelector(".xterm-rows")?.textContent?.includes(uri), shortUri);
     const span = row.locator("span").filter({ hasText: "file://" }).first();
+    // xterm redraws the row as the shell's prompt follows: measure the link once it is drawn
+    await span.waitFor();
     const box = await span.boundingBox();
     assert.ok(box);
     // The output's prefix is nine cells; xterm links use character-cell coordinates.
