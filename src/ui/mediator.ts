@@ -3,6 +3,7 @@ import type { Machine, MachineEvent } from "../../shared/machines.ts";
 import type { BridgeHealth } from "../../shared/machines.ts";
 import type { PairedDevice, PairingCode, RemoteAccess, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
+import type { PaneView } from "../lib/actions.ts";
 import type { Settings } from "../lib/settings.ts";
 import { INITIAL_STATE, transition, type Effect, type RequestAction, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
 
@@ -35,6 +36,8 @@ export interface EffectPorts {
   loadSession(machineId: string): Promise<SessionSnapshot>;
   /** opens the stream of every PC's changes; the function returned closes it */
   openStream(on: { opened(): void; event(event: MachineEvent): void }): () => void;
+  /** keeps the lens chosen in a pane on this device */
+  storeLens(storageId: string, view: PaneView): void;
   /** keeps the selected pane for this window's next load */
   storeSelection(machineId: string, paneId: string | null): void;
   /** runs `then` after `ms`: the clock the state machine's `later` effects wait on */
@@ -166,6 +169,9 @@ export class Mediator {
       case "confirm-pane-gone":
         try { this.dispatch({ type: "pane-session-read", machineId: effect.machineId, paneId: effect.paneId, session: await this.ports.loadSession(effect.machineId) }); }
         catch { this.dispatch({ type: "pane-session-failed", machineId: effect.machineId, paneId: effect.paneId }); }
+        return;
+      case "store-lens":
+        this.ports.storeLens(effect.storageId, effect.view);
         return;
       case "store-selection":
         this.ports.storeSelection(effect.machineId, effect.paneId);

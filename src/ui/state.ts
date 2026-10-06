@@ -1,7 +1,8 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { Machine } from "../../shared/machines.ts";
-import type { AccessRefusal, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AccessRefusal, ClientRole, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
+import type { PaneView } from "../lib/actions.ts";
 import { applyPaneStatus } from "../lib/snapshot.ts";
 import { sanitizeFontFamily } from "../lib/fontFamily.ts";
 import { DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type Settings } from "../lib/settings.ts";
@@ -145,6 +146,17 @@ export interface MachinesState {
   checking: string | null;
 }
 
+/** The pane open in Main: its socket, and the lens the person chose in it. */
+export interface PaneState {
+  connected: boolean;
+  /** the server stopped sending its output (output_stalled) until the socket is live again */
+  outputStopped: boolean;
+  /** the connection's role: the server's role-ack confirms it (no UI control today) */
+  role: ClientRole;
+  /** a lens chosen in the pane, kept here too for a browser that cannot store it; `key` names the pane and what decides its lens */
+  lens: { key: string; view: PaneView } | null;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -172,6 +184,9 @@ export interface UiState {
   trees: Record<string, TreeState>;
   connection: ConnectionState;
   machines: MachinesState;
+  pane: PaneState;
+  /** the phone's workspace drawer: a pane picked closes it, and an in-app alert shows for the open pane while it is open */
+  drawerOpen: boolean;
 }
 
 export type UiEvent =
@@ -237,7 +252,14 @@ export type UiEvent =
   | { type: "push-repair-started" }
   | { type: "push-tested"; result: Exclude<PushTest, "idle" | "sending">; session: number }
   | TreeEvent
-  | ConnectionEvent;
+  | ConnectionEvent
+  | { type: "pane-connection"; connected: boolean }
+  | { type: "output-stalled" }
+  | { type: "role-ack"; role: ClientRole }
+  /** `storageId`: where the pane's lens is kept; null with no pane selected */
+  | { type: "choose-lens"; key: string; storageId: string | null; view: PaneView }
+  | { type: "drawer"; open: boolean }
+  | { type: "toggle-drawer" };
 
 /** The server, as this page reads it and is pushed by it. */
 export type ConnectionEvent =
@@ -320,7 +342,8 @@ export type Effect =
   | { kind: "open-stream" }
   | { kind: "close-stream" }
   /** ask the PC itself whether the selected pane closed: the roster can lag a pane just made */
-  | { kind: "confirm-pane-gone"; machineId: string; paneId: string };
+  | { kind: "confirm-pane-gone"; machineId: string; paneId: string }
+  | { kind: "store-lens"; storageId: string; view: PaneView };
 
 export interface Transition { state: UiState; effects: Effect[] }
 
@@ -341,6 +364,8 @@ export const INITIAL_STATE: UiState = {
   trees: {},
   connection: { locked: null, reason: null, auth: null, health: null, pairCode: "", pairing: "none", visible: true, pollSeq: 0 },
   machines: { list: [], error: null, revision: 0, refetching: false, checking: null },
+  pane: { connected: false, outputStopped: false, role: "interact", lens: null },
+  drawerOpen: false,
 };
 
 /** A run whose pane is gone: nothing to open or stop in it. */
@@ -377,7 +402,20 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "show-screen":
       return next({ screen: event.screen, detail: event.screen === "pane" ? null : state.detail });
     case "select-pane":
-      return next({ screen: "pane", detail: null, selection: select(event.machineId, event.paneId, false, effects) });
+      return next({ screen: "pane", detail: null, ...pick(state, event.machineId, event.paneId, effects) });
+    case "pane-connection":
+      return next({ pane: { ...state.pane, connected: event.connected, outputStopped: event.connected ? false : state.pane.outputStopped } });
+    case "output-stalled":
+      return next({ pane: { ...state.pane, outputStopped: true } });
+    case "role-ack":
+      return next(state.pane.role === event.role ? {} : { pane: { ...state.pane, role: event.role } });
+    case "choose-lens":
+      if (event.storageId !== null) effects.push({ kind: "store-lens", storageId: event.storageId, view: event.view });
+      return next({ pane: { ...state.pane, lens: { key: event.key, view: event.view } }, selection: state.selection.auto ? { ...state.selection, auto: false } : state.selection });
+    case "drawer":
+      return next({ drawerOpen: event.open });
+    case "toggle-drawer":
+      return next({ drawerOpen: !state.drawerOpen });
     case "selection-confirmed":
       return next(state.selection.auto ? { selection: { ...state.selection, auto: false } } : {});
     case "fleet-changed":
@@ -417,7 +455,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       const run = state.runs.data.find((candidate) => candidate.id === event.runId);
       if (!run || isEnded(run)) return next({});
       // a fleet run's pane lives on this PC
-      return next({ screen: "pane", detail: null, selection: select("local", run.paneId, false, effects) });
+      return next({ screen: "pane", detail: null, ...pick(state, "local", run.paneId, effects) });
     }
     case "interrupt-run":
       return request(state, { kind: "interrupt", runId: event.runId });
@@ -834,6 +872,19 @@ function followUp(before: UiState, step: Transition): Transition {
     }
   }
   return state === step.state && effects.length === step.effects.length ? step : { state, effects };
+}
+
+/**
+ * A pane the person picked: selected and kept, the drawer closed, a stalled output forgotten,
+ * and the socket no longer live when the pane is on another PC (only that mounts a new one).
+ */
+function pick(state: UiState, machineId: string, paneId: string | null, effects: Effect[]): Pick<UiState, "selection" | "drawerOpen" | "pane"> {
+  const otherPc = machineId !== state.selection.machineId;
+  return {
+    selection: select(machineId, paneId, false, effects),
+    drawerOpen: false,
+    pane: { ...state.pane, outputStopped: false, connected: otherPc ? false : state.pane.connected },
+  };
 }
 
 /** A pane selected, and kept for the next load. */

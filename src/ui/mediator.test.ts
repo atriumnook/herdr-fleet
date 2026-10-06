@@ -38,6 +38,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     signOut: async () => {},
     loadSession: async () => { throw new Error("no session"); },
     openStream: () => () => {},
+    storeLens: () => {},
   };
   return { ports: { ...base, ...overrides }, requests, saved, forgotten, timers };
 }

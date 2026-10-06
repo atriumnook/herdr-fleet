@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
 import { ApiError, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
-import { forgetPaneViews, loadSettings, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
+import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
 import { testDevicePush } from "../lib/push.ts";
@@ -38,6 +38,9 @@ const FLEET_PORTS: EffectPorts = {
     else if (request.kind === "rename-pane") await renamePane(request.paneId, request.label, machineId);
     else if (request.kind === "rename-workspace") await renameWorkspace(request.workspaceId, request.label, machineId);
     else await moveWorkspace(request.workspaceId, request.index, machineId);
+  },
+  storeLens: (storageId, view) => {
+    try { window.localStorage.setItem(`${PANE_VIEW_KEY_PREFIX}${storageId}`, view); } catch { /* private mode: the lens just stops being remembered */ }
   },
   loadAccess: fetchBridgeHealth,
   loadHealth: fetchHealth,
