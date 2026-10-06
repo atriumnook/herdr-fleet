@@ -806,3 +806,44 @@ describe("the command palette", () => {
     expect(kinds(play([{ type: "selection-confirmed" }], same).effects)).not.toContain("remember-pane");
   });
 });
+
+describe("the access gate", () => {
+  const kinds = (effects: { kind: string }[]) => effects.map((effect) => effect.kind);
+  const lockedOut = (pairCode = "") => {
+    const booted = play([{ type: "boot", linkToken: null, pairCode }]).state;
+    return play([{ type: "access-loaded", auth: { required: true, authenticated: false, reason: "pairing_required" } }], booted);
+  };
+
+  it("pairs with a code typed in full, and lets this browser in once the server took it", () => {
+    const typed = play([{ type: "gate-edit", field: "code", value: "12a3 456" }], lockedOut().state).state;
+    expect(typed.gate.code).toBe("123456");
+    const pairing = play([{ type: "gate-pair" }], typed);
+    expect(pairing.state.gate.submitting).toBe("code");
+    expect(pairing.effects).toEqual([{ kind: "gate-pair", code: "123456" }]);
+    const inside = play([{ type: "gate-passed" }], pairing.state);
+    expect(inside.state.connection.locked).toBe(false);
+    expect(inside.state.gate).toMatchObject({ submitting: null, error: null });
+  });
+
+  it("sends nothing for a code short of six digits or an empty token", () => {
+    const state = play([{ type: "gate-edit", field: "code", value: "123" }], lockedOut().state).state;
+    expect(play([{ type: "gate-pair" }], state).effects).toEqual([]);
+    expect(play([{ type: "gate-unlock" }], state).effects).toEqual([]);
+  });
+
+  it("says a refused code or token in words, and lets it be tried again", () => {
+    const pairing = play([{ type: "gate-edit", field: "code", value: "123456" }, { type: "gate-pair" }], lockedOut().state).state;
+    const refused = play([{ type: "gate-failed", via: "code", unauthorized: true, message: "invalid_code" }], pairing).state;
+    expect(refused.gate).toMatchObject({ submitting: null, error: { kind: "refused", via: "code" } });
+    const unlocking = play([{ type: "gate-edit", field: "token", value: "secret" }, { type: "gate-unlock" }], refused);
+    expect(unlocking.effects).toEqual([{ kind: "gate-authenticate", token: "secret" }]);
+    expect(play([{ type: "gate-failed", via: "token", unauthorized: false, message: "offline" }], unlocking.state).state.gate.error).toEqual({ kind: "message", via: "token", message: "offline" });
+  });
+
+  it("pairs at once with the code a scanned QR brought, once", () => {
+    const { state, effects } = lockedOut("654321");
+    expect(state.gate.code).toBe("654321");
+    expect(effects).toContainEqual({ kind: "gate-pair", code: "654321" });
+    expect(kinds(play([{ type: "access-loaded", auth: { required: true, authenticated: false } }], state).effects)).not.toContain("gate-pair");
+  });
+});

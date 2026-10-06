@@ -202,6 +202,16 @@ export type NewSessionState =
 /** The command palette, on the selected pane's PC: the search typed, and the panes opened last there. */
 export type PaletteState = { open: false } | { open: true; machineId: string; query: string; recent: string[] };
 
+/** The sign-in screen while the server does not know this browser: a pairing code, or the shared token. */
+export interface GateState {
+  code: string;
+  token: string;
+  submitting: "code" | "token" | null;
+  error: { kind: "refused"; via: "code" | "token" } | { kind: "message"; via: "code" | "token"; message: string } | null;
+  /** the code a scanned QR brought was sent: once */
+  scannedSent: boolean;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -233,6 +243,7 @@ export interface UiState {
   alerts: AlertsState;
   newSession: NewSessionState;
   palette: PaletteState;
+  gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
   /** the phone's workspace drawer: a pane picked closes it, and an in-app alert shows for the open pane while it is open */
@@ -332,7 +343,14 @@ export type UiEvent =
   | { type: "palette-query"; text: string }
   | { type: "palette-recent"; machineId: string; recent: string[] }
   /** a pane picked in the palette: it opens, and the palette closes */
-  | { type: "palette-pick"; paneId: string };
+  | { type: "palette-pick"; paneId: string }
+  | { type: "gate-edit"; field: "code" | "token"; value: string }
+  | { type: "gate-pair" }
+  | { type: "gate-unlock" }
+  /** the server took the code or the token, and set its cookie */
+  | { type: "gate-passed" }
+  /** `unauthorized`: the server refused the code or the token itself */
+  | { type: "gate-failed"; via: "code" | "token"; unauthorized: boolean; message: string };
 
 /** The server, as this page reads it and is pushed by it. */
 export type ConnectionEvent =
@@ -425,6 +443,8 @@ export type Effect =
   /** an in-app alert; `machineName` only when there are several PCs */
   | { kind: "drop-in"; machineId: string; machineName: string | null; pane: HerdrPane; alert: DropletKind }
   | { kind: "load-agents"; machineId: string; seq: number }
+  | { kind: "gate-pair"; code: string }
+  | { kind: "gate-authenticate"; token: string }
   /** the panes opened last on a PC, for the palette */
   | { kind: "load-recent"; machineId: string }
   | { kind: "remember-pane"; machineId: string; paneId: string }
@@ -457,6 +477,7 @@ export const INITIAL_STATE: UiState = {
   drawerOpen: false,
   newSession: { open: false },
   palette: { open: false },
+  gate: { code: "", token: "", submitting: null, error: null, scannedSent: false },
   newSessionSeq: 0,
 };
 
@@ -523,6 +544,23 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "palette-pick":
       if (!state.palette.open) return next({});
       return next({ screen: "pane", detail: null, palette: { open: false }, ...pick(state, state.palette.machineId, event.paneId, effects) });
+    case "gate-edit":
+      // the code is six digits, typed with or without the space it is shown with
+      return next({ gate: { ...state.gate, [event.field]: event.field === "code" ? event.value.replace(/\D/g, "").slice(0, 6) : event.value } });
+    case "gate-pair":
+      if (state.gate.submitting !== null || state.gate.code.length !== 6) return next({});
+      effects.push({ kind: "gate-pair", code: state.gate.code });
+      return next({ gate: { ...state.gate, submitting: "code", error: null } });
+    case "gate-unlock":
+      if (state.gate.submitting !== null || state.gate.token === "") return next({});
+      effects.push({ kind: "gate-authenticate", token: state.gate.token });
+      return next({ gate: { ...state.gate, submitting: "token", error: null } });
+    case "gate-passed": {
+      const passed = { ...state, gate: { ...state.gate, submitting: null, error: null } };
+      return connectionTransition(passed, { type: "unlocked" }, effects);
+    }
+    case "gate-failed":
+      return next({ gate: { ...state.gate, submitting: null, error: event.unauthorized ? { kind: "refused", via: event.via } : { kind: "message", via: event.via, message: event.message } } });
     case "drawer":
       return next({ drawerOpen: event.open });
     case "toggle-drawer":
@@ -876,7 +914,7 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
   };
   switch (event.type) {
     case "boot": {
-      const booted = { ...state, connection: { ...connection, pairCode: event.pairCode ?? "", visible: event.visible ?? connection.visible }, alerts: event.alerts ? { ...state.alerts, ...event.alerts } : state.alerts };
+      const booted = { ...state, gate: { ...state.gate, code: event.pairCode ?? "" }, connection: { ...connection, pairCode: event.pairCode ?? "", visible: event.visible ?? connection.visible }, alerts: event.alerts ? { ...state.alerts, ...event.alerts } : state.alerts };
       if (event.linkToken === null) return connectionTransition(booted, { type: "authentication-failed", reason: "boot" }, effects);
       effects.push({ kind: "authenticate", token: event.linkToken, reason: "boot" });
       return { state: booted, effects };
@@ -1038,6 +1076,11 @@ function followUp(before: UiState, step: Transition): Transition {
   const effects = [...step.effects];
   if (before.connection.locked !== false && state.connection.locked === false) effects.push({ kind: "open-stream" });
   if (before.connection.locked === false && state.connection.locked !== false) effects.push({ kind: "close-stream" });
+  // a scanned QR code brings its code along: the gate sends it at once, no typing on the phone
+  if (state.connection.locked === true && before.connection.locked !== true && state.gate.code.length === 6 && !state.gate.scannedSent && state.gate.submitting === null) {
+    effects.push({ kind: "gate-pair", code: state.gate.code });
+    state = { ...state, gate: { ...state.gate, scannedSent: true, submitting: "code" } };
+  }
   // the panes opened last, as the palette offers them: each one selected, however it was picked
   if (state.selection.paneId !== null && (state.selection.paneId !== before.selection.paneId || state.selection.machineId !== before.selection.machineId)) {
     effects.push({ kind: "remember-pane", machineId: state.selection.machineId, paneId: state.selection.paneId });

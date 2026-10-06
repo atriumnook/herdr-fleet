@@ -1,20 +1,19 @@
 import "./AccessGate.css";
 
-import { type FormEvent, useEffect, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef } from "react";
 
-import { ApiError, authenticate, pairDevice } from "../lib/api.ts";
-import { deviceLabel } from "../lib/phone.ts";
 import type { AccessRefusal } from "../../shared/protocol.ts";
 import { useT } from "../lib/i18n.ts";
+import type { Emit } from "../ui/bubble.ts";
+import type { GateState, UiEvent } from "../ui/state.ts";
 
+export type AccessGateEvent = Extract<UiEvent, { type: "gate-edit" | "gate-pair" | "gate-unlock" }>;
 
 export interface AccessGateProps {
   /** why the server refused this browser, when it said */
   reason: AccessRefusal | null;
-  /** the code a scanned QR code brought along: submitted at once */
-  initialCode: string;
-  /** Fires once the server set a cookie: the shell can mount, and every later fetch and the WebSocket carry it. */
-  onUnlocked: () => void;
+  gate: GateState;
+  emit: Emit<AccessGateEvent>;
 }
 
 /**
@@ -24,53 +23,30 @@ export interface AccessGateProps {
  * token stays as the other way. Nothing is stored here: the server answers with an
  * HttpOnly cookie either way.
  */
-export function AccessGate({ reason, initialCode, onUnlocked }: AccessGateProps) {
+export function AccessGate({ reason, gate, emit }: AccessGateProps) {
   const t = useT();
   const codeRef = useRef<HTMLInputElement | null>(null);
   const tokenRef = useRef<HTMLInputElement | null>(null);
-  const [code, setCode] = useState(initialCode);
-  const [token, setToken] = useState("");
-  const [submitting, setSubmitting] = useState<"code" | "token" | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const scanned = useRef(code.length === 6);
+  const { code, token, submitting } = gate;
+  const error = gate.error === null ? null
+    : gate.error.kind === "message" ? gate.error.message
+    : t(gate.error.via === "code" ? "That code is wrong, used up or expired. Start a new pairing on the PC." : "Token does not match.");
 
-  const pair = async (value: string): Promise<void> => {
-    if (submitting) return;
-    setSubmitting("code");
-    setError(null);
-    try {
-      await pairDevice(value, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0));
-      onUnlocked();
-    } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? t("That code is wrong, used up or expired. Start a new pairing on the PC.") : err instanceof Error ? err.message : String(err));
-      setSubmitting(null);
-      codeRef.current?.select();
-    }
-  };
-
-  // a scanned QR code brings the code along: no typing on the phone
-  useEffect(() => { if (scanned.current) { scanned.current = false; void pair(code); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // a refused code or token is selected, to be typed over
+  useEffect(() => {
+    if (gate.error !== null) (gate.error.via === "code" ? codeRef : tokenRef).current?.select();
+  }, [gate.error]);
 
   const submitCode = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     if (code.length !== 6) { codeRef.current?.focus(); return; }
-    void pair(code);
+    emit({ type: "gate-pair" });
   };
 
-  const submitToken = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+  const submitToken = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (submitting) return;
     if (token === "") { tokenRef.current?.focus(); return; }
-    setSubmitting("token");
-    setError(null);
-    try {
-      await authenticate(token);
-      onUnlocked();
-    } catch (err) {
-      setError(err instanceof ApiError && err.status === 401 ? t("Token does not match.") : err instanceof Error ? err.message : String(err));
-      setSubmitting(null);
-      tokenRef.current?.select();
-    }
+    emit({ type: "gate-unlock" });
   };
 
   return (
@@ -102,7 +78,7 @@ export function AccessGate({ reason, initialCode, onUnlocked }: AccessGateProps)
             aria-invalid={error !== null && submitting !== "token"}
             aria-describedby={error !== null ? "access-gate-error" : undefined}
             value={code}
-            onChange={(event) => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+            onChange={(event) => emit({ type: "gate-edit", field: "code", value: event.target.value })}
           />
           <button type="submit" className="access-gate-submit" disabled={submitting !== null}>
             {t(submitting === "code" ? "Pairing…" : "Pair this device")}
@@ -110,7 +86,7 @@ export function AccessGate({ reason, initialCode, onUnlocked }: AccessGateProps)
         </form>
         <details className="access-gate-alt">
           <summary>{t("Have an access token instead?")}</summary>
-          <form onSubmit={(event) => void submitToken(event)}>
+          <form onSubmit={submitToken}>
             <label className="access-gate-label" htmlFor="access-gate-token">{t("Access token")}</label>
             <input
               ref={tokenRef}
@@ -121,7 +97,7 @@ export function AccessGate({ reason, initialCode, onUnlocked }: AccessGateProps)
               autoComplete="current-password"
               inputMode="text"
               value={token}
-              onChange={(event) => setToken(event.target.value)}
+              onChange={(event) => emit({ type: "gate-edit", field: "token", value: event.target.value })}
             />
             <button type="submit" className="access-gate-submit" disabled={submitting !== null}>
               {t(submitting === "token" ? "Unlocking…" : "Unlock")}

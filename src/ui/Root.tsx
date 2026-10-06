@@ -15,6 +15,12 @@ import { takeAuthTokenFromUrl } from "../lib/authLink.ts";
 import { deviceLabel, takePairCode } from "../lib/phone.ts";
 import { INITIAL_STATE } from "./state.ts";
 
+/** A 401 is the server refusing what the gate sent; anything else stays an error. */
+function refusedOr(error: unknown): "refused" {
+  if (error instanceof ApiError && error.status === 401) return "refused";
+  throw error;
+}
+
 /** the agent a new session starts with, as chosen last on this device */
 const LAST_AGENT_KEY = "herdr-fleet:new-session-agent";
 
@@ -59,6 +65,8 @@ const FLEET_PORTS: EffectPorts = {
     if (status === "ended") showPaneEndedNotification(pane.pane_id, title, open, machineId);
     else showPaneStatusNotification(pane.pane_id, title, status, open, machineId);
   },
+  gatePair: (code) => pairDevice(code, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0)).then(() => "ok" as const, refusedOr),
+  gateAuthenticate: (token) => authenticate(token).then(() => "ok" as const, refusedOr),
   loadAgentKinds: fetchAgentKinds,
   loadRecent: loadRecentPanes,
   rememberPane,
