@@ -24,6 +24,7 @@ import { checkDroplet } from "./droplet-regression.ts";
 import { checkChatKeepsTerminalSize } from "./chat-size-regression.ts";
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
 import { checkFleetScreen } from "./fleet-screen-regression.ts";
+import { checkBackgroundTasks } from "./background-tasks-regression.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-fleet-browser-")));
 const workspaces: string[] = [];
@@ -309,6 +310,7 @@ try {
   await checkDefaultView(browser, origin);
   await checkComposerReconnect(browser, origin, paneB);
   await checkDroplet(browser, origin);
+  await checkBackgroundTasks(browser, origin);
   await checkFleetScreen(browser);
   await checkChatKeepsTerminalSize(browser, origin);
 
