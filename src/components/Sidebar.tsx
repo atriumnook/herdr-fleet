@@ -5,8 +5,8 @@ import "./Sidebar.css";
 
 import type { AgentStatus, PaneInfo, SessionSnapshot, WorkspaceInfo, HerdrPane } from "../../shared/protocol.ts";
 import { paneTitle } from "../../shared/notify-policy.ts";
-import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
-import type { AppActions } from "../lib/actions.ts";
+import type { Emit } from "../ui/bubble.ts";
+import type { TreeEvent, TreeState } from "../ui/state.ts";
 import { knownStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
@@ -15,9 +15,7 @@ import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { folderName, placeLine, shortPathTitle } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
 import { groupDirectories } from "../lib/directoryGroups.ts";
-import { useSettings, type SidebarGrouping } from "../lib/settings.ts";
-
-const ERROR_NOTE_MS = 5000;
+import type { SidebarGrouping } from "../lib/settings.ts";
 
 /** Folder folds belong to a PC and full path, not an individual workspace. */
 const collapsedKey = (machineId: string, groupKey: string) => {
@@ -88,38 +86,48 @@ function cwdBasename(cwd: string | null | undefined): string {
   return cwd ? folderName(cwd) : "unknown directory";
 }
 
-interface InlineError {
-  paneId?: string;
-  message: string;
-}
-
 /** The row whose ⋯ menu is open: a pane's row, or the header of a workspace with several panes. */
 type MenuState =
   | { kind: "pane"; anchor: HTMLElement; pane: PaneInfo; workspace: WorkspaceInfo; scope: string; title: string; place: string }
   | { kind: "workspace"; anchor: HTMLElement; workspace: WorkspaceInfo; scope: string };
-interface ConfirmState { title: string; body: string; run: () => Promise<void> }
-
-export interface SidebarProps {
+/** What a PC's session tree draws. */
+export interface SidebarModel {
+  machineId: string;
   snapshot: SessionSnapshot | null;
   selectedPaneId: string | null;
-  actions: AppActions;
+  grouping: SidebarGrouping;
+  /** the workspaces in the order drawn: a reorder herdr has not taken yet, else herdr's */
+  workspaceOrder: string[];
+  tree: TreeState;
 }
 
-export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
+/** What the tree sends up: its own changes, a pane picked, a new session (the shell's). */
+export type SidebarEvent = TreeEvent | { type: "select-pane"; machineId: string; paneId: string } | { type: "new-session"; machineId: string };
+
+/** what a refused change says, beside its row */
+export const FAILED: Record<NonNullable<TreeState["failure"]>["kind"], string> = {
+  close: "Close failed: {reason}",
+  rename: "Rename failed: {reason}",
+  reorder: "Reorder failed: {reason}",
+};
+
+/**
+ * A PC's sessions. The view keeps what only its look depends on: which row's menu is open, the
+ * folds (stored per PC and group), the workspace being dragged.
+ */
+export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<SidebarEvent> }) {
   const t = useT();
-  const { settings } = useSettings();
-  const byFolder = settings.sidebarGrouping === "directory";
-  const machineId = useMachineId();
-  const { closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace } = useMachineApi();
+  const { machineId, snapshot, selectedPaneId, workspaceOrder, tree } = model;
+  const byFolder = model.grouping === "directory";
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const [confirm, setConfirm] = useState<ConfirmState | null>(null);
-  const [editingPaneId, setEditingPaneId] = useState<string | null>(null);
-  const [paneLabel, setPaneLabel] = useState("");
-  const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
-  const [workspaceLabel, setWorkspaceLabel] = useState("");
-  const [workspaceOrder, setWorkspaceOrder] = useState<string[]>([]);
   const [dragWorkspaceId, setDragWorkspaceId] = useState<string | null>(null);
-  const [inlineError, setInlineError] = useState<InlineError | null>(null);
+  const editingPaneId = tree.paneRename?.paneId ?? null;
+  const paneLabel = tree.paneRename?.label ?? "";
+  const editingWorkspaceId = tree.workspaceRename?.key ?? null;
+  const workspaceLabel = tree.workspaceRename?.label ?? "";
+  const inlineError = tree.failure === null ? null : { paneId: tree.failure.paneId, message: t(FAILED[tree.failure.kind], { reason: tree.failure.reason }) };
+  const confirm = tree.confirm;
+  const on = { machineId };
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => storedCollapsed(machineId, snapshot ? [...snapshot.workspaces.map((workspace) => `workspace:${workspace.workspace_id}`), ...groupDirectories(snapshot.workspaces, snapshot.panes).map((group) => `folder:${group.key}`)] : []));
   const unfoldedFor = useRef<Partial<Record<SidebarGrouping, string>>>({});
 
@@ -136,19 +144,16 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     } catch {}
   };
 
+  // a close confirmed and done took its row with it: the focus goes where a closed row's goes
+  const confirmRunning = useRef(false);
   useEffect(() => {
-    if (inlineError === null) return;
-    const timer = window.setTimeout(() => setInlineError(null), ERROR_NOTE_MS);
-    return () => window.clearTimeout(timer);
-  }, [inlineError]);
+    if (confirmRunning.current && confirm === null) focusWorkspaceListToggle();
+    confirmRunning.current = confirm?.status === "running";
+  }, [confirm]);
 
   useEffect(() => {
-    if (!snapshot) {
-      setWorkspaceOrder([]);
-      return;
-    }
+    if (!snapshot) return;
     const serverOrder = snapshot.workspaces.map((workspace) => workspace.workspace_id);
-    setWorkspaceOrder((current) => current.join("\u0000") === serverOrder.join("\u0000") ? current : serverOrder);
     // New folders bring their stored fold state after reconnecting or creating a session.
     setCollapsedGroups((current) => {
       const keys = [...serverOrder.map((id) => `workspace:${id}`), ...groupDirectories(snapshot.workspaces, snapshot.panes).map((group) => `folder:${group.key}`)];
@@ -166,10 +171,10 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     if (byFolder && !directory) return;
     const groupKey = directory ? `folder:${directory.key}` : `workspace:${pane.workspace_id}`;
     const opened = JSON.stringify([machineId, selectedPaneId, groupKey]);
-    if (unfoldedFor.current[settings.sidebarGrouping] === opened) return;
-    unfoldedFor.current[settings.sidebarGrouping] = opened;
+    if (unfoldedFor.current[model.grouping] === opened) return;
+    unfoldedFor.current[model.grouping] = opened;
     setGroupCollapsed(groupKey, false);
-  }, [selectedPaneId, snapshot, machineId, settings.sidebarGrouping, byFolder]);
+  }, [selectedPaneId, snapshot, machineId, model.grouping, byFolder]);
 
   const orderedWorkspaces = useMemo(() => {
     if (!snapshot) return [];
@@ -183,25 +188,10 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     return counts;
   }, [snapshot?.panes]);
 
-  const noteError = (message: string, paneId?: string): void => setInlineError({ message, paneId });
-
-  const closePaneNow = (paneId: string): void => {
-    setInlineError(null);
-    void closePane(paneId).catch((reason: unknown) => {
-      noteError(t("Close failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), paneId);
-    });
-  };
-
   const closeMenu = useCallback(() => setMenu(null), []);
 
   // A close that takes the workspace with it asks first, as herdr's ui.confirm_close does; a
-  // pane that leaves its workspace standing closes at once, as herdr's tab menu does. The row is
-  // gone afterwards, so focus moves to the header's workspace-list toggle.
-  const leave = async (close: () => Promise<void>): Promise<void> => {
-    await close();
-    setConfirm(null);
-    focusWorkspaceListToggle();
-  };
+  // pane that leaves its workspace standing closes at once, as herdr's tab menu does.
 
   const menuItems = (state: MenuState): RowMenuItem[] => {
     // the roster may have moved on since the menu opened (a sibling closed from another client):
@@ -212,15 +202,15 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     if (state.kind === "workspace") {
       return [
         renameWorkspaceItem,
-        { id: "close", label: t("Close workspace"), icon: X, danger: true, divider: true, run: () => setConfirm({ title: t("Close workspace {name}?", { name: workspace.label }), body: t("{n} panes close with it, and the agents in them stop.", { n: paneCount }), run: () => leave(() => closeWorkspace(workspace.workspace_id)) }) },
+        { id: "close", label: t("Close workspace"), icon: X, danger: true, divider: true, run: () => emit({ type: "tree-ask", ...on, action: { kind: "close-workspace", workspaceId: workspace.workspace_id }, title: t("Close workspace {name}?", { name: workspace.label }), body: t("{n} panes close with it, and the agents in them stop.", { n: paneCount }) }) },
       ];
     }
     const pane = snapshot?.panes.find((candidate) => candidate.pane_id === state.pane.pane_id) ?? state.pane;
     const renamePaneItem: RowMenuItem = { id: "rename-pane", label: t("Rename pane"), icon: Pencil, run: () => beginPaneRename(pane) };
     // the workspace's last pane takes the workspace with it
     const closeItem: RowMenuItem = paneCount === 1
-      ? { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => setConfirm({ title: t("Close {title}?", { title: state.title }), body: t("Its workspace closes with it, and the agent and shell in it stop."), run: () => leave(() => closePane(pane.pane_id)) }) }
-      : { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => closePaneNow(pane.pane_id) };
+      ? { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => emit({ type: "tree-ask", ...on, action: { kind: "close-pane", paneId: pane.pane_id }, title: t("Close {title}?", { title: state.title }), body: t("Its workspace closes with it, and the agent and shell in it stop.") }) }
+      : { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => emit({ type: "tree-close-pane", ...on, paneId: pane.pane_id }) };
     // a one-pane row has no header: it is the only place to rename its workspace
     return paneCount === 1 ? [renameWorkspaceItem, renamePaneItem, closeItem] : [renamePaneItem, closeItem];
   };
@@ -237,49 +227,15 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
     focusWorkspaceListToggle();
   });
 
-  const beginPaneRename = (pane: PaneInfo): void => {
-    setEditingPaneId(pane.pane_id);
-    setPaneLabel(pane.label ?? "");
-  };
-
-  const savePaneRename = (paneId: string): void => {
-    const label = paneLabel.trim();
-    setEditingPaneId(null);
-    void renamePane(paneId, label).catch((reason: unknown) => {
-      noteError(t("Rename failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }), paneId);
-    });
-  };
+  const beginPaneRename = (pane: PaneInfo): void => emit({ type: "tree-start-pane-rename", ...on, paneId: pane.pane_id, label: pane.label ?? "" });
 
   // By folder, one workspace can show under several folders: only the copy that was clicked edits.
   // Two mounted inputs would take the focus from each other, and the blur closes both.
-  const beginWorkspaceRename = (workspace: WorkspaceInfo, scope: string): void => {
-    setEditingWorkspaceId(`${scope}\u0000${workspace.workspace_id}`);
-    setWorkspaceLabel(workspace.label);
-  };
+  const beginWorkspaceRename = (workspace: WorkspaceInfo, scope: string): void =>
+    emit({ type: "tree-start-workspace-rename", ...on, key: `${scope}\u0000${workspace.workspace_id}`, workspaceId: workspace.workspace_id, label: workspace.label });
 
-  const saveWorkspaceRename = (workspaceId: string): void => {
-    const label = workspaceLabel.trim();
-    setEditingWorkspaceId(null);
-    void renameWorkspace(workspaceId, label).catch((reason: unknown) => {
-      noteError(t("Rename failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }));
-    });
-  };
-
-  const reorderWorkspace = (workspaceId: string, insertIndex: number): void => {
-    const sourceIndex = workspaceOrder.indexOf(workspaceId);
-    if (sourceIndex < 0) return;
-    const boundedIndex = Math.max(0, Math.min(workspaceOrder.length - 1, insertIndex));
-    if (sourceIndex === boundedIndex) return;
-    const previous = workspaceOrder;
-    const next = [...workspaceOrder];
-    next.splice(sourceIndex, 1);
-    next.splice(boundedIndex, 0, workspaceId);
-    setWorkspaceOrder(next);
-    void moveWorkspace(workspaceId, boundedIndex).catch((reason: unknown) => {
-      setWorkspaceOrder(previous);
-      noteError(t("Reorder failed: {reason}", { reason: reason instanceof Error ? reason.message : String(reason) }));
-    });
-  };
+  const reorderWorkspace = (workspaceId: string, insertIndex: number): void =>
+    emit({ type: "tree-move-workspace", ...on, workspaceId, insertIndex, shown: workspaceOrder, herdr: snapshot?.workspaces.map((workspace) => workspace.workspace_id) ?? [] });
 
   const onDragStart = (event: DragEvent<HTMLElement>, workspaceId: string): void => {
     setDragWorkspaceId(workspaceId);
@@ -357,11 +313,11 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
                 aria-label={t("Workspace name")}
                 autoFocus
                 value={workspaceLabel}
-                onChange={(event) => setWorkspaceLabel(event.target.value)}
-                onBlur={() => setEditingWorkspaceId(null)}
+                onChange={(event) => emit({ type: "tree-edit-workspace-rename", ...on, label: event.target.value })}
+                onBlur={() => emit({ type: "tree-end-workspace-rename", ...on })}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter") saveWorkspaceRename(workspace.workspace_id);
-                  if (event.key === "Escape") setEditingWorkspaceId(null);
+                  if (event.key === "Enter") emit({ type: "tree-save-workspace-rename", ...on });
+                  if (event.key === "Escape") emit({ type: "tree-end-workspace-rename", ...on });
                 }}
               />
             ) : (
@@ -402,11 +358,11 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
                     tabIndex={0}
                     aria-current={selected ? "true" : undefined}
                     title={`${pane.pane_id} — ${fullTitle}${pane.cwd ? ` — ${pane.cwd}` : ""}`}
-                    onClick={() => actions.selectPane(pane.pane_id)}
+                    onClick={() => emit({ type: "select-pane", ...on, paneId: pane.pane_id })}
                     onKeyDown={(event) => {
                       if (event.key !== "Enter" && event.key !== " ") return;
                       event.preventDefault();
-                      actions.selectPane(pane.pane_id);
+                      emit({ type: "select-pane", ...on, paneId: pane.pane_id });
                     }}
                   >
                     <span className={`agent-mark-holder${pane.agent ? "" : " is-shell"}`} title={pane.agent ?? t("Shell")}>
@@ -421,12 +377,12 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
                             autoFocus
                             value={paneLabel}
                             onClick={(event) => event.stopPropagation()}
-                            onChange={(event) => setPaneLabel(event.target.value)}
-                            onBlur={() => setEditingPaneId(null)}
+                            onChange={(event) => emit({ type: "tree-edit-pane-rename", ...on, label: event.target.value })}
+                            onBlur={() => emit({ type: "tree-end-pane-rename", ...on })}
                             onKeyDown={(event) => {
                               event.stopPropagation();
-                              if (event.key === "Enter") savePaneRename(pane.pane_id);
-                              if (event.key === "Escape") setEditingPaneId(null);
+                              if (event.key === "Enter") emit({ type: "tree-save-pane-rename", ...on });
+                              if (event.key === "Escape") emit({ type: "tree-end-pane-rename", ...on });
                             }}
                           />
                         ) : (
@@ -440,12 +396,12 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
                           autoFocus
                           value={workspaceLabel}
                           onClick={(event) => event.stopPropagation()}
-                          onChange={(event) => setWorkspaceLabel(event.target.value)}
-                          onBlur={() => setEditingWorkspaceId(null)}
+                          onChange={(event) => emit({ type: "tree-edit-workspace-rename", ...on, label: event.target.value })}
+                          onBlur={() => emit({ type: "tree-end-workspace-rename", ...on })}
                           onKeyDown={(event) => {
                             event.stopPropagation();
-                            if (event.key === "Enter") saveWorkspaceRename(workspace.workspace_id);
-                            if (event.key === "Escape") setEditingWorkspaceId(null);
+                            if (event.key === "Enter") emit({ type: "tree-save-workspace-rename", ...on });
+                            if (event.key === "Escape") emit({ type: "tree-end-workspace-rename", ...on });
                           }}
                         />
                       ) : (
@@ -479,7 +435,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
         {snapshot && snapshot.workspaces.length === 0 && (
           <div className="tree-state-empty">
             <p className="tree-state" role="status">{t("No workspaces yet")}</p>
-            <button type="button" className="btn" onClick={actions.openNewSession}><Plus aria-hidden="true" />{t("New session")}</button>
+            <button type="button" className="btn" onClick={() => emit({ type: "new-session", ...on })}><Plus aria-hidden="true" />{t("New session")}</button>
           </div>
         )}
         {byFolder ? directories.map((directory) => {
@@ -502,7 +458,7 @@ export function Sidebar({ snapshot, selectedPaneId, actions }: SidebarProps) {
         )}
       </nav>
       {menu && <RowMenu anchor={menu.anchor} title={menu.kind === "pane" ? menu.title : menu.workspace.label} subtitle={menu.kind === "pane" ? menu.place : undefined} items={menuItems(menu)} onClose={closeMenu} />}
-      {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={t("Close")} onConfirm={confirm.run} onClose={() => setConfirm(null)} />}
+      {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={t("Close")} pending={confirm.status === "running"} error={confirm.error ?? null} onConfirm={() => emit({ type: "tree-confirm", ...on })} onClose={() => emit({ type: "tree-cancel", ...on })} />}
     </div>
   );
 }

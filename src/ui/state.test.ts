@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { PairedDevice } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
-import { INITIAL_STATE, transition, type UiEvent, type UiState } from "./state.ts";
+import { INITIAL_STATE, transition, treeOf, type UiEvent, type UiState } from "./state.ts";
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, name: id, role: "worker", agent: "pi", group: "g1", herdrName: `h-${id}`, paneId: `w1:${id}`, cwd: "/w",
@@ -393,5 +393,68 @@ describe("the push test", () => {
     expect(play([{ type: "push-tested", result: "sent", session }], sending).state.pushTest).toBe("sending");
     const reopened = play([{ type: "open-settings" }], sending).state;
     expect(play([{ type: "push-tested", result: "sent", session }], reopened).state.pushTest).toBe("idle");
+  });
+});
+
+describe("a PC's session tree", () => {
+  const pc = "local";
+  const tree = (state: UiState) => treeOf(state, pc);
+
+  it("renames a pane with the name being typed, trimmed, and puts the field away at once", () => {
+    const typed = play([{ type: "tree-start-pane-rename", machineId: pc, paneId: "w1:p1", label: "old" }, { type: "tree-edit-pane-rename", machineId: pc, label: " build " }]).state;
+    expect(tree(typed).paneRename).toEqual({ paneId: "w1:p1", label: " build " });
+    const { state, effects } = play([{ type: "tree-save-pane-rename", machineId: pc }], typed);
+    expect(tree(state).paneRename).toBeNull();
+    expect(effects).toEqual([{ kind: "tree-request", machineId: pc, request: { kind: "rename-pane", paneId: "w1:p1", label: "build" }, viaConfirm: false, revert: null }]);
+    expect(tree(play([{ type: "tree-end-pane-rename", machineId: pc }], typed).state).paneRename).toBeNull();
+  });
+
+  it("renames only the copy of a workspace that was clicked", () => {
+    const typed = play([{ type: "tree-start-workspace-rename", machineId: pc, key: "dir-a\u0000w1", workspaceId: "w1", label: "api" }]).state;
+    expect(tree(typed).workspaceRename).toEqual({ key: "dir-a\u0000w1", workspaceId: "w1", label: "api" });
+    expect(play([{ type: "tree-save-workspace-rename", machineId: pc }], typed).effects).toEqual([{ kind: "tree-request", machineId: pc, request: { kind: "rename-workspace", workspaceId: "w1", label: "api" }, viaConfirm: false, revert: null }]);
+  });
+
+  it("closes a pane that leaves its workspace standing at once, and notes a failure beside its row for a while", () => {
+    const { state, effects } = play([{ type: "tree-close-pane", machineId: pc, paneId: "w1:p2" }]);
+    expect(effects).toEqual([{ kind: "tree-request", machineId: pc, request: { kind: "close-pane", paneId: "w1:p2" }, viaConfirm: false, revert: null }]);
+    const failed = play([{ type: "tree-failed", machineId: pc, request: { kind: "close-pane", paneId: "w1:p2" }, reason: "gone", viaConfirm: false, revert: null }], state);
+    expect(tree(failed.state).failure).toEqual({ kind: "close", reason: "gone", paneId: "w1:p2", seq: 1 });
+    expect(failed.effects).toEqual([{ kind: "later", ms: 5000, event: { type: "tree-clear-failure", machineId: pc, seq: 1 } }]);
+    expect(tree(play([{ type: "tree-clear-failure", machineId: pc, seq: 1 }], failed.state).state).failure).toBeNull();
+    // a later failure outlives the timer of the one before
+    const again = play([{ type: "tree-failed", machineId: pc, request: { kind: "rename-workspace", workspaceId: "w1", label: "x" }, reason: "denied", viaConfirm: false, revert: null }], failed.state).state;
+    expect(tree(play([{ type: "tree-clear-failure", machineId: pc, seq: 1 }], again).state).failure).toMatchObject({ kind: "rename", seq: 2 });
+  });
+
+  it("asks before a close that takes the workspace with it, runs it on yes, and puts the question away once done", () => {
+    const asked = play([{ type: "tree-ask", machineId: pc, action: { kind: "close-workspace", workspaceId: "w1" }, title: "Close workspace api?", body: "2 panes close with it" }]).state;
+    expect(tree(asked).confirm).toMatchObject({ status: "asking", title: "Close workspace api?" });
+    const yes = play([{ type: "tree-confirm", machineId: pc }], asked);
+    expect(tree(yes.state).confirm?.status).toBe("running");
+    expect(yes.effects).toEqual([{ kind: "tree-request", machineId: pc, request: { kind: "close-workspace", workspaceId: "w1" }, viaConfirm: true, revert: null }]);
+    // a no while it runs is not taken: the deed cannot be undone
+    expect(tree(play([{ type: "tree-cancel", machineId: pc }], yes.state).state).confirm?.status).toBe("running");
+    expect(tree(play([{ type: "tree-done", machineId: pc, viaConfirm: true }], yes.state).state).confirm).toBeNull();
+    const failed = play([{ type: "tree-failed", machineId: pc, request: { kind: "close-workspace", workspaceId: "w1" }, reason: "busy", viaConfirm: true, revert: null }], yes.state).state;
+    expect(tree(failed).confirm).toMatchObject({ status: "asking", error: "busy" });
+    expect(tree(failed).failure).toBeNull();
+    expect(tree(play([{ type: "tree-cancel", machineId: pc }], failed).state).confirm).toBeNull();
+  });
+
+  it("shows a reorder at once, and goes back to the order before when herdr refuses it", () => {
+    const { state, effects } = play([{ type: "tree-move-workspace", machineId: pc, workspaceId: "w3", insertIndex: 0, shown: ["w1", "w2", "w3"], herdr: ["w1", "w2", "w3"] }]);
+    expect(tree(state).order).toEqual({ basis: ["w1", "w2", "w3"], order: ["w3", "w1", "w2"] });
+    expect(effects).toEqual([{ kind: "tree-request", machineId: pc, request: { kind: "move-workspace", workspaceId: "w3", index: 0 }, viaConfirm: false, revert: null }]);
+    const failed = play([{ type: "tree-failed", machineId: pc, request: { kind: "move-workspace", workspaceId: "w3", index: 0 }, reason: "no", viaConfirm: false, revert: null }], state).state;
+    expect(tree(failed)).toMatchObject({ order: null, failure: { kind: "reorder", reason: "no" } });
+    // no move where the workspace already is, or out of the list
+    expect(play([{ type: "tree-move-workspace", machineId: pc, workspaceId: "w1", insertIndex: -4, shown: ["w1", "w2"], herdr: ["w1", "w2"] }]).effects).toEqual([]);
+  });
+
+  it("keeps each PC's tree apart", () => {
+    const state = play([{ type: "tree-start-pane-rename", machineId: "pc2", paneId: "w1:p1", label: "" }]).state;
+    expect(treeOf(state, "pc2").paneRename).not.toBeNull();
+    expect(tree(state).paneRename).toBeNull();
   });
 });

@@ -77,6 +77,38 @@ export type PushTest = "idle" | "sending" | "sent" | "unsupported" | "permission
 /** `auto`: picked by the shell for a pane that closed; it raises no phone keyboard until the person picks a pane or lens */
 export interface Selection { machineId: string; paneId: string | null; auto: boolean }
 
+/** how long a failed change stays noted in a session tree */
+export const TREE_FAILURE_MS = 5000;
+
+/** What a PC's session tree asks of its herdr. */
+export type TreeRequest =
+  | { kind: "close-pane"; paneId: string }
+  | { kind: "close-workspace"; workspaceId: string }
+  | { kind: "rename-pane"; paneId: string; label: string }
+  | { kind: "rename-workspace"; workspaceId: string; label: string }
+  | { kind: "move-workspace"; workspaceId: string; index: number };
+
+/** A reorder shown before herdr has it: it holds while herdr's own order is still `basis`. */
+export interface ShownOrder { basis: string[]; order: string[] }
+
+/** One PC's session tree in the sidebar. */
+export interface TreeState {
+  /** the name being typed for a pane */
+  paneRename: { paneId: string; label: string } | null;
+  /** the name being typed for a workspace; `key` is the copy clicked (by folder, one shows under several) */
+  workspaceRename: { key: string; workspaceId: string; label: string } | null;
+  order: ShownOrder | null;
+  /** a change herdr refused, noted for a while (beside its pane's row when it has one) */
+  failure: { kind: "close" | "rename" | "reorder"; reason: string; paneId?: string; seq: number } | null;
+  /** a close that takes a workspace with it asks first; `error`: the yes that failed */
+  confirm: { action: Extract<TreeRequest, { kind: "close-pane" | "close-workspace" }>; title: string; body: string; status: "asking" | "running"; error?: string } | null;
+}
+
+export const EMPTY_TREE: TreeState = { paneRename: null, workspaceRename: null, order: null, failure: null, confirm: null };
+
+/** A PC's tree, empty until something happens in it. */
+export const treeOf = (state: UiState, machineId: string): TreeState => state.trees[machineId] ?? EMPTY_TREE;
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -100,6 +132,8 @@ export interface UiState {
    */
   settingsSession: number;
   pushTest: PushTest;
+  /** each PC's session tree, by machine id */
+  trees: Record<string, TreeState>;
 }
 
 export type UiEvent =
@@ -165,7 +199,31 @@ export type UiEvent =
   | { type: "send-test-push" }
   /** the shell turns alerts on again (permission, subscription, then a confirmation push) */
   | { type: "push-repair-started" }
-  | { type: "push-tested"; result: Exclude<PushTest, "idle" | "sending">; session: number };
+  | { type: "push-tested"; result: Exclude<PushTest, "idle" | "sending">; session: number }
+  | TreeEvent;
+
+/** What a PC's session tree sends up; every one names its PC. */
+export type TreeEvent = { machineId: string } & (
+  | { type: "tree-start-pane-rename"; paneId: string; label: string }
+  | { type: "tree-edit-pane-rename"; label: string }
+  /** Escape, or the field left */
+  | { type: "tree-end-pane-rename" }
+  | { type: "tree-save-pane-rename" }
+  | { type: "tree-start-workspace-rename"; key: string; workspaceId: string; label: string }
+  | { type: "tree-edit-workspace-rename"; label: string }
+  | { type: "tree-end-workspace-rename" }
+  | { type: "tree-save-workspace-rename" }
+  /** a pane that leaves its workspace standing closes at once */
+  | { type: "tree-close-pane"; paneId: string }
+  | { type: "tree-ask"; action: Extract<TreeRequest, { kind: "close-pane" | "close-workspace" }>; title: string; body: string }
+  | { type: "tree-confirm" }
+  | { type: "tree-cancel" }
+  /** `shown`: the order drawn now; `herdr`: herdr's own */
+  | { type: "tree-move-workspace"; workspaceId: string; insertIndex: number; shown: string[]; herdr: string[] }
+  | { type: "tree-done"; viaConfirm: boolean }
+  | { type: "tree-failed"; request: TreeRequest; reason: string; viaConfirm: boolean; revert: ShownOrder | null }
+  | { type: "tree-clear-failure"; seq: number }
+);
 
 export type Effect =
   | { kind: "load-runs" }
@@ -183,7 +241,9 @@ export type Effect =
   /** an event the state machine sends itself after a while */
   | { kind: "later"; ms: number; event: UiEvent }
   | { kind: "test-push"; session: number }
-  | { kind: "store-selection"; machineId: string; paneId: string | null };
+  | { kind: "store-selection"; machineId: string; paneId: string | null }
+  /** `revert`: the order to go back to when herdr refuses a reorder */
+  | { kind: "tree-request"; machineId: string; request: TreeRequest; viaConfirm: boolean; revert: ShownOrder | null };
 
 export interface Transition { state: UiState; effects: Effect[] }
 
@@ -201,6 +261,7 @@ export const INITIAL_STATE: UiState = {
   devices: NO_DEVICES,
   settingsSession: 0,
   pushTest: "idle",
+  trees: {},
 };
 
 /** A run whose pane is gone: nothing to open or stop in it. */
@@ -352,6 +413,26 @@ export function transition(state: UiState, event: UiEvent): Transition {
       return next(state.settingsDialog.open ? { pushTest: "sending" } : {});
     case "push-tested":
       return next(state.settingsDialog.open && event.session === state.settingsSession ? { pushTest: event.result } : {});
+    case "tree-start-pane-rename":
+    case "tree-edit-pane-rename":
+    case "tree-end-pane-rename":
+    case "tree-save-pane-rename":
+    case "tree-start-workspace-rename":
+    case "tree-edit-workspace-rename":
+    case "tree-end-workspace-rename":
+    case "tree-save-workspace-rename":
+    case "tree-close-pane":
+    case "tree-ask":
+    case "tree-confirm":
+    case "tree-cancel":
+    case "tree-move-workspace":
+    case "tree-done":
+    case "tree-failed":
+    case "tree-clear-failure": {
+      const current = treeOf(state, event.machineId);
+      const tree = treeTransition(current, event, effects);
+      return next(tree === current ? {} : { trees: { ...state.trees, [event.machineId]: tree } });
+    }
     case "remote-access-failed":
       return next({ remoteAccess: settleAccess(state.remoteAccess, { status: "error", data: null, error: event.message }, effects) });
   }
@@ -418,6 +499,76 @@ function devicesTransition(devices: DevicesState, event: UiEvent, session: numbe
       return { ...devices, failure: { kind: "message", message: event.message } };
     default:
       return devices;
+  }
+}
+
+const FAILURE_KIND: Record<TreeRequest["kind"], NonNullable<TreeState["failure"]>["kind"]> = {
+  "close-pane": "close", "close-workspace": "close", "rename-pane": "rename", "rename-workspace": "rename", "move-workspace": "reorder",
+};
+
+function treeTransition(tree: TreeState, event: TreeEvent, effects: Effect[]): TreeState {
+  const ask = (request: TreeRequest, viaConfirm = false, revert: ShownOrder | null = null): void => {
+    effects.push({ kind: "tree-request", machineId: event.machineId, request, viaConfirm, revert });
+  };
+  switch (event.type) {
+    case "tree-start-pane-rename":
+      return { ...tree, paneRename: { paneId: event.paneId, label: event.label } };
+    case "tree-edit-pane-rename":
+      return tree.paneRename ? { ...tree, paneRename: { ...tree.paneRename, label: event.label } } : tree;
+    case "tree-end-pane-rename":
+      return tree.paneRename ? { ...tree, paneRename: null } : tree;
+    case "tree-save-pane-rename":
+      if (!tree.paneRename) return tree;
+      ask({ kind: "rename-pane", paneId: tree.paneRename.paneId, label: tree.paneRename.label.trim() });
+      return { ...tree, paneRename: null };
+    case "tree-start-workspace-rename":
+      return { ...tree, workspaceRename: { key: event.key, workspaceId: event.workspaceId, label: event.label } };
+    case "tree-edit-workspace-rename":
+      return tree.workspaceRename ? { ...tree, workspaceRename: { ...tree.workspaceRename, label: event.label } } : tree;
+    case "tree-end-workspace-rename":
+      return tree.workspaceRename ? { ...tree, workspaceRename: null } : tree;
+    case "tree-save-workspace-rename":
+      if (!tree.workspaceRename) return tree;
+      ask({ kind: "rename-workspace", workspaceId: tree.workspaceRename.workspaceId, label: tree.workspaceRename.label.trim() });
+      return { ...tree, workspaceRename: null };
+    case "tree-close-pane":
+      ask({ kind: "close-pane", paneId: event.paneId });
+      return { ...tree, failure: null };
+    case "tree-ask":
+      return { ...tree, confirm: { action: event.action, title: event.title, body: event.body, status: "asking" } };
+    case "tree-confirm":
+      if (tree.confirm?.status !== "asking") return tree;
+      ask(tree.confirm.action, true);
+      return { ...tree, confirm: { action: tree.confirm.action, title: tree.confirm.title, body: tree.confirm.body, status: "running" } };
+    case "tree-cancel":
+      // a deed that runs cannot be undone: the question stays until it ends
+      return tree.confirm?.status === "asking" ? { ...tree, confirm: null } : tree;
+    case "tree-move-workspace": {
+      const from = event.shown.indexOf(event.workspaceId);
+      if (from < 0) return tree;
+      const to = Math.max(0, Math.min(event.shown.length - 1, event.insertIndex));
+      if (from === to) return tree;
+      const order = [...event.shown];
+      order.splice(from, 1);
+      order.splice(to, 0, event.workspaceId);
+      ask({ kind: "move-workspace", workspaceId: event.workspaceId, index: to }, false, tree.order);
+      return { ...tree, order: { basis: event.herdr, order } };
+    }
+    case "tree-done":
+      return event.viaConfirm && tree.confirm ? { ...tree, confirm: null } : tree;
+    case "tree-failed": {
+      if (event.viaConfirm) return tree.confirm ? { ...tree, confirm: { ...tree.confirm, status: "asking", error: event.reason } } : tree;
+      const seq = (tree.failure?.seq ?? 0) + 1;
+      effects.push({ kind: "later", ms: TREE_FAILURE_MS, event: { type: "tree-clear-failure", machineId: event.machineId, seq } });
+      const paneId = event.request.kind === "close-pane" || event.request.kind === "rename-pane" ? event.request.paneId : undefined;
+      return {
+        ...tree,
+        order: event.request.kind === "move-workspace" ? event.revert : tree.order,
+        failure: { kind: FAILURE_KIND[event.request.kind], reason: event.reason, ...(paneId === undefined ? {} : { paneId }), seq },
+      };
+    }
+    case "tree-clear-failure":
+      return tree.failure?.seq === event.seq ? { ...tree, failure: null } : tree;
   }
 }
 

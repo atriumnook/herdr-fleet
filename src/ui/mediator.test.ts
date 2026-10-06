@@ -29,6 +29,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     later: (ms, then) => { timers.push({ ms, then }); },
     testPush: async () => "sent",
     storeSelection: () => {},
+    treeRequest: async () => {},
   };
   return { ports: { ...base, ...overrides }, requests, saved, forgotten, timers };
 }
@@ -122,5 +123,12 @@ describe("Mediator", () => {
     expect(timers[1]!.ms).toBeGreaterThan(590_000);
     timers[1]!.then();
     expect(mediator.getState().devices.code).toBeNull();
+  });
+
+  it("takes a refused change to a PC's sessions back to the tree with herdr's reason", async () => {
+    const mediator = new Mediator(ports({ treeRequest: async () => { throw new Error("pane is busy"); } }).ports);
+    mediator.dispatch({ type: "tree-close-pane", machineId: "local", paneId: "w1:p2" });
+    await until(() => mediator.getState().trees["local"]?.failure !== null && mediator.getState().trees["local"]?.failure !== undefined);
+    expect(mediator.getState().trees["local"]?.failure).toMatchObject({ kind: "close", reason: "pane is busy", paneId: "w1:p2" });
   });
 });

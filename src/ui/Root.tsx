@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, clearFleetCooldown, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -30,6 +30,13 @@ const FLEET_PORTS: EffectPorts = {
   storeSelection,
   // a subscription the server no longer has is what the test is for: it says so, not that it failed
   testPush: () => testDevicePush().catch((error: unknown) => { if (error instanceof ApiError && error.code === "subscription_not_found") return "missing" as const; throw error; }),
+  treeRequest: async (machineId, request) => {
+    if (request.kind === "close-pane") await closePane(request.paneId, machineId);
+    else if (request.kind === "close-workspace") await closeWorkspace(request.workspaceId, machineId);
+    else if (request.kind === "rename-pane") await renamePane(request.paneId, request.label, machineId);
+    else if (request.kind === "rename-workspace") await renameWorkspace(request.workspaceId, request.label, machineId);
+    else await moveWorkspace(request.workspaceId, request.index, machineId);
+  },
 };
 
 /** Hands the settings the Mediator holds to the views that read them from context (`useSettings`). */

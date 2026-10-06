@@ -1,7 +1,7 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { PairedDevice, PairingCode, RemoteAccess } from "../../shared/protocol.ts";
 import type { Settings } from "../lib/settings.ts";
-import { INITIAL_STATE, transition, type Effect, type RequestAction, type UiEvent, type UiState } from "./state.ts";
+import { INITIAL_STATE, transition, type Effect, type RequestAction, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
 
 /** What the Mediator's effects reach: the server's API and this browser's storage, or a test's stand-in. */
 export interface EffectPorts {
@@ -19,6 +19,8 @@ export interface EffectPorts {
   revokeDevice(id: string): Promise<void>;
   /** a test push to this device's own subscription; `missing` when the server no longer has it */
   testPush(): Promise<"sent" | "unsupported" | "permission" | "missing">;
+  /** a change to a PC's sessions in its herdr (close, rename, reorder) */
+  treeRequest(machineId: string, request: TreeRequest): Promise<void>;
   /** keeps the selected pane for this window's next load */
   storeSelection(machineId: string, paneId: string | null): void;
   /** runs `then` after `ms`: the clock the state machine's `later` effects wait on */
@@ -97,6 +99,12 @@ export class Mediator {
       case "test-push":
         try { this.dispatch({ type: "push-tested", result: await this.ports.testPush(), session: effect.session }); } catch { this.dispatch({ type: "push-tested", result: "failed", session: effect.session }); }
         return;
+      case "tree-request": {
+        const { machineId, request, viaConfirm, revert } = effect;
+        try { await this.ports.treeRequest(machineId, request); this.dispatch({ type: "tree-done", machineId, viaConfirm }); }
+        catch (error) { this.dispatch({ type: "tree-failed", machineId, request, reason: message(error), viaConfirm, revert }); }
+        return;
+      }
       case "store-selection":
         this.ports.storeSelection(effect.machineId, effect.paneId);
         return;
