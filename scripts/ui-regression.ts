@@ -770,6 +770,18 @@ try {
   const enters = touchSent.length;
   await touchPage.getByRole("button", { name: "Press Enter in the terminal", exact: true }).click();
   await until(() => touchSent.length > enters && touchSent.at(-1)?.type === "input" && touchSent.at(-1)?.text === "\r", "enter from the empty line");
+  // the key bar's keys go to the pane as a terminal would send them; Ctrl arms for the next key, and a second tap disarms it
+  const keyBar = touchPage.getByRole("group", { name: "Terminal keys", exact: true });
+  for (const [key, text] of [["Escape", /^\x1b$/], ["ArrowUp", /^\x1b[[O]A$/], ["ctrl-c", /^\x03$/]] as const) {
+    const before = touchSent.length;
+    await keyBar.locator(`[data-key="${key}"]`).click();
+    await until(() => touchSent.length > before && touchSent.at(-1)?.type === "input" && text.test(touchSent.at(-1)?.text ?? ""), `key bar ${key}`);
+  }
+  const ctrl = keyBar.locator('[data-key="Control"]');
+  await ctrl.click();
+  assert.equal(await ctrl.getAttribute("aria-pressed"), "true");
+  await ctrl.click();
+  assert.equal(await ctrl.getAttribute("aria-pressed"), "false");
   await line.fill("unsent 한글 😀");
   // typing straight into the grid is one tap away, and gives the keyboard back to it
   await touchPage.getByRole("button", { name: "Type straight into the terminal", exact: true }).click();
