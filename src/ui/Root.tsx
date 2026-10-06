@@ -10,6 +10,7 @@ import { onNotificationTarget } from "../lib/notificationTarget.ts";
 import { showDroplet } from "../lib/droplet.ts";
 import { displayPaneTitle } from "../components/Sidebar.tsx";
 import { initialSelection, storeSelection } from "../lib/selection.ts";
+import { loadRecentPanes, rememberPane } from "../lib/recentPanes.ts";
 import { takeAuthTokenFromUrl } from "../lib/authLink.ts";
 import { deviceLabel, takePairCode } from "../lib/phone.ts";
 import { INITIAL_STATE } from "./state.ts";
@@ -59,6 +60,8 @@ const FLEET_PORTS: EffectPorts = {
     else showPaneStatusNotification(pane.pane_id, title, status, open, machineId);
   },
   loadAgentKinds: fetchAgentKinds,
+  loadRecent: loadRecentPanes,
+  rememberPane,
   rememberedAgent: () => {
     try { return window.localStorage.getItem(LAST_AGENT_KEY) ?? ""; } catch { return ""; }
   },
@@ -115,6 +118,8 @@ export function Root() {
   useEffect(() => {
     const { machineId, paneId } = mediator.getState().selection;
     storeSelection(machineId, paneId);
+    // and the palette offers it first
+    if (paneId !== null) rememberPane(machineId, paneId);
   }, [mediator]);
   // the page starts reading the server once: a bookmarked `#auth=` link and a scanned QR's code
   // are taken off the address as it does (twice would find them gone)

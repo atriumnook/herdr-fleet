@@ -51,6 +51,9 @@ export interface EffectPorts {
   /** the tab's own alert; `open` selects the pane when it is tapped */
   notifyPane(alert: { machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" }, open: () => void): void;
   loadAgentKinds(machineId: string): Promise<AgentKind[]>;
+  /** the panes opened last on a PC, newest first */
+  loadRecent(machineId: string): string[];
+  rememberPane(machineId: string, paneId: string): void;
   /** the agent chosen last for a new session on this device */
   rememberedAgent(): string;
   rememberAgent(agentKind: string): void;
@@ -213,6 +216,12 @@ export class Mediator {
       case "load-agents":
         try { this.dispatch({ type: "new-session-agents", agents: await this.ports.loadAgentKinds(effect.machineId), remembered: this.ports.rememberedAgent(), seq: effect.seq }); }
         catch (error) { this.dispatch({ type: "new-session-agents-failed", message: message(error), seq: effect.seq }); }
+        return;
+      case "load-recent":
+        this.dispatch({ type: "palette-recent", machineId: effect.machineId, recent: this.ports.loadRecent(effect.machineId) });
+        return;
+      case "remember-pane":
+        this.ports.rememberPane(effect.machineId, effect.paneId);
         return;
       case "remember-agent":
         this.ports.rememberAgent(effect.agentKind);

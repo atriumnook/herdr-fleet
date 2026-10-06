@@ -82,7 +82,7 @@ describe("screens and the detail sheet", () => {
   it("selects a live run's pane on this PC, again when asked again, and not an ended run's", () => {
     const first = play([{ type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "a" }], withRuns);
     expect(first.state).toMatchObject({ screen: "pane", selection: { machineId: "local", paneId: "w1:a", auto: false } });
-    expect(first.effects).toEqual([{ kind: "store-selection", machineId: "local", paneId: "w1:a" }]);
+    expect(first.effects).toEqual([{ kind: "store-selection", machineId: "local", paneId: "w1:a" }, { kind: "remember-pane", machineId: "local", paneId: "w1:a" }]);
     const elsewhere = play([{ type: "select-pane", machineId: "local", paneId: "w1:b" }, { type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "a" }], first.state).state;
     expect(elsewhere.selection.paneId).toBe("w1:a");
     expect(play([{ type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "gone" }], withRuns).state).toMatchObject({ screen: "fleet", selection: INITIAL_STATE.selection });
@@ -93,7 +93,7 @@ describe("the selected pane", () => {
   it("selects a pane on a PC and keeps the choice for the next load", () => {
     const { state, effects } = play([{ type: "select-pane", machineId: "pc2", paneId: "w2:p1" }]);
     expect(state.selection).toEqual({ machineId: "pc2", paneId: "w2:p1", auto: false });
-    expect(effects).toEqual([{ kind: "store-selection", machineId: "pc2", paneId: "w2:p1" }]);
+    expect(effects).toEqual([{ kind: "store-selection", machineId: "pc2", paneId: "w2:p1" }, { kind: "remember-pane", machineId: "pc2", paneId: "w2:p1" }]);
   });
 
   // the PC answered that the selected pane closed: the state machine picks herdr's focused one (state.ts settle)
@@ -103,7 +103,7 @@ describe("the selected pane", () => {
     const selected = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }]).state;
     const { state, effects } = play([{ type: "pane-session-read", machineId: "local", paneId: "w1:gone", session: gone }], selected);
     expect(state.selection).toEqual({ machineId: "local", paneId: "w1:p1", auto: true });
-    expect(effects).toEqual([{ kind: "store-selection", machineId: "local", paneId: "w1:p1" }]);
+    expect(effects).toEqual([{ kind: "store-selection", machineId: "local", paneId: "w1:p1" }, { kind: "remember-pane", machineId: "local", paneId: "w1:p1" }]);
     // an answer about a pane no longer selected comes too late
     const moved = play([{ type: "select-pane", machineId: "local", paneId: "w1:new" }], selected).state;
     expect(transition(moved, { type: "pane-session-read", machineId: "local", paneId: "w1:gone", session: gone }).state.selection).toBe(moved.selection);
@@ -763,7 +763,7 @@ describe("a new session", () => {
     const made = play([{ type: "new-session-created", paneId: "w9:p1", agentError: null, seq: 1 }], starting.state);
     expect(made.state.newSession).toEqual({ open: false });
     expect(made.state.selection).toMatchObject({ machineId: "local", paneId: "w9:p1" });
-    expect(kinds(made.effects)).toEqual(["store-selection", "load-machines"]);
+    expect(kinds(made.effects)).toEqual(["store-selection", "load-machines", "remember-pane"]);
   });
 
   it("keeps the dialog on an agent that did not start, offering the pane it made", () => {
@@ -784,5 +784,35 @@ describe("a new session", () => {
     expect(play([{ type: "close-new-session" }], starting).state.newSession.open).toBe(true);
     const reopened = play([{ type: "close-new-session" }, { type: "open-new-session", machineId: "local", defaultCwd: null }], opened().state).state;
     expect(transition(reopened, { type: "new-session-agents", agents: [claude], remembered: "claude", seq: 1 }).state).toBe(reopened);
+  });
+});
+
+describe("the command palette", () => {
+  const kinds = (effects: { kind: string }[]) => effects.map((effect) => effect.kind);
+
+  it("opens on the selected pane's PC with an empty search, reading the panes opened last there", () => {
+    const { state, effects } = play([{ type: "select-pane", machineId: "local", paneId: "w1:p1" }, { type: "open-palette" }]);
+    expect(state.palette).toEqual({ open: true, machineId: "local", query: "", recent: [] });
+    expect(effects).toContainEqual({ kind: "load-recent", machineId: "local" });
+    expect(play([{ type: "palette-recent", machineId: "local", recent: ["w1:p2"] }], state).state.palette).toMatchObject({ recent: ["w1:p2"] });
+  });
+
+  it("keeps the search being typed, and closes", () => {
+    const typed = play([{ type: "open-palette" }, { type: "palette-query", text: "api" }]).state;
+    expect(typed.palette).toMatchObject({ query: "api" });
+    expect(play([{ type: "close-palette" }], typed).state.palette).toEqual({ open: false });
+  });
+
+  it("opens the pane picked and closes", () => {
+    const { state } = play([{ type: "open-palette" }, { type: "palette-pick", paneId: "w1:p3" }]);
+    expect(state.palette).toEqual({ open: false });
+    expect(state.selection).toMatchObject({ machineId: "local", paneId: "w1:p3" });
+  });
+
+  it("remembers each pane selected, however it was picked, as one opened last", () => {
+    const { effects } = play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }]);
+    expect(effects).toContainEqual({ kind: "remember-pane", machineId: "local", paneId: "w1:p2" });
+    const same = play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }]).state;
+    expect(kinds(play([{ type: "selection-confirmed" }], same).effects)).not.toContain("remember-pane");
   });
 });

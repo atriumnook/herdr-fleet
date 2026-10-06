@@ -1,11 +1,12 @@
-import { useMachineId } from "../lib/machineContext.tsx";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
 import { Bell, FolderOpen, LockKeyhole, MessageSquarePlus, PanelLeft, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
 
 import "./CommandPalette.css";
 
 import type { PaneInfo, SessionSnapshot } from "../../shared/protocol.ts";
-import type { AppActions, PaneView } from "../lib/actions.ts";
+import type { PaneView } from "../lib/actions.ts";
+import { RECENT_LIMIT } from "../lib/recentPanes.ts";
+import type { Emit } from "../ui/bubble.ts";
 import { rankPanes } from "../lib/paletteSearch.ts";
 import { SHORTCUTS, formatKeys, type ShortcutId } from "../lib/shortcuts.ts";
 import { AgentMark } from "./AgentMark.tsx";
@@ -13,43 +14,32 @@ import { displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
 import { placeLine } from "../lib/paneName.ts";
 import { useT } from "../lib/i18n.ts";
 
-const RECENT_KEY = "herdr-fleet:recent-panes";
-const RECENT_LIMIT = 8;
+/** The actions the palette lists; the shell runs them. */
+export type PaletteActionId = "new" | "view" | "sidebar" | "theme" | "settings" | "notifications" | "lock" | "files" | "refresh";
 
-interface CommandPaletteProps {
-  open: boolean;
-  onClose: () => void;
+/** What the palette draws. */
+export interface CommandPaletteModel {
   snapshot: SessionSnapshot | null;
   selectedPaneId: string | null;
   view: PaneView;
-  actions: AppActions;
+  query: string;
+  /** the panes opened last on this PC, newest first */
+  recent: string[];
+  /** the actions this device has now (no bell once alerts are on, no sign-out without a token or pairing) */
+  offers: { notifications: boolean; lock: boolean; files: boolean };
 }
 
+export type CommandPaletteEvent =
+  | { type: "close-palette" }
+  | { type: "palette-query"; text: string }
+  | { type: "palette-pick"; paneId: string }
+  | { type: "palette-run"; id: PaletteActionId };
+
 interface PaletteAction {
-  id: string;
+  id: PaletteActionId;
   label: string;
   icon: ComponentType;
   shortcut?: ShortcutId;
-  run: () => void;
-}
-
-function loadRecentPanes(machineId: string): string[] {
-  try {
-    const value: unknown = JSON.parse(window.localStorage.getItem(machineId === "local" ? RECENT_KEY : `${RECENT_KEY}:${machineId}`) ?? "[]");
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string").slice(0, RECENT_LIMIT) : [];
-  } catch {
-    return [];
-  }
-}
-
-function rememberPane(paneId: string, current: readonly string[], machineId: string): string[] {
-  const recent = [paneId, ...current.filter((id) => id !== paneId)].slice(0, RECENT_LIMIT);
-  try {
-    window.localStorage.setItem(machineId === "local" ? RECENT_KEY : `${RECENT_KEY}:${machineId}`, JSON.stringify(recent));
-  } catch {
-    /* private mode: recent ordering remains available for this page */
-  }
-  return recent;
 }
 
 function cwdBasename(path: string | null | undefined): string {
@@ -65,52 +55,42 @@ function ShortcutHint({ shortcutId }: { shortcutId?: ShortcutId }) {
   return <span className="palette-shortcut" aria-label={formatKeys(shortcut.keys).join(" + ")}>{formatKeys(shortcut.keys).map((key) => <kbd className="kbd" key={key}>{key}</kbd>)}</span>;
 }
 
-export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, actions }: CommandPaletteProps) {
+/** Panes and actions by search. Which row is highlighted is the view's own. */
+export function CommandPalette({ model, emit }: { model: CommandPaletteModel; emit: Emit<CommandPaletteEvent> }) {
   const t = useT();
-  const machineId = useMachineId();
-  const [query, setQuery] = useState("");
+  const { snapshot, selectedPaneId, view, query, recent: recentPaneIds, offers } = model;
   const [activeIndex, setActiveIndex] = useState(0);
-  const [recentPaneIds, setRecentPaneIds] = useState<string[]>(() => loadRecentPanes(machineId));
   const inputRef = useRef<HTMLInputElement>(null);
+  const onClose = (): void => emit({ type: "close-palette" });
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
 
   // Terminal attachment can move focus after the palette opens. Escape belongs to
   // this modal even then, and must not leak through to the underlying terminal.
   useLayoutEffect(() => {
-    if (!open) return;
     const dismiss = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
       event.preventDefault();
       event.stopPropagation();
-      onClose();
+      emitRef.current({ type: "close-palette" });
     };
     window.addEventListener("keydown", dismiss, true);
     return () => window.removeEventListener("keydown", dismiss, true);
-  }, [open, onClose]);
+  }, []);
 
-  useEffect(() => {
-    if (!open) return;
-    setQuery("");
-    setActiveIndex(0);
-    setRecentPaneIds(loadRecentPanes(machineId));
-    window.requestAnimationFrame(() => inputRef.current?.focus());
-  }, [open]);
-
-  useEffect(() => {
-    if (selectedPaneId === null) return;
-    setRecentPaneIds((current) => rememberPane(selectedPaneId, current, machineId));
-  }, [selectedPaneId]);
+  useEffect(() => { window.requestAnimationFrame(() => inputRef.current?.focus()); }, []);
 
   const paletteActions = useMemo<PaletteAction[]>(() => [
-    { id: "new", label: t("New session"), icon: MessageSquarePlus, shortcut: "new-session", run: actions.openNewSession },
-    { id: "view", label: t(view === "chat" ? "Switch to terminal" : "Switch to chat"), icon: SwitchCamera, shortcut: "toggle-view", run: actions.toggleView },
-    { id: "sidebar", label: t("Toggle sidebar"), icon: PanelLeft, shortcut: "toggle-sidebar", run: actions.toggleSidebar },
-    { id: "theme", label: t("Toggle theme"), icon: SunMoon, run: actions.toggleTheme },
-    { id: "settings", label: t("Settings"), icon: Settings, shortcut: "settings", run: actions.openSettings },
-    ...(actions.enableNotifications ? [{ id: "notifications", label: t("Enable notifications"), icon: Bell, run: actions.enableNotifications }] : []),
-    ...(actions.lock ? [{ id: "lock", label: t("Sign out"), icon: LockKeyhole, run: actions.lock }] : []),
-    ...(actions.openFiles ? [{ id: "files", label: t("Browse files"), icon: FolderOpen, run: actions.openFiles }] : []),
-    { id: "refresh", label: t("Refresh"), icon: RefreshCw, run: actions.refresh },
-  ], [actions, view, t]);
+    { id: "new", label: t("New session"), icon: MessageSquarePlus, shortcut: "new-session" },
+    { id: "view", label: t(view === "chat" ? "Switch to terminal" : "Switch to chat"), icon: SwitchCamera, shortcut: "toggle-view" },
+    { id: "sidebar", label: t("Toggle sidebar"), icon: PanelLeft, shortcut: "toggle-sidebar" },
+    { id: "theme", label: t("Toggle theme"), icon: SunMoon },
+    { id: "settings", label: t("Settings"), icon: Settings, shortcut: "settings" },
+    ...(offers.notifications ? [{ id: "notifications" as const, label: t("Enable notifications"), icon: Bell }] : []),
+    ...(offers.lock ? [{ id: "lock" as const, label: t("Sign out"), icon: LockKeyhole }] : []),
+    ...(offers.files ? [{ id: "files" as const, label: t("Browse files"), icon: FolderOpen }] : []),
+    { id: "refresh", label: t("Refresh"), icon: RefreshCw },
+  ], [offers.notifications, offers.lock, offers.files, view, t]);
 
   const panes = useMemo(() => {
     const allPanes = snapshot?.panes ?? [];
@@ -132,17 +112,8 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
     setActiveIndex((index) => Math.min(index, Math.max(0, itemCount - 1)));
   }, [itemCount]);
 
-  if (!open) return null;
-
-  const runPane = (pane: PaneInfo): void => {
-    setRecentPaneIds((current) => rememberPane(pane.pane_id, current, machineId));
-    actions.selectPane(pane.pane_id);
-    onClose();
-  };
-  const runAction = (action: PaletteAction): void => {
-    action.run();
-    onClose();
-  };
+  const runPane = (pane: PaneInfo): void => emit({ type: "palette-pick", paneId: pane.pane_id });
+  const runAction = (action: PaletteAction): void => emit({ type: "palette-run", id: action.id });
   const activate = (index: number): void => {
     if (index < panes.length) {
       const pane = panes[index];
@@ -169,7 +140,7 @@ export function CommandPalette({ open, onClose, snapshot, selectedPaneId, view, 
     <div className="modal-scrim palette-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
       <section className="menu command-palette" role="dialog" aria-modal="true" aria-label={t("Command palette")} onKeyDown={onKeyDown}>
         <div className="palette-search">
-          <input ref={inputRef} className="input" type="search" value={query} placeholder={t("Search panes and actions…")} aria-label={t("Search panes and actions")} aria-controls="palette-results" aria-activedescendant={itemCount ? `palette-item-${activeIndex}` : undefined} onChange={(event) => { setQuery(event.target.value); setActiveIndex(0); }} />
+          <input ref={inputRef} className="input" type="search" value={query} placeholder={t("Search panes and actions…")} aria-label={t("Search panes and actions")} aria-controls="palette-results" aria-activedescendant={itemCount ? `palette-item-${activeIndex}` : undefined} onChange={(event) => { emit({ type: "palette-query", text: event.target.value }); setActiveIndex(0); }} />
           <button type="button" className="icon-button" aria-label={t("Close command palette")} onClick={onClose}><X /></button>
         </div>
         <div className="palette-results" id="palette-results" role="listbox">

@@ -199,6 +199,9 @@ export type NewSessionState =
     createdPaneId: string | null;
   };
 
+/** The command palette, on the selected pane's PC: the search typed, and the panes opened last there. */
+export type PaletteState = { open: false } | { open: true; machineId: string; query: string; recent: string[] };
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -229,6 +232,7 @@ export interface UiState {
   pane: PaneState;
   alerts: AlertsState;
   newSession: NewSessionState;
+  palette: PaletteState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
   /** the phone's workspace drawer: a pane picked closes it, and an in-app alert shows for the open pane while it is open */
@@ -322,7 +326,13 @@ export type UiEvent =
   | { type: "new-session-agents-failed"; message: string; seq: number }
   /** `agentError`: why the agent asked for did not start; the pane exists all the same */
   | { type: "new-session-created"; paneId: string; agentError: string | null; seq: number }
-  | { type: "new-session-failed"; message: string; invalidCwd: boolean; seq: number };
+  | { type: "new-session-failed"; message: string; invalidCwd: boolean; seq: number }
+  | { type: "open-palette" }
+  | { type: "close-palette" }
+  | { type: "palette-query"; text: string }
+  | { type: "palette-recent"; machineId: string; recent: string[] }
+  /** a pane picked in the palette: it opens, and the palette closes */
+  | { type: "palette-pick"; paneId: string };
 
 /** The server, as this page reads it and is pushed by it. */
 export type ConnectionEvent =
@@ -415,6 +425,9 @@ export type Effect =
   /** an in-app alert; `machineName` only when there are several PCs */
   | { kind: "drop-in"; machineId: string; machineName: string | null; pane: HerdrPane; alert: DropletKind }
   | { kind: "load-agents"; machineId: string; seq: number }
+  /** the panes opened last on a PC, for the palette */
+  | { kind: "load-recent"; machineId: string }
+  | { kind: "remember-pane"; machineId: string; paneId: string }
   | { kind: "remember-agent"; agentKind: string }
   | { kind: "create-session"; machineId: string; request: SessionRequest; seq: number }
   /** the tab's own alert */
@@ -443,6 +456,7 @@ export const INITIAL_STATE: UiState = {
   alerts: { permission: "default", supported: false, push: false, statuses: {}, turnStarts: {}, lastTurns: {}, subscribeSeq: 0 },
   drawerOpen: false,
   newSession: { open: false },
+  palette: { open: false },
   newSessionSeq: 0,
 };
 
@@ -497,6 +511,18 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "new-session-created":
     case "new-session-failed":
       return newSessionTransition(state, event, effects);
+    case "open-palette":
+      effects.push({ kind: "load-recent", machineId: state.selection.machineId });
+      return next({ palette: { open: true, machineId: state.selection.machineId, query: "", recent: [] } });
+    case "close-palette":
+      return next(state.palette.open ? { palette: { open: false } } : {});
+    case "palette-query":
+      return next(state.palette.open ? { palette: { ...state.palette, query: event.text } } : {});
+    case "palette-recent":
+      return next(state.palette.open && state.palette.machineId === event.machineId ? { palette: { ...state.palette, recent: event.recent } } : {});
+    case "palette-pick":
+      if (!state.palette.open) return next({});
+      return next({ screen: "pane", detail: null, palette: { open: false }, ...pick(state, state.palette.machineId, event.paneId, effects) });
     case "drawer":
       return next({ drawerOpen: event.open });
     case "toggle-drawer":
@@ -1012,6 +1038,10 @@ function followUp(before: UiState, step: Transition): Transition {
   const effects = [...step.effects];
   if (before.connection.locked !== false && state.connection.locked === false) effects.push({ kind: "open-stream" });
   if (before.connection.locked === false && state.connection.locked !== false) effects.push({ kind: "close-stream" });
+  // the panes opened last, as the palette offers them: each one selected, however it was picked
+  if (state.selection.paneId !== null && (state.selection.paneId !== before.selection.paneId || state.selection.machineId !== before.selection.machineId)) {
+    effects.push({ kind: "remember-pane", machineId: state.selection.machineId, paneId: state.selection.paneId });
+  }
   const subscription = subscriptionKey(state);
   if (subscription !== null && subscription !== subscriptionKey(before)) {
     const subscribeSeq = state.alerts.subscribeSeq + 1;

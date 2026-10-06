@@ -8,7 +8,7 @@ import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import type { SettingsDialogEvent } from "./components/SettingsDialog.tsx";
 import { useInstallPrompt } from "./lib/install.ts";
-import { CommandPalette } from "./components/CommandPalette.tsx";
+import type { CommandPaletteEvent, PaletteActionId } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
 import type { MachineSidebarEvent } from "./components/MachineSidebar.tsx";
 import { paneStorageId, type Machine } from "../shared/machines.ts";
@@ -30,6 +30,7 @@ import { needsCount } from "./ui/fleetView.ts";
 import { DevicesPanelPresenter } from "./ui/DevicesPanelPresenter.tsx";
 import { FleetPresenter } from "./ui/FleetPresenter.tsx";
 import { NewSessionPresenter } from "./ui/NewSessionPresenter.tsx";
+import { CommandPalettePresenter } from "./ui/CommandPalettePresenter.tsx";
 import { MachineSidebarPresenter } from "./ui/MachineSidebarPresenter.tsx";
 import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
@@ -115,7 +116,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   useEffect(() => watchDrawerSwipe(() => drawerOpenRef.current, setDrawerOpen), []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const lensChoice = useSelected((state) => state.pane.lens);
-  const [paletteOpen, setPaletteOpen] = useState(false);
   // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
   const [filesOpen, setFilesOpen] = useState(false);
   const { viewing, openFile, closeFile } = useFileViewer();
@@ -248,7 +248,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       setView,
       toggleView: () => setView(view === "chat" ? "terminal" : "chat"),
       openNewSession: () => openNewSession(selectedMachineId),
-      openPalette: () => setPaletteOpen(true),
+      openPalette: () => emitRef.current({ type: "open-palette" }),
       openSettings: () => {
         setDrawerOpen(false);
         emitRef.current({ type: "open-settings" });
@@ -273,6 +273,27 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const machineTree = useCallback((machine: Machine) => (
     <SidebarPresenter machineId={machine.id} snapshot={machine.snapshot} selectedPaneId={selectedMachineId === machine.id ? selectedPaneId : null} emit={treeEmit} />
   ), [selectedMachineId, selectedPaneId, treeEmit]);
+
+  // the palette's actions are this shell's: run, and the palette closes
+  const paletteOffers = useMemo(() => ({ notifications: actions.enableNotifications !== null, lock: actions.lock !== null, files: actions.openFiles !== null }), [actions]);
+  const actionsRef = useRef(actions);
+  actionsRef.current = actions;
+  const paletteEmit = useMemo(() => relay<CommandPaletteEvent, UiEvent>(emit, (event, pass) => {
+    if (event.type !== "palette-run") { pass(event); return; }
+    const run: Record<PaletteActionId, (() => void) | null> = {
+      new: actionsRef.current.openNewSession,
+      view: actionsRef.current.toggleView,
+      sidebar: actionsRef.current.toggleSidebar,
+      theme: actionsRef.current.toggleTheme,
+      settings: actionsRef.current.openSettings,
+      notifications: actionsRef.current.enableNotifications,
+      lock: actionsRef.current.lock,
+      files: actionsRef.current.openFiles,
+      refresh: actionsRef.current.refresh,
+    };
+    run[event.id]?.();
+    pass({ type: "close-palette" });
+  }), [emit]);
 
   useShortcuts(actions, locked === false);
 
@@ -388,7 +409,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
             <Orbit />
             {needs > 0 && <span className="fleet-button-count" aria-hidden="true">{needs}</span>}
           </button>
-          <button type="button" className="icon-button" aria-label={t("Command palette")} title={t("Command palette (⌘⇧K)")} onClick={() => setPaletteOpen(true)}>
+          <button type="button" className="icon-button" aria-label={t("Command palette")} title={t("Command palette (⌘⇧K)")} onClick={() => emit({ type: "open-palette" })}>
             <Search />
           </button>
           {bellVisible && (
@@ -468,7 +489,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       {viewing !== null && <MachineContext.Provider value={viewing.machineId}>
         <FileViewer key={viewing.path} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path })} />
       </MachineContext.Provider>}
-      <CommandPalette key={selectedMachineId} open={paletteOpen} onClose={() => setPaletteOpen(false)} snapshot={snapshot} selectedPaneId={selectedPaneId} view={view} actions={actions} />
+      <CommandPalettePresenter snapshot={snapshot} selectedPaneId={selectedPaneId} view={view} offers={paletteOffers} emit={paletteEmit} />
     </div></MachineContext.Provider>
   );
 }
