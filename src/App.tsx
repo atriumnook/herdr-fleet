@@ -1,9 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
-import type { AgentStatus, ClientRole, ServerMessage, AccessRefusal, HealthAuth, HerdrPane } from "../shared/protocol.ts";
-import { ApiError, authenticate, fetchHealth, fetchBridgeHealth, fetchMachines, fetchSession, pairDevice, sendTestPush, signOut, type HealthInfo } from "./lib/api.ts";
-import { deviceLabel, takePairCode } from "./lib/phone.ts";
+import type { AgentStatus, ClientRole, ServerMessage, HerdrPane } from "../shared/protocol.ts";
+import { ApiError, sendTestPush } from "./lib/api.ts";
 import { displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { AccessGate } from "./components/AccessGate.tsx";
@@ -15,10 +14,7 @@ import { useInstallPrompt } from "./lib/install.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
 import type { MachineSidebarEvent } from "./components/MachineSidebar.tsx";
-import { paneStorageId, type Machine, type MachineEvent } from "../shared/machines.ts";
-import { takeAuthTokenFromUrl } from "./lib/authLink.ts";
-import { applyPaneStatus } from "./lib/snapshot.ts";
-import { SnapshotRequests } from "./lib/snapshotRequests.ts";
+import { paneStorageId, type Machine } from "../shared/machines.ts";
 import { alertPrefs, useSettings, type DefaultView } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
 import type { AppActions, PaneView } from "./lib/actions.ts";
@@ -50,25 +46,12 @@ import { FleetPresenter } from "./ui/FleetPresenter.tsx";
 import { MachineSidebarPresenter } from "./ui/MachineSidebarPresenter.tsx";
 import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
-import { useSelected, useStateNow } from "./ui/presenter.ts";
+import { useObserver, useSelected, useStateNow } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
 import type { UiEvent } from "./ui/state.ts";
 import { dropletAllows, endedTurn, showDroplet, trackTurn, type DropletKind } from "./lib/droplet.ts";
 
 const APP_TITLE = "herdr fleet";
-const POLL_MS = 5000;
-
-/**
- * Polls and the event stream hand over fresh objects every few seconds even when nothing
- * changed; storing them re-rendered the whole app (the chat transcript included) each time.
- */
-function sameData(a: unknown, b: unknown): boolean {
-  return a === b || JSON.stringify(a) === JSON.stringify(b);
-}
-/** trailing debounce for push-triggered refetches: bursts of events become one fetch */
-const REFETCH_DEBOUNCE_MS = 500;
-
-/** A notification tapped while the app was closed opens `/?pane=<id>` (public/sw.js). */
 /**
  * The lens a pane opens in: remembered per pane. A pane seen for the first time opens its
  * terminal, except an agent pane on a touch screen, which opens its chat: a phone reads a
@@ -129,28 +112,21 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const alertsOn = settings.alertsOn;
   const alertsOnRef = useRef(alertsOn);
   alertsOnRef.current = alertsOn;
-  const [machines, setMachines] = useState<Machine[]>([]);
+  // the server, as the Mediator reads it: each value on its own, so a poll that changed nothing re-renders nothing
+  const machines = useSelected((state) => state.machines.list);
+  const error = useSelected((state) => state.machines.error);
+  const health = useSelected((state) => state.connection.health);
+  // null until the server has said whether it wants a token: the shell, and with it
+  // the WebSocket, never mounts before that is known
+  const locked = useSelected((state) => state.connection.locked);
+  const lockReason = useSelected((state) => state.connection.reason);
+  const pairCode = useSelected((state) => state.connection.pairCode);
+  const auth = useSelected((state) => state.connection.auth);
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
   const snapshot = selectedMachine?.snapshot ?? null;
   const machinesRef = useRef(machines); machinesRef.current = machines;
   const [newSessionMachineId, setNewSessionMachineId] = useState("local");
-  const [health, setHealth] = useState<HealthInfo | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  // null until the server has said whether it wants a token: the shell, and with it
-  // the WebSocket, never mounts before that is known
-  const [locked, setLocked] = useState<boolean | null>(null);
-  const [lockReason, setLockReason] = useState<AccessRefusal | null>(null);
-  /** the code a scanned QR brought along (`?pair=CODE`), taken off the address at once */
-  const [pairCode] = useState(() => takePairCode());
-  const [auth, setAuth] = useState<HealthAuth | null>(null);
   const canSignOut = auth?.authenticated === true && (auth.via === "token" || auth.via === "device");
-  // a device already in (token, Tailscale) still pairs from the QR code's address
-  const pairedFromAddress = useRef(false);
-  useEffect(() => {
-    if (locked !== false || pairCode === "" || pairedFromAddress.current || auth?.via === "device") return;
-    pairedFromAddress.current = true;
-    pairDevice(pairCode, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0)).then(() => loadHealth()).catch(() => { /* the gate, if any, reports it */ });
-  }, [locked, pairCode, auth]); // eslint-disable-line react-hooks/exhaustive-deps
   const [drawerOpen, setDrawerOpen] = useState(false);
   const drawerOpenRef = useRef(drawerOpen); drawerOpenRef.current = drawerOpen;
   const selectionRef = useRef({ machineId: selectedMachineId, paneId: selectedPaneId });
@@ -183,8 +159,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const [pushOn, setPushOn] = useState(false);
   const pushOnRef = useRef(pushOn);
   pushOnRef.current = pushOn;
-  const lockedRef = useRef(locked);
-  lockedRef.current = locked;
   // last-seen agent status per pane: the baseline that decides whether a push is news
   const statusRef = useRef<Map<string, AgentStatus>>(new Map());
   // when each pane's turn began, so an in-app alert knows a long turn from a quick one
@@ -193,72 +167,8 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const lastTurnRef = useRef<Map<string, number>>(new Map());
   const alertInAppRef = useRef(settings.alertInApp);
   alertInAppRef.current = settings.alertInApp;
-  const refetchTimer = useRef<number | null>(null);
   const snapshotRef = useRef<typeof snapshot>(null);
   snapshotRef.current = snapshot;
-
-  const loadHealth = useCallback(async () => {
-    try { const next = await fetchBridgeHealth(); setLocked(next.auth.required && !next.auth.authenticated); setLockReason(next.auth.reason ?? null); setAuth(next.auth); }
-    catch { /* retain the gate while the connection server restarts */ }
-    try { const next = await fetchHealth(); setHealth((previous) => sameData(previous, next) ? previous : next); } catch { setHealth(null); }
-  }, []);
-  const snapshotRequests = useRef(new SnapshotRequests());
-  const load = useCallback(async () => {
-    try {
-      await snapshotRequests.current.read(fetchMachines, (next) => {
-        setMachines((previous) => sameData(previous, next) ? previous : next);
-        setError(null); setLocked(false);
-      });
-    }
-    catch (err) {
-      if (err instanceof ApiError && err.status === 401) { setLocked(true); return; }
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, []);
-
-  useEffect(() => {
-    const tick = (): void => {
-      // a hidden tab (or a phone app in the background) polls nothing; it catches up on return
-      if (document.visibilityState === "hidden") return;
-      void loadHealth();
-      // a locked tab only watches health, so a token entered in another tab still unlocks it
-      if (lockedRef.current !== true) void load();
-    };
-    let timer = 0;
-    let disposed = false;
-    void (async (): Promise<void> => {
-      // a bookmarked `#auth=<token>` link unlocks without typing; the fragment is
-      // stripped before anything renders, and a stale token falls through to the
-      // gate the first health check mounts
-      const linkToken = takeAuthTokenFromUrl();
-      if (linkToken !== null) await authenticate(linkToken).catch(() => undefined);
-      if (disposed) return;
-      tick();
-      timer = window.setInterval(tick, POLL_MS);
-    })();
-    const onVisible = (): void => {
-      if (document.visibilityState === "visible" && !disposed) tick();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      disposed = true;
-      window.clearInterval(timer);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [load, loadHealth]);
-
-  // push-triggered refetches are debounced so an event burst becomes one fetch
-  const scheduleRefetch = useCallback(() => {
-    if (refetchTimer.current !== null) return;
-    refetchTimer.current = window.setTimeout(() => {
-      refetchTimer.current = null;
-      if (lockedRef.current !== true) void load();
-    }, REFETCH_DEBOUNCE_MS);
-  }, [load]);
-
-  useEffect(() => () => {
-    if (refetchTimer.current !== null) window.clearTimeout(refetchTimer.current);
-  }, []);
 
   // In-app alerts (components/Droplet.tsx): only while the app is on screen - a hidden app has
   // its system notifications - and never for the pane already open in front of the user.
@@ -276,66 +186,39 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     });
   }, []);
 
-  // One SSE subscription watches every PC, even when no terminal is selected.
-  useEffect(() => {
-    if (locked !== false) return;
-    const seed = (list: Machine[]) => {
-      for (const machine of list) for (const pane of machine.snapshot?.panes ?? []) {
+  // Alerts on what the server pushes: the Mediator keeps the PCs, this shell still decides
+  // which change is news (until the alerts move into the Mediator too)
+  useObserver((event, before) => {
+    if (event.type === "machines-pushed") {
+      for (const machine of event.machines) for (const pane of machine.snapshot?.panes ?? []) {
         statusRef.current.set(paneStorageId(machine.id, pane.pane_id), pane.agent_status);
       }
-    };
-    const events = new EventSource("/api/machines/events");
-    // the stream opened, or opened again: fleet changes made meanwhile never arrived as pushes
-    events.onopen = () => emitRef.current({ type: "fleet-changed" });
-    events.onmessage = (event) => {
-      let payload: MachineEvent;
-      try { payload = JSON.parse(event.data); } catch { return; }
-      // A poll started before this event can carry an older roster or pane status.
-      snapshotRequests.current.invalidate();
-      if (payload.type === "machines") {
-        seed(payload.machines);
-        setMachines((previous) => sameData(previous, payload.machines) ? previous : payload.machines);
-        return;
-      }
-      const machine = machinesRef.current.find((m) => m.id === payload.machine_id);
-      if (!machine) return;
-      const message = payload.message;
-      if (message.type === "pane-status") {
-        const key = paneStorageId(machine.id, message.pane_id);
-        const previous = statusRef.current.get(key);
-        statusRef.current.set(key, message.agent_status);
-        const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
-        const worked = trackTurn(turnStartRef.current, key, previous, message.agent_status, Date.now());
-        if (worked !== null) lastTurnRef.current.set(key, worked);
-        if (pane && shouldNotifyStatus(previous, message.agent_status) && dropletAllows(alertsRef.current, message.agent_status, worked)) dropIn(machine, pane, message.agent_status === "blocked" ? "blocked" : "done");
-        if (pane && shouldNotifyStatus(previous, message.agent_status) && alertsOnRef.current && !pushOnRef.current && alertsAllow(alertsRef.current, message.agent_status)) showPaneStatusNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, message.agent_status, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
-        setMachines((list) => {
-          let changed = false;
-          const next = list.map((m) => {
-            if (m.id !== machine.id || !m.snapshot) return m;
-            const snapshot = applyPaneStatus(m.snapshot, message.pane_id, message.agent_status, message.background_tasks);
-            if (snapshot === m.snapshot) return m;
-            changed = true;
-            return { ...m, snapshot };
-          });
-          return changed ? next : list;
-        });
-      }
-      if (message.type === "pane-exited") {
-        const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
-        const worked = endedTurn(turnStartRef.current, lastTurnRef.current, paneStorageId(machine.id, message.pane_id), Date.now());
-        if (pane && dropletAllows(alertsRef.current, "done", worked)) dropIn(machine, pane, "ended");
-      }
-      if (message.type === "pane-exited" && alertsOnRef.current && !pushOnRef.current && alertsRef.current.done !== "off") {
-        const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
-        if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
-      }
-      if (message.type === "session-changed" || message.type === "pane-exited") scheduleRefetch();
-      // the fleet lives on this PC's server only
-      if (message.type === "fleet-changed" && machine.kind === "local") emitRef.current({ type: "fleet-changed" });
-    };
-    return () => events.close();
-  }, [locked, scheduleRefetch, dropIn]);
+      return;
+    }
+    if (event.type !== "machine-message") return;
+    const machine = before.machines.list.find((m) => m.id === event.machineId);
+    if (!machine) return;
+    const message = event.message;
+    if (message.type === "pane-status") {
+      const key = paneStorageId(machine.id, message.pane_id);
+      const previous = statusRef.current.get(key);
+      statusRef.current.set(key, message.agent_status);
+      const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
+      const worked = trackTurn(turnStartRef.current, key, previous, message.agent_status, Date.now());
+      if (worked !== null) lastTurnRef.current.set(key, worked);
+      if (pane && shouldNotifyStatus(previous, message.agent_status) && dropletAllows(alertsRef.current, message.agent_status, worked)) dropIn(machine, pane, message.agent_status === "blocked" ? "blocked" : "done");
+      if (pane && shouldNotifyStatus(previous, message.agent_status) && alertsOnRef.current && !pushOnRef.current && alertsAllow(alertsRef.current, message.agent_status)) showPaneStatusNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, message.agent_status, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
+    }
+    if (message.type === "pane-exited") {
+      const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
+      const worked = endedTurn(turnStartRef.current, lastTurnRef.current, paneStorageId(machine.id, message.pane_id), Date.now());
+      if (pane && dropletAllows(alertsRef.current, "done", worked)) dropIn(machine, pane, "ended");
+    }
+    if (message.type === "pane-exited" && alertsOnRef.current && !pushOnRef.current && alertsRef.current.done !== "off") {
+      const pane = machine.snapshot?.panes.find((p) => p.pane_id === message.pane_id);
+      if (pane) showPaneEndedNotification(message.pane_id, `${machine.name} · ${displayPaneTitle(pane)}`, () => selectTargetRef.current(machine.id, message.pane_id), machine.id);
+    }
+  });
 
   const handleServerMessage = useCallback((message: ServerMessage) => {
     if (message.type === "error" && message.code === "output_stalled") setOutputStopped(true);
@@ -400,40 +283,14 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     };
   }, [locked, notifications, alerts, alertsOn]);
 
-  const unlock = useCallback(() => {
-    setLocked(false);
-    void loadHealth();
-    void load();
-  }, [load, loadHealth]);
-
-  // pasting the auth link into an already-open tab is a fragment-only navigation:
-  // no reload happens, so the boot consumer never re-runs. Watch for the arrival
-  // of the fragment instead; a wrong token just leaves the gate as it is.
-  useEffect(() => {
-    const onHashChange = (): void => {
-      const linkToken = takeAuthTokenFromUrl();
-      if (linkToken === null) return;
-      void authenticate(linkToken)
-        .then(unlock)
-        .catch(() => undefined);
-    };
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, [unlock]);
-
   const lock = useCallback(async () => {
     setDrawerOpen(false);
-    // before signOut: the unsubscribe call needs the cookie, and a locked device must stop
+    // before signing out: the unsubscribe call needs the cookie, and a locked device must stop
     // receiving pane titles
     await removePushSubscription().catch(() => undefined);
     setPushOn(false);
-    try {
-      await signOut();
-    } catch {
-      /* the cookie may still be set: the health answer decides whether the gate shows */
-    }
-    await loadHealth();
-  }, [loadHealth]);
+    emitRef.current({ type: "sign-out" });
+  }, []);
 
   const selectedMachineRef = useRef(selectedMachineId);
   selectedMachineRef.current = selectedMachineId;
@@ -451,32 +308,10 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     emitRef.current({ type: "select-pane", machineId, paneId });
   }, []);
   const selectTargetRef = useRef(selectTarget); selectTargetRef.current = selectTarget;
-  useEffect(() => {
-    // An offline PC's cached roster cannot invalidate a selection. Once connected,
-    // a closed pane (including one remembered across reloads) must release its selection.
-    if (!snapshot || selectedMachine?.state !== "connected") return;
-    if (snapshot.panes.some((pane) => pane.pane_id === selectedPaneId)) return;
-    const fallback = (current: typeof snapshot) => current.panes.find((pane) => pane.pane_id === current.focused_pane_id)?.pane_id ?? current.panes[0]?.pane_id ?? null;
-    if (selectedPaneId === null) { emitRef.current({ type: "fall-back-pane", from: null, paneId: fallback(snapshot), auto: false }); return; }
-    // The combined roster is cached: a newly created pane can be selected before it
-    // appears there. Confirm absence against this PC before discarding the selection.
-    let cancelled = false;
-    void fetchSession(selectedMachineId).then((current) => {
-      if (cancelled || current.panes.some((pane) => pane.pane_id === selectedPaneId)) return;
-      emitRef.current({ type: "fall-back-pane", from: selectedPaneId, paneId: fallback(current), auto: true });
-    }).catch(() => { /* a failed read is not evidence that the pane disappeared */ });
-    return () => { cancelled = true; };
-  }, [snapshot, selectedPaneId, selectedMachineId, selectedMachine?.state]);
-
   const selectPane = useCallback((paneId: string) => {
     setDrawerOpen(false);
     emitRef.current({ type: "select-pane", machineId: selectedMachineRef.current, paneId });
   }, []);
-
-  // a paired watch-only device sees the fleet but changes nothing in it
-  useEffect(() => {
-    emitRef.current({ type: "access-known", canAct: auth?.role !== "watch" });
-  }, [auth?.role]);
 
   // the pane stays attached under the Fleet screen, out of reach of focus and screen readers
   const paneLayerRef = useRef<HTMLDivElement>(null);
@@ -605,10 +440,10 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       toggleTheme: () => updateSettings({ theme: resolvedTheme === "dark" ? "light" : "dark" }),
       lock: canSignOut ? () => void lock() : null,
       enableNotifications: bellVisible && !bell.on ? () => void enableNotifications() : null,
-      refresh: () => void load(),
+      refresh: () => emitRef.current({ type: "reload-machines" }),
       openFiles: selectedPaneId !== null ? () => { setDrawerOpen(false); setFilesOpen(true); } : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications, load],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications],
   );
   // a connected PC's sessions: a pane picked and a new session go as from the sidebar; the tree's
   // own changes go up as they are
@@ -649,7 +484,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       </div>
     );
   }
-  if (locked) return <AccessGate reason={lockReason} initialCode={pairCode} onUnlocked={unlock} />;
+  if (locked) return <AccessGate reason={lockReason} initialCode={pairCode} onUnlocked={() => emit({ type: "unlocked" })} />;
 
   return (
     <MachineContext.Provider value={selectedMachineId}><div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
@@ -760,7 +595,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
 
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
-          {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => void load()}>{t("Retry")}</button></div>}
+          {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => emit({ type: "reload-machines" })}>{t("Retry")}</button></div>}
           <MachineSidebarPresenter version={health?.herdr?.version ?? null} machines={machines} install={installPrompt} tree={machineTree} emit={sidebarEmit} />
         </aside>
 
@@ -804,7 +639,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         onCreated={(paneId) => {
           setNewSessionOpen(false);
           selectTarget(newSessionMachineId, paneId);
-          void load();
+          emit({ type: "reload-machines" });
         }}
       /></MachineContext.Provider>
       <Droplet onOpen={(machineId, paneId) => {

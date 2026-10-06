@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
-import type { PairedDevice } from "../../shared/protocol.ts";
+import type { Machine } from "../../shared/machines.ts";
+import type { HealthAuth, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { INITIAL_STATE, transition, treeOf, type UiEvent, type UiState } from "./state.ts";
 
@@ -95,18 +96,21 @@ describe("the selected pane", () => {
     expect(effects).toEqual([{ kind: "store-selection", machineId: "pc2", paneId: "w2:p1" }]);
   });
 
-  it("takes the pane the shell falls back to when the selected one closed, marked as its own pick", () => {
+  // the PC answered that the selected pane closed: the state machine picks herdr's focused one (state.ts settle)
+  const gone = { panes: [{ pane_id: "w1:p1" }], focused_pane_id: "w1:p1" } as unknown as SessionSnapshot;
+
+  it("takes another pane once the PC confirms the selected one closed, marked as its own pick", () => {
     const selected = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }]).state;
-    const { state, effects } = play([{ type: "fall-back-pane", from: "w1:gone", paneId: "w1:p1", auto: true }], selected);
+    const { state, effects } = play([{ type: "pane-session-read", machineId: "local", paneId: "w1:gone", session: gone }], selected);
     expect(state.selection).toEqual({ machineId: "local", paneId: "w1:p1", auto: true });
     expect(effects).toEqual([{ kind: "store-selection", machineId: "local", paneId: "w1:p1" }]);
-    // a fallback worked out for a pane no longer selected comes too late
+    // an answer about a pane no longer selected comes too late
     const moved = play([{ type: "select-pane", machineId: "local", paneId: "w1:new" }], selected).state;
-    expect(transition(moved, { type: "fall-back-pane", from: "w1:gone", paneId: "w1:p1", auto: true }).state).toBe(moved);
+    expect(transition(moved, { type: "pane-session-read", machineId: "local", paneId: "w1:gone", session: gone }).state.selection).toBe(moved.selection);
   });
 
   it("drops the shell's own pick once the person chooses a lens there", () => {
-    const picked = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }, { type: "fall-back-pane", from: "w1:gone", paneId: "w1:p1", auto: true }]).state;
+    const picked = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }, { type: "pane-session-read", machineId: "local", paneId: "w1:gone", session: gone }]).state;
     expect(play([{ type: "selection-confirmed" }], picked).state.selection.auto).toBe(false);
     expect(transition(INITIAL_STATE, { type: "selection-confirmed" }).state).toBe(INITIAL_STATE);
   });
@@ -456,5 +460,119 @@ describe("a PC's session tree", () => {
     const state = play([{ type: "tree-start-pane-rename", machineId: "pc2", paneId: "w1:p1", label: "" }]).state;
     expect(treeOf(state, "pc2").paneRename).not.toBeNull();
     expect(tree(state).paneRename).toBeNull();
+  });
+});
+
+describe("the connection to the server", () => {
+  const snapshot = (paneIds: string[], focused: string | null = null) => ({
+    version: "0.9.1", protocol: 22, focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: focused,
+    workspaces: [], tabs: [], agents: [], panes: paneIds.map((pane_id) => ({ pane_id, workspace_id: "w1", tab_id: "w1:t1", focused: false, agent_status: "idle" })),
+  }) as unknown as NonNullable<Machine["snapshot"]>;
+  const pc = (paneIds: string[], extra: Partial<Machine> = {}): Machine => ({ id: "local", name: "omarchy", kind: "local", enabled: true, state: "connected", error: null, snapshot: snapshot(paneIds), ...extra });
+  const open: HealthAuth = { required: false, authenticated: true, via: "local" };
+  const kinds = (effects: { kind: string }[]) => effects.map((effect) => effect.kind);
+  /** booted, in, with the stream open and these PCs read */
+  const inWith = (machines: Machine[]) => {
+    const booted = play([{ type: "boot", linkToken: null }]).state;
+    return play([{ type: "access-loaded", auth: open }, { type: "machines-loaded", machines, revision: booted.machines.revision }], booted).state;
+  };
+
+  it("reads health and the PCs on boot, and polls on one chain", () => {
+    const { state, effects } = play([{ type: "boot", linkToken: null }]);
+    expect(kinds(effects)).toEqual(["load-health", "load-machines", "later"]);
+    expect(effects[2]).toEqual({ kind: "later", ms: 5000, event: { type: "poll", seq: 1 } });
+    expect(kinds(play([{ type: "poll", seq: 1 }], state).effects)).toEqual(["load-health", "load-machines", "later"]);
+    expect(play([{ type: "poll", seq: 0 }], state).effects).toEqual([]);
+  });
+
+  it("signs in with the link's token before the first read", () => {
+    const { state, effects } = play([{ type: "boot", linkToken: "secret" }]);
+    expect(effects).toEqual([{ kind: "authenticate", token: "secret", reason: "boot" }]);
+    // a stale token falls through to the gate the first read shows
+    expect(kinds(play([{ type: "authentication-failed", reason: "boot" }], state).effects)).toEqual(["load-health", "load-machines", "later"]);
+  });
+
+  it("reads nothing while the page is hidden, and at once when it shows again", () => {
+    const hidden = play([{ type: "boot", linkToken: null }, { type: "visibility", visible: false }]).state;
+    expect(kinds(play([{ type: "poll", seq: 1 }], hidden).effects)).toEqual(["later"]);
+    expect(kinds(play([{ type: "visibility", visible: true }], hidden).effects)).toEqual(["load-health", "load-machines"]);
+  });
+
+  it("opens the event stream once in, and closes it when the server locks this browser out", () => {
+    const booted = play([{ type: "boot", linkToken: null }]).state;
+    const inside = play([{ type: "machines-loaded", machines: [pc(["w1:p1"])], revision: booted.machines.revision }], booted);
+    expect(inside.state.connection.locked).toBe(false);
+    expect(kinds(inside.effects)).toContain("open-stream");
+    const out = play([{ type: "access-loaded", auth: { required: true, authenticated: false, reason: "token_required" } }], inside.state);
+    expect(out.state.connection).toMatchObject({ locked: true, reason: "token_required" });
+    expect(kinds(out.effects)).toEqual(["close-stream"]);
+    // a locked tab only watches health
+    expect(kinds(play([{ type: "poll", seq: 1 }], out.state).effects)).toEqual(["load-health", "later"]);
+    expect(play([{ type: "machines-failed", message: "unauthorized", unauthorized: true, revision: booted.machines.revision }], booted).state.connection.locked).toBe(true);
+  });
+
+  it("drops a read of the PCs that started before a push", () => {
+    const state = inWith([pc(["w1:p1"])]);
+    const reading = play([{ type: "reload-machines" }], state);
+    const revision = (reading.effects.find((effect) => effect.kind === "load-machines") as { revision: number }).revision;
+    const pushed = play([{ type: "machines-pushed", machines: [pc(["w1:p1", "w1:p2"])] }], reading.state).state;
+    expect(transition(pushed, { type: "machines-loaded", machines: [pc(["w1:p1"])], revision }).state.machines.list).toBe(pushed.machines.list);
+  });
+
+  it("applies a pane's status as it is pushed, and reads the PCs once after a burst of session changes", () => {
+    const state = inWith([pc(["w1:p1"])]);
+    const busy = play([{ type: "machine-message", machineId: "local", message: { type: "pane-status", pane_id: "w1:p1", agent_status: "working" } }], state).state;
+    expect(busy.machines.list[0]!.snapshot!.panes[0]!.agent_status).toBe("working");
+    const burst = play([
+      { type: "machine-message", machineId: "local", message: { type: "session-changed" } },
+      { type: "machine-message", machineId: "local", message: { type: "pane-exited", pane_id: "w1:p1" } },
+    ], state);
+    expect(burst.effects).toEqual([{ kind: "later", ms: 500, event: { type: "refetch-machines" } }]);
+    expect(kinds(play([{ type: "refetch-machines" }], burst.state).effects)).toEqual(["load-machines"]);
+  });
+
+  it("reads the fleet when this PC's server says it changed, and when the stream opens", () => {
+    const state = inWith([pc(["w1:p1"])]);
+    expect(kinds(play([{ type: "machine-message", machineId: "local", message: { type: "fleet-changed" } }], state).effects)).toEqual(["load-runs", "load-usage"]);
+    expect(kinds(play([{ type: "stream-opened" }], state).effects)).toEqual(["load-runs", "load-usage"]);
+  });
+
+  it("pairs with the code a scanned QR brought, once in, and only once", () => {
+    const booted = play([{ type: "boot", linkToken: null, pairCode: "123456" }]).state;
+    const { state, effects } = play([{ type: "access-loaded", auth: { required: true, authenticated: true, via: "tailscale" } }], booted);
+    expect(effects).toContainEqual({ kind: "pair-from-address", code: "123456" });
+    expect(play([{ type: "access-loaded", auth: { required: true, authenticated: true, via: "tailscale" } }], state).effects).not.toContainEqual({ kind: "pair-from-address", code: "123456" });
+    expect(kinds(play([{ type: "paired-from-address" }], state).effects)).toEqual(["load-health"]);
+  });
+
+  it("signs out, then reads whether the gate shows", () => {
+    const { state, effects } = play([{ type: "sign-out" }], inWith([pc(["w1:p1"])]));
+    expect(effects).toEqual([{ kind: "sign-out" }]);
+    expect(kinds(play([{ type: "signed-out" }], state).effects)).toEqual(["load-health"]);
+  });
+
+  it("selects herdr's focused pane when none is selected, once the PC's sessions are known", () => {
+    const booted = play([{ type: "boot", linkToken: null }]).state;
+    const machine = { ...pc(["w1:p1", "w1:p2"]), snapshot: { ...snapshot(["w1:p1", "w1:p2"]), focused_pane_id: "w1:p2" } };
+    const { state } = play([{ type: "machines-loaded", machines: [machine], revision: booted.machines.revision }], booted);
+    expect(state.selection).toEqual({ machineId: "local", paneId: "w1:p2", auto: false });
+  });
+
+  it("confirms with the PC that a selected pane closed before picking another, marked as the shell's own pick", () => {
+    const selected = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }], inWith([pc(["w1:p1", "w1:gone"])])).state;
+    const closed = play([{ type: "machines-pushed", machines: [pc(["w1:p1"])] }], selected);
+    expect(closed.effects).toContainEqual({ kind: "confirm-pane-gone", machineId: "local", paneId: "w1:gone" });
+    // asked once, however many pushes arrive meanwhile
+    expect(play([{ type: "machines-pushed", machines: [pc(["w1:p1"])] }], closed.state).effects).not.toContainEqual({ kind: "confirm-pane-gone", machineId: "local", paneId: "w1:gone" });
+    const gone = play([{ type: "pane-session-read", machineId: "local", paneId: "w1:gone", session: snapshot(["w1:p1"]) }], closed.state).state;
+    expect(gone.selection).toEqual({ machineId: "local", paneId: "w1:p1", auto: true });
+    // a pane created a moment ago is there after all: the selection stays
+    const fresh = play([{ type: "pane-session-read", machineId: "local", paneId: "w1:gone", session: snapshot(["w1:p1", "w1:gone"]) }], closed.state).state;
+    expect(fresh.selection.paneId).toBe("w1:gone");
+  });
+
+  it("leaves the selection alone while its PC is not connected", () => {
+    const selected = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }], inWith([pc(["w1:p1", "w1:gone"])])).state;
+    expect(play([{ type: "machines-pushed", machines: [pc(["w1:p1"], { state: "reconnecting" })] }], selected).effects).toEqual([]);
   });
 });

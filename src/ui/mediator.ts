@@ -1,5 +1,8 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
-import type { PairedDevice, PairingCode, RemoteAccess } from "../../shared/protocol.ts";
+import type { Machine, MachineEvent } from "../../shared/machines.ts";
+import type { BridgeHealth } from "../../shared/machines.ts";
+import type { PairedDevice, PairingCode, RemoteAccess, SessionSnapshot } from "../../shared/protocol.ts";
+import type { HealthInfo } from "../lib/api.ts";
 import type { Settings } from "../lib/settings.ts";
 import { INITIAL_STATE, transition, type Effect, type RequestAction, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
 
@@ -21,6 +24,17 @@ export interface EffectPorts {
   testPush(): Promise<"sent" | "unsupported" | "permission" | "missing">;
   /** a change to a PC's sessions in its herdr (close, rename, reorder) */
   treeRequest(machineId: string, request: TreeRequest): Promise<void>;
+  /** this browser's access, as the server's bridge health tells it */
+  loadAccess(): Promise<BridgeHealth>;
+  loadHealth(): Promise<HealthInfo>;
+  /** "unauthorized": the server no longer lets this browser in */
+  loadMachines(): Promise<Machine[] | "unauthorized">;
+  authenticate(token: string): Promise<void>;
+  pairFromAddress(code: string): Promise<void>;
+  signOut(): Promise<void>;
+  loadSession(machineId: string): Promise<SessionSnapshot>;
+  /** opens the stream of every PC's changes; the function returned closes it */
+  openStream(on: { opened(): void; event(event: MachineEvent): void }): () => void;
   /** keeps the selected pane for this window's next load */
   storeSelection(machineId: string, paneId: string | null): void;
   /** runs `then` after `ms`: the clock the state machine's `later` effects wait on */
@@ -37,6 +51,8 @@ const message = (error: unknown): string => error instanceof Error ? error.messa
 export class Mediator {
   private state: UiState;
   private readonly listeners = new Set<() => void>();
+  private readonly observers = new Set<(event: UiEvent, before: UiState) => void>();
+  private closeStream: (() => void) | null = null;
 
   constructor(private readonly ports: EffectPorts, initial: UiState = INITIAL_STATE) {
     this.state = initial;
@@ -49,7 +65,17 @@ export class Mediator {
     return () => this.listeners.delete(listener);
   };
 
+  /**
+   * Shows every event to `observer` with the state it arrives in, before the state machine takes
+   * it: for the shell's own alerts on pushes, until they move into the state machine.
+   */
+  observe = (observer: (event: UiEvent, before: UiState) => void): (() => void) => {
+    this.observers.add(observer);
+    return () => this.observers.delete(observer);
+  };
+
   dispatch = (event: UiEvent): void => {
+    for (const observer of [...this.observers]) observer(event, this.state);
     const { state, effects } = transition(this.state, event);
     if (state !== this.state) {
       this.state = state;
@@ -105,6 +131,42 @@ export class Mediator {
         catch (error) { this.dispatch({ type: "tree-failed", machineId, request, reason: message(error), viaConfirm, revert }); }
         return;
       }
+      case "load-health":
+        try { this.dispatch({ type: "access-loaded", auth: (await this.ports.loadAccess()).auth }); } catch { /* the gate stays while the server restarts */ }
+        try { this.dispatch({ type: "health-loaded", health: await this.ports.loadHealth() }); } catch { this.dispatch({ type: "health-failed" }); }
+        return;
+      case "load-machines":
+        try {
+          const machines = await this.ports.loadMachines();
+          this.dispatch(machines === "unauthorized" ? { type: "machines-failed", message: "", unauthorized: true, revision: effect.revision } : { type: "machines-loaded", machines, revision: effect.revision });
+        } catch (error) { this.dispatch({ type: "machines-failed", message: message(error), unauthorized: false, revision: effect.revision }); }
+        return;
+      case "authenticate":
+        try { await this.ports.authenticate(effect.token); this.dispatch({ type: "authenticated", reason: effect.reason }); } catch { this.dispatch({ type: "authentication-failed", reason: effect.reason }); }
+        return;
+      case "pair-from-address":
+        // the gate, if any, reports a code that failed
+        try { await this.ports.pairFromAddress(effect.code); this.dispatch({ type: "paired-from-address" }); } catch { /* as above */ }
+        return;
+      case "sign-out":
+        try { await this.ports.signOut(); } catch { /* the cookie may still be set: health decides */ }
+        this.dispatch({ type: "signed-out" });
+        return;
+      case "open-stream":
+        this.closeStream?.();
+        this.closeStream = this.ports.openStream({
+          opened: () => this.dispatch({ type: "stream-opened" }),
+          event: (event) => this.dispatch(event.type === "machines" ? { type: "machines-pushed", machines: event.machines } : { type: "machine-message", machineId: event.machine_id, message: event.message }),
+        });
+        return;
+      case "close-stream":
+        this.closeStream?.();
+        this.closeStream = null;
+        return;
+      case "confirm-pane-gone":
+        try { this.dispatch({ type: "pane-session-read", machineId: effect.machineId, paneId: effect.paneId, session: await this.ports.loadSession(effect.machineId) }); }
+        catch { this.dispatch({ type: "pane-session-failed", machineId: effect.machineId, paneId: effect.paneId }); }
+        return;
       case "store-selection":
         this.ports.storeSelection(effect.machineId, effect.paneId);
         return;

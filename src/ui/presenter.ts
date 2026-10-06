@@ -1,6 +1,6 @@
-import { createContext, useContext, useRef, useSyncExternalStore } from "react";
+import { createContext, useContext, useEffect, useRef, useSyncExternalStore } from "react";
 import type { Mediator } from "./mediator.ts";
-import type { UiState } from "./state.ts";
+import type { UiEvent, UiState } from "./state.ts";
 
 /**
  * Presenters (MVP) read the Root's Mediator: each one takes only the regions its view draws, so
@@ -42,6 +42,17 @@ function useMediator(): Mediator {
  */
 export function useStateNow(): () => UiState {
   return useMediator().getState;
+}
+
+/**
+ * Sees each event the Mediator takes, with the state it arrives in: for the shell's own alerts
+ * on pushes, until they move into the state machine. The latest `observer` is the one called.
+ */
+export function useObserver(observer: (event: UiEvent, before: UiState) => void): void {
+  const mediator = useMediator();
+  const latest = useRef(observer);
+  latest.current = observer;
+  useEffect(() => mediator.observe((event, before) => latest.current(event, before)), [mediator]);
 }
 
 /** Reads one value from the Mediator's state, re-rendering only when it changes. */
