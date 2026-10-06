@@ -45,6 +45,10 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     removePush: async () => {},
     dropIn: () => {},
     notifyPane: () => {},
+    loadAgentKinds: async () => [],
+    rememberedAgent: () => "",
+    rememberAgent: () => {},
+    createSession: async () => ({ workspace_id: "w9", pane_id: "w9:p1", agent_started: true }),
   };
   return { ports: { ...base, ...overrides }, requests, saved, forgotten, timers };
 }
@@ -183,5 +187,18 @@ describe("Mediator", () => {
     mediator.dispatch({ type: "open-settings" });
     mediator.dispatch({ type: "repair-alerts" });
     await until(() => mediator.getState().pushTest === "failed");
+  });
+
+  it("opens the pane a new session made, and says a folder that is not there", async () => {
+    const mediator = new Mediator(ports().ports);
+    mediator.dispatch({ type: "open-new-session", machineId: "local", defaultCwd: null });
+    mediator.dispatch({ type: "submit-new-session" });
+    await until(() => mediator.getState().selection.paneId === "w9:p1");
+    expect(mediator.getState().newSession.open).toBe(false);
+    const missing = new Mediator(ports({ createSession: async () => "invalid-cwd" }).ports);
+    missing.dispatch({ type: "open-new-session", machineId: "local", defaultCwd: "/nope" });
+    missing.dispatch({ type: "submit-new-session" });
+    await until(() => { const dialog = missing.getState().newSession; return dialog.open && dialog.error !== null; });
+    expect(missing.getState().newSession).toMatchObject({ error: { kind: "invalid-cwd" }, status: "editing" });
   });
 });

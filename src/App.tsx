@@ -6,7 +6,6 @@ import { displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
-import { NewSessionDialog } from "./components/NewSessionDialog.tsx";
 import type { SettingsDialogEvent } from "./components/SettingsDialog.tsx";
 import { useInstallPrompt } from "./lib/install.ts";
 import { CommandPalette } from "./components/CommandPalette.tsx";
@@ -30,6 +29,7 @@ import { paneFromUrl } from "./lib/selection.ts";
 import { needsCount } from "./ui/fleetView.ts";
 import { DevicesPanelPresenter } from "./ui/DevicesPanelPresenter.tsx";
 import { FleetPresenter } from "./ui/FleetPresenter.tsx";
+import { NewSessionPresenter } from "./ui/NewSessionPresenter.tsx";
 import { MachineSidebarPresenter } from "./ui/MachineSidebarPresenter.tsx";
 import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
@@ -105,7 +105,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
   const snapshot = selectedMachine?.snapshot ?? null;
   const machinesRef = useRef(machines); machinesRef.current = machines;
-  const [newSessionMachineId, setNewSessionMachineId] = useState("local");
   const canSignOut = auth?.authenticated === true && (auth.via === "token" || auth.via === "device");
   const drawerOpen = useSelected((state) => state.drawerOpen);
   const drawerOpenRef = useRef(drawerOpen); drawerOpenRef.current = drawerOpen;
@@ -129,7 +128,8 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     if (event.type === "install-app") void installPrompt.install();
     else pass(event);
   }), [emit, installPrompt.install]);
-  const [newSessionOpen, setNewSessionOpen] = useState(false);
+  // the selected pane's folder: a new session on its PC starts there
+  const selectedCwdRef = useRef<string | null>(null);
   // the open pane's socket, as the Mediator keeps it
   const connected = useSelected((state) => state.pane.connected);
   const outputStopped = useSelected((state) => state.pane.outputStopped);
@@ -166,10 +166,9 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     paneLayerRef.current?.toggleAttribute("inert", screen === "fleet");
   }, [screen]);
 
+  // a new session on a PC: this shell adds the folder it starts in (the selected pane's, on its PC)
   const openNewSession = useCallback((machineId: string) => {
-    setNewSessionMachineId(machineId);
-    setNewSessionOpen(true);
-    setDrawerOpen(false);
+    emitRef.current({ type: "open-new-session", machineId, defaultCwd: machineId === selectedMachineRef.current ? selectedCwdRef.current : null });
   }, []);
   // the sidebar: a new session and the install prompt are this shell's
   const sidebarEmit = useMemo(() => relay<MachineSidebarEvent, UiEvent>(emit, (event, pass) => {
@@ -185,6 +184,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   }, []);
 
   const selectedPane = snapshot?.panes.find((pane) => pane.pane_id === selectedPaneId) ?? null;
+  selectedCwdRef.current = selectedPane?.cwd ?? null;
   useScreenWakeLock(settings.keepScreenOn && locked === false && selectedPane !== null);
   const selectedWorkspace = selectedPane
     ? (snapshot?.workspaces.find((workspace) => workspace.workspace_id === selectedPane.workspace_id) ?? null)
@@ -247,11 +247,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       },
       setView,
       toggleView: () => setView(view === "chat" ? "terminal" : "chat"),
-      openNewSession: () => {
-        setDrawerOpen(false);
-        setNewSessionMachineId(selectedMachineId);
-        setNewSessionOpen(true);
-      },
+      openNewSession: () => openNewSession(selectedMachineId),
       openPalette: () => setPaletteOpen(true),
       openSettings: () => {
         setDrawerOpen(false);
@@ -452,18 +448,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         </OpenFileContext.Provider>
       </div>
 
-      <MachineContext.Provider value={newSessionMachineId}><NewSessionDialog
-        key={newSessionMachineId}
-        machineName={machines.find((m) => m.id === newSessionMachineId)?.name ?? newSessionMachineId}
-        open={newSessionOpen}
-        defaultCwd={newSessionMachineId === selectedMachineId ? selectedPane?.cwd ?? null : null}
-        onClose={() => setNewSessionOpen(false)}
-        onCreated={(paneId) => {
-          setNewSessionOpen(false);
-          selectTarget(newSessionMachineId, paneId);
-          emit({ type: "reload-machines" });
-        }}
-      /></MachineContext.Provider>
+      <NewSessionPresenter emit={emit} />
       <Droplet onOpen={(machineId, paneId) => {
         // an ended pane's card outlives the pane: the refetch has dropped it, and selecting it attaches nothing
         if (!machinesRef.current.find((m) => m.id === machineId)?.snapshot?.panes.some((p) => p.pane_id === paneId)) return;

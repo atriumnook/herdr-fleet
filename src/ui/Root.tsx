@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, createWorkspace, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -13,6 +13,9 @@ import { initialSelection, storeSelection } from "../lib/selection.ts";
 import { takeAuthTokenFromUrl } from "../lib/authLink.ts";
 import { deviceLabel, takePairCode } from "../lib/phone.ts";
 import { INITIAL_STATE } from "./state.ts";
+
+/** the agent a new session starts with, as chosen last on this device */
+const LAST_AGENT_KEY = "herdr-fleet:new-session-agent";
 
 /** The Mediator's effects against this PC's server and this browser's storage. */
 const FLEET_PORTS: EffectPorts = {
@@ -55,6 +58,17 @@ const FLEET_PORTS: EffectPorts = {
     if (status === "ended") showPaneEndedNotification(pane.pane_id, title, open, machineId);
     else showPaneStatusNotification(pane.pane_id, title, status, open, machineId);
   },
+  loadAgentKinds: fetchAgentKinds,
+  rememberedAgent: () => {
+    try { return window.localStorage.getItem(LAST_AGENT_KEY) ?? ""; } catch { return ""; }
+  },
+  rememberAgent: (agentKind) => {
+    try { window.localStorage.setItem(LAST_AGENT_KEY, agentKind); } catch { /* private mode: the choice simply is not remembered */ }
+  },
+  createSession: (machineId, request) => createWorkspace(request, machineId).catch((error: unknown) => {
+    if (error instanceof ApiError && error.code === "invalid_cwd") return "invalid-cwd" as const;
+    throw error;
+  }),
   storeLens: (storageId, view) => {
     try { window.localStorage.setItem(`${PANE_VIEW_KEY_PREFIX}${storageId}`, view); } catch { /* private mode: the lens just stops being remembered */ }
   },
