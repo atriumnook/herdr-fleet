@@ -43,7 +43,6 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     subscribePush: async () => "https://push.example/1",
     confirmPush: async () => {},
     removePush: async () => {},
-    dropIn: () => {},
     notifyPane: () => {},
     gatePair: async () => "ok",
     gateAuthenticate: async () => "refused",

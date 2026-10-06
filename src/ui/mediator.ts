@@ -5,7 +5,6 @@ import type { PairedDevice, PairingCode, RemoteAccess, SessionSnapshot } from ".
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { NotificationState } from "../lib/notifications.ts";
-import type { DropletKind } from "../lib/droplet.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 import type { AgentKind, HerdrPane, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { Settings } from "../lib/settings.ts";
@@ -48,7 +47,6 @@ export interface EffectPorts {
   /** one push to this endpoint: it proves the whole path to this device */
   confirmPush(endpoint: string): Promise<void>;
   removePush(): Promise<void>;
-  dropIn(alert: { machineId: string; machineName: string | null; pane: HerdrPane; alert: DropletKind }): void;
   /** the tab's own alert; `open` selects the pane when it is tapped */
   notifyPane(alert: { machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" }, open: () => void): void;
   /** the access gate's pairing code and token: "refused" when the server does not take it */
@@ -220,9 +218,6 @@ export class Mediator {
       case "subscribe-push":
         try { this.dispatch({ type: "push-subscribed", on: (await this.ports.subscribePush(effect.prefs)) !== null, seq: effect.seq }); }
         catch { this.dispatch({ type: "push-subscribed", on: false, seq: effect.seq }); }
-        return;
-      case "drop-in":
-        this.ports.dropIn(effect);
         return;
       case "notify-pane":
         this.ports.notifyPane(effect, () => this.dispatch({ type: "select-pane", machineId: effect.machineId, paneId: effect.pane.pane_id }));
