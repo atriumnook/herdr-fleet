@@ -1404,9 +1404,9 @@ function readFile(state: UiState, effects: Effect[], now = true): UiState {
   return { ...state, files: { ...state.files, seq, viewer: { ...viewer, content: { kind: "opening" } } } };
 }
 
-type BackgroundTasksEvent = Extract<UiEvent, { type: "open-background-tasks" | "close-background-tasks" | "poll-background-tasks" | "background-tasks-read" | "background-tasks-failed" }>;
+type BackgroundTasksListEvent = Extract<UiEvent, { type: "open-background-tasks" | "close-background-tasks" | "poll-background-tasks" | "background-tasks-read" | "background-tasks-failed" }>;
 
-function backgroundTasksTransition(list: BackgroundTasksState, event: BackgroundTasksEvent, effects: Effect[]): BackgroundTasksState {
+function backgroundTasksTransition(list: BackgroundTasksState, event: BackgroundTasksListEvent, effects: Effect[]): BackgroundTasksState {
   switch (event.type) {
     case "open-background-tasks": {
       // each opening reads anew: what an earlier one asked answers too late
