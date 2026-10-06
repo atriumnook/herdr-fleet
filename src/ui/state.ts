@@ -1260,12 +1260,15 @@ function newSessionTransition(state: UiState, event: NewSessionEvent, effects: E
   }
 }
 
-/** The viewer's file read anew: an answer to an earlier read is dropped. */
-function readFile(state: UiState, effects: Effect[]): UiState {
+/**
+ * The viewer's file read anew: an answer to an earlier read is dropped, even one asked before
+ * this browser was locked out. `now`: this browser is in, so the read goes now (else on unlocking).
+ */
+function readFile(state: UiState, effects: Effect[], now = true): UiState {
   const { viewer } = state.files;
   if (viewer === null) return state;
   const seq = state.files.seq + 1;
-  effects.push({ kind: "load-file", machineId: viewer.preview.machineId, paneId: viewer.preview.paneId, path: viewer.path, seq });
+  if (now) effects.push({ kind: "load-file", machineId: viewer.preview.machineId, paneId: viewer.preview.paneId, path: viewer.path, seq });
   return { ...state, files: { ...state.files, seq, viewer: { ...viewer, content: { kind: "opening" } } } };
 }
 
@@ -1282,7 +1285,7 @@ function filesTransition(state: UiState, event: FilesEvent, effects: Effect[]): 
   /** the viewer on `preview`, showing `path`, read now or once this browser is in */
   const read = (preview: FilePreview, path: string): Transition => {
     const viewing = { ...state, files: { ...files, viewer: { preview, path, content: { kind: "opening" as const }, closing: false } } };
-    return { state: state.connection.locked === false ? readFile(viewing, effects) : viewing, effects };
+    return { state: readFile(viewing, effects, state.connection.locked === false), effects };
   };
   /** an answer to the read under way changes what the viewer shows */
   const shown = (content: FileContent): Transition => (viewer ? next({ viewer: { ...viewer, content } }) : same);

@@ -1027,4 +1027,21 @@ describe("Files and the file viewer", () => {
     expect(kinds(back.effects)).toContain("load-file");
     expect(back.state.files.viewer?.content).toEqual({ kind: "opening" });
   });
+
+  it("drops a read asked before this browser was locked out, once another file opened meanwhile", () => {
+    const first = opened().state;
+    const out = play([{ type: "access-loaded", auth: { required: true, authenticated: false, reason: "token_required" } }], first).state;
+    const other = play([{ type: "file-history", preview: { path: "other.txt", paneId: "w1:p1", machineId: "local" } }], out).state;
+    const late = play([{ type: "file-loaded", seq: first.files.seq, outcome: { kind: "outside" } }], other).state;
+    expect(late.files.viewer).toMatchObject({ path: "other.txt", content: { kind: "opening" } });
+  });
+
+  it("ignores a choice among files of a name while closing, and reopens the entry history moved to", () => {
+    const { state } = opened();
+    const several = play([{ type: "file-loaded", seq: state.files.seq, outcome: { kind: "candidates", candidates: ["/w/a/notes.txt"] } }, { type: "close-file" }], state).state;
+    expect(play([{ type: "choose-candidate", path: "/w/a/notes.txt" }], several).effects).toEqual([]);
+    const moved = play([{ type: "file-history", preview: { path: "other.txt", paneId: "w1:p1", machineId: "local" } }], several);
+    expect(moved.state.files.viewer).toMatchObject({ path: "other.txt", closing: false });
+    expect(kinds(moved.effects)).toEqual(["load-file"]);
+  });
 });
