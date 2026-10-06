@@ -3,6 +3,7 @@ import { Download, ExternalLink, X } from "lucide-react";
 
 import "./FileViewer.css";
 
+import { TEXT_PREVIEW_BYTES } from "../lib/api.ts";
 import { formatBytes } from "../lib/formatBytes.ts";
 import { useT } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
@@ -10,8 +11,6 @@ import type { FileContent, UiEvent } from "../ui/state.ts";
 
 /** Bigger images are offered as a download: a phone decodes an image whole. */
 const MAX_INLINE_IMAGE_BYTES = 20 * 1024 * 1024;
-/** Text shows its first part: the rest is a download away. */
-export const TEXT_PREVIEW_BYTES = 256 * 1024;
 
 /** What the viewer draws: the path shown, what was read of it, and where the file itself is served. */
 export interface FileViewerModel {
@@ -52,17 +51,13 @@ export function FileViewer({ model, browser, emit }: FileViewerProps) {
     return () => window.removeEventListener("keydown", onKey);
   }, []);
 
-  const failure: Record<Extract<FileContent, { kind: "failed" }>["reason"], string> = {
-    outside: t("Only files in the pane's folder or the temp folder open here."),
-    missing: t("No readable file at this path."),
-    failed: t("The file could not be opened."),
-  };
   const body = (() => {
     switch (content.kind) {
       case "folder":
         return <Fragment key={content.path}>{browser(content.path, (next) => emit({ type: "viewer-open", path: next }))}</Fragment>;
       case "failed":
-        return <p className="file-viewer-note" role="alert">{failure[content.reason]}</p>;
+        return <p className="file-viewer-note" role="alert">{content.reason === "outside" ? t("Only files in the pane's folder or the temp folder open here.")
+          : content.reason === "missing" ? t("No readable file at this path.") : t("The file could not be opened.")}</p>;
       case "candidates":
         return <div className="file-viewer-choices">
           <p className="file-viewer-note">Several files are named {path.split("/").pop()}:</p>

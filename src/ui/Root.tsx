@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, createWorkspace, fetchDirectories, fetchFileInfo, fileUrl, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, createWorkspace, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -14,7 +14,6 @@ import { loadRecentPanes, rememberPane } from "../lib/recentPanes.ts";
 import { takeAuthTokenFromUrl } from "../lib/authLink.ts";
 import { deviceLabel, takePairCode } from "../lib/phone.ts";
 import { leavePreview, previewFromState, showPreview } from "../lib/fileHistory.ts";
-import { TEXT_PREVIEW_BYTES } from "../components/FileViewer.tsx";
 import { INITIAL_STATE } from "./state.ts";
 
 /** A 401 is the server refusing what the gate sent; anything else stays an error. */
@@ -92,8 +91,8 @@ const FLEET_PORTS: EffectPorts = {
       throw error;
     },
   ),
-  // only the first part of a text file travels: a range, whatever the file's size
-  loadFileText: async (machineId, path, paneId) => (await fetch(fileUrl(path, paneId, machineId), { headers: { range: `bytes=0-${TEXT_PREVIEW_BYTES - 1}` } })).text(),
+  // only the first part of a text file travels
+  loadFileText: (machineId, path, paneId) => fetchFileStart(path, paneId, machineId),
   listFolder: async (machineId, path, paneId) => (await fetchDirectories(path, false, machineId, true, paneId)).path,
   storeLens: (storageId, view) => {
     try { window.localStorage.setItem(`${PANE_VIEW_KEY_PREFIX}${storageId}`, view); } catch { /* private mode: the lens just stops being remembered */ }
