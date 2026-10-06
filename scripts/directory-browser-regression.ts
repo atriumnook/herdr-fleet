@@ -1,7 +1,7 @@
 import "./test-herdr.ts"; // a herdr session of its own: nothing shows in the user's
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser } from "playwright-core";
 
@@ -29,25 +29,28 @@ export async function checkDirectoryBrowser(browser: Browser, origin: string): P
     const folders = dialog.getByRole("group", { name: "Choose a folder", exact: true });
     const shown = folders.locator(".dir-browser-path");
     const item = (name: string) => folders.getByRole("button", { name, exact: true });
+    // a folder inside home shows as ~/…
+    const home = homedir();
+    const display = (path: string) => (path.startsWith(`${home}/`) ? `~/${path.slice(home.length + 1)}` : path);
 
     await field.fill(root);
     await browse.click();
     await item("alpha").waitFor();
-    assert.equal(await shown.innerText(), root);
+    assert.equal(await shown.innerText(), display(root));
     assert.equal(await item(".hidden-dir").count(), 0, "hidden folders stay hidden");
     await item("alpha").click();
     await item("inner").waitFor();
-    assert.equal(await shown.innerText(), join(root, "alpha"));
+    assert.equal(await shown.innerText(), display(join(root, "alpha")));
     await folders.getByRole("button", { name: "Parent folder", exact: true }).click();
     await item("alpha").waitFor();
-    assert.equal(await shown.innerText(), root);
+    assert.equal(await shown.innerText(), display(root));
     await folders.getByLabel("Show hidden").check();
     await item(".hidden-dir").waitFor();
     await item("alpha").click();
     await item("inner").waitFor();
     await folders.getByRole("button", { name: "Use this folder", exact: true }).click();
     await folders.waitFor({ state: "detached" });
-    assert.equal(await field.inputValue(), join(root, "alpha"));
+    assert.equal(await field.inputValue(), display(join(root, "alpha")));
     console.log("PASS the folder browser goes into a folder and up, shows hidden ones, and fills the field");
 
     await field.fill("/nonexistent-herdr-fleet/half");
