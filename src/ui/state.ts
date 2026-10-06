@@ -1,11 +1,14 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
-import type { Machine } from "../../shared/machines.ts";
-import type { AccessRefusal, ClientRole, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import { paneStorageId, type Machine } from "../../shared/machines.ts";
+import { alertsAllow, shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
+import type { AccessRefusal, AgentStatus, ClientRole, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
+import { dropletAllows, endedTurn, trackTurn, type DropletKind } from "../lib/droplet.ts";
+import type { NotificationState } from "../lib/notifications.ts";
 import { applyPaneStatus } from "../lib/snapshot.ts";
 import { sanitizeFontFamily } from "../lib/fontFamily.ts";
-import { DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type Settings } from "../lib/settings.ts";
+import { alertPrefs, DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type Settings } from "../lib/settings.ts";
 
 /**
  * The Root Mediator's state machine. One state with parallel regions (what Main shows, the fleet's
@@ -157,6 +160,23 @@ export interface PaneState {
   lens: { key: string; view: PaneView } | null;
 }
 
+/** This device's alerts: the browser's permission, its push subscription, and what the pushes told so far. */
+export interface AlertsState {
+  permission: NotificationState;
+  /** this browser can take push alerts (HTTPS or localhost, a service worker) */
+  supported: boolean;
+  /** this device has a push subscription: alerts come from the server, not the tab */
+  push: boolean;
+  /** each pane's last status seen, by alert key: the baseline that decides whether a push is news */
+  statuses: Record<string, AgentStatus>;
+  /** when each pane's turn began, so an alert knows a long turn from a quick one */
+  turnStarts: Record<string, number>;
+  /** how long each pane's last finished turn took: a pane that ends is told by it too */
+  lastTurns: Record<string, number>;
+  /** the registration asked last: an answer to an older one is superseded */
+  subscribeSeq: number;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -185,14 +205,13 @@ export interface UiState {
   connection: ConnectionState;
   machines: MachinesState;
   pane: PaneState;
+  alerts: AlertsState;
   /** the phone's workspace drawer: a pane picked closes it, and an in-app alert shows for the open pane while it is open */
   drawerOpen: boolean;
 }
 
 export type UiEvent =
   | { type: "show-screen"; screen: Screen }
-  /** what the server said this device may do */
-  | { type: "access-known"; canAct: boolean }
   /** the person picked a pane (sidebar, palette, notification, a new session) */
   | { type: "select-pane"; machineId: string; paneId: string | null }
   /** the person chose a lens in the pane the shell picked: it is theirs now */
@@ -248,8 +267,8 @@ export type UiEvent =
   | { type: "device-changed"; session: number }
   | { type: "device-change-failed"; message: string; session: number }
   | { type: "send-test-push" }
-  /** the shell turns alerts on again (permission, subscription, then a confirmation push) */
-  | { type: "push-repair-started" }
+  /** Settings turns alerts on again (permission, subscription, then a confirmation push) */
+  | { type: "repair-alerts" }
   | { type: "push-tested"; result: Exclude<PushTest, "idle" | "sending">; session: number }
   | TreeEvent
   | ConnectionEvent
@@ -259,12 +278,20 @@ export type UiEvent =
   /** `storageId`: where the pane's lens is kept; null with no pane selected */
   | { type: "choose-lens"; key: string; storageId: string | null; view: PaneView }
   | { type: "drawer"; open: boolean }
-  | { type: "toggle-drawer" };
+  | { type: "toggle-drawer" }
+  /** the bell, or a shortcut: ask for the permission, subscribe, confirm with a push */
+  | { type: "enable-alerts" }
+  | { type: "disable-alerts" }
+  | { type: "alerts-permission"; permission: NotificationState }
+  /** `seq`: the registration it answers, null for the one turning alerts on */
+  | { type: "push-subscribed"; on: boolean; seq: number | null }
+  /** alerts turned on, or not: `session` when Settings asked */
+  | { type: "alerts-enabled"; ok: boolean; session: number | null };
 
 /** The server, as this page reads it and is pushed by it. */
 export type ConnectionEvent =
-  /** the page loaded: `linkToken` from a bookmarked `#auth=` link, `pairCode` from a scanned QR */
-  | { type: "boot"; linkToken: string | null; pairCode?: string }
+  /** the page loaded: `linkToken` from a bookmarked `#auth=` link, `pairCode` from a scanned QR, what the browser allows of alerts */
+  | { type: "boot"; linkToken: string | null; pairCode?: string; alerts?: { permission: NotificationState; supported: boolean }; visible?: boolean }
   | { type: "poll"; seq: number }
   | { type: "visibility"; visible: boolean }
   | { type: "authenticated"; reason: "boot" | "link" }
@@ -283,7 +310,8 @@ export type ConnectionEvent =
   | { type: "refetch-machines" }
   | { type: "stream-opened" }
   | { type: "machines-pushed"; machines: Machine[] }
-  | { type: "machine-message"; machineId: string; message: ServerMessage }
+  /** `at`: when it arrived, to time a pane's turn */
+  | { type: "machine-message"; machineId: string; message: ServerMessage; at?: number }
   | { type: "paired-from-address" }
   | { type: "sign-out" }
   | { type: "signed-out" }
@@ -343,7 +371,15 @@ export type Effect =
   | { kind: "close-stream" }
   /** ask the PC itself whether the selected pane closed: the roster can lag a pane just made */
   | { kind: "confirm-pane-gone"; machineId: string; paneId: string }
-  | { kind: "store-lens"; storageId: string; view: PaneView };
+  | { kind: "store-lens"; storageId: string; view: PaneView }
+  /** permission, subscription, confirmation push; `session` when Settings asked */
+  | { kind: "enable-alerts"; prefs: AlertPrefs; session: number | null }
+  | { kind: "remove-push" }
+  | { kind: "subscribe-push"; prefs: AlertPrefs; seq: number }
+  /** an in-app alert; `machineName` only when there are several PCs */
+  | { kind: "drop-in"; machineId: string; machineName: string | null; pane: HerdrPane; alert: DropletKind }
+  /** the tab's own alert */
+  | { kind: "notify-pane"; machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" };
 
 export interface Transition { state: UiState; effects: Effect[] }
 
@@ -365,6 +401,7 @@ export const INITIAL_STATE: UiState = {
   connection: { locked: null, reason: null, auth: null, health: null, pairCode: "", pairing: "none", visible: true, pollSeq: 0 },
   machines: { list: [], error: null, revision: 0, refetching: false, checking: null },
   pane: { connected: false, outputStopped: false, role: "interact", lens: null },
+  alerts: { permission: "default", supported: false, push: false, statuses: {}, turnStarts: {}, lastTurns: {}, subscribeSeq: 0 },
   drawerOpen: false,
 };
 
@@ -397,8 +434,6 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
   const next = (patch: Partial<UiState>): Transition =>
     ({ state: (Object.keys(patch) as Array<keyof UiState>).every((key) => patch[key] === state[key]) ? state : { ...state, ...patch }, effects });
   switch (event.type) {
-    case "access-known":
-      return next({ canAct: event.canAct });
     case "show-screen":
       return next({ screen: event.screen, detail: event.screen === "pane" ? null : state.detail });
     case "select-pane":
@@ -527,8 +562,28 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       if (!state.settingsDialog.open || state.pushTest === "sending") return next({});
       effects.push({ kind: "test-push", session: state.settingsSession });
       return next({ pushTest: "sending" });
-    case "push-repair-started":
-      return next(state.settingsDialog.open ? { pushTest: "sending" } : {});
+    case "repair-alerts":
+      if (!state.settingsDialog.open || state.pushTest === "sending") return next({});
+      effects.push({ kind: "enable-alerts", prefs: alertPrefs(state.settings), session: state.settingsSession });
+      return next({ pushTest: "sending" });
+    case "enable-alerts":
+      effects.push({ kind: "enable-alerts", prefs: alertPrefs(state.settings), session: null });
+      return next({});
+    case "disable-alerts":
+      // the browser's permission cannot be taken back from the page: off drops the subscription and silences the tab
+      effects.push({ kind: "remove-push" });
+      // a registration still on its way answers a choice no longer there
+      return next({ ...change(state, { alertsOn: false }, effects), alerts: { ...state.alerts, push: false, subscribeSeq: state.alerts.subscribeSeq + 1 } });
+    case "alerts-permission": {
+      const alerts = { ...state.alerts, permission: event.permission };
+      return next({ ...(event.permission === "granted" ? change(state, { alertsOn: true }, effects) : {}), alerts });
+    }
+    case "push-subscribed":
+      if (event.seq !== null && event.seq !== state.alerts.subscribeSeq) return next({});
+      return next(state.alerts.push === event.on ? {} : { alerts: { ...state.alerts, push: event.on } });
+    case "alerts-enabled":
+      if (event.session === null || !state.settingsDialog.open || event.session !== state.settingsSession) return next({});
+      return next({ pushTest: event.ok ? "sent" : "failed" });
     case "push-tested":
       return next(state.settingsDialog.open && event.session === state.settingsSession ? { pushTest: event.result } : {});
     case "tree-start-pane-rename":
@@ -738,13 +793,14 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
   };
   const startPolling = (): Transition => {
     const pollSeq = connection.pollSeq + 1;
-    const patch = read();
+    // a tab loaded in the background reads nothing until it shows
+    const patch = connection.visible ? read() : {};
     effects.push({ kind: "later", ms: POLL_MS, event: { type: "poll", seq: pollSeq } });
     return next({ ...patch, connection: { ...connection, pollSeq } });
   };
   switch (event.type) {
     case "boot": {
-      const booted = { ...state, connection: { ...connection, pairCode: event.pairCode ?? "" } };
+      const booted = { ...state, connection: { ...connection, pairCode: event.pairCode ?? "", visible: event.visible ?? connection.visible }, alerts: event.alerts ? { ...state.alerts, ...event.alerts } : state.alerts };
       if (event.linkToken === null) return connectionTransition(booted, { type: "authentication-failed", reason: "boot" }, effects);
       effects.push({ kind: "authenticate", token: event.linkToken, reason: "boot" });
       return { state: booted, effects };
@@ -798,9 +854,13 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
     case "stream-opened":
       // the stream opened, or opened again: fleet changes made meanwhile never arrived as pushes
       return transitionOnly(state, { type: "fleet-changed" });
-    case "machines-pushed":
+    case "machines-pushed": {
+      // each pane's status as pushed is the baseline its next change is news against
+      const statuses = { ...state.alerts.statuses };
+      for (const machine of event.machines) for (const pane of machine.snapshot?.panes ?? []) statuses[alertKey(machine.id, pane.pane_id)] = pane.agent_status;
       // a read started before this push can carry an older roster
-      return next({ machines: { ...machines, list: same(machines.list, event.machines), revision: machines.revision + 1 } });
+      return next({ machines: { ...machines, list: same(machines.list, event.machines), revision: machines.revision + 1 }, alerts: { ...state.alerts, statuses } });
+    }
     case "machine-message": {
       const machine = machines.list.find((candidate) => candidate.id === event.machineId);
       if (!machine) return next({});
@@ -815,7 +875,7 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
         refetching = true;
         effects.push({ kind: "later", ms: REFETCH_DEBOUNCE_MS, event: { type: "refetch-machines" } });
       }
-      const pushed: UiState = { ...state, machines: { ...machines, list, refetching, revision: machines.revision + 1 } };
+      const pushed: UiState = { ...state, machines: { ...machines, list, refetching, revision: machines.revision + 1 }, alerts: alertOn(state, machine, message, event.at ?? 0, effects) };
       // the fleet lives on this PC's server only
       if (message.type === "fleet-changed" && machine.kind === "local") return transitionOnly(pushed, { type: "fleet-changed" });
       return { state: pushed, effects };
@@ -824,8 +884,9 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
       effects.push({ kind: "load-health" });
       return next({});
     case "sign-out":
+      // the subscription goes first, while the cookie still lets it: a device locked out must stop receiving pane titles
       effects.push({ kind: "sign-out" });
-      return next({});
+      return next({ drawerOpen: false, alerts: { ...state.alerts, push: false, subscribeSeq: state.alerts.subscribeSeq + 1 } });
     case "signed-out":
       // the cookie may still be set: the health answer decides whether the gate shows
       effects.push({ kind: "load-health" });
@@ -845,6 +906,53 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
   }
 }
 
+/** Where a pane's alert records live: its PC and id. */
+const alertKey = (machineId: string, paneId: string): string => paneStorageId(machineId, paneId);
+
+/**
+ * What a pushed pane change tells: an in-app alert while the app is on screen (never for the pane
+ * open in front of the person, unless the drawer covers it), and the tab's own while this device
+ * has no push subscription to bring it. The pane's last status, its turn's start and its last
+ * turn's length are kept to decide whether the change is news and how long the turn was.
+ */
+function alertOn(state: UiState, machine: Machine, message: ServerMessage, at: number, effects: Effect[]): AlertsState {
+  const { alerts, settings } = state;
+  if (message.type !== "pane-status" && message.type !== "pane-exited") return alerts;
+  const key = alertKey(machine.id, message.pane_id);
+  const pane = machine.snapshot?.panes.find((candidate) => candidate.pane_id === message.pane_id) as HerdrPane | undefined;
+  const prefs = alertPrefs(settings);
+  const started = new Map(Object.entries(alerts.turnStarts));
+  const lasted = new Map(Object.entries(alerts.lastTurns));
+  const statuses = { ...alerts.statuses };
+  const open = state.selection.machineId === machine.id && state.selection.paneId === message.pane_id && !state.drawerOpen;
+  const dropsIn = settings.alertsOn && settings.alertInApp && state.connection.visible && !open;
+  const tabTells = settings.alertsOn && !alerts.push;
+  const machineName = state.machines.list.length > 1 ? machine.name : null;
+  if (message.type === "pane-status") {
+    const previous = statuses[key];
+    statuses[key] = message.agent_status;
+    const worked = trackTurn(started, key, previous, message.agent_status, at);
+    if (worked !== null) lasted.set(key, worked);
+    if (pane && shouldNotifyStatus(previous, message.agent_status)) {
+      const alert = message.agent_status === "blocked" ? "blocked" : "done";
+      if (dropsIn && dropletAllows(prefs, message.agent_status, worked)) effects.push({ kind: "drop-in", machineId: machine.id, machineName, pane, alert });
+      if (tabTells && alertsAllow(prefs, message.agent_status)) effects.push({ kind: "notify-pane", machineId: machine.id, machineName: machine.name, pane, status: alert });
+    }
+  } else {
+    const worked = endedTurn(started, lasted, key, at);
+    if (pane && dropsIn && dropletAllows(prefs, "done", worked)) effects.push({ kind: "drop-in", machineId: machine.id, machineName, pane, alert: "ended" });
+    if (pane && tabTells && prefs.done !== "off") effects.push({ kind: "notify-pane", machineId: machine.id, machineName: machine.name, pane, status: "ended" });
+  }
+  return { ...alerts, statuses, turnStarts: Object.fromEntries(started), lastTurns: Object.fromEntries(lasted) };
+}
+
+/** This device's push subscription is registered whenever it may be: in, allowed, alerts on, push there; again as its choice of alerts changes. */
+function subscriptionKey(state: UiState): string | null {
+  const { connection, alerts, settings } = state;
+  if (connection.locked !== false || alerts.permission !== "granted" || !settings.alertsOn || !alerts.supported) return null;
+  return JSON.stringify(alertPrefs(settings));
+}
+
 /**
  * What follows from any step: the event stream runs while this browser is in, and a selected
  * pane the roster no longer lists is looked into (or, with none selected, herdr's focused one taken).
@@ -854,9 +962,17 @@ function followUp(before: UiState, step: Transition): Transition {
   const effects = [...step.effects];
   if (before.connection.locked !== false && state.connection.locked === false) effects.push({ kind: "open-stream" });
   if (before.connection.locked === false && state.connection.locked !== false) effects.push({ kind: "close-stream" });
-  if (state.machines.list !== before.machines.list || state.selection !== before.selection) {
+  const subscription = subscriptionKey(state);
+  if (subscription !== null && subscription !== subscriptionKey(before)) {
+    const subscribeSeq = state.alerts.subscribeSeq + 1;
+    effects.push({ kind: "subscribe-push", prefs: alertPrefs(state.settings), seq: subscribeSeq });
+    state = { ...state, alerts: { ...state.alerts, subscribeSeq } };
+  }
+  const selectedPc = (of: UiState) => of.machines.list.find((candidate) => candidate.id === of.selection.machineId);
+  const machine = selectedPc(state);
+  // only the selected PC's sessions, or the selection itself, say anything about the selected pane
+  if (state.selection !== before.selection || machine?.snapshot !== selectedPc(before)?.snapshot || machine?.state !== selectedPc(before)?.state) {
     const { selection } = state;
-    const machine = state.machines.list.find((candidate) => candidate.id === selection.machineId);
     // an offline PC's cached roster cannot invalidate a selection
     if (machine?.snapshot && machine.state === "connected" && !machine.snapshot.panes.some((pane) => pane.pane_id === selection.paneId)) {
       if (selection.paneId === null) {

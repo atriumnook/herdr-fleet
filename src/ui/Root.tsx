@@ -1,10 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
-import { testDevicePush } from "../lib/push.ts";
+import { ensurePushSubscription, pushSupported, removePushSubscription, testDevicePush } from "../lib/push.ts";
+import { notificationState, requestNotificationPermission, showPaneEndedNotification, showPaneStatusNotification } from "../lib/notifications.ts";
+import { onNotificationTarget } from "../lib/notificationTarget.ts";
+import { showDroplet } from "../lib/droplet.ts";
+import { displayPaneTitle } from "../components/Sidebar.tsx";
 import { initialSelection, storeSelection } from "../lib/selection.ts";
 import { takeAuthTokenFromUrl } from "../lib/authLink.ts";
 import { deviceLabel, takePairCode } from "../lib/phone.ts";
@@ -39,6 +43,18 @@ const FLEET_PORTS: EffectPorts = {
     else if (request.kind === "rename-workspace") await renameWorkspace(request.workspaceId, request.label, machineId);
     else await moveWorkspace(request.workspaceId, request.index, machineId);
   },
+  requestPermission: async () => (notificationState() === "granted" ? "granted" : await requestNotificationPermission()),
+  subscribePush: ensurePushSubscription,
+  confirmPush: sendTestPush,
+  removePush: removePushSubscription,
+  dropIn: ({ machineId, machineName, pane, alert }) => {
+    showDroplet({ machineId, paneId: pane.pane_id, agent: pane.agent ?? null, title: displayPaneTitle(pane), machine: machineName, kind: alert });
+  },
+  notifyPane: ({ machineId, machineName, pane, status }, open) => {
+    const title = `${machineName} · ${displayPaneTitle(pane)}`;
+    if (status === "ended") showPaneEndedNotification(pane.pane_id, title, open, machineId);
+    else showPaneStatusNotification(pane.pane_id, title, status, open, machineId);
+  },
   storeLens: (storageId, view) => {
     try { window.localStorage.setItem(`${PANE_VIEW_KEY_PREFIX}${storageId}`, view); } catch { /* private mode: the lens just stops being remembered */ }
   },
@@ -47,7 +63,11 @@ const FLEET_PORTS: EffectPorts = {
   loadMachines: () => fetchMachines().catch((error: unknown) => { if (error instanceof ApiError && error.status === 401) return "unauthorized" as const; throw error; }),
   authenticate,
   pairFromAddress: (code) => pairDevice(code, deviceLabel(navigator.userAgent, navigator.maxTouchPoints ?? 0)),
-  signOut,
+  // the subscription goes first, while the cookie still lets it
+  signOut: async () => {
+    await removePushSubscription().catch(() => undefined);
+    await signOut();
+  },
   loadSession: fetchSession,
   // one stream watches every PC, even when no pane is selected
   openStream: ({ opened, event }) => {
@@ -88,7 +108,7 @@ export function Root() {
   useEffect(() => {
     if (booted.current) return;
     booted.current = true;
-    mediator.dispatch({ type: "boot", linkToken: takeAuthTokenFromUrl(), pairCode: takePairCode() });
+    mediator.dispatch({ type: "boot", linkToken: takeAuthTokenFromUrl(), pairCode: takePairCode(), alerts: { permission: notificationState(), supported: pushSupported() }, visible: document.visibilityState !== "hidden" });
   }, [mediator]);
   useEffect(() => {
     // a hidden tab (or a phone app in the background) reads nothing; it catches up on return
@@ -100,7 +120,10 @@ export function Root() {
     };
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("hashchange", onHashChange);
+    // a tapped notification focuses this window and names the pane (public/sw.js)
+    const offTarget = onNotificationTarget((target) => mediator.dispatch({ type: "select-pane", machineId: target.machine_id, paneId: target.pane_id }));
     return () => {
+      offTarget();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("hashchange", onHashChange);
     };
