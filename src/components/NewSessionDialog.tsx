@@ -1,31 +1,23 @@
-import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type ReactNode } from "react";
 import { FolderOpen, X } from "lucide-react";
 
 import "./NewSessionDialog.css";
 
-import type { AgentKind } from "../../shared/protocol.ts";
-import { ApiError } from "../lib/api.ts";
 import { AgentPicker } from "./AgentPicker.tsx";
-import { DirectoryBrowser } from "./DirectoryBrowser.tsx";
-import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { useT } from "../lib/i18n.ts";
+import type { Emit } from "../ui/bubble.ts";
+import type { NewSessionState, UiEvent } from "../ui/state.ts";
 
-const LAST_AGENT_KEY = "herdr-fleet:new-session-agent";
+/** What the dialog draws: the dialog's region while it is open, and the PC's name. */
+export type NewSessionModel = Extract<NewSessionState, { open: true }> & { machineName: string };
+
+export type NewSessionEvent = Extract<UiEvent, { type: "close-new-session" | "edit-new-session" | "submit-new-session" }>;
 
 export interface NewSessionDialogProps {
-  open: boolean;
-  machineName?: string;
-  defaultCwd: string | null;
-  onClose: () => void;
-  onCreated: (paneId: string) => void;
-}
-
-function rememberedAgent(): string {
-  try {
-    return window.localStorage.getItem(LAST_AGENT_KEY) ?? "";
-  } catch {
-    return "";
-  }
+  model: NewSessionModel;
+  /** the parent's folder browser, starting at `start`; `pick` puts a folder in the field */
+  browser: (start: string, pick: (folder: string) => void) => ReactNode;
+  emit: Emit<NewSessionEvent>;
 }
 
 function directoryBasename(value: string): string {
@@ -33,94 +25,40 @@ function directoryBasename(value: string): string {
   return trimmed.split("/").pop() ?? "";
 }
 
-export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machineName }: NewSessionDialogProps) {
+/** A new workspace on a PC, with an agent or a shell in it. The folder browser being open is the view's own. */
+export function NewSessionDialog({ model, browser, emit }: NewSessionDialogProps) {
   const t = useT();
-  const machineId = useMachineId();
-  const { createWorkspace, fetchAgentKinds } = useMachineApi();
-  const [agents, setAgents] = useState<AgentKind[]>([]);
-  const [agentKind, setAgentKind] = useState(rememberedAgent);
-  const [cwd, setCwd] = useState(defaultCwd ?? "");
-  const [name, setName] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [createdPaneId, setCreatedPaneId] = useState<string | null>(null);
+  const { agents, agentKind, cwd, name, createdPaneId } = model;
+  const pending = model.status === "starting";
   const [browsing, setBrowsing] = useState(false);
   const firstFieldRef = useRef<HTMLButtonElement>(null);
-  const defaultCwdRef = useRef(defaultCwd);
-  defaultCwdRef.current = defaultCwd;
+  const onClose = (): void => emit({ type: "close-new-session" });
+  const edit = (field: "agentKind" | "cwd" | "name", value: string): void => emit({ type: "edit-new-session", field, value });
 
-  useEffect(() => {
-    if (!open) return;
-    setCwd(defaultCwdRef.current ?? "");
-    setName("");
-    setError(null);
-    setPending(false);
-    setCreatedPaneId(null);
-    setBrowsing(false);
-    const stored = rememberedAgent();
-    setAgentKind(stored);
-    let cancelled = false;
-    void fetchAgentKinds()
-      .then((next) => {
-        if (cancelled) return;
-        setAgents(next);
-        if (stored && !next.some((agent) => agent.kind === stored)) setAgentKind("");
-      })
-      .catch((reason: unknown) => {
-        if (!cancelled) setError(reason instanceof Error ? reason.message : String(reason));
-      });
-    window.requestAnimationFrame(() => firstFieldRef.current?.focus());
-    return () => {
-      cancelled = true;
-    };
-  }, [open]);
+  useEffect(() => { window.requestAnimationFrame(() => firstFieldRef.current?.focus()); }, []);
 
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
+  const pendingRef = useRef(pending);
+  pendingRef.current = pending;
   useEffect(() => {
-    if (!open) return;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      if (!pending) onClose();
+      if (!pendingRef.current) emitRef.current({ type: "close-new-session" });
     };
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [open, onClose, pending]);
-
-  if (!open) return null;
+  }, []);
 
   const selectedAgent = agents.find((agent) => agent.kind === agentKind);
   const pendingLabel = selectedAgent ? t("Starting {agent}… up to 60s", { agent: selectedAgent.label }) : t("Starting shell…");
   const fieldsDisabled = pending || createdPaneId !== null;
+  const error = model.error === null ? null : model.error.kind === "invalid-cwd" ? t("Directory not found") : model.error.message;
 
-  const submit = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
+  const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    if (pending) return;
-    if (createdPaneId !== null) { onCreated(createdPaneId); return; }
-    setPending(true);
-    setError(null);
-    try {
-      try {
-        window.localStorage.setItem(LAST_AGENT_KEY, agentKind);
-      } catch {
-        /* private mode: the choice simply is not remembered */
-      }
-      const result = await createWorkspace({
-        cwd: cwd.trim() || null,
-        label: name.trim() || null,
-        agent: agentKind ? { kind: agentKind } : null,
-      });
-      if (agentKind && !result.agent_started && result.error?.message) {
-        setPending(false);
-        setError(result.error.message);
-        setCreatedPaneId(result.pane_id);
-        return;
-      }
-      onCreated(result.pane_id);
-    } catch (reason: unknown) {
-      setPending(false);
-      if (reason instanceof ApiError && reason.code === "invalid_cwd") setError(t("Directory not found"));
-      else setError(reason instanceof Error ? reason.message : String(reason));
-    }
+    emit({ type: "submit-new-session" });
   };
 
   const closeFromScrim = (event: MouseEvent<HTMLDivElement>): void => {
@@ -129,9 +67,9 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
 
   return (
     <div className="modal-scrim new-session-scrim" onMouseDown={closeFromScrim}>
-      <form className="modal new-session-modal" role="dialog" aria-modal="true" aria-labelledby="new-session-title" onSubmit={(event) => void submit(event)}>
+      <form className="modal new-session-modal" role="dialog" aria-modal="true" aria-labelledby="new-session-title" onSubmit={submit}>
         <header className="modal-header">
-          <h2 className="modal-title" id="new-session-title">{t("New session")} · {machineName ?? machineId}</h2>
+          <h2 className="modal-title" id="new-session-title">{t("New session")} · {model.machineName}</h2>
           <button type="button" className="icon-button" aria-label={t("Close new session dialog")} disabled={pending} onClick={onClose}>
             <X aria-hidden="true" />
           </button>
@@ -139,18 +77,18 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
         <div className="modal-body">
           <div className="field">
             <span className="field-label" id="new-session-agent">{t("Agent")}</span>
-            <AgentPicker ref={firstFieldRef} agents={agents} value={agentKind} disabled={fieldsDisabled} labelledBy="new-session-agent" onChange={setAgentKind} />
+            <AgentPicker ref={firstFieldRef} agents={agents} value={agentKind} disabled={fieldsDisabled} labelledBy="new-session-agent" onChange={(value) => edit("agentKind", value)} />
           </div>
           <div className="field">
             <label className="field-label" htmlFor="new-session-cwd">{t("Directory")}</label>
             <div className="new-session-cwd">
-              <input id="new-session-cwd" className="input" value={cwd} disabled={fieldsDisabled} autoComplete="off" onChange={(event) => setCwd(event.target.value)} />
+              <input id="new-session-cwd" className="input" value={cwd} disabled={fieldsDisabled} autoComplete="off" onChange={(event) => edit("cwd", event.target.value)} />
               <button type="button" className="btn" aria-expanded={browsing} disabled={fieldsDisabled} onClick={() => setBrowsing((open) => !open)}>
                 <FolderOpen aria-hidden="true" />
                 {t("Browse")}
               </button>
             </div>
-            {browsing && <DirectoryBrowser start={cwd} onPick={(picked) => { setCwd(picked); setBrowsing(false); }} />}
+            {browsing && browser(cwd, (picked) => { edit("cwd", picked); setBrowsing(false); })}
             <span className="field-hint">{t("absolute path or ~/…")}</span>
           </div>
           <label className="field">
@@ -161,7 +99,7 @@ export function NewSessionDialog({ open, defaultCwd, onClose, onCreated, machine
               disabled={fieldsDisabled}
               autoComplete="off"
               placeholder={directoryBasename(cwd)}
-              onChange={(event) => setName(event.target.value)}
+              onChange={(event) => edit("name", event.target.value)}
             />
             <span className="field-hint">{t("Optional workspace label")}</span>
           </label>

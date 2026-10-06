@@ -717,3 +717,62 @@ describe("after the review of the App's move", () => {
   });
 });
 
+
+describe("a new session", () => {
+  const claude = { kind: "claude", label: "Claude Code" } as never;
+  const kinds = (effects: { kind: string }[]) => effects.map((effect) => effect.kind);
+  const opened = () => play([{ type: "open-new-session", machineId: "local", defaultCwd: "/w/api" }]);
+
+  it("opens on a PC with the selected pane's folder, reads its agents, and closes the drawer", () => {
+    const { state, effects } = play([{ type: "drawer", open: true }, { type: "open-new-session", machineId: "local", defaultCwd: "/w/api" }]);
+    expect(state.newSession).toMatchObject({ open: true, machineId: "local", cwd: "/w/api", name: "", agentKind: "", status: "editing" });
+    expect(state.drawerOpen).toBe(false);
+    expect(effects).toEqual([{ kind: "load-agents", machineId: "local", seq: 1 }]);
+  });
+
+  it("takes the agent chosen last when this PC still has it", () => {
+    const state = opened().state;
+    expect(play([{ type: "new-session-agents", agents: [claude], remembered: "claude", seq: 1 }], state).state.newSession).toMatchObject({ agentKind: "claude" });
+    expect(play([{ type: "new-session-agents", agents: [claude], remembered: "gone", seq: 1 }], state).state.newSession).toMatchObject({ agentKind: "" });
+  });
+
+  it("starts the session as typed, remembers the agent, and opens the pane it made", () => {
+    const typed = play([
+      { type: "new-session-agents", agents: [claude], remembered: "", seq: 1 },
+      { type: "edit-new-session", field: "agentKind", value: "claude" },
+      { type: "edit-new-session", field: "name", value: " api " },
+    ], opened().state).state;
+    const starting = play([{ type: "submit-new-session" }], typed);
+    expect(starting.state.newSession).toMatchObject({ status: "starting" });
+    expect(starting.effects).toEqual([
+      { kind: "remember-agent", agentKind: "claude" },
+      { kind: "create-session", machineId: "local", request: { cwd: "/w/api", label: "api", agent: { kind: "claude" } }, seq: 1 },
+    ]);
+    // one start at a time
+    expect(play([{ type: "submit-new-session" }], starting.state).effects).toEqual([]);
+    const made = play([{ type: "new-session-created", paneId: "w9:p1", agentError: null, seq: 1 }], starting.state);
+    expect(made.state.newSession).toEqual({ open: false });
+    expect(made.state.selection).toMatchObject({ machineId: "local", paneId: "w9:p1" });
+    expect(kinds(made.effects)).toEqual(["store-selection", "load-machines"]);
+  });
+
+  it("keeps the dialog on an agent that did not start, offering the pane it made", () => {
+    const starting = play([{ type: "edit-new-session", field: "agentKind", value: "claude" }, { type: "submit-new-session" }], opened().state).state;
+    const failed = play([{ type: "new-session-created", paneId: "w9:p1", agentError: "claude is not signed in", seq: 1 }], starting).state;
+    expect(failed.newSession).toMatchObject({ status: "editing", error: { kind: "message", message: "claude is not signed in" }, createdPaneId: "w9:p1" });
+    expect(play([{ type: "submit-new-session" }], failed).state.selection.paneId).toBe("w9:p1");
+  });
+
+  it("says a folder that is not there in words, and keeps what was typed", () => {
+    const starting = play([{ type: "submit-new-session" }], opened().state).state;
+    const failed = play([{ type: "new-session-failed", message: "invalid_cwd", invalidCwd: true, seq: 1 }], starting).state;
+    expect(failed.newSession).toMatchObject({ status: "editing", cwd: "/w/api", error: { kind: "invalid-cwd" } });
+  });
+
+  it("closes only while nothing starts, and drops what an earlier opening asked", () => {
+    const starting = play([{ type: "submit-new-session" }], opened().state).state;
+    expect(play([{ type: "close-new-session" }], starting).state.newSession.open).toBe(true);
+    const reopened = play([{ type: "close-new-session" }, { type: "open-new-session", machineId: "local", defaultCwd: null }], opened().state).state;
+    expect(transition(reopened, { type: "new-session-agents", agents: [claude], remembered: "claude", seq: 1 }).state).toBe(reopened);
+  });
+});

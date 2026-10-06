@@ -1,7 +1,7 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import { paneStorageId, type Machine } from "../../shared/machines.ts";
 import { alertsAllow, shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AccessRefusal, AgentStatus, ClientRole, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import { dropletAllows, endedTurn, trackTurn, type DropletKind } from "../lib/droplet.ts";
@@ -177,6 +177,28 @@ export interface AlertsState {
   subscribeSeq: number;
 }
 
+/** What starting a session asks of a PC's herdr. */
+export interface SessionRequest { cwd: string | null; label: string | null; agent: { kind: string } | null }
+
+/** The new session dialog, on one PC: what is typed, and the start under way. */
+export type NewSessionState =
+  | { open: false }
+  | {
+    open: true;
+    machineId: string;
+    /** the opening it is: what an earlier one asked for answers too late */
+    seq: number;
+    agents: AgentKind[];
+    /** "" starts a shell */
+    agentKind: string;
+    cwd: string;
+    name: string;
+    status: "editing" | "starting";
+    error: { kind: "message"; message: string } | { kind: "invalid-cwd" } | null;
+    /** a pane made although its agent did not start: the next submit opens it */
+    createdPaneId: string | null;
+  };
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -206,6 +228,9 @@ export interface UiState {
   machines: MachinesState;
   pane: PaneState;
   alerts: AlertsState;
+  newSession: NewSessionState;
+  /** openings of the new session dialog so far */
+  newSessionSeq: number;
   /** the phone's workspace drawer: a pane picked closes it, and an in-app alert shows for the open pane while it is open */
   drawerOpen: boolean;
 }
@@ -286,7 +311,18 @@ export type UiEvent =
   /** `seq`: the registration it answers, null for the one turning alerts on */
   | { type: "push-subscribed"; on: boolean; seq: number | null }
   /** alerts turned on, or not: `session` when Settings asked */
-  | { type: "alerts-enabled"; ok: boolean; session: number | null };
+  | { type: "alerts-enabled"; ok: boolean; session: number | null }
+  /** `defaultCwd`: the selected pane's folder when it is on that PC */
+  | { type: "open-new-session"; machineId: string; defaultCwd: string | null }
+  | { type: "close-new-session" }
+  | { type: "edit-new-session"; field: "agentKind" | "cwd" | "name"; value: string }
+  | { type: "submit-new-session" }
+  /** `remembered`: the agent chosen last on this device */
+  | { type: "new-session-agents"; agents: AgentKind[]; remembered: string; seq: number }
+  | { type: "new-session-agents-failed"; message: string; seq: number }
+  /** `agentError`: why the agent asked for did not start; the pane exists all the same */
+  | { type: "new-session-created"; paneId: string; agentError: string | null; seq: number }
+  | { type: "new-session-failed"; message: string; invalidCwd: boolean; seq: number };
 
 /** The server, as this page reads it and is pushed by it. */
 export type ConnectionEvent =
@@ -378,6 +414,9 @@ export type Effect =
   | { kind: "subscribe-push"; prefs: AlertPrefs; seq: number }
   /** an in-app alert; `machineName` only when there are several PCs */
   | { kind: "drop-in"; machineId: string; machineName: string | null; pane: HerdrPane; alert: DropletKind }
+  | { kind: "load-agents"; machineId: string; seq: number }
+  | { kind: "remember-agent"; agentKind: string }
+  | { kind: "create-session"; machineId: string; request: SessionRequest; seq: number }
   /** the tab's own alert */
   | { kind: "notify-pane"; machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" };
 
@@ -403,6 +442,8 @@ export const INITIAL_STATE: UiState = {
   pane: { connected: false, outputStopped: false, role: "interact", lens: null },
   alerts: { permission: "default", supported: false, push: false, statuses: {}, turnStarts: {}, lastTurns: {}, subscribeSeq: 0 },
   drawerOpen: false,
+  newSession: { open: false },
+  newSessionSeq: 0,
 };
 
 /** A run whose pane is gone: nothing to open or stop in it. */
@@ -447,6 +488,15 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "choose-lens":
       if (event.storageId !== null) effects.push({ kind: "store-lens", storageId: event.storageId, view: event.view });
       return next({ pane: { ...state.pane, lens: { key: event.key, view: event.view } }, selection: state.selection.auto ? { ...state.selection, auto: false } : state.selection });
+    case "open-new-session":
+    case "close-new-session":
+    case "edit-new-session":
+    case "submit-new-session":
+    case "new-session-agents":
+    case "new-session-agents-failed":
+    case "new-session-created":
+    case "new-session-failed":
+      return newSessionTransition(state, event, effects);
     case "drawer":
       return next({ drawerOpen: event.open });
     case "toggle-drawer":
@@ -988,6 +1038,56 @@ function followUp(before: UiState, step: Transition): Transition {
     }
   }
   return state === step.state && effects.length === step.effects.length ? step : { state, effects };
+}
+
+type NewSessionEvent = Extract<UiEvent, { type: "open-new-session" | "close-new-session" | "edit-new-session" | "submit-new-session" | "new-session-agents" | "new-session-agents-failed" | "new-session-created" | "new-session-failed" }>;
+
+function newSessionTransition(state: UiState, event: NewSessionEvent, effects: Effect[]): Transition {
+  // an event that changes nothing keeps the state object itself
+  const next = (patch: Partial<UiState>): Transition => ({ state: Object.keys(patch).length === 0 ? state : { ...state, ...patch }, effects });
+  if (event.type === "open-new-session") {
+    const seq = state.newSessionSeq + 1;
+    effects.push({ kind: "load-agents", machineId: event.machineId, seq });
+    return next({
+      newSessionSeq: seq,
+      drawerOpen: false,
+      newSession: { open: true, machineId: event.machineId, seq, agents: [], agentKind: "", cwd: event.defaultCwd ?? "", name: "", status: "editing", error: null, createdPaneId: null },
+    });
+  }
+  const dialog = state.newSession;
+  if (!dialog.open || ("seq" in event && event.seq !== dialog.seq)) return next({});
+  /** the session it started is open: its pane selected, the dialog gone, the PCs read again */
+  const opened = (paneId: string): Transition => {
+    const picked = { ...state, ...pick(state, dialog.machineId, paneId, effects), newSession: { open: false } as const };
+    return connectionTransition(picked, { type: "reload-machines" }, effects);
+  };
+  switch (event.type) {
+    case "close-new-session":
+      return next(dialog.status === "starting" ? {} : { newSession: { open: false } });
+    case "edit-new-session":
+      if (dialog.status === "starting" || dialog.createdPaneId !== null) return next({});
+      return next({ newSession: { ...dialog, [event.field]: event.value } });
+    case "submit-new-session": {
+      if (dialog.status === "starting") return next({});
+      if (dialog.createdPaneId !== null) return opened(dialog.createdPaneId);
+      effects.push(
+        { kind: "remember-agent", agentKind: dialog.agentKind },
+        { kind: "create-session", machineId: dialog.machineId, seq: dialog.seq, request: { cwd: dialog.cwd.trim() || null, label: dialog.name.trim() || null, agent: dialog.agentKind ? { kind: dialog.agentKind } : null } },
+      );
+      return next({ newSession: { ...dialog, status: "starting", error: null } });
+    }
+    case "new-session-agents":
+      return next({ newSession: { ...dialog, agents: event.agents, agentKind: event.agents.some((agent) => agent.kind === event.remembered) ? event.remembered : "" } });
+    case "new-session-agents-failed":
+      return next({ newSession: { ...dialog, error: { kind: "message", message: event.message } } });
+    case "new-session-created":
+      if (dialog.agentKind && event.agentError !== null) {
+        return next({ newSession: { ...dialog, status: "editing", error: { kind: "message", message: event.agentError }, createdPaneId: event.paneId } });
+      }
+      return opened(event.paneId);
+    case "new-session-failed":
+      return next({ newSession: { ...dialog, status: "editing", error: event.invalidCwd ? { kind: "invalid-cwd" } : { kind: "message", message: event.message } } });
+  }
 }
 
 /**

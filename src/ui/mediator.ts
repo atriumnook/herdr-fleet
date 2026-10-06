@@ -7,9 +7,9 @@ import type { PaneView } from "../lib/actions.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import type { DropletKind } from "../lib/droplet.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { HerdrPane } from "../../shared/protocol.ts";
+import type { AgentKind, HerdrPane, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { Settings } from "../lib/settings.ts";
-import { INITIAL_STATE, transition, type Effect, type RequestAction, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
+import { INITIAL_STATE, transition, type Effect, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
 
 /** What the Mediator's effects reach: the server's API and this browser's storage, or a test's stand-in. */
 export interface EffectPorts {
@@ -50,6 +50,12 @@ export interface EffectPorts {
   dropIn(alert: { machineId: string; machineName: string | null; pane: HerdrPane; alert: DropletKind }): void;
   /** the tab's own alert; `open` selects the pane when it is tapped */
   notifyPane(alert: { machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" }, open: () => void): void;
+  loadAgentKinds(machineId: string): Promise<AgentKind[]>;
+  /** the agent chosen last for a new session on this device */
+  rememberedAgent(): string;
+  rememberAgent(agentKind: string): void;
+  /** "invalid-cwd": the folder is not there */
+  createSession(machineId: string, request: SessionRequest): Promise<WorkspaceCreated | "invalid-cwd">;
   /** keeps the lens chosen in a pane on this device */
   storeLens(storageId: string, view: PaneView): void;
   /** keeps the selected pane for this window's next load */
@@ -203,6 +209,21 @@ export class Mediator {
         return;
       case "notify-pane":
         this.ports.notifyPane(effect, () => this.dispatch({ type: "select-pane", machineId: effect.machineId, paneId: effect.pane.pane_id }));
+        return;
+      case "load-agents":
+        try { this.dispatch({ type: "new-session-agents", agents: await this.ports.loadAgentKinds(effect.machineId), remembered: this.ports.rememberedAgent(), seq: effect.seq }); }
+        catch (error) { this.dispatch({ type: "new-session-agents-failed", message: message(error), seq: effect.seq }); }
+        return;
+      case "remember-agent":
+        this.ports.rememberAgent(effect.agentKind);
+        return;
+      case "create-session":
+        try {
+          const created = await this.ports.createSession(effect.machineId, effect.request);
+          if (created === "invalid-cwd") { this.dispatch({ type: "new-session-failed", message: "", invalidCwd: true, seq: effect.seq }); return; }
+          const agentError = effect.request.agent !== null && !created.agent_started ? created.error?.message ?? null : null;
+          this.dispatch({ type: "new-session-created", paneId: created.pane_id, agentError, seq: effect.seq });
+        } catch (error) { this.dispatch({ type: "new-session-failed", message: message(error), invalidCwd: false, seq: effect.seq }); }
         return;
       case "store-lens":
         this.ports.storeLens(effect.storageId, effect.view);
