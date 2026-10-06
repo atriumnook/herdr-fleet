@@ -50,6 +50,9 @@ export interface EffectPorts {
   dropIn(alert: { machineId: string; machineName: string | null; pane: HerdrPane; alert: DropletKind }): void;
   /** the tab's own alert; `open` selects the pane when it is tapped */
   notifyPane(alert: { machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" }, open: () => void): void;
+  /** the access gate's pairing code and token: "refused" when the server does not take it */
+  gatePair(code: string): Promise<"ok" | "refused">;
+  gateAuthenticate(token: string): Promise<"ok" | "refused">;
   loadAgentKinds(machineId: string): Promise<AgentKind[]>;
   /** the panes opened last on a PC, newest first */
   loadRecent(machineId: string): string[];
@@ -214,9 +217,20 @@ export class Mediator {
         this.ports.notifyPane(effect, () => this.dispatch({ type: "select-pane", machineId: effect.machineId, paneId: effect.pane.pane_id }));
         return;
       case "load-agents":
-        try { this.dispatch({ type: "new-session-agents", agents: await this.ports.loadAgentKinds(effect.machineId), remembered: this.ports.rememberedAgent(), seq: effect.seq }); }
+        // the agent chosen last shows at once; the list only checks this PC still has it
+        this.dispatch({ type: "new-session-remembered", agentKind: this.ports.rememberedAgent(), seq: effect.seq });
+        try { this.dispatch({ type: "new-session-agents", agents: await this.ports.loadAgentKinds(effect.machineId), seq: effect.seq }); }
         catch (error) { this.dispatch({ type: "new-session-agents-failed", message: message(error), seq: effect.seq }); }
         return;
+      case "gate-pair":
+      case "gate-authenticate": {
+        const via = effect.kind === "gate-pair" ? "code" : "token";
+        try {
+          const answer = effect.kind === "gate-pair" ? await this.ports.gatePair(effect.code) : await this.ports.gateAuthenticate(effect.token);
+          this.dispatch(answer === "ok" ? { type: "gate-passed" } : { type: "gate-failed", via, unauthorized: true, message: "" });
+        } catch (error) { this.dispatch({ type: "gate-failed", via, unauthorized: false, message: message(error) }); }
+        return;
+      }
       case "load-recent":
         this.dispatch({ type: "palette-recent", machineId: effect.machineId, recent: this.ports.loadRecent(effect.machineId) });
         return;

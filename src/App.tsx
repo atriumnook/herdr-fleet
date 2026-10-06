@@ -4,7 +4,6 @@ import { Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, 
 import type { HerdrPane, ServerMessage } from "../shared/protocol.ts";
 import { displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
-import { AccessGate } from "./components/AccessGate.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import type { SettingsDialogEvent } from "./components/SettingsDialog.tsx";
 import { useInstallPrompt } from "./lib/install.ts";
@@ -30,6 +29,7 @@ import { needsCount } from "./ui/fleetView.ts";
 import { DevicesPanelPresenter } from "./ui/DevicesPanelPresenter.tsx";
 import { FleetPresenter } from "./ui/FleetPresenter.tsx";
 import { NewSessionPresenter } from "./ui/NewSessionPresenter.tsx";
+import { AccessGatePresenter } from "./ui/AccessGatePresenter.tsx";
 import { CommandPalettePresenter } from "./ui/CommandPalettePresenter.tsx";
 import { MachineSidebarPresenter } from "./ui/MachineSidebarPresenter.tsx";
 import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
@@ -100,8 +100,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   // null until the server has said whether it wants a token: the shell, and with it
   // the WebSocket, never mounts before that is known
   const locked = useSelected((state) => state.connection.locked);
-  const lockReason = useSelected((state) => state.connection.reason);
-  const pairCode = useSelected((state) => state.connection.pairCode);
   const auth = useSelected((state) => state.connection.auth);
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
   const snapshot = selectedMachine?.snapshot ?? null;
@@ -323,7 +321,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       </div>
     );
   }
-  if (locked) return <AccessGate reason={lockReason} initialCode={pairCode} onUnlocked={() => emit({ type: "unlocked" })} />;
+  if (locked) return <AccessGatePresenter emit={emit} />;
 
   return (
     <MachineContext.Provider value={selectedMachineId}><div className={`app${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>

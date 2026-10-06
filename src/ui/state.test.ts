@@ -742,13 +742,13 @@ describe("a new session", () => {
 
   it("takes the agent chosen last when this PC still has it", () => {
     const state = opened().state;
-    expect(play([{ type: "new-session-agents", agents: [claude], remembered: "claude", seq: 1 }], state).state.newSession).toMatchObject({ agentKind: "claude" });
-    expect(play([{ type: "new-session-agents", agents: [claude], remembered: "gone", seq: 1 }], state).state.newSession).toMatchObject({ agentKind: "" });
+    expect(play([{ type: "new-session-remembered", agentKind: "claude", seq: 1 }, { type: "new-session-agents", agents: [claude], seq: 1 }], state).state.newSession).toMatchObject({ agentKind: "claude" });
+    expect(play([{ type: "new-session-remembered", agentKind: "gone", seq: 1 }, { type: "new-session-agents", agents: [claude], seq: 1 }], state).state.newSession).toMatchObject({ agentKind: "" });
   });
 
   it("starts the session as typed, remembers the agent, and opens the pane it made", () => {
     const typed = play([
-      { type: "new-session-agents", agents: [claude], remembered: "", seq: 1 },
+      { type: "new-session-agents", agents: [claude], seq: 1 },
       { type: "edit-new-session", field: "agentKind", value: "claude" },
       { type: "edit-new-session", field: "name", value: " api " },
     ], opened().state).state;
@@ -783,7 +783,7 @@ describe("a new session", () => {
     const starting = play([{ type: "submit-new-session" }], opened().state).state;
     expect(play([{ type: "close-new-session" }], starting).state.newSession.open).toBe(true);
     const reopened = play([{ type: "close-new-session" }, { type: "open-new-session", machineId: "local", defaultCwd: null }], opened().state).state;
-    expect(transition(reopened, { type: "new-session-agents", agents: [claude], remembered: "claude", seq: 1 }).state).toBe(reopened);
+    expect(transition(reopened, { type: "new-session-agents", agents: [claude], seq: 1 }).state).toBe(reopened);
   });
 });
 
@@ -814,5 +814,85 @@ describe("the command palette", () => {
     expect(effects).toContainEqual({ kind: "remember-pane", machineId: "local", paneId: "w1:p2" });
     const same = play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }]).state;
     expect(kinds(play([{ type: "selection-confirmed" }], same).effects)).not.toContain("remember-pane");
+  });
+});
+
+describe("the access gate", () => {
+  const kinds = (effects: { kind: string }[]) => effects.map((effect) => effect.kind);
+  const lockedOut = (pairCode = "") => {
+    const booted = play([{ type: "boot", linkToken: null, pairCode }]).state;
+    return play([{ type: "access-loaded", auth: { required: true, authenticated: false, reason: "pairing_required" } }], booted);
+  };
+
+  it("pairs with a code typed in full, and lets this browser in once the server took it", () => {
+    const typed = play([{ type: "gate-edit", field: "code", value: "12a3 456" }], lockedOut().state).state;
+    expect(typed.gate.code).toBe("123456");
+    const pairing = play([{ type: "gate-pair" }], typed);
+    expect(pairing.state.gate.submitting).toBe("code");
+    expect(pairing.effects).toEqual([{ kind: "gate-pair", code: "123456" }]);
+    const inside = play([{ type: "gate-passed" }], pairing.state);
+    expect(inside.state.connection.locked).toBe(false);
+    expect(inside.state.gate).toMatchObject({ submitting: null, error: null });
+  });
+
+  it("sends nothing for a code short of six digits or an empty token", () => {
+    const state = play([{ type: "gate-edit", field: "code", value: "123" }], lockedOut().state).state;
+    expect(play([{ type: "gate-pair" }], state).effects).toEqual([]);
+    expect(play([{ type: "gate-unlock" }], state).effects).toEqual([]);
+  });
+
+  it("says a refused code or token in words, and lets it be tried again", () => {
+    const pairing = play([{ type: "gate-edit", field: "code", value: "123456" }, { type: "gate-pair" }], lockedOut().state).state;
+    const refused = play([{ type: "gate-failed", via: "code", unauthorized: true, message: "invalid_code" }], pairing).state;
+    expect(refused.gate).toMatchObject({ submitting: null, error: { kind: "refused", via: "code" } });
+    const unlocking = play([{ type: "gate-edit", field: "token", value: "secret" }, { type: "gate-unlock" }], refused);
+    expect(unlocking.effects).toEqual([{ kind: "gate-authenticate", token: "secret" }]);
+    expect(play([{ type: "gate-failed", via: "token", unauthorized: false, message: "offline" }], unlocking.state).state.gate.error).toEqual({ kind: "message", via: "token", message: "offline" });
+  });
+
+  it("pairs at once with the code a scanned QR brought, once", () => {
+    const { state, effects } = lockedOut("654321");
+    expect(state.gate.code).toBe("654321");
+    expect(effects).toContainEqual({ kind: "gate-pair", code: "654321" });
+    expect(kinds(play([{ type: "access-loaded", auth: { required: true, authenticated: false } }], state).effects)).not.toContain("gate-pair");
+  });
+});
+
+describe("after the review of the dialogs' move", () => {
+  const claude = { kind: "claude", label: "Claude Code" } as never;
+  const kinds = (effects: { kind: string }[]) => effects.map((effect) => effect.kind);
+
+  it("shows the pane a new session made, from the Fleet screen too", () => {
+    const starting = play([{ type: "show-screen", screen: "fleet" }, { type: "open-new-session", machineId: "local", defaultCwd: null }, { type: "submit-new-session" }]).state;
+    expect(play([{ type: "new-session-created", paneId: "w9:p1", agentError: null, seq: 1 }], starting).state.screen).toBe("pane");
+  });
+
+  it("leaves an open dialog as it is when asked to open again", () => {
+    const starting = play([{ type: "open-new-session", machineId: "local", defaultCwd: null }, { type: "submit-new-session" }]).state;
+    expect(transition(starting, { type: "open-new-session", machineId: "local", defaultCwd: null }).state).toBe(starting);
+  });
+
+  it("keeps the agent chosen last while the list loads or fails, and drops it only when this PC lacks it", () => {
+    const opened = play([{ type: "open-new-session", machineId: "local", defaultCwd: null }, { type: "new-session-remembered", agentKind: "claude", seq: 1 }]).state;
+    expect(opened.newSession).toMatchObject({ agentKind: "claude" });
+    expect(play([{ type: "new-session-agents-failed", message: "offline", seq: 1 }], opened).state.newSession).toMatchObject({ agentKind: "claude" });
+    expect(play([{ type: "new-session-agents", agents: [], seq: 1 }], opened).state.newSession).toMatchObject({ agentKind: "" });
+    // a choice made while the list loaded stays
+    const picked = play([{ type: "edit-new-session", field: "agentKind", value: "codex" }, { type: "new-session-agents", agents: [claude], seq: 1 }], opened).state;
+    expect(picked.newSession).toMatchObject({ agentKind: "codex" });
+  });
+
+  it("starts a fresh gate after the browser got in, and sends a scanned code only for the page that brought it", () => {
+    const booted = play([{ type: "boot", linkToken: null }]).state;
+    const typed = play([{ type: "access-loaded", auth: { required: true, authenticated: false } }, { type: "gate-edit", field: "code", value: "123456" }, { type: "gate-edit", field: "token", value: "secret" }, { type: "gate-pair" }, { type: "gate-passed" }], booted).state;
+    expect(typed.gate).toMatchObject({ code: "", token: "", submitting: null, error: null });
+    const lockedAgain = play([{ type: "access-loaded", auth: { required: true, authenticated: false } }], typed);
+    expect(kinds(lockedAgain.effects)).not.toContain("gate-pair");
+  });
+
+  it("closes the palette when the selection moves to another PC", () => {
+    const open = play([{ type: "open-palette" }]).state;
+    expect(play([{ type: "select-pane", machineId: "pc2", paneId: "w2:p1" }], open).state.palette).toEqual({ open: false });
+    expect(play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }], open).state.palette.open).toBe(true);
   });
 });
