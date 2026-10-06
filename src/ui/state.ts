@@ -52,8 +52,8 @@ export const REVOKE_CONFIRM_MS = 4000;
 export interface DevicesState {
   /** null until the server answered */
   list: PairedDevice[] | null;
-  /** the devices seen so far: one that appears while a code is out has just paired */
-  known: string[];
+  /** the devices seen so far, null until the first read: one that appears after it has just paired */
+  known: string[] | null;
   /** the server keeps no devices (the demo, or an older server) */
   unavailable: boolean;
   failure: { kind: "unavailable" } | { kind: "message"; message: string } | null;
@@ -69,7 +69,7 @@ export interface DevicesState {
   confirmSeq: number;
 }
 
-export const NO_DEVICES: DevicesState = { list: null, known: [], unavailable: false, failure: null, code: null, justPaired: null, renaming: null, confirming: null, pollSeq: 0, confirmSeq: 0 };
+export const NO_DEVICES: DevicesState = { list: null, known: null, unavailable: false, failure: null, code: null, justPaired: null, renaming: null, confirming: null, pollSeq: 0, confirmSeq: 0 };
 
 /** Settings → Alerts' test push: what came of the last one, on this device. */
 export type PushTest = "idle" | "sending" | "sent" | "unsupported" | "permission" | "missing" | "failed";
@@ -360,9 +360,9 @@ export function transition(state: UiState, event: UiEvent): Transition {
 function devicesTransition(devices: DevicesState, event: UiEvent, session: number, effects: Effect[]): DevicesState {
   switch (event.type) {
     case "devices-loaded": {
-      const fresh = event.devices.filter((device) => !devices.known.includes(device.id));
-      // as before the migration: a device counts as just paired only once some were known
-      const paired = devices.known.length > 0 || event.devices.length === 0 ? fresh.at(-1) : undefined;
+      // the first read is what was there already; after it, a device not seen before has just paired
+      const known = devices.known;
+      const paired = known === null ? undefined : event.devices.filter((device) => !known.includes(device.id)).at(-1);
       const code = paired ? null : devices.code;
       return { ...devices, list: event.devices, failure: null, known: event.devices.map((device) => device.id), justPaired: paired?.label ?? devices.justPaired, code };
     }
