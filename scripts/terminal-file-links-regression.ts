@@ -1,6 +1,6 @@
 import "./test-herdr.ts";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
@@ -8,7 +8,10 @@ import { createServer } from "../server/index.ts";
 import { paneSendText, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
 
 const cwd = process.cwd();
-const shortUri = "file:///etc/hosts";
+// the viewer opens only files in the pane's folder or the temp folder; a short name keeps the link on one row on a phone
+const linked = join(tmpdir(), `hfl-${process.pid}.txt`);
+writeFileSync(linked, "terminal file link regression\n");
+const shortUri = `file://${linked}`;
 const workspace = await workspaceCreate({ cwd, label: "herdr-fleet-test-file-links" });
 const pane = workspace.root_pane.pane_id;
 // its own state dir: the default is the user's real devices and push registry
@@ -31,7 +34,7 @@ try {
     await paneSendText(pane, `printf '\\033[2J\\033[HFILELINK ${shortUri}\\n'\r`);
     const row = page.locator(".xterm-rows > div", { hasText: /^FILELINK file:\/\// }).first();
     await row.waitFor();
-    await page.waitForFunction(() => document.querySelector(".xterm-rows")?.textContent?.includes("file:///etc/hosts"));
+    await page.waitForFunction((uri) => document.querySelector(".xterm-rows")?.textContent?.includes(uri), shortUri);
     const span = row.locator("span").filter({ hasText: "file://" }).first();
     const box = await span.boundingBox();
     assert.ok(box);
@@ -57,7 +60,7 @@ try {
     await page.locator(".file-viewer").waitFor();
     console.log(`VIEWER ${width}: ${await page.locator(".file-viewer").innerText()}`);
     await page.locator(".file-viewer-text").waitFor();
-    assert.match(await page.locator(".file-viewer-text").innerText(), /localhost/);
+    assert.match(await page.locator(".file-viewer-text").innerText(), /terminal file link regression/);
     if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: `${process.env.UI_EVIDENCE_DIR}/terminal-file-link-${width}.png` });
     console.log(`PASS terminal file click opens viewer at ${width}px`);
     if (width === 1280) {
@@ -96,6 +99,7 @@ try {
     } finally {
       await workspaceClose(workspace.workspace.workspace_id);
       rmSync(stateDir, { recursive: true, force: true });
+      rmSync(linked, { force: true });
     }
   }
 }
