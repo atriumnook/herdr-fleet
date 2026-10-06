@@ -141,6 +141,22 @@ try {
   await page.locator(".file-viewer-text").waitFor();
   assert.match(await page.locator(".file-viewer-text").innerText(), /File preview history regression/);
   console.log("PASS Chat plain file URI opens content through touch");
+
+  // Files: the pane's folder; a file opens above it, and Escape closes the topmost one first
+  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  await page.locator(".file-viewer").waitFor({ state: "hidden" });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.getByRole("button", { name: "Browse files", exact: true }).click();
+  const files = page.getByRole("dialog", { name: "Files", exact: true });
+  await files.getByRole("button", { name: /notes.txt/ }).click();
+  await notes.getByText("File preview history regression", { exact: true }).waitFor();
+  await page.keyboard.press("Escape");
+  await notes.waitFor({ state: "hidden" });
+  await files.waitFor();
+  await page.keyboard.press("Escape");
+  await files.waitFor({ state: "hidden" });
+  assert.deepEqual(errors, []);
+  console.log("PASS Files opens a file above it; Escape closes the viewer, then Files");
 } finally {
   await browser?.close();
   server?.stop();
