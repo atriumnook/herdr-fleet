@@ -62,6 +62,8 @@ export async function checkBackgroundTasks(browser: Browser, origin: string): Pr
 
     await page.keyboard.press("Escape");
     await list.waitFor({ state: "detached" });
+    // a read sent just before the close may reach the route a moment later
+    await Bun.sleep(300);
     const closedAt = reads;
     await Bun.sleep(3_500);
     assert.equal(reads, closedAt, "a closed list reads nothing");
@@ -69,7 +71,8 @@ export async function checkBackgroundTasks(browser: Browser, origin: string): Pr
     await toggle.click();
     await list.getByText("Index the repository").waitFor();
     assert.equal(await list.getByText("Write the summary").isVisible(), false, "reopened, what ended is folded again");
-    await page.mouse.click(5, 400);
+    // the connection status in the header: a press outside that does nothing else
+    await page.locator(".conn").click();
     await list.waitFor({ state: "detached" });
     console.log("PASS Escape and a press outside close the list, which stops reading");
 
@@ -88,6 +91,7 @@ export async function checkBackgroundTasks(browser: Browser, origin: string): Pr
     await list.getByText("Index the repository").waitFor();
     await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
     await toggle.waitFor({ state: "detached" });
+    await Bun.sleep(300);
     const leftAt = reads;
     await Bun.sleep(3_500);
     assert.equal(reads, leftAt, "a list whose composer went reads nothing");
