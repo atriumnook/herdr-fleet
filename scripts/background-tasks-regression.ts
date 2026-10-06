@@ -80,8 +80,22 @@ export async function checkBackgroundTasks(browser: Browser, origin: string): Pr
     assert.equal(await list.getByText("Index the repository").isVisible(), true, "a failed read keeps the list as it last read");
     await page.keyboard.press("Escape");
     await list.waitFor({ state: "detached" });
-    assert.deepEqual(errors, []);
     console.log("PASS a failed read keeps the background tasks as they last read");
+
+    // the list goes with the composer it is in: the terminal lens shows none, and reads nothing for it
+    failing = false;
+    await toggle.click();
+    await list.getByText("Index the repository").waitFor();
+    await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
+    await toggle.waitFor({ state: "detached" });
+    const leftAt = reads;
+    await Bun.sleep(3_500);
+    assert.equal(reads, leftAt, "a list whose composer went reads nothing");
+    await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
+    await toggle.waitFor();
+    assert.equal(await list.count(), 0, "back in the chat, the list starts closed");
+    assert.deepEqual(errors, []);
+    console.log("PASS the list closes and stops reading when its composer goes");
   } finally {
     await context.close();
     await workspaceClose(created.workspace.workspace_id);
