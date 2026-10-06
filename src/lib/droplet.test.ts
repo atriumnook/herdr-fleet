@@ -1,7 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { FLICK_WINDOW_MS, LONG_TURN_MS, dropletAllows, endedTurn, flickVelocity, trackTurn } from "./droplet.ts";
 
-
 describe("dropletAllows", () => {
   it("follows the device's choices, a finished turn's length included", () => {
     expect(dropletAllows({ input: true, done: "off" }, "blocked", null)).toBe(true);

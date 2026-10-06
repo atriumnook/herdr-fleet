@@ -641,8 +641,12 @@ describe("alerts", () => {
 
   it("drops nothing in for the pane open in front of the person, unless the drawer covers it", () => {
     const open = play([{ type: "select-pane", machineId: "local", paneId: "w1:p1" }], watching()).state;
-    expect(dropped(play([status("blocked")], open).state)).toBeNull();
-    expect(dropped(play([{ type: "drawer", open: true }, status("blocked")], open).state)).not.toBeNull();
+    const front = play([status("blocked")], open);
+    expect(kinds(front.effects)).toEqual(["notify-pane"]);
+    expect(dropped(front.state)).toBeNull();
+    const covered = play([{ type: "drawer", open: true }, status("blocked")], open);
+    expect(kinds(covered.effects)).toEqual(["later", "notify-pane"]);
+    expect(dropped(covered.state)).not.toBeNull();
   });
 
   it("says nothing of a status that is no news, nor with alerts off", () => {
@@ -659,7 +663,9 @@ describe("alerts", () => {
     const quick = play([status("done", 10_000)], working);
     expect(kinds(quick.effects)).toEqual(["notify-pane"]);
     expect(dropped(quick.state)).toBeNull();
-    expect(dropped(play([status("done", 120_000)], working).state)).toMatchObject({ kind: "done" });
+    const long = play([status("done", 120_000)], working);
+    expect(kinds(long.effects)).toEqual(["later", "notify-pane"]);
+    expect(dropped(long.state)).toMatchObject({ kind: "done" });
   });
 
   it("asks for the permission, turns alerts on, subscribes and confirms with a push", () => {
