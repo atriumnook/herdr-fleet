@@ -1187,7 +1187,7 @@ export function PaneTerminal({
   const keyBarEmit = useCallback((event: KeyBarEvent) => {
     if (event.type === "key-bar-key") pressKey(event.key);
     else if (event.type === "toggle-ctrl") toggleCtrl();
-    else toggleDirect();
+    else if (event.type === "toggle-direct") toggleDirect();
   }, [pressKey, toggleCtrl, toggleDirect]);
 
   // the input line keeps a tapped grid from raising the keyboard; typing straight into it gives it
