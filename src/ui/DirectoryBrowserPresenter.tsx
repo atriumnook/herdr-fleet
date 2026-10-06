@@ -1,9 +1,12 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { DirectoryBrowser, type DirectoryBrowserEvent } from "../components/DirectoryBrowser.tsx";
 import { useMachineId } from "../lib/machineContext.tsx";
 import type { Emit } from "./bubble.ts";
 import type { FolderSlot, UiEvent } from "./state.ts";
 import { useSelected } from "./presenter.ts";
+
+/** browsers mounted so far: each one's own number */
+let mounted = 0;
 
 export type FolderBrowserUpEvent = Extract<UiEvent, { type: "open-folders" | "close-folders" | "browse-folder" | "show-hidden-folders" }>;
 
@@ -26,16 +29,19 @@ export interface DirectoryBrowserPresenterProps {
  */
 export function DirectoryBrowserPresenter({ slot, start, onPick, onOpenFile, emit }: DirectoryBrowserPresenterProps) {
   const machineId = useMachineId();
-  const browser = useSelected((state) => state.folders.open[slot]);
+  const [owner] = useState(() => ++mounted);
+  // the slot shows this browser's folder only: the one before it may still hold it for a frame
+  const held = useSelected((state) => state.folders.open[slot]);
+  const browser = held?.owner === owner ? held : undefined;
   const files = onOpenFile !== undefined;
   const opening = useRef({ machineId, start, files, emit });
   opening.current = { machineId, start, files, emit };
   // what it opens at is the start it mounted with: a change of the typed path while it is open does not move it
   useEffect(() => {
     const { machineId: at, start: from, files: withFiles, emit: up } = opening.current;
-    up({ type: "open-folders", slot, machineId: at, start: from, files: withFiles });
+    up({ type: "open-folders", slot, owner, machineId: at, start: from, files: withFiles });
     return () => opening.current.emit({ type: "close-folders", slot });
-  }, [slot]);
+  }, [slot, owner]);
   const up = (event: DirectoryBrowserEvent): void => {
     if (event.type === "pick-folder") onPick?.(event.path);
     else if (event.type === "open-folder-file") onOpenFile?.(event.path);

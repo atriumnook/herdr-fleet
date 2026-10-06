@@ -1202,11 +1202,11 @@ describe("the background tasks list", () => {
 
 describe("the folder browser", () => {
   const listing = (path: string, extra: Partial<DirectoryListing> = {}): DirectoryListing => ({ path, home: "/home/me", parent: path === "/" ? null : path.replace(/\/[^/]+$/, "") || "/", directories: ["a"], truncated: false, ...extra });
-  const opened = play([{ type: "open-folders", slot: "new-session", machineId: "pc2", start: "/w/half", files: false }]);
+  const opened = play([{ type: "open-folders", slot: "new-session", owner: 1, machineId: "pc2", start: "/w/half", files: false }]);
   const seqOf = (state: UiState) => state.folders.open["new-session"]!.seq;
 
   it("lists the folder it opens at, on its PC, folders only unless files are asked for", () => {
-    expect(opened.state.folders.open["new-session"]).toMatchObject({ machineId: "pc2", files: false, listing: null, hidden: false, loading: true, error: null });
+    expect(opened.state.folders.open["new-session"]).toMatchObject({ owner: 1, machineId: "pc2", files: false, listing: null, hidden: false, loading: true, error: null });
     expect(opened.effects).toEqual([{ kind: "list-folders", slot: "new-session", machineId: "pc2", path: "/w/half", hidden: false, files: false, seq: seqOf(opened.state) }]);
     const listed = play([{ type: "folders-listed", slot: "new-session", seq: seqOf(opened.state), listing: listing("/w") }], opened.state).state;
     expect(listed.folders.open["new-session"]).toMatchObject({ listing: listing("/w"), loading: false, error: null });
@@ -1250,8 +1250,15 @@ describe("the folder browser", () => {
     expect(state.folders.open["new-session"]?.hidden).toBe(true);
   });
 
-  it("keeps each browser apart, and forgets one that closes", () => {
-    const both = play([{ type: "open-folders", slot: "viewer", machineId: "local", start: "/w/src", files: true }], opened.state).state;
+  it("starts a browser taking the slot empty, on its own read: the one before's answer is too late", () => {
+    const listed = play([{ type: "folders-listed", slot: "new-session", seq: seqOf(opened.state), listing: listing("/w") }], opened.state).state;
+    const next = play([{ type: "close-folders", slot: "new-session" }, { type: "open-folders", slot: "new-session", owner: 2, machineId: "pc2", start: "/w/a", files: false }], listed).state;
+    expect(next.folders.open["new-session"]).toMatchObject({ owner: 2, listing: null, loading: true });
+    expect(play([{ type: "folders-listed", slot: "new-session", seq: seqOf(listed), listing: listing("/w") }], next).state.folders.open["new-session"]?.listing).toBeNull();
+  });
+
+    it("keeps each browser apart, and forgets one that closes", () => {
+    const both = play([{ type: "open-folders", slot: "viewer", owner: 1, machineId: "local", start: "/w/src", files: true }], opened.state).state;
     expect(Object.keys(both.folders.open).sort()).toEqual(["new-session", "viewer"]);
     const closed = play([{ type: "close-folders", slot: "new-session" }], both).state;
     expect(closed.folders.open["new-session"]).toBeUndefined();

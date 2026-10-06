@@ -293,6 +293,8 @@ export type FolderFailure = "unsupported" | "invalid" | "failed";
 
 /** One folder browser: the folder shown now, read from its PC; nothing else is kept. */
 export interface FolderBrowserState {
+  /** the browser it is: one that takes the slot after it starts empty, not on this one's folder */
+  owner: number;
   machineId: string;
   /** lists files too (Files, the viewer), not only folders */
   files: boolean;
@@ -463,7 +465,7 @@ export type UiEvent =
   | { type: "droplet-gone"; seq: number }
   | { type: "motion-preference"; reduced: boolean }
   /** `start`: the path typed so far (absolute, `~` or `~/…`); empty opens home */
-  | { type: "open-folders"; slot: FolderSlot; machineId: string; start: string; files: boolean }
+  | { type: "open-folders"; slot: FolderSlot; owner: number; machineId: string; start: string; files: boolean }
   | { type: "close-folders"; slot: FolderSlot }
   /** into a folder, up to its parent, or home ("") */
   | { type: "browse-folder"; slot: FolderSlot; path: string }
@@ -1468,7 +1470,7 @@ function foldersTransition(folders: FoldersState, event: FoldersEvent, effects: 
     return put(next, seq);
   };
   if (event.type === "open-folders") {
-    return read({ machineId: event.machineId, files: event.files, listing: null, hidden: false, loading: true, error: null, homeIfInvalid: true, seq: 0 }, event.start);
+    return read({ owner: event.owner, machineId: event.machineId, files: event.files, listing: null, hidden: false, loading: true, error: null, homeIfInvalid: true, seq: 0 }, event.start);
   }
   if (browser === undefined) return folders;
   switch (event.type) {

@@ -269,14 +269,14 @@ describe("Mediator", () => {
 
   it("lists a folder browser's folder, and names why one was not listed", async () => {
     const mediator = new Mediator(ports().ports);
-    mediator.dispatch({ type: "open-folders", slot: "files", machineId: "local", start: "/w", files: true });
+    mediator.dispatch({ type: "open-folders", slot: "files", owner: 1, machineId: "local", start: "/w", files: true });
     await until(() => mediator.getState().folders.open.files?.listing !== null);
     expect(mediator.getState().folders.open.files?.listing?.path).toBe("/w");
     const old = new Mediator(ports({ listFolders: async () => ({ failure: "unsupported" }) }).ports);
-    old.dispatch({ type: "open-folders", slot: "files", machineId: "pc2", start: "/w", files: true });
+    old.dispatch({ type: "open-folders", slot: "files", owner: 1, machineId: "pc2", start: "/w", files: true });
     await until(() => old.getState().folders.open.files?.error === "unsupported");
     const failing = new Mediator(ports({ listFolders: async () => { throw new Error("500"); } }).ports);
-    failing.dispatch({ type: "open-folders", slot: "files", machineId: "local", start: "/w", files: true });
+    failing.dispatch({ type: "open-folders", slot: "files", owner: 1, machineId: "local", start: "/w", files: true });
     await until(() => failing.getState().folders.open.files?.error === "failed");
   });
 });
