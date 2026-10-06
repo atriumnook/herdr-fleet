@@ -868,8 +868,37 @@ try {
   await securedPage.getByRole("button", { name: "Sign out", exact: true }).click();
   await securedPage.getByTestId("token-gate").waitFor();
   assert.equal((await securedContext.request.get(`${securedOrigin}/api/session`)).status(), 401);
-  await securedContext.close();
   console.log("PASS token and paired-device sign out return to the access gate");
+
+  // the gate: a wrong token or code is said so; the right one lets the browser in
+  const gate = securedPage.getByTestId("token-gate");
+  const signedIn = securedPage.getByRole("button", { name: "Sign out", exact: true });
+  await gate.getByText("Have an access token instead?", { exact: true }).click();
+  await gate.getByLabel("Access token", { exact: true }).fill("not-the-token");
+  await gate.getByRole("button", { name: "Unlock", exact: true }).click();
+  await gate.getByText("Token does not match.", { exact: true }).waitFor();
+  await gate.getByLabel("Access token", { exact: true }).fill("browser-test-token");
+  await gate.getByRole("button", { name: "Unlock", exact: true }).click();
+  await signedIn.waitFor();
+  await signedIn.click();
+  await gate.waitFor();
+  const newCode = async (): Promise<string> => (await (await securedContext.request.post(`${securedOrigin}/api/devices/pair/start`, { headers: { authorization: "Bearer browser-test-token", "x-herdr-machine": "1" } })).json()).code;
+  const issued = await newCode();
+  const wrong = issued === "000000" ? "111111" : "000000";
+  await gate.getByLabel("Pairing code", { exact: true }).fill(wrong);
+  await gate.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await gate.getByText("That code is wrong, used up or expired. Start a new pairing on the PC.", { exact: true }).waitFor();
+  // a code is spent after five wrong tries: one more is fine
+  await gate.getByLabel("Pairing code", { exact: true }).fill(issued);
+  await gate.getByRole("button", { name: "Pair this device", exact: true }).click();
+  await signedIn.waitFor();
+  await signedIn.click();
+  await gate.waitFor();
+  // a scanned QR's address carries the code: the gate pairs with it at once
+  await securedPage.goto(`${securedOrigin}/?pair=${await newCode()}`);
+  await signedIn.waitFor();
+  await securedContext.close();
+  console.log("PASS the access gate: a wrong token or code is refused in words, the right one, typed or scanned, lets the browser in");
 } finally {
   for (const release of releases) release();
   await browser?.close();
