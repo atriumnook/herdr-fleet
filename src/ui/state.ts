@@ -191,6 +191,8 @@ export type NewSessionState =
     agents: AgentKind[];
     /** "" starts a shell */
     agentKind: string;
+    /** the agent was picked in this opening: the list arriving leaves it */
+    agentPicked: boolean;
     cwd: string;
     name: string;
     status: "editing" | "starting";
@@ -332,8 +334,9 @@ export type UiEvent =
   | { type: "close-new-session" }
   | { type: "edit-new-session"; field: "agentKind" | "cwd" | "name"; value: string }
   | { type: "submit-new-session" }
-  /** `remembered`: the agent chosen last on this device */
-  | { type: "new-session-agents"; agents: AgentKind[]; remembered: string; seq: number }
+  /** the agent chosen last on this device, at once on opening */
+  | { type: "new-session-remembered"; agentKind: string; seq: number }
+  | { type: "new-session-agents"; agents: AgentKind[]; seq: number }
   | { type: "new-session-agents-failed"; message: string; seq: number }
   /** `agentError`: why the agent asked for did not start; the pane exists all the same */
   | { type: "new-session-created"; paneId: string; agentError: string | null; seq: number }
@@ -477,7 +480,7 @@ export const INITIAL_STATE: UiState = {
   drawerOpen: false,
   newSession: { open: false },
   palette: { open: false },
-  gate: { code: "", token: "", submitting: null, error: null, scannedSent: false },
+  gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
 
@@ -527,6 +530,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "close-new-session":
     case "edit-new-session":
     case "submit-new-session":
+    case "new-session-remembered":
     case "new-session-agents":
     case "new-session-agents-failed":
     case "new-session-created":
@@ -556,7 +560,8 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       effects.push({ kind: "gate-authenticate", token: state.gate.token });
       return next({ gate: { ...state.gate, submitting: "token", error: null } });
     case "gate-passed": {
-      const passed = { ...state, gate: { ...state.gate, submitting: null, error: null } };
+      // in: the next time the gate shows it starts empty, and has no scanned code to send
+      const passed = { ...state, gate: { ...INITIAL_STATE.gate, scannedSent: true } };
       return connectionTransition(passed, { type: "unlocked" }, effects);
     }
     case "gate-failed":
@@ -914,7 +919,9 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
   };
   switch (event.type) {
     case "boot": {
-      const booted = { ...state, gate: { ...state.gate, code: event.pairCode ?? "" }, connection: { ...connection, pairCode: event.pairCode ?? "", visible: event.visible ?? connection.visible }, alerts: event.alerts ? { ...state.alerts, ...event.alerts } : state.alerts };
+      const pairCode = event.pairCode ?? "";
+      // a scanned QR's code is sent once, by the gate this page shows first
+      const booted = { ...state, gate: { ...state.gate, code: pairCode, scannedSent: pairCode.length !== 6 }, connection: { ...connection, pairCode: event.pairCode ?? "", visible: event.visible ?? connection.visible }, alerts: event.alerts ? { ...state.alerts, ...event.alerts } : state.alerts };
       if (event.linkToken === null) return connectionTransition(booted, { type: "authentication-failed", reason: "boot" }, effects);
       effects.push({ kind: "authenticate", token: event.linkToken, reason: "boot" });
       return { state: booted, effects };
@@ -1077,10 +1084,12 @@ function followUp(before: UiState, step: Transition): Transition {
   if (before.connection.locked !== false && state.connection.locked === false) effects.push({ kind: "open-stream" });
   if (before.connection.locked === false && state.connection.locked !== false) effects.push({ kind: "close-stream" });
   // a scanned QR code brings its code along: the gate sends it at once, no typing on the phone
-  if (state.connection.locked === true && before.connection.locked !== true && state.gate.code.length === 6 && !state.gate.scannedSent && state.gate.submitting === null) {
+  if (state.connection.locked === true && before.connection.locked !== true && !state.gate.scannedSent && state.gate.submitting === null) {
     effects.push({ kind: "gate-pair", code: state.gate.code });
     state = { ...state, gate: { ...state.gate, scannedSent: true, submitting: "code" } };
   }
+  // the palette lists the selected PC's panes: another PC's selection takes it down
+  if (state.palette.open && state.selection.machineId !== before.selection.machineId) state = { ...state, palette: { open: false } };
   // the panes opened last, as the palette offers them: each one selected, however it was picked
   if (state.selection.paneId !== null && (state.selection.paneId !== before.selection.paneId || state.selection.machineId !== before.selection.machineId)) {
     effects.push({ kind: "remember-pane", machineId: state.selection.machineId, paneId: state.selection.paneId });
@@ -1113,25 +1122,27 @@ function followUp(before: UiState, step: Transition): Transition {
   return state === step.state && effects.length === step.effects.length ? step : { state, effects };
 }
 
-type NewSessionEvent = Extract<UiEvent, { type: "open-new-session" | "close-new-session" | "edit-new-session" | "submit-new-session" | "new-session-agents" | "new-session-agents-failed" | "new-session-created" | "new-session-failed" }>;
+type NewSessionEvent = Extract<UiEvent, { type: "open-new-session" | "close-new-session" | "edit-new-session" | "submit-new-session" | "new-session-remembered" | "new-session-agents" | "new-session-agents-failed" | "new-session-created" | "new-session-failed" }>;
 
 function newSessionTransition(state: UiState, event: NewSessionEvent, effects: Effect[]): Transition {
   // an event that changes nothing keeps the state object itself
   const next = (patch: Partial<UiState>): Transition => ({ state: Object.keys(patch).length === 0 ? state : { ...state, ...patch }, effects });
   if (event.type === "open-new-session") {
+    // an open dialog stays as it is: what is typed, and a start under way
+    if (state.newSession.open && (state.newSession.status === "starting" || state.newSession.machineId === event.machineId)) return next({});
     const seq = state.newSessionSeq + 1;
     effects.push({ kind: "load-agents", machineId: event.machineId, seq });
     return next({
       newSessionSeq: seq,
       drawerOpen: false,
-      newSession: { open: true, machineId: event.machineId, seq, agents: [], agentKind: "", cwd: event.defaultCwd ?? "", name: "", status: "editing", error: null, createdPaneId: null },
+      newSession: { open: true, machineId: event.machineId, seq, agents: [], agentKind: "", agentPicked: false, cwd: event.defaultCwd ?? "", name: "", status: "editing", error: null, createdPaneId: null },
     });
   }
   const dialog = state.newSession;
   if (!dialog.open || ("seq" in event && event.seq !== dialog.seq)) return next({});
   /** the session it started is open: its pane selected, the dialog gone, the PCs read again */
   const opened = (paneId: string): Transition => {
-    const picked = { ...state, ...pick(state, dialog.machineId, paneId, effects), newSession: { open: false } as const };
+    const picked = { ...state, screen: "pane" as const, detail: null, ...pick(state, dialog.machineId, paneId, effects), newSession: { open: false } as const };
     return connectionTransition(picked, { type: "reload-machines" }, effects);
   };
   switch (event.type) {
@@ -1139,7 +1150,7 @@ function newSessionTransition(state: UiState, event: NewSessionEvent, effects: E
       return next(dialog.status === "starting" ? {} : { newSession: { open: false } });
     case "edit-new-session":
       if (dialog.status === "starting" || dialog.createdPaneId !== null) return next({});
-      return next({ newSession: { ...dialog, [event.field]: event.value } });
+      return next({ newSession: { ...dialog, [event.field]: event.value, agentPicked: dialog.agentPicked || event.field === "agentKind" } });
     case "submit-new-session": {
       if (dialog.status === "starting") return next({});
       if (dialog.createdPaneId !== null) return opened(dialog.createdPaneId);
@@ -1149,8 +1160,13 @@ function newSessionTransition(state: UiState, event: NewSessionEvent, effects: E
       );
       return next({ newSession: { ...dialog, status: "starting", error: null } });
     }
-    case "new-session-agents":
-      return next({ newSession: { ...dialog, agents: event.agents, agentKind: event.agents.some((agent) => agent.kind === event.remembered) ? event.remembered : "" } });
+    case "new-session-remembered":
+      return next(dialog.agentPicked ? {} : { newSession: { ...dialog, agentKind: event.agentKind } });
+    case "new-session-agents": {
+      // the agent chosen last goes when this PC no longer has it; one picked here stays
+      const kept = dialog.agentPicked || dialog.agentKind === "" || event.agents.some((agent) => agent.kind === dialog.agentKind);
+      return next({ newSession: { ...dialog, agents: event.agents, agentKind: kept ? dialog.agentKind : "" } });
+    }
     case "new-session-agents-failed":
       return next({ newSession: { ...dialog, error: { kind: "message", message: event.message } } });
     case "new-session-created":

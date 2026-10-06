@@ -205,4 +205,10 @@ describe("Mediator", () => {
     await until(() => { const dialog = missing.getState().newSession; return dialog.open && dialog.error !== null; });
     expect(missing.getState().newSession).toMatchObject({ error: { kind: "invalid-cwd" }, status: "editing" });
   });
+
+  it("shows the panes opened last as the palette opens, not a frame later", () => {
+    const mediator = new Mediator(ports({ loadRecent: () => ["w1:p2", "w1:p1"] }).ports);
+    mediator.dispatch({ type: "open-palette" });
+    expect(mediator.getState().palette).toMatchObject({ open: true, recent: ["w1:p2", "w1:p1"] });
+  });
 });

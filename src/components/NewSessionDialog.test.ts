@@ -6,7 +6,7 @@ import { NewSessionDialog, type NewSessionModel } from "./NewSessionDialog.tsx";
 
 const model = (extra: Partial<NewSessionModel> = {}): NewSessionModel => ({
   open: true, machineId: "local", machineName: "omarchy", seq: 1, agents: [{ kind: "claude", label: "Claude Code" }] as never,
-  agentKind: "claude", cwd: "/w/api", name: "", status: "editing", error: null, createdPaneId: null, ...extra,
+  agentKind: "claude", agentPicked: false, cwd: "/w/api", name: "", status: "editing", error: null, createdPaneId: null, ...extra,
 });
 
 /** English, as under the app's own provider with an English browser */

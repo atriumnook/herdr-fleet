@@ -217,7 +217,9 @@ export class Mediator {
         this.ports.notifyPane(effect, () => this.dispatch({ type: "select-pane", machineId: effect.machineId, paneId: effect.pane.pane_id }));
         return;
       case "load-agents":
-        try { this.dispatch({ type: "new-session-agents", agents: await this.ports.loadAgentKinds(effect.machineId), remembered: this.ports.rememberedAgent(), seq: effect.seq }); }
+        // the agent chosen last shows at once; the list only checks this PC still has it
+        this.dispatch({ type: "new-session-remembered", agentKind: this.ports.rememberedAgent(), seq: effect.seq });
+        try { this.dispatch({ type: "new-session-agents", agents: await this.ports.loadAgentKinds(effect.machineId), seq: effect.seq }); }
         catch (error) { this.dispatch({ type: "new-session-agents-failed", message: message(error), seq: effect.seq }); }
         return;
       case "gate-pair":
