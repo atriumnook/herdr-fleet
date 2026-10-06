@@ -78,6 +78,12 @@ const FLEET_PORTS: EffectPorts = {
     throw error;
   }),
   loadBackgroundTasks: (machineId, paneId) => fetchPaneOmoActivity(paneId, machineId),
+  // a bridge from before folder browsing has no such route (404)
+  listFolders: (machineId, path, hidden, files) => fetchDirectories(path, hidden, machineId, files).catch((error: unknown) => {
+    if (error instanceof ApiError && error.status === 404) return { failure: "unsupported" as const };
+    if (error instanceof ApiError && error.code === "invalid_cwd") return { failure: "invalid" as const };
+    throw error;
+  }),
   showPreview,
   leavePreview,
   loadFileInfo: (machineId, path, paneId) => fetchFileInfo(path, paneId, machineId).then(

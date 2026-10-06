@@ -1,7 +1,7 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { alertsAllow, shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, FileInfo, HerdrPane, OmoRun, OmoTask, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, DirectoryListing, FileInfo, HerdrPane, OmoRun, OmoTask, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
@@ -285,6 +285,34 @@ export interface BackgroundTasksState {
   seq: number;
 }
 
+/** Where a folder browser shows: the new session dialog, Files, and a folder opened in the file viewer (above Files). */
+export type FolderSlot = "new-session" | "files" | "viewer";
+
+/** Why a folder was not listed: a bridge too old to browse, a folder that cannot be opened, or anything else. */
+export type FolderFailure = "unsupported" | "invalid" | "failed";
+
+/** One folder browser: the folder shown now, read from its PC; nothing else is kept. */
+export interface FolderBrowserState {
+  machineId: string;
+  /** lists files too (Files, the viewer), not only folders */
+  files: boolean;
+  listing: DirectoryListing | null;
+  hidden: boolean;
+  loading: boolean;
+  error: FolderFailure | null;
+  /** the folder it opened at was typed half-way: one that cannot be opened opens home instead */
+  homeIfInvalid: boolean;
+  /** the read that counts: a later one makes an earlier one's answer too late */
+  seq: number;
+}
+
+/** The folder browsers open, by where they show. */
+export interface FoldersState {
+  open: Partial<Record<FolderSlot, FolderBrowserState>>;
+  /** reads so far, across browsers */
+  seq: number;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -319,6 +347,7 @@ export interface UiState {
   files: FilesState;
   droplet: DropletState;
   backgroundTasks: BackgroundTasksState;
+  folders: FoldersState;
   gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
@@ -433,6 +462,14 @@ export type UiEvent =
   /** it folded away */
   | { type: "droplet-gone"; seq: number }
   | { type: "motion-preference"; reduced: boolean }
+  /** `start`: the path typed so far (absolute, `~` or `~/…`); empty opens home */
+  | { type: "open-folders"; slot: FolderSlot; machineId: string; start: string; files: boolean }
+  | { type: "close-folders"; slot: FolderSlot }
+  /** into a folder, up to its parent, or home ("") */
+  | { type: "browse-folder"; slot: FolderSlot; path: string }
+  | { type: "show-hidden-folders"; slot: FolderSlot; hidden: boolean }
+  | { type: "folders-listed"; slot: FolderSlot; seq: number; listing: DirectoryListing }
+  | { type: "folders-failed"; slot: FolderSlot; seq: number; reason: FolderFailure }
   | { type: "open-background-tasks"; machineId: string; paneId: string }
   /** the list closed, or the composer it is in went (another pane, another lens) */
   | { type: "close-background-tasks"; machineId: string; paneId: string }
@@ -562,6 +599,8 @@ export type Effect =
   | { kind: "history-preview"; preview: FilePreview; replace: boolean }
   | { kind: "history-back" }
   | { kind: "load-background-tasks"; machineId: string; paneId: string; seq: number }
+  /** `path` "" is home */
+  | { kind: "list-folders"; slot: FolderSlot; machineId: string; path: string; hidden: boolean; files: boolean; seq: number }
   | { kind: "load-file"; machineId: string; paneId: string | null; path: string; seq: number }
   | { kind: "load-file-text"; machineId: string; paneId: string | null; path: string; seq: number }
   | { kind: "list-folder"; machineId: string; paneId: string | null; path: string; seq: number }
@@ -596,6 +635,7 @@ export const INITIAL_STATE: UiState = {
   files: { dialog: false, viewer: null, seq: 0 },
   droplet: { shown: null, phase: "in", next: null, lastShown: {}, count: 0, timerSeq: 0, reducedMotion: false },
   backgroundTasks: { open: null, activity: null, failed: false, seq: 0 },
+  folders: { open: {}, seq: 0 },
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
@@ -672,6 +712,13 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "droplet-gone":
     case "motion-preference":
       return dropletTransition(state, event, effects);
+    case "open-folders":
+    case "close-folders":
+    case "browse-folder":
+    case "show-hidden-folders":
+    case "folders-listed":
+    case "folders-failed":
+      return next({ folders: foldersTransition(state.folders, event, effects) });
     case "open-background-tasks":
     case "close-background-tasks":
     case "poll-background-tasks":
@@ -1402,6 +1449,46 @@ function readFile(state: UiState, effects: Effect[], now = true): UiState {
   const seq = state.files.seq + 1;
   if (now) effects.push({ kind: "load-file", machineId: viewer.preview.machineId, paneId: viewer.preview.paneId, path: viewer.path, seq });
   return { ...state, files: { ...state.files, seq, viewer: { ...viewer, content: { kind: "opening" } } } };
+}
+
+type FoldersEvent = Extract<UiEvent, { type: "open-folders" | "close-folders" | "browse-folder" | "show-hidden-folders" | "folders-listed" | "folders-failed" }>;
+
+function foldersTransition(folders: FoldersState, event: FoldersEvent, effects: Effect[]): FoldersState {
+  const { slot } = event;
+  const browser = folders.open[slot];
+  const put = (next: FolderBrowserState | undefined, seq = folders.seq): FoldersState => {
+    const { [slot]: _gone, ...rest } = folders.open;
+    return { open: next === undefined ? rest : { ...rest, [slot]: next }, seq };
+  };
+  /** the browser reads `path`, the newest read counting */
+  const read = (from: FolderBrowserState, path: string, patch: Partial<FolderBrowserState> = {}): FoldersState => {
+    const seq = folders.seq + 1;
+    const next = { ...from, ...patch, loading: true, seq };
+    effects.push({ kind: "list-folders", slot, machineId: next.machineId, path, hidden: next.hidden, files: next.files, seq });
+    return put(next, seq);
+  };
+  if (event.type === "open-folders") {
+    return read({ machineId: event.machineId, files: event.files, listing: null, hidden: false, loading: true, error: null, homeIfInvalid: true, seq: 0 }, event.start);
+  }
+  if (browser === undefined) return folders;
+  switch (event.type) {
+    case "close-folders":
+      return put(undefined);
+    case "browse-folder":
+      return read(browser, event.path, { homeIfInvalid: false });
+    case "show-hidden-folders":
+      // with nothing listed yet, the read under way lists it; the choice holds for the next
+      if (browser.listing === null) return put({ ...browser, hidden: event.hidden, homeIfInvalid: false });
+      return read(browser, browser.listing.path, { hidden: event.hidden, homeIfInvalid: false });
+    case "folders-listed":
+      if (event.seq !== browser.seq) return folders;
+      return put({ ...browser, listing: event.listing, error: null, loading: false, homeIfInvalid: false });
+    case "folders-failed":
+      if (event.seq !== browser.seq) return folders;
+      // a path typed half-way opens home instead of an error
+      if (browser.homeIfInvalid && event.reason === "invalid") return read(browser, "", { homeIfInvalid: false });
+      return put({ ...browser, error: event.reason, loading: false, homeIfInvalid: false });
+  }
 }
 
 type BackgroundTasksListEvent = Extract<UiEvent, { type: "open-background-tasks" | "close-background-tasks" | "poll-background-tasks" | "background-tasks-read" | "background-tasks-failed" }>;

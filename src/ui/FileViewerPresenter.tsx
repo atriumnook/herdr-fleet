@@ -1,12 +1,12 @@
-import { DirectoryBrowser } from "../components/DirectoryBrowser.tsx";
 import { FileViewer, type FileViewerEvent } from "../components/FileViewer.tsx";
 import { fileUrl } from "../lib/api.ts";
 import { MachineContext } from "../lib/machineContext.tsx";
 import type { Emit } from "./bubble.ts";
+import { DirectoryBrowserPresenter, type FolderBrowserUpEvent } from "./DirectoryBrowserPresenter.tsx";
 import { useSelected } from "./presenter.ts";
 
 /** The file viewer's Presenter: its region, and where its PC serves the file. Draws nothing while no file is open. */
-export function FileViewerPresenter({ emit }: { emit: Emit<FileViewerEvent> }) {
+export function FileViewerPresenter({ emit }: { emit: Emit<FileViewerEvent | FolderBrowserUpEvent> }) {
   const viewer = useSelected((state) => state.files.viewer);
   if (viewer === null) return null;
   const { path, content, preview: { paneId, machineId } } = viewer;
@@ -16,7 +16,7 @@ export function FileViewerPresenter({ emit }: { emit: Emit<FileViewerEvent> }) {
   // each file its entry keeps is a viewer of its own (scrolled to its top); the folder browser reads the viewer's PC
   return (
     <MachineContext.Provider value={machineId}>
-      <FileViewer key={viewer.preview.path} model={model} browser={(start, open) => <DirectoryBrowser start={start} onOpenFile={open} />} emit={emit} />
+      <FileViewer key={viewer.preview.path} model={model} browser={(start, open) => <DirectoryBrowserPresenter slot="viewer" start={start} onOpenFile={open} emit={emit} />} emit={emit} />
     </MachineContext.Provider>
   );
 }

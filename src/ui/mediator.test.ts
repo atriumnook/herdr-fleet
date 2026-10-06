@@ -53,6 +53,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     rememberAgent: () => {},
     createSession: async () => ({ workspace_id: "w9", pane_id: "w9:p1", agent_started: true }),
     loadBackgroundTasks: async () => ({ tasks: [], runs: [], serverTime: null }),
+    listFolders: async (_machineId, path) => ({ path: path || "/home/me", parent: "/", home: "/home/me", directories: [], truncated: false }),
     showPreview: () => {},
     leavePreview: () => true,
     loadFileInfo: async () => ({ kind: "missing" }),
@@ -264,5 +265,18 @@ describe("Mediator", () => {
     const failing = new Mediator(ports({ loadBackgroundTasks: async () => { throw new Error("502"); } }).ports);
     failing.dispatch({ type: "open-background-tasks", machineId: "local", paneId: "w1:p1" });
     await until(() => failing.getState().backgroundTasks.failed);
+  });
+
+  it("lists a folder browser's folder, and names why one was not listed", async () => {
+    const mediator = new Mediator(ports().ports);
+    mediator.dispatch({ type: "open-folders", slot: "files", machineId: "local", start: "/w", files: true });
+    await until(() => mediator.getState().folders.open.files?.listing !== null);
+    expect(mediator.getState().folders.open.files?.listing?.path).toBe("/w");
+    const old = new Mediator(ports({ listFolders: async () => ({ failure: "unsupported" }) }).ports);
+    old.dispatch({ type: "open-folders", slot: "files", machineId: "pc2", start: "/w", files: true });
+    await until(() => old.getState().folders.open.files?.error === "unsupported");
+    const failing = new Mediator(ports({ listFolders: async () => { throw new Error("500"); } }).ports);
+    failing.dispatch({ type: "open-folders", slot: "files", machineId: "local", start: "/w", files: true });
+    await until(() => failing.getState().folders.open.files?.error === "failed");
   });
 });

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { Machine } from "../../shared/machines.ts";
-import type { FileInfo, HealthAuth, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
+import type { DirectoryListing, FileInfo, HealthAuth, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
 import { BACKGROUND_TASKS_POLL_MS, INITIAL_STATE, transition, treeOf, type Effect, type UiEvent, type UiState } from "./state.ts";
@@ -1197,5 +1197,65 @@ describe("the background tasks list", () => {
     // another pane's list opened instead reads that pane
     const other = play([{ type: "open-background-tasks", machineId: "local", paneId: "w1:p2" }], opened.state);
     expect(other.effects).toEqual([{ kind: "load-background-tasks", machineId: "local", paneId: "w1:p2", seq: other.state.backgroundTasks.seq }]);
+  });
+});
+
+describe("the folder browser", () => {
+  const listing = (path: string, extra: Partial<DirectoryListing> = {}): DirectoryListing => ({ path, home: "/home/me", parent: path === "/" ? null : path.replace(/\/[^/]+$/, "") || "/", directories: ["a"], truncated: false, ...extra });
+  const opened = play([{ type: "open-folders", slot: "new-session", machineId: "pc2", start: "/w/half", files: false }]);
+  const seqOf = (state: UiState) => state.folders.open["new-session"]!.seq;
+
+  it("lists the folder it opens at, on its PC, folders only unless files are asked for", () => {
+    expect(opened.state.folders.open["new-session"]).toMatchObject({ machineId: "pc2", files: false, listing: null, hidden: false, loading: true, error: null });
+    expect(opened.effects).toEqual([{ kind: "list-folders", slot: "new-session", machineId: "pc2", path: "/w/half", hidden: false, files: false, seq: seqOf(opened.state) }]);
+    const listed = play([{ type: "folders-listed", slot: "new-session", seq: seqOf(opened.state), listing: listing("/w") }], opened.state).state;
+    expect(listed.folders.open["new-session"]).toMatchObject({ listing: listing("/w"), loading: false, error: null });
+  });
+
+  it("opens home for a path typed half-way, once; a folder that cannot be opened later says so", () => {
+    const seq = seqOf(opened.state);
+    const home = play([{ type: "folders-failed", slot: "new-session", seq, reason: "invalid" }], opened.state);
+    expect(home.effects).toEqual([{ kind: "list-folders", slot: "new-session", machineId: "pc2", path: "", hidden: false, files: false, seq: seqOf(home.state) }]);
+    expect(home.state.folders.open["new-session"]).toMatchObject({ loading: true, error: null });
+    const again = play([{ type: "folders-failed", slot: "new-session", seq: seqOf(home.state), reason: "invalid" }], home.state);
+    expect(again.effects).toEqual([]);
+    expect(again.state.folders.open["new-session"]).toMatchObject({ loading: false, error: "invalid" });
+  });
+
+  it("says a bridge that cannot browse, and any other failure, without trying home", () => {
+    const seq = seqOf(opened.state);
+    expect(play([{ type: "folders-failed", slot: "new-session", seq, reason: "unsupported" }], opened.state).state.folders.open["new-session"]).toMatchObject({ error: "unsupported", loading: false });
+    expect(play([{ type: "folders-failed", slot: "new-session", seq, reason: "failed" }], opened.state).effects).toEqual([]);
+  });
+
+  it("goes into a folder, up and home with hidden folders as chosen; the newest read wins", () => {
+    const listed = play([{ type: "folders-listed", slot: "new-session", seq: seqOf(opened.state), listing: listing("/w") }], opened.state).state;
+    const hidden = play([{ type: "show-hidden-folders", slot: "new-session", hidden: true }], listed);
+    expect(hidden.effects).toEqual([{ kind: "list-folders", slot: "new-session", machineId: "pc2", path: "/w", hidden: true, files: false, seq: seqOf(hidden.state) }]);
+    const into = play([{ type: "browse-folder", slot: "new-session", path: "/w/a" }], hidden.state);
+    expect(into.effects).toEqual([{ kind: "list-folders", slot: "new-session", machineId: "pc2", path: "/w/a", hidden: true, files: false, seq: seqOf(into.state) }]);
+    // the hidden read asked before answers too late
+    const late = play([{ type: "folders-listed", slot: "new-session", seq: seqOf(hidden.state), listing: listing("/w", { directories: [".x", "a"] }) }], into.state).state;
+    expect(late.folders.open["new-session"]).toMatchObject({ listing: listing("/w"), loading: true });
+    // a failure after a listing keeps the folder shown, and the next read clears it
+    const failed = play([{ type: "folders-failed", slot: "new-session", seq: seqOf(into.state), reason: "invalid" }], into.state).state;
+    expect(failed.folders.open["new-session"]).toMatchObject({ listing: listing("/w"), error: "invalid" });
+    const ok = play([{ type: "browse-folder", slot: "new-session", path: "" }], failed).state;
+    expect(play([{ type: "folders-listed", slot: "new-session", seq: seqOf(ok), listing: listing("/home/me") }], ok).state.folders.open["new-session"]).toMatchObject({ error: null });
+  });
+
+  it("chooses hidden before the first listing without a read of its own", () => {
+    const { state, effects } = play([{ type: "show-hidden-folders", slot: "new-session", hidden: true }], opened.state);
+    expect(effects).toEqual([]);
+    expect(state.folders.open["new-session"]?.hidden).toBe(true);
+  });
+
+  it("keeps each browser apart, and forgets one that closes", () => {
+    const both = play([{ type: "open-folders", slot: "viewer", machineId: "local", start: "/w/src", files: true }], opened.state).state;
+    expect(Object.keys(both.folders.open).sort()).toEqual(["new-session", "viewer"]);
+    const closed = play([{ type: "close-folders", slot: "new-session" }], both).state;
+    expect(closed.folders.open["new-session"]).toBeUndefined();
+    expect(play([{ type: "folders-listed", slot: "new-session", seq: seqOf(opened.state), listing: listing("/w") }], closed).state.folders.open["new-session"]).toBeUndefined();
+    expect(play([{ type: "browse-folder", slot: "new-session", path: "/w" }], closed).effects).toEqual([]);
   });
 });
