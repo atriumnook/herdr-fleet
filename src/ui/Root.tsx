@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, createWorkspace, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, createWorkspace, fetchDirectories, fetchFileInfo, fileUrl, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -13,6 +13,8 @@ import { initialSelection, storeSelection } from "../lib/selection.ts";
 import { loadRecentPanes, rememberPane } from "../lib/recentPanes.ts";
 import { takeAuthTokenFromUrl } from "../lib/authLink.ts";
 import { deviceLabel, takePairCode } from "../lib/phone.ts";
+import { leavePreview, previewFromState, showPreview } from "../lib/fileHistory.ts";
+import { TEXT_PREVIEW_BYTES } from "../components/FileViewer.tsx";
 import { INITIAL_STATE } from "./state.ts";
 
 /** A 401 is the server refusing what the gate sent; anything else stays an error. */
@@ -80,6 +82,19 @@ const FLEET_PORTS: EffectPorts = {
     if (error instanceof ApiError && error.code === "invalid_cwd") return "invalid-cwd" as const;
     throw error;
   }),
+  showPreview,
+  leavePreview,
+  loadFileInfo: (machineId, path, paneId) => fetchFileInfo(path, paneId, machineId).then(
+    (read) => ("candidates" in read ? { kind: "candidates" as const, candidates: read.candidates } : { kind: "info" as const, info: read }),
+    (error: unknown) => {
+      if (error instanceof ApiError && error.code === "outside_roots") return { kind: "outside" as const };
+      if (error instanceof ApiError && error.status === 404) return { kind: "missing" as const };
+      throw error;
+    },
+  ),
+  // only the first part of a text file travels: a range, whatever the file's size
+  loadFileText: async (machineId, path, paneId) => (await fetch(fileUrl(path, paneId, machineId), { headers: { range: `bytes=0-${TEXT_PREVIEW_BYTES - 1}` } })).text(),
+  listFolder: async (machineId, path, paneId) => (await fetchDirectories(path, false, machineId, true, paneId)).path,
   storeLens: (storageId, view) => {
     try { window.localStorage.setItem(`${PANE_VIEW_KEY_PREFIX}${storageId}`, view); } catch { /* private mode: the lens just stops being remembered */ }
   },
@@ -145,14 +160,19 @@ export function Root() {
       const token = takeAuthTokenFromUrl();
       if (token !== null) mediator.dispatch({ type: "auth-link", token });
     };
+    // Back and Forward move between the chat and a file's entry: Forward (or a reload) restores the file with its PC and pane
+    const onHistory = (event: PopStateEvent): void => mediator.dispatch({ type: "file-history", preview: previewFromState(event.state) });
+    mediator.dispatch({ type: "file-history", preview: previewFromState(window.history.state) });
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("hashchange", onHashChange);
+    window.addEventListener("popstate", onHistory);
     // a tapped notification focuses this window and names the pane (public/sw.js)
     const offTarget = onNotificationTarget((target) => mediator.dispatch({ type: "select-pane", machineId: target.machine_id, paneId: target.pane_id }));
     return () => {
       offTarget();
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("hashchange", onHashChange);
+      window.removeEventListener("popstate", onHistory);
     };
   }, [mediator]);
   return (

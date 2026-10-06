@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { Machine } from "../../shared/machines.ts";
-import type { HealthAuth, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
+import type { FileInfo, HealthAuth, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { INITIAL_STATE, transition, treeOf, type UiEvent, type UiState } from "./state.ts";
 
@@ -894,5 +894,137 @@ describe("after the review of the dialogs' move", () => {
     const open = play([{ type: "open-palette" }]).state;
     expect(play([{ type: "select-pane", machineId: "pc2", paneId: "w2:p1" }], open).state.palette).toEqual({ open: false });
     expect(play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }], open).state.palette.open).toBe(true);
+  });
+});
+
+describe("Files and the file viewer", () => {
+  const kinds = (effects: { kind: string }[]) => effects.map((effect) => effect.kind);
+  /** this browser is in: the server reads its files */
+  const inside: UiState = { ...INITIAL_STATE, connection: { ...INITIAL_STATE.connection, locked: false } };
+  const onPane = play([{ type: "select-pane", machineId: "local", paneId: "w1:p1" }], inside).state;
+  const info = (extra: Partial<FileInfo> = {}): FileInfo => ({ path: "/w/notes.txt", name: "notes.txt", size: 12, modified: "", mime: "text/plain", kind: "text", ...extra });
+  /** the viewer opened on `path` from the selected pane, its load asked for */
+  const opened = (path = "notes.txt", from = onPane) => play([{ type: "open-file", path }], from);
+
+  it("opens Files on the selected pane, closing the drawer, and not without one", () => {
+    const { state } = play([{ type: "drawer", open: true }, { type: "open-files" }], onPane);
+    expect(state.files.dialog).toBe(true);
+    expect(state.drawerOpen).toBe(false);
+    expect(play([{ type: "open-files" }]).state.files.dialog).toBe(false);
+    expect(play([{ type: "close-files" }], state).state.files.dialog).toBe(false);
+  });
+
+  it("closes Files when another pane is selected, however it was picked: it lists the pane it was opened on", () => {
+    const open = play([{ type: "open-files" }], onPane).state;
+    expect(play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }], open).state.files.dialog).toBe(false);
+    expect(play([{ type: "palette-pick", paneId: "w1:p2" }], play([{ type: "open-palette" }], open).state).state.files.dialog).toBe(false);
+    expect(play([{ type: "selection-confirmed" }], open).state.files.dialog).toBe(true);
+  });
+
+  it("opens a file from the selected pane as a new history entry, and reads it", () => {
+    const { state, effects } = opened();
+    const preview = { path: "notes.txt", paneId: "w1:p1", machineId: "local" };
+    expect(state.files.viewer).toEqual({ preview, path: "notes.txt", content: { kind: "opening" }, closing: false });
+    expect(effects).toContainEqual({ kind: "history-preview", preview, replace: false });
+    expect(effects).toContainEqual({ kind: "load-file", machineId: "local", paneId: "w1:p1", path: "notes.txt", seq: state.files.seq });
+  });
+
+  it("reads the start of a text file once its kind is known, from the path found", () => {
+    const { state } = opened();
+    const { seq } = state.files;
+    const read = play([{ type: "file-loaded", seq, outcome: { kind: "info", info: info() } }], state);
+    expect(read.state.files.viewer?.content).toEqual({ kind: "file", info: info(), text: null });
+    expect(read.effects).toEqual([{ kind: "load-file-text", machineId: "local", paneId: "w1:p1", path: "/w/notes.txt", seq }]);
+    expect(play([{ type: "file-text", seq, text: "hello" }], read.state).state.files.viewer?.content).toEqual({ kind: "file", info: info(), text: "hello" });
+    const image = play([{ type: "file-loaded", seq, outcome: { kind: "info", info: info({ kind: "image" }) } }], state);
+    expect(image.effects).toEqual([]);
+  });
+
+  it("drops what an earlier load answers", () => {
+    const first = opened().state;
+    const second = play([{ type: "viewer-open", path: "other.txt" }], first).state;
+    const late = play([{ type: "file-loaded", seq: first.files.seq, outcome: { kind: "outside" } }], second).state;
+    expect(late.files.viewer?.content).toEqual({ kind: "opening" });
+  });
+
+  it("lists a folder at the path when no file is there: on this PC, or at an absolute path on another", () => {
+    const { state } = opened("src");
+    const local = play([{ type: "file-loaded", seq: state.files.seq, outcome: { kind: "missing" } }], state);
+    expect(local.effects).toEqual([{ kind: "list-folder", machineId: "local", paneId: "w1:p1", path: "src", seq: state.files.seq }]);
+    expect(local.state.files.viewer?.content).toEqual({ kind: "opening" });
+    expect(play([{ type: "file-folder", seq: state.files.seq, path: "/w/src" }], local.state).state.files.viewer?.content).toEqual({ kind: "folder", path: "/w/src" });
+    expect(play([{ type: "file-folder", seq: state.files.seq, path: null }], local.state).state.files.viewer?.content).toEqual({ kind: "failed", reason: "missing" });
+
+    // a remote PC's bridge may list its own folder for a relative path
+    const remotePane = play([{ type: "select-pane", machineId: "pc2", paneId: "w2:p1" }], inside).state;
+    const relative = opened("src", remotePane).state;
+    const missing = play([{ type: "file-loaded", seq: relative.files.seq, outcome: { kind: "missing" } }], relative);
+    expect(missing.effects).toEqual([]);
+    expect(missing.state.files.viewer?.content).toEqual({ kind: "failed", reason: "missing" });
+    for (const path of ["/w/src", "~/src", "~", "C:\\src"]) {
+      const absolute = opened(path, remotePane).state;
+      expect(kinds(play([{ type: "file-loaded", seq: absolute.files.seq, outcome: { kind: "missing" } }], absolute).effects)).toEqual(["list-folder"]);
+    }
+  });
+
+  it("says why a file did not open", () => {
+    const { state } = opened();
+    expect(play([{ type: "file-loaded", seq: state.files.seq, outcome: { kind: "outside" } }], state).state.files.viewer?.content).toEqual({ kind: "failed", reason: "outside" });
+    expect(play([{ type: "file-loaded", seq: state.files.seq, outcome: { kind: "failed" } }], state).state.files.viewer?.content).toEqual({ kind: "failed", reason: "failed" });
+  });
+
+  it("shows one of several files of a name in place, leaving history as it is", () => {
+    const { state } = opened();
+    const several = play([{ type: "file-loaded", seq: state.files.seq, outcome: { kind: "candidates", candidates: ["/w/a/notes.txt", "/w/b/notes.txt"] } }], state).state;
+    expect(several.files.viewer?.content).toEqual({ kind: "candidates", candidates: ["/w/a/notes.txt", "/w/b/notes.txt"] });
+    const chosen = play([{ type: "choose-candidate", path: "/w/b/notes.txt" }], several);
+    expect(chosen.state.files.viewer).toMatchObject({ preview: { path: "notes.txt" }, path: "/w/b/notes.txt", content: { kind: "opening" } });
+    expect(kinds(chosen.effects)).toEqual(["load-file"]);
+  });
+
+  it("opens a file chosen in the viewer's folder in place of the entry, on the viewer's own pane", () => {
+    const viewing = opened("src").state;
+    const moved = play([{ type: "select-pane", machineId: "pc2", paneId: "w2:p1" }], viewing).state;
+    const { state, effects } = play([{ type: "viewer-open", path: "/w/src/a.ts" }], moved);
+    const preview = { path: "/w/src/a.ts", paneId: "w1:p1", machineId: "local" };
+    expect(state.files.viewer).toMatchObject({ preview, path: "/w/src/a.ts" });
+    expect(effects).toContainEqual({ kind: "history-preview", preview, replace: true });
+    expect(effects).toContainEqual({ kind: "load-file", machineId: "local", paneId: "w1:p1", path: "/w/src/a.ts", seq: state.files.seq });
+  });
+
+  it("closes through history as the system Back does, ignoring opens and closes until the browser moved", () => {
+    const { state } = opened();
+    const closing = play([{ type: "close-file" }], state);
+    expect(closing.effects).toEqual([{ kind: "history-back" }]);
+    expect(closing.state.files.viewer?.closing).toBe(true);
+    const again = play([{ type: "close-file" }, { type: "open-file", path: "other.txt" }, { type: "viewer-open", path: "x" }], closing.state);
+    expect(again.effects).toEqual([]);
+    expect(play([{ type: "file-history", preview: null }], closing.state).state.files.viewer).toBeNull();
+  });
+
+  it("follows history: Forward or a reload reopens the entry's file, Back closes it", () => {
+    const preview = { path: "notes.txt", paneId: "w1:p1", machineId: "pc2" };
+    const { state, effects } = play([{ type: "file-history", preview }], inside);
+    expect(state.files.viewer).toMatchObject({ preview, path: "notes.txt", content: { kind: "opening" } });
+    expect(effects).toEqual([{ kind: "load-file", machineId: "pc2", paneId: "w1:p1", path: "notes.txt", seq: state.files.seq }]);
+    expect(play([{ type: "file-history", preview: { ...preview } }], state)).toEqual({ state, effects: [] });
+    expect(play([{ type: "file-history", preview: null }], state).state.files.viewer).toBeNull();
+    expect(play([{ type: "file-history", preview: null }]).effects).toEqual([]);
+  });
+
+  it("reads the file history restored only once this browser is in: a locked one would be refused", () => {
+    const preview = { path: "notes.txt", paneId: "w1:p1", machineId: "local" };
+    const booted = play([{ type: "boot", linkToken: null }]).state;
+    const restored = play([{ type: "file-history", preview }], booted);
+    expect(kinds(restored.effects)).not.toContain("load-file");
+    expect(restored.state.files.viewer?.content).toEqual({ kind: "opening" });
+    const unlocked = play([{ type: "machines-loaded", machines: [], revision: booted.machines.revision }], restored.state);
+    expect(unlocked.effects).toContainEqual({ kind: "load-file", machineId: "local", paneId: "w1:p1", path: "notes.txt", seq: unlocked.state.files.seq });
+    // locked out and in again: what it showed is read anew
+    const shown = play([{ type: "file-loaded", seq: unlocked.state.files.seq, outcome: { kind: "outside" } }], unlocked.state).state;
+    const out = play([{ type: "access-loaded", auth: { required: true, authenticated: false, reason: "token_required" } }], shown).state;
+    const back = play([{ type: "unlocked" }], out);
+    expect(kinds(back.effects)).toContain("load-file");
+    expect(back.state.files.viewer?.content).toEqual({ kind: "opening" });
   });
 });

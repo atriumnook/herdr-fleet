@@ -9,7 +9,8 @@ import type { DropletKind } from "../lib/droplet.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 import type { AgentKind, HerdrPane, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { Settings } from "../lib/settings.ts";
-import { INITIAL_STATE, transition, type Effect, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
+import type { FilePreview } from "../lib/fileHistory.ts";
+import { INITIAL_STATE, transition, type Effect, type FileOutcome, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
 
 /** What the Mediator's effects reach: the server's API and this browser's storage, or a test's stand-in. */
 export interface EffectPorts {
@@ -66,6 +67,16 @@ export interface EffectPorts {
   storeLens(storageId: string, view: PaneView): void;
   /** keeps the selected pane for this window's next load */
   storeSelection(machineId: string, paneId: string | null): void;
+  /** the file in the viewer as a history entry: a new one, or in place of the current one */
+  showPreview(preview: FilePreview, replace: boolean): void;
+  /** goes Back from the file's history entry; false when the current entry is not a file's */
+  leavePreview(): boolean;
+  /** what the server says of a path; throws for anything but these */
+  loadFileInfo(machineId: string, path: string, paneId: string | null): Promise<Exclude<FileOutcome, { kind: "failed" }>>;
+  /** the start of a text file */
+  loadFileText(machineId: string, path: string, paneId: string | null): Promise<string>;
+  /** the folder at a path, as listed (absolute) */
+  listFolder(machineId: string, path: string, paneId: string | null): Promise<string>;
   /** runs `then` after `ms`: the clock the state machine's `later` effects wait on */
   later(ms: number, then: () => void): void;
 }
@@ -253,6 +264,29 @@ export class Mediator {
         return;
       case "store-selection":
         this.ports.storeSelection(effect.machineId, effect.paneId);
+        return;
+      case "history-preview":
+        this.ports.showPreview(effect.preview, effect.replace);
+        return;
+      case "history-back":
+        // with no entry of its own to go Back from, Back would leave the page: the viewer just closes
+        if (!this.ports.leavePreview()) this.dispatch({ type: "file-history", preview: null });
+        return;
+      case "load-file": {
+        const { machineId, path, paneId, seq } = effect;
+        let outcome: FileOutcome;
+        try { outcome = await this.ports.loadFileInfo(machineId, path, paneId); } catch { outcome = { kind: "failed" }; }
+        this.dispatch({ type: "file-loaded", seq, outcome });
+        return;
+      }
+      case "load-file-text":
+        try { this.dispatch({ type: "file-text", seq: effect.seq, text: await this.ports.loadFileText(effect.machineId, effect.path, effect.paneId) }); }
+        catch { this.dispatch({ type: "file-loaded", seq: effect.seq, outcome: { kind: "failed" } }); }
+        return;
+      case "list-folder":
+        // a path that is not a readable folder either keeps the file's error
+        try { this.dispatch({ type: "file-folder", seq: effect.seq, path: await this.ports.listFolder(effect.machineId, effect.path, effect.paneId) }); }
+        catch { this.dispatch({ type: "file-folder", seq: effect.seq, path: null }); }
         return;
       case "later":
         this.ports.later(effect.ms, () => this.dispatch(effect.event));
