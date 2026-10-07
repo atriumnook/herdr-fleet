@@ -5,7 +5,8 @@ import { loadSettings, SettingsProvider } from "../src/lib/settings.ts";
 import { ChatView } from "../src/components/ChatView.tsx";
 import { useWholeOutput } from "../src/lib/useWholeOutput.ts";
 import { MachineContext } from "../src/lib/machineContext.tsx";
-import { Mediator, type EffectPorts } from "../src/ui/mediator.ts";
+import { Mediator } from "../src/ui/mediator.ts";
+import { FLEET_PORTS } from "../src/ui/Root.tsx";
 import { MediatorContext } from "../src/ui/presenter.ts";
 import "../src/styles.css";
 
@@ -19,8 +20,8 @@ window.fetch = (input, init) => {
   return new Promise((resolve, reject) => window.qa.requests.push({ url, signal: init!.signal as AbortSignal,
     resolve: (text) => resolve(new Response(text)), reject: () => reject(new Error("late failure")) }));
 };
-// the chat reads its own conversation; the Root's Mediator only keeps what it shares (no prompt is read: no agent)
-const mediator = new Mediator(new Proxy({} as EffectPorts, { get: (_, name) => () => { throw new Error(`the fixture has no ${String(name)}`); } }));
+// the Root's Mediator reads the chat's conversation, as in the app (no prompt is read: no agent)
+const mediator = new Mediator(FLEET_PORTS);
 
 function Fixture() {
   const [target, setTarget] = useState({ url: "/qa-output?pane=a&ref=x", scope: "one" });

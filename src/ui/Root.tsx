@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, createWorkspace, fetchPaneOmoActivity, fetchPanePromptState, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, createWorkspace, fetchPaneConversation, fetchPaneOmoActivity, fetchPanePromptState, fetchPaneTranscript, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -15,13 +15,27 @@ import { deviceLabel, takePairCode } from "../lib/phone.ts";
 import { leavePreview, previewFromState, showPreview } from "../lib/fileHistory.ts";
 import { HerdrSocket } from "../lib/ws.ts";
 import { EMPTY_DRAFT, draftIsEmpty } from "../lib/draft.ts";
-import { INITIAL_STATE } from "./state.ts";
+import { INITIAL_STATE, type ConversationOutcome } from "./state.ts";
+import type { ConversationTurn } from "../../shared/protocol.ts";
+import type { ConversationPageQuery } from "../lib/api.ts";
 
 /** A 401 is the server refusing what the gate sent; anything else stays an error. */
 function refusedOr(error: unknown): "refused" {
   if (error instanceof ApiError && error.status === 401) return "refused";
   throw error;
 }
+
+/** A read of a conversation page, as the state machine takes it: the page, or why not (409: the transcript was replaced). */
+async function conversationPage(paneId: string, machineId: string, page: ConversationPageQuery): Promise<ConversationOutcome> {
+  try {
+    return { kind: "ok", conversation: await fetchPaneConversation(paneId, machineId, page) };
+  } catch (error) {
+    return { kind: "failed", message: error instanceof Error ? error.message : String(error), status: error instanceof ApiError ? error.status : null };
+  }
+}
+
+/** the most pages a gap between the held start and the newest page is read in */
+const GAP_PAGES = 32;
 
 /** the input held for a pane on this device, by the pane's storage id */
 const DRAFT_KEY_PREFIX = "herdr-fleet:terminal-draft:";
@@ -30,7 +44,7 @@ const DRAFT_KEY_PREFIX = "herdr-fleet:terminal-draft:";
 const LAST_AGENT_KEY = "herdr-fleet:new-session-agent";
 
 /** The Mediator's effects against this PC's server and this browser's storage. */
-const FLEET_PORTS: EffectPorts = {
+export const FLEET_PORTS: EffectPorts = {
   loadRuns: fetchFleetRuns,
   loadUsage: fetchFleetUsage,
   refreshUsage: refreshFleetUsage,
@@ -83,6 +97,27 @@ const FLEET_PORTS: EffectPorts = {
     throw error;
   }),
   loadPromptState: (machineId, paneId) => fetchPanePromptState(paneId, machineId),
+  readConversation: (machineId, paneId, page) => conversationPage(paneId, machineId, "before" in page ? { before: page.before } : page.from === null ? {} : { from: page.from }),
+  // the pages back from where the newest page starts to the held start, never past it
+  conversationBetween: async (machineId, paneId, held, start) => {
+    const pages: ConversationTurn[][] = [];
+    let before = start;
+    try {
+      for (let step = 0; step < GAP_PAGES && before !== held; step++) {
+        const page = await fetchPaneConversation(paneId, machineId, { before, since: held });
+        if (typeof page.cursor !== "string") return null;
+        pages.unshift(page.turns);
+        before = page.cursor;
+      }
+    } catch {
+      return null;
+    }
+    return before === held ? pages.flat() : null;
+  },
+  readScrollback: async (machineId, paneId, lines) => {
+    const read = await fetchPaneTranscript(paneId, lines, machineId);
+    return { text: read.text, truncated: read.truncated === true };
+  },
   loadDraft: (owner) => {
     try {
       const value = JSON.parse(localStorage.getItem(`${DRAFT_KEY_PREFIX}${owner}`) ?? "null");

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { Machine } from "../../shared/machines.ts";
-import type { DirectoryListing, FileInfo, HealthAuth, InteractivePrompt, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
+import type { ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, HealthAuth, InteractivePrompt, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
-import { BACKGROUND_TASKS_POLL_MS, CHAT_POLL_MS, INITIAL_STATE, transition, treeOf, type Effect, type UiEvent, type UiState } from "./state.ts";
+import { BACKGROUND_TASKS_POLL_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, INITIAL_STATE, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type UiEvent, type UiState } from "./state.ts";
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, name: id, role: "worker", agent: "pi", group: "g1", herdrName: `h-${id}`, paneId: `w1:${id}`, cwd: "/w",
@@ -1505,23 +1505,163 @@ describe("the chat's waiting prompt and what the composer shares with it", () =>
     expect(play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("a"), suggestion: null }], reread.state).state.chat.prompt).toBeNull();
   });
 
+  /** a conversation read that reports these settings for the open pane */
+  const reportedBy = (state: UiState, metadata: ConversationMetadata): UiState => play([{
+    type: "conversation-read", seq: state.conversation.seq, olderSeq: state.conversation.olderSeq,
+    outcome: { kind: "ok", conversation: { source: "claude-transcript", history_id: "h1", cursor: null, turns: [], metadata } },
+  }], state).state;
+
   it("keeps the same metadata object while the same settings are reported", () => {
-    const state = live();
     const metadata = { model: "opus", reasoning_effort: "high", context: { used: 10, window: 100 } };
-    const first = play([{ type: "chat-metadata", paneId: "w1:p1", metadata }], state).state;
+    const first = reportedBy(live(), metadata);
     expect(first.chat.metadata).toEqual({ paneId: "w1:p1", value: metadata });
-    expect(play([{ type: "chat-metadata", paneId: "w1:p1", metadata: { ...metadata, context: { ...metadata.context } } }], first).state).toBe(first);
-    expect(play([{ type: "chat-metadata", paneId: "w1:p1", metadata: { ...metadata, model: "sonnet" } }], first).state.chat.metadata?.value?.model).toBe("sonnet");
+    expect(reportedBy(first, { ...metadata, context: { ...metadata.context } }).chat).toBe(first.chat);
+    expect(reportedBy(first, { ...metadata, model: "sonnet" }).chat.metadata?.value?.model).toBe("sonnet");
   });
 
   it("keeps the settings reported for a pane while the chat closes and opens on it again", () => {
     const metadata = { model: "opus", reasoning_effort: "high" };
-    const reported = play([{ type: "chat-metadata", paneId: "w1:p1", metadata }], live()).state;
+    const reported = reportedBy(live(), metadata);
     const reopened = play([{ type: "chat-close", machineId: "local", paneId: "w1:p1" }, { type: "chat-open", machineId: "local", paneId: "w1:p1" }], reported).state;
     expect(reopened.chat.metadata).toEqual({ paneId: "w1:p1", value: metadata });
   });
 
     it("counts a message delivered, so the chat reads at once", () => {
     expect(play([{ type: "chat-delivered" }], live()).state.chat.delivered).toBe(1);
+  });
+});
+
+describe("the chat's conversation", () => {
+  const user = (text: string): ConversationTurn => ({ role: "user", ts: text, parts: [{ kind: "text", text }] });
+  const assistant = (text: string): ConversationTurn => ({ role: "assistant", ts: text, parts: [{ kind: "text", text }] });
+  const page = (turns: ConversationTurn[], cursor: string | null, history = "h1", extra: Partial<ConversationResponse> = {}): ConversationResponse =>
+    ({ source: "claude-transcript", history_id: history, cursor, turns, ...extra });
+  const opened = play([{ type: "chat-open", machineId: "local", paneId: "w1:p1" }]);
+  const kinds = (effects: Effect[]) => effects.map((effect) => effect.kind);
+  /** what the read under way answers */
+  const answer = (state: UiState, outcome: ConversationOutcome) => play([{ type: "conversation-read", seq: state.conversation.seq, olderSeq: state.conversation.olderSeq, outcome }], state);
+  const ok = (conversation: ConversationResponse): ConversationOutcome => ({ kind: "ok", conversation });
+
+  it("reads the newest page once the chat opens on a pane, and again a while after each answer", () => {
+    const { conversation } = opened.state;
+    expect(opened.effects).toContainEqual({ kind: "read-conversation", machineId: "local", paneId: "w1:p1", from: null, seq: conversation.seq, olderSeq: conversation.olderSeq });
+    const read = answer(opened.state, ok(page([user("a")], "c:5")));
+    expect(read.state.conversation).toMatchObject({ view: { source: "conversation", turns: [user("a")] }, loaded: true, error: null, fresh: true, older: { cursor: "c:5" } });
+    expect(read.effects).toEqual([{ kind: "later", ms: CONVERSATION_POLL_MS, event: { type: "poll-conversation", seq: conversation.seq } }]);
+    expect(kinds(play([{ type: "poll-conversation", seq: conversation.seq }], read.state).effects)).toEqual(["read-conversation"]);
+  });
+
+  it("leaves everything as it is for an unchanged answer (the same object a 304 hands back)", () => {
+    const shown = page([user("a")], null);
+    const read = answer(opened.state, ok(shown)).state;
+    const again = play([{ type: "poll-conversation", seq: read.conversation.seq }], read).state;
+    const unchanged = answer(again, ok(shown));
+    expect(unchanged.state.conversation.view).toBe(read.conversation.view);
+    expect(kinds(unchanged.effects)).toEqual(["later"]);
+    // an equal answer that is a new object keeps the view too, and says it is not new
+    const equal = answer(again, ok(page([user("a")], null))).state;
+    expect(equal.conversation.view).toBe(read.conversation.view);
+    expect(equal.conversation.fresh).toBe(true);
+    const moved = answer(play([{ type: "poll-conversation", seq: read.conversation.seq }], read).state, ok(page([user("a"), assistant("b")], null))).state;
+    expect(moved.conversation.fresh).toBe(false);
+  });
+
+  it("adds an earlier page above, and polls the newest from where it started", () => {
+    const read = answer(opened.state, ok(page([user("c")], "c:2"))).state;
+    const asked = play([{ type: "load-older-conversation" }], read);
+    expect(asked.effects).toEqual([{ kind: "read-older-conversation", machineId: "local", paneId: "w1:p1", before: "c:2", olderSeq: read.conversation.olderSeq }]);
+    // asked again while it loads: once
+    expect(play([{ type: "load-older-conversation" }], asked.state).effects).toEqual([]);
+    const loaded = play([{ type: "older-conversation-read", olderSeq: read.conversation.olderSeq, before: "c:2", outcome: ok(page([user("a"), user("b")], null)) }], asked.state);
+    expect(loaded.state.conversation.older).toEqual({ turns: [user("a"), user("b")], cursor: null, status: "idle", heldFrom: "c:2" });
+    expect(loaded.effects).toContainEqual(expect.objectContaining({ kind: "read-conversation", from: "c:2" }));
+    // at the beginning there is nothing before
+    expect(play([{ type: "load-older-conversation" }], loaded.state).effects).toEqual([]);
+  });
+
+  /** an earlier page shown: the newest is held from "c:20" */
+  const holding = (): UiState => {
+    const read = answer(opened.state, ok(page([user("21")], "c:20"))).state;
+    const asked = play([{ type: "load-older-conversation" }], read).state;
+    return play([{ type: "older-conversation-read", olderSeq: read.conversation.olderSeq, before: "c:20", outcome: ok(page([user("11")], "c:10")) }], asked).state;
+  };
+
+  it("joins the turns the newest page moved past to the earlier ones, and holds it from its new start", () => {
+    const held = holding();
+    const moved = answer(held, ok(page([user("36")], "c:35")));
+    expect(moved.effects).toEqual([{ kind: "fill-conversation-gap", machineId: "local", paneId: "w1:p1", held: "c:20", start: "c:35", seq: held.conversation.seq, olderSeq: held.conversation.olderSeq }]);
+    const filled = play([{ type: "conversation-gap-filled", seq: held.conversation.seq, olderSeq: held.conversation.olderSeq, turns: [user("21"), user("26")] }], moved.state).state;
+    expect(filled.conversation.older).toMatchObject({ turns: [user("11"), user("21"), user("26")], heldFrom: "c:35" });
+    expect(filled.conversation.view.turns).toEqual([user("36")]);
+  });
+
+  it("starts over when the turns between cannot be joined", () => {
+    const held = holding();
+    const moved = answer(held, ok(page([user("36")], "c:35"))).state;
+    const broken = play([{ type: "conversation-gap-filled", seq: held.conversation.seq, olderSeq: held.conversation.olderSeq, turns: null }], moved);
+    expect(broken.state.conversation).toMatchObject({ older: { turns: [], heldFrom: null }, view: { turns: [] }, signature: "" });
+    expect(broken.effects).toContainEqual(expect.objectContaining({ kind: "read-conversation", from: null }));
+  });
+
+  it("drops the earlier pages when the transcript was replaced: a new history id, or a cursor it no longer knows", () => {
+    const held = holding();
+    const replaced = answer(held, ok(page([user("x")], "c:20", "h2"))).state;
+    expect(replaced.conversation.older.turns).toEqual([]);
+    expect(replaced.conversation.historyId).toBe("h2");
+    const stale = answer(held, { kind: "failed", message: "history changed", status: 409 });
+    expect(stale.state.conversation).toMatchObject({ older: { turns: [], heldFrom: null }, signature: "" });
+    expect(stale.effects).toEqual([expect.objectContaining({ kind: "read-conversation", from: null, seq: held.conversation.seq })]);
+    // an earlier page of another history, or one the transcript no longer knows, starts over
+    const asked = play([{ type: "load-older-conversation" }], held).state;
+    expect(kinds(play([{ type: "older-conversation-read", olderSeq: held.conversation.olderSeq, before: "c:10", outcome: ok(page([user("1")], null, "h9")) }], asked).effects)).toEqual(["read-conversation"]);
+    expect(kinds(play([{ type: "older-conversation-read", olderSeq: held.conversation.olderSeq, before: "c:10", outcome: { kind: "failed", message: "gone", status: 409 } }], asked).effects)).toEqual(["read-conversation"]);
+    expect(play([{ type: "older-conversation-read", olderSeq: held.conversation.olderSeq, before: "c:10", outcome: { kind: "failed", message: "down", status: 502 } }], asked).state.conversation.older.status).toBe("failed");
+  });
+
+  it("says a failed read, keeping what it read before, and goes on reading", () => {
+    const read = answer(opened.state, ok(page([user("a")], null))).state;
+    const failed = answer(play([{ type: "poll-conversation", seq: read.conversation.seq }], read).state, { kind: "failed", message: "502 bad gateway", status: 502 });
+    expect(failed.state.conversation).toMatchObject({ error: { message: "502 bad gateway", status: 502 }, view: { turns: [user("a")] } });
+    expect(kinds(failed.effects)).toEqual(["later"]);
+  });
+
+  it("reads the scrollback for an agent with no transcript, after taking what the page says", () => {
+    const read = answer(opened.state, ok({ source: "scrollback", turns: [] }));
+    expect(read.effects).toEqual([expect.objectContaining({ kind: "read-conversation-scrollback", lines: TRANSCRIPT_LINES })]);
+    expect(read.state.conversation.loaded).toBe(false);
+    const shown = play([{ type: "conversation-scrollback-read", seq: read.state.conversation.seq, olderSeq: read.state.conversation.olderSeq, outcome: { kind: "ok", text: "$ ls\nREADME.md", truncated: true } }], read.state).state;
+    expect(shown.conversation.view).toMatchObject({ source: "scrollback", truncated: true });
+    expect(shown.conversation.view.messages.length).toBeGreaterThan(0);
+    expect(shown.conversation.older.cursor).toBeUndefined();
+  });
+
+  it("reads nothing while the page is hidden, and reads at once when it is back", () => {
+    const read = answer(opened.state, ok(page([user("a")], null))).state;
+    const hidden = play([{ type: "visibility", visible: false }], read).state;
+    expect(play([{ type: "poll-conversation", seq: read.conversation.seq }], hidden).effects).toEqual([]);
+    expect(kinds(play([{ type: "visibility", visible: true }], hidden).effects)).toContain("read-conversation");
+  });
+
+  it("reads at once once a message is delivered, or a turn starts or ends", () => {
+    const read = answer(opened.state, ok(page([user("a")], null))).state;
+    expect(kinds(play([{ type: "chat-delivered" }], read).effects)).toContain("read-conversation");
+    const pc = (status: string): Machine => ({ id: "local", name: "omarchy", kind: "local", enabled: true, state: "connected", error: null,
+      snapshot: { version: "0.9.1", protocol: 22, focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: "w1:p1", workspaces: [], tabs: [], agents: [], panes: [{ pane_id: "w1:p1", workspace_id: "w1", tab_id: "w1:t1", focused: true, agent_status: status }] } as never });
+    const idle = play([{ type: "machines-pushed", machines: [pc("idle")] }], read).state;
+    expect(kinds(play([{ type: "machines-pushed", machines: [pc("working")] }], idle).effects)).toContain("read-conversation");
+    expect(kinds(play([{ type: "machines-pushed", machines: [pc("done")] }], idle).effects)).not.toContain("read-conversation");
+  });
+
+  it("knows the turn that finished before a message went out", () => {
+    const read = answer(opened.state, ok(page([user("a"), assistant("b")], null))).state;
+    const sent = play([{ type: "chat-sent" }], read).state;
+    expect(sent.conversation.sentOver).toEqual({ turn: assistant("b"), page: read.conversation.view.turns });
+  });
+
+  it("starts over on another pane, and drops what the pane before answers", () => {
+    const read = answer(opened.state, ok(page([user("a")], "c:3"))).state;
+    const other = play([{ type: "chat-open", machineId: "local", paneId: "w1:p2" }], read).state;
+    expect(other.conversation).toMatchObject({ open: { paneId: "w1:p2" }, view: { turns: [] }, loaded: false, historyId: undefined });
+    expect(play([{ type: "conversation-read", seq: read.conversation.seq, olderSeq: read.conversation.olderSeq, outcome: ok(page([user("old")], null)) }], other).state.conversation.view.turns).toEqual([]);
   });
 });
