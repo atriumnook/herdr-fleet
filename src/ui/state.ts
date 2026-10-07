@@ -536,6 +536,28 @@ export interface CompletionsState {
   slashUsage: Record<string, number>;
 }
 
+/** A file attached to a composer's message: stored beside the pane, then mentioned in the message by its path. */
+export interface ComposerAttachment {
+  id: number;
+  file: File;
+  /** the pane it goes to: its composer's, when attached */
+  machineId: string;
+  paneId: string;
+  /** where the pane's PC stored it, once uploaded */
+  path: string | null;
+  state: "uploading" | "ready" | "error";
+  error?: string;
+}
+
+/** The files attached to each composer's message, uploaded one after another. */
+export interface AttachmentsState {
+  lists: Record<string, ComposerAttachment[]>;
+  /** the upload under way for each composer */
+  uploading: Record<string, number>;
+  /** attachments so far */
+  seq: number;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -577,6 +599,7 @@ export interface UiState {
   drafts: DraftsState;
   sends: SendsState;
   completions: CompletionsState;
+  attachments: AttachmentsState;
   gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
@@ -727,6 +750,15 @@ export type UiEvent =
   | { type: "chat-prompt-answered"; steps: boolean }
   | { type: "chat-pending-answer"; promptId: string; answer: TypedAnswer }
   | { type: "chat-pending-answer-done" }
+  /** files attached to a composer's message (picked, pasted or dropped) */
+  | { type: "attach-files"; owner: string; machineId: string; paneId: string; files: File[] }
+  | { type: "upload-done"; owner: string; id: number; path: string }
+  | { type: "upload-failed"; owner: string; id: number; message: string }
+  | { type: "remove-attachment"; owner: string; id: number }
+  /** a message went with these */
+  | { type: "attachments-sent"; owner: string; ids: number[] }
+  /** the composer went: what it had attached goes with it, uploads not yet started included */
+  | { type: "attachments-close"; owner: string }
   /** a pane's composer opened: its slash commands are read */
   | { type: "completions-open"; machineId: string; paneId: string }
   | { type: "commands-loaded"; machineId: string; paneId: string; commands: SlashCommand[] }
@@ -922,6 +954,8 @@ export type Effect =
   | { kind: "load-chat-prompt"; machineId: string; paneId: string; seq: number; sent: number }
   | { kind: "queue-change"; owner: string; change: QueueChange }
   | { kind: "composer-draft-change"; owner: string; change: ComposerDraftChange }
+  /** stores a file beside the pane, answering its path */
+  | { kind: "upload-file"; owner: string; id: number; machineId: string; paneId: string; file: File }
   /** the pane's slash commands (kept a minute by the port) */
   | { kind: "load-commands"; machineId: string; paneId: string }
   | { kind: "load-slash-usage" }
@@ -978,6 +1012,7 @@ export const INITIAL_STATE: UiState = {
   queue: { lists: {}, unsaved: {}, sending: null, error: null },
   drafts: { composer: {}, settled: {}, line: {} },
   sends: { seq: 0, pending: {}, outcomes: {}, started: 0 },
+  attachments: { lists: {}, uploading: {}, seq: 0 },
   completions: { commands: null, files: { seq: 0, machineId: "local", paneId: "", query: null, list: [] }, slashUsage: {} },
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
@@ -1110,6 +1145,15 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "chat-pending-answer-done": {
       const chat = chatTransition(state, event, effects);
       return next(chat === state.chat ? {} : { chat });
+    }
+    case "attach-files":
+    case "upload-done":
+    case "upload-failed":
+    case "remove-attachment":
+    case "attachments-sent":
+    case "attachments-close": {
+      const attachments = attachmentsTransition(state.attachments, event, effects);
+      return next(attachments === state.attachments ? {} : { attachments });
     }
     case "completions-open":
     case "commands-loaded":
@@ -2208,6 +2252,47 @@ function conversationTransition(state: UiState, event: ConversationEvent, effect
     }
     const laid = layOut(next, read, moved, { source: "conversation", turns: read.turns, messages: [], truncated: false });
     return chat === state.chat ? laid : { ...laid, state: { ...laid.state, chat } };
+  }
+}
+
+type AttachmentsEvent = Extract<UiEvent, { type: "attach-files" | "upload-done" | "upload-failed" | "remove-attachment" | "attachments-sent" | "attachments-close" }>;
+
+function attachmentsTransition(attachments: AttachmentsState, event: AttachmentsEvent, effects: Effect[]): AttachmentsState {
+  const { owner } = event;
+  const list = attachments.lists[owner] ?? [];
+  const withList = (next: ComposerAttachment[], uploading = attachments.uploading): AttachmentsState => ({ ...attachments, lists: { ...attachments.lists, [owner]: next }, uploading });
+  /** the next file waiting goes up, one at a time */
+  const startNext = (state: AttachmentsState): AttachmentsState => {
+    const { [owner]: _done, ...idle } = state.uploading;
+    const waiting = (state.lists[owner] ?? []).find((item) => item.state === "uploading");
+    if (waiting === undefined) return { ...state, uploading: idle };
+    effects.push({ kind: "upload-file", owner, id: waiting.id, machineId: waiting.machineId, paneId: waiting.paneId, file: waiting.file });
+    return { ...state, uploading: { ...idle, [owner]: waiting.id } };
+  };
+  switch (event.type) {
+    case "attach-files": {
+      let seq = attachments.seq;
+      const added = event.files.map((file): ComposerAttachment => ({ id: ++seq, file, machineId: event.machineId, paneId: event.paneId, path: null, state: "uploading" }));
+      const next = { ...withList([...list, ...added]), seq };
+      return attachments.uploading[owner] === undefined ? startNext(next) : next;
+    }
+    case "upload-done":
+    case "upload-failed": {
+      // a composer gone answers to nothing
+      if (attachments.uploading[owner] !== event.id) return attachments;
+      const settled = list.map((item) => (item.id !== event.id ? item
+        : event.type === "upload-done" ? { ...item, path: event.path, state: "ready" as const } : { ...item, state: "error" as const, error: event.message }));
+      return startNext(withList(settled));
+    }
+    case "remove-attachment":
+      return withList(list.filter((item) => item.id !== event.id));
+    case "attachments-sent":
+      return withList(list.filter((item) => !event.ids.includes(item.id)));
+    case "attachments-close": {
+      const { [owner]: _list, ...lists } = attachments.lists;
+      const { [owner]: _upload, ...uploading } = attachments.uploading;
+      return { ...attachments, lists, uploading };
+    }
   }
 }
 

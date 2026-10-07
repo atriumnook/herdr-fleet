@@ -1933,3 +1933,48 @@ describe("what the composer completes", () => {
     expect(used.effects.at(-1)).toEqual({ kind: "save-slash-usage", usage: { review: 2 } });
   });
 });
+
+describe("files attached to a composer's message", () => {
+  const owner = "w1:p1";
+  const file = (name: string) => new File(["x"], name, { type: "image/png" });
+  const attach = (names: string[], from = INITIAL_STATE) => play([{ type: "attach-files", owner, machineId: "local", paneId: "w1:p1", files: names.map(file) }], from);
+
+  it("uploads attached files one after another, the next once the one before answered", () => {
+    const { state, effects } = attach(["a.png", "b.png"]);
+    const [a, b] = state.attachments.lists[owner]!;
+    expect([a!.state, b!.state]).toEqual(["uploading", "uploading"]);
+    expect(effects).toEqual([{ kind: "upload-file", owner, id: a!.id, machineId: "local", paneId: "w1:p1", file: a!.file }]);
+    const done = play([{ type: "upload-done", owner, id: a!.id, path: "/tmp/a.png" }], state);
+    expect(done.state.attachments.lists[owner]![0]).toMatchObject({ state: "ready", path: "/tmp/a.png" });
+    expect(done.effects).toEqual([{ kind: "upload-file", owner, id: b!.id, machineId: "local", paneId: "w1:p1", file: b!.file }]);
+    const failed = play([{ type: "upload-failed", owner, id: b!.id, message: "too large" }], done.state);
+    expect(failed.state.attachments.lists[owner]![1]).toMatchObject({ state: "error", error: "too large" });
+    expect(failed.effects).toEqual([]);
+  });
+
+  it("waits for the upload under way before starting files attached meanwhile", () => {
+    const first = attach(["a.png"]).state;
+    const more = attach(["b.png"], first);
+    expect(more.effects).toEqual([]);
+  });
+
+  it("drops a removed file, ignoring its upload's answer, and goes on with the next", () => {
+    const { state } = attach(["a.png", "b.png"]);
+    const [a, b] = state.attachments.lists[owner]!;
+    const removed = play([{ type: "remove-attachment", owner, id: a!.id }], state).state;
+    expect(removed.attachments.lists[owner]!.map((item) => item.id)).toEqual([b!.id]);
+    const answered = play([{ type: "upload-done", owner, id: a!.id, path: "/tmp/a.png" }], removed);
+    expect(answered.state.attachments.lists[owner]!.map((item) => item.state)).toEqual(["uploading"]);
+    expect(answered.effects).toEqual([expect.objectContaining({ kind: "upload-file", id: b!.id })]);
+  });
+
+  it("lets the files a message took go with it, and forgets them all when the composer goes", () => {
+    const { state } = attach(["a.png", "b.png"]);
+    const [a] = state.attachments.lists[owner]!;
+    expect(play([{ type: "attachments-sent", owner, ids: [a!.id] }], state).state.attachments.lists[owner]!.length).toBe(1);
+    const closed = play([{ type: "attachments-close", owner }], state);
+    expect(closed.state.attachments.lists[owner]).toBeUndefined();
+    // the upload under way answers to nothing, and starts nothing
+    expect(play([{ type: "upload-done", owner, id: a!.id, path: "/tmp/a.png" }], closed.state).effects).toEqual([]);
+  });
+});

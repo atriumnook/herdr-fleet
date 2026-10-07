@@ -78,7 +78,7 @@ export interface PaneTerminalProps {
     | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" | "draft-open" | "draft-input" | "send-draft" | "discard-draft"
       | "chat-pending-answer-done"
       | "queue-open" | "queue-edit" | "queue-discard" | "composer-draft" | "line-draft" | "composer-send" | "line-send" | "queue-send"
-      | "completions-open" | "file-query" | "slash-used" }> | ChatUpEvent>;
+      | "completions-open" | "file-query" | "slash-used" | "attach-files" | "remove-attachment" | "attachments-sent" | "attachments-close" }> | ChatUpEvent>;
 }
 
 
@@ -1123,8 +1123,6 @@ export function PaneTerminal({
     emitRef.current({ type: "queue-send", owner: event.owner, id: event.id, text: event.text, paneId: pane, bracketedPaste: bracketedPaste() });
   }, []);
 
-  // Capture the owner's pane for the entire upload batch, even across a pane switch.
-  const uploadImage = useCallback((file: File) => uploadPaneImage(paneId ?? "", file), [paneId]);
 
   return (
     // data-direct-typing: xterm's own field raises the soft keyboard here (lib/viewport.ts)
@@ -1250,7 +1248,6 @@ export function PaneTerminal({
           // no suggestion under any card, a fallback or queued one included
           suggestion={chatPrompt === null ? chatSuggestion : null}
           onAbort={abortTurn}
-          onUploadImage={uploadImage}
         />
       )}
       {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onEnter={pressEnter} emit={lineEmit} />}
