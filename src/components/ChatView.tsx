@@ -528,6 +528,12 @@ export const ChatView = memo(function ChatView({ paneId, connected, ended, agent
     if (stickToBottom.current) setNewMessages(false);
     if (node.scrollTop < LOAD_OLDER_PX && olderState === "idle" && typeof olderCursor === "string") emit({ type: "load-older-conversation" });
   };
+  /** the earlier page asked for by the button: where the reader is now (a fold opened since moves nothing that rendered) */
+  const loadOlder = (): void => {
+    const node = scroller.current;
+    if (node !== null) place.current = { top: node.scrollTop, height: node.scrollHeight };
+    emit({ type: "load-older-conversation" });
+  };
   const scrollToBottom = (): void => {
     const node = scroller.current;
     if (node === null) return;
@@ -556,7 +562,7 @@ export const ChatView = memo(function ChatView({ paneId, connected, ended, agent
       )}
       {/* one button in every state: swapping it for a status line of another height would shift the reader */}
       {view.source === "conversation" && typeof olderCursor === "string" && (
-        <button type="button" className="btn btn-ghost chat-older" disabled={olderState === "loading"} onClick={() => emit({ type: "load-older-conversation" })}>
+        <button type="button" className="btn btn-ghost chat-older" disabled={olderState === "loading"} onClick={loadOlder}>
           {t(olderState === "loading" ? "Loading earlier messages…" : olderState === "failed" ? "Couldn't load earlier messages — retry" : "Earlier messages")}
         </button>
       )}
