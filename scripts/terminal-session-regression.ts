@@ -8,7 +8,8 @@ import { workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 
 /**
  * The terminal lens says what its socket hears of the pane: held by another app until it lets
- * go, input the pane refused, a bridge that cannot attach a terminal, and a pane that ended. The server's messages are put on the real socket, beside its own.
+ * go, input the pane refused (dismissed by hand), a bridge that cannot attach a terminal, and a
+ * pane that ended. The server's messages are put on the real socket, beside its own.
  */
 export async function checkTerminalSession(browser: Browser, origin: string): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-fleet-session-"));
@@ -46,8 +47,12 @@ export async function checkTerminalSession(browser: Browser, origin: string): Pr
     console.log("PASS the terminal says another app holds the pane, until it lets go");
 
     say({ type: "error", code: "input_failed", message: "The pane did not take the input.", pane_id: pane });
-    await banner("The pane did not take the input.").waitFor();
-    console.log("PASS input the pane refused is said");
+    const refused = banner("The pane did not take the input.");
+    await refused.waitFor();
+    // the banners let the grid under them take clicks: this one's button takes its own
+    await refused.getByRole("button", { name: "Dismiss", exact: true }).click();
+    await refused.waitFor({ state: "detached" });
+    console.log("PASS input the pane refused is said, and goes when dismissed");
 
     say({ type: "error", code: "terminal_unsupported", message: "unsupported", pane_id: pane });
     await banner("Live terminal is coming to Windows PCs").waitFor();

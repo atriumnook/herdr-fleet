@@ -117,7 +117,8 @@
 
 /* the banners stack in one top-right column: any state combination (warning XOR
    review, observe alongside either) renders without collisions, and the column lets
-   clicks pass through to the pty except where the review banner re-enables them */
+   clicks pass through to the pty except on a banner's own controls and where the
+   review banner re-enables them */
 .terminal-banners {
   position: absolute;
   top: var(--space-2);
@@ -143,6 +144,11 @@
   font-size: var(--fs-xs);
   color: var(--text-dim);
   white-space: nowrap;
+}
+
+/* a banner's button or link takes its own clicks: Dismiss sat over the grid and the grid took them */
+.terminal-banner :is(button, a) {
+  pointer-events: auto;
 }
 
 .terminal-banner-warning {
