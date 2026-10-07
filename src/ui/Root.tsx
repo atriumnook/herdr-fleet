@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, answerPanePrompt, createWorkspace, fetchPaneConversation, fetchPaneOmoActivity, fetchPanePromptState, fetchPaneTranscript, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, answerPanePrompt, createWorkspace, fetchPaneCommands, fetchPaneFiles, fetchPaneConversation, fetchPaneOmoActivity, fetchPanePromptState, fetchPaneTranscript, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -14,6 +14,8 @@ import { takeAuthTokenFromUrl } from "../lib/authLink.ts";
 import { deviceLabel, takePairCode } from "../lib/phone.ts";
 import { leavePreview, previewFromState, showPreview } from "../lib/fileHistory.ts";
 import { HerdrSocket } from "../lib/ws.ts";
+import { cachedPaneCommands, readSlashUsage, saveSlashUsage } from "../lib/completionStore.ts";
+import { paneStorageId } from "../../shared/machines.ts";
 import { EMPTY_DRAFT, draftIsEmpty } from "../lib/draft.ts";
 import { messageQueues, QUEUE_KEY_PREFIX } from "../lib/messageQueue.ts";
 import { COMPOSER_DRAFT_KEY_PREFIX, composerDrafts } from "../lib/composerDraft.ts";
@@ -101,6 +103,10 @@ export const FLEET_PORTS: EffectPorts = {
   }),
   loadPromptState: (machineId, paneId) => fetchPanePromptState(paneId, machineId),
   answerPrompt: (machineId, answer) => answerPanePrompt(answer, machineId),
+  loadCommands: (machineId, paneId) => cachedPaneCommands(paneStorageId(machineId, paneId), () => fetchPaneCommands(paneId, machineId)),
+  loadSlashUsage: readSlashUsage,
+  saveSlashUsage,
+  searchFiles: (machineId, paneId, query) => fetchPaneFiles(paneId, query, 20, machineId),
   changeComposerDraft: (owner, change) => {
     const key = `${COMPOSER_DRAFT_KEY_PREFIX}${owner}`;
     let settled: { text: string; edited: boolean } | null = null;

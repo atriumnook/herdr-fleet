@@ -77,7 +77,8 @@ export interface PaneTerminalProps {
   emit: Emit<BackgroundTasksUpEvent | Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }>
     | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" | "draft-open" | "draft-input" | "send-draft" | "discard-draft"
       | "chat-pending-answer-done"
-      | "queue-open" | "queue-edit" | "queue-discard" | "composer-draft" | "line-draft" | "composer-send" | "line-send" | "queue-send" }> | ChatUpEvent>;
+      | "queue-open" | "queue-edit" | "queue-discard" | "composer-draft" | "line-draft" | "composer-send" | "line-send" | "queue-send"
+      | "completions-open" | "file-query" | "slash-used" }> | ChatUpEvent>;
 }
 
 
