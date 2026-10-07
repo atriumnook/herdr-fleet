@@ -341,7 +341,8 @@ describe("Mediator", () => {
       expect(fake.calls).toEqual(["ack"]);
       // the output itself changes nothing the state keeps; the connection and the input do
       expect(mediator.getState().pane).toMatchObject({ connected: true, session: { inputReady: true } });
-      expect(mediator.getState().pane.session.outputReady).toBe(before.pane.session.outputReady);
+      expect(before.pane.session.outputReady).toBe(false);
+      expect(mediator.getState().pane.session.outputReady).toBe(false);
       fake.say({ type: "error", code: "attach_held", message: "held" } as ServerMessage);
       expect(mediator.getState().pane.session.held).toBe(true);
       fake.say({ type: "role-ack", mode: "observe" } as ServerMessage);
@@ -364,6 +365,49 @@ describe("Mediator", () => {
       fake.say({ type: "pty-data", pane_id: "w1:p1", data: "x" } as ServerMessage);
       fake.say({ type: "error", code: "output_stalled", message: "could not keep up", pane_id: "w1:p1" } as ServerMessage);
       expect(mediator.getState().pane).toMatchObject({ connected: false, outputStopped: true, session: { ended: true, outputError: "could not keep up" } });
+    });
+
+    it("tells the state only what is said of the attached pane, and writes an unknown error in the grid", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      const { seen, sink } = sinkFor();
+      mediator.attachTerminal(sink);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      // another pane's output and waits say nothing of this one, nor read the connection (each message reads its input, as before)
+      fake.socket.up = true;
+      fake.say({ type: "pty-data", pane_id: "w1:p9", data: "x" } as ServerMessage);
+      fake.say({ type: "error", code: "attach_held", message: "held", pane_id: "w1:p9" } as ServerMessage);
+      fake.say({ type: "error", code: "terminal_unsupported", message: "no", pane_id: "w1:p9" } as ServerMessage);
+      expect(mediator.getState().pane.session).toMatchObject({ outputReady: false, held: false, unsupported: false, ended: false });
+      expect(mediator.getState().pane.connected).toBe(false);
+      fake.say({ type: "error", code: "terminal_unsupported", message: "no" } as ServerMessage);
+      expect(mediator.getState().pane.session.unsupported).toBe(true);
+      fake.say({ type: "error", code: "input_failed", message: "not taken", pane_id: "w1:p1" } as ServerMessage);
+      expect(mediator.getState().pane.session.inputError).toBe("not taken");
+      fake.say({ type: "error", code: "something_new", message: "odd" } as ServerMessage);
+      expect(seen.at(-1)).toBe("error");
+      expect(mediator.getState().pane.connected).toBe(true);
+      fake.say({ type: "error", code: "attach_conflict", message: "taken over" } as ServerMessage);
+      expect(mediator.getState().pane).toMatchObject({ connected: false, outputStopped: false, session: { ended: true, outputError: "taken over" } });
+    });
+
+    it("closes the socket before when another opens, and hears nothing more from it", () => {
+      const first = fakeSocket();
+      const second = fakeSocket();
+      let opening = 0;
+      const mediator = new Mediator(ports({ openPaneSocket: (machineId, on) => (opening++ === 0 ? first.port : second.port)(machineId, on) }).ports);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "open-pane-socket", machineId: "pc2" });
+      expect(first.calls).toEqual(["close"]);
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      second.socket.up = true;
+      second.say({ type: "pty-data", pane_id: "w1:p1", data: "x" } as ServerMessage);
+      expect(mediator.getState().pane.connected).toBe(true);
+      first.drop();
+      first.say({ type: "pty-exit", pane_id: "w1:p1", code: 0 } as ServerMessage);
+      expect(mediator.getState().pane.connected).toBe(true);
+      expect(mediator.getState().pane.session.ended).toBe(false);
     });
 
     it("acknowledges output with no terminal to write it, so the server is not left waiting", () => {
