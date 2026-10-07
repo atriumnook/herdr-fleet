@@ -1366,3 +1366,46 @@ describe("the open pane's terminal socket", () => {
     expect(play([{ type: "pane-command", machineId: "local", command }]).effects).toEqual([]);
   });
 });
+
+describe("the input held while the terminal could not take it", () => {
+  const owner = "w1:p1";
+  const opened = play([{ type: "draft-open", owner }]);
+  const ready = (state: UiState, extra: Partial<UiState["pane"]["session"]> = {}): UiState =>
+    ({ ...state, pane: { ...state.pane, connected: true, session: { ...state.pane.session, paneId: "w1:p1", ...extra } } });
+
+  it("reads the pane's saved draft as the terminal opens it", () => {
+    expect(opened.effects).toEqual([{ kind: "load-draft", owner }]);
+    expect(opened.state.pane.draft).toEqual({ owner, value: { text: "", droppedSpecial: 0 } });
+    expect(play([{ type: "draft-loaded", owner, value: { text: "ls", droppedSpecial: 1 } }], opened.state).state.pane.draft.value).toEqual({ text: "ls", droppedSpecial: 1 });
+    // what another pane's draft read answers is not this one's
+    expect(play([{ type: "draft-loaded", owner: "w1:p2", value: { text: "x", droppedSpecial: 0 } }], opened.state).state).toBe(opened.state);
+    expect(play([{ type: "draft-open", owner: null }]).effects).toEqual([]);
+  });
+
+  it("keeps printable input and counts special keys, saving it", () => {
+    const typed = play([{ type: "draft-input", owner, input: "l" }, { type: "draft-input", owner, input: "s" }, { type: "draft-input", owner, input: "\r" }], opened.state);
+    expect(typed.state.pane.draft.value).toEqual({ text: "ls", droppedSpecial: 1 });
+    expect(typed.effects.at(-1)).toEqual({ kind: "save-draft", owner, value: { text: "ls", droppedSpecial: 1 } });
+  });
+
+  it("starts afresh for input on a pane the draft is not of", () => {
+    const typed = play([{ type: "draft-input", owner, input: "ls" }], opened.state).state;
+    expect(play([{ type: "draft-input", owner: "w1:p2", input: "x" }], typed).state.pane.draft).toEqual({ owner: "w1:p2", value: { text: "x", droppedSpecial: 0 } });
+  });
+
+  it("sends the draft only to a terminal that can take it, and clears it once sent", () => {
+    const typed = play([{ type: "draft-input", owner, input: "ls" }], opened.state).state;
+    expect(play([{ type: "send-draft" }], typed).effects).toEqual([]);
+    expect(play([{ type: "send-draft" }], ready(typed, { held: true })).effects).toEqual([]);
+    expect(play([{ type: "send-draft" }], ready(typed, { secret: "Password:" })).effects).toEqual([]);
+    expect(play([{ type: "send-draft" }], ready(typed)).effects).toEqual([{ kind: "send-draft", owner, paneId: "w1:p1", text: "ls" }]);
+    const sent = play([{ type: "draft-sent", owner }], typed);
+    expect(sent.state.pane.draft.value).toEqual({ text: "", droppedSpecial: 0 });
+    expect(sent.effects).toEqual([{ kind: "save-draft", owner, value: { text: "", droppedSpecial: 0 } }]);
+  });
+
+  it("drops the draft when asked", () => {
+    const typed = play([{ type: "draft-input", owner, input: "ls" }], opened.state).state;
+    expect(play([{ type: "discard-draft" }], typed).state.pane.draft.value).toEqual({ text: "", droppedSpecial: 0 });
+  });
+});

@@ -8,6 +8,7 @@ import type { FilePreview } from "../lib/fileHistory.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS, dropletAllows, endedTurn, trackTurn, type DropletNotice } from "../lib/droplet.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import { applyPaneStatus } from "../lib/snapshot.ts";
+import { EMPTY_DRAFT, applyToDraft, type InputDraft } from "../lib/draft.ts";
 import { clockOffsetMs } from "../lib/omoTasks.ts";
 import { sanitizeFontFamily } from "../lib/fontFamily.ts";
 import { alertPrefs, DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type Settings } from "../lib/settings.ts";
@@ -198,6 +199,8 @@ export interface PaneState {
   socket: { machineId: string; seq: number } | null;
   /** sockets opened so far */
   socketSeq: number;
+  /** input typed while the terminal could not take it, held for the person to review and send; `owner`: the pane's storage id */
+  draft: { owner: string | null; value: InputDraft };
 }
 
 /** This device's alerts: the browser's permission, its push subscription, and what the pushes told so far. */
@@ -464,6 +467,14 @@ export type UiEvent =
   | { type: "close-pane-socket"; machineId: string }
   /** `machineId`: the PC the terminal asking is on; a socket to another one is not its own */
   | { type: "pane-command"; machineId: string; command: PaneCommand }
+  /** the terminal shows a pane (null: none): its held input is read back */
+  | { type: "draft-open"; owner: string | null }
+  | { type: "draft-loaded"; owner: string; value: InputDraft }
+  /** a keystroke the socket did not take */
+  | { type: "draft-input"; owner: string; input: string }
+  | { type: "send-draft" }
+  | { type: "draft-sent"; owner: string }
+  | { type: "discard-draft" }
   | { type: "output-stalled" }
   | { type: "role-ack"; role: ClientRole }
   /** `storageId`: where the pane's lens is kept; null with no pane selected */
@@ -665,6 +676,10 @@ export type Effect =
   | { kind: "open-pane-socket"; machineId: string; seq: number }
   | { kind: "close-pane-socket"; seq: number }
   | { kind: "pane-command"; seq: number; command: PaneCommand }
+  | { kind: "load-draft"; owner: string }
+  /** an empty draft is forgotten */
+  | { kind: "save-draft"; owner: string; value: InputDraft }
+  | { kind: "send-draft"; owner: string; paneId: string; text: string }
   | { kind: "load-background-tasks"; machineId: string; paneId: string; seq: number }
   /** `path` "" is home */
   | { kind: "list-folders"; slot: FolderSlot; machineId: string; path: string; hidden: boolean; files: boolean; seq: number }
@@ -694,7 +709,7 @@ export const INITIAL_STATE: UiState = {
   trees: {},
   connection: { locked: null, reason: null, auth: null, health: null, pairCode: "", pairing: "none", visible: true, pollSeq: 0 },
   machines: { list: [], error: null, revision: 0, refetching: false, checking: null },
-  pane: { connected: false, outputStopped: false, role: "interact", lens: null, session: NO_SESSION, socket: null, socketSeq: 0 },
+  pane: { connected: false, outputStopped: false, role: "interact", lens: null, session: NO_SESSION, socket: null, socketSeq: 0, draft: { owner: null, value: EMPTY_DRAFT } },
   alerts: { permission: "default", supported: false, push: false, statuses: {}, turnStarts: {}, lastTurns: {}, subscribeSeq: 0 },
   drawerOpen: false,
   newSession: { open: false },
@@ -761,6 +776,15 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       const { socket } = state.pane;
       if (socket?.machineId === event.machineId) effects.push({ kind: "pane-command", seq: socket.seq, command: event.command });
       return next({});
+    }
+    case "draft-open":
+    case "draft-loaded":
+    case "draft-input":
+    case "send-draft":
+    case "draft-sent":
+    case "discard-draft": {
+      const pane = draftTransition(state.pane, event, effects);
+      return next(pane === state.pane ? {} : { pane });
     }
     case "pane-attached":
     case "pane-output":
@@ -1550,6 +1574,40 @@ function readFile(state: UiState, effects: Effect[], now = true): UiState {
   const seq = state.files.seq + 1;
   if (now) effects.push({ kind: "load-file", machineId: viewer.preview.machineId, paneId: viewer.preview.paneId, path: viewer.path, seq });
   return { ...state, files: { ...state.files, seq, viewer: { ...viewer, content: { kind: "opening" } } } };
+}
+
+type DraftEvent = Extract<UiEvent, { type: "draft-open" | "draft-loaded" | "draft-input" | "send-draft" | "draft-sent" | "discard-draft" }>;
+
+/**
+ * Input typed while the terminal could not take it is never queued and fired later, unannounced:
+ * it is held, printable text only, for the person to send once the terminal takes input again.
+ */
+function draftTransition(pane: PaneState, event: DraftEvent, effects: Effect[]): PaneState {
+  const { draft } = pane;
+  /** the held input changed: kept for the next load too */
+  const hold = (owner: string, value: InputDraft): PaneState => {
+    effects.push({ kind: "save-draft", owner, value });
+    return { ...pane, draft: { owner, value } };
+  };
+  switch (event.type) {
+    case "draft-open":
+      if (event.owner !== null) effects.push({ kind: "load-draft", owner: event.owner });
+      return { ...pane, draft: { owner: event.owner, value: EMPTY_DRAFT } };
+    case "draft-loaded":
+      return draft.owner === event.owner ? { ...pane, draft: { owner: event.owner, value: event.value } } : pane;
+    case "draft-input":
+      return hold(event.owner, applyToDraft(draft.owner === event.owner ? draft.value : EMPTY_DRAFT, event.input));
+    case "send-draft": {
+      const { session } = pane;
+      if (draft.owner === null || draft.value.text.length === 0 || session.paneId === null || !pane.connected || session.secret !== null || session.held) return pane;
+      effects.push({ kind: "send-draft", owner: draft.owner, paneId: session.paneId, text: draft.value.text });
+      return pane;
+    }
+    case "draft-sent":
+      return draft.owner === event.owner ? hold(event.owner, EMPTY_DRAFT) : pane;
+    case "discard-draft":
+      return draft.owner === null ? pane : hold(draft.owner, EMPTY_DRAFT);
+  }
 }
 
 function paneSessionTransition(pane: PaneState, event: PaneSessionEvent): PaneState {

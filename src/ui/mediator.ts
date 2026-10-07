@@ -8,6 +8,7 @@ import type { NotificationState } from "../lib/notifications.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 import type { AgentKind, ClientRole, DirectoryListing, HerdrPane, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { SubmitResult } from "../lib/ws.ts";
+import type { InputDraft } from "../lib/draft.ts";
 import type { Settings } from "../lib/settings.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
 import { INITIAL_STATE, transition, type Effect, type FileOutcome, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
@@ -113,6 +114,10 @@ export interface EffectPorts {
   leavePreview(): boolean;
   /** what the server says of a path; throws for anything but these */
   loadFileInfo(machineId: string, path: string, paneId: string | null): Promise<Exclude<FileOutcome, { kind: "failed" }>>;
+  /** the input held for a pane on this device (lib/draft.ts) */
+  loadDraft(owner: string): InputDraft;
+  /** keeps it for the next load; an empty one is forgotten */
+  saveDraft(owner: string, value: InputDraft): void;
   /** opens the terminal's socket to a PC; its messages and its drops come through `on` */
   openPaneSocket(machineId: string, on: { message(message: ServerMessage): void; disconnected(): void }): PaneSocketHandle;
   /** the folders (and files, when asked) in a folder on a PC; "" is home. Throws for anything but these failures */
@@ -445,6 +450,16 @@ export class Mediator {
         else handle.setMode(command.role);
         return;
       }
+      case "load-draft":
+        this.dispatch({ type: "draft-loaded", owner: effect.owner, value: this.ports.loadDraft(effect.owner) });
+        return;
+      case "save-draft":
+        this.ports.saveDraft(effect.owner, effect.value);
+        return;
+      case "send-draft":
+        // never queued: a draft the socket does not take stays for the person to send again
+        if (this.paneSocket?.handle.sendInput(effect.paneId, effect.text)) this.dispatch({ type: "draft-sent", owner: effect.owner });
+        return;
       case "load-background-tasks":
         try { this.dispatch({ type: "background-tasks-read", seq: effect.seq, activity: await this.ports.loadBackgroundTasks(effect.machineId, effect.paneId), at: Date.now() }); }
         catch { this.dispatch({ type: "background-tasks-failed", seq: effect.seq }); }
