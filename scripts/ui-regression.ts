@@ -27,6 +27,7 @@ import { checkFleetScreen } from "./fleet-screen-regression.ts";
 import { checkBackgroundTasks } from "./background-tasks-regression.ts";
 import { checkDirectoryBrowser } from "./directory-browser-regression.ts";
 import { checkTerminalSession } from "./terminal-session-regression.ts";
+import { checkTerminalDraft } from "./terminal-draft-regression.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-fleet-browser-")));
 const workspaces: string[] = [];
@@ -315,6 +316,7 @@ try {
   await checkBackgroundTasks(browser, origin);
   await checkDirectoryBrowser(browser, origin);
   await checkTerminalSession(browser, origin);
+  await checkTerminalDraft(browser, origin);
   await checkFleetScreen(browser);
   await checkChatKeepsTerminalSize(browser, origin);
 
