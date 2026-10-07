@@ -1317,7 +1317,20 @@ describe("the open pane's terminal session", () => {
     expect(session(play([{ type: "pane-exited", paneId: "w1:p1" }], attached).state).ended).toBe(true);
   });
 
-  it("keeps the state itself when the socket's connection is polled unchanged", () => {
+  it("drops what is said of the pane before once the terminal attached another; a pick alone changes nothing yet", () => {
+    const first = play([{ type: "pane-output", paneId: "w1:p1", secret: null }, { type: "pane-input-ready", paneId: "w1:p1", ready: true }], attached).state;
+    // the pane picked: the terminal still describes the one it has until it attaches the next
+    expect(session(play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }], first).state)).toMatchObject({ paneId: "w1:p1", outputReady: true });
+    const second = play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }, { type: "pane-attached", paneId: "w1:p2" }], first).state;
+    for (const event of [
+      { type: "pane-output", paneId: "w1:p1", secret: "Password:" },
+      { type: "pane-exited", paneId: "w1:p1" },
+      { type: "pane-attach-held", paneId: "w1:p1" },
+      { type: "pane-input-ready", paneId: "w1:p1", ready: true },
+    ] satisfies UiEvent[]) expect(session(play([event], second).state)).toEqual({ ...session(second) });
+  });
+
+    it("keeps the state itself when the socket's connection is polled unchanged", () => {
     const connected = play([{ type: "pane-connection", connected: true }], attached).state;
     expect(play([{ type: "pane-connection", connected: true }], connected).state).toBe(connected);
   });
