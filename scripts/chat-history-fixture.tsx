@@ -2,7 +2,7 @@
 import React, { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { loadSettings, SettingsProvider } from "../src/lib/settings.ts";
-import { ChatView } from "../src/components/ChatView.tsx";
+import { ChatPresenter } from "../src/ui/ChatPresenter.tsx";
 import { useWholeOutput } from "../src/lib/useWholeOutput.ts";
 import { MachineContext } from "../src/lib/machineContext.tsx";
 import { Mediator } from "../src/ui/mediator.ts";
@@ -32,6 +32,6 @@ function Fixture() {
   window.qa.chat = (pane, machine = "local") => { setPane(pane); setMachine(machine); };
   window.qa.refresh = () => mediator.dispatch({ type: "chat-delivered" });
   return <><button id="fetch-output" onClick={() => { output.load(); output.load(); }}>Load output</button><output id="output">{output.state}:{output.text}</output>
-    <div style={{ position: "relative", height: 600 }}><MachineContext.Provider value={machine}><ChatView key={machine} paneId={pane} connected={false} ended={false} agent={null} agentStatus={undefined} emit={mediator.dispatch} /></MachineContext.Provider></div></>;
+    <div style={{ position: "relative", height: 600 }}><MachineContext.Provider value={machine}><ChatPresenter key={machine} paneId={pane} connected={false} ended={false} agent={null} agentStatus={undefined} emit={mediator.dispatch} /></MachineContext.Provider></div></>;
 }
 createRoot(document.getElementById("root")!).render(<React.StrictMode><MediatorContext.Provider value={mediator}><SettingsProvider settings={loadSettings()} onChange={() => {}}><Fixture /></SettingsProvider></MediatorContext.Provider></React.StrictMode>);

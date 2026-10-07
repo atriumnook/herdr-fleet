@@ -14,14 +14,12 @@ import { turnRevision } from "../lib/turnRevision.ts";
 import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
 import type { Emit } from "../ui/bubble.ts";
-import { useSelected } from "../ui/presenter.ts";
-import { EMPTY_VIEW, type UiEvent, type UiState } from "../ui/state.ts";
+import type { ConversationView, UiEvent } from "../ui/state.ts";
 import type { TranscriptMessage } from "../lib/transcript.ts";
 import { isLiveWorkTurn, formatWorkDuration, splitTurn, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
 import { isTodoTool, parseTodoAnswer, todoCallSummary, type TodoItem, type TodoStatus } from "../lib/todos.ts";
 import { formatGoalTime, turnGoal, type GoalState, type GoalStatus } from "../lib/goals.ts";
-import { useSettings } from "../lib/settings.ts";
 import { dismissKeyboardOn } from "../lib/keyboard.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { patchText } from "../../shared/patch.ts";
@@ -34,26 +32,40 @@ import { formatTokens } from "../lib/compose.ts";
 /** The pane this chat shows, for what its rows fetch on request (a tool call's whole output). */
 const ChatPaneContext = createContext<string | null>(null);
 const ChatHistoryContext = createContext("");
-import type { AgentStatus, ConversationPart, ConversationTurn } from "../../shared/protocol.ts";
+import type { AgentStatus, ConversationPart, ConversationResponse, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
+import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import { currentLocale, useT } from "../lib/i18n.ts";
 
 /** Scrolling this close to the top asks for the page before it. */
 const LOAD_OLDER_PX = 400;
 
-export interface ChatViewProps {
+/** What the chat draws: the pane's conversation as read, its waiting prompt, and the pane's state. */
+export interface ChatViewModel {
   paneId: string;
   connected: boolean;
   ended: boolean;
   agent: string | null;
-  agentStatus?: AgentStatus;
-  /** what the chat says up to the Root: it is open on the pane, the prompt's card, an earlier page asked for */
-  emit: Emit<ChatViewEvent>;
+  agentStatus: AgentStatus | undefined;
+  view: ConversationView;
+  /** the view changed from an empty one: nothing was there to be "new" against */
+  fresh: boolean;
+  older: ConversationTurn[];
+  olderCursor: string | null | undefined;
+  olderState: "idle" | "loading" | "failed";
+  historyId: string | undefined;
+  error: { message: string; status: number | null } | null;
+  loaded: boolean;
+  /** turns the transcript holds on a path /tree walked away from */
+  abandoned: NonNullable<ConversationResponse["abandoned"]> | null;
+  sentOver: { turn: ConversationTurn; page: ConversationTurn[] } | null;
+  prompt: InteractivePrompt | null;
+  pendingAnswer: { promptId: string; answer: TypedAnswer } | null;
+  showThinking: boolean;
 }
 
-export type ChatViewEvent = Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "chat-prompt-reread" | "chat-prompt-answered" | "chat-pending-answer-done" | "load-older-conversation" }>;
+/** the prompt card's answers, and an earlier page asked for */
+export type ChatViewEvent = Extract<UiEvent, { type: "chat-prompt-reread" | "chat-prompt-answered" | "chat-pending-answer-done" | "load-older-conversation" }>;
 
-/** no earlier turns: the same empty list each render, for the memo below */
-const NO_TURNS: ConversationTurn[] = [];
 
 
 
@@ -427,29 +439,14 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
 }
 
 // the app re-renders on every pane-status and poll; an unchanged transcript sits those out
-export const ChatView = memo(function ChatView({ paneId, connected, ended, agent, agentStatus, emit }: ChatViewProps) {
+/**
+ * The chat lens: the pane's conversation and its waiting prompt, as the Presenter hands them over.
+ * Where the reader is (at the end or not, "New messages", the turns kept under their eyes when
+ * earlier ones go in above) is the view's own.
+ */
+export const ChatView = memo(function ChatView({ model, emit }: { model: ChatViewModel; emit: Emit<ChatViewEvent> }) {
   const t = useT();
-  const machineId = useMachineId();
-  const emitRef = useRef(emit);
-  emitRef.current = emit;
-  // the prompt and a pick typed for it, as the Mediator keeps them for this pane
-  const prompt = useSelected((state) => (state.chat.open?.paneId === paneId ? state.chat.prompt : null));
-  const pendingAnswer = useSelected((state) => (state.chat.open?.paneId === paneId ? state.chat.pendingAnswer : null));
-  // the conversation, as the Mediator reads it for this pane: each part apart, so a poll that changed one re-renders for it alone
-  const here = (state: UiState): boolean => state.conversation.open?.paneId === paneId;
-  const view = useSelected((state) => (here(state) ? state.conversation.view : EMPTY_VIEW));
-  const fresh = useSelected((state) => !here(state) || state.conversation.fresh);
-  const older = useSelected((state) => (here(state) ? state.conversation.older.turns : NO_TURNS));
-  const olderCursor = useSelected((state) => (here(state) ? state.conversation.older.cursor : undefined));
-  const olderState = useSelected((state) => (here(state) ? state.conversation.older.status : "idle"));
-  const historyId = useSelected((state) => (here(state) ? state.conversation.historyId : undefined));
-  const error = useSelected((state) => (here(state) ? state.conversation.error : null));
-  const loaded = useSelected((state) => here(state) && state.conversation.loaded);
-  // turns the transcript holds on a path /tree walked away from: no page can reach them, so the
-  // only way to say they exist is to be told, and to say it where the reader would look for them
-  const abandoned = useSelected((state) => (here(state) ? state.conversation.abandoned : null));
-  const sentOver = useSelected((state) => (here(state) ? state.conversation.sentOver : null));
-  const { settings } = useSettings();
+  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, showThinking } = model;
   const [newMessages, setNewMessages] = useState(false);
   /** scrolled up from the end: the way back is offered even when nothing new came */
   const [away, setAway] = useState(false);
@@ -463,17 +460,6 @@ export const ChatView = memo(function ChatView({ paneId, connected, ended, agent
   useLayoutEffect(() => {
     stickToBottom.current = true; setNewMessages(false); setAway(false);
   }, [paneId, historyId]);
-
-  // The chat reads the pane's waiting prompt and its conversation (the Mediator): a new Codex TUI
-  // can show its directory-trust menu while herdr still reports idle, so the visible prompt, not
-  // the status badge, decides whether to offer answers. The chat open on the pane says so; going,
-  // it is forgotten, with the suggestion read along with it.
-  useEffect(() => {
-    emitRef.current({ type: "chat-open", machineId, paneId });
-    return () => emitRef.current({ type: "chat-close", machineId, paneId });
-  }, [machineId, paneId]);
-  const hasAgent = agent !== null;
-  useEffect(() => emitRef.current({ type: "chat-agent", paneId, agent: hasAgent }), [paneId, hasAgent]);
 
   // the newest page moved for a reader scrolled up: they are told, not moved
   useLayoutEffect(() => {
@@ -571,7 +557,7 @@ export const ChatView = memo(function ChatView({ paneId, connected, ended, agent
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
             return <RenderBoundary key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} resetKey={turnRevision(turn)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
-              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={settings.showThinking} />
+              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={showThinking} />
             </RenderBoundary>;
           })
         : agent !== null
@@ -581,7 +567,7 @@ export const ChatView = memo(function ChatView({ paneId, connected, ended, agent
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{error.status === 401 ? "locked — the token gate is asking again" : error.message}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
       {loaded && empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
-      {prompt !== null && <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer?.promptId === prompt.id ? pendingAnswer.answer : null}
+      {prompt !== null && <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer !== null && pendingAnswer.promptId === prompt.id ? pendingAnswer.answer : null}
         onTypedAnswerDone={() => emit({ type: "chat-pending-answer-done" })}
         onPromptChanged={() => emit({ type: "chat-prompt-reread" })}
         // a form of several questions goes on to its next one: it is read now, not at the next poll

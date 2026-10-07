@@ -24,7 +24,7 @@ import { NO_SESSION, type PaneCommand, type PaneSessionEvent, type UiEvent } fro
 import { TerminalInput } from "./TerminalInput.tsx";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
-import { ChatView, type ChatViewEvent } from "./ChatView.tsx";
+import { ChatPresenter, type ChatUpEvent } from "../ui/ChatPresenter.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
 import type { AgentStatus, ClientRole } from "../../shared/protocol.ts";
@@ -76,7 +76,7 @@ export interface PaneTerminalProps {
   /** what the terminal's socket says of the pane, and what the views inside it (the composer's background tasks) send, up to the Root */
   emit: Emit<BackgroundTasksUpEvent | Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }>
     | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" | "draft-open" | "draft-input" | "send-draft" | "discard-draft"
-      | "chat-sent" | "chat-delivered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-prompt-reread" }> | ChatViewEvent>;
+      | "chat-sent" | "chat-delivered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-prompt-reread" }> | ChatUpEvent>;
 }
 
 
@@ -1257,14 +1257,7 @@ export function PaneTerminal({
               <button type="button" className="btn" onClick={retry}>{t("Try again")}</button>
             </div></div>
           )}>
-          <ChatView
-            paneId={paneId}
-            connected={connected}
-            ended={ended}
-            agent={agent}
-            agentStatus={agentStatus}
-            emit={emit}
-          />
+          <ChatPresenter paneId={paneId} connected={connected} ended={ended} agent={agent} agentStatus={agentStatus} emit={emit} />
           </RenderBoundary>
         )}
       </div>
