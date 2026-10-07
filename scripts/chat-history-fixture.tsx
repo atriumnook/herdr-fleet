@@ -5,6 +5,8 @@ import { loadSettings, SettingsProvider } from "../src/lib/settings.ts";
 import { ChatView } from "../src/components/ChatView.tsx";
 import { useWholeOutput } from "../src/lib/useWholeOutput.ts";
 import { MachineContext } from "../src/lib/machineContext.tsx";
+import { Mediator, type EffectPorts } from "../src/ui/mediator.ts";
+import { MediatorContext } from "../src/ui/presenter.ts";
 import "../src/styles.css";
 
 declare global { interface Window { qa: { requests: { url: string; signal: AbortSignal; resolve: (text: string) => void; reject: () => void }[]; target: (url: string, scope: string) => void; chat: (pane: string, machine?: string) => void; refresh: () => void } } }
@@ -17,16 +19,18 @@ window.fetch = (input, init) => {
   return new Promise((resolve, reject) => window.qa.requests.push({ url, signal: init!.signal as AbortSignal,
     resolve: (text) => resolve(new Response(text)), reject: () => reject(new Error("late failure")) }));
 };
+// the chat reads its own conversation; the Root's Mediator only keeps what it shares (no prompt is read: no agent)
+const mediator = new Mediator(new Proxy({} as EffectPorts, { get: (_, name) => () => { throw new Error(`the fixture has no ${String(name)}`); } }));
+
 function Fixture() {
   const [target, setTarget] = useState({ url: "/qa-output?pane=a&ref=x", scope: "one" });
   const [pane, setPane] = useState("a");
   const [machine, setMachine] = useState("local");
-  const [refresh, setRefresh] = useState(0);
   const output = useWholeOutput(target.url, target.scope);
   window.qa.target = (url, scope) => setTarget({ url, scope });
   window.qa.chat = (pane, machine = "local") => { setPane(pane); setMachine(machine); };
-  window.qa.refresh = () => setRefresh((value) => value + 1);
+  window.qa.refresh = () => mediator.dispatch({ type: "chat-delivered" });
   return <><button id="fetch-output" onClick={() => { output.load(); output.load(); }}>Load output</button><output id="output">{output.state}:{output.text}</output>
-    <div style={{ position: "relative", height: 600 }}><MachineContext.Provider value={machine}><ChatView key={machine} paneId={pane} refreshKey={refresh} connected={false} ended={false} agent={null} agentStatus={null} /></MachineContext.Provider></div></>;
+    <div style={{ position: "relative", height: 600 }}><MachineContext.Provider value={machine}><ChatView key={machine} paneId={pane} connected={false} ended={false} agent={null} agentStatus={undefined} emit={mediator.dispatch} /></MachineContext.Provider></div></>;
 }
-createRoot(document.getElementById("root")!).render(<React.StrictMode><SettingsProvider settings={loadSettings()} onChange={() => {}}><Fixture /></SettingsProvider></React.StrictMode>);
+createRoot(document.getElementById("root")!).render(<React.StrictMode><MediatorContext.Provider value={mediator}><SettingsProvider settings={loadSettings()} onChange={() => {}}><Fixture /></SettingsProvider></MediatorContext.Provider></React.StrictMode>);

@@ -10,7 +10,7 @@ import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/ke
 import { EMPTY_DRAFT, draftIsEmpty } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
-import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
+import { answerFromText, answerHint, answerRefusal, needsConfirmation } from "../lib/promptAnswer.ts";
 import { ApiError, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
 import { matchHerdrWidths } from "../lib/terminalWidths.ts";
@@ -24,10 +24,10 @@ import { NO_SESSION, type PaneCommand, type PaneSessionEvent, type UiEvent } fro
 import { TerminalInput } from "./TerminalInput.tsx";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
-import { ChatView } from "./ChatView.tsx";
+import { ChatView, type ChatViewEvent } from "./ChatView.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
-import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt } from "../../shared/protocol.ts";
+import type { AgentStatus, ClientRole } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
 import { useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
@@ -75,7 +75,8 @@ export interface PaneTerminalProps {
   /** Every server frame also reaches App: it merges pane-status and schedules refetches. */
   /** what the terminal's socket says of the pane, and what the views inside it (the composer's background tasks) send, up to the Root */
   emit: Emit<BackgroundTasksUpEvent | Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }>
-    | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" | "draft-open" | "draft-input" | "send-draft" | "discard-draft" }>>;
+    | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" | "draft-open" | "draft-input" | "send-draft" | "discard-draft"
+      | "chat-sent" | "chat-delivered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-prompt-reread" }> | ChatViewEvent>;
 }
 
 
@@ -180,43 +181,18 @@ export function PaneTerminal({
   // transient OSC 52 feedback ("copied") — a pill in the banner column
   const [clipboardNote, setClipboardNote] = useState<string | null>(null);
   const clipboardTimerRef = useRef<number | null>(null);
-  // the composer's send bumps this so the chat lens refetches without waiting a poll beat
-  const [chatRefresh, setChatRefresh] = useState(0);
-  // bumped as a composer message goes out: the chat must not title the turn before it as running
-  const [chatSent, setChatSent] = useState(0);
-  const [chatMetadata, setChatMetadata] = useState<{ pane: string; value: ConversationMetadata | null } | null>(null);
-  // The prompt the chat shows: while it waits, a message from the composer answers it.
-  const [chatPrompt, setChatPrompt] = useState<{ pane: string; value: InteractivePrompt } | null>(null);
-  const [promptRefresh, setPromptRefresh] = useState(0);
-  // what the agent suggests typing next (Claude's grey input text), for the composer's placeholder
-  const [chatSuggestion, setChatSuggestion] = useState<{ pane: string; value: string } | null>(null);
-  const onChatSuggestion = useCallback((pane: string, value: string | null) => {
-    setChatSuggestion((current) => value !== null
-      ? (current?.pane === pane && current.value === value ? current : { pane, value })
-      : current?.pane === pane ? null : current);
-  }, []);
-  // a typed pick of an approval's option, shown in the card until Confirm or Cancel
-  const [pendingAnswer, setPendingAnswer] = useState<{ pane: string; promptId: string; answer: TypedAnswer } | null>(null);
-  const clearPendingAnswer = useCallback(() => setPendingAnswer(null), []);
-  const onChatPrompt = useCallback((pane: string, value: InteractivePrompt | null) => {
-    setChatPrompt((current) => value !== null ? { pane, value } : current?.pane === pane ? null : current);
-    // a typed pick belongs to the prompt it was typed for: once that prompt changes or goes
-    // away (a tap in the card, an answer in the terminal), the same question asked again
-    // later opens clean, not with the old pick waiting one tap from Confirm
-    setPendingAnswer((current) => current?.pane === pane && current.promptId !== value?.id ? null : current);
-  }, []);
+  // what the chat lens shares with the composer (the Mediator keeps it): the prompt waiting on this pane, a pick
+  // typed for it, the agent's suggestion and the settings the conversation reported
+  const chatHere = useSelected((state) => (paneId !== null && state.chat.open?.paneId === paneId ? state.chat : null));
+  const chatPrompt = chatHere?.prompt ?? null;
+  const pendingAnswer = chatHere?.pendingAnswer ?? null;
+  const chatSuggestion = chatHere?.suggestion ?? null;
+  const chatMetadata = useSelected((state) => (paneId !== null && state.chat.metadata?.paneId === paneId ? state.chat.metadata.value : null));
   // back at work, the agent has had its answer, maybe from the terminal: the same prompt asked
   // again before the chat's next read must not bring the pick back either
   useEffect(() => {
-    if (agentStatus === "working") setPendingAnswer(null);
+    if (agentStatus === "working") emitRef.current({ type: "chat-pending-answer-done" });
   }, [agentStatus]);
-  const onChatMetadata = useCallback((pane: string, value: ConversationMetadata | null) => {
-    // the same settings keep the same object: every 2 s poll would otherwise re-render the composer
-    setChatMetadata((previous) => previous?.pane === pane && previous.value?.model === value?.model
-      && previous.value?.reasoning_effort === value?.reasoning_effort
-      && previous.value?.context?.used === value?.context?.used
-      && previous.value?.context?.window === value?.context?.window ? previous : { pane, value });
-  }, []);
   const queueStore = messageQueues;
   const queueOwner = paneId === null ? null : paneStorageId(machineId, paneId);
   const queued = useSyncExternalStore(queueStore.subscribe, () => queueStore.read(queueOwner ?? ""));
@@ -1074,16 +1050,15 @@ export function PaneTerminal({
     const sent = link.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode));
     if (sent === null) return false;
     term.scrollToBottom();
-    setChatSent((current) => current + 1);
     // a message went out, from the box or a queued one: the agent's suggestion was for the turn before it
-    onChatSuggestion(pane, null);
+    emitRef.current({ type: "chat-sent" });
     return sent.then((result) => {
       if (!result.ok) return submitNote(result.code, result.message);
       // the chat lens refetches at once so the sent prompt appears without a poll beat
-      setChatRefresh((current) => current + 1);
+      emitRef.current({ type: "chat-delivered" });
       return true;
     });
-  }, [onChatSuggestion]);
+  }, []);
 
   // the terminal's input line: the text typed like the keyboard would, into an agent's open
   // menu too, then Enter after the server's gap; several lines go as one paste
@@ -1147,9 +1122,9 @@ export function PaneTerminal({
   // a question in Codex's queue leaves the composer alone: Codex keeps working, and a
   // message ("stop, don't touch prod") must reach it, not become the answer; its card answers it
   // a fallback card is answered with its own buttons: what the user types still goes to the agent
-  const answering = chatView && chatPrompt !== null && chatPrompt.pane === paneId && !chatPrompt.value.queued && !chatPrompt.value.fallback ? chatPrompt.value : null;
+  const answering = chatView && chatPrompt !== null && !chatPrompt.queued && !chatPrompt.fallback ? chatPrompt : null;
   // ...and while it is open in the terminal it holds the input: nothing is sent into it
-  const heldByOpenQueue = chatView && chatPrompt !== null && chatPrompt.pane === paneId && chatPrompt.value.queued === "open";
+  const heldByOpenQueue = chatView && chatPrompt !== null && chatPrompt.queued === "open";
   const busy = agent !== null && agentStatus === "working" && answering === null;
   const readyForQueue = agentStatus !== undefined && QUEUE_READY_STATUS[agentStatus] === true;
 
@@ -1165,14 +1140,14 @@ export function PaneTerminal({
         const choice = answerFromText(answering, text);
         if (choice === null) return answerRefusal(answering);
         if (needsConfirmation(answering, choice)) {
-          setPendingAnswer({ pane, promptId: answering.id, answer: choice });
+          emitRef.current({ type: "chat-pending-answer", promptId: answering.id, answer: choice });
           return true;
         }
-        setPendingAnswer(null);
+        emitRef.current({ type: "chat-pending-answer-done" });
         return answerPanePrompt({ pane_id: pane, prompt_id: answering.id, ...choice }).then(
-          () => { setPromptRefresh((key) => key + 1); return true; },
+          () => { emitRef.current({ type: "chat-prompt-reread" }); return true; },
           (cause: unknown) => {
-            setPromptRefresh((key) => key + 1);
+            emitRef.current({ type: "chat-prompt-reread" });
             return cause instanceof ApiError && cause.status === 409 ? t("The question on screen changed; check it and answer again.") : String(cause instanceof Error ? cause.message : cause);
           },
         );
@@ -1284,18 +1259,11 @@ export function PaneTerminal({
           )}>
           <ChatView
             paneId={paneId}
-            refreshKey={chatRefresh}
-            sentKey={chatSent}
             connected={connected}
             ended={ended}
             agent={agent}
             agentStatus={agentStatus}
-            onMetadata={onChatMetadata}
-            onPrompt={onChatPrompt}
-            onSuggestion={onChatSuggestion}
-            promptRefreshKey={promptRefresh}
-            pendingAnswer={pendingAnswer !== null && pendingAnswer.pane === paneId ? pendingAnswer : null}
-            onPendingAnswerDone={clearPendingAnswer}
+            emit={emit}
           />
           </RenderBoundary>
         )}
@@ -1364,13 +1332,13 @@ export function PaneTerminal({
           agentStatus={agentStatus}
           backgroundTasks={backgroundTasks}
           emit={emit}
-          metadata={chatMetadata?.pane === paneId ? chatMetadata.value : null}
+          metadata={chatMetadata}
           connected={connected && !held}
           queueMode={busy}
           answerHint={answering === null ? null
             : pendingAnswer?.promptId === answering.id ? t("Confirm your answer in the card above, or type another…") : answerHint(answering)}
           // no suggestion under any card, a fallback or queued one included
-          suggestion={chatPrompt?.pane !== paneId && chatSuggestion?.pane === paneId ? chatSuggestion.value : null}
+          suggestion={chatPrompt === null ? chatSuggestion : null}
           onSend={composerSend}
           onAbort={abortTurn}
           onUploadImage={uploadImage}

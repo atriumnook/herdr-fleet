@@ -6,7 +6,7 @@ import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AgentKind, ClientRole, DirectoryListing, HerdrPane, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
+import type { AgentKind, ClientRole, DirectoryListing, HerdrPane, InteractivePrompt, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { SubmitResult } from "../lib/ws.ts";
 import type { InputDraft } from "../lib/draft.ts";
 import type { Settings } from "../lib/settings.ts";
@@ -114,6 +114,8 @@ export interface EffectPorts {
   leavePreview(): boolean;
   /** what the server says of a path; throws for anything but these */
   loadFileInfo(machineId: string, path: string, paneId: string | null): Promise<Exclude<FileOutcome, { kind: "failed" }>>;
+  /** the prompt waiting on a pane, and with none, what its agent suggests typing next */
+  loadPromptState(machineId: string, paneId: string): Promise<{ prompt: InteractivePrompt | null; suggestion: string | null }>;
   /** the input held for a pane on this device (lib/draft.ts) */
   loadDraft(owner: string): InputDraft;
   /** keeps it for the next load; an empty one is forgotten */
@@ -448,6 +450,14 @@ export class Mediator {
         else if (command.kind === "resize") handle.resize(command.paneId, command.cols, command.rows, command.force);
         else if (command.kind === "keep-size") handle.keepSize(command.paneId);
         else handle.setMode(command.role);
+        return;
+      }
+      case "load-chat-prompt": {
+        const { seq, sent } = effect;
+        try {
+          const { prompt, suggestion } = await this.ports.loadPromptState(effect.machineId, effect.paneId);
+          this.dispatch({ type: "chat-prompt-read", seq, sent, prompt, suggestion });
+        } catch { this.dispatch({ type: "chat-prompt-failed", seq }); }
         return;
       }
       case "load-draft":
