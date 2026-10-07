@@ -249,6 +249,8 @@ export function Composer({
   useEffect(() => {
     emitRef.current({ type: "file-query", machineId, paneId, query: fileQuery });
   }, [machineId, paneId, fileQuery]);
+  // gone, it names no file: opened again, the box's `@` is searched anew
+  useEffect(() => () => emitRef.current({ type: "file-query", machineId, paneId, query: null }), [machineId, paneId]);
 
   useEffect(() => {
     setSelectedIndex(0);

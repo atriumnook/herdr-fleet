@@ -1902,7 +1902,7 @@ describe("what the composer completes", () => {
     const listed = play([{ type: "commands-loaded", machineId: "local", paneId: "w1:p1", commands: [{ name: "review", source: "builtin" } as never] }, { type: "slash-usage-loaded", usage: { review: 2 } }], opened.state).state;
     expect(listed.completions.commands).toMatchObject({ paneId: "w1:p1", list: [{ name: "review" }] });
     expect(listed.completions.slashUsage).toEqual({ review: 2 });
-    expect(kinds(play([{ type: "completions-open", machineId: "local", paneId: "w1:p2" }], listed).effects)).toEqual(["load-commands"]);
+    expect(kinds(play([{ type: "completions-open", machineId: "local", paneId: "w1:p2" }], listed).effects)).toEqual(["load-commands", "load-slash-usage"]);
     // another pane's list answering late is not this one's
     const other = play([{ type: "completions-open", machineId: "local", paneId: "w1:p2" }], listed).state;
     expect(play([{ type: "commands-loaded", machineId: "local", paneId: "w1:p1", commands: [{ name: "late", source: "builtin" } as never] }], other).state.completions.commands).toEqual({ machineId: "local", paneId: "w1:p2", list: [] });
@@ -1921,7 +1921,13 @@ describe("what the composer completes", () => {
     expect(play([{ type: "file-query", machineId: "local", paneId: "w1:p1", query: null }], typed)).toMatchObject({ effects: [], state: { completions: { files: { list: [] } } } });
   });
 
-  it("counts each slash command used, kept on this device", () => {
+  it("shows another pane's composer none of this pane's files", () => {
+    const asked = play([{ type: "file-query", machineId: "local", paneId: "w1:p1", query: "ui" }]).state;
+    const found = play([{ type: "files-found", seq: asked.completions.files.seq, files: ["src/ui/a.ts"] }], asked).state;
+    expect(play([{ type: "file-query", machineId: "local", paneId: "w1:p2", query: "x" }], found).state.completions.files.list).toEqual([]);
+  });
+
+    it("counts each slash command used, kept on this device", () => {
     const used = play([{ type: "slash-used", name: "review" }, { type: "slash-used", name: "review" }]);
     expect(used.state.completions.slashUsage).toEqual({ review: 2 });
     expect(used.effects.at(-1)).toEqual({ kind: "save-slash-usage", usage: { review: 2 } });

@@ -534,8 +534,6 @@ export interface CompletionsState {
   /** `query`: the name being typed after `@`, null when none is; the newest search wins */
   files: { seq: number; machineId: string; paneId: string; query: string | null; list: string[] };
   slashUsage: Record<string, number>;
-  /** the usage was read from this device's storage */
-  usageRead: boolean;
 }
 
 export interface UiState {
@@ -980,7 +978,7 @@ export const INITIAL_STATE: UiState = {
   queue: { lists: {}, unsaved: {}, sending: null, error: null },
   drafts: { composer: {}, settled: {}, line: {} },
   sends: { seq: 0, pending: {}, outcomes: {}, started: 0 },
-  completions: { commands: null, files: { seq: 0, machineId: "local", paneId: "", query: null, list: [] }, slashUsage: {}, usageRead: false },
+  completions: { commands: null, files: { seq: 0, machineId: "local", paneId: "", query: null, list: [] }, slashUsage: {} },
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
@@ -2219,9 +2217,9 @@ function completionsTransition(completions: CompletionsState, event: Completions
   const { files } = completions;
   switch (event.type) {
     case "completions-open":
-      effects.push({ kind: "load-commands", machineId: event.machineId, paneId: event.paneId });
-      if (!completions.usageRead) effects.push({ kind: "load-slash-usage" });
-      return { ...completions, commands: { machineId: event.machineId, paneId: event.paneId, list: [] }, usageRead: true };
+      // the usage is read anew each time: another tab may have counted since
+      effects.push({ kind: "load-commands", machineId: event.machineId, paneId: event.paneId }, { kind: "load-slash-usage" });
+      return { ...completions, commands: { machineId: event.machineId, paneId: event.paneId, list: [] } };
     case "commands-loaded": {
       const { commands } = completions;
       if (commands?.machineId !== event.machineId || commands.paneId !== event.paneId) return completions;
@@ -2230,10 +2228,12 @@ function completionsTransition(completions: CompletionsState, event: Completions
     case "slash-usage-loaded":
       return { ...completions, slashUsage: event.usage };
     case "file-query": {
-      if (files.query === event.query && files.paneId === event.paneId && files.machineId === event.machineId) return completions;
+      const samePane = files.paneId === event.paneId && files.machineId === event.machineId;
+      if (files.query === event.query && samePane) return completions;
       const seq = files.seq + 1;
       if (event.query !== null) effects.push({ kind: "later", ms: FILE_SEARCH_DELAY_MS, event: { type: "search-files", seq } });
-      return { ...completions, files: { seq, machineId: event.machineId, paneId: event.paneId, query: event.query, list: event.query === null ? [] : files.list } };
+      // the list shown stays while the name is typed on, never into another pane's menu
+      return { ...completions, files: { seq, machineId: event.machineId, paneId: event.paneId, query: event.query, list: event.query !== null && samePane ? files.list : [] } };
     }
     case "search-files":
       if (event.seq !== files.seq || files.query === null) return completions;
