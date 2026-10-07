@@ -1618,7 +1618,25 @@ describe("the chat's conversation", () => {
     expect(play([{ type: "older-conversation-read", olderSeq: held.conversation.olderSeq, before: "c:10", outcome: { kind: "failed", message: "down", status: 502 } }], asked).state.conversation.older.status).toBe("failed");
   });
 
-  it("says a failed read, keeping what it read before, and goes on reading", () => {
+  it("starts over with nothing to call new: the next layout is no news to a reader scrolled up", () => {
+    const held = holding();
+    const moved = answer(play([{ type: "poll-conversation", seq: held.conversation.seq }], held).state, ok(page([user("21"), user("22")], "c:20"))).state;
+    expect(moved.conversation.fresh).toBe(false);
+    const stale = answer(moved, { kind: "failed", message: "history changed", status: 409 }).state;
+    expect(stale.conversation).toMatchObject({ view: { turns: [] }, fresh: true });
+  });
+
+  it("reads no page for an earlier page's answer while the page is hidden", () => {
+    const read = answer(opened.state, ok(page([user("c")], "c:2"))).state;
+    const asked = play([{ type: "load-older-conversation" }], read).state;
+    const hidden = play([{ type: "visibility", visible: false }], asked).state;
+    const loaded = play([{ type: "older-conversation-read", olderSeq: read.conversation.olderSeq, before: "c:2", outcome: ok(page([user("a")], null)) }], hidden);
+    expect(loaded.effects).toEqual([]);
+    expect(loaded.state.conversation.older.heldFrom).toBe("c:2");
+    expect(play([{ type: "visibility", visible: true }], loaded.state).effects).toContainEqual(expect.objectContaining({ kind: "read-conversation", from: "c:2" }));
+  });
+
+    it("says a failed read, keeping what it read before, and goes on reading", () => {
     const read = answer(opened.state, ok(page([user("a")], null))).state;
     const failed = answer(play([{ type: "poll-conversation", seq: read.conversation.seq }], read).state, { kind: "failed", message: "502 bad gateway", status: 502 });
     expect(failed.state.conversation).toMatchObject({ error: { message: "502 bad gateway", status: 502 }, view: { turns: [user("a")] } });

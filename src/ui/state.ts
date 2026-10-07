@@ -1923,7 +1923,7 @@ function readConversation(conversation: ConversationState, effects: Effect[]): C
 const dropOlder = (conversation: ConversationState): ConversationState => ({ ...conversation, olderSeq: conversation.olderSeq + 1, older: NO_OLDER });
 
 /** ...and what was laid out with them: the next answer lays out afresh. */
-const startOver = (conversation: ConversationState): ConversationState => ({ ...dropOlder(conversation), view: EMPTY_VIEW, signature: "", answer: null });
+const startOver = (conversation: ConversationState): ConversationState => ({ ...dropOlder(conversation), view: EMPTY_VIEW, signature: "", answer: null, fresh: true });
 
 type ConversationEvent = Extract<UiEvent, { type: "poll-conversation" | "conversation-read" | "conversation-gap-filled" | "conversation-scrollback-read" | "load-older-conversation" | "older-conversation-read" }>;
 
@@ -1934,6 +1934,8 @@ function conversationTransition(state: UiState, event: ConversationEvent, effect
     ({ state: next === conversation && chat === state.chat ? state : { ...state, conversation: next, chat }, effects });
   const { open } = conversation;
   if (open === null) return same;
+  /** read now, as a page load asks; a hidden page reads once it is back */
+  const reread = (next: ConversationState): ConversationState => (conversationReads(state) ? readConversation(next, effects) : next);
   /** the read ended: the next one is a while away */
   const settle = (next: ConversationState): ConversationState => {
     effects.push({ kind: "later", ms: CONVERSATION_POLL_MS, event: { type: "poll-conversation", seq: next.seq } });
@@ -2007,17 +2009,17 @@ function conversationTransition(state: UiState, event: ConversationEvent, effect
       const { outcome } = event;
       const { older } = conversation;
       if (outcome.kind === "failed") {
-        if (outcome.status === 409) return put(readConversation(startOver(conversation), effects));
+        if (outcome.status === 409) return put(reread(startOver(conversation)));
         return put({ ...conversation, older: { ...older, status: "failed" } });
       }
       const page = outcome.conversation;
-      if (page.history_id !== conversation.historyId) return put(readConversation(startOver(conversation), effects));
+      if (page.history_id !== conversation.historyId) return put(reread(startOver(conversation)));
       // a bridge without pages answers with its newest turns: nothing older to add
       if (page.source === "scrollback" || page.cursor === undefined) return put({ ...conversation, older: { ...older, cursor: undefined, status: "idle" } });
       const first = older.heldFrom === null;
       const next = { ...conversation, older: { turns: [...page.turns, ...older.turns], cursor: page.cursor, status: "idle" as const, heldFrom: older.heldFrom ?? event.before } };
       // the newest page may have slid since it was read: it is polled from the held start now
-      return put(first ? readConversation(next, effects) : next);
+      return put(first ? reread(next) : next);
     }
   }
 
