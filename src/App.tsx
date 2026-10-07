@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
-import type { HerdrPane, ServerMessage } from "../shared/protocol.ts";
+import type { HerdrPane } from "../shared/protocol.ts";
 import { displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
@@ -132,10 +132,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const pushOn = useSelected((state) => state.alerts.push);
   const snapshotRef = useRef<typeof snapshot>(null);
   snapshotRef.current = snapshot;
-
-  const handleServerMessage = useCallback((message: ServerMessage) => {
-    if (message.type === "error" && message.code === "output_stalled") emitRef.current({ type: "output-stalled" });
-  }, []);
 
   const enableNotifications = useCallback(() => emitRef.current({ type: "enable-alerts" }), []);
   const disableNotifications = useCallback(() => emitRef.current({ type: "disable-alerts" }), []);
@@ -446,7 +442,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
             theme={resolvedTheme}
             palette={settings.palette}
             role={role}
-            onServerMessage={handleServerMessage}
             emit={emit}
           />
           </div>

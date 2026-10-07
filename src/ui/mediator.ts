@@ -6,10 +6,52 @@ import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AgentKind, DirectoryListing, HerdrPane, OmoRun, OmoTask, WorkspaceCreated } from "../../shared/protocol.ts";
+import type { AgentKind, ClientRole, DirectoryListing, HerdrPane, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
+import type { SubmitResult } from "../lib/ws.ts";
 import type { Settings } from "../lib/settings.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
 import { INITIAL_STATE, transition, type Effect, type FileOutcome, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
+
+type PtyData = Extract<ServerMessage, { type: "pty-data" }>;
+
+/** The terminal's socket (lib/ws.ts HerdrSocket), as the Mediator and the terminal use it. */
+export interface PaneSocketHandle {
+  readonly connected: boolean;
+  attach(paneId: string, cols: number, rows: number, keepSize?: boolean): void;
+  detach(paneId: string): void;
+  resize(paneId: string, cols: number, rows: number, force?: boolean): void;
+  keepSize(paneId: string): void;
+  setMode(mode: ClientRole): void;
+  canInput(paneId: string): boolean;
+  sendInput(paneId: string, text: string): boolean;
+  submit(paneId: string, text: string, payload: string, typed?: boolean): Promise<SubmitResult> | null;
+  sendSecret(paneId: string, prompt: string, secret: string): Promise<SubmitResult> | null;
+  outputAcknowledgement(message: PtyData): (() => void) | undefined;
+  close(): void;
+}
+
+/**
+ * The terminal's xterm, as the socket's messages reach it past the state machine: the pane's
+ * output (a byte stream the state would only re-render for) with its flow-control
+ * acknowledgement, and every other message for what the grid itself does with it.
+ */
+export interface TerminalSink {
+  output(message: PtyData, acknowledge: (() => void) | undefined): void;
+  message(message: ServerMessage): void;
+  disconnected(): void;
+}
+
+/** What the terminal sends straight to its socket: keystrokes, and sends whose outcome it waits on. Nothing while no socket is open. */
+export interface TerminalLink {
+  connected(): boolean;
+  canInput(paneId: string): boolean;
+  sendInput(paneId: string, text: string): boolean;
+  submit(paneId: string, text: string, payload: string, typed?: boolean): Promise<SubmitResult> | null;
+  sendSecret(paneId: string, prompt: string, secret: string): Promise<SubmitResult> | null;
+}
+
+/** how often the terminal socket's connection is read, as it can change without a message */
+const SOCKET_POLL_MS = 1000;
 
 /** What the Mediator's effects reach: the server's API and this browser's storage, or a test's stand-in. */
 export interface EffectPorts {
@@ -71,6 +113,8 @@ export interface EffectPorts {
   leavePreview(): boolean;
   /** what the server says of a path; throws for anything but these */
   loadFileInfo(machineId: string, path: string, paneId: string | null): Promise<Exclude<FileOutcome, { kind: "failed" }>>;
+  /** opens the terminal's socket to a PC; its messages and its drops come through `on` */
+  openPaneSocket(machineId: string, on: { message(message: ServerMessage): void; disconnected(): void }): PaneSocketHandle;
   /** the folders (and files, when asked) in a folder on a PC; "" is home. Throws for anything but these failures */
   listFolders(machineId: string, path: string, hidden: boolean, files: boolean): Promise<DirectoryListing | { failure: "unsupported" | "invalid" }>;
   /** a pane's OmO background tasks and workflows, with the PC's clock they are timed on */
@@ -94,12 +138,79 @@ export class Mediator {
   private state: UiState;
   private readonly listeners = new Set<() => void>();
   private closeStream: (() => void) | null = null;
+  /** the terminal's socket open now, by the opening it answers */
+  private paneSocket: { seq: number; handle: PaneSocketHandle } | null = null;
+  private terminal: TerminalSink | null = null;
 
   constructor(private readonly ports: EffectPorts, initial: UiState = INITIAL_STATE) {
     this.state = initial;
   }
 
   getState = (): UiState => this.state;
+
+  /** The terminal's xterm takes the socket's messages until the function returned is called. */
+  attachTerminal = (sink: TerminalSink): (() => void) => {
+    this.terminal = sink;
+    return () => { if (this.terminal === sink) this.terminal = null; };
+  };
+
+  readonly terminalLink: TerminalLink = {
+    connected: () => this.paneSocket?.handle.connected ?? false,
+    canInput: (paneId) => this.paneSocket?.handle.canInput(paneId) ?? false,
+    sendInput: (paneId, text) => this.paneSocket?.handle.sendInput(paneId, text) ?? false,
+    submit: (paneId, text, payload, typed) => this.paneSocket?.handle.submit(paneId, text, payload, typed) ?? null,
+    sendSecret: (paneId, prompt, secret) => this.paneSocket?.handle.sendSecret(paneId, prompt, secret) ?? null,
+  };
+
+  /**
+   * A message from the terminal's socket: the output goes to the terminal alone; anything else to
+   * the terminal too, and as events to the state for what it says of the attached pane.
+   */
+  private paneMessage(seq: number, message: ServerMessage): void {
+    if (this.paneSocket?.seq !== seq) return;
+    const { handle } = this.paneSocket;
+    const paneId = this.state.pane.session.paneId;
+    const connection = (): void => this.dispatch({ type: "pane-connection", connected: handle.connected });
+    if (paneId !== null) this.dispatch({ type: "pane-input-ready", paneId, ready: handle.canInput(paneId) });
+    if (message.type === "pty-data") {
+      const acknowledge = handle.outputAcknowledgement(message);
+      // nothing to write it to: the server must not wait on it
+      if (this.terminal) this.terminal.output(message, acknowledge); else acknowledge?.();
+      if (message.pane_id === paneId) connection();
+      return;
+    }
+    this.terminal?.message(message);
+    switch (message.type) {
+      case "attach-resumed":
+        this.dispatch({ type: "pane-attach-resumed", paneId: message.pane_id });
+        break;
+      case "pty-exit":
+        this.dispatch({ type: "pane-exited", paneId: message.pane_id });
+        break;
+      case "role-ack":
+        this.dispatch({ type: "role-ack", role: message.mode });
+        break;
+      case "error": {
+        const about = message.pane_id ?? paneId;
+        if (message.code === "input_not_ready" || message.code === "input_failed") {
+          if (message.pane_id !== undefined) this.dispatch({ type: "pane-input-failed", paneId: message.pane_id, message: message.message });
+          return;
+        }
+        if (message.code === "attach_held" || message.code === "terminal_unsupported") {
+          if (about !== null) this.dispatch({ type: message.code === "attach_held" ? "pane-attach-held" : "pane-terminal-unsupported", paneId: about });
+          break;
+        }
+        if (message.code === "output_stalled" || message.code === "attach_conflict") {
+          if (message.code === "output_stalled") this.dispatch({ type: "output-stalled" });
+          // the connection stays as the stop left it until the next read of it
+          this.dispatch({ type: "pane-output-failed", message: message.message });
+          return;
+        }
+        break;
+      }
+    }
+    connection();
+  }
 
   subscribe = (listener: () => void): (() => void) => {
     this.listeners.add(listener);
@@ -293,6 +404,43 @@ export class Mediator {
           const listed = await this.ports.listFolders(effect.machineId, effect.path, effect.hidden, effect.files);
           this.dispatch("failure" in listed ? { type: "folders-failed", slot, seq, reason: listed.failure } : { type: "folders-listed", slot, seq, listing: listed });
         } catch { this.dispatch({ type: "folders-failed", slot, seq, reason: "failed" }); }
+        return;
+      }
+      case "open-pane-socket": {
+        this.paneSocket?.handle.close();
+        const { seq } = effect;
+        const handle = this.ports.openPaneSocket(effect.machineId, {
+          message: (message) => this.paneMessage(seq, message),
+          disconnected: () => {
+            if (this.paneSocket?.seq !== seq) return;
+            this.terminal?.disconnected();
+            this.dispatch({ type: "pane-socket-lost" });
+            this.dispatch({ type: "pane-connection", connected: false });
+          },
+        });
+        this.paneSocket = { seq, handle };
+        const poll = (): void => {
+          if (this.paneSocket?.seq !== seq) return;
+          this.dispatch({ type: "pane-connection", connected: handle.connected });
+          this.ports.later(SOCKET_POLL_MS, poll);
+        };
+        this.ports.later(SOCKET_POLL_MS, poll);
+        return;
+      }
+      case "close-pane-socket":
+        if (this.paneSocket?.seq !== effect.seq) return;
+        this.paneSocket.handle.close();
+        this.paneSocket = null;
+        return;
+      case "pane-command": {
+        if (this.paneSocket?.seq !== effect.seq) return;
+        const { handle } = this.paneSocket;
+        const { command } = effect;
+        if (command.kind === "attach") handle.attach(command.paneId, command.cols, command.rows, command.keepSize);
+        else if (command.kind === "detach") handle.detach(command.paneId);
+        else if (command.kind === "resize") handle.resize(command.paneId, command.cols, command.rows, command.force);
+        else if (command.kind === "keep-size") handle.keepSize(command.paneId);
+        else handle.setMode(command.role);
         return;
       }
       case "load-background-tasks":

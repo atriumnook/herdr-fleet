@@ -6,7 +6,6 @@ import { TriangleAlert } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
-import { HerdrSocket } from "../lib/ws.ts";
 import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
@@ -20,15 +19,15 @@ import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar, type KeyBarEvent } from "./KeyBar.tsx";
 import type { Emit } from "../ui/bubble.ts";
 import type { BackgroundTasksUpEvent } from "../ui/BackgroundTasksPresenter.tsx";
-import { useSelected } from "../ui/presenter.ts";
-import { NO_SESSION, type PaneSessionEvent, type UiEvent } from "../ui/state.ts";
+import { useSelected, useTerminal } from "../ui/presenter.ts";
+import { NO_SESSION, type PaneCommand, type PaneSessionEvent, type UiEvent } from "../ui/state.ts";
 import { TerminalInput } from "./TerminalInput.tsx";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatView } from "./ChatView.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { Composer } from "./Composer.tsx";
-import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt, ServerMessage } from "../../shared/protocol.ts";
+import type { AgentStatus, ClientRole, ConversationMetadata, InteractivePrompt } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
 import { useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
@@ -74,9 +73,8 @@ export interface PaneTerminalProps {
   /** Fires with the server-confirmed role (the header toggle shows it). */
   /** Fires on every change of the socket's connected state (the header shows it). */
   /** Every server frame also reaches App: it merges pane-status and schedules refetches. */
-  onServerMessage?: (message: ServerMessage) => void;
   /** what the terminal's socket says of the pane, and what the views inside it (the composer's background tasks) send, up to the Root */
-  emit: Emit<BackgroundTasksUpEvent | PaneSessionEvent | Extract<UiEvent, { type: "pane-connection" | "role-ack" }>>;
+  emit: Emit<BackgroundTasksUpEvent | Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }> | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" }>>;
 }
 
 
@@ -114,7 +112,6 @@ export function PaneTerminal({
   theme,
   palette,
   role = "interact",
-  onServerMessage,
   emit,
 }: PaneTerminalProps) {
   const t = useT();
@@ -134,11 +131,13 @@ export function PaneTerminal({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  const socketRef = useRef<HerdrSocket | null>(null);
   const paneRef = useRef<string | null>(paneId);
-  const onServerMessageRef = useRef(onServerMessage);
   const emitRef = useRef(emit);
   emitRef.current = emit;
+  // the Mediator owns the socket: its messages reach the grid through the sink, keystrokes go out through the link
+  const { attachTerminal, terminalLink: link } = useTerminal();
+  /** what the grid asks of its socket: the pane shown, its size, the role */
+  const command = useCallback((asked: PaneCommand) => emitRef.current({ type: "pane-command", machineId, command: asked }), [machineId]);
   // the attached pane as its socket told the Mediator; until it attached, nothing of it is known
   const told = useSelected((state) => state.pane.session);
   const { outputReady, ended, inputError, inputReady, outputError, unsupported, held } = told.paneId === paneId ? told : NO_SESSION;
@@ -235,7 +234,6 @@ export function PaneTerminal({
   const [queueError, setQueueError] = useState<{ owner: string; id: string; text: string } | null>(null);
 
   paneRef.current = paneId;
-  onServerMessageRef.current = onServerMessage;
 
   const noteClipboard = useCallback((note: string) => {
     if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
@@ -625,16 +623,11 @@ export function PaneTerminal({
       return true;
     });
 
-    const socket = new HerdrSocket(`${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws?machine_id=${encodeURIComponent(machineId)}`);
-    socketRef.current = socket;
     let outputGeneration = 0;
-    const off = socket.on((message) => {
-      onServerMessageRef.current?.(message);
-      if (paneRef.current) emitRef.current({ type: "pane-input-ready", paneId: paneRef.current, ready: socket.canInput(paneRef.current) });
-      if (message.type === "pty-data") {
+    // what the socket says, as the grid takes it: the Mediator tells the state the rest
+    const detachTerminal = attachTerminal({ output: (message, acknowledge) => {
         if (message.pane_id !== paneRef.current) return;
         // raw pty bytes: append, never repaint, so xterm keeps the screen and selection
-        const acknowledge = socket.outputAcknowledgement(message);
         const owner = message.pane_id;
         const generation = outputGeneration;
         term.write(message.data, () => {
@@ -654,22 +647,21 @@ export function PaneTerminal({
           term.options.disableStdin = observeRef.current || prompt !== null || heldRef.current;
           emitRef.current({ type: "pane-output", paneId: owner, secret: prompt });
         });
-      } else if (message.type === "attach-resumed") {
+      }, message: (message) => {
+      if (message.type === "attach-resumed") {
         if (message.pane_id === paneRef.current) {
           heldRef.current = false;
-          emitRef.current({ type: "pane-attach-resumed", paneId: message.pane_id });
           term.options.disableStdin = observeRef.current || secretRef.current !== null;
         }
       } else if (message.type === "pty-exit") {
         // an ended pane takes no input: a file dropped on it must not upload and paste either
-        if (message.pane_id === paneRef.current) { emitRef.current({ type: "pane-exited", paneId: message.pane_id }); term.options.disableStdin = true; }
+        if (message.pane_id === paneRef.current) term.options.disableStdin = true;
       } else if (message.type === "role-ack") {
         // the server is the authority on the role; only after this ack may an
         // interact client reclaim the shared grid it stopped owning
         const nowObserving = message.mode === "observe";
         observeRef.current = nowObserving;
         term.options.disableStdin = nowObserving || secretRef.current !== null || heldRef.current;
-        emitRef.current({ type: "role-ack", role: message.mode });
         if (!nowObserving && !fixedGridRef.current && !chatViewRef.current) {
           try {
             fit.fit();
@@ -677,7 +669,7 @@ export function PaneTerminal({
             /* not laid out yet */
           }
           const pane = paneRef.current;
-          if (pane) socket.resize(pane, term.cols, term.rows, true);
+          if (pane) command({ kind: "resize", paneId: pane, cols: term.cols, rows: term.rows, force: true });
         }
         panned = false;
         followCursor();
@@ -695,47 +687,34 @@ export function PaneTerminal({
         panned = false;
         followCursor();
       } else if (message.type === "error") {
-        if (message.code === "input_not_ready" || message.code === "input_failed") {
-          if (message.pane_id === paneRef.current) emitRef.current({ type: "pane-input-failed", paneId: message.pane_id, message: message.message });
-          return;
-        }
+        // the state says these (Mediator); the grid writes an error it knows nothing of
+        if (message.code === "input_not_ready" || message.code === "input_failed") return;
         if (message.code === "attach_held") {
           // a pane this terminal already left: its wait is not this pane's
           if (message.pane_id !== undefined && message.pane_id !== paneRef.current) return;
           // not an end: the server attaches as soon as the other bridge lets go
           heldRef.current = true;
-          if (paneRef.current) emitRef.current({ type: "pane-attach-held", paneId: paneRef.current });
           term.options.disableStdin = true;
-          emitRef.current({ type: "pane-connection", connected: socket.connected });
           return;
         }
         if (message.code === "terminal_unsupported") {
           if (message.pane_id !== undefined && message.pane_id !== paneRef.current) return;
-          if (paneRef.current) emitRef.current({ type: "pane-terminal-unsupported", paneId: paneRef.current });
           term.options.disableStdin = true;
-          emitRef.current({ type: "pane-connection", connected: socket.connected });
           return;
         }
         if (message.code === "output_stalled" || message.code === "attach_conflict") {
-          emitRef.current({ type: "pane-output-failed", message: message.message });
           term.options.disableStdin = true;
           return;
         }
         term.writeln(`\r\n\u001b[31m[herdr-fleet] ${message.code}: ${message.message}\u001b[0m`);
       }
-      emitRef.current({ type: "pane-connection", connected: socket.connected });
-    });
-    const offDisconnect = socket.onDisconnect(() => {
+    }, disconnected: () => {
       outputGeneration++;
       // the reconnect attaches afresh: it says attach_held again if the other bridge still has
       // the pane, and a pane it gets straight away sends no attach-resumed to clear this
       heldRef.current = false;
-      emitRef.current({ type: "pane-socket-lost" });
-      emitRef.current({ type: "pane-connection", connected: false });
-    });
-    socket.connect();
-
-    const poll = window.setInterval(() => emitRef.current({ type: "pane-connection", connected: socket.connected }), 1000);
+    } });
+    emitRef.current({ type: "open-pane-socket", machineId });
 
     // onKey runs after xterm drains a pending IME commit, immediately before the
     // key's onData. Remap only that CR, preserving composition text and its order.
@@ -765,7 +744,7 @@ export function PaneTerminal({
         setCtrlArmed(false);
         input = controlCode(data) ?? data;
       }
-      if (socket.sendInput(current, input)) return;
+      if (link.sendInput(current, input)) return;
       // A closed socket, an attachment still opening, or a failed synchronous send:
       // keep printable input for explicit review, never replay it automatically.
       if (draftPaneRef.current !== current) {
@@ -781,16 +760,16 @@ export function PaneTerminal({
     let fileQueue: Promise<void> = Promise.resolve();
     const uploadFiles = (files: File[]): void => {
       const pane = paneRef.current;
-      if (!pane || !socket.connected || term.options.disableStdin) return;
+      if (!pane || !link.connected() || term.options.disableStdin) return;
       fileQueue = fileQueue.then(() => uploadBatch(pane, files));
     };
     const uploadBatch = async (pane: string, files: File[]): Promise<void> => {
-      if (paneRef.current !== pane || !socket.connected || term.options.disableStdin) return;
+      if (paneRef.current !== pane || !link.connected() || term.options.disableStdin) return;
       try {
         const paths: string[] = [];
         for (const file of files) paths.push(await uploadFileRef.current(pane, file));
         // An upload can finish after the user has switched panes or lost input access.
-        if (paneRef.current !== pane || chatViewRef.current || !socket.connected || term.options.disableStdin) return;
+        if (paneRef.current !== pane || chatViewRef.current || !link.connected() || term.options.disableStdin) return;
         term.paste(paths.map((path) => `'${path.replaceAll("'", "'\\''")}'`).join(" ") + " ");
         term.focus();
       } catch (error) {
@@ -815,7 +794,7 @@ export function PaneTerminal({
     };
     const onDrop = (event: DragEvent): void => {
       event.preventDefault();
-      if (!event.dataTransfer || !socket.connected || term.options.disableStdin) return;
+      if (!event.dataTransfer || !link.connected() || term.options.disableStdin) return;
       const files = Array.from(event.dataTransfer.files);
       if (files.length > 0) {
         uploadFiles(files);
@@ -856,7 +835,7 @@ export function PaneTerminal({
           return;
         }
         const current = paneRef.current;
-        if (current) socket.resize(current, term.cols, term.rows);
+        if (current) command({ kind: "resize", paneId: current, cols: term.cols, rows: term.rows, force: false });
       }, RESIZE_SETTLE_MS);
     });
     observer.observe(host);
@@ -921,7 +900,7 @@ export function PaneTerminal({
       } catch {
         return;
       }
-      socket.resize(current, term.cols, term.rows, true);
+      command({ kind: "resize", paneId: current, cols: term.cols, rows: term.rows, force: true });
     };
     const onVisible = (): void => {
       if (document.visibilityState === "visible") refit();
@@ -931,7 +910,6 @@ export function PaneTerminal({
 
     return () => {
       disposed = true;
-      window.clearInterval(poll);
       observer.disconnect();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       host.removeEventListener("touchstart", onTouchStart);
@@ -952,17 +930,15 @@ export function PaneTerminal({
       host.removeEventListener("paste", onFilePaste, { capture: true });
       host.removeEventListener("dragover", onDragOver);
       host.removeEventListener("drop", onDrop);
-      offDisconnect();
       osc52.dispose();
       if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
-      off();
-      socket.close();
+      detachTerminal();
+      emitRef.current({ type: "close-pane-socket", machineId });
       stopGlyphs();
       host.removeEventListener("compositionstart", compositionStart);
       host.removeEventListener("compositionend", compositionEnd);
       term.dispose();
       termRef.current = null;
-      socketRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one terminal for the mount; theme/font follow in their own effect
   }, []);
@@ -995,7 +971,7 @@ export function PaneTerminal({
         return;
       }
       const pane = paneRef.current;
-      if (pane) socketRef.current?.resize(pane, term.cols, term.rows, true);
+      if (pane) command({ kind: "resize", paneId: pane, cols: term.cols, rows: term.rows, force: true });
     };
     if (fontFamily === TERMINAL_FONT_STACK) apply();
     else void loadFontStack(fontFamily, terminalFontSize).then(apply);
@@ -1007,7 +983,7 @@ export function PaneTerminal({
   useEffect(() => {
     if (chatView) {
       const pane = paneRef.current;
-      if (pane) socketRef.current?.keepSize(pane);
+      if (pane) command({ kind: "keep-size", paneId: pane });
       // the grid another device left the pty at while this one showed the terminal
       const shared = sharedGridRef.current;
       const hidden = termRef.current;
@@ -1022,16 +998,15 @@ export function PaneTerminal({
       return;
     }
     const pane = paneRef.current;
-    if (pane && term) socketRef.current?.resize(pane, term.cols, term.rows, true);
+    if (pane && term) command({ kind: "resize", paneId: pane, cols: term.cols, rows: term.rows, force: true });
     if (!autoSelected && !coarseRef.current) term?.focus();
   }, [chatView]);
 
   // Reset synchronously on pane changes: old composition timers must never see the new pane.
   useLayoutEffect(() => {
-    const socket = socketRef.current;
     const term = termRef.current;
     const fit = fitRef.current;
-    if (!socket || !term) return;
+    if (!term) return;
     // everything known of the pane before goes: written, ready, held, ended, errors, a masked prompt
     emitRef.current({ type: "pane-attached", paneId });
     setComposing(false);
@@ -1056,12 +1031,12 @@ export function PaneTerminal({
     } catch {
       /* not laid out yet; the ResizeObserver will follow up */
     }
-    socket.attach(paneId, term.cols, term.rows, chatViewRef.current);
+    command({ kind: "attach", paneId, cols: term.cols, rows: term.rows, keepSize: chatViewRef.current });
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
     if (!chatViewRef.current && !autoSelected && !coarseRef.current) term.focus();
     return () => {
-      socket.detach(paneId);
+      command({ kind: "detach", paneId });
     };
   }, [paneId]);
 
@@ -1100,14 +1075,13 @@ export function PaneTerminal({
   useEffect(() => {
     if (role === lastSentRole.current) return;
     lastSentRole.current = role;
-    socketRef.current?.setMode(role);
+    command({ kind: "mode", role });
   }, [role]);
 
   const sendDraft = useCallback(() => {
-    const socket = socketRef.current;
     const pane = paneRef.current;
-    if (!socket || !pane || draft.text.length === 0 || !socket.connected || secretRef.current !== null || heldRef.current) return;
-    if (socket.sendInput(pane, draft.text)) setDraft(EMPTY_DRAFT);
+    if (!pane || draft.text.length === 0 || !link.connected() || secretRef.current !== null || heldRef.current) return;
+    if (link.sendInput(pane, draft.text)) setDraft(EMPTY_DRAFT);
   }, [draft]);
 
   const discardDraft = useCallback(() => {
@@ -1120,10 +1094,9 @@ export function PaneTerminal({
   // with the reason. Bracketed-paste wrapping follows the pane program's mode.
   const sendComposerText = useCallback((text: string): false | Promise<true | string> => {
     const term = termRef.current;
-    const socket = socketRef.current;
     const pane = paneRef.current;
-    if (!term || !socket || pane === null || secretRef.current !== null || heldRef.current) return false;
-    const sent = socket.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode));
+    if (!term || pane === null || secretRef.current !== null || heldRef.current) return false;
+    const sent = link.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode));
     if (sent === null) return false;
     term.scrollToBottom();
     setChatSent((current) => current + 1);
@@ -1141,22 +1114,20 @@ export function PaneTerminal({
   // menu too, then Enter after the server's gap; several lines go as one paste
   const sendTerminalLine = useCallback((text: string): false | Promise<true | string> => {
     const term = termRef.current;
-    const socket = socketRef.current;
     const pane = paneRef.current;
-    if (!term || !socket || pane === null || secretRef.current !== null) return false;
+    if (!term || pane === null || secretRef.current !== null) return false;
     const message = composerMessage(text);
     const payload = message.includes("\n") ? composerPayload(text, term.modes.bracketedPasteMode) : message;
-    const sent = socket.submit(pane, message, payload, true);
+    const sent = link.submit(pane, message, payload, true);
     if (sent === null) return false;
     term.scrollToBottom();
     return sent.then((result) => (result.ok ? true : submitNote(result.code, result.message)));
   }, []);
 
   const pressEnter = useCallback((): boolean => {
-    const socket = socketRef.current;
     const pane = paneRef.current;
-    if (!socket || pane === null || !socket.connected) return false;
-    const sent = socket.sendInput(pane, "\r");
+    if (pane === null || !link.connected()) return false;
+    const sent = link.sendInput(pane, "\r");
     termRef.current?.scrollToBottom();
     return sent;
   }, []);
@@ -1193,8 +1164,7 @@ export function PaneTerminal({
   // supported TUI (Claude Code, omp, codex) without killing the process the way ^C would
   const abortTurn = useCallback(() => {
     const term = termRef.current;
-    const socket = socketRef.current;
-    if (!term || !socket || !socket.connected) return;
+    if (!term || !link.connected()) return;
     term.input("\u001b");
   }, []);
 
@@ -1407,8 +1377,8 @@ export function PaneTerminal({
           the input surface (key bar included), so a second box would only duplicate it */}
       {paneId !== null && maskedPrompt !== null && !observing && !ended && connected && outputReady && <SecretInput
         key={`${paneId}:${maskedPrompt}`} prompt={maskedPrompt}
-        onSend={(value) => socketRef.current?.sendSecret(paneId, maskedPrompt, value) ?? null}
-        onCancel={() => { if (socketRef.current?.connected) socketRef.current.sendInput(paneId, "\u0003"); }}
+        onSend={(value) => link.sendSecret(paneId, maskedPrompt, value)}
+        onCancel={() => { if (link.connected()) link.sendInput(paneId, "\u0003"); }}
       />}
       {paneId !== null && chatView && !secretActive && !observing && !ended && (
         <Composer

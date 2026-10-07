@@ -1,8 +1,8 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
-import type { PairedDevice, RemoteAccess } from "../../shared/protocol.ts";
+import type { PairedDevice, RemoteAccess, ServerMessage } from "../../shared/protocol.ts";
 import type { Settings } from "../lib/settings.ts";
-import { Mediator, type EffectPorts } from "./mediator.ts";
+import { Mediator, type EffectPorts, type PaneSocketHandle, type TerminalSink } from "./mediator.ts";
 import { INITIAL_STATE, type RequestAction } from "./state.ts";
 
 const run: AgentRun = { id: "a", name: "impl", role: "worker", agent: "pi", group: "g1", herdrName: "h", paneId: "w1:p1", cwd: "/w", state: "working", depth: 1, interactive: false, worktree: false, startedAt: 1, updatedAt: 1 };
@@ -53,6 +53,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     rememberAgent: () => {},
     createSession: async () => ({ workspace_id: "w9", pane_id: "w9:p1", agent_started: true }),
     loadBackgroundTasks: async () => ({ tasks: [], runs: [], serverTime: null }),
+    openPaneSocket: () => { throw new Error("no pane socket in this test"); },
     listFolders: async (_machineId, path) => ({ path: path || "/home/me", parent: "/", home: "/home/me", directories: [], truncated: false }),
     showPreview: () => {},
     leavePreview: () => true,
@@ -278,5 +279,132 @@ describe("Mediator", () => {
     const failing = new Mediator(ports({ listFolders: async () => { throw new Error("500"); } }).ports);
     failing.dispatch({ type: "open-folders", slot: "files", owner: 1, machineId: "local", start: "/w", files: true });
     await until(() => failing.getState().folders.open.files?.error === "failed");
+  });
+
+  describe("the terminal's socket", () => {
+    /** a socket the test speaks for: what it was asked, and its connection */
+    function fakeSocket() {
+      const calls: string[] = [];
+      let on: { message(message: ServerMessage): void; disconnected(): void } | null = null;
+      const socket: PaneSocketHandle & { up: boolean } = {
+        up: false,
+        get connected() { return this.up; },
+        attach: (paneId) => { calls.push(`attach ${paneId}`); },
+        detach: (paneId) => { calls.push(`detach ${paneId}`); },
+        resize: (paneId, cols, rows, force) => { calls.push(`resize ${paneId} ${cols}x${rows}${force ? " force" : ""}`); },
+        keepSize: (paneId) => { calls.push(`keep-size ${paneId}`); },
+        setMode: (role) => { calls.push(`mode ${role}`); },
+        canInput: () => socket.up,
+        sendInput: (paneId, text) => { calls.push(`input ${paneId} ${text}`); return socket.up; },
+        submit: () => null,
+        sendSecret: () => null,
+        outputAcknowledgement: () => () => { calls.push("ack"); },
+        close: () => { calls.push("close"); },
+      };
+      const opened: string[] = [];
+      const port = (machineId: string, handlers: { message(message: ServerMessage): void; disconnected(): void }) => { opened.push(machineId); on = handlers; return socket; };
+      return { socket, calls, opened, port, say: (message: ServerMessage) => on!.message(message), drop: () => on!.disconnected() };
+    }
+    const sinkFor = () => {
+      const seen: string[] = [];
+      const sink: TerminalSink = {
+        output: (message, acknowledge) => { seen.push(`output ${message.data}`); acknowledge?.(); },
+        message: (message) => { seen.push(message.type); },
+        disconnected: () => { seen.push("disconnected"); },
+      };
+      return { seen, sink };
+    };
+
+    it("opens the socket for the terminal's PC, and hands its commands over", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "pc2" });
+      expect(fake.opened).toEqual(["pc2"]);
+      mediator.dispatch({ type: "pane-command", machineId: "pc2", command: { kind: "attach", paneId: "w1:p1", cols: 80, rows: 24, keepSize: false } });
+      mediator.dispatch({ type: "pane-command", machineId: "pc2", command: { kind: "resize", paneId: "w1:p1", cols: 100, rows: 30, force: true } });
+      mediator.dispatch({ type: "pane-command", machineId: "local", command: { kind: "detach", paneId: "w1:p1" } });
+      mediator.dispatch({ type: "close-pane-socket", machineId: "pc2" });
+      expect(fake.calls).toEqual(["attach w1:p1", "resize w1:p1 100x30 force", "close"]);
+    });
+
+    it("writes the pane's output to the terminal past the state, and tells the state what the socket said", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      const { seen, sink } = sinkFor();
+      const detach = mediator.attachTerminal(sink);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      fake.socket.up = true;
+      const before = mediator.getState();
+      fake.say({ type: "pty-data", pane_id: "w1:p1", data: "hello" } as ServerMessage);
+      expect(seen).toEqual(["output hello"]);
+      expect(fake.calls).toEqual(["ack"]);
+      // the output itself changes nothing the state keeps; the connection and the input do
+      expect(mediator.getState().pane).toMatchObject({ connected: true, session: { inputReady: true } });
+      expect(mediator.getState().pane.session.outputReady).toBe(before.pane.session.outputReady);
+      fake.say({ type: "error", code: "attach_held", message: "held" } as ServerMessage);
+      expect(mediator.getState().pane.session.held).toBe(true);
+      fake.say({ type: "role-ack", mode: "observe" } as ServerMessage);
+      expect(mediator.getState().pane.role).toBe("observe");
+      fake.say({ type: "pty-exit", pane_id: "w1:p1", code: 0 } as ServerMessage);
+      expect(mediator.getState().pane.session.ended).toBe(true);
+      expect(seen).toEqual(["output hello", "error", "role-ack", "pty-exit"]);
+      fake.drop();
+      expect(seen.at(-1)).toBe("disconnected");
+      expect(mediator.getState().pane.connected).toBe(false);
+      detach();
+    });
+
+    it("says an output that stopped, and leaves the connection as the stop left it", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      fake.socket.up = true;
+      fake.say({ type: "pty-data", pane_id: "w1:p1", data: "x" } as ServerMessage);
+      fake.say({ type: "error", code: "output_stalled", message: "could not keep up", pane_id: "w1:p1" } as ServerMessage);
+      expect(mediator.getState().pane).toMatchObject({ connected: false, outputStopped: true, session: { ended: true, outputError: "could not keep up" } });
+    });
+
+    it("acknowledges output with no terminal to write it, so the server is not left waiting", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      fake.say({ type: "pty-data", pane_id: "w1:p1", data: "x" } as ServerMessage);
+      expect(fake.calls).toEqual(["ack"]);
+    });
+
+    it("hears nothing more from a socket it closed, and reads the connection once a second while open", () => {
+      const fake = fakeSocket();
+      const { ports: p, timers } = ports({ openPaneSocket: fake.port });
+      const mediator = new Mediator(p);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      fake.socket.up = true;
+      const poll = timers.find((timer) => timer.ms === 1000)!;
+      poll.then();
+      expect(mediator.getState().pane.connected).toBe(true);
+      mediator.dispatch({ type: "close-pane-socket", machineId: "local" });
+      fake.say({ type: "pty-exit", pane_id: "w1:p1", code: 0 } as ServerMessage);
+      expect(mediator.getState().pane.session.ended).toBe(false);
+      const after = timers.length;
+      timers.at(-1)!.then();
+      expect(timers.length).toBe(after);
+    });
+
+    it("lends the terminal the socket for its keystrokes, and nothing once it closed", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      const link = mediator.terminalLink;
+      expect(link.sendInput("w1:p1", "a")).toBe(false);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      fake.socket.up = true;
+      expect(link.connected()).toBe(true);
+      expect(link.sendInput("w1:p1", "a")).toBe(true);
+      mediator.dispatch({ type: "close-pane-socket", machineId: "local" });
+      expect(link.connected()).toBe(false);
+      expect(link.sendInput("w1:p1", "b")).toBe(false);
+      expect(fake.calls).toEqual(["input w1:p1 a", "close"]);
+    });
   });
 });

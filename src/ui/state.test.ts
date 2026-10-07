@@ -1335,3 +1335,34 @@ describe("the open pane's terminal session", () => {
     expect(play([{ type: "pane-connection", connected: true }], connected).state).toBe(connected);
   });
 });
+
+describe("the open pane's terminal socket", () => {
+  const opened = play([{ type: "open-pane-socket", machineId: "local" }]);
+  const seq = opened.state.pane.socket!.seq;
+
+  it("opens one socket for the PC the terminal shows, not yet connected", () => {
+    expect(opened.state.pane.socket).toEqual({ machineId: "local", seq });
+    expect(opened.effects).toEqual([{ kind: "open-pane-socket", machineId: "local", seq }]);
+    expect(opened.state.pane.connected).toBe(false);
+  });
+
+  it("closes it when the terminal goes, but not for another PC's terminal going", () => {
+    expect(play([{ type: "close-pane-socket", machineId: "pc2" }], opened.state).effects).toEqual([]);
+    const closed = play([{ type: "close-pane-socket", machineId: "local" }], opened.state);
+    expect(closed.effects).toEqual([{ kind: "close-pane-socket", seq }]);
+    expect(closed.state.pane.socket).toBeNull();
+  });
+
+  it("opens the next one afresh: what the one before is still asked goes nowhere", () => {
+    const next = play([{ type: "close-pane-socket", machineId: "local" }, { type: "open-pane-socket", machineId: "pc2" }], opened.state).state;
+    expect(next.pane.socket).toEqual({ machineId: "pc2", seq: seq + 1 });
+    // the terminal leaving the PC before detaches from a socket already closed
+    expect(play([{ type: "pane-command", machineId: "local", command: { kind: "detach", paneId: "w1:p1" } }], next).effects).toEqual([]);
+  });
+
+  it("passes the terminal's commands to the socket it has", () => {
+    const command = { kind: "resize", paneId: "w1:p1", cols: 80, rows: 24, force: true } as const;
+    expect(play([{ type: "pane-command", machineId: "local", command }], opened.state).effects).toEqual([{ kind: "pane-command", seq, command }]);
+    expect(play([{ type: "pane-command", machineId: "local", command }]).effects).toEqual([]);
+  });
+});
