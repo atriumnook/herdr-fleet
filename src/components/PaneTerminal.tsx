@@ -183,10 +183,10 @@ export function PaneTerminal({
   const clipboardTimerRef = useRef<number | null>(null);
   // what the chat lens shares with the composer (the Mediator keeps it): the prompt waiting on this pane, a pick
   // typed for it, the agent's suggestion and the settings the conversation reported
-  const chatHere = useSelected((state) => (paneId !== null && state.chat.open?.paneId === paneId ? state.chat : null));
-  const chatPrompt = chatHere?.prompt ?? null;
-  const pendingAnswer = chatHere?.pendingAnswer ?? null;
-  const chatSuggestion = chatHere?.suggestion ?? null;
+  // each one apart: the chat region changes with every read, which must not re-render the terminal
+  const chatPrompt = useSelected((state) => (paneId !== null && state.chat.open?.paneId === paneId ? state.chat.prompt : null));
+  const pendingAnswer = useSelected((state) => (paneId !== null && state.chat.open?.paneId === paneId ? state.chat.pendingAnswer : null));
+  const chatSuggestion = useSelected((state) => (paneId !== null && state.chat.open?.paneId === paneId ? state.chat.suggestion : null));
   const chatMetadata = useSelected((state) => (paneId !== null && state.chat.metadata?.paneId === paneId ? state.chat.metadata.value : null));
   // back at work, the agent has had its answer, maybe from the terminal: the same prompt asked
   // again before the chat's next read must not bring the pick back either
