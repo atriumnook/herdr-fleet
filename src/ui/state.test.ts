@@ -1514,7 +1514,14 @@ describe("the chat's waiting prompt and what the composer shares with it", () =>
     expect(play([{ type: "chat-metadata", paneId: "w1:p1", metadata: { ...metadata, model: "sonnet" } }], first).state.chat.metadata?.value?.model).toBe("sonnet");
   });
 
-  it("counts a message delivered, so the chat reads at once", () => {
+  it("keeps the settings reported for a pane while the chat closes and opens on it again", () => {
+    const metadata = { model: "opus", reasoning_effort: "high" };
+    const reported = play([{ type: "chat-metadata", paneId: "w1:p1", metadata }], live()).state;
+    const reopened = play([{ type: "chat-close", machineId: "local", paneId: "w1:p1" }, { type: "chat-open", machineId: "local", paneId: "w1:p1" }], reported).state;
+    expect(reopened.chat.metadata).toEqual({ paneId: "w1:p1", value: metadata });
+  });
+
+    it("counts a message delivered, so the chat reads at once", () => {
     expect(play([{ type: "chat-delivered" }], live()).state.chat.delivered).toBe(1);
   });
 });

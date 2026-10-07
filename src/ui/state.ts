@@ -1748,8 +1748,9 @@ function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): Ch
   switch (event.type) {
     case "chat-open":
       if (chat.open?.machineId === event.machineId && here(event.paneId)) return chat;
-      // another pane: nothing of the one before holds, and its reads answer too late
-      return { ...chat, open: { machineId: event.machineId, paneId: event.paneId }, agent: false, prompt: null, suggestion: null, pendingAnswer: null, metadata: null, promptSeq: chat.promptSeq + 1 };
+      // another pane: nothing of the one before holds, and its reads answer too late; the settings
+      // reported are kept by pane, so the same pane opened again shows them at once
+      return { ...chat, open: { machineId: event.machineId, paneId: event.paneId }, agent: false, prompt: null, suggestion: null, pendingAnswer: null, promptSeq: chat.promptSeq + 1 };
     case "chat-close":
       if (chat.open?.machineId !== event.machineId || !here(event.paneId)) return chat;
       return { ...chat, open: null, agent: false, prompt: null, suggestion: null, pendingAnswer: null, promptSeq: chat.promptSeq + 1 };
