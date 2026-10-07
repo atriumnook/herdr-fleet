@@ -66,9 +66,6 @@ export interface ChatViewModel {
 /** the prompt card's answers, and an earlier page asked for */
 export type ChatViewEvent = Extract<UiEvent, { type: "chat-prompt-reread" | "chat-prompt-answered" | "chat-pending-answer-done" | "load-older-conversation" }>;
 
-
-
-
 function formatTime(ts: string | null): string | null {
   if (ts === null) return null;
   const date = new Date(ts);
@@ -438,11 +435,11 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
   return <Turn paneId={paneId} turn={turn} live={false} last={false} showThinking={false} />;
 }
 
-// the app re-renders on every pane-status and poll; an unchanged transcript sits those out
 /**
  * The chat lens: the pane's conversation and its waiting prompt, as the Presenter hands them over.
  * Where the reader is (at the end or not, "New messages", the turns kept under their eyes when
- * earlier ones go in above) is the view's own.
+ * earlier ones go in above) is the view's own. The app re-renders on every pane-status and poll;
+ * an unchanged model sits those out (memo).
  */
 export const ChatView = memo(function ChatView({ model, emit }: { model: ChatViewModel; emit: Emit<ChatViewEvent> }) {
   const t = useT();
