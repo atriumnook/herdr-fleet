@@ -485,7 +485,7 @@ describe("Mediator", () => {
       await until(() => outcome()?.kind === "unconfirmed");
     });
 
-        it("lends the terminal the socket for its keystrokes, and nothing once it closed", () => {
+    it("lends the terminal the socket for its keystrokes, and nothing once it closed", () => {
       const fake = fakeSocket();
       const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
       const link = mediator.terminalLink;
@@ -520,8 +520,8 @@ describe("Mediator", () => {
   it("makes each change to the held messages in the store, and keeps what it answers", () => {
     const changes: string[] = [];
     const mediator = new Mediator(ports({ changeQueue: (owner, change) => { changes.push(`${owner} ${change.kind}`); return { messages: [{ id: "a", text: "one" }], unsaved: true }; } }).ports);
-    mediator.dispatch({ type: "queue-add", owner: "w1:p1", text: "one" });
-    expect(changes).toEqual(["w1:p1 add"]);
+    mediator.dispatch({ type: "queue-edit", owner: "w1:p1", id: "a", text: "one" });
+    expect(changes).toEqual(["w1:p1 edit"]);
     expect(mediator.getState().queue).toMatchObject({ lists: { "w1:p1": [{ id: "a", text: "one" }] }, unsaved: { "w1:p1": true } });
   });
 });

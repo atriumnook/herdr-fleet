@@ -4,13 +4,20 @@ import type { Machine } from "../../shared/machines.ts";
 import type { ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, HealthAuth, InteractivePrompt, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
-import { BACKGROUND_TASKS_POLL_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, INITIAL_STATE, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type UiEvent, type UiState } from "./state.ts";
+import { BACKGROUND_TASKS_POLL_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, INITIAL_STATE, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type Transition, type UiEvent, type UiState } from "./state.ts";
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, name: id, role: "worker", agent: "pi", group: "g1", herdrName: `h-${id}`, paneId: `w1:${id}`, cwd: "/w",
   state: "working", depth: 1, interactive: false, worktree: false, startedAt: 1, updatedAt: 1, ...extra,
 });
 const usage: UsageEntry[] = [{ key: "codex", reading: { readAt: 1, windows: [{ name: "5h", usedPercent: 12 }] } }];
+
+/** a message from the composer of the pane shown, taken by its socket and confirmed: what the last step did */
+function sendOne(state: UiState): Transition {
+  const asked = transition(state, { type: "composer-send", owner: "w1:p1", machineId: "local", paneId: "w1:p1", text: "x", via: "box", bracketedPaste: false, working: false }).state;
+  const started = transition(asked, { type: "submit-started", id: asked.sends.seq }).state;
+  return transition(started, { type: "send-result", id: asked.sends.seq, outcome: { kind: "ok" } });
+}
 
 /** Feeds events in order and collects every effect asked for. */
 function play(events: UiEvent[], from: UiState = INITIAL_STATE) {
@@ -1443,12 +1450,12 @@ describe("the chat's waiting prompt and what the composer shares with it", () =>
 
   it("takes a suggestion only from a read begun after the latest send", () => {
     const state = live();
-    const sent = play([{ type: "chat-sent" }], state).state;
+    const sent = sendOne(state).state;
     expect(play([{ type: "chat-prompt-read", seq: seqOf(sent), sent: 0, prompt: null, suggestion: "run the tests" }], sent).state.chat.suggestion).toBeNull();
     const taken = play([{ type: "chat-prompt-read", seq: seqOf(sent), sent: 1, prompt: null, suggestion: "run the tests" }], sent).state;
     expect(taken.chat.suggestion).toBe("run the tests");
     // a send drops it: it was for the turn before
-    expect(play([{ type: "chat-sent" }], taken).state.chat.suggestion).toBeNull();
+    expect(sendOne(taken).state.chat.suggestion).toBeNull();
   });
 
   it("drops the prompt and the suggestion when a read fails, and goes on reading", () => {
@@ -1527,7 +1534,7 @@ describe("the chat's waiting prompt and what the composer shares with it", () =>
   });
 
     it("counts a message delivered, so the chat reads at once", () => {
-    expect(play([{ type: "chat-delivered" }], live()).state.chat.delivered).toBe(1);
+    expect(sendOne(live()).state.chat.delivered).toBe(1);
   });
 });
 
@@ -1662,7 +1669,8 @@ describe("the chat's conversation", () => {
 
   it("reads at once once a message is delivered, or a turn starts or ends", () => {
     const read = answer(opened.state, ok(page([user("a")], null))).state;
-    expect(kinds(play([{ type: "chat-delivered" }], read).effects)).toContain("read-conversation");
+    const attached = play([{ type: "pane-attached", paneId: "w1:p1" }, { type: "pane-connection", connected: true }], read).state;
+    expect(kinds(sendOne(attached).effects)).toContain("read-conversation");
     const pc = (status: string): Machine => ({ id: "local", name: "omarchy", kind: "local", enabled: true, state: "connected", error: null,
       snapshot: { version: "0.9.1", protocol: 22, focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: "w1:p1", workspaces: [], tabs: [], agents: [], panes: [{ pane_id: "w1:p1", workspace_id: "w1", tab_id: "w1:t1", focused: true, agent_status: status }] } as never });
     const idle = play([{ type: "machines-pushed", machines: [pc("idle")] }], read).state;
@@ -1672,7 +1680,9 @@ describe("the chat's conversation", () => {
 
   it("knows the turn that finished before a message went out", () => {
     const read = answer(opened.state, ok(page([user("a"), assistant("b")], null))).state;
-    const sent = play([{ type: "chat-sent" }], read).state;
+    const attached = play([{ type: "pane-attached", paneId: "w1:p1" }, { type: "pane-connection", connected: true }], read).state;
+    const asked = play([{ type: "composer-send", owner: "w1:p1", machineId: "local", paneId: "w1:p1", text: "x", via: "box", bracketedPaste: false, working: false }], attached).state;
+    const sent = play([{ type: "submit-started", id: asked.sends.seq }], asked).state;
     expect(sent.conversation.sentOver).toEqual({ turn: assistant("b"), page: read.conversation.view.turns });
   });
 
@@ -1694,7 +1704,6 @@ describe("messages held while the agent works", () => {
   });
 
   it("asks the store for every change, and another tab's", () => {
-    expect(play([{ type: "queue-add", owner, text: "two" }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "add", text: "two" } }]);
     expect(play([{ type: "queue-edit", owner, id: "a", text: "x" }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "edit", id: "a", text: "x" } }]);
     expect(play([{ type: "queue-discard", owner, id: "a" }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "remove", id: "a" } }]);
     expect(play([{ type: "queue-stored", owner }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "refresh" } }]);
@@ -1754,7 +1763,9 @@ describe("sending a message", () => {
       { kind: "composer-draft-change", owner, change: { kind: "begin", sent: "hello" } },
       { kind: "submit", id: state.sends.seq, paneId: "w1:p1", text: "hello", payload: "hello", typed: false },
     ]);
-    expect(state.chat.sent).toBe(1);
+    // counted sent once the socket took it: the suggestion was for the turn before
+    expect(state.chat.sent).toBe(0);
+    expect(play([{ type: "submit-started", id: state.sends.seq }], state).state.chat.sent).toBe(1);
     // a second while it is on its way goes nowhere
     expect(play([send("again")], state).effects).toEqual([]);
   });
@@ -1855,7 +1866,23 @@ describe("sending a message", () => {
     ]);
   });
 
-  it("sends a held message when Send now is pressed, one at a time", () => {
+  it("ignores an answer for a request it does not know, and keeps a composer's and an input line's sends apart", () => {
+    const state = ready();
+    expect(play([{ type: "send-result", id: 99, outcome: { kind: "ok" } }], state).state).toBe(state);
+    expect(play([{ type: "submit-started", id: 99 }], state).state).toBe(state);
+    const composing = play([send("hello")], state).state;
+    expect(kinds(play([{ type: "line-send", owner, paneId: "w1:p1", text: "ls", bracketedPaste: false }], composing).effects)).toEqual(["line-draft-change", "submit"]);
+  });
+
+  it("says a held message was not sent into a masked prompt or a terminal another app holds", () => {
+    const state = play([{ type: "queue-loaded", owner, messages: [{ id: "m", text: "held" }], unsaved: false }], ready()).state;
+    const masked = { ...state, pane: { ...state.pane, session: { ...state.pane.session, secret: "Password:" } } };
+    const { state: after, effects } = play([{ type: "queue-send", owner, id: "m", text: "held", paneId: "w1:p1", bracketedPaste: false }], masked);
+    expect(effects).toEqual([]);
+    expect(after.queue.error).toEqual({ owner, id: "m", note: { kind: "not-sent" } });
+  });
+
+    it("sends a held message when Send now is pressed, one at a time", () => {
     const state = play([{ type: "queue-loaded", owner, messages: [{ id: "m", text: "held" }], unsaved: false }], ready()).state;
     const going = play([{ type: "queue-send", owner, id: "m", text: "held", paneId: "w1:p1", bracketedPaste: false }], state);
     expect(going.state.queue.sending).toEqual({ owner, id: "m" });

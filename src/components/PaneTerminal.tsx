@@ -76,7 +76,7 @@ export interface PaneTerminalProps {
   /** what the terminal's socket says of the pane, and what the views inside it (the composer's background tasks) send, up to the Root */
   emit: Emit<BackgroundTasksUpEvent | Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }>
     | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" | "draft-open" | "draft-input" | "send-draft" | "discard-draft"
-      | "chat-sent" | "chat-delivered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-prompt-reread"
+      | "chat-pending-answer-done"
       | "queue-open" | "queue-edit" | "queue-discard" | "composer-draft" | "line-draft" | "composer-send" | "line-send" | "queue-send" }> | ChatUpEvent>;
 }
 
