@@ -151,6 +151,28 @@ export interface MachinesState {
   checking: string | null;
 }
 
+/** The terminal attached to the pane open in Main, as its socket tells it. */
+export interface PaneSession {
+  /** the pane these describe: the one the terminal attached last */
+  paneId: string | null;
+  /** the pane's output has been written to the grid since it attached */
+  outputReady: boolean;
+  /** the server takes input for the pane */
+  inputReady: boolean;
+  ended: boolean;
+  /** another web bridge has the pane's terminal: the server attaches once it lets go */
+  held: boolean;
+  /** a bridge too old to mirror a terminal: the lens is a notice, the chat still works */
+  unsupported: boolean;
+  inputError: string | null;
+  /** the output stopped (stalled, or another attach took it): the pane must be reopened */
+  outputError: string | null;
+  /** a masked prompt on screen (a password asked), by its text */
+  secret: string | null;
+}
+
+export const NO_SESSION: PaneSession = { paneId: null, outputReady: false, inputReady: false, ended: false, held: false, unsupported: false, inputError: null, outputError: null, secret: null };
+
 /** The pane open in Main: its socket, and the lens the person chose in it. */
 export interface PaneState {
   connected: boolean;
@@ -160,6 +182,7 @@ export interface PaneState {
   role: ClientRole;
   /** a lens chosen in the pane, kept here too for a browser that cannot store it; `key` names the pane and what decides its lens */
   lens: { key: string; view: PaneView } | null;
+  session: PaneSession;
 }
 
 /** This device's alerts: the browser's permission, its push subscription, and what the pushes told so far. */
@@ -420,6 +443,7 @@ export type UiEvent =
   | TreeEvent
   | ConnectionEvent
   | { type: "pane-connection"; connected: boolean }
+  | PaneSessionEvent
   | { type: "output-stalled" }
   | { type: "role-ack"; role: ClientRole }
   /** `storageId`: where the pane's lens is kept; null with no pane selected */
@@ -501,6 +525,24 @@ export type UiEvent =
   | { type: "gate-passed" }
   /** `unauthorized`: the server refused the code or the token itself */
   | { type: "gate-failed"; via: "code" | "token"; unauthorized: boolean; message: string };
+
+/** What the open pane's terminal socket says of it; each one naming a pane is for that pane only. */
+export type PaneSessionEvent =
+  /** the terminal attached to a pane (null: none): everything known of the one before goes */
+  | { type: "pane-attached"; paneId: string | null }
+  /** output written to the grid; `secret`: the masked prompt it now shows, if any */
+  | { type: "pane-output"; paneId: string; secret: string | null }
+  | { type: "pane-input-ready"; paneId: string; ready: boolean }
+  | { type: "pane-attach-held"; paneId: string }
+  | { type: "pane-attach-resumed"; paneId: string }
+  | { type: "pane-exited"; paneId: string }
+  | { type: "pane-input-failed"; paneId: string; message: string }
+  | { type: "pane-terminal-unsupported"; paneId: string }
+  /** the output stopped (stalled, or another attach took it) */
+  | { type: "pane-output-failed"; message: string }
+  /** the socket dropped: it attaches afresh on reconnecting */
+  | { type: "pane-socket-lost" }
+  | { type: "dismiss-input-error" };
 
 /** The server, as this page reads it and is pushed by it. */
 export type ConnectionEvent =
@@ -629,7 +671,7 @@ export const INITIAL_STATE: UiState = {
   trees: {},
   connection: { locked: null, reason: null, auth: null, health: null, pairCode: "", pairing: "none", visible: true, pollSeq: 0 },
   machines: { list: [], error: null, revision: 0, refetching: false, checking: null },
-  pane: { connected: false, outputStopped: false, role: "interact", lens: null },
+  pane: { connected: false, outputStopped: false, role: "interact", lens: null, session: NO_SESSION },
   alerts: { permission: "default", supported: false, push: false, statuses: {}, turnStarts: {}, lastTurns: {}, subscribeSeq: 0 },
   drawerOpen: false,
   newSession: { open: false },
@@ -675,8 +717,26 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return next({ screen: event.screen, detail: event.screen === "pane" ? null : state.detail });
     case "select-pane":
       return next({ screen: "pane", detail: null, ...pick(state, event.machineId, event.paneId, effects) });
-    case "pane-connection":
-      return next({ pane: { ...state.pane, connected: event.connected, outputStopped: event.connected ? false : state.pane.outputStopped } });
+    case "pane-connection": {
+      // the socket's connection is polled: the same answer again changes nothing
+      const outputStopped = event.connected ? false : state.pane.outputStopped;
+      if (state.pane.connected === event.connected && state.pane.outputStopped === outputStopped) return next({});
+      return next({ pane: { ...state.pane, connected: event.connected, outputStopped } });
+    }
+    case "pane-attached":
+    case "pane-output":
+    case "pane-input-ready":
+    case "pane-attach-held":
+    case "pane-attach-resumed":
+    case "pane-exited":
+    case "pane-input-failed":
+    case "pane-terminal-unsupported":
+    case "pane-output-failed":
+    case "pane-socket-lost":
+    case "dismiss-input-error": {
+      const pane = paneSessionTransition(state.pane, event);
+      return next(pane === state.pane ? {} : { pane });
+    }
     case "output-stalled":
       return next({ pane: { ...state.pane, outputStopped: true } });
     case "role-ack":
@@ -1451,6 +1511,40 @@ function readFile(state: UiState, effects: Effect[], now = true): UiState {
   const seq = state.files.seq + 1;
   if (now) effects.push({ kind: "load-file", machineId: viewer.preview.machineId, paneId: viewer.preview.paneId, path: viewer.path, seq });
   return { ...state, files: { ...state.files, seq, viewer: { ...viewer, content: { kind: "opening" } } } };
+}
+
+function paneSessionTransition(pane: PaneState, event: PaneSessionEvent): PaneState {
+  const { session } = pane;
+  /** a change to the session, or the pane itself when nothing changes */
+  const set = (patch: Partial<PaneSession>): PaneState =>
+    ((Object.keys(patch) as Array<keyof PaneSession>).every((key) => patch[key] === session[key]) ? pane : { ...pane, session: { ...session, ...patch } });
+  switch (event.type) {
+    case "pane-attached":
+      return { ...pane, session: { ...NO_SESSION, paneId: event.paneId } };
+    case "pane-output-failed":
+      return { ...pane, connected: false, session: { ...session, outputError: event.message, ended: true } };
+    case "pane-socket-lost":
+      return set({ outputReady: false, inputReady: false, held: false });
+    case "dismiss-input-error":
+      return set({ inputError: null });
+  }
+  if (event.paneId !== session.paneId) return pane;
+  switch (event.type) {
+    case "pane-output":
+      return set({ outputReady: true, secret: event.secret });
+    case "pane-input-ready":
+      return set({ inputReady: event.ready });
+    case "pane-attach-held":
+      return set({ held: true });
+    case "pane-attach-resumed":
+      return set({ held: false });
+    case "pane-exited":
+      return set({ ended: true });
+    case "pane-input-failed":
+      return set({ inputError: event.message });
+    case "pane-terminal-unsupported":
+      return set({ unsupported: true });
+  }
 }
 
 type FoldersEvent = Extract<UiEvent, { type: "open-folders" | "close-folders" | "browse-folder" | "show-hidden-folders" | "folders-listed" | "folders-failed" }>;
