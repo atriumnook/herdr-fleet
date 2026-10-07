@@ -227,12 +227,12 @@ export function Root() {
   useEffect(() => {
     // a hidden tab (or a phone app in the background) reads nothing; it catches up on return
     const onVisibility = (): void => mediator.dispatch({ type: "visibility", visible: document.visibilityState !== "hidden" });
-    // pasting the auth link into an open tab navigates the fragment alone: no reload, so no boot
     // another tab changed a pane's held messages
     const onStorage = (event: StorageEvent): void => {
       if (event.key?.startsWith(QUEUE_KEY_PREFIX)) mediator.dispatch({ type: "queue-stored", owner: event.key.slice(QUEUE_KEY_PREFIX.length) });
     };
     window.addEventListener("storage", onStorage);
+    // pasting the auth link into an open tab navigates the fragment alone: no reload, so no boot
     const onHashChange = (): void => {
       const token = takeAuthTokenFromUrl();
       if (token !== null) mediator.dispatch({ type: "auth-link", token });

@@ -18,7 +18,7 @@ import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar, type KeyBarEvent } from "./KeyBar.tsx";
 import type { Emit } from "../ui/bubble.ts";
 import type { BackgroundTasksUpEvent } from "../ui/BackgroundTasksPresenter.tsx";
-import { useSelected, useTerminal } from "../ui/presenter.ts";
+import { useSelected, useStateNow, useTerminal } from "../ui/presenter.ts";
 import { NO_SESSION, type PaneCommand, type PaneSessionEvent, type QueueSendResult, type UiEvent } from "../ui/state.ts";
 import { QueuePresenter, type QueueUpEvent } from "../ui/QueuePresenter.tsx";
 import { TerminalInput } from "./TerminalInput.tsx";
@@ -139,6 +139,7 @@ export function PaneTerminal({
   emitRef.current = emit;
   // the Mediator owns the socket: its messages reach the grid through the sink, keystrokes go out through the link
   const { attachTerminal, terminalLink: link } = useTerminal();
+  const stateNow = useStateNow();
   /** what the grid asks of its socket: the pane shown, its size, the role */
   const command = useCallback((asked: PaneCommand) => emitRef.current({ type: "pane-command", machineId, command: asked }), [machineId]);
   // the attached pane as its socket told the Mediator; until it attached, nothing of it is known
@@ -1163,11 +1164,14 @@ export function PaneTerminal({
     if (event.type !== "queue-send") { emitRef.current(event); return; }
     const { owner, id, text } = event;
     emitRef.current({ type: "queue-send-begin", owner, id });
+    // one at a time: the state machine decided whether this one goes
+    const going = stateNow().queue.sending;
+    if (going?.owner !== owner || going.id !== id) return;
     const result = (sent: QueueSendResult): void => emitRef.current({ type: "queue-send-result", owner, id, result: sent });
     void Promise.resolve(sendComposerText(text))
       .then((sent) => result(sent === true ? { kind: "sent" } : typeof sent === "string" ? { kind: "said", text: sent } : { kind: "not-sent" }))
       .catch(() => result({ kind: "unconfirmed" }));
-  }, [sendComposerText]);
+  }, [sendComposerText, stateNow]);
 
   // Capture the owner's pane for the entire upload batch, even across a pane switch.
   const uploadImage = useCallback((file: File) => uploadPaneImage(paneId ?? "", file), [paneId]);
