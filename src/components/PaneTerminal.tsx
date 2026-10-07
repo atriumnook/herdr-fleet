@@ -8,9 +8,9 @@ import "./PaneTerminal.css";
 
 import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, draftIsEmpty } from "../lib/draft.ts";
-import { QUEUE_READY_STATUS, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
-import { answerFromText, answerHint, answerRefusal, needsConfirmation } from "../lib/promptAnswer.ts";
-import { ApiError, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
+import { QUEUE_READY_STATUS } from "../lib/compose.ts";
+import { answerHint } from "../lib/promptAnswer.ts";
+import { fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
 import { matchHerdrWidths } from "../lib/terminalWidths.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
@@ -18,15 +18,15 @@ import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar, type KeyBarEvent } from "./KeyBar.tsx";
 import type { Emit } from "../ui/bubble.ts";
 import type { BackgroundTasksUpEvent } from "../ui/BackgroundTasksPresenter.tsx";
-import { useSelected, useStateNow, useTerminal } from "../ui/presenter.ts";
-import { NO_SESSION, type PaneCommand, type PaneSessionEvent, type QueueSendResult, type UiEvent } from "../ui/state.ts";
+import { useSelected, useTerminal } from "../ui/presenter.ts";
+import { NO_SESSION, type PaneCommand, type PaneSessionEvent, type UiEvent } from "../ui/state.ts";
 import { QueuePresenter, type QueueUpEvent } from "../ui/QueuePresenter.tsx";
-import { TerminalInput } from "./TerminalInput.tsx";
+import { TerminalInput, type TerminalInputEvent } from "./TerminalInput.tsx";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatPresenter, type ChatUpEvent } from "../ui/ChatPresenter.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
-import { Composer } from "./Composer.tsx";
+import { Composer, type ComposerEvent } from "./Composer.tsx";
 import type { AgentStatus, ClientRole } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
 import { useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
@@ -77,7 +77,7 @@ export interface PaneTerminalProps {
   emit: Emit<BackgroundTasksUpEvent | Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }>
     | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" | "draft-open" | "draft-input" | "send-draft" | "discard-draft"
       | "chat-sent" | "chat-delivered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-prompt-reread"
-      | "queue-open" | "queue-add" | "queue-edit" | "queue-discard" | "queue-send-begin" | "queue-send-result" | "composer-draft" | "line-draft" }> | ChatUpEvent>;
+      | "queue-open" | "queue-edit" | "queue-discard" | "composer-draft" | "line-draft" | "composer-send" | "line-send" | "queue-send" }> | ChatUpEvent>;
 }
 
 
@@ -122,7 +122,7 @@ export function PaneTerminal({
   const openFileRef = useRef(openFile);
   openFileRef.current = openFile;
   const machineId = useMachineId();
-  const { answerPanePrompt, uploadPaneImage } = useMachineApi();
+  const { uploadPaneImage } = useMachineApi();
   const uploadFileRef = useRef(uploadPaneImage);
   uploadFileRef.current = uploadPaneImage;
   const chatView = view === "chat";
@@ -139,7 +139,6 @@ export function PaneTerminal({
   emitRef.current = emit;
   // the Mediator owns the socket: its messages reach the grid through the sink, keystrokes go out through the link
   const { attachTerminal, terminalLink: link } = useTerminal();
-  const stateNow = useStateNow();
   /** what the grid asks of its socket: the pane shown, its size, the role */
   const command = useCallback((asked: PaneCommand) => emitRef.current({ type: "pane-command", machineId, command: asked }), [machineId]);
   // the attached pane as its socket told the Mediator; until it attached, nothing of it is known
@@ -198,6 +197,9 @@ export function PaneTerminal({
   const queueOwner = paneId === null ? null : paneStorageId(machineId, paneId);
 
   paneRef.current = paneId;
+  // what a message sent now goes with: held while the agent works
+  const agentRef = useRef(agent); agentRef.current = agent;
+  const agentStatusRef = useRef(agentStatus); agentStatusRef.current = agentStatus;
 
   const noteClipboard = useCallback((note: string) => {
     if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
@@ -1036,40 +1038,27 @@ export function PaneTerminal({
   const sendDraft = useCallback(() => emit({ type: "send-draft" }), [emit]);
   const discardDraft = useCallback(() => emit({ type: "discard-draft" }), [emit]);
 
-  // the composer goes straight to the socket, not through onData: an armed key-bar Ctrl
-  // must not turn a one-letter message into a control key. Offline it sends nothing and
-  // keeps its text (never-queue); a message the server could not deliver keeps it too,
-  // with the reason. Bracketed-paste wrapping follows the pane program's mode.
-  const sendComposerText = useCallback((text: string): false | Promise<true | string> => {
-    const term = termRef.current;
+  // A message from the composer, the input line or a held message goes up with what only this
+  // terminal knows: the pane, and its program's paste mode. The Mediator decides where it goes
+  // (an answer, a held message, a submit) and sends it straight to the socket, not through onData:
+  // an armed key-bar Ctrl must not turn a one-letter message into a control key.
+  const bracketedPaste = (): boolean => termRef.current?.modes.bracketedPasteMode ?? false;
+  const composerEmit = useCallback((event: ComposerEvent | BackgroundTasksUpEvent) => {
+    if (event.type !== "send-message") { emitRef.current(event); return; }
     const pane = paneRef.current;
-    if (!term || pane === null || secretRef.current !== null || heldRef.current) return false;
-    const sent = link.submit(pane, composerMessage(text), composerPayload(text, term.modes.bracketedPasteMode));
-    if (sent === null) return false;
-    term.scrollToBottom();
-    // a message went out, from the box or a queued one: the agent's suggestion was for the turn before it
-    emitRef.current({ type: "chat-sent" });
-    return sent.then((result) => {
-      if (!result.ok) return submitNote(result.code, result.message);
-      // the chat lens refetches at once so the sent prompt appears without a poll beat
-      emitRef.current({ type: "chat-delivered" });
-      return true;
-    });
-  }, []);
-
-  // the terminal's input line: the text typed like the keyboard would, into an agent's open
-  // menu too, then Enter after the server's gap; several lines go as one paste
-  const sendTerminalLine = useCallback((text: string): false | Promise<true | string> => {
-    const term = termRef.current;
+    if (pane === null) return;
+    emitRef.current({ type: "composer-send", owner: paneStorageId(machineId, pane), machineId, paneId: pane, text: event.text, via: event.via,
+      bracketedPaste: bracketedPaste(), working: agentRef.current !== null && agentStatusRef.current === "working" });
+  }, [machineId]);
+  const lineEmit = useCallback((event: TerminalInputEvent) => {
+    if (event.type !== "send-line") { emitRef.current(event); return; }
     const pane = paneRef.current;
-    if (!term || pane === null || secretRef.current !== null) return false;
-    const message = composerMessage(text);
-    const payload = message.includes("\n") ? composerPayload(text, term.modes.bracketedPasteMode) : message;
-    const sent = link.submit(pane, message, payload, true);
-    if (sent === null) return false;
-    term.scrollToBottom();
-    return sent.then((result) => (result.ok ? true : submitNote(result.code, result.message)));
-  }, []);
+    if (pane === null) return;
+    emitRef.current({ type: "line-send", owner: paneStorageId(machineId, pane), paneId: pane, text: event.text, bracketedPaste: bracketedPaste() });
+  }, [machineId]);
+  // a submit the socket took scrolls the grid to its end, where the message goes in
+  const started = useSelected((state) => state.sends.started);
+  useEffect(() => { if (started > 0) termRef.current?.scrollToBottom(); }, [started]);
 
   const pressEnter = useCallback((): boolean => {
     const pane = paneRef.current;
@@ -1125,53 +1114,13 @@ export function PaneTerminal({
   const busy = agent !== null && agentStatus === "working" && answering === null;
   const readyForQueue = agentStatus !== undefined && QUEUE_READY_STATUS[agentStatus] === true;
 
-  const composerSend = useCallback(
-    (text: string): boolean | string | Promise<boolean | string> => {
-      const pane = paneRef.current;
-      // Codex's queue open in the terminal holds the input: a message would become the answer
-      if (pane !== null && heldByOpenQueue) {
-        return t("Codex has a question open in the terminal: answer it above, or close it there (alt+↓) to message Codex.");
-      }
-      if (pane !== null && answering !== null) {
-        // never typed into the agent's menu: only as one of its options, or its own reply row
-        const choice = answerFromText(answering, text);
-        if (choice === null) return answerRefusal(answering);
-        if (needsConfirmation(answering, choice)) {
-          emitRef.current({ type: "chat-pending-answer", promptId: answering.id, answer: choice });
-          return true;
-        }
-        emitRef.current({ type: "chat-pending-answer-done" });
-        return answerPanePrompt({ pane_id: pane, prompt_id: answering.id, ...choice }).then(
-          () => { emitRef.current({ type: "chat-prompt-reread" }); return true; },
-          (cause: unknown) => {
-            emitRef.current({ type: "chat-prompt-reread" });
-            return cause instanceof ApiError && cause.status === 409 ? t("The question on screen changed; check it and answer again.") : String(cause instanceof Error ? cause.message : cause);
-          },
-        );
-      }
-      if (pane !== null && agent !== null && agentStatus === "working") {
-        emitRef.current({ type: "queue-add", owner: paneStorageId(machineId, pane), text });
-        return true; // the composer may clear its box: the text lives in the queue card
-      }
-      return sendComposerText(text);
-    },
-    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, sendComposerText, machineId],
-  );
-
-
-  // Send now is this terminal's to send (for now): what came of it goes up for the held message
+  // Send now goes up with what only this terminal knows, as a composer message does
   const queueEmit = useCallback((event: QueueUpEvent) => {
     if (event.type !== "queue-send") { emitRef.current(event); return; }
-    const { owner, id, text } = event;
-    emitRef.current({ type: "queue-send-begin", owner, id });
-    // one at a time: the state machine decided whether this one goes
-    const going = stateNow().queue.sending;
-    if (going?.owner !== owner || going.id !== id) return;
-    const result = (sent: QueueSendResult): void => emitRef.current({ type: "queue-send-result", owner, id, result: sent });
-    void Promise.resolve(sendComposerText(text))
-      .then((sent) => result(sent === true ? { kind: "sent" } : typeof sent === "string" ? { kind: "said", text: sent } : { kind: "not-sent" }))
-      .catch(() => result({ kind: "unconfirmed" }));
-  }, [sendComposerText, stateNow]);
+    const pane = paneRef.current;
+    if (pane === null) return;
+    emitRef.current({ type: "queue-send", owner: event.owner, id: event.id, text: event.text, paneId: pane, bracketedPaste: bracketedPaste() });
+  }, []);
 
   // Capture the owner's pane for the entire upload batch, even across a pane switch.
   const uploadImage = useCallback((file: File) => uploadPaneImage(paneId ?? "", file), [paneId]);
@@ -1291,7 +1240,7 @@ export function PaneTerminal({
           agent={agent}
           agentStatus={agentStatus}
           backgroundTasks={backgroundTasks}
-          emit={emit}
+          emit={composerEmit}
           metadata={chatMetadata}
           connected={connected && !held}
           queueMode={busy}
@@ -1299,12 +1248,11 @@ export function PaneTerminal({
             : pendingAnswer?.promptId === answering.id ? t("Confirm your answer in the card above, or type another…") : answerHint(answering)}
           // no suggestion under any card, a fallback or queued one included
           suggestion={chatPrompt === null ? chatSuggestion : null}
-          onSend={composerSend}
           onAbort={abortTurn}
           onUploadImage={uploadImage}
         />
       )}
-      {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} emit={emit} />}
+      {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onEnter={pressEnter} emit={lineEmit} />}
       {paneId !== null && !secretActive && !observing && !chatView && <KeyBar model={{ disabled: composing, ctrlArmed, directTyping: coarse ? directTyping : null }} emit={keyBarEmit} />}
     </div>
   );

@@ -6,7 +6,7 @@ import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AgentKind, ClientRole, ConversationTurn, DirectoryListing, HerdrPane, InteractivePrompt, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
+import type { AgentKind, ClientRole, ConversationTurn, DirectoryListing, HerdrPane, InteractivePrompt, PromptAnswer, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { SubmitResult } from "../lib/ws.ts";
 import type { InputDraft } from "../lib/draft.ts";
 import type { HeldMessage } from "../lib/messageQueue.ts";
@@ -43,12 +43,12 @@ export interface TerminalSink {
   disconnected(): void;
 }
 
-/** What the terminal sends straight to its socket: keystrokes, and sends whose outcome it waits on. Nothing while no socket is open. */
+/** What the terminal sends straight to its socket: keystrokes, and a secret. Nothing while no socket is open. */
 export interface TerminalLink {
   connected(): boolean;
   canInput(paneId: string): boolean;
   sendInput(paneId: string, text: string): boolean;
-  submit(paneId: string, text: string, payload: string, typed?: boolean): Promise<SubmitResult> | null;
+  /** the one send a view awaits: a secret never enters the state or an event (SecretInput) */
   sendSecret(paneId: string, prompt: string, secret: string): Promise<SubmitResult> | null;
 }
 
@@ -115,6 +115,8 @@ export interface EffectPorts {
   leavePreview(): boolean;
   /** what the server says of a path; throws for anything but these */
   loadFileInfo(machineId: string, path: string, paneId: string | null): Promise<Exclude<FileOutcome, { kind: "failed" }>>;
+  /** answers a pane's waiting prompt with one of its options or its own reply row; throws with `status` 409 when the menu moved on */
+  answerPrompt(machineId: string, answer: PromptAnswer): Promise<void>;
   /** changes a pane's composer draft and answers it as now kept, with what a settle left */
   changeComposerDraft(owner: string, change: ComposerDraftChange): { text: string; sending: boolean; settled: { text: string; edited: boolean } | null };
   /** changes a pane's terminal input line and answers it as now kept */
@@ -178,7 +180,6 @@ export class Mediator {
     connected: () => this.paneSocket?.handle.connected ?? false,
     canInput: (paneId) => this.paneSocket?.handle.canInput(paneId) ?? false,
     sendInput: (paneId, text) => this.paneSocket?.handle.sendInput(paneId, text) ?? false,
-    submit: (paneId, text, payload, typed) => this.paneSocket?.handle.submit(paneId, text, payload, typed) ?? null,
     sendSecret: (paneId, prompt, secret) => this.paneSocket?.handle.sendSecret(paneId, prompt, secret) ?? null,
   };
 
@@ -465,6 +466,26 @@ export class Mediator {
         else handle.setMode(command.role);
         return;
       }
+      case "submit": {
+        // never queued: no socket now, and the box keeps its text
+        const sent = this.paneSocket?.handle.submit(effect.paneId, effect.text, effect.payload, effect.typed) ?? null;
+        if (sent === null) { this.dispatch({ type: "send-result", id: effect.id, outcome: { kind: "not-sent" } }); return; }
+        this.dispatch({ type: "submit-started", id: effect.id });
+        try {
+          const result = await sent;
+          this.dispatch({ type: "send-result", id: effect.id, outcome: result.ok ? { kind: "ok" } : { kind: "failed", code: result.code, message: result.message } });
+        } catch { this.dispatch({ type: "send-result", id: effect.id, outcome: { kind: "unconfirmed" } }); }
+        return;
+      }
+      case "answer-prompt":
+        try {
+          await this.ports.answerPrompt(effect.machineId, { pane_id: effect.paneId, prompt_id: effect.promptId, ...effect.answer });
+          this.dispatch({ type: "answer-result", id: effect.id, outcome: { kind: "ok" } });
+        } catch (error) {
+          const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : null;
+          this.dispatch({ type: "answer-result", id: effect.id, outcome: { kind: "failed", status, message: message(error) } });
+        }
+        return;
       case "composer-draft-change": {
         const { text, sending, settled } = this.ports.changeComposerDraft(effect.owner, effect.change);
         this.dispatch({ type: "composer-draft-loaded", owner: effect.owner, text, sending, settled });

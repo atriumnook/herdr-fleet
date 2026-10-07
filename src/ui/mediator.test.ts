@@ -56,6 +56,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     openPaneSocket: () => { throw new Error("no pane socket in this test"); },
     loadPromptState: async () => ({ prompt: null, suggestion: null }),
     changeQueue: () => ({ messages: [], unsaved: false }),
+    answerPrompt: async () => {},
     changeComposerDraft: () => ({ text: "", sending: false, settled: null }),
     changeLineDraft: () => ({ text: "", sending: false }),
     readConversation: async () => ({ kind: "ok", conversation: { source: "claude-transcript", history_id: "h1", cursor: null, turns: [] } }),
@@ -466,7 +467,25 @@ describe("Mediator", () => {
       expect(timers.length).toBe(after);
     });
 
-    it("lends the terminal the socket for its keystrokes, and nothing once it closed", () => {
+    it("submits a message on the socket and says what came of it: taken, not sent with no socket, not confirmed", async () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      const owner = "w1:p1";
+      const ask = () => mediator.dispatch({ type: "composer-send", owner, machineId: "local", paneId: "w1:p1", text: "hi", via: "box", bracketedPaste: false, working: false });
+      const outcome = () => mediator.getState().sends.outcomes[`composer:${owner}`]?.outcome;
+      ask();
+      await until(() => outcome()?.kind === "not-sent");
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      fake.socket.submit = async () => ({ ok: true });
+      ask();
+      await until(() => outcome()?.kind === "sent");
+      expect(mediator.getState().sends.started).toBe(1);
+      fake.socket.submit = async () => { throw new Error("closed"); };
+      ask();
+      await until(() => outcome()?.kind === "unconfirmed");
+    });
+
+        it("lends the terminal the socket for its keystrokes, and nothing once it closed", () => {
       const fake = fakeSocket();
       const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
       const link = mediator.terminalLink;

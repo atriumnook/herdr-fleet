@@ -3,6 +3,7 @@ import { CornerDownLeft, SendHorizontal } from "lucide-react";
 
 import "./TerminalInput.css";
 import { TERMINAL_LINE_LIMIT } from "../lib/terminalDraft.ts";
+import { submitNote } from "../lib/compose.ts";
 import type { Emit } from "../ui/bubble.ts";
 import { useSelected, useStateNow } from "../ui/presenter.ts";
 import type { LineDraftChange, UiEvent } from "../ui/state.ts";
@@ -13,13 +14,14 @@ export interface TerminalInputProps {
   owner: string;
   onComposing?: (active: boolean) => void;
   connected: boolean;
-  /** true: sent, clear the line; a string: keep the text and say why; false: not sent (offline) */
-  onSend: (text: string) => false | Promise<true | string>;
   /** an empty line's send: Enter alone, for a menu's default or a prompt that asks to continue */
   onEnter: () => boolean;
-  /** the line's text goes up to the Root, which keeps it for its pane */
-  emit: Emit<Extract<UiEvent, { type: "line-draft" }>>;
+  /** the line's text goes up to the Root, which keeps it for its pane, and its sends */
+  emit: Emit<TerminalInputEvent>;
 }
+
+/** the line sent (typed with its own Enter), and each edit of it */
+export type TerminalInputEvent = { type: "send-line"; text: string } | Extract<UiEvent, { type: "line-draft" }>;
 
 /** Lines the box grows to before it scrolls. */
 const MAX_ROWS = 4;
@@ -30,7 +32,7 @@ const MAX_ROWS = 4;
  * cannot take back keys it already sent: every revision arrived as more text. Here the line
  * is written with the keyboard's own editing and goes to the pane whole, then Enter.
  */
-export function TerminalInput({ owner, connected, onSend, onEnter, onComposing, emit }: TerminalInputProps) {
+export function TerminalInput({ owner, connected, onEnter, onComposing, emit }: TerminalInputProps) {
   const t = useT();
   const emitRef = useRef(emit);
   emitRef.current = emit;
@@ -51,6 +53,19 @@ export function TerminalInput({ owner, connected, onSend, onEnter, onComposing, 
   const [note, setNote] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
 
+  // what a send came to, as the Mediator says it once the pane answered (text typed meanwhile stays)
+  const outcome = useSelected((state) => state.sends.outcomes[`line:${owner}`]);
+  const seenOutcome = useRef(outcome);
+  useEffect(() => {
+    if (outcome === seenOutcome.current) return;
+    seenOutcome.current = outcome;
+    if (outcome === undefined) return;
+    const said = outcome.outcome;
+    if (said.kind === "sent") return;
+    setNote(said.kind === "not-sent" ? t("Not sent: the terminal is disconnected.")
+      : said.kind === "submit-failed" ? submitNote(said.code, said.message) : t("Not confirmed. Check the terminal before sending again."));
+  }, [outcome, t]);
+
   const send = useCallback(() => {
     if (!connected || stateNow().drafts.line[owner]?.sending || composing.current) return;
     setNote(null);
@@ -58,15 +73,8 @@ export function TerminalInput({ owner, connected, onSend, onEnter, onComposing, 
       if (!onEnter()) setNote(t("Not sent: the terminal is disconnected."));
       return;
     }
-    const sent = onSend(text);
-    if (sent === false) { setNote(t("Not sent: the terminal is disconnected.")); return; }
-    changeLine({ kind: "begin" });
-    void sent.then((result) => {
-      // text typed while it was on its way stays
-      if (result === true) changeLine({ kind: "acknowledge" });
-      else setNote(result);
-    }).catch(() => setNote(t("Not confirmed. Check the terminal before sending again."))).finally(() => changeLine({ kind: "end" }));
-  }, [changeLine, connected, onEnter, onSend, owner, stateNow, t, text]);
+    emitRef.current({ type: "send-line", text });
+  }, [connected, onEnter, owner, stateNow, t, text]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Enter sends; Shift+Enter breaks the line; an IME keeps its Enter, including the committing
