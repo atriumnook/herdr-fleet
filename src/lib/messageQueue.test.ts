@@ -47,25 +47,6 @@ it("keeps messages in memory when storage is unavailable", () => {
   expect(queue.read("a").map(m => m.text)).toEqual(["first", "second"]);
 });
 
-it("shares pending sends and notifies a remounted view on acknowledgement", () => {
-  const { queue } = fixture();
-  queue.add("a", "first");
-  const sent = queue.read("a")[0]!;
-  expect(queue.beginSend("a", sent.id)).toBe(true);
-  expect(queue.beginSend("a", sent.id)).toBe(false);
-  let notices = 0;
-  const unsubscribe = queue.subscribe(() => { notices++; });
-  queue.add("a", "second");
-  queue.remove("a", sent.id);
-  queue.endSend("a", sent.id);
-  expect(queue.isSending(sent.id)).toBe(false);
-  expect(queue.read("a").map(m => m.text)).toEqual(["second"]);
-  expect(notices).toBe(3);
-  unsubscribe();
-  queue.add("a", "third");
-  expect(notices).toBe(3);
-});
-
 it("reads another tab's latest additions before edits or late acknowledgements", () => {
   const { queue, storage } = fixture();
   const other = new MessageQueueStore(() => storage);

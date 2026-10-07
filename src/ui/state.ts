@@ -12,6 +12,7 @@ import { EMPTY_DRAFT, applyToDraft, type InputDraft } from "../lib/draft.ts";
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
 import { statusEdgeRead } from "../lib/status.ts";
+import type { HeldMessage } from "../lib/messageQueue.ts";
 import { clockOffsetMs } from "../lib/omoTasks.ts";
 import { sanitizeFontFamily } from "../lib/fontFamily.ts";
 import { alertPrefs, DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type Settings } from "../lib/settings.ts";
@@ -443,6 +444,29 @@ export const NO_CONVERSATION: ConversationState = {
   pending: null, abandoned: null, error: null, loaded: false, sentOver: null,
 };
 
+/** What a held message's send came to: taken by the pane, refused with the reason, not sent, or not confirmed. */
+export type QueueSendResult = { kind: "sent" } | { kind: "said"; text: string } | { kind: "not-sent" } | { kind: "unconfirmed" };
+
+/** A change to a pane's held messages, as the store (lib/messageQueue.ts) makes it: it reads another tab's first. */
+export type QueueChange =
+  | { kind: "read" }
+  | { kind: "refresh" }
+  | { kind: "add"; text: string }
+  | { kind: "edit"; id: string; text: string }
+  | { kind: "remove"; id: string };
+
+/** Messages held while the agent works, by pane: explicitly sent, never dispatched by reconnects or status changes. */
+export interface QueueState {
+  /** each pane's held messages, as the store answered last */
+  lists: Record<string, HeldMessage[]>;
+  /** panes whose held messages this device could not keep */
+  unsaved: Record<string, true>;
+  /** the one going out now */
+  sending: { owner: string; id: string } | null;
+  /** why the last one did not go */
+  error: { owner: string; id: string; note: Exclude<QueueSendResult, { kind: "sent" }> } | null;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -480,6 +504,7 @@ export interface UiState {
   folders: FoldersState;
   chat: ChatState;
   conversation: ConversationState;
+  queue: QueueState;
   gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
@@ -634,6 +659,17 @@ export type UiEvent =
   | { type: "chat-sent" }
   /** the pane confirmed a message */
   | { type: "chat-delivered" }
+  /** `owner`: the pane's storage id */
+  | { type: "queue-open"; owner: string }
+  /** another tab changed them */
+  | { type: "queue-stored"; owner: string }
+  | { type: "queue-add"; owner: string; text: string }
+  | { type: "queue-edit"; owner: string; id: string; text: string }
+  | { type: "queue-discard"; owner: string; id: string }
+  | { type: "queue-loaded"; owner: string; messages: HeldMessage[]; unsaved: boolean }
+  /** Send now pressed, and what came of it */
+  | { type: "queue-send-begin"; owner: string; id: string }
+  | { type: "queue-send-result"; owner: string; id: string; result: QueueSendResult }
   | { type: "poll-conversation"; seq: number }
   | { type: "conversation-read"; seq: number; olderSeq: number; outcome: ConversationOutcome }
   /** the turns between the held start and where the newest page now starts; null when they cannot be joined */
@@ -798,6 +834,7 @@ export type Effect =
   | { kind: "load-background-tasks"; machineId: string; paneId: string; seq: number }
   /** `sent`: the sends counted now, handed back with the answer */
   | { kind: "load-chat-prompt"; machineId: string; paneId: string; seq: number; sent: number }
+  | { kind: "queue-change"; owner: string; change: QueueChange }
   /** the newest page, from the held start when earlier pages show */
   | { kind: "read-conversation"; machineId: string; paneId: string; from: string | null; seq: number; olderSeq: number }
   | { kind: "fill-conversation-gap"; machineId: string; paneId: string; held: string; start: string; seq: number; olderSeq: number }
@@ -842,6 +879,7 @@ export const INITIAL_STATE: UiState = {
   folders: { open: {}, seq: 0 },
   chat: { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0 },
   conversation: NO_CONVERSATION,
+  queue: { lists: {}, unsaved: {}, sending: null, error: null },
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
@@ -976,6 +1014,15 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       const chat = chatTransition(state, event, effects);
       return next(chat === state.chat ? {} : { chat });
     }
+    case "queue-open":
+    case "queue-stored":
+    case "queue-add":
+    case "queue-edit":
+    case "queue-discard":
+    case "queue-loaded":
+    case "queue-send-begin":
+    case "queue-send-result":
+      return next({ queue: queueTransition(state.queue, event, effects) });
     case "poll-conversation":
     case "conversation-read":
     case "conversation-gap-filled":
@@ -2036,6 +2083,43 @@ function conversationTransition(state: UiState, event: ConversationEvent, effect
     }
     const laid = layOut(next, read, moved, { source: "conversation", turns: read.turns, messages: [], truncated: false });
     return chat === state.chat ? laid : { ...laid, state: { ...laid.state, chat } };
+  }
+}
+
+type QueueEvent = Extract<UiEvent, { type: "queue-open" | "queue-stored" | "queue-add" | "queue-edit" | "queue-discard" | "queue-loaded" | "queue-send-begin" | "queue-send-result" }>;
+
+function queueTransition(queue: QueueState, event: QueueEvent, effects: Effect[]): QueueState {
+  const change = (owner: string, asked: QueueChange): QueueState => { effects.push({ kind: "queue-change", owner, change: asked }); return queue; };
+  switch (event.type) {
+    case "queue-open":
+      return change(event.owner, { kind: "read" });
+    case "queue-stored":
+      return change(event.owner, { kind: "refresh" });
+    case "queue-add":
+      return change(event.owner, { kind: "add", text: event.text });
+    case "queue-edit":
+      return change(event.owner, { kind: "edit", id: event.id, text: event.text });
+    case "queue-discard":
+      return change(event.owner, { kind: "remove", id: event.id });
+    case "queue-loaded": {
+      const { [event.owner]: _kept, ...saved } = queue.unsaved;
+      const unsaved = event.unsaved ? { ...queue.unsaved, [event.owner]: true as const } : saved;
+      const same = queue.lists[event.owner] === event.messages && Boolean(queue.unsaved[event.owner]) === event.unsaved;
+      return same ? queue : { ...queue, lists: { ...queue.lists, [event.owner]: event.messages }, unsaved };
+    }
+    case "queue-send-begin":
+      // one at a time: the pane takes them in the order the person sends them
+      if (queue.sending !== null) return queue;
+      return { ...queue, sending: { owner: event.owner, id: event.id }, error: null };
+    case "queue-send-result": {
+      if (queue.sending?.owner !== event.owner || queue.sending.id !== event.id) return queue;
+      const { result } = event;
+      if (result.kind === "sent") {
+        effects.push({ kind: "queue-change", owner: event.owner, change: { kind: "remove", id: event.id } });
+        return { ...queue, sending: null };
+      }
+      return { ...queue, sending: null, error: { owner: event.owner, id: event.id, note: result } };
+    }
   }
 }
 

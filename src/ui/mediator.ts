@@ -9,9 +9,10 @@ import type { AlertPrefs } from "../../shared/notify-policy.ts";
 import type { AgentKind, ClientRole, ConversationTurn, DirectoryListing, HerdrPane, InteractivePrompt, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { SubmitResult } from "../lib/ws.ts";
 import type { InputDraft } from "../lib/draft.ts";
+import type { HeldMessage } from "../lib/messageQueue.ts";
 import type { Settings } from "../lib/settings.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
-import { INITIAL_STATE, transition, type ConversationOutcome, type Effect, type FileOutcome, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
+import { INITIAL_STATE, transition, type ConversationOutcome, type Effect, type FileOutcome, type QueueChange, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
 
 type PtyData = Extract<ServerMessage, { type: "pty-data" }>;
 
@@ -114,6 +115,8 @@ export interface EffectPorts {
   leavePreview(): boolean;
   /** what the server says of a path; throws for anything but these */
   loadFileInfo(machineId: string, path: string, paneId: string | null): Promise<Exclude<FileOutcome, { kind: "failed" }>>;
+  /** changes a pane's held messages (reading another tab's first) and answers them as now kept */
+  changeQueue(owner: string, change: QueueChange): { messages: HeldMessage[]; unsaved: boolean };
   /** a page of a pane's conversation: the newest (from `from`, when earlier pages show), or the one before `before` */
   readConversation(machineId: string, paneId: string, page: { from: string | null } | { before: string }): Promise<ConversationOutcome>;
   /** the turns between the held start and where the newest page now starts, a page at a time; null when they cannot be joined */
@@ -456,6 +459,11 @@ export class Mediator {
         else if (command.kind === "resize") handle.resize(command.paneId, command.cols, command.rows, command.force);
         else if (command.kind === "keep-size") handle.keepSize(command.paneId);
         else handle.setMode(command.role);
+        return;
+      }
+      case "queue-change": {
+        const { messages, unsaved } = this.ports.changeQueue(effect.owner, effect.change);
+        this.dispatch({ type: "queue-loaded", owner: effect.owner, messages, unsaved });
         return;
       }
       case "read-conversation":

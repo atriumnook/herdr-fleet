@@ -1683,3 +1683,35 @@ describe("the chat's conversation", () => {
     expect(play([{ type: "conversation-read", seq: read.conversation.seq, olderSeq: read.conversation.olderSeq, outcome: ok(page([user("old")], null)) }], other).state.conversation.view.turns).toEqual([]);
   });
 });
+
+describe("messages held while the agent works", () => {
+  const owner = "w1:p1";
+  const loaded = (messages: Array<{ id: string; text: string }>, unsaved = false) => play([{ type: "queue-loaded", owner, messages, unsaved }]).state;
+
+  it("reads a pane's held messages as its chat opens, and keeps what the store answers", () => {
+    expect(play([{ type: "queue-open", owner }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "read" } }]);
+    expect(loaded([{ id: "a", text: "one" }], true).queue).toMatchObject({ lists: { [owner]: [{ id: "a", text: "one" }] }, unsaved: { [owner]: true } });
+  });
+
+  it("asks the store for every change, and another tab's", () => {
+    expect(play([{ type: "queue-add", owner, text: "two" }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "add", text: "two" } }]);
+    expect(play([{ type: "queue-edit", owner, id: "a", text: "x" }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "edit", id: "a", text: "x" } }]);
+    expect(play([{ type: "queue-discard", owner, id: "a" }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "remove", id: "a" } }]);
+    expect(play([{ type: "queue-stored", owner }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "refresh" } }]);
+  });
+
+  it("sends one at a time: a message the pane took leaves the queue, a refused one stays and says why", () => {
+    const state = loaded([{ id: "a", text: "one" }, { id: "b", text: "two" }]);
+    const sending = play([{ type: "queue-send-begin", owner, id: "a" }], state).state;
+    expect(sending.queue.sending).toEqual({ owner, id: "a" });
+    expect(play([{ type: "queue-send-begin", owner, id: "b" }], sending).state.queue.sending).toEqual({ owner, id: "a" });
+    const sent = play([{ type: "queue-send-result", owner, id: "a", result: { kind: "sent" } }], sending);
+    expect(sent.state.queue.sending).toBeNull();
+    expect(sent.effects).toEqual([{ kind: "queue-change", owner, change: { kind: "remove", id: "a" } }]);
+    const refused = play([{ type: "queue-send-result", owner, id: "a", result: { kind: "said", text: "the pane refused it" } }], sending);
+    expect(refused.state.queue).toMatchObject({ sending: null, error: { owner, id: "a", note: { kind: "said", text: "the pane refused it" } } });
+    expect(refused.effects).toEqual([]);
+    // the next send clears what the one before said
+    expect(play([{ type: "queue-send-begin", owner, id: "a" }], refused.state).state.queue.error).toBeNull();
+  });
+});

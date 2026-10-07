@@ -15,6 +15,7 @@ import { deviceLabel, takePairCode } from "../lib/phone.ts";
 import { leavePreview, previewFromState, showPreview } from "../lib/fileHistory.ts";
 import { HerdrSocket } from "../lib/ws.ts";
 import { EMPTY_DRAFT, draftIsEmpty } from "../lib/draft.ts";
+import { messageQueues, QUEUE_KEY_PREFIX } from "../lib/messageQueue.ts";
 import { INITIAL_STATE, type ConversationOutcome } from "./state.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import type { ConversationPageQuery } from "../lib/api.ts";
@@ -97,6 +98,13 @@ export const FLEET_PORTS: EffectPorts = {
     throw error;
   }),
   loadPromptState: (machineId, paneId) => fetchPanePromptState(paneId, machineId),
+  changeQueue: (owner, change) => {
+    if (change.kind === "refresh") messageQueues.refresh(owner);
+    else if (change.kind === "add") messageQueues.add(owner, change.text);
+    else if (change.kind === "edit") messageQueues.edit(owner, change.id, change.text);
+    else if (change.kind === "remove") messageQueues.remove(owner, change.id);
+    return { messages: messageQueues.read(owner), unsaved: messageQueues.isUnsaved(owner) };
+  },
   readConversation: (machineId, paneId, page) => conversationPage(paneId, machineId, "before" in page ? { before: page.before } : page.from === null ? {} : { from: page.from }),
   // the pages back from where the newest page starts to the held start, never past it
   conversationBetween: async (machineId, paneId, held, start) => {
@@ -220,6 +228,11 @@ export function Root() {
     // a hidden tab (or a phone app in the background) reads nothing; it catches up on return
     const onVisibility = (): void => mediator.dispatch({ type: "visibility", visible: document.visibilityState !== "hidden" });
     // pasting the auth link into an open tab navigates the fragment alone: no reload, so no boot
+    // another tab changed a pane's held messages
+    const onStorage = (event: StorageEvent): void => {
+      if (event.key?.startsWith(QUEUE_KEY_PREFIX)) mediator.dispatch({ type: "queue-stored", owner: event.key.slice(QUEUE_KEY_PREFIX.length) });
+    };
+    window.addEventListener("storage", onStorage);
     const onHashChange = (): void => {
       const token = takeAuthTokenFromUrl();
       if (token !== null) mediator.dispatch({ type: "auth-link", token });
@@ -242,6 +255,7 @@ export function Root() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("hashchange", onHashChange);
       window.removeEventListener("popstate", onHistory);
+      window.removeEventListener("storage", onStorage);
       motion?.removeEventListener?.("change", onMotion);
     };
   }, [mediator]);
