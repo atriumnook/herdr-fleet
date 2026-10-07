@@ -77,7 +77,7 @@ export interface PaneTerminalProps {
   emit: Emit<BackgroundTasksUpEvent | Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }>
     | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" | "draft-open" | "draft-input" | "send-draft" | "discard-draft"
       | "chat-sent" | "chat-delivered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-prompt-reread"
-      | "queue-open" | "queue-add" | "queue-edit" | "queue-discard" | "queue-send-begin" | "queue-send-result" }> | ChatUpEvent>;
+      | "queue-open" | "queue-add" | "queue-edit" | "queue-discard" | "queue-send-begin" | "queue-send-result" | "composer-draft" | "line-draft" }> | ChatUpEvent>;
 }
 
 
@@ -1304,7 +1304,7 @@ export function PaneTerminal({
           onUploadImage={uploadImage}
         />
       )}
-      {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} />}
+      {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onSend={sendTerminalLine} onEnter={pressEnter} emit={emit} />}
       {paneId !== null && !secretActive && !observing && !chatView && <KeyBar model={{ disabled: composing, ctrlArmed, directTyping: coarse ? directTyping : null }} emit={keyBarEmit} />}
     </div>
   );

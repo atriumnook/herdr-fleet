@@ -1715,3 +1715,21 @@ describe("messages held while the agent works", () => {
     expect(play([{ type: "queue-send-begin", owner, id: "a" }], refused.state).state.queue.error).toBeNull();
   });
 });
+
+describe("the text typed in the composer and the terminal's input line", () => {
+  const owner = "w1:p1";
+
+  it("asks the store for each change to a composer draft, and keeps what it answers", () => {
+    expect(play([{ type: "composer-draft", owner, change: { kind: "set", text: "hi" } }]).effects).toEqual([{ kind: "composer-draft-change", owner, change: { kind: "set", text: "hi" } }]);
+    const loaded = play([{ type: "composer-draft-loaded", owner, text: "hi", sending: true, settled: null }]).state;
+    expect(loaded.drafts.composer[owner]).toEqual({ text: "hi", sending: true });
+    // the same answer again changes nothing
+    expect(play([{ type: "composer-draft-loaded", owner, text: "hi", sending: true, settled: null }], loaded).state).toBe(loaded);
+    expect(play([{ type: "composer-draft-loaded", owner, text: " again", sending: false, settled: { text: " again", edited: false } }], loaded).state.drafts.settled[owner]).toEqual({ text: " again", edited: false });
+  });
+
+  it("asks the store for each change to an input line, and keeps what it answers", () => {
+    expect(play([{ type: "line-draft", owner, change: { kind: "acknowledge" } }]).effects).toEqual([{ kind: "line-draft-change", owner, change: { kind: "acknowledge" } }]);
+    expect(play([{ type: "line-draft-loaded", owner, text: "ls", sending: false }]).state.drafts.line[owner]).toEqual({ text: "ls", sending: false });
+  });
+});

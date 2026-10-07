@@ -467,6 +467,28 @@ export interface QueueState {
   error: { owner: string; id: string; note: Exclude<QueueSendResult, { kind: "sent" }> } | null;
 }
 
+/** A change to a composer draft, as its store (lib/composerDraft.ts) makes it: it reads another tab's first. */
+export type ComposerDraftChange =
+  | { kind: "read" }
+  | { kind: "refresh" }
+  | { kind: "set"; text: string }
+  /** `sent`: the draft text the send carries, settled once it is acknowledged */
+  | { kind: "begin"; sent?: string }
+  | { kind: "end" }
+  /** the send was acknowledged: only what was sent leaves the box */
+  | { kind: "settle"; sent: string };
+
+/** A change to the terminal's input line (lib/terminalDraft.ts). */
+export type LineDraftChange = { kind: "read" } | { kind: "set"; text: string } | { kind: "begin" } | { kind: "end" } | { kind: "acknowledge" };
+
+/** What is typed in each pane's composer and terminal input line, as their stores keep it on this device. */
+export interface DraftsState {
+  composer: Record<string, { text: string; sending: boolean }>;
+  /** what a composer's last acknowledged send left in the box, and whether its sent text was changed meanwhile */
+  settled: Record<string, { text: string; edited: boolean }>;
+  line: Record<string, { text: string; sending: boolean }>;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -505,6 +527,7 @@ export interface UiState {
   chat: ChatState;
   conversation: ConversationState;
   queue: QueueState;
+  drafts: DraftsState;
   gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
@@ -660,6 +683,10 @@ export type UiEvent =
   /** the pane confirmed a message */
   | { type: "chat-delivered" }
   /** `owner`: the pane's storage id */
+  | { type: "composer-draft"; owner: string; change: ComposerDraftChange }
+  | { type: "composer-draft-loaded"; owner: string; text: string; sending: boolean; settled: { text: string; edited: boolean } | null }
+  | { type: "line-draft"; owner: string; change: LineDraftChange }
+  | { type: "line-draft-loaded"; owner: string; text: string; sending: boolean }
   | { type: "queue-open"; owner: string }
   /** another tab changed them */
   | { type: "queue-stored"; owner: string }
@@ -835,6 +862,8 @@ export type Effect =
   /** `sent`: the sends counted now, handed back with the answer */
   | { kind: "load-chat-prompt"; machineId: string; paneId: string; seq: number; sent: number }
   | { kind: "queue-change"; owner: string; change: QueueChange }
+  | { kind: "composer-draft-change"; owner: string; change: ComposerDraftChange }
+  | { kind: "line-draft-change"; owner: string; change: LineDraftChange }
   /** the newest page, from the held start when earlier pages show */
   | { kind: "read-conversation"; machineId: string; paneId: string; from: string | null; seq: number; olderSeq: number }
   | { kind: "fill-conversation-gap"; machineId: string; paneId: string; held: string; start: string; seq: number; olderSeq: number }
@@ -880,6 +909,7 @@ export const INITIAL_STATE: UiState = {
   chat: { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0 },
   conversation: NO_CONVERSATION,
   queue: { lists: {}, unsaved: {}, sending: null, error: null },
+  drafts: { composer: {}, settled: {}, line: {} },
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
@@ -1013,6 +1043,25 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "chat-delivered": {
       const chat = chatTransition(state, event, effects);
       return next(chat === state.chat ? {} : { chat });
+    }
+    case "composer-draft":
+      effects.push({ kind: "composer-draft-change", owner: event.owner, change: event.change });
+      return next({});
+    case "line-draft":
+      effects.push({ kind: "line-draft-change", owner: event.owner, change: event.change });
+      return next({});
+    case "composer-draft-loaded": {
+      const { drafts } = state;
+      const kept = drafts.composer[event.owner];
+      const composer = kept?.text === event.text && kept.sending === event.sending ? drafts.composer : { ...drafts.composer, [event.owner]: { text: event.text, sending: event.sending } };
+      const settled = event.settled === null ? drafts.settled : { ...drafts.settled, [event.owner]: event.settled };
+      return next(composer === drafts.composer && settled === drafts.settled ? {} : { drafts: { ...drafts, composer, settled } });
+    }
+    case "line-draft-loaded": {
+      const { drafts } = state;
+      const kept = drafts.line[event.owner];
+      if (kept?.text === event.text && kept.sending === event.sending) return next({});
+      return next({ drafts: { ...drafts, line: { ...drafts.line, [event.owner]: { text: event.text, sending: event.sending } } } });
     }
     case "queue-open":
     case "queue-stored":

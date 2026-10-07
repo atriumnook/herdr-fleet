@@ -5,7 +5,6 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
   type ClipboardEvent,
   type DragEvent,
   type KeyboardEvent,
@@ -17,7 +16,11 @@ import "./Composer.css";
 
 import type { AgentStatus, ConversationMetadata, SlashCommand } from "../../shared/protocol.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
-import { composerDrafts } from "../lib/composerDraft.ts";
+import { useSelected, useStateNow } from "../ui/presenter.ts";
+import type { ComposerDraftChange, UiEvent } from "../ui/state.ts";
+
+/** no draft read back yet */
+const NO_DRAFT = { text: "", sending: false };
 import { paneStorageId } from "../../shared/machines.ts";
 import {
   agentDisplayLabel,
@@ -46,8 +49,8 @@ export interface ComposerProps {
   agentStatus?: AgentStatus;
   /** an OmO pane's running background tasks: the status line opens their list */
   backgroundTasks?: number;
-  /** what the background tasks list sends up to the Root */
-  emit: Emit<BackgroundTasksUpEvent>;
+  /** what the composer (its draft) and the background tasks list send up to the Root */
+  emit: Emit<BackgroundTasksUpEvent | Extract<UiEvent, { type: "composer-draft" }>>;
   metadata?: ConversationMetadata | null;
   queueMode?: boolean;
   /** replaces the placeholder: how a message answers the agent's waiting prompt */
@@ -208,9 +211,18 @@ export function Composer({
   const attachmentsRef = useRef<Attachment[]>([]);
   const removedAttachments = useRef(new Set<number>());
   const fileRequest = useRef(0);
-  const draftKey = `herdr-fleet:composer-draft:${paneStorageId(machineId, paneId)}`;
-  const { text, sending } = useSyncExternalStore(composerDrafts.subscribe, () => composerDrafts.read(draftKey));
-  const setText = useCallback((value: string | ((previous: string) => string)) => composerDrafts.set(draftKey, value), [draftKey]);
+  // the draft belongs to its pane (the Mediator keeps it, and this device's storage), even while this composer is unmounted
+  const owner = paneStorageId(machineId, paneId);
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
+  const stateNow = useStateNow();
+  const draft = useSelected((state) => state.drafts.composer[owner]);
+  const { text, sending } = draft ?? NO_DRAFT;
+  const changeDraft = useCallback((change: ComposerDraftChange) => emitRef.current({ type: "composer-draft", owner, change }), [owner]);
+  useLayoutEffect(() => changeDraft({ kind: "read" }), [changeDraft]);
+  const setText = useCallback((value: string | ((previous: string) => string)) => {
+    changeDraft({ kind: "set", text: typeof value === "function" ? value(stateNow().drafts.composer[owner]?.text ?? "") : value });
+  }, [changeDraft, owner, stateNow]);
   const mounted = useRef(true);
   const [caret, setCaret] = useState(text.length);
   const textRef = useRef(text);
@@ -233,6 +245,15 @@ export function Composer({
   const [minHeight, setMinHeight] = useState(0);
   const [heightLimit, setHeightLimit] = useState(composerHeightLimit);
   const lastGripTap = useRef(0);
+
+  // the caret starts at the end of the draft read back
+  const readBack = useRef(false);
+  useLayoutEffect(() => {
+    if (draft === undefined || readBack.current) return;
+    readBack.current = true;
+    caretRef.current = draft.text.length;
+    setCaret(draft.text.length);
+  }, [draft]);
 
   attachmentsRef.current = attachments;
   textRef.current = text;
@@ -509,7 +530,11 @@ export function Composer({
     const sent = text;
     const sentAttachments = attachments;
     const settle = (result: boolean | string): void => {
-      const acknowledged = result === true ? composerDrafts.settle(draftKey, sent) : null;
+      let acknowledged: { text: string; edited: boolean } | null = null;
+      if (result === true) {
+        changeDraft({ kind: "settle", sent });
+        acknowledged = stateNow().drafts.settled[owner] ?? null;
+      }
       if (!mounted.current) return;
       if (typeof result === "string") setNote(result);
       if (acknowledged === null) return;
@@ -523,16 +548,18 @@ export function Composer({
       for (const attachment of sentAttachments) URL.revokeObjectURL(attachment.previewUrl);
       setAttachments((current) => current.filter((attachment) => !sentAttachments.includes(attachment)));
     };
-    if (!composerDrafts.begin(draftKey, sent)) return;
+    if (stateNow().drafts.composer[owner]?.sending) return;
+    changeDraft({ kind: "begin", sent });
+    const end = (): void => changeDraft({ kind: "end" });
     try {
       const result = onSend(text);
-      if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
-      void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
+      if (!(result instanceof Promise)) { settle(result); end(); return; }
+      void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(end);
     } catch {
-      composerDrafts.end(draftKey);
+      end();
       if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
     }
-  }, [attachments, connected, draftKey, onSend, sending, text, uploading]);
+  }, [attachments, changeDraft, connected, onSend, owner, sending, stateNow, text, uploading]);
 
   /** A quick reply goes the way a typed message does (queued mid-turn, an answer to an open menu), and leaves the box alone. */
   const sendQuick = useCallback((reply: string) => {
@@ -541,16 +568,18 @@ export function Composer({
     const settle = (result: boolean | string): void => {
       if (mounted.current && typeof result === "string") setNote(result);
     };
-    if (!composerDrafts.begin(draftKey)) return;
+    if (stateNow().drafts.composer[owner]?.sending) return;
+    changeDraft({ kind: "begin" });
+    const end = (): void => changeDraft({ kind: "end" });
     try {
       const result = onSend(reply);
-      if (!(result instanceof Promise)) { settle(result); composerDrafts.end(draftKey); return; }
-      void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(() => composerDrafts.end(draftKey));
+      if (!(result instanceof Promise)) { settle(result); end(); return; }
+      void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(end);
     } catch {
-      composerDrafts.end(draftKey);
+      end();
       if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
     }
-  }, [connected, draftKey, onSend, sending]);
+  }, [changeDraft, connected, onSend, owner, sending, stateNow]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
