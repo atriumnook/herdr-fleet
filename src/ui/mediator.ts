@@ -197,7 +197,9 @@ export class Mediator {
           return;
         }
         if (message.code === "attach_held" || message.code === "terminal_unsupported") {
-          if (about !== null) this.dispatch({ type: message.code === "attach_held" ? "pane-attach-held" : "pane-terminal-unsupported", paneId: about });
+          // a pane this terminal already left: its wait is not this pane's
+          if (about === null || about !== paneId) return;
+          this.dispatch({ type: message.code === "attach_held" ? "pane-attach-held" : "pane-terminal-unsupported", paneId: about });
           break;
         }
         if (message.code === "output_stalled" || message.code === "attach_conflict") {
