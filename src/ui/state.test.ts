@@ -4,13 +4,20 @@ import type { Machine } from "../../shared/machines.ts";
 import type { ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, HealthAuth, InteractivePrompt, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
-import { BACKGROUND_TASKS_POLL_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, INITIAL_STATE, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type UiEvent, type UiState } from "./state.ts";
+import { BACKGROUND_TASKS_POLL_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, INITIAL_STATE, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type Transition, type UiEvent, type UiState } from "./state.ts";
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, name: id, role: "worker", agent: "pi", group: "g1", herdrName: `h-${id}`, paneId: `w1:${id}`, cwd: "/w",
   state: "working", depth: 1, interactive: false, worktree: false, startedAt: 1, updatedAt: 1, ...extra,
 });
 const usage: UsageEntry[] = [{ key: "codex", reading: { readAt: 1, windows: [{ name: "5h", usedPercent: 12 }] } }];
+
+/** a message from the composer of the pane shown, taken by its socket and confirmed: what the last step did */
+function sendOne(state: UiState): Transition {
+  const asked = transition(state, { type: "composer-send", owner: "w1:p1", machineId: "local", paneId: "w1:p1", text: "x", via: "box", bracketedPaste: false, working: false }).state;
+  const started = transition(asked, { type: "submit-started", id: asked.sends.seq }).state;
+  return transition(started, { type: "send-result", id: asked.sends.seq, outcome: { kind: "ok" } });
+}
 
 /** Feeds events in order and collects every effect asked for. */
 function play(events: UiEvent[], from: UiState = INITIAL_STATE) {
@@ -1443,12 +1450,12 @@ describe("the chat's waiting prompt and what the composer shares with it", () =>
 
   it("takes a suggestion only from a read begun after the latest send", () => {
     const state = live();
-    const sent = play([{ type: "chat-sent" }], state).state;
+    const sent = sendOne(state).state;
     expect(play([{ type: "chat-prompt-read", seq: seqOf(sent), sent: 0, prompt: null, suggestion: "run the tests" }], sent).state.chat.suggestion).toBeNull();
     const taken = play([{ type: "chat-prompt-read", seq: seqOf(sent), sent: 1, prompt: null, suggestion: "run the tests" }], sent).state;
     expect(taken.chat.suggestion).toBe("run the tests");
     // a send drops it: it was for the turn before
-    expect(play([{ type: "chat-sent" }], taken).state.chat.suggestion).toBeNull();
+    expect(sendOne(taken).state.chat.suggestion).toBeNull();
   });
 
   it("drops the prompt and the suggestion when a read fails, and goes on reading", () => {
@@ -1527,7 +1534,7 @@ describe("the chat's waiting prompt and what the composer shares with it", () =>
   });
 
     it("counts a message delivered, so the chat reads at once", () => {
-    expect(play([{ type: "chat-delivered" }], live()).state.chat.delivered).toBe(1);
+    expect(sendOne(live()).state.chat.delivered).toBe(1);
   });
 });
 
@@ -1662,7 +1669,8 @@ describe("the chat's conversation", () => {
 
   it("reads at once once a message is delivered, or a turn starts or ends", () => {
     const read = answer(opened.state, ok(page([user("a")], null))).state;
-    expect(kinds(play([{ type: "chat-delivered" }], read).effects)).toContain("read-conversation");
+    const attached = play([{ type: "pane-attached", paneId: "w1:p1" }, { type: "pane-connection", connected: true }], read).state;
+    expect(kinds(sendOne(attached).effects)).toContain("read-conversation");
     const pc = (status: string): Machine => ({ id: "local", name: "omarchy", kind: "local", enabled: true, state: "connected", error: null,
       snapshot: { version: "0.9.1", protocol: 22, focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: "w1:p1", workspaces: [], tabs: [], agents: [], panes: [{ pane_id: "w1:p1", workspace_id: "w1", tab_id: "w1:t1", focused: true, agent_status: status }] } as never });
     const idle = play([{ type: "machines-pushed", machines: [pc("idle")] }], read).state;
@@ -1672,7 +1680,9 @@ describe("the chat's conversation", () => {
 
   it("knows the turn that finished before a message went out", () => {
     const read = answer(opened.state, ok(page([user("a"), assistant("b")], null))).state;
-    const sent = play([{ type: "chat-sent" }], read).state;
+    const attached = play([{ type: "pane-attached", paneId: "w1:p1" }, { type: "pane-connection", connected: true }], read).state;
+    const asked = play([{ type: "composer-send", owner: "w1:p1", machineId: "local", paneId: "w1:p1", text: "x", via: "box", bracketedPaste: false, working: false }], attached).state;
+    const sent = play([{ type: "submit-started", id: asked.sends.seq }], asked).state;
     expect(sent.conversation.sentOver).toEqual({ turn: assistant("b"), page: read.conversation.view.turns });
   });
 
@@ -1694,7 +1704,6 @@ describe("messages held while the agent works", () => {
   });
 
   it("asks the store for every change, and another tab's", () => {
-    expect(play([{ type: "queue-add", owner, text: "two" }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "add", text: "two" } }]);
     expect(play([{ type: "queue-edit", owner, id: "a", text: "x" }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "edit", id: "a", text: "x" } }]);
     expect(play([{ type: "queue-discard", owner, id: "a" }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "remove", id: "a" } }]);
     expect(play([{ type: "queue-stored", owner }]).effects).toEqual([{ kind: "queue-change", owner, change: { kind: "refresh" } }]);
@@ -1702,17 +1711,19 @@ describe("messages held while the agent works", () => {
 
   it("sends one at a time: a message the pane took leaves the queue, a refused one stays and says why", () => {
     const state = loaded([{ id: "a", text: "one" }, { id: "b", text: "two" }]);
-    const sending = play([{ type: "queue-send-begin", owner, id: "a" }], state).state;
-    expect(sending.queue.sending).toEqual({ owner, id: "a" });
-    expect(play([{ type: "queue-send-begin", owner, id: "b" }], sending).state.queue.sending).toEqual({ owner, id: "a" });
-    const sent = play([{ type: "queue-send-result", owner, id: "a", result: { kind: "sent" } }], sending);
+    const sendNow = (id: string, text: string): UiEvent => ({ type: "queue-send", owner, id, text, paneId: "w1:p1", bracketedPaste: false });
+    const going = play([sendNow("a", "one")], state);
+    expect(going.state.queue.sending).toEqual({ owner, id: "a" });
+    expect(play([sendNow("b", "two")], going.state).effects).toEqual([]);
+    const { seq } = going.state.sends;
+    const sent = play([{ type: "send-result", id: seq, outcome: { kind: "ok" } }], going.state);
     expect(sent.state.queue.sending).toBeNull();
-    expect(sent.effects).toEqual([{ kind: "queue-change", owner, change: { kind: "remove", id: "a" } }]);
-    const refused = play([{ type: "queue-send-result", owner, id: "a", result: { kind: "said", text: "the pane refused it" } }], sending);
-    expect(refused.state.queue).toMatchObject({ sending: null, error: { owner, id: "a", note: { kind: "said", text: "the pane refused it" } } });
+    expect(sent.effects).toContainEqual({ kind: "queue-change", owner, change: { kind: "remove", id: "a" } });
+    const refused = play([{ type: "send-result", id: seq, outcome: { kind: "failed", code: "input_failed", message: "the pane refused it" } }], going.state);
+    expect(refused.state.queue).toMatchObject({ sending: null, error: { owner, id: "a", note: { kind: "submit-failed", code: "input_failed", message: "the pane refused it" } } });
     expect(refused.effects).toEqual([]);
     // the next send clears what the one before said
-    expect(play([{ type: "queue-send-begin", owner, id: "a" }], refused.state).state.queue.error).toBeNull();
+    expect(play([sendNow("a", "one")], refused.state).state.queue.error).toBeNull();
   });
 });
 
@@ -1731,5 +1742,153 @@ describe("the text typed in the composer and the terminal's input line", () => {
   it("asks the store for each change to an input line, and keeps what it answers", () => {
     expect(play([{ type: "line-draft", owner, change: { kind: "acknowledge" } }]).effects).toEqual([{ kind: "line-draft-change", owner, change: { kind: "acknowledge" } }]);
     expect(play([{ type: "line-draft-loaded", owner, text: "ls", sending: false }]).state.drafts.line[owner]).toEqual({ text: "ls", sending: false });
+  });
+});
+
+describe("sending a message", () => {
+  const owner = "w1:p1";
+  const prompt = (id: string, extra: Partial<InteractivePrompt> = {}): InteractivePrompt => ({
+    id, agent: "codex", kind: "question", title: "Pick", question: "Which?", body: null, options: [{ label: "a", description: null }, { label: "b", description: null }], multi_select: false, custom_option_index: null, ...extra,
+  });
+  /** the pane shown and connected, its chat open on an agent */
+  const ready = (): UiState => play([{ type: "pane-attached", paneId: "w1:p1" }, { type: "pane-connection", connected: true }, { type: "chat-open", machineId: "local", paneId: "w1:p1" }, { type: "chat-agent", paneId: "w1:p1", agent: true }]).state;
+  const send = (text: string, extra: Partial<Extract<UiEvent, { type: "composer-send" }>> = {}): Extract<UiEvent, { type: "composer-send" }> =>
+    ({ type: "composer-send", owner, machineId: "local", paneId: "w1:p1", text, via: "box", bracketedPaste: false, working: false, ...extra });
+  const kinds = (effects: Effect[]) => effects.map((effect) => effect.kind);
+  const withPrompt = (state: UiState, shown: InteractivePrompt): UiState => ({ ...state, chat: { ...state.chat, prompt: shown } });
+
+  it("submits a message, holding the draft while it is on its way, and counts it sent", () => {
+    const { state, effects } = play([send("hello")], ready());
+    expect(effects).toEqual([
+      { kind: "composer-draft-change", owner, change: { kind: "begin", sent: "hello" } },
+      { kind: "submit", id: state.sends.seq, paneId: "w1:p1", text: "hello", payload: "hello", typed: false },
+    ]);
+    // counted sent once the socket took it: the suggestion was for the turn before
+    expect(state.chat.sent).toBe(0);
+    expect(play([{ type: "submit-started", id: state.sends.seq }], state).state.chat.sent).toBe(1);
+    // a second while it is on its way goes nowhere
+    expect(play([send("again")], state).effects).toEqual([]);
+  });
+
+  it("leaves only what was not sent once the pane took it, and the chat reads at once", () => {
+    const sending = play([send("hello")], ready()).state;
+    const done = play([{ type: "send-result", id: sending.sends.seq, outcome: { kind: "ok" } }], sending);
+    expect(done.effects).toEqual([
+      { kind: "composer-draft-change", owner, change: { kind: "settle", sent: "hello" } },
+      { kind: "composer-draft-change", owner, change: { kind: "end" } },
+      expect.objectContaining({ kind: "read-conversation" }),
+    ]);
+    expect(done.state.sends.outcomes[`composer:${owner}`]).toEqual({ id: sending.sends.seq, outcome: { kind: "sent" } });
+    expect(done.state.chat.delivered).toBe(1);
+  });
+
+  it("keeps the text when the pane refused it, or it was not confirmed, and says why", () => {
+    const sending = play([send("hello")], ready()).state;
+    const refused = play([{ type: "send-result", id: sending.sends.seq, outcome: { kind: "failed", code: "input_failed", message: "no" } }], sending);
+    expect(refused.effects).toEqual([{ kind: "composer-draft-change", owner, change: { kind: "end" } }]);
+    expect(refused.state.sends.outcomes[`composer:${owner}`]?.outcome).toEqual({ kind: "submit-failed", code: "input_failed", message: "no" });
+    expect(play([{ type: "send-result", id: sending.sends.seq, outcome: { kind: "unconfirmed" } }], sending).state.sends.outcomes[`composer:${owner}`]?.outcome).toEqual({ kind: "unconfirmed" });
+    // no socket to take it: nothing to say, the text stays
+    expect(play([{ type: "send-result", id: sending.sends.seq, outcome: { kind: "not-sent" } }], sending).state.sends.outcomes[`composer:${owner}`]?.outcome).toEqual({ kind: "not-sent" });
+  });
+
+  it("sends nothing into a masked prompt or a terminal another app holds", () => {
+    const state = ready();
+    for (const session of [{ secret: "Password:" }, { held: true }]) {
+      const blocked = { ...state, pane: { ...state.pane, session: { ...state.pane.session, ...session } } };
+      const { effects, state: after } = play([send("hello")], blocked);
+      expect(effects).toEqual([]);
+      expect(after.sends.outcomes[`composer:${owner}`]?.outcome).toEqual({ kind: "not-sent" });
+    }
+  });
+
+  it("holds a message while the agent works, clearing the box", () => {
+    const { effects, state } = play([send("later", { working: true })], ready());
+    expect(effects).toEqual([
+      { kind: "queue-change", owner, change: { kind: "add", text: "later" } },
+      { kind: "composer-draft-change", owner, change: { kind: "begin", sent: "later" } },
+      { kind: "composer-draft-change", owner, change: { kind: "settle", sent: "later" } },
+      { kind: "composer-draft-change", owner, change: { kind: "end" } },
+    ]);
+    expect(state.sends.outcomes[`composer:${owner}`]?.outcome).toEqual({ kind: "sent" });
+  });
+
+  it("answers the waiting prompt with one of its options, and refuses what is not one", () => {
+    const shown = withPrompt(ready(), prompt("q"));
+    const refused = play([send("9")], shown);
+    expect(refused.effects).toEqual([]);
+    expect(refused.state.sends.outcomes[`composer:${owner}`]?.outcome).toEqual({ kind: "refused", prompt: prompt("q") });
+    const answering = play([send("1")], shown);
+    expect(answering.effects).toEqual([
+      { kind: "composer-draft-change", owner, change: { kind: "begin", sent: "1" } },
+      { kind: "answer-prompt", id: answering.state.sends.seq, machineId: "local", paneId: "w1:p1", promptId: "q", answer: { option_index: 0 } },
+    ]);
+    const changed = play([{ type: "answer-result", id: answering.state.sends.seq, outcome: { kind: "failed", status: 409, message: "changed" } }], answering.state);
+    expect(changed.state.sends.outcomes[`composer:${owner}`]?.outcome).toEqual({ kind: "answer-changed" });
+    expect(kinds(changed.effects)).toEqual(["composer-draft-change", "load-chat-prompt"]);
+    const answered = play([{ type: "answer-result", id: answering.state.sends.seq, outcome: { kind: "ok" } }], answering.state);
+    expect(kinds(answered.effects)).toEqual(["composer-draft-change", "composer-draft-change", "load-chat-prompt"]);
+  });
+
+  it("keeps a pick an approval must confirm in its card, clearing the box", () => {
+    const shown = withPrompt(ready(), prompt("a", { kind: "approval" }));
+    const { state, effects } = play([send("1")], shown);
+    expect(state.chat.pendingAnswer).toEqual({ promptId: "a", answer: { option_index: 0 } });
+    expect(kinds(effects)).toEqual(["composer-draft-change", "composer-draft-change", "composer-draft-change"]);
+    expect(state.sends.outcomes[`composer:${owner}`]?.outcome).toEqual({ kind: "sent" });
+  });
+
+  it("sends nothing while Codex has a question open in the terminal", () => {
+    const { state, effects } = play([send("stop")], withPrompt(ready(), prompt("q", { queued: "open" })));
+    expect(effects).toEqual([]);
+    expect(state.sends.outcomes[`composer:${owner}`]?.outcome).toEqual({ kind: "open-queue" });
+  });
+
+  it("sends a quick reply as typed, leaving the box alone", () => {
+    const { effects } = play([send("yes", { via: "quick" })], ready());
+    expect(effects).toEqual([
+      { kind: "composer-draft-change", owner, change: { kind: "begin" } },
+      expect.objectContaining({ kind: "submit", text: "yes" }),
+    ]);
+  });
+
+  it("types the input line with its own Enter, and keeps text typed meanwhile", () => {
+    const { state, effects } = play([{ type: "line-send", owner, paneId: "w1:p1", text: "ls", bracketedPaste: false }], ready());
+    expect(effects).toEqual([
+      { kind: "line-draft-change", owner, change: { kind: "begin" } },
+      { kind: "submit", id: state.sends.seq, paneId: "w1:p1", text: "ls", payload: "ls", typed: true },
+    ]);
+    expect(state.chat.sent).toBe(0);
+    const done = play([{ type: "send-result", id: state.sends.seq, outcome: { kind: "ok" } }], state);
+    expect(done.effects).toEqual([
+      { kind: "line-draft-change", owner, change: { kind: "acknowledge" } },
+      { kind: "line-draft-change", owner, change: { kind: "end" } },
+    ]);
+  });
+
+  it("ignores an answer for a request it does not know, and keeps a composer's and an input line's sends apart", () => {
+    const state = ready();
+    expect(play([{ type: "send-result", id: 99, outcome: { kind: "ok" } }], state).state).toBe(state);
+    expect(play([{ type: "submit-started", id: 99 }], state).state).toBe(state);
+    const composing = play([send("hello")], state).state;
+    expect(kinds(play([{ type: "line-send", owner, paneId: "w1:p1", text: "ls", bracketedPaste: false }], composing).effects)).toEqual(["line-draft-change", "submit"]);
+  });
+
+  it("says a held message was not sent into a masked prompt or a terminal another app holds", () => {
+    const state = play([{ type: "queue-loaded", owner, messages: [{ id: "m", text: "held" }], unsaved: false }], ready()).state;
+    const masked = { ...state, pane: { ...state.pane, session: { ...state.pane.session, secret: "Password:" } } };
+    const { state: after, effects } = play([{ type: "queue-send", owner, id: "m", text: "held", paneId: "w1:p1", bracketedPaste: false }], masked);
+    expect(effects).toEqual([]);
+    expect(after.queue.error).toEqual({ owner, id: "m", note: { kind: "not-sent" } });
+  });
+
+    it("sends a held message when Send now is pressed, one at a time", () => {
+    const state = play([{ type: "queue-loaded", owner, messages: [{ id: "m", text: "held" }], unsaved: false }], ready()).state;
+    const going = play([{ type: "queue-send", owner, id: "m", text: "held", paneId: "w1:p1", bracketedPaste: false }], state);
+    expect(going.state.queue.sending).toEqual({ owner, id: "m" });
+    expect(going.effects).toEqual([expect.objectContaining({ kind: "submit", text: "held", typed: false })]);
+    const done = play([{ type: "send-result", id: going.state.sends.seq, outcome: { kind: "ok" } }], going.state);
+    expect(done.effects).toContainEqual({ kind: "queue-change", owner, change: { kind: "remove", id: "m" } });
+    expect(done.state.queue.sending).toBeNull();
   });
 });

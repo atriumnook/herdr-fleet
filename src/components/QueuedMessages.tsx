@@ -1,4 +1,4 @@
-import { MAX_COMPOSER_CHARS } from "../lib/compose.ts";
+import { MAX_COMPOSER_CHARS, submitNote } from "../lib/compose.ts";
 import type { HeldMessage } from "../lib/messageQueue.ts";
 import { useT } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
@@ -30,7 +30,7 @@ export type QueuedMessagesEvent =
 export function QueuedMessages({ model, emit }: { model: QueuedMessagesModel; emit: Emit<QueuedMessagesEvent> }) {
   const t = useT();
   const { messages, unsaved, sending, anySending, error, canSend, heldByOpenQueue, ready } = model;
-  const said = (note: NonNullable<QueueState["error"]>["note"]): string => note.kind === "said" ? note.text
+  const said = (note: NonNullable<QueueState["error"]>["note"]): string => note.kind === "submit-failed" ? submitNote(note.code, note.message)
     : note.kind === "not-sent" ? t("Not sent. Reconnect and try again.") : t("Not confirmed. Check the terminal before sending again.");
   return (
     <section className="composer-queue" aria-label={t("Queued messages")}>

@@ -16,23 +16,17 @@ import "./Composer.css";
 
 import type { AgentStatus, ConversationMetadata, SlashCommand } from "../../shared/protocol.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
+import { answerRefusal } from "../lib/promptAnswer.ts";
 import { useSelected, useStateNow } from "../ui/presenter.ts";
 import type { ComposerDraftChange, UiEvent } from "../ui/state.ts";
+
+/** a message from the box (`quick`: a quick reply, which leaves the box alone), and each edit of the draft */
+export type ComposerEvent = { type: "send-message"; text: string; via: "box" | "quick" } | Extract<UiEvent, { type: "composer-draft" }>;
 
 /** no draft read back yet */
 const NO_DRAFT = { text: "", sending: false };
 import { paneStorageId } from "../../shared/machines.ts";
-import {
-  agentDisplayLabel,
-  composerStatusWord,
-  contextLeftPercent,
-  formatTokens,
-  imageMention,
-  insertMention,
-  MAX_COMPOSER_CHARS,
-  rankSlashCommands,
-  terminalOnlyCommand,
-} from "../lib/compose.ts";
+import { agentDisplayLabel, composerStatusWord, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, rankSlashCommands, terminalOnlyCommand, submitNote } from "../lib/compose.ts";
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/mentions.ts";
 import { quickReplyButtons, useSettings } from "../lib/settings.ts";
 import { AgentMark } from "./AgentMark.tsx";
@@ -49,16 +43,14 @@ export interface ComposerProps {
   agentStatus?: AgentStatus;
   /** an OmO pane's running background tasks: the status line opens their list */
   backgroundTasks?: number;
-  /** what the composer (its draft) and the background tasks list send up to the Root */
-  emit: Emit<BackgroundTasksUpEvent | Extract<UiEvent, { type: "composer-draft" }>>;
+  /** what the composer (its draft and its messages) and the background tasks list send up to the Root */
+  emit: Emit<BackgroundTasksUpEvent | ComposerEvent>;
   metadata?: ConversationMetadata | null;
   queueMode?: boolean;
   /** replaces the placeholder: how a message answers the agent's waiting prompt */
   answerHint?: string | null;
   /** what the agent suggests typing next (Claude's grey input text): the placeholder, taken with Tab */
   suggestion?: string | null;
-  /** true: sent, clear the box; a string: keep the text and say why; a promise settles to either */
-  onSend: (text: string) => boolean | string | Promise<boolean | string>;
   onAbort: () => void;
   onUploadImage: (file: File) => Promise<string>;
 }
@@ -191,7 +183,6 @@ export function Composer({
   queueMode = false,
   answerHint = null,
   suggestion = null,
-  onSend,
   onAbort,
   onUploadImage,
 }: ComposerProps) {
@@ -524,62 +515,56 @@ export function Composer({
     }
   }, []);
 
-  const send = useCallback(() => {
-    if (composingRef.current) return;
-    if (!connected || uploading || sending || text.trim().length === 0) return;
-    const sent = text;
-    const sentAttachments = attachments;
-    const settle = (result: boolean | string): void => {
-      let acknowledged: { text: string; edited: boolean } | null = null;
-      if (result === true) {
-        changeDraft({ kind: "settle", sent });
-        acknowledged = stateNow().drafts.settled[owner] ?? null;
-      }
-      if (!mounted.current) return;
-      if (typeof result === "string") setNote(result);
-      if (acknowledged === null) return;
+  // what a send came to, as the Mediator says it once the pane answered: the box's own
+  // bookkeeping (the caret, the attachments sent, the note) follows it here
+  const outcome = useSelected((state) => state.sends.outcomes[`composer:${owner}`]);
+  const seenOutcome = useRef(outcome);
+  /** the box's send on its way: its attachments leave with it */
+  const boxSend = useRef<{ attachments: Attachment[] } | null>(null);
+  useEffect(() => {
+    if (outcome === seenOutcome.current) return;
+    seenOutcome.current = outcome;
+    if (outcome === undefined) return;
+    const sent = boxSend.current;
+    boxSend.current = null;
+    const said = outcome.outcome;
+    if (said.kind === "sent") {
+      if (sent === null) return;
       // only what was sent leaves the box: text added after it stays exactly as typed. Changed
       // inside while on its way, the whole edit stays, and the note says it was not sent
+      const acknowledged = stateNow().drafts.settled[owner];
+      if (acknowledged === undefined) return;
       const { text: rest, edited } = acknowledged;
       setCaret(rest.length);
       textRef.current = rest;
       caretRef.current = rest.length;
       setNote(edited ? t("Sent as it was. Your changes made while it was sending stayed here and were not sent.") : null);
-      for (const attachment of sentAttachments) URL.revokeObjectURL(attachment.previewUrl);
-      setAttachments((current) => current.filter((attachment) => !sentAttachments.includes(attachment)));
-    };
-    if (stateNow().drafts.composer[owner]?.sending) return;
-    changeDraft({ kind: "begin", sent });
-    const end = (): void => changeDraft({ kind: "end" });
-    try {
-      const result = onSend(text);
-      if (!(result instanceof Promise)) { settle(result); end(); return; }
-      void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(end);
-    } catch {
-      end();
-      if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
+      for (const attachment of sent.attachments) URL.revokeObjectURL(attachment.previewUrl);
+      setAttachments((current) => current.filter((attachment) => !sent.attachments.includes(attachment)));
+      return;
     }
-  }, [attachments, changeDraft, connected, onSend, owner, sending, stateNow, text, uploading]);
+    if (said.kind === "not-sent") return;
+    setNote(said.kind === "unconfirmed" ? t("Not confirmed. Check the terminal before sending again.")
+      : said.kind === "submit-failed" ? submitNote(said.code, said.message)
+      : said.kind === "open-queue" ? t("Codex has a question open in the terminal: answer it above, or close it there (alt+↓) to message Codex.")
+      : said.kind === "refused" ? answerRefusal(said.prompt)
+      : said.kind === "answer-changed" ? t("The question on screen changed; check it and answer again.") : said.message);
+  }, [outcome, owner, stateNow]);
+
+  const send = useCallback(() => {
+    if (composingRef.current) return;
+    if (!connected || uploading || sending || text.trim().length === 0) return;
+    boxSend.current = { attachments };
+    emitRef.current({ type: "send-message", text, via: "box" });
+  }, [attachments, connected, sending, text, uploading]);
 
   /** A quick reply goes the way a typed message does (queued mid-turn, an answer to an open menu), and leaves the box alone. */
   const sendQuick = useCallback((reply: string) => {
     if (!connected || sending) return;
     setNote(null);
-    const settle = (result: boolean | string): void => {
-      if (mounted.current && typeof result === "string") setNote(result);
-    };
-    if (stateNow().drafts.composer[owner]?.sending) return;
-    changeDraft({ kind: "begin" });
-    const end = (): void => changeDraft({ kind: "end" });
-    try {
-      const result = onSend(reply);
-      if (!(result instanceof Promise)) { settle(result); end(); return; }
-      void result.then(settle).catch(() => { if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again.")); }).finally(end);
-    } catch {
-      end();
-      if (mounted.current) setNote(t("Not confirmed. Check the terminal before sending again."));
-    }
-  }, [changeDraft, connected, onSend, owner, sending, stateNow]);
+    boxSend.current = null;
+    emitRef.current({ type: "send-message", text: reply, via: "quick" });
+  }, [connected, sending]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {

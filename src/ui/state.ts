@@ -9,7 +9,8 @@ import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPE
 import type { NotificationState } from "../lib/notifications.ts";
 import { applyPaneStatus } from "../lib/snapshot.ts";
 import { EMPTY_DRAFT, applyToDraft, type InputDraft } from "../lib/draft.ts";
-import type { TypedAnswer } from "../lib/promptAnswer.ts";
+import { answerFromText, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
+import { composerMessage, composerPayload } from "../lib/compose.ts";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
 import { statusEdgeRead } from "../lib/status.ts";
 import type { HeldMessage } from "../lib/messageQueue.ts";
@@ -445,7 +446,7 @@ export const NO_CONVERSATION: ConversationState = {
 };
 
 /** What a held message's send came to: taken by the pane, refused with the reason, not sent, or not confirmed. */
-export type QueueSendResult = { kind: "sent" } | { kind: "said"; text: string } | { kind: "not-sent" } | { kind: "unconfirmed" };
+export type QueueSendResult = { kind: "sent" } | { kind: "submit-failed"; code: string; message: string } | { kind: "not-sent" } | { kind: "unconfirmed" };
 
 /** A change to a pane's held messages, as the store (lib/messageQueue.ts) makes it: it reads another tab's first. */
 export type QueueChange =
@@ -489,6 +490,41 @@ export interface DraftsState {
   line: Record<string, { text: string; sending: boolean }>;
 }
 
+/** What became of a message sent from a composer or an input line; the view words it. */
+export type SendOutcome =
+  | { kind: "sent" }
+  /** no socket took it: the text stays, nothing to say */
+  | { kind: "not-sent" }
+  | { kind: "unconfirmed" }
+  | { kind: "submit-failed"; code: string; message: string }
+  /** Codex has a question open in the terminal: a message would become its answer */
+  | { kind: "open-queue" }
+  /** not one of the waiting prompt's options */
+  | { kind: "refused"; prompt: InteractivePrompt }
+  /** the question on screen changed before the answer reached it */
+  | { kind: "answer-changed" }
+  | { kind: "answer-failed"; message: string };
+
+/** What the socket said of a message it was asked to submit. */
+export type SubmitOutcome = { kind: "ok" } | { kind: "failed"; code: string; message: string } | { kind: "not-sent" } | { kind: "unconfirmed" };
+
+/** A send under way: whose it is, and what it carries. */
+type PendingSend =
+  | { target: "composer"; owner: string; via: "box" | "quick"; sent: string }
+  | { target: "line"; owner: string }
+  | { target: "queue"; owner: string; queueId: string };
+
+/** The messages sent from composers, input lines and held messages, one under way per box. */
+export interface SendsState {
+  /** requests so far */
+  seq: number;
+  pending: Record<number, PendingSend>;
+  /** what each box's last send came to, by "composer:"/"line:" and its pane */
+  outcomes: Record<string, { id: number; outcome: SendOutcome }>;
+  /** submits a socket took: the terminal scrolls to its end for each */
+  started: number;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -528,6 +564,7 @@ export interface UiState {
   conversation: ConversationState;
   queue: QueueState;
   drafts: DraftsState;
+  sends: SendsState;
   gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
@@ -678,10 +715,15 @@ export type UiEvent =
   | { type: "chat-prompt-answered"; steps: boolean }
   | { type: "chat-pending-answer"; promptId: string; answer: TypedAnswer }
   | { type: "chat-pending-answer-done" }
-  /** a message went out from the composer */
-  | { type: "chat-sent" }
-  /** the pane confirmed a message */
-  | { type: "chat-delivered" }
+  /** a message from a pane's composer (`quick`: a quick reply, which leaves the box alone); `working`: the agent is at work */
+  | { type: "composer-send"; owner: string; machineId: string; paneId: string; text: string; via: "box" | "quick"; bracketedPaste: boolean; working: boolean }
+  /** the input line's text, typed with its own Enter */
+  | { type: "line-send"; owner: string; paneId: string; text: string; bracketedPaste: boolean }
+  /** Send now on a held message */
+  | { type: "queue-send"; owner: string; id: string; text: string; paneId: string; bracketedPaste: boolean }
+  | { type: "submit-started"; id: number }
+  | { type: "send-result"; id: number; outcome: SubmitOutcome }
+  | { type: "answer-result"; id: number; outcome: { kind: "ok" } | { kind: "failed"; status: number | null; message: string } }
   /** `owner`: the pane's storage id */
   | { type: "composer-draft"; owner: string; change: ComposerDraftChange }
   | { type: "composer-draft-loaded"; owner: string; text: string; sending: boolean; settled: { text: string; edited: boolean } | null }
@@ -690,13 +732,9 @@ export type UiEvent =
   | { type: "queue-open"; owner: string }
   /** another tab changed them */
   | { type: "queue-stored"; owner: string }
-  | { type: "queue-add"; owner: string; text: string }
   | { type: "queue-edit"; owner: string; id: string; text: string }
   | { type: "queue-discard"; owner: string; id: string }
   | { type: "queue-loaded"; owner: string; messages: HeldMessage[]; unsaved: boolean }
-  /** Send now pressed, and what came of it */
-  | { type: "queue-send-begin"; owner: string; id: string }
-  | { type: "queue-send-result"; owner: string; id: string; result: QueueSendResult }
   | { type: "poll-conversation"; seq: number }
   | { type: "conversation-read"; seq: number; olderSeq: number; outcome: ConversationOutcome }
   /** the turns between the held start and where the newest page now starts; null when they cannot be joined */
@@ -863,6 +901,9 @@ export type Effect =
   | { kind: "load-chat-prompt"; machineId: string; paneId: string; seq: number; sent: number }
   | { kind: "queue-change"; owner: string; change: QueueChange }
   | { kind: "composer-draft-change"; owner: string; change: ComposerDraftChange }
+  /** `text`: the message as written; `payload`: the same shaped for the pane's paste mode */
+  | { kind: "submit"; id: number; paneId: string; text: string; payload: string; typed: boolean }
+  | { kind: "answer-prompt"; id: number; machineId: string; paneId: string; promptId: string; answer: TypedAnswer }
   | { kind: "line-draft-change"; owner: string; change: LineDraftChange }
   /** the newest page, from the held start when earlier pages show */
   | { kind: "read-conversation"; machineId: string; paneId: string; from: string | null; seq: number; olderSeq: number }
@@ -910,6 +951,7 @@ export const INITIAL_STATE: UiState = {
   conversation: NO_CONVERSATION,
   queue: { lists: {}, unsaved: {}, sending: null, error: null },
   drafts: { composer: {}, settled: {}, line: {} },
+  sends: { seq: 0, pending: {}, outcomes: {}, started: 0 },
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
@@ -1038,12 +1080,17 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "chat-prompt-reread":
     case "chat-prompt-answered":
     case "chat-pending-answer":
-    case "chat-pending-answer-done":
-    case "chat-sent":
-    case "chat-delivered": {
+    case "chat-pending-answer-done": {
       const chat = chatTransition(state, event, effects);
       return next(chat === state.chat ? {} : { chat });
     }
+    case "composer-send":
+    case "line-send":
+    case "queue-send":
+    case "submit-started":
+    case "send-result":
+    case "answer-result":
+      return sendTransition(state, event, effects);
     case "composer-draft":
       effects.push({ kind: "composer-draft-change", owner: event.owner, change: event.change });
       return next({});
@@ -1065,12 +1112,9 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     }
     case "queue-open":
     case "queue-stored":
-    case "queue-add":
     case "queue-edit":
     case "queue-discard":
     case "queue-loaded":
-    case "queue-send-begin":
-    case "queue-send-result":
       return next({ queue: queueTransition(state.queue, event, effects) });
     case "poll-conversation":
     case "conversation-read":
@@ -1943,7 +1987,7 @@ function showPrompt(chat: ChatState, prompt: InteractivePrompt | null): ChatStat
   return kept === chat.prompt && pendingAnswer === chat.pendingAnswer ? chat : { ...chat, prompt: kept, pendingAnswer };
 }
 
-type ChatEvent = Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "poll-chat-prompt" | "chat-prompt-read" | "chat-prompt-failed" | "chat-prompt-reread" | "chat-prompt-answered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-sent" | "chat-delivered" }>;
+type ChatEvent = Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "poll-chat-prompt" | "chat-prompt-read" | "chat-prompt-failed" | "chat-prompt-reread" | "chat-prompt-answered" | "chat-pending-answer" | "chat-pending-answer-done" }>;
 
 function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): ChatState {
   const { chat } = state;
@@ -1970,11 +2014,6 @@ function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): Ch
       return { ...chat, pendingAnswer: { promptId: event.promptId, answer: event.answer } };
     case "chat-pending-answer-done":
       return chat.pendingAnswer === null ? chat : { ...chat, pendingAnswer: null };
-    case "chat-sent":
-      // the suggestion was for the turn before the message
-      return { ...chat, sent: chat.sent + 1, suggestion: null };
-    case "chat-delivered":
-      return { ...chat, delivered: chat.delivered + 1 };
   }
   if (event.seq !== chat.promptSeq || !chatReads(state)) return chat;
   if (event.type === "poll-chat-prompt") return readChatPrompt(state, effects);
@@ -2135,7 +2174,130 @@ function conversationTransition(state: UiState, event: ConversationEvent, effect
   }
 }
 
-type QueueEvent = Extract<UiEvent, { type: "queue-open" | "queue-stored" | "queue-add" | "queue-edit" | "queue-discard" | "queue-loaded" | "queue-send-begin" | "queue-send-result" }>;
+type SendEvent = Extract<UiEvent, { type: "composer-send" | "line-send" | "queue-send" | "submit-started" | "send-result" | "answer-result" }>;
+
+/**
+ * A message from a composer, an input line or a held message: never queued to fire later. It goes
+ * the way the pane takes it now (an answer to its waiting prompt, held while the agent works, or
+ * typed and submitted), and the box keeps its text until the pane took it, with why if it did not.
+ */
+function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Transition {
+  const { sends } = state;
+  const composerDraft = (owner: string, change: ComposerDraftChange): void => { effects.push({ kind: "composer-draft-change", owner, change }); };
+  const lineDraft = (owner: string, change: LineDraftChange): void => { effects.push({ kind: "line-draft-change", owner, change }); };
+  /** what a box's send came to, said in it */
+  const said = (next: UiState, box: string, id: number, outcome: SendOutcome): UiState =>
+    ({ ...next, sends: { ...next.sends, outcomes: { ...next.sends.outcomes, [box]: { id, outcome } } } });
+  /** a request under way */
+  const start = (pending: PendingSend): { id: number; next: UiState } => {
+    const id = sends.seq + 1;
+    return { id, next: { ...state, sends: { ...sends, seq: id, pending: { ...sends.pending, [id]: pending } } } };
+  };
+  /** the terminal takes a message now: not into a masked prompt, nor one another app holds */
+  const takes = state.pane.session.secret === null && !state.pane.session.held;
+  const busy = (owner: string, target: PendingSend["target"]): boolean => Object.values(sends.pending).some((pending) => pending.owner === owner && pending.target === target);
+  switch (event.type) {
+    case "composer-send": {
+      const { owner, text, via } = event;
+      const box = `composer:${owner}`;
+      if (busy(owner, "composer")) return { state, effects };
+      const id = sends.seq + 1;
+      const counted = { ...state, sends: { ...sends, seq: id } };
+      const prompt = state.chat.open?.paneId === event.paneId ? state.chat.prompt : null;
+      /** the box's text went where it was asked: only what was sent leaves it */
+      const cleared = (next: UiState): Transition => {
+        if (via === "box") { composerDraft(owner, { kind: "begin", sent: text }); composerDraft(owner, { kind: "settle", sent: text }); composerDraft(owner, { kind: "end" }); }
+        return { state: said(next, box, id, { kind: "sent" }), effects };
+      };
+      // Codex's queue open in the terminal holds the input: a message would become the answer
+      if (prompt?.queued === "open") return { state: said(counted, box, id, { kind: "open-queue" }), effects };
+      if (prompt !== null && !prompt.queued && !prompt.fallback) {
+        // never typed into the agent's menu: only as one of its options, or its own reply row
+        const answer = answerFromText(prompt, text);
+        if (answer === null) return { state: said(counted, box, id, { kind: "refused", prompt }), effects };
+        if (needsConfirmation(prompt, answer)) return cleared({ ...counted, chat: { ...state.chat, pendingAnswer: { promptId: prompt.id, answer } } });
+        const answering = { ...state, chat: state.chat.pendingAnswer === null ? state.chat : { ...state.chat, pendingAnswer: null }, sends: { ...sends, seq: id, pending: { ...sends.pending, [id]: { target: "composer", owner, via, sent: text } as PendingSend } } };
+        composerDraft(owner, via === "box" ? { kind: "begin", sent: text } : { kind: "begin" });
+        effects.push({ kind: "answer-prompt", id, machineId: event.machineId, paneId: event.paneId, promptId: prompt.id, answer });
+        return { state: answering, effects };
+      }
+      if (event.working) {
+        // the composer may clear its box: the text lives in the held message
+        effects.push({ kind: "queue-change", owner, change: { kind: "add", text } });
+        return cleared(counted);
+      }
+      if (!takes) return { state: said(counted, box, id, { kind: "not-sent" }), effects };
+      const { next } = start({ target: "composer", owner, via, sent: text });
+      composerDraft(owner, via === "box" ? { kind: "begin", sent: text } : { kind: "begin" });
+      effects.push({ kind: "submit", id, paneId: event.paneId, text: composerMessage(text), payload: composerPayload(text, event.bracketedPaste), typed: false });
+      return { state: next, effects };
+    }
+    case "line-send": {
+      const { owner, text } = event;
+      if (busy(owner, "line")) return { state, effects };
+      // the line goes into an open menu as typed: only a masked prompt holds it
+      if (state.pane.session.secret !== null) return { state: said({ ...state, sends: { ...sends, seq: sends.seq + 1 } }, `line:${owner}`, sends.seq + 1, { kind: "not-sent" }), effects };
+      const message = composerMessage(text);
+      const { id, next } = start({ target: "line", owner });
+      lineDraft(owner, { kind: "begin" });
+      // several lines go as one paste
+      effects.push({ kind: "submit", id, paneId: event.paneId, text: message, payload: message.includes("\n") ? composerPayload(text, event.bracketedPaste) : message, typed: true });
+      return { state: next, effects };
+    }
+    case "queue-send": {
+      // one at a time: the pane takes them in the order the person sends them
+      if (state.queue.sending !== null) return { state, effects };
+      if (!takes) return { state: { ...state, queue: { ...state.queue, error: { owner: event.owner, id: event.id, note: { kind: "not-sent" } } } }, effects };
+      const { id, next } = start({ target: "queue", owner: event.owner, queueId: event.id });
+      effects.push({ kind: "submit", id, paneId: event.paneId, text: composerMessage(event.text), payload: composerPayload(event.text, event.bracketedPaste), typed: false });
+      return { state: { ...next, queue: { ...next.queue, sending: { owner: event.owner, id: event.id }, error: null } }, effects };
+    }
+    case "submit-started": {
+      const started = sends.pending[event.id];
+      if (started === undefined) return { state, effects };
+      const next = { ...state, sends: { ...sends, started: sends.started + 1 } };
+      // a message went out, from the box or a held one: the agent's suggestion was for the turn before it
+      if (started.target === "line") return { state: next, effects };
+      return { state: { ...next, chat: { ...next.chat, sent: next.chat.sent + 1, suggestion: null } }, effects };
+    }
+  }
+  const pending = sends.pending[event.id];
+  if (pending === undefined) return { state, effects };
+  const { [event.id]: _done, ...rest } = sends.pending;
+  let next: UiState = { ...state, sends: { ...sends, pending: rest } };
+  const ok = event.outcome.kind === "ok";
+  if (event.type === "answer-result") {
+    if (pending.target !== "composer") return { state: next, effects };
+    if (ok && pending.via === "box") composerDraft(pending.owner, { kind: "settle", sent: pending.sent });
+    composerDraft(pending.owner, { kind: "end" });
+    const outcome: SendOutcome = event.outcome.kind === "ok" ? { kind: "sent" }
+      : event.outcome.status === 409 ? { kind: "answer-changed" } : { kind: "answer-failed", message: event.outcome.message };
+    next = said(next, `composer:${pending.owner}`, event.id, outcome);
+    // the prompt is read again now: answered, or moved on
+    return { state: chatReads(next) ? { ...next, chat: readChatPrompt(next, effects) } : next, effects };
+  }
+  const outcome: SendOutcome = event.outcome.kind === "ok" ? { kind: "sent" } : event.outcome.kind === "failed" ? { kind: "submit-failed", code: event.outcome.code, message: event.outcome.message } : event.outcome;
+  if (pending.target === "queue") {
+    const result: QueueSendResult = outcome.kind === "sent" ? { kind: "sent" } : outcome.kind === "submit-failed" ? { kind: "submit-failed", code: outcome.code, message: outcome.message }
+      : outcome.kind === "unconfirmed" ? { kind: "unconfirmed" } : { kind: "not-sent" };
+    const queued = settleQueueSend(next.queue, pending.owner, pending.queueId, result, effects);
+    next = { ...next, queue: queued };
+    // the chat lens reads at once so the sent prompt appears without a poll beat
+    return { state: ok ? { ...next, chat: { ...next.chat, delivered: next.chat.delivered + 1 } } : next, effects };
+  }
+  if (pending.target === "line") {
+    // text typed while it was on its way stays
+    if (ok) lineDraft(pending.owner, { kind: "acknowledge" });
+    lineDraft(pending.owner, { kind: "end" });
+    return { state: said(next, `line:${pending.owner}`, event.id, outcome), effects };
+  }
+  if (ok && pending.via === "box") composerDraft(pending.owner, { kind: "settle", sent: pending.sent });
+  composerDraft(pending.owner, { kind: "end" });
+  next = said(next, `composer:${pending.owner}`, event.id, outcome);
+  return { state: ok ? { ...next, chat: { ...next.chat, delivered: next.chat.delivered + 1 } } : next, effects };
+}
+
+type QueueEvent = Extract<UiEvent, { type: "queue-open" | "queue-stored" | "queue-edit" | "queue-discard" | "queue-loaded" }>;
 
 function queueTransition(queue: QueueState, event: QueueEvent, effects: Effect[]): QueueState {
   const change = (owner: string, asked: QueueChange): QueueState => { effects.push({ kind: "queue-change", owner, change: asked }); return queue; };
@@ -2144,8 +2306,6 @@ function queueTransition(queue: QueueState, event: QueueEvent, effects: Effect[]
       return change(event.owner, { kind: "read" });
     case "queue-stored":
       return change(event.owner, { kind: "refresh" });
-    case "queue-add":
-      return change(event.owner, { kind: "add", text: event.text });
     case "queue-edit":
       return change(event.owner, { kind: "edit", id: event.id, text: event.text });
     case "queue-discard":
@@ -2156,20 +2316,17 @@ function queueTransition(queue: QueueState, event: QueueEvent, effects: Effect[]
       const same = queue.lists[event.owner] === event.messages && Boolean(queue.unsaved[event.owner]) === event.unsaved;
       return same ? queue : { ...queue, lists: { ...queue.lists, [event.owner]: event.messages }, unsaved };
     }
-    case "queue-send-begin":
-      // one at a time: the pane takes them in the order the person sends them
-      if (queue.sending !== null) return queue;
-      return { ...queue, sending: { owner: event.owner, id: event.id }, error: null };
-    case "queue-send-result": {
-      if (queue.sending?.owner !== event.owner || queue.sending.id !== event.id) return queue;
-      const { result } = event;
-      if (result.kind === "sent") {
-        effects.push({ kind: "queue-change", owner: event.owner, change: { kind: "remove", id: event.id } });
-        return { ...queue, sending: null };
-      }
-      return { ...queue, sending: null, error: { owner: event.owner, id: event.id, note: result } };
-    }
   }
+}
+
+/** A held message's send ended: taken by the pane, it leaves the queue; refused, it stays and says why. */
+function settleQueueSend(queue: QueueState, owner: string, id: string, result: QueueSendResult, effects: Effect[]): QueueState {
+  if (queue.sending?.owner !== owner || queue.sending.id !== id) return queue;
+  if (result.kind === "sent") {
+    effects.push({ kind: "queue-change", owner, change: { kind: "remove", id } });
+    return { ...queue, sending: null };
+  }
+  return { ...queue, sending: null, error: { owner, id, note: result } };
 }
 
 type FoldersEvent = Extract<UiEvent, { type: "open-folders" | "close-folders" | "browse-folder" | "show-hidden-folders" | "folders-listed" | "folders-failed" }>;

@@ -35,7 +35,7 @@ describe("Held messages view", () => {
   });
 
   it("says why the last one did not go, and a queue this device could not keep", () => {
-    expect(render(model({ error: { owner: "o", id: "a", note: { kind: "said", text: "the pane refused it" } } }))).toContain("the pane refused it");
+    expect(render(model({ error: { owner: "o", id: "a", note: { kind: "submit-failed", code: "input_failed", message: "the pane refused it" } } }))).toContain("Not sent: the pane refused it");
     expect(render(model({ error: { owner: "o", id: "a", note: { kind: "not-sent" } } }))).toContain("Not sent. Reconnect and try again.");
     expect(render(model({ unsaved: true }))).toContain("Queue could not be saved.");
   });
