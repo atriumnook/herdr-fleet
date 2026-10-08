@@ -1,7 +1,7 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { alertsAllow, shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, DirectoryListing, FileInfo, HerdrPane, OmoRun, OmoTask, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, ConversationMetadata, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, OmoRun, OmoTask, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
@@ -9,6 +9,7 @@ import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPE
 import type { NotificationState } from "../lib/notifications.ts";
 import { applyPaneStatus } from "../lib/snapshot.ts";
 import { EMPTY_DRAFT, applyToDraft, type InputDraft } from "../lib/draft.ts";
+import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import { clockOffsetMs } from "../lib/omoTasks.ts";
 import { sanitizeFontFamily } from "../lib/fontFamily.ts";
 import { alertPrefs, DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type Settings } from "../lib/settings.ts";
@@ -356,6 +357,31 @@ export interface FoldersState {
   seq: number;
 }
 
+/** how often the chat reads the pane's waiting prompt */
+export const CHAT_POLL_MS = 2000;
+
+/** The chat lens on a pane, and what it shares with the composer below it: the waiting prompt, the agent's suggestion, the settings in use. */
+export interface ChatState {
+  /** the pane the chat lens is open on */
+  open: { machineId: string; paneId: string } | null;
+  /** the pane has an agent: only then is there a prompt to read */
+  agent: boolean;
+  /** the prompt waiting on the pane: while it waits, a message from the composer answers it */
+  prompt: InteractivePrompt | null;
+  /** what the agent suggests typing next (Claude's grey input text), for the composer's placeholder */
+  suggestion: string | null;
+  /** the model and reasoning the pane's agent reported last */
+  metadata: { paneId: string; value: ConversationMetadata | null } | null;
+  /** a typed pick of an approval's option, shown in the card until Confirm or Cancel */
+  pendingAnswer: { promptId: string; answer: TypedAnswer } | null;
+  /** messages sent from the composer: a prompt read begun before the latest answers for the turn before it */
+  sent: number;
+  /** messages the pane confirmed: the conversation is read at once */
+  delivered: number;
+  /** the prompt read chain running: one at a time */
+  promptSeq: number;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -391,6 +417,7 @@ export interface UiState {
   droplet: DropletState;
   backgroundTasks: BackgroundTasksState;
   folders: FoldersState;
+  chat: ChatState;
   gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
@@ -527,6 +554,25 @@ export type UiEvent =
   | { type: "show-hidden-folders"; slot: FolderSlot; hidden: boolean }
   | { type: "folders-listed"; slot: FolderSlot; seq: number; listing: DirectoryListing }
   | { type: "folders-failed"; slot: FolderSlot; seq: number; reason: FolderFailure }
+  /** the chat lens shows a pane, or no longer does */
+  | { type: "chat-open"; machineId: string; paneId: string }
+  | { type: "chat-close"; machineId: string; paneId: string }
+  | { type: "chat-agent"; paneId: string; agent: boolean }
+  | { type: "poll-chat-prompt"; seq: number }
+  /** `sent`: the sends counted when the read began */
+  | { type: "chat-prompt-read"; seq: number; sent: number; prompt: InteractivePrompt | null; suggestion: string | null }
+  | { type: "chat-prompt-failed"; seq: number }
+  /** the prompt changed or was answered elsewhere: read it now */
+  | { type: "chat-prompt-reread" }
+  /** answered in its card; `steps`: a form that goes on to its next question */
+  | { type: "chat-prompt-answered"; steps: boolean }
+  | { type: "chat-pending-answer"; promptId: string; answer: TypedAnswer }
+  | { type: "chat-pending-answer-done" }
+  /** a message went out from the composer */
+  | { type: "chat-sent" }
+  /** the pane confirmed a message */
+  | { type: "chat-delivered" }
+  | { type: "chat-metadata"; paneId: string; metadata: ConversationMetadata | null }
   | { type: "open-background-tasks"; machineId: string; paneId: string }
   /** the list closed, or the composer it is in went (another pane, another lens) */
   | { type: "close-background-tasks"; machineId: string; paneId: string }
@@ -681,6 +727,8 @@ export type Effect =
   | { kind: "save-draft"; owner: string; value: InputDraft }
   | { kind: "send-draft"; owner: string; paneId: string; text: string }
   | { kind: "load-background-tasks"; machineId: string; paneId: string; seq: number }
+  /** `sent`: the sends counted now, handed back with the answer */
+  | { kind: "load-chat-prompt"; machineId: string; paneId: string; seq: number; sent: number }
   /** `path` "" is home */
   | { kind: "list-folders"; slot: FolderSlot; machineId: string; path: string; hidden: boolean; files: boolean; seq: number }
   | { kind: "load-file"; machineId: string; paneId: string | null; path: string; seq: number }
@@ -718,6 +766,7 @@ export const INITIAL_STATE: UiState = {
   droplet: { shown: null, phase: "in", next: null, lastShown: {}, count: 0, timerSeq: 0, reducedMotion: false },
   backgroundTasks: { open: null, activity: null, failed: false, seq: 0 },
   folders: { open: {}, seq: 0 },
+  chat: { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0 },
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
@@ -837,6 +886,22 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "droplet-gone":
     case "motion-preference":
       return dropletTransition(state, event, effects);
+    case "chat-open":
+    case "chat-close":
+    case "chat-agent":
+    case "poll-chat-prompt":
+    case "chat-prompt-read":
+    case "chat-prompt-failed":
+    case "chat-prompt-reread":
+    case "chat-prompt-answered":
+    case "chat-pending-answer":
+    case "chat-pending-answer-done":
+    case "chat-sent":
+    case "chat-delivered":
+    case "chat-metadata": {
+      const chat = chatTransition(state, event, effects);
+      return next(chat === state.chat ? {} : { chat });
+    }
     case "open-folders":
     case "close-folders":
     case "browse-folder":
@@ -1471,6 +1536,13 @@ function followUp(before: UiState, step: Transition): Transition {
   }
   // the palette lists the selected PC's panes: another PC's selection takes it down
   if (state.palette.open && state.selection.machineId !== before.selection.machineId) state = { ...state, palette: { open: false } };
+  // the chat reads the prompt while it may and the page is on screen; a pane that is no longer live, or has no agent, shows none
+  const reads = chatReads(state);
+  if (reads && (!chatReads(before) || state.chat.open !== before.chat.open)) state = { ...state, chat: readChatPrompt(state, effects) };
+  else if (!reads && chatReads(before)) state = { ...state, chat: { ...state.chat, promptSeq: state.chat.promptSeq + 1 } };
+  if (!chatAsks(state) && (state.chat.prompt !== null || state.chat.suggestion !== null)) state = { ...state, chat: { ...showPrompt(state.chat, null), suggestion: null } };
+  // away from the page, the prompt is not read: it can be answered in the terminal and asked again unseen
+  if (!state.connection.visible && state.chat.pendingAnswer !== null) state = { ...state, chat: { ...state.chat, pendingAnswer: null } };
   // Files lists the pane it was opened on, and would open its paths on another
   if (state.files.dialog && (state.selection.machineId !== before.selection.machineId || state.selection.paneId !== before.selection.paneId)) {
     state = { ...state, files: { ...state.files, dialog: false } };
@@ -1642,6 +1714,84 @@ function paneSessionTransition(pane: PaneState, event: PaneSessionEvent): PaneSt
     case "pane-terminal-unsupported":
       return set({ unsupported: true });
   }
+}
+
+/** The chat may read the pane's prompt (the page aside): open on a live pane with an agent. */
+function chatAsks(state: UiState): boolean {
+  const { chat, pane } = state;
+  return chat.open !== null && chat.agent && pane.connected && !(pane.session.paneId === chat.open.paneId && pane.session.ended);
+}
+
+/** ...and reads it now: the page is on screen too. */
+const chatReads = (state: UiState): boolean => chatAsks(state) && state.connection.visible;
+
+/** A prompt read starts, ending the one before. */
+function readChatPrompt(state: UiState, effects: Effect[]): ChatState {
+  const { chat } = state;
+  const promptSeq = chat.promptSeq + 1;
+  if (chat.open !== null) effects.push({ kind: "load-chat-prompt", machineId: chat.open.machineId, paneId: chat.open.paneId, seq: promptSeq, sent: chat.sent });
+  return { ...chat, promptSeq };
+}
+
+/** The prompt shown changes: a typed pick belongs to the prompt it was typed for. */
+function showPrompt(chat: ChatState, prompt: InteractivePrompt | null): ChatState {
+  const kept = chat.prompt !== null && prompt !== null && chat.prompt.id === prompt.id ? chat.prompt : prompt;
+  const pendingAnswer = chat.pendingAnswer !== null && chat.pendingAnswer.promptId !== kept?.id ? null : chat.pendingAnswer;
+  return kept === chat.prompt && pendingAnswer === chat.pendingAnswer ? chat : { ...chat, prompt: kept, pendingAnswer };
+}
+
+type ChatEvent = Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "poll-chat-prompt" | "chat-prompt-read" | "chat-prompt-failed" | "chat-prompt-reread" | "chat-prompt-answered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-sent" | "chat-delivered" | "chat-metadata" }>;
+
+function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): ChatState {
+  const { chat } = state;
+  const here = (paneId: string): boolean => chat.open?.paneId === paneId;
+  switch (event.type) {
+    case "chat-open":
+      if (chat.open?.machineId === event.machineId && here(event.paneId)) return chat;
+      // another pane: nothing of the one before holds, and its reads answer too late; the settings
+      // reported are kept by pane, so the same pane opened again shows them at once
+      return { ...chat, open: { machineId: event.machineId, paneId: event.paneId }, agent: false, prompt: null, suggestion: null, pendingAnswer: null, promptSeq: chat.promptSeq + 1 };
+    case "chat-close":
+      if (chat.open?.machineId !== event.machineId || !here(event.paneId)) return chat;
+      return { ...chat, open: null, agent: false, prompt: null, suggestion: null, pendingAnswer: null, promptSeq: chat.promptSeq + 1 };
+    case "chat-agent":
+      return here(event.paneId) && chat.agent !== event.agent ? { ...chat, agent: event.agent } : chat;
+    case "chat-prompt-reread":
+      return chatReads(state) ? readChatPrompt(state, effects) : chat;
+    case "chat-prompt-answered": {
+      const answered = { ...showPrompt(chat, null), pendingAnswer: null };
+      // a form of several questions goes on to its next one: read it now, not at the next poll
+      return event.steps && chatReads(state) ? readChatPrompt({ ...state, chat: answered }, effects) : answered;
+    }
+    case "chat-pending-answer":
+      return { ...chat, pendingAnswer: { promptId: event.promptId, answer: event.answer } };
+    case "chat-pending-answer-done":
+      return chat.pendingAnswer === null ? chat : { ...chat, pendingAnswer: null };
+    case "chat-sent":
+      // the suggestion was for the turn before the message
+      return { ...chat, sent: chat.sent + 1, suggestion: null };
+    case "chat-delivered":
+      return { ...chat, delivered: chat.delivered + 1 };
+    case "chat-metadata": {
+      const before = chat.metadata;
+      const value = event.metadata;
+      // the same settings keep the same object: every poll would otherwise re-render the composer
+      if (before?.paneId === event.paneId && before.value?.model === value?.model && before.value?.reasoning_effort === value?.reasoning_effort
+        && before.value?.context?.used === value?.context?.used && before.value?.context?.window === value?.context?.window) return chat;
+      return { ...chat, metadata: { paneId: event.paneId, value } };
+    }
+  }
+  if (event.seq !== chat.promptSeq || !chatReads(state)) return chat;
+  if (event.type === "poll-chat-prompt") return readChatPrompt(state, effects);
+  effects.push({ kind: "later", ms: CHAT_POLL_MS, event: { type: "poll-chat-prompt", seq: chat.promptSeq } });
+  if (event.type === "chat-prompt-failed") {
+    const failed = showPrompt(chat, null);
+    return failed.suggestion === null ? failed : { ...failed, suggestion: null };
+  }
+  const shown = showPrompt(chat, event.prompt);
+  // a read begun before the latest send answers for the turn before it: its suggestion is dropped
+  if (event.sent !== chat.sent || shown.suggestion === event.suggestion) return shown;
+  return { ...shown, suggestion: event.suggestion };
 }
 
 type FoldersEvent = Extract<UiEvent, { type: "open-folders" | "close-folders" | "browse-folder" | "show-hidden-folders" | "folders-listed" | "folders-failed" }>;

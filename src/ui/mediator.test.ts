@@ -54,6 +54,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     createSession: async () => ({ workspace_id: "w9", pane_id: "w9:p1", agent_started: true }),
     loadBackgroundTasks: async () => ({ tasks: [], runs: [], serverTime: null }),
     openPaneSocket: () => { throw new Error("no pane socket in this test"); },
+    loadPromptState: async () => ({ prompt: null, suggestion: null }),
     loadDraft: () => ({ text: "", droppedSpecial: 0 }),
     saveDraft: () => {},
     listFolders: async (_machineId, path) => ({ path: path || "/home/me", parent: "/", home: "/home/me", directories: [], truncated: false }),
@@ -473,5 +474,21 @@ describe("Mediator", () => {
       expect(link.sendInput("w1:p1", "b")).toBe(false);
       expect(fake.calls).toEqual(["input w1:p1 a", "close"]);
     });
+  });
+
+  it("reads the chat's prompt with the sends counted when the read began, and says a read that failed", async () => {
+    const mediator = new Mediator(ports({ loadPromptState: async () => ({ prompt: null, suggestion: "run the tests" }) }).ports, inside);
+    mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+    mediator.dispatch({ type: "pane-connection", connected: true });
+    mediator.dispatch({ type: "chat-open", machineId: "local", paneId: "w1:p1" });
+    mediator.dispatch({ type: "chat-agent", paneId: "w1:p1", agent: true });
+    await until(() => mediator.getState().chat.suggestion === "run the tests");
+    const failing = new Mediator(ports({ loadPromptState: async () => { throw new Error("502"); } }).ports, inside);
+    failing.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+    failing.dispatch({ type: "pane-connection", connected: true });
+    failing.dispatch({ type: "chat-open", machineId: "local", paneId: "w1:p1" });
+    failing.dispatch({ type: "chat-agent", paneId: "w1:p1", agent: true });
+    await Bun.sleep(5);
+    expect(failing.getState().chat.prompt).toBeNull();
   });
 });

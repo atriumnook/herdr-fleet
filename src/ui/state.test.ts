@@ -1,10 +1,10 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { Machine } from "../../shared/machines.ts";
-import type { DirectoryListing, FileInfo, HealthAuth, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
+import type { DirectoryListing, FileInfo, HealthAuth, InteractivePrompt, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
-import { BACKGROUND_TASKS_POLL_MS, INITIAL_STATE, transition, treeOf, type Effect, type UiEvent, type UiState } from "./state.ts";
+import { BACKGROUND_TASKS_POLL_MS, CHAT_POLL_MS, INITIAL_STATE, transition, treeOf, type Effect, type UiEvent, type UiState } from "./state.ts";
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, name: id, role: "worker", agent: "pi", group: "g1", herdrName: `h-${id}`, paneId: `w1:${id}`, cwd: "/w",
@@ -1407,5 +1407,121 @@ describe("the input held while the terminal could not take it", () => {
   it("drops the draft when asked", () => {
     const typed = play([{ type: "draft-input", owner, input: "ls" }], opened.state).state;
     expect(play([{ type: "discard-draft" }], typed).state.pane.draft.value).toEqual({ text: "", droppedSpecial: 0 });
+  });
+});
+
+describe("the chat's waiting prompt and what the composer shares with it", () => {
+  const prompt = (id: string, extra: Partial<InteractivePrompt> = {}): InteractivePrompt => ({
+    id, agent: "claude", kind: "approval", title: "Allow?", question: "Edit?", body: null, options: [{ label: "Yes", description: null }], multi_select: false, custom_option_index: null, ...extra,
+  });
+  /** the pane shown, live: connected, attached, not ended */
+  const live = (): UiState => {
+    const attached = play([{ type: "pane-attached", paneId: "w1:p1" }, { type: "pane-connection", connected: true }]).state;
+    return play([{ type: "chat-open", machineId: "local", paneId: "w1:p1" }, { type: "chat-agent", paneId: "w1:p1", agent: true }], attached).state;
+  };
+  const kinds = (effects: Effect[]) => effects.map((effect) => effect.kind);
+  const seqOf = (state: UiState) => state.chat.promptSeq;
+
+  it("reads the prompt once the chat is open on a live pane with an agent, and again a while after each answer", () => {
+    const attached = play([{ type: "pane-attached", paneId: "w1:p1" }, { type: "pane-connection", connected: true }]).state;
+    const opened = play([{ type: "chat-open", machineId: "local", paneId: "w1:p1" }], attached);
+    expect(kinds(opened.effects)).not.toContain("load-chat-prompt");
+    const withAgent = play([{ type: "chat-agent", paneId: "w1:p1", agent: true }], opened.state);
+    expect(withAgent.effects).toEqual([{ kind: "load-chat-prompt", machineId: "local", paneId: "w1:p1", seq: seqOf(withAgent.state), sent: 0 }]);
+    const read = play([{ type: "chat-prompt-read", seq: seqOf(withAgent.state), sent: 0, prompt: prompt("a"), suggestion: null }], withAgent.state);
+    expect(read.state.chat.prompt).toEqual(prompt("a"));
+    expect(read.effects).toEqual([{ kind: "later", ms: CHAT_POLL_MS, event: { type: "poll-chat-prompt", seq: seqOf(withAgent.state) } }]);
+    expect(kinds(play([{ type: "poll-chat-prompt", seq: seqOf(withAgent.state) }], read.state).effects)).toEqual(["load-chat-prompt"]);
+  });
+
+  it("keeps the same prompt object while the same prompt is asked, and nothing re-renders for it", () => {
+    const state = live();
+    const first = play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("a"), suggestion: null }], state).state;
+    const again = play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("a"), suggestion: null }], first).state;
+    expect(again.chat).toBe(first.chat);
+  });
+
+  it("takes a suggestion only from a read begun after the latest send", () => {
+    const state = live();
+    const sent = play([{ type: "chat-sent" }], state).state;
+    expect(play([{ type: "chat-prompt-read", seq: seqOf(sent), sent: 0, prompt: null, suggestion: "run the tests" }], sent).state.chat.suggestion).toBeNull();
+    const taken = play([{ type: "chat-prompt-read", seq: seqOf(sent), sent: 1, prompt: null, suggestion: "run the tests" }], sent).state;
+    expect(taken.chat.suggestion).toBe("run the tests");
+    // a send drops it: it was for the turn before
+    expect(play([{ type: "chat-sent" }], taken).state.chat.suggestion).toBeNull();
+  });
+
+  it("drops the prompt and the suggestion when a read fails, and goes on reading", () => {
+    const state = live();
+    const shown = play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("a"), suggestion: "x" }], state).state;
+    const failed = play([{ type: "chat-prompt-failed", seq: seqOf(state) }], shown);
+    expect(failed.state.chat).toMatchObject({ prompt: null, suggestion: null });
+    expect(kinds(failed.effects)).toEqual(["later"]);
+  });
+
+  it("stops reading while the page is hidden, keeping the card but not a typed pick, and reads at once when it is back", () => {
+    const state = live();
+    const shown = play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("a"), suggestion: null }, { type: "chat-pending-answer", promptId: "a", answer: { option_index: 0 } }], state).state;
+    const hidden = play([{ type: "visibility", visible: false }], shown).state;
+    expect(hidden.chat).toMatchObject({ prompt: prompt("a"), pendingAnswer: null });
+    expect(play([{ type: "poll-chat-prompt", seq: seqOf(shown) }], hidden).effects).toEqual([]);
+    expect(kinds(play([{ type: "visibility", visible: true }], hidden).effects)).toContain("load-chat-prompt");
+  });
+
+  it("drops the prompt and the suggestion once the pane is not live, or has no agent", () => {
+    const state = live();
+    const shown = play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("a"), suggestion: "x" }], state).state;
+    expect(play([{ type: "pane-exited", paneId: "w1:p1" }], shown).state.chat).toMatchObject({ prompt: null, suggestion: null });
+    expect(play([{ type: "chat-agent", paneId: "w1:p1", agent: false }], shown).state.chat).toMatchObject({ prompt: null, suggestion: null });
+    expect(play([{ type: "pane-socket-lost" }, { type: "pane-connection", connected: false }], shown).state.chat).toMatchObject({ prompt: null, suggestion: null });
+  });
+
+  it("forgets the pane's prompt when the chat closes, and is closed only by the pane it is open on", () => {
+    const state = live();
+    const shown = play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("a"), suggestion: "x" }], state).state;
+    expect(play([{ type: "chat-close", machineId: "local", paneId: "w1:p2" }], shown).state.chat.prompt).not.toBeNull();
+    const closed = play([{ type: "chat-close", machineId: "local", paneId: "w1:p1" }], shown).state;
+    expect(closed.chat).toMatchObject({ open: null, prompt: null, suggestion: null });
+    expect(play([{ type: "chat-prompt-read", seq: seqOf(shown), sent: 0, prompt: prompt("b"), suggestion: null }], closed).state.chat.prompt).toBeNull();
+  });
+
+  it("keeps a typed pick for its prompt only: another prompt, an answer or the agent at work drops it", () => {
+    const state = live();
+    const shown = play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("a"), suggestion: null }, { type: "chat-pending-answer", promptId: "a", answer: { option_index: 0 } }], state).state;
+    expect(shown.chat.pendingAnswer).toEqual({ promptId: "a", answer: { option_index: 0 } });
+    expect(play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("b"), suggestion: null }], shown).state.chat.pendingAnswer).toBeNull();
+    expect(play([{ type: "chat-pending-answer-done" }], shown).state.chat.pendingAnswer).toBeNull();
+    const answered = play([{ type: "chat-prompt-answered", steps: false }], shown);
+    expect(answered.state.chat).toMatchObject({ prompt: null, pendingAnswer: null });
+    expect(answered.effects).toEqual([]);
+    // a form of several questions goes on to its next one: read it now
+    expect(kinds(play([{ type: "chat-prompt-answered", steps: true }], shown).effects)).toEqual(["load-chat-prompt"]);
+  });
+
+  it("reads the prompt anew when asked, ending the chain before", () => {
+    const state = live();
+    const reread = play([{ type: "chat-prompt-reread" }], state);
+    expect(reread.effects).toEqual([{ kind: "load-chat-prompt", machineId: "local", paneId: "w1:p1", seq: seqOf(state) + 1, sent: 0 }]);
+    expect(play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("a"), suggestion: null }], reread.state).state.chat.prompt).toBeNull();
+  });
+
+  it("keeps the same metadata object while the same settings are reported", () => {
+    const state = live();
+    const metadata = { model: "opus", reasoning_effort: "high", context: { used: 10, window: 100 } };
+    const first = play([{ type: "chat-metadata", paneId: "w1:p1", metadata }], state).state;
+    expect(first.chat.metadata).toEqual({ paneId: "w1:p1", value: metadata });
+    expect(play([{ type: "chat-metadata", paneId: "w1:p1", metadata: { ...metadata, context: { ...metadata.context } } }], first).state).toBe(first);
+    expect(play([{ type: "chat-metadata", paneId: "w1:p1", metadata: { ...metadata, model: "sonnet" } }], first).state.chat.metadata?.value?.model).toBe("sonnet");
+  });
+
+  it("keeps the settings reported for a pane while the chat closes and opens on it again", () => {
+    const metadata = { model: "opus", reasoning_effort: "high" };
+    const reported = play([{ type: "chat-metadata", paneId: "w1:p1", metadata }], live()).state;
+    const reopened = play([{ type: "chat-close", machineId: "local", paneId: "w1:p1" }, { type: "chat-open", machineId: "local", paneId: "w1:p1" }], reported).state;
+    expect(reopened.chat.metadata).toEqual({ paneId: "w1:p1", value: metadata });
+  });
+
+    it("counts a message delivered, so the chat reads at once", () => {
+    expect(play([{ type: "chat-delivered" }], live()).state.chat.delivered).toBe(1);
   });
 });
