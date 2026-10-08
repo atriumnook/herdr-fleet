@@ -82,7 +82,6 @@ export interface PaneTerminalProps {
       | "completions-open" | "file-query" | "slash-used" | "attach-files" | "remove-attachment" | "attachments-sent" | "attachments-close" }> | ChatUpEvent>;
 }
 
-
 /** Whether this device types in the terminal's input line or straight into the grid: remembered per device. */
 const DIRECT_TYPING_KEY = "herdr-fleet:direct-typing";
 
@@ -999,7 +998,6 @@ export function PaneTerminal({
     };
   }, [paneId]);
 
-
   // the user picked the pane App had switched to on its own (the same row or lens again,
   // which changes neither the pane nor the lens): the grid takes the keyboard now
   const autoSelectedRef = useRef(autoSelected);
@@ -1105,7 +1103,6 @@ export function PaneTerminal({
     }
   }, [inputLine, coarse, chatView, directTyping, paneId]);
 
-
   // While the agent runs, append to its held messages. Each requires an explicit send.
   // a question in Codex's queue leaves the composer alone: Codex keeps working, and a
   // message ("stop, don't touch prod") must reach it, not become the answer; its card answers it
@@ -1123,7 +1120,6 @@ export function PaneTerminal({
     if (pane === null) return;
     emitRef.current({ type: "queue-send", owner: event.owner, id: event.id, text: event.text, paneId: pane, bracketedPaste: bracketedPaste() });
   }, []);
-
 
   return (
     // data-direct-typing: xterm's own field raises the soft keyboard here (lib/viewport.ts)
