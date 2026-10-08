@@ -363,6 +363,8 @@ export interface FoldersState {
 
 /** how often the chat reads the pane's waiting prompt */
 export const CHAT_POLL_MS = 2000;
+/** how long the card says the prompt changed under its answer */
+export const CARD_CHANGED_MS = 2000;
 
 /** The chat lens on a pane, and what it shares with the composer below it: the waiting prompt, the agent's suggestion, the settings in use. */
 export interface ChatState {
@@ -384,6 +386,8 @@ export interface ChatState {
   delivered: number;
   /** the prompt read chain running: one at a time */
   promptSeq: number;
+  /** an answer from the prompt's card: on its way, refused (`changed`: the prompt moved on under it), or none */
+  card: { promptId: string; status: "pending" } | { promptId: string; status: "changed"; seq: number } | { promptId: string; status: "failed"; message: string } | null;
 }
 
 /** how often the chat reads its conversation's newest page */
@@ -512,7 +516,8 @@ export type SubmitOutcome = { kind: "ok" } | { kind: "failed"; code: string; mes
 type PendingSend =
   | { target: "composer"; owner: string; via: "box" | "quick"; sent: string }
   | { target: "line"; owner: string }
-  | { target: "queue"; owner: string; queueId: string };
+  | { target: "queue"; owner: string; queueId: string }
+  | { target: "card"; machineId: string; paneId: string; promptId: string; steps: boolean; typed: boolean };
 
 /** The messages sent from composers, input lines and held messages, one under way per box. */
 export interface SendsState {
@@ -746,10 +751,6 @@ export type UiEvent =
   /** `sent`: the sends counted when the read began */
   | { type: "chat-prompt-read"; seq: number; sent: number; prompt: InteractivePrompt | null; suggestion: string | null }
   | { type: "chat-prompt-failed"; seq: number }
-  /** the prompt changed or was answered elsewhere: read it now */
-  | { type: "chat-prompt-reread" }
-  /** answered in its card; `steps`: a form that goes on to its next question */
-  | { type: "chat-prompt-answered"; steps: boolean }
   | { type: "chat-pending-answer"; promptId: string; answer: TypedAnswer }
   | { type: "chat-pending-answer-done" }
   /** files attached to a composer's message (picked, pasted or dropped) */
@@ -778,7 +779,11 @@ export type UiEvent =
   | { type: "queue-send"; owner: string; id: string; text: string; paneId: string; bracketedPaste: boolean }
   | { type: "submit-started"; id: number }
   | { type: "send-result"; id: number; outcome: SubmitOutcome }
-  | { type: "answer-result"; id: number; outcome: { kind: "ok" } | { kind: "failed"; status: number | null; message: string } }
+  | { type: "answer-result"; id: number; outcome: { kind: "ok" } | { kind: "failed"; status: number | null; code: string | null; message: string } }
+  /** an option, options or a reply picked in the prompt's card; `typed`: the Confirm of a pick typed in the composer */
+  | { type: "prompt-card-answer"; machineId: string; paneId: string; promptId: string; answer: TypedAnswer; typed: boolean }
+  /** what the card said of a changed prompt has been shown long enough */
+  | { type: "prompt-card-clear"; seq: number }
   /** `owner`: the pane's storage id */
   | { type: "composer-draft"; owner: string; change: ComposerDraftChange }
   | { type: "composer-draft-loaded"; owner: string; text: string; sending: boolean; settled: { text: string; edited: boolean } | null }
@@ -1009,7 +1014,7 @@ export const INITIAL_STATE: UiState = {
   droplet: { shown: null, phase: "in", next: null, lastShown: {}, count: 0, timerSeq: 0, reducedMotion: false },
   backgroundTasks: { open: null, activity: null, failed: false, seq: 0 },
   folders: { open: {}, seq: 0 },
-  chat: { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0 },
+  chat: { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0, card: null },
   conversation: NO_CONVERSATION,
   queue: { lists: {}, unsaved: {}, sending: null, error: null },
   drafts: { composer: {}, settled: {}, line: {} },
@@ -1141,8 +1146,6 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "poll-chat-prompt":
     case "chat-prompt-read":
     case "chat-prompt-failed":
-    case "chat-prompt-reread":
-    case "chat-prompt-answered":
     case "chat-pending-answer":
     case "chat-pending-answer-done": {
       const chat = chatTransition(state, event, effects);
@@ -1173,7 +1176,12 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "submit-started":
     case "send-result":
     case "answer-result":
+    case "prompt-card-answer":
       return sendTransition(state, event, effects);
+    case "prompt-card-clear": {
+      const { card } = state.chat;
+      return next(card?.status === "changed" && card.seq === event.seq ? { chat: { ...state.chat, card: null } } : {});
+    }
     case "composer-draft":
       effects.push({ kind: "composer-draft-change", owner: event.owner, change: event.change });
       return next({});
@@ -2067,10 +2075,18 @@ function readChatPrompt(state: UiState, effects: Effect[]): ChatState {
 function showPrompt(chat: ChatState, prompt: InteractivePrompt | null): ChatState {
   const kept = chat.prompt !== null && prompt !== null && chat.prompt.id === prompt.id ? chat.prompt : prompt;
   const pendingAnswer = chat.pendingAnswer !== null && chat.pendingAnswer.promptId !== kept?.id ? null : chat.pendingAnswer;
-  return kept === chat.prompt && pendingAnswer === chat.pendingAnswer ? chat : { ...chat, prompt: kept, pendingAnswer };
+  // what the card said of its answer is for that prompt only
+  const card = chat.card !== null && chat.card.promptId !== kept?.id ? null : chat.card;
+  return kept === chat.prompt && pendingAnswer === chat.pendingAnswer && card === chat.card ? chat : { ...chat, prompt: kept, pendingAnswer, card };
 }
 
-type ChatEvent = Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "poll-chat-prompt" | "chat-prompt-read" | "chat-prompt-failed" | "chat-prompt-reread" | "chat-prompt-answered" | "chat-pending-answer" | "chat-pending-answer-done" }>;
+/** the card's answer on its way for this pane, if any */
+function cardAnswering(state: UiState, machineId: string, paneId: string): ChatState["card"] {
+  const sending = Object.values(state.sends.pending).find((pending) => pending.target === "card" && pending.machineId === machineId && pending.paneId === paneId);
+  return sending?.target === "card" ? { promptId: sending.promptId, status: "pending" } : null;
+}
+
+type ChatEvent = Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "poll-chat-prompt" | "chat-prompt-read" | "chat-prompt-failed" | "chat-pending-answer" | "chat-pending-answer-done" }>;
 
 function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): ChatState {
   const { chat } = state;
@@ -2079,20 +2095,14 @@ function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): Ch
     case "chat-open":
       if (chat.open?.machineId === event.machineId && here(event.paneId)) return chat;
       // another pane: nothing of the one before holds, and its reads answer too late; the settings
-      // reported are kept by pane, so the same pane opened again shows them at once
-      return { ...chat, open: { machineId: event.machineId, paneId: event.paneId }, agent: false, prompt: null, suggestion: null, pendingAnswer: null, promptSeq: chat.promptSeq + 1 };
+      // reported are kept by pane, so the same pane opened again shows them at once; an answer
+      // still on its way from its card holds the card when its prompt shows again
+      return { ...chat, open: { machineId: event.machineId, paneId: event.paneId }, agent: false, prompt: null, suggestion: null, pendingAnswer: null, card: cardAnswering(state, event.machineId, event.paneId), promptSeq: chat.promptSeq + 1 };
     case "chat-close":
       if (chat.open?.machineId !== event.machineId || !here(event.paneId)) return chat;
-      return { ...chat, open: null, agent: false, prompt: null, suggestion: null, pendingAnswer: null, promptSeq: chat.promptSeq + 1 };
+      return { ...chat, open: null, agent: false, prompt: null, suggestion: null, pendingAnswer: null, card: null, promptSeq: chat.promptSeq + 1 };
     case "chat-agent":
       return here(event.paneId) && chat.agent !== event.agent ? { ...chat, agent: event.agent } : chat;
-    case "chat-prompt-reread":
-      return chatReads(state) ? readChatPrompt(state, effects) : chat;
-    case "chat-prompt-answered": {
-      const answered = { ...showPrompt(chat, null), pendingAnswer: null };
-      // a form of several questions goes on to its next one: read it now, not at the next poll
-      return event.steps && chatReads(state) ? readChatPrompt({ ...state, chat: answered }, effects) : answered;
-    }
     case "chat-pending-answer":
       return { ...chat, pendingAnswer: { promptId: event.promptId, answer: event.answer } };
     case "chat-pending-answer-done":
@@ -2342,7 +2352,7 @@ function completionsTransition(completions: CompletionsState, event: Completions
   }
 }
 
-type SendEvent = Extract<UiEvent, { type: "composer-send" | "line-send" | "queue-send" | "submit-started" | "send-result" | "answer-result" }>;
+type SendEvent = Extract<UiEvent, { type: "composer-send" | "line-send" | "queue-send" | "submit-started" | "send-result" | "answer-result" | "prompt-card-answer" }>;
 
 /**
  * A message from a composer, an input line or a held message: never queued to fire later. It goes
@@ -2363,7 +2373,7 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
   };
   /** the terminal takes a message now: not into a masked prompt, nor one another app holds */
   const takes = state.pane.session.secret === null && !state.pane.session.held;
-  const busy = (owner: string, target: PendingSend["target"]): boolean => Object.values(sends.pending).some((pending) => pending.owner === owner && pending.target === target);
+  const busy = (owner: string, target: PendingSend["target"]): boolean => Object.values(sends.pending).some((pending) => pending.target === target && "owner" in pending && pending.owner === owner);
   switch (event.type) {
     case "composer-send": {
       const { owner, text, via } = event;
@@ -2420,6 +2430,15 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
       effects.push({ kind: "submit", id, paneId: event.paneId, text: composerMessage(event.text), payload: composerPayload(event.text, event.bracketedPaste), typed: false });
       return { state: { ...next, queue: { ...next.queue, sending: { owner: event.owner, id: event.id }, error: null } }, effects };
     }
+    case "prompt-card-answer": {
+      // one answer at a time, for the prompt the card shows on the pane open
+      const { open, prompt } = state.chat;
+      if (open?.machineId !== event.machineId || open.paneId !== event.paneId || prompt?.id !== event.promptId) return { state, effects };
+      if (cardAnswering(state, event.machineId, event.paneId)?.promptId === event.promptId) return { state, effects };
+      const { id, next } = start({ target: "card", machineId: event.machineId, paneId: event.paneId, promptId: event.promptId, steps: prompt.steps !== undefined, typed: event.typed });
+      effects.push({ kind: "answer-prompt", id, machineId: event.machineId, paneId: event.paneId, promptId: event.promptId, answer: event.answer });
+      return { state: { ...next, chat: { ...next.chat, card: { promptId: event.promptId, status: "pending" } } }, effects };
+    }
     case "submit-started": {
       const started = sends.pending[event.id];
       if (started === undefined) return { state, effects };
@@ -2434,6 +2453,27 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
   const { [event.id]: _done, ...rest } = sends.pending;
   let next: UiState = { ...state, sends: { ...sends, pending: rest } };
   const ok = event.outcome.kind === "ok";
+  if (event.type === "answer-result" && pending.target === "card") {
+    const { chat } = next;
+    // an answer for a prompt no longer shown (another pane open, or the prompt moved on) says nothing here
+    if (chat.open?.machineId !== pending.machineId || chat.open.paneId !== pending.paneId || chat.prompt?.id !== pending.promptId) return { state: next, effects };
+    // a typed pick waiting for Confirm goes once its Confirm answered, whatever came of it, and
+    // with the prompt once it is answered
+    const pendingAnswer = pending.typed ? null : chat.pendingAnswer;
+    if (event.outcome.kind === "ok") {
+      const answered: UiState = { ...next, chat: { ...showPrompt({ ...chat, pendingAnswer: null }, null), card: null } };
+      // a form of several questions goes on to its next one: read it now, not at the next poll
+      return { state: pending.steps && chatReads(answered) ? { ...answered, chat: readChatPrompt(answered, effects) } : answered, effects };
+    }
+    if (event.outcome.status === 409 && event.outcome.code === "prompt_changed") {
+      const seq = event.id;
+      const changed: UiState = { ...next, chat: { ...chat, pendingAnswer, card: { promptId: pending.promptId, status: "changed", seq } } };
+      const reread = chatReads(changed) ? { ...changed, chat: readChatPrompt(changed, effects) } : changed;
+      effects.push({ kind: "later", ms: CARD_CHANGED_MS, event: { type: "prompt-card-clear", seq } });
+      return { state: reread, effects };
+    }
+    return { state: { ...next, chat: { ...chat, pendingAnswer, card: { promptId: pending.promptId, status: "failed", message: event.outcome.message } } }, effects };
+  }
   if (event.type === "answer-result") {
     if (pending.target !== "composer") return { state: next, effects };
     if (ok && pending.via === "box") composerDraft(pending.owner, { kind: "settle", sent: pending.sent });
@@ -2459,6 +2499,7 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
     lineDraft(pending.owner, { kind: "end" });
     return { state: said(next, `line:${pending.owner}`, event.id, outcome), effects };
   }
+  if (pending.target === "card") return { state: next, effects };
   if (ok && pending.via === "box") composerDraft(pending.owner, { kind: "settle", sent: pending.sent });
   composerDraft(pending.owner, { kind: "end" });
   next = said(next, `composer:${pending.owner}`, event.id, outcome);

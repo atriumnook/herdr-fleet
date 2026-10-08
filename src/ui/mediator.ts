@@ -514,7 +514,8 @@ export class Mediator {
           this.dispatch({ type: "answer-result", id: effect.id, outcome: { kind: "ok" } });
         } catch (error) {
           const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : null;
-          this.dispatch({ type: "answer-result", id: effect.id, outcome: { kind: "failed", status, message: message(error) } });
+          const code = typeof (error as { code?: unknown }).code === "string" ? (error as { code: string }).code : null;
+          this.dispatch({ type: "answer-result", id: effect.id, outcome: { kind: "failed", status, code, message: message(error) } });
         }
         return;
       case "composer-draft-change": {
