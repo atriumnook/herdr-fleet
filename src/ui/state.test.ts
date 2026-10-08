@@ -665,11 +665,14 @@ describe("alerts", () => {
     expect(dropped(quiet.state)).toBeNull();
   });
 
-  it("drops in a finished turn only when it was long, by default; the tab's alert, as before, takes no timing", () => {
+  it("tells a finished turn only when it was long, by default, in the tab as in the page", () => {
     const working = play([status("working", 0)], watching()).state;
     const quick = play([status("done", 10_000)], working);
-    expect(kinds(quick.effects)).toEqual(["notify-pane"]);
+    expect(quick.effects).toEqual([]);
     expect(dropped(quick.state)).toBeNull();
+    // every finish asked for: the quick one too
+    const always = play([{ type: "change-settings", patch: { alertDone: "always" } }], working).state;
+    expect(kinds(play([status("done", 10_000)], always).effects)).toContain("notify-pane");
     const long = play([status("done", 120_000)], working);
     expect(kinds(long.effects)).toEqual(["later", "notify-pane"]);
     expect(dropped(long.state)).toMatchObject({ kind: "done" });

@@ -55,10 +55,3 @@ export function parseAlerts(value: unknown): AlertPrefs {
     done: done === "off" || done === "long" || done === "always" ? done : DEFAULT_ALERTS.done,
   };
 }
-
-/** Whether a device with these preferences hears about this status at all (timing aside). */
-export function alertsAllow(prefs: AlertPrefs, status: AgentStatus): boolean {
-  if (status === "blocked") return prefs.input;
-  if (status === "done") return prefs.done !== "off";
-  return false;
-}
