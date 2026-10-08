@@ -8,13 +8,13 @@ import "./ChatView.css";
 
 import { AgentMark } from "./AgentMark.tsx";
 import { Markdown } from "./Markdown.tsx";
-import { PromptCard } from "./PromptCard.tsx";
+import { PromptCard, type PromptCardEvent } from "./PromptCard.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { turnRevision } from "../lib/turnRevision.ts";
 import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
 import type { Emit } from "../ui/bubble.ts";
-import type { ConversationView, UiEvent } from "../ui/state.ts";
+import type { ChatState, ConversationView, UiEvent } from "../ui/state.ts";
 import type { TranscriptMessage } from "../lib/transcript.ts";
 import { isLiveWorkTurn, formatWorkDuration, splitTurn, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
@@ -60,11 +60,13 @@ export interface ChatViewModel {
   sentOver: { turn: ConversationTurn; page: ConversationTurn[] } | null;
   prompt: InteractivePrompt | null;
   pendingAnswer: { promptId: string; answer: TypedAnswer } | null;
+  /** an answer from the prompt's card */
+  card: ChatState["card"];
   showThinking: boolean;
 }
 
 /** the prompt card's answers, and an earlier page asked for */
-export type ChatViewEvent = Extract<UiEvent, { type: "chat-prompt-reread" | "chat-prompt-answered" | "chat-pending-answer-done" | "load-older-conversation" }>;
+export type ChatViewEvent = PromptCardEvent | Extract<UiEvent, { type: "load-older-conversation" }>;
 
 function formatTime(ts: string | null): string | null {
   if (ts === null) return null;
@@ -443,7 +445,7 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
  */
 export const ChatView = memo(function ChatView({ model, emit }: { model: ChatViewModel; emit: Emit<ChatViewEvent> }) {
   const t = useT();
-  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, showThinking } = model;
+  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking } = model;
   const [newMessages, setNewMessages] = useState(false);
   /** scrolled up from the end: the way back is offered even when nothing new came */
   const [away, setAway] = useState(false);
@@ -564,11 +566,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{error.status === 401 ? "locked — the token gate is asking again" : error.message}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
       {loaded && empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
-      {prompt !== null && <PromptCard paneId={paneId} prompt={prompt} typedAnswer={pendingAnswer !== null && pendingAnswer.promptId === prompt.id ? pendingAnswer.answer : null}
-        onTypedAnswerDone={() => emit({ type: "chat-pending-answer-done" })}
-        onPromptChanged={() => emit({ type: "chat-prompt-reread" })}
-        // a form of several questions goes on to its next one: it is read now, not at the next poll
-        onAnswered={() => emit({ type: "chat-prompt-answered", steps: prompt.steps !== undefined })} />}
+      {prompt !== null && <PromptCard prompt={prompt} typedAnswer={pendingAnswer !== null && pendingAnswer.promptId === prompt.id ? pendingAnswer.answer : null} card={card} emit={emit} />}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
     </div>
     {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>

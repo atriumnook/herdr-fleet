@@ -4,7 +4,7 @@ import type { Machine } from "../../shared/machines.ts";
 import type { ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, HealthAuth, InteractivePrompt, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
-import { BACKGROUND_TASKS_POLL_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, FILE_SEARCH_DELAY_MS, INITIAL_STATE, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type Transition, type UiEvent, type UiState } from "./state.ts";
+import { BACKGROUND_TASKS_POLL_MS, CARD_CHANGED_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, FILE_SEARCH_DELAY_MS, INITIAL_STATE, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type Transition, type UiEvent, type UiState } from "./state.ts";
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, name: id, role: "worker", agent: "pi", group: "g1", herdrName: `h-${id}`, paneId: `w1:${id}`, cwd: "/w",
@@ -1492,24 +1492,12 @@ describe("the chat's waiting prompt and what the composer shares with it", () =>
     expect(play([{ type: "chat-prompt-read", seq: seqOf(shown), sent: 0, prompt: prompt("b"), suggestion: null }], closed).state.chat.prompt).toBeNull();
   });
 
-  it("keeps a typed pick for its prompt only: another prompt, an answer or the agent at work drops it", () => {
+  it("keeps a typed pick for its prompt only: another prompt or the agent at work drops it", () => {
     const state = live();
     const shown = play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("a"), suggestion: null }, { type: "chat-pending-answer", promptId: "a", answer: { option_index: 0 } }], state).state;
     expect(shown.chat.pendingAnswer).toEqual({ promptId: "a", answer: { option_index: 0 } });
     expect(play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("b"), suggestion: null }], shown).state.chat.pendingAnswer).toBeNull();
     expect(play([{ type: "chat-pending-answer-done" }], shown).state.chat.pendingAnswer).toBeNull();
-    const answered = play([{ type: "chat-prompt-answered", steps: false }], shown);
-    expect(answered.state.chat).toMatchObject({ prompt: null, pendingAnswer: null });
-    expect(answered.effects).toEqual([]);
-    // a form of several questions goes on to its next one: read it now
-    expect(kinds(play([{ type: "chat-prompt-answered", steps: true }], shown).effects)).toEqual(["load-chat-prompt"]);
-  });
-
-  it("reads the prompt anew when asked, ending the chain before", () => {
-    const state = live();
-    const reread = play([{ type: "chat-prompt-reread" }], state);
-    expect(reread.effects).toEqual([{ kind: "load-chat-prompt", machineId: "local", paneId: "w1:p1", seq: seqOf(state) + 1, sent: 0 }]);
-    expect(play([{ type: "chat-prompt-read", seq: seqOf(state), sent: 0, prompt: prompt("a"), suggestion: null }], reread.state).state.chat.prompt).toBeNull();
   });
 
   /** a conversation read that reports these settings for the open pane */
@@ -1823,7 +1811,7 @@ describe("sending a message", () => {
       { kind: "composer-draft-change", owner, change: { kind: "begin", sent: "1" } },
       { kind: "answer-prompt", id: answering.state.sends.seq, machineId: "local", paneId: "w1:p1", promptId: "q", answer: { option_index: 0 } },
     ]);
-    const changed = play([{ type: "answer-result", id: answering.state.sends.seq, outcome: { kind: "failed", status: 409, message: "changed" } }], answering.state);
+    const changed = play([{ type: "answer-result", id: answering.state.sends.seq, outcome: { kind: "failed", status: 409, code: "prompt_changed", message: "changed" } }], answering.state);
     expect(changed.state.sends.outcomes[`composer:${owner}`]?.outcome).toEqual({ kind: "answer-changed" });
     expect(kinds(changed.effects)).toEqual(["composer-draft-change", "load-chat-prompt"]);
     const answered = play([{ type: "answer-result", id: answering.state.sends.seq, outcome: { kind: "ok" } }], answering.state);
@@ -1988,5 +1976,59 @@ describe("files attached to a composer's message", () => {
     expect(closed.state.attachments.lists[owner]).toBeUndefined();
     // the upload under way answers to nothing, and starts nothing
     expect(play([{ type: "upload-done", owner, id: a!.id, path: "/tmp/a.png" }], closed.state).effects).toEqual([]);
+  });
+});
+
+describe("answering the waiting prompt in its card", () => {
+  const prompt = (id: string, extra: Partial<InteractivePrompt> = {}): InteractivePrompt => ({
+    id, agent: "claude", kind: "approval", title: "Allow?", question: "Edit?", body: null, options: [{ label: "Yes", description: null }, { label: "No", description: null }], multi_select: false, custom_option_index: null, ...extra,
+  });
+  const shown = (extra: Partial<InteractivePrompt> = {}): UiState => {
+    const live = play([{ type: "pane-attached", paneId: "w1:p1" }, { type: "pane-connection", connected: true }, { type: "chat-open", machineId: "local", paneId: "w1:p1" }, { type: "chat-agent", paneId: "w1:p1", agent: true }]).state;
+    return play([{ type: "chat-prompt-read", seq: live.chat.promptSeq, sent: 0, prompt: prompt("p", extra), suggestion: null }], live).state;
+  };
+  const answer = (state: UiState, typed = false) => play([{ type: "prompt-card-answer", machineId: "local", paneId: "w1:p1", promptId: "p", answer: { option_index: 0 }, typed }], state);
+  const kinds = (effects: Effect[]) => effects.map((effect) => effect.kind);
+
+  it("sends the option picked, holding the card while it goes", () => {
+    const { state, effects } = answer(shown());
+    expect(effects).toEqual([{ kind: "answer-prompt", id: state.sends.seq, machineId: "local", paneId: "w1:p1", promptId: "p", answer: { option_index: 0 } }]);
+    expect(state.chat.card).toEqual({ promptId: "p", status: "pending" });
+    // a second while it goes goes nowhere
+    expect(answer(state).effects).toEqual([]);
+  });
+
+  it("drops the answered prompt, and reads a form's next question at once", () => {
+    const sending = answer(shown()).state;
+    const done = play([{ type: "answer-result", id: sending.sends.seq, outcome: { kind: "ok" } }], sending);
+    expect(done.state.chat).toMatchObject({ prompt: null, card: null });
+    expect(done.effects).toEqual([]);
+    // a typed pick for the prompt goes with it, even when another button answered
+    const picked = answer(play([{ type: "chat-pending-answer", promptId: "p", answer: { option_index: 1 } }], shown()).state).state;
+    expect(play([{ type: "answer-result", id: picked.sends.seq, outcome: { kind: "ok" } }], picked).state.chat.pendingAnswer).toBeNull();
+    const form = answer(shown({ steps: [{ label: "a", answered: false, current: true }] })).state;
+    expect(kinds(play([{ type: "answer-result", id: form.sends.seq, outcome: { kind: "ok" } }], form).effects)).toEqual(["load-chat-prompt"]);
+  });
+
+  it("says the prompt changed for a while and reads it again; any other failure says why", () => {
+    const sending = answer(shown()).state;
+    const changed = play([{ type: "answer-result", id: sending.sends.seq, outcome: { kind: "failed", status: 409, code: "prompt_changed", message: "changed" } }], sending);
+    expect(changed.state.chat.card).toMatchObject({ promptId: "p", status: "changed" });
+    expect(kinds(changed.effects)).toEqual(["load-chat-prompt", "later"]);
+    // the read anew ends the chain before: a read begun earlier answers too late
+    expect(play([{ type: "chat-prompt-read", seq: sending.chat.promptSeq, sent: 0, prompt: prompt("q"), suggestion: null }], changed.state).state.chat.prompt?.id).toBe("p");
+    const later = changed.effects.find((effect) => effect.kind === "later") as Extract<Effect, { kind: "later" }>;
+    expect(later.ms).toBe(CARD_CHANGED_MS);
+    expect(play([later.event], changed.state).state.chat.card).toBeNull();
+    const failed = play([{ type: "answer-result", id: sending.sends.seq, outcome: { kind: "failed", status: 500, code: null, message: "boom" } }], sending);
+    expect(failed.state.chat.card).toEqual({ promptId: "p", status: "failed", message: "boom" });
+  });
+
+  it("lets go of a typed pick once its Confirm answered, whatever came of it", () => {
+    const picked = play([{ type: "chat-pending-answer", promptId: "p", answer: { option_index: 0 } }], shown()).state;
+    const sending = answer(picked, true).state;
+    expect(sending.chat.pendingAnswer).not.toBeNull();
+    const failed = play([{ type: "answer-result", id: sending.sends.seq, outcome: { kind: "failed", status: 500, code: null, message: "boom" } }], sending);
+    expect(failed.state.chat.pendingAnswer).toBeNull();
   });
 });

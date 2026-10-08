@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup as renderBare } from "react-dom/server";
-import type { ConversationTurn } from "../../shared/protocol.ts";
+import type { ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
 import { DEFAULT_SETTINGS, SettingsProvider } from "../lib/settings.ts";
 import { EMPTY_VIEW } from "../ui/state.ts";
 import { ChatView, type ChatViewModel } from "./ChatView.tsx";
@@ -9,7 +9,7 @@ import { ChatView, type ChatViewModel } from "./ChatView.tsx";
 const user = (text: string): ConversationTurn => ({ role: "user", ts: text, parts: [{ kind: "text", text }] });
 const model = (extra: Partial<ChatViewModel> = {}): ChatViewModel => ({
   paneId: "w1:p1", connected: true, ended: false, agent: "claude", agentStatus: "idle", view: EMPTY_VIEW, fresh: true, older: [], olderCursor: undefined,
-  olderState: "idle", historyId: "h1", error: null, loaded: true, abandoned: null, sentOver: null, prompt: null, pendingAnswer: null, showThinking: false, ...extra,
+  olderState: "idle", historyId: "h1", error: null, loaded: true, abandoned: null, sentOver: null, prompt: null, pendingAnswer: null, card: null, showThinking: false, ...extra,
 });
 
 /** English, as under the app's own provider with an English browser */
@@ -47,6 +47,17 @@ describe("Chat view", () => {
     const scrollback = { source: "scrollback" as const, turns: [], messages: [{ role: "agent" as const, text: "$ ls" }], truncated: false };
     expect(render(model({ view: scrollback }))).toContain("Conversation unavailable — show terminal output");
     expect(render(model({ view: scrollback, agent: null }))).not.toContain("Conversation unavailable");
+  });
+
+  it("holds the prompt's card while its answer goes, and says why one was refused", () => {
+    const prompt: InteractivePrompt = { id: "p", agent: "claude", kind: "approval", title: "Allow?", question: "Edit?", body: null, options: [{ label: "Yes", description: null }], multi_select: false, custom_option_index: null };
+    expect(render(model({ prompt, card: { promptId: "p", status: "pending" } }))).toContain('aria-busy="true"');
+    expect(render(model({ prompt, card: { promptId: "p", status: "failed", message: "boom" } }))).toContain(">boom</p>");
+    expect(render(model({ prompt, card: { promptId: "p", status: "changed", seq: 1 } }))).toContain("the prompt changed — re-read");
+    // an answer for the prompt before says nothing of this one
+    const other = render(model({ prompt, card: { promptId: "q", status: "failed", message: "boom" } }));
+    expect(other).not.toContain("boom");
+    expect(other).toContain('aria-busy="false"');
   });
 
   it("says the pane is reconnecting, and ended", () => {

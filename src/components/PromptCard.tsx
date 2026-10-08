@@ -3,29 +3,31 @@ import { Check, Send } from "lucide-react";
 
 import "./PromptCard.css";
 
-import { ApiError } from "../lib/api.ts";
-import { useMachineApi } from "../lib/machineContext.tsx";
-import type { InteractivePrompt, PromptAnswer } from "../../shared/protocol.ts";
+import type { InteractivePrompt } from "../../shared/protocol.ts";
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import { useT } from "../lib/i18n.ts";
+import type { Emit } from "../ui/bubble.ts";
+import type { ChatState, UiEvent } from "../ui/state.ts";
 
 export interface PromptCardProps {
-  paneId: string;
   prompt: InteractivePrompt;
-  onPromptChanged(): void;
-  onAnswered(): void;
   /** an option picked by a typed message, sent only on Confirm */
   typedAnswer?: TypedAnswer | null;
-  onTypedAnswerDone?(): void;
+  /** the card's answer: on its way, refused, or none */
+  card: ChatState["card"];
+  emit: Emit<PromptCardEvent>;
 }
 
-export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedAnswer = null, onTypedAnswerDone }: PromptCardProps) {
+/** an answer picked in the card (`typed`: the Confirm of a pick typed in the composer), and a typed pick let go */
+export type PromptCardEvent = { type: "card-answer"; answer: TypedAnswer; typed: boolean } | Extract<UiEvent, { type: "chat-pending-answer-done" }>;
+
+export function PromptCard({ prompt, typedAnswer = null, card, emit }: PromptCardProps) {
   const t = useT();
-  const { answerPanePrompt } = useMachineApi();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [custom, setCustom] = useState("");
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const answering = card !== null && card.promptId === prompt.id ? card : null;
+  const pending = answering?.status === "pending";
+  const error = answering?.status === "changed" ? "the prompt changed — re-read" : answering?.status === "failed" ? answering.message : null;
   const confirmRef = useRef<HTMLDivElement | null>(null);
 
   // the question to confirm comes into view, clear of the chat's floating buttons
@@ -36,28 +38,9 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
   useEffect(() => {
     setSelected(new Set());
     setCustom("");
-    setPending(false);
-    setError(null);
   }, [prompt.id]);
 
-  const answer = async (choice: Omit<PromptAnswer, "pane_id" | "prompt_id">): Promise<void> => {
-    setPending(true);
-    setError(null);
-    try {
-      await answerPanePrompt({ pane_id: paneId, prompt_id: prompt.id, ...choice });
-      onAnswered();
-    } catch (cause) {
-      if (cause instanceof ApiError && cause.status === 409 && cause.code === "prompt_changed") {
-        setError("the prompt changed — re-read");
-        onPromptChanged();
-        window.setTimeout(() => setError(null), 2000);
-      } else {
-        setError(cause instanceof Error ? cause.message : String(cause));
-      }
-    } finally {
-      setPending(false);
-    }
-  };
+  const answer = (choice: TypedAnswer, typed = false): void => emit({ type: "card-answer", answer: choice, typed });
 
   const toggle = (index: number): void => {
     setSelected((current) => {
@@ -124,7 +107,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
               );
             }
             return (
-              <button key={index} type="button" className={`prompt-card-option${typedAnswer?.option_index === index ? " is-typed" : ""}`} disabled={pending} onClick={() => void answer({ option_index: index })}>
+              <button key={index} type="button" className={`prompt-card-option${typedAnswer?.option_index === index ? " is-typed" : ""}`} disabled={pending} onClick={() => answer({ option_index: index })}>
                 <span className="prompt-card-number">{index + 1}.</span> {content}
               </button>
             );
@@ -132,7 +115,7 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
         </div>
       )}
       {prompt.multi_select && (
-        <button type="button" className={`btn${selected.size > 0 ? " btn-primary" : ""} prompt-card-submit`} disabled={pending || selected.size === 0} onClick={() => void answer({ option_indices: [...selected].sort((a, b) => a - b) })}>
+        <button type="button" className={`btn${selected.size > 0 ? " btn-primary" : ""} prompt-card-submit`} disabled={pending || selected.size === 0} onClick={() => answer({ option_indices: [...selected].sort((a, b) => a - b) })}>
           {selected.size > 0 ? t("Submit ({n})", { n: selected.size }) : t("Submit")}
         </button>
       )}
@@ -142,9 +125,9 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
           <div className="prompt-card-custom-row">
             <input className="input" value={custom} disabled={pending} placeholder={prompt.options[prompt.custom_option_index]?.label ?? t("Type an answer")} aria-label={hasChoices ? undefined : t("Custom answer")} aria-labelledby={hasChoices ? customLabelId : undefined} onChange={(event) => setCustom(event.currentTarget.value)} onKeyDown={(event) => {
               // an IME's Enter commits the candidate; WebKit can send it after compositionend, as key code 229
-              if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && custom.trim().length > 0) void answer({ custom_text: custom.trim() });
+              if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && custom.trim().length > 0) answer({ custom_text: custom.trim() });
             }} />
-            <button type="button" className={`btn${custom.trim().length > 0 ? " btn-primary" : ""}`} disabled={pending || custom.trim().length === 0} onClick={() => void answer({ custom_text: custom.trim() })}>
+            <button type="button" className={`btn${custom.trim().length > 0 ? " btn-primary" : ""}`} disabled={pending || custom.trim().length === 0} onClick={() => answer({ custom_text: custom.trim() })}>
               <Send aria-hidden="true" /> {t("Send")}
             </button>
           </div>
@@ -153,8 +136,8 @@ export function PromptCard({ paneId, prompt, onPromptChanged, onAnswered, typedA
       {typedAnswer?.option_index !== undefined && (
         <div className="prompt-card-confirm" role="alert" ref={confirmRef}>
           <span>{t("Send {answer}?", { answer: `${typedAnswer.option_index + 1}. ${prompt.options[typedAnswer.option_index]?.label ?? ""}` })}</span>
-          <button type="button" className="btn btn-primary" disabled={pending} onClick={() => void answer(typedAnswer).finally(() => onTypedAnswerDone?.())}>{t("Confirm")}</button>
-          <button type="button" className="btn" disabled={pending} onClick={() => onTypedAnswerDone?.()}>{t("Cancel")}</button>
+          <button type="button" className="btn btn-primary" disabled={pending} onClick={() => answer(typedAnswer, true)}>{t("Confirm")}</button>
+          <button type="button" className="btn" disabled={pending} onClick={() => emit({ type: "chat-pending-answer-done" })}>{t("Cancel")}</button>
         </div>
       )}
       {error !== null && <p className="prompt-card-error" role="alert">{error}</p>}

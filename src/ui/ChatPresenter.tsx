@@ -3,11 +3,11 @@ import type { AgentStatus, ConversationTurn } from "../../shared/protocol.ts";
 import { ChatView, type ChatViewEvent, type ChatViewModel } from "../components/ChatView.tsx";
 import { useMachineId } from "../lib/machineContext.tsx";
 import { useSettings } from "../lib/settings.ts";
-import type { Emit } from "./bubble.ts";
+import { relay, type Emit } from "./bubble.ts";
 import { EMPTY_VIEW, type UiEvent, type UiState } from "./state.ts";
 import { useSelected } from "./presenter.ts";
 
-export type ChatUpEvent = ChatViewEvent | Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" }>;
+export type ChatUpEvent = Exclude<ChatViewEvent, { type: "card-answer" }> | Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "prompt-card-answer" }>;
 
 /** no earlier turns: the same empty list each render, for the view's memo */
 const NO_TURNS: ConversationTurn[] = [];
@@ -52,9 +52,16 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, em
   const sentOver = useSelected((state) => (here(state) ? state.conversation.sentOver : null));
   const prompt = useSelected((state) => (state.chat.open?.paneId === paneId ? state.chat.prompt : null));
   const pendingAnswer = useSelected((state) => (state.chat.open?.paneId === paneId ? state.chat.pendingAnswer : null));
+  const card = useSelected((state) => (state.chat.open?.paneId === paneId ? state.chat.card : null));
   const { settings: { showThinking } } = useSettings();
   const model = useMemo<ChatViewModel>(() => ({
-    paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, showThinking,
-  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, showThinking]);
-  return <ChatView model={model} emit={emit} />;
+    paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking,
+  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking]);
+  // an answer in the prompt's card is for this pane's prompt on this PC
+  const promptId = prompt?.id ?? null;
+  const relayed = useMemo(() => relay<ChatViewEvent, ChatUpEvent>(emit, (event, pass) => {
+    if (event.type !== "card-answer") pass(event);
+    else if (promptId !== null) pass({ type: "prompt-card-answer", machineId, paneId, promptId, answer: event.answer, typed: event.typed });
+  }), [emit, machineId, paneId, promptId]);
+  return <ChatView model={model} emit={relayed} />;
 }
