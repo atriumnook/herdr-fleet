@@ -79,6 +79,5 @@ export class ComposerDraftStore {
   }
 }
 export const composerDrafts = new ComposerDraftStore();
-if (typeof window !== "undefined") window.addEventListener("storage", (event) => {
-  if (event.key?.startsWith("herdr-fleet:composer-draft:")) composerDrafts.refresh(event.key);
-});
+/** the storage key prefix of a pane's draft: another tab's write to one is that pane's draft changing */
+export const COMPOSER_DRAFT_KEY_PREFIX = "herdr-fleet:composer-draft:";

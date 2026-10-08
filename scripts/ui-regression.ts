@@ -31,6 +31,7 @@ import { checkTerminalDraft } from "./terminal-draft-regression.ts";
 import { checkChatPrompt } from "./chat-prompt-regression.ts";
 import { checkChatConversation } from "./chat-conversation-regression.ts";
 import { checkChatQueue } from "./chat-queue-regression.ts";
+import { checkComposerSend } from "./composer-send-regression.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-fleet-browser-")));
 const workspaces: string[] = [];
@@ -323,6 +324,7 @@ try {
   await checkChatPrompt(browser, origin);
   await checkChatConversation(browser, origin);
   await checkChatQueue(browser, origin);
+  await checkComposerSend(browser, origin);
   await checkFleetScreen(browser);
   await checkChatKeepsTerminalSize(browser, origin);
 

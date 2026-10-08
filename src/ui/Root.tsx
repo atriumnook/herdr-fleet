@@ -16,6 +16,8 @@ import { leavePreview, previewFromState, showPreview } from "../lib/fileHistory.
 import { HerdrSocket } from "../lib/ws.ts";
 import { EMPTY_DRAFT, draftIsEmpty } from "../lib/draft.ts";
 import { messageQueues, QUEUE_KEY_PREFIX } from "../lib/messageQueue.ts";
+import { COMPOSER_DRAFT_KEY_PREFIX, composerDrafts } from "../lib/composerDraft.ts";
+import { acknowledgeTerminalDraft, readTerminalDraft, setTerminalDraftSending, terminalDraftSending, writeTerminalDraft } from "../lib/terminalDraft.ts";
 import { INITIAL_STATE, type ConversationOutcome } from "./state.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import type { ConversationPageQuery } from "../lib/api.ts";
@@ -98,6 +100,24 @@ export const FLEET_PORTS: EffectPorts = {
     throw error;
   }),
   loadPromptState: (machineId, paneId) => fetchPanePromptState(paneId, machineId),
+  changeComposerDraft: (owner, change) => {
+    const key = `${COMPOSER_DRAFT_KEY_PREFIX}${owner}`;
+    let settled: { text: string; edited: boolean } | null = null;
+    if (change.kind === "refresh") composerDrafts.refresh(key);
+    else if (change.kind === "set") composerDrafts.set(key, change.text);
+    else if (change.kind === "begin") composerDrafts.begin(key, change.sent);
+    else if (change.kind === "end") composerDrafts.end(key);
+    else if (change.kind === "settle") settled = composerDrafts.settle(key, change.sent);
+    const { text, sending } = composerDrafts.read(key);
+    return { text, sending, settled };
+  },
+  changeLineDraft: (owner, change) => {
+    if (change.kind === "set") writeTerminalDraft(owner, change.text);
+    else if (change.kind === "begin") setTerminalDraftSending(owner, true);
+    else if (change.kind === "end") setTerminalDraftSending(owner, false);
+    else if (change.kind === "acknowledge") acknowledgeTerminalDraft(owner);
+    return { text: readTerminalDraft(owner), sending: terminalDraftSending(owner) };
+  },
   changeQueue: (owner, change) => {
     if (change.kind === "refresh") messageQueues.refresh(owner);
     else if (change.kind === "add") messageQueues.add(owner, change.text);
@@ -227,9 +247,11 @@ export function Root() {
   useEffect(() => {
     // a hidden tab (or a phone app in the background) reads nothing; it catches up on return
     const onVisibility = (): void => mediator.dispatch({ type: "visibility", visible: document.visibilityState !== "hidden" });
-    // another tab changed a pane's held messages
+    // another tab changed a pane's held messages...
     const onStorage = (event: StorageEvent): void => {
       if (event.key?.startsWith(QUEUE_KEY_PREFIX)) mediator.dispatch({ type: "queue-stored", owner: event.key.slice(QUEUE_KEY_PREFIX.length) });
+      // ...or the text typed in a pane's composer
+      if (event.key?.startsWith(COMPOSER_DRAFT_KEY_PREFIX)) mediator.dispatch({ type: "composer-draft", owner: event.key.slice(COMPOSER_DRAFT_KEY_PREFIX.length), change: { kind: "refresh" } });
     };
     window.addEventListener("storage", onStorage);
     // pasting the auth link into an open tab navigates the fragment alone: no reload, so no boot

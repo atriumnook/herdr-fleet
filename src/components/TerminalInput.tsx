@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { CornerDownLeft, SendHorizontal } from "lucide-react";
 
 import "./TerminalInput.css";
-import { readTerminalDraft, writeTerminalDraft, TERMINAL_LINE_LIMIT, subscribeTerminalDraft, terminalDraftSending, setTerminalDraftSending, acknowledgeTerminalDraft } from "../lib/terminalDraft.ts";
+import { TERMINAL_LINE_LIMIT } from "../lib/terminalDraft.ts";
+import type { Emit } from "../ui/bubble.ts";
+import { useSelected, useStateNow } from "../ui/presenter.ts";
+import type { LineDraftChange, UiEvent } from "../ui/state.ts";
 
 import { useT } from "../lib/i18n.ts";
 
@@ -14,6 +17,8 @@ export interface TerminalInputProps {
   onSend: (text: string) => false | Promise<true | string>;
   /** an empty line's send: Enter alone, for a menu's default or a prompt that asks to continue */
   onEnter: () => boolean;
+  /** the line's text goes up to the Root, which keeps it for its pane */
+  emit: Emit<Extract<UiEvent, { type: "line-draft" }>>;
 }
 
 /** Lines the box grows to before it scrolls. */
@@ -25,27 +30,29 @@ const MAX_ROWS = 4;
  * cannot take back keys it already sent: every revision arrived as more text. Here the line
  * is written with the keyboard's own editing and goes to the pane whole, then Enter.
  */
-export function TerminalInput({ owner, connected, onSend, onEnter, onComposing }: TerminalInputProps) {
+export function TerminalInput({ owner, connected, onSend, onEnter, onComposing, emit }: TerminalInputProps) {
   const t = useT();
-  const text = useSyncExternalStore(subscribeTerminalDraft, () => readTerminalDraft(owner));
-  const setText = useCallback((value: string | ((previous: string) => string)) => {
-    // Read the owner record even after unmount: a late acknowledgement must not erase
-    // edits made in a newly mounted input for the same pane.
-    const next = typeof value === "function" ? value(readTerminalDraft(owner)) : value;
-    writeTerminalDraft(owner, next);
-
-  }, [owner]);
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
+  const stateNow = useStateNow();
+  // the line belongs to its PC and pane (the Mediator keeps it), never to the mounted view: a late
+  // acknowledgement must not erase edits made in a newly mounted input for the same pane
+  const line = useSelected((state) => state.drafts.line[owner]);
+  const text = line?.text ?? "";
+  const sending = line?.sending ?? false;
+  const changeLine = useCallback((change: LineDraftChange) => emitRef.current({ type: "line-draft", owner, change }), [owner]);
+  useLayoutEffect(() => changeLine({ kind: "read" }), [changeLine]);
+  const setText = useCallback((value: string) => changeLine({ kind: "set", text: value }), [changeLine]);
   const composing = useRef(false);
   const composingCallback = useRef(onComposing);
   composingCallback.current = onComposing;
   useEffect(() => () => { composingCallback.current?.(false); }, []);
 
   const [note, setNote] = useState<string | null>(null);
-  const sending = useSyncExternalStore(subscribeTerminalDraft, () => terminalDraftSending(owner));
   const box = useRef<HTMLTextAreaElement>(null);
 
   const send = useCallback(() => {
-    if (!connected || terminalDraftSending(owner) || composing.current) return;
+    if (!connected || stateNow().drafts.line[owner]?.sending || composing.current) return;
     setNote(null);
     if (text.length === 0) {
       if (!onEnter()) setNote(t("Not sent: the terminal is disconnected."));
@@ -53,14 +60,13 @@ export function TerminalInput({ owner, connected, onSend, onEnter, onComposing }
     }
     const sent = onSend(text);
     if (sent === false) { setNote(t("Not sent: the terminal is disconnected.")); return; }
-    setTerminalDraftSending(owner, true);
+    changeLine({ kind: "begin" });
     void sent.then((result) => {
-      if (result === true) {
-        // text typed while it was on its way stays
-        acknowledgeTerminalDraft(owner);
-      } else setNote(result);
-    }).catch(() => setNote(t("Not confirmed. Check the terminal before sending again."))).finally(() => { setTerminalDraftSending(owner, false); });
-  }, [connected, onEnter, onSend, owner, setText, t, text]);
+      // text typed while it was on its way stays
+      if (result === true) changeLine({ kind: "acknowledge" });
+      else setNote(result);
+    }).catch(() => setNote(t("Not confirmed. Check the terminal before sending again."))).finally(() => changeLine({ kind: "end" }));
+  }, [changeLine, connected, onEnter, onSend, owner, stateNow, t, text]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Enter sends; Shift+Enter breaks the line; an IME keeps its Enter, including the committing
