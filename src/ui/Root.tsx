@@ -7,7 +7,6 @@ import { MediatorContext, useSelected } from "./presenter.ts";
 import { ensurePushSubscription, pushSupported, removePushSubscription, testDevicePush } from "../lib/push.ts";
 import { notificationState, requestNotificationPermission, showPaneEndedNotification, showPaneStatusNotification } from "../lib/notifications.ts";
 import { onNotificationTarget } from "../lib/notificationTarget.ts";
-import { showDroplet } from "../lib/droplet.ts";
 import { displayPaneTitle } from "../components/Sidebar.tsx";
 import { initialSelection, storeSelection } from "../lib/selection.ts";
 import { loadRecentPanes, rememberPane } from "../lib/recentPanes.ts";
@@ -58,9 +57,6 @@ const FLEET_PORTS: EffectPorts = {
   subscribePush: ensurePushSubscription,
   confirmPush: sendTestPush,
   removePush: removePushSubscription,
-  dropIn: ({ machineId, machineName, pane, alert }) => {
-    showDroplet({ machineId, paneId: pane.pane_id, agent: pane.agent ?? null, title: displayPaneTitle(pane), machine: machineName, kind: alert });
-  },
   notifyPane: ({ machineId, machineName, pane, status }, open) => {
     const title = `${machineName} · ${displayPaneTitle(pane)}`;
     if (status === "ended") showPaneEndedNotification(pane.pane_id, title, open, machineId);
@@ -161,6 +157,11 @@ export function Root() {
     };
     // Back and Forward move between the chat and a file's entry: Forward (or a reload) restores the file with its PC and pane
     const onHistory = (event: PopStateEvent): void => mediator.dispatch({ type: "file-history", preview: previewFromState(event.state) });
+    // the in-app alert goes with a fade when the device asks for less motion
+    const motion = window.matchMedia?.("(prefers-reduced-motion: reduce)") ?? null;
+    const onMotion = (): void => mediator.dispatch({ type: "motion-preference", reduced: motion?.matches === true });
+    onMotion();
+    motion?.addEventListener?.("change", onMotion);
     mediator.dispatch({ type: "file-history", preview: previewFromState(window.history.state) });
     document.addEventListener("visibilitychange", onVisibility);
     window.addEventListener("hashchange", onHashChange);
@@ -172,6 +173,7 @@ export function Root() {
       document.removeEventListener("visibilitychange", onVisibility);
       window.removeEventListener("hashchange", onHashChange);
       window.removeEventListener("popstate", onHistory);
+      motion?.removeEventListener?.("change", onMotion);
     };
   }, [mediator]);
   return (

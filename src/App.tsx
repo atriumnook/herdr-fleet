@@ -19,7 +19,6 @@ import { OpenFileContext } from "./lib/filePaths.ts";
 import { useT } from "./lib/i18n.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
-import { Droplet } from "./components/Droplet.tsx";
 import { relay, type Emit } from "./ui/bubble.ts";
 import { paneFromUrl } from "./lib/selection.ts";
 import { needsCount } from "./ui/fleetView.ts";
@@ -30,6 +29,7 @@ import { AccessGatePresenter } from "./ui/AccessGatePresenter.tsx";
 import { CommandPalettePresenter } from "./ui/CommandPalettePresenter.tsx";
 import { FilesDialogPresenter } from "./ui/FilesDialogPresenter.tsx";
 import { FileViewerPresenter } from "./ui/FileViewerPresenter.tsx";
+import { DropletPresenter } from "./ui/DropletPresenter.tsx";
 import { MachineSidebarPresenter } from "./ui/MachineSidebarPresenter.tsx";
 import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
@@ -102,7 +102,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const auth = useSelected((state) => state.connection.auth);
   const selectedMachine = machines.find((m) => m.id === selectedMachineId);
   const snapshot = selectedMachine?.snapshot ?? null;
-  const machinesRef = useRef(machines); machinesRef.current = machines;
   const canSignOut = auth?.authenticated === true && (auth.via === "token" || auth.via === "device");
   const drawerOpen = useSelected((state) => state.drawerOpen);
   const drawerOpenRef = useRef(drawerOpen); drawerOpenRef.current = drawerOpen;
@@ -144,11 +143,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
 
   const selectedMachineRef = useRef(selectedMachineId);
   selectedMachineRef.current = selectedMachineId;
-  // a pane picked closes the drawer and resets what the open pane kept (state.ts pick)
-  const selectTarget = useCallback((machineId: string, paneId: string | null) => {
-    emitRef.current({ type: "select-pane", machineId, paneId });
-  }, []);
-  const selectTargetRef = useRef(selectTarget); selectTargetRef.current = selectTarget;
   const selectPane = useCallback((paneId: string) => {
     emitRef.current({ type: "select-pane", machineId: selectedMachineRef.current, paneId });
   }, []);
@@ -463,13 +457,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       </div>
 
       <NewSessionPresenter emit={emit} />
-      <Droplet onOpen={(machineId, paneId) => {
-        // an ended pane's card outlives the pane: the refetch has dropped it, and selecting it attaches nothing
-        if (!machinesRef.current.find((m) => m.id === machineId)?.snapshot?.panes.some((p) => p.pane_id === paneId)) return;
-        // Files lists the pane it was opened on: the card's pane opens in its place, even when it is the same one
-        emitRef.current({ type: "close-files" });
-        selectTargetRef.current(machineId, paneId);
-      }} />
+      <DropletPresenter emit={emit} />
       <SettingsDialogPresenter
         install={installPrompt}
         alerts={<PushTestPresenter emit={emit} />}

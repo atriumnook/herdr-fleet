@@ -1,7 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { DROPLET_REPEAT_MS, FLICK_WINDOW_MS, LONG_TURN_MS, dropletAllows, endedTurn, flickVelocity, onDroplet, showDroplet, trackTurn, type DropletNotice, type QueuedDroplet } from "./droplet.ts";
-
-const notice: DropletNotice = { machineId: "local", paneId: "p1", agent: "claude", title: "api", machine: null, kind: "blocked" };
+import { FLICK_WINDOW_MS, LONG_TURN_MS, dropletAllows, endedTurn, flickVelocity, trackTurn } from "./droplet.ts";
 
 describe("dropletAllows", () => {
   it("follows the device's choices, a finished turn's length included", () => {
@@ -83,27 +81,5 @@ describe("flickVelocity", () => {
 
   it("is still when nothing moved lately", () => {
     expect(flickVelocity([{ y: 100, t: 0 }, { y: 60, t: 50 }], 60, 51 + FLICK_WINDOW_MS)).toBe(0);
-  });
-});
-
-describe("showDroplet", () => {
-  it("is false with nothing to draw it", () => {
-    expect(showDroplet(notice, 1)).toBe(false);
-  });
-
-  it("hands each notice to the drawer once, and the same one again right away is one notice", () => {
-    const seen: QueuedDroplet[] = [];
-    const off = onDroplet((n) => seen.push(n));
-    try {
-      expect(showDroplet(notice, 10_000)).toBe(true);
-      expect(showDroplet(notice, 10_000 + DROPLET_REPEAT_MS - 1)).toBe(false);
-      expect(showDroplet({ ...notice, kind: "done" }, 10_001)).toBe(true);
-      expect(showDroplet(notice, 10_000 + DROPLET_REPEAT_MS)).toBe(true);
-      expect(seen.map((n) => n.kind)).toEqual(["blocked", "done", "blocked"]);
-      expect(new Set(seen.map((n) => n.id)).size).toBe(3);
-    } finally {
-      off();
-    }
-    expect(showDroplet({ ...notice, paneId: "p2" }, 20_000)).toBe(false);
   });
 });

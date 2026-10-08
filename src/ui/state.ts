@@ -5,7 +5,7 @@ import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, FileInfo, Herdr
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
-import { dropletAllows, endedTurn, trackTurn, type DropletKind } from "../lib/droplet.ts";
+import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS, dropletAllows, endedTurn, trackTurn, type DropletNotice } from "../lib/droplet.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import { applyPaneStatus } from "../lib/snapshot.ts";
 import { sanitizeFontFamily } from "../lib/fontFamily.ts";
@@ -253,6 +253,22 @@ export interface FilesState {
   seq: number;
 }
 
+/** The in-app alert (lib/droplet.ts): one shown at a time, the newest waiting for it to fold away. */
+export interface DropletState {
+  shown: DropletNotice | null;
+  /** in: falling and showing; out: folding away */
+  phase: "in" | "out";
+  next: DropletNotice | null;
+  /** when each notice (PC, pane, kind) dropped in last: the same one again this soon is one */
+  lastShown: Record<string, number>;
+  /** notices so far */
+  count: number;
+  /** the timer that counts: a press, a release or a leave starts another */
+  timerSeq: number;
+  /** the device asks for less motion: the card goes with a fade */
+  reducedMotion: boolean;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -285,6 +301,7 @@ export interface UiState {
   newSession: NewSessionState;
   palette: PaletteState;
   files: FilesState;
+  droplet: DropletState;
   gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
@@ -387,6 +404,18 @@ export type UiEvent =
   | { type: "palette-recent"; machineId: string; recent: string[] }
   /** a pane picked in the palette: it opens, and the palette closes */
   | { type: "palette-pick"; paneId: string }
+  /** the in-app alert held by a finger, and let go of without a flick */
+  | { type: "droplet-press" }
+  | { type: "droplet-release" }
+  /** flicked up */
+  | { type: "droplet-dismiss" }
+  /** tapped: its pane opens */
+  | { type: "droplet-open" }
+  /** it has shown long enough */
+  | { type: "droplet-expire"; seq: number }
+  /** it folded away */
+  | { type: "droplet-gone"; seq: number }
+  | { type: "motion-preference"; reduced: boolean }
   | { type: "open-files" }
   | { type: "close-files" }
   /** a file named in the selected pane (its chat, its terminal, Files): `path` is read from the pane's folder */
@@ -498,8 +527,6 @@ export type Effect =
   | { kind: "enable-alerts"; prefs: AlertPrefs; session: number | null }
   | { kind: "remove-push" }
   | { kind: "subscribe-push"; prefs: AlertPrefs; seq: number }
-  /** an in-app alert; `machineName` only when there are several PCs */
-  | { kind: "drop-in"; machineId: string; machineName: string | null; pane: HerdrPane; alert: DropletKind }
   | { kind: "load-agents"; machineId: string; seq: number }
   | { kind: "gate-pair"; code: string }
   | { kind: "gate-authenticate"; token: string }
@@ -542,6 +569,7 @@ export const INITIAL_STATE: UiState = {
   newSession: { open: false },
   palette: { open: false },
   files: { dialog: false, viewer: null, seq: 0 },
+  droplet: { shown: null, phase: "in", next: null, lastShown: {}, count: 0, timerSeq: 0, reducedMotion: false },
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
@@ -610,6 +638,14 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "palette-pick":
       if (!state.palette.open) return next({});
       return next({ screen: "pane", detail: null, palette: { open: false }, ...pick(state, state.palette.machineId, event.paneId, effects) });
+    case "droplet-press":
+    case "droplet-release":
+    case "droplet-dismiss":
+    case "droplet-open":
+    case "droplet-expire":
+    case "droplet-gone":
+    case "motion-preference":
+      return dropletTransition(state, event, effects);
     case "open-files":
     case "close-files":
     case "open-file":
@@ -1069,7 +1105,7 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
         refetching = true;
         effects.push({ kind: "later", ms: REFETCH_DEBOUNCE_MS, event: { type: "refetch-machines" } });
       }
-      const pushed: UiState = { ...state, machines: { ...machines, list, refetching, revision: machines.revision + 1 }, alerts: alertOn(state, machine, message, event.at ?? 0, effects) };
+      const pushed: UiState = { ...state, machines: { ...machines, list, refetching, revision: machines.revision + 1 }, ...alertOn(state, machine, message, event.at ?? 0, effects) };
       // the fleet lives on this PC's server only
       if (message.type === "fleet-changed" && machine.kind === "local") return transitionOnly(pushed, { type: "fleet-changed" });
       return { state: pushed, effects };
@@ -1109,9 +1145,10 @@ const alertKey = (machineId: string, paneId: string): string => paneStorageId(ma
  * has no push subscription to bring it. The pane's last status, its turn's start and its last
  * turn's length are kept to decide whether the change is news and how long the turn was.
  */
-function alertOn(state: UiState, machine: Machine, message: ServerMessage, at: number, effects: Effect[]): AlertsState {
+function alertOn(state: UiState, machine: Machine, message: ServerMessage, at: number, effects: Effect[]): Pick<UiState, "alerts" | "droplet"> {
   const { alerts, settings } = state;
-  if (message.type !== "pane-status" && message.type !== "pane-exited") return alerts;
+  let { droplet } = state;
+  if (message.type !== "pane-status" && message.type !== "pane-exited") return { alerts, droplet };
   const key = alertKey(machine.id, message.pane_id);
   const pane = machine.snapshot?.panes.find((candidate) => candidate.pane_id === message.pane_id) as HerdrPane | undefined;
   const prefs = alertPrefs(settings);
@@ -1129,15 +1166,78 @@ function alertOn(state: UiState, machine: Machine, message: ServerMessage, at: n
     if (worked !== null) lasted.set(key, worked);
     if (pane && shouldNotifyStatus(previous, message.agent_status)) {
       const alert = message.agent_status === "blocked" ? "blocked" : "done";
-      if (dropsIn && dropletAllows(prefs, message.agent_status, worked)) effects.push({ kind: "drop-in", machineId: machine.id, machineName, pane, alert });
+      if (dropsIn && dropletAllows(prefs, message.agent_status, worked)) droplet = dropIn(droplet, { machineId: machine.id, machineName, pane, kind: alert }, at, effects);
       if (tabTells && alertsAllow(prefs, message.agent_status)) effects.push({ kind: "notify-pane", machineId: machine.id, machineName: machine.name, pane, status: alert });
     }
   } else {
     const worked = endedTurn(started, lasted, key, at);
-    if (pane && dropsIn && dropletAllows(prefs, "done", worked)) effects.push({ kind: "drop-in", machineId: machine.id, machineName, pane, alert: "ended" });
+    if (pane && dropsIn && dropletAllows(prefs, "done", worked)) droplet = dropIn(droplet, { machineId: machine.id, machineName, pane, kind: "ended" }, at, effects);
     if (pane && tabTells && prefs.done !== "off") effects.push({ kind: "notify-pane", machineId: machine.id, machineName: machine.name, pane, status: "ended" });
   }
-  return { ...alerts, statuses, turnStarts: Object.fromEntries(started), lastTurns: Object.fromEntries(lasted) };
+  return { alerts: { ...alerts, statuses, turnStarts: Object.fromEntries(started), lastTurns: Object.fromEntries(lasted) }, droplet };
+}
+
+/** A notice drops in: at once with none shown, else after the shown one folds away. The same one again this soon is one. */
+function dropIn(droplet: DropletState, notice: Omit<DropletNotice, "id">, at: number, effects: Effect[]): DropletState {
+  const key = `${notice.machineId}\n${notice.pane.pane_id}\n${notice.kind}`;
+  const last = droplet.lastShown[key];
+  if (last !== undefined && at - last < DROPLET_REPEAT_MS) return droplet;
+  const count = droplet.count + 1;
+  const queued = { ...droplet, count, lastShown: { ...droplet.lastShown, [key]: at } };
+  if (droplet.shown === null) return showDroplet(queued, { ...notice, id: count }, effects);
+  return leaveDroplet({ ...queued, next: { ...notice, id: count } }, effects);
+}
+
+/** The card shows, and goes once its text has shown for a while. */
+function showDroplet(droplet: DropletState, notice: DropletNotice, effects: Effect[]): DropletState {
+  const timerSeq = droplet.timerSeq + 1;
+  effects.push({ kind: "later", ms: DROPLET_REVEAL_MS + DROPLET_HOLD_MS, event: { type: "droplet-expire", seq: timerSeq } });
+  return { ...droplet, shown: notice, phase: "in", next: null, timerSeq };
+}
+
+/** The card folds away; the one waiting shows after it. */
+function leaveDroplet(droplet: DropletState, effects: Effect[]): DropletState {
+  if (droplet.shown === null || droplet.phase === "out") return droplet;
+  const timerSeq = droplet.timerSeq + 1;
+  effects.push({ kind: "later", ms: droplet.reducedMotion ? DROPLET_EXIT_REDUCED_MS : DROPLET_EXIT_MS, event: { type: "droplet-gone", seq: timerSeq } });
+  return { ...droplet, phase: "out", timerSeq };
+}
+
+type DropletEvent = Extract<UiEvent, { type: "droplet-press" | "droplet-release" | "droplet-dismiss" | "droplet-open" | "droplet-expire" | "droplet-gone" | "motion-preference" }>;
+
+function dropletTransition(state: UiState, event: DropletEvent, effects: Effect[]): Transition {
+  const { droplet } = state;
+  const next = (changed: DropletState): Transition => ({ state: changed === droplet ? state : { ...state, droplet: changed }, effects });
+  if (event.type === "motion-preference") return next(droplet.reducedMotion === event.reduced ? droplet : { ...droplet, reducedMotion: event.reduced });
+  if (event.type === "droplet-gone") {
+    if (event.seq !== droplet.timerSeq || droplet.phase !== "out") return next(droplet);
+    return next(droplet.next === null ? { ...droplet, shown: null, phase: "in" } : showDroplet(droplet, droplet.next, effects));
+  }
+  // what is folding away takes no more presses
+  const { shown } = droplet;
+  if (shown === null || droplet.phase === "out") return next(droplet);
+  switch (event.type) {
+    case "droplet-press":
+      // held while touched: the timer running no longer counts
+      return next({ ...droplet, timerSeq: droplet.timerSeq + 1 });
+    case "droplet-release": {
+      const timerSeq = droplet.timerSeq + 1;
+      effects.push({ kind: "later", ms: DROPLET_HOLD_MS, event: { type: "droplet-expire", seq: timerSeq } });
+      return next({ ...droplet, timerSeq });
+    }
+    case "droplet-expire":
+      return next(event.seq === droplet.timerSeq ? leaveDroplet(droplet, effects) : droplet);
+    case "droplet-dismiss":
+      return next(leaveDroplet(droplet, effects));
+    case "droplet-open": {
+      const left = { ...state, droplet: leaveDroplet(droplet, effects) };
+      // an ended pane's card outlives the pane: the refetch has dropped it, and selecting it attaches nothing
+      const there = state.machines.list.find((machine) => machine.id === shown.machineId)?.snapshot?.panes.some((pane) => pane.pane_id === shown.pane.pane_id);
+      if (!there) return { state: left, effects };
+      // Files lists the pane it was opened on: the card's pane opens in its place, even when it is the same one
+      return { state: { ...left, screen: "pane", detail: null, files: { ...state.files, dialog: false }, ...pick(state, shown.machineId, shown.pane.pane_id, effects) }, effects };
+    }
+  }
 }
 
 /** This device's push subscription is registered whenever it may be: in, allowed, alerts on, push there; again as its choice of alerts changes. */

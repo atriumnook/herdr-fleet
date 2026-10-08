@@ -3,7 +3,8 @@ import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { Machine } from "../../shared/machines.ts";
 import type { FileInfo, HealthAuth, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
-import { INITIAL_STATE, transition, treeOf, type UiEvent, type UiState } from "./state.ts";
+import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
+import { INITIAL_STATE, transition, treeOf, type Effect, type UiEvent, type UiState } from "./state.ts";
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, name: id, role: "worker", agent: "pi", group: "g1", herdrName: `h-${id}`, paneId: `w1:${id}`, cwd: "/w",
@@ -622,34 +623,49 @@ describe("alerts", () => {
   };
   const status = (agent_status: string, at = 1_000) => ({ type: "machine-message" as const, machineId: "local", message: { type: "pane-status" as const, pane_id: "w1:p1", agent_status: agent_status as never }, at });
 
+  /** the in-app alert showing, if any */
+  const dropped = (state: UiState) => state.droplet.shown;
+
   it("tells of a pane that started waiting on the person, in the tab and in the app", () => {
-    const { effects } = play([status("blocked")], watching());
-    expect(kinds(effects)).toEqual(["drop-in", "notify-pane"]);
-    expect(effects[0]).toMatchObject({ kind: "drop-in", machineId: "local", alert: "blocked" });
+    const { state, effects } = play([status("blocked")], watching());
+    expect(kinds(effects)).toEqual(["later", "notify-pane"]);
+    expect(dropped(state)).toMatchObject({ machineId: "local", pane: { pane_id: "w1:p1" }, kind: "blocked" });
   });
 
   it("leaves the tab's own alert to the push service once this device is subscribed", () => {
     const pushed = watching();
-    expect(kinds(play([status("blocked")], { ...pushed, alerts: { ...pushed.alerts, push: true } }).effects)).toEqual(["drop-in"]);
+    const subscribed = play([status("blocked")], { ...pushed, alerts: { ...pushed.alerts, push: true } });
+    expect(kinds(subscribed.effects)).toEqual(["later"]);
+    expect(dropped(subscribed.state)).not.toBeNull();
   });
 
   it("drops nothing in for the pane open in front of the person, unless the drawer covers it", () => {
     const open = play([{ type: "select-pane", machineId: "local", paneId: "w1:p1" }], watching()).state;
-    expect(kinds(play([status("blocked")], open).effects)).toEqual(["notify-pane"]);
-    expect(kinds(play([{ type: "drawer", open: true }, status("blocked")], open).effects)).toEqual(["drop-in", "notify-pane"]);
+    const front = play([status("blocked")], open);
+    expect(kinds(front.effects)).toEqual(["notify-pane"]);
+    expect(dropped(front.state)).toBeNull();
+    const covered = play([{ type: "drawer", open: true }, status("blocked")], open);
+    expect(kinds(covered.effects)).toEqual(["later", "notify-pane"]);
+    expect(dropped(covered.state)).not.toBeNull();
   });
 
   it("says nothing of a status that is no news, nor with alerts off", () => {
     const state = watching();
     expect(play([status("idle")], state).effects).toEqual([]);
     const off = play([{ type: "change-settings", patch: { alertsOn: false } }], state).state;
-    expect(play([status("blocked")], off).effects.filter((effect) => effect.kind === "drop-in" || effect.kind === "notify-pane")).toEqual([]);
+    const quiet = play([status("blocked")], off);
+    expect(quiet.effects.filter((effect) => effect.kind === "notify-pane")).toEqual([]);
+    expect(dropped(quiet.state)).toBeNull();
   });
 
   it("drops in a finished turn only when it was long, by default; the tab's alert, as before, takes no timing", () => {
     const working = play([status("working", 0)], watching()).state;
-    expect(kinds(play([status("done", 10_000)], working).effects)).toEqual(["notify-pane"]);
-    expect(kinds(play([status("done", 120_000)], working).effects)).toEqual(["drop-in", "notify-pane"]);
+    const quick = play([status("done", 10_000)], working);
+    expect(kinds(quick.effects)).toEqual(["notify-pane"]);
+    expect(dropped(quick.state)).toBeNull();
+    const long = play([status("done", 120_000)], working);
+    expect(kinds(long.effects)).toEqual(["later", "notify-pane"]);
+    expect(dropped(long.state)).toMatchObject({ kind: "done" });
   });
 
   it("asks for the permission, turns alerts on, subscribes and confirms with a push", () => {
@@ -1043,5 +1059,101 @@ describe("Files and the file viewer", () => {
     const moved = play([{ type: "file-history", preview: { path: "other.txt", paneId: "w1:p1", machineId: "local" } }], several);
     expect(moved.state.files.viewer).toMatchObject({ path: "other.txt", closing: false });
     expect(kinds(moved.effects)).toEqual(["load-file"]);
+  });
+});
+
+describe("the in-app alert", () => {
+  const pane = (id: string, status = "idle") => ({ pane_id: id, workspace_id: "w1", tab_id: "w1:t1", focused: false, agent_status: status, agent: "claude" });
+  const pc = (ids: string[]): Machine => ({
+    id: "local", name: "omarchy", kind: "local", enabled: true, state: "connected", error: null,
+    snapshot: { version: "0.9.1", protocol: 22, focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: "w1:p1", workspaces: [], tabs: [], agents: [], panes: ids.map((id) => pane(id)) } as never,
+  });
+  const kinds = (effects: { kind: string }[]) => effects.map((effect) => effect.kind);
+  /** in, the PC's panes idle, another pane open */
+  const watching = (ids = ["w1:p1", "w1:p2"]) => {
+    const booted = play([{ type: "boot", linkToken: null }]).state;
+    return play([{ type: "machines-loaded", machines: [pc(ids)], revision: booted.machines.revision }, { type: "machines-pushed", machines: [pc(ids)] }, { type: "select-pane", machineId: "local", paneId: "w1:open" }], booted).state;
+  };
+  const blocked = (paneId: string, at = 1_000) => ({ type: "machine-message" as const, machineId: "local", message: { type: "pane-status" as const, pane_id: paneId, agent_status: "blocked" as never }, at });
+  const idle = (paneId: string, at = 1_000) => ({ type: "machine-message" as const, machineId: "local", message: { type: "pane-status" as const, pane_id: paneId, agent_status: "idle" as never }, at });
+  /** the `later` effects asked for, as the events they send */
+  const timers = (effects: Effect[]) => effects.flatMap((effect) => (effect.kind === "later" ? [{ ms: effect.ms, event: effect.event }] : []));
+
+  it("drops in, and goes by itself once its text has shown for a while", () => {
+    const { state, effects } = play([blocked("w1:p1")], watching());
+    expect(state.droplet).toMatchObject({ shown: { pane: { pane_id: "w1:p1" }, kind: "blocked" }, phase: "in", next: null });
+    const [hold] = timers(effects);
+    expect(hold!.ms).toBe(DROPLET_REVEAL_MS + DROPLET_HOLD_MS);
+    const leaving = play([hold!.event], state);
+    expect(leaving.state.droplet.phase).toBe("out");
+    const [exit] = timers(leaving.effects);
+    expect(exit!.ms).toBe(DROPLET_EXIT_MS);
+    expect(play([exit!.event], leaving.state).state.droplet).toMatchObject({ shown: null, phase: "in" });
+  });
+
+  it("shows one at a time: a newer one folds the shown one away and takes its place, the newest winning", () => {
+    const first = play([blocked("w1:p1")], watching()).state;
+    const second = play([blocked("w1:p2")], first);
+    expect(second.state.droplet).toMatchObject({ shown: { pane: { pane_id: "w1:p1" } }, phase: "out", next: { pane: { pane_id: "w1:p2" } } });
+    const [exit] = timers(second.effects);
+    const swapped = play([exit!.event], second.state);
+    expect(swapped.state.droplet).toMatchObject({ shown: { pane: { pane_id: "w1:p2" } }, phase: "in", next: null });
+    expect(timers(swapped.effects).map((timer) => timer.ms)).toEqual([DROPLET_REVEAL_MS + DROPLET_HOLD_MS]);
+    expect(swapped.state.droplet.shown!.id).not.toBe(first.droplet.shown!.id);
+  });
+
+  it("drops the same notice for the same pane once when it comes again at once", () => {
+    const first = play([blocked("w1:p1", 1_000)], watching()).state;
+    const gone = play([{ type: "droplet-dismiss" }], first);
+    const after = play([timers(gone.effects)[0]!.event], gone.state).state;
+    expect(play([idle("w1:p1", 1_100), blocked("w1:p1", 1_000 + DROPLET_REPEAT_MS - 1)], after).state.droplet.shown).toBeNull();
+    expect(play([idle("w1:p1", 1_100), blocked("w1:p1", 1_000 + DROPLET_REPEAT_MS)], after).state.droplet.shown).not.toBeNull();
+    // another kind of notice for the pane is news at once
+    const done = { type: "machine-message" as const, machineId: "local", message: { type: "pane-exited" as const, pane_id: "w1:p1" }, at: 1_001 };
+    expect(play([{ type: "change-settings", patch: { alertDone: "always" } }, done], after).state.droplet.shown).toMatchObject({ kind: "ended" });
+  });
+
+  it("stays while pressed, and goes a while after it is let go", () => {
+    const shown = play([blocked("w1:p1")], watching());
+    const pressed = play([{ type: "droplet-press" }], shown.state).state;
+    // the timer asked for before the press no longer counts
+    expect(play([timers(shown.effects)[0]!.event], pressed).state.droplet.phase).toBe("in");
+    const released = play([{ type: "droplet-release" }], pressed);
+    const [hold] = timers(released.effects);
+    expect(hold!.ms).toBe(DROPLET_HOLD_MS);
+    expect(play([hold!.event], released.state).state.droplet.phase).toBe("out");
+  });
+
+  it("goes when flicked up, faster when the device asks for less motion", () => {
+    const reduced = play([{ type: "motion-preference", reduced: true }], watching()).state;
+    const flicked = play([blocked("w1:p1"), { type: "droplet-dismiss" }], reduced);
+    expect(flicked.state.droplet.phase).toBe("out");
+    expect(timers(flicked.effects).at(-1)!.ms).toBe(DROPLET_EXIT_REDUCED_MS);
+    // a second flick while it goes changes nothing
+    expect(play([{ type: "droplet-dismiss" }], flicked.state).effects).toEqual([]);
+  });
+
+  it("opens its pane when tapped and goes, closing Files; a pane that is gone only goes", () => {
+    const filesOpen = play([{ type: "open-files" }], { ...watching(), selection: { machineId: "local", paneId: "w1:p1", auto: false } }).state;
+    const tapped = play([blocked("w1:p2"), { type: "droplet-open" }], filesOpen).state;
+    expect(tapped.selection).toMatchObject({ machineId: "local", paneId: "w1:p2" });
+    expect(tapped.files.dialog).toBe(false);
+    expect(tapped.droplet.phase).toBe("out");
+    // the same pane tapped again closes Files as well
+    const card = play([blocked("w1:p2", 5_000)], { ...watching(), selection: { machineId: "local", paneId: "w1:p1", auto: false } }).state;
+    const same = play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }, { type: "open-files" }, { type: "droplet-open" }], card).state;
+    expect(same.selection.paneId).toBe("w1:p2");
+    expect(same.files.dialog).toBe(false);
+    // an ended pane's card outlives the pane
+    const shown = play([blocked("w1:p2", 9_000)], { ...watching(), selection: { machineId: "local", paneId: "w1:open", auto: false } }).state;
+    const gone = play([{ type: "machines-pushed", machines: [pc(["w1:p1"])] }, { type: "droplet-open" }], shown).state;
+    expect(gone.selection.paneId).toBe("w1:open");
+    expect(gone.droplet.phase).toBe("out");
+  });
+
+  it("ignores a tap and a press while it goes", () => {
+    const going = play([blocked("w1:p1"), { type: "droplet-dismiss" }], watching()).state;
+    expect(play([{ type: "droplet-open" }], going).state.selection.paneId).toBe("w1:open");
+    expect(kinds(play([{ type: "droplet-press" }, { type: "droplet-release" }], going).effects)).toEqual([]);
   });
 });

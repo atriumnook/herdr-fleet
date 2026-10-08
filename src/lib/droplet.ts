@@ -1,4 +1,4 @@
-import type { AgentStatus } from "../../shared/protocol.ts";
+import type { AgentStatus, HerdrPane } from "../../shared/protocol.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 
 /**
@@ -7,31 +7,34 @@ import type { AlertPrefs } from "../../shared/notify-policy.ts";
  * alerts stay quiet in a visible tab (lib/notifications.ts), so without this an agent
  * that waits on the user while the app is open says so nowhere but its sidebar row.
  *
- * App decides what is news (shared/notify-policy.ts, as the other alerts do) and calls
- * showDroplet(); components/Droplet.tsx is the one place that draws them.
+ * The state machine decides what is news (shared/notify-policy.ts, as the other alerts do) and
+ * keeps the one shown (ui/state.ts `droplet`); components/Droplet.tsx is the one place that draws them.
  */
 
 export type DropletKind = "blocked" | "done" | "ended";
 
 export interface DropletNotice {
-  machineId: string;
-  paneId: string;
-  agent: string | null;
-  /** the pane's name, as the sidebar shows it */
-  title: string;
-  /** the machine's name, shown beside what happened when there is more than one */
-  machine: string | null;
-  kind: DropletKind;
-}
-
-export interface QueuedDroplet extends DropletNotice {
+  /** counts the notices: each one is drawn anew */
   id: number;
+  machineId: string;
+  /** the machine's name, shown beside what happened when there is more than one */
+  machineName: string | null;
+  pane: HerdrPane;
+  kind: DropletKind;
 }
 
 /** A finished turn this long or longer is a "long turn" (server/push.ts DEFAULT_ALERT_TIMING.longTurn). */
 export const LONG_TURN_MS = 60_000;
 /** The same notice for the same pane this soon again is one notice. */
 export const DROPLET_REPEAT_MS = 400;
+/** enter: the drop falls, then spreads, then its text shows (Droplet.css runs the same clock) */
+export const DROPLET_REVEAL_MS = 560;
+/** how long it stays once its text shows */
+export const DROPLET_HOLD_MS = 3600;
+/** exit: the text fades, the card folds back into a drop, the drop rises */
+export const DROPLET_EXIT_MS = 820;
+/** exit with less motion asked for: a fade (Droplet.css) */
+export const DROPLET_EXIT_REDUCED_MS = 160;
 
 /**
  * Whether this device wants to hear about a status at all, the finished-turn length included:
@@ -91,28 +94,4 @@ export interface PressSample {
 export function flickVelocity(samples: readonly PressSample[], y: number, now: number): number {
   const from = samples.find((sample) => now - sample.t <= FLICK_WINDOW_MS);
   return from ? (y - from.y) / Math.max(1, now - from.t) : 0;
-}
-
-type Listener = (notice: QueuedDroplet) => void;
-const listeners = new Set<Listener>();
-let nextId = 1;
-const lastShown = new Map<string, number>();
-
-/** Shows a notice in the open app; false when nothing draws them (no Droplet mounted) or it repeats one just shown. */
-export function showDroplet(notice: DropletNotice, now = Date.now()): boolean {
-  if (listeners.size === 0) return false;
-  const key = `${notice.machineId}\n${notice.paneId}\n${notice.kind}`;
-  const last = lastShown.get(key);
-  if (last !== undefined && now - last < DROPLET_REPEAT_MS) return false;
-  lastShown.set(key, now);
-  const queued = { ...notice, id: nextId++ };
-  for (const listener of listeners) listener(queued);
-  return true;
-}
-
-export function onDroplet(listener: Listener): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
-  };
 }
