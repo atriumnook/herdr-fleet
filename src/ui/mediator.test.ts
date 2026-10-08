@@ -52,6 +52,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     rememberedAgent: () => "",
     rememberAgent: () => {},
     createSession: async () => ({ workspace_id: "w9", pane_id: "w9:p1", agent_started: true }),
+    loadBackgroundTasks: async () => ({ tasks: [], runs: [], serverTime: null }),
     showPreview: () => {},
     leavePreview: () => true,
     loadFileInfo: async () => ({ kind: "missing" }),
@@ -253,5 +254,15 @@ describe("Mediator", () => {
     mediator.dispatch({ type: "close-file" });
     expect(left).toEqual([1]);
     expect(mediator.getState().files.viewer).toBeNull();
+  });
+
+  it("reads an open background tasks list, timing it by this browser's clock, and says a read that failed", async () => {
+    const mediator = new Mediator(ports({ loadBackgroundTasks: async () => ({ tasks: [], runs: [], serverTime: null }) }).ports);
+    mediator.dispatch({ type: "open-background-tasks", machineId: "local", paneId: "w1:p1" });
+    await until(() => mediator.getState().backgroundTasks.activity !== null);
+    expect(mediator.getState().backgroundTasks.activity!.readAt).toBeGreaterThan(0);
+    const failing = new Mediator(ports({ loadBackgroundTasks: async () => { throw new Error("502"); } }).ports);
+    failing.dispatch({ type: "open-background-tasks", machineId: "local", paneId: "w1:p1" });
+    await until(() => failing.getState().backgroundTasks.failed);
   });
 });

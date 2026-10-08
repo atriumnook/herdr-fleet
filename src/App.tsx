@@ -449,6 +449,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
             onRoleAck={(next) => emit({ type: "role-ack", role: next })}
             onConnectionChange={(next) => emit({ type: "pane-connection", connected: next })}
             onServerMessage={handleServerMessage}
+            emit={emit}
           />
           </div>
           {screen === "fleet" && <FleetPresenter screen={screen} emit={emit} />}

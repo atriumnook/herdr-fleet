@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, createWorkspace, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, createWorkspace, fetchPaneOmoActivity, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -77,6 +77,7 @@ const FLEET_PORTS: EffectPorts = {
     if (error instanceof ApiError && error.code === "invalid_cwd") return "invalid-cwd" as const;
     throw error;
   }),
+  loadBackgroundTasks: (machineId, paneId) => fetchPaneOmoActivity(paneId, machineId),
   showPreview,
   leavePreview,
   loadFileInfo: (machineId, path, paneId) => fetchFileInfo(path, paneId, machineId).then(

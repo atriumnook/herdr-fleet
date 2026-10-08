@@ -18,6 +18,8 @@ import { matchHerdrWidths } from "../lib/terminalWidths.ts";
 import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar, type KeyBarEvent } from "./KeyBar.tsx";
+import type { Emit } from "../ui/bubble.ts";
+import type { BackgroundTasksUpEvent } from "../ui/BackgroundTasksPresenter.tsx";
 import { TerminalInput } from "./TerminalInput.tsx";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
@@ -73,6 +75,8 @@ export interface PaneTerminalProps {
   onConnectionChange?: (connected: boolean) => void;
   /** Every server frame also reaches App: it merges pane-status and schedules refetches. */
   onServerMessage?: (message: ServerMessage) => void;
+  /** what the views inside it (the composer's background tasks) send up to the Root */
+  emit: Emit<BackgroundTasksUpEvent>;
 }
 
 
@@ -113,6 +117,7 @@ export function PaneTerminal({
   onRoleAck,
   onConnectionChange,
   onServerMessage,
+  emit,
 }: PaneTerminalProps) {
   const t = useT();
   const openFile = useContext(OpenFileContext);
@@ -1436,6 +1441,7 @@ export function PaneTerminal({
           agent={agent}
           agentStatus={agentStatus}
           backgroundTasks={backgroundTasks}
+          emit={emit}
           metadata={chatMetadata?.pane === paneId ? chatMetadata.value : null}
           connected={connected && !held}
           queueMode={busy}
