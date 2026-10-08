@@ -53,9 +53,17 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     rememberedAgent: () => "",
     rememberAgent: () => {},
     createSession: async () => ({ workspace_id: "w9", pane_id: "w9:p1", agent_started: true }),
+    showPreview: () => {},
+    leavePreview: () => true,
+    loadFileInfo: async () => ({ kind: "missing" }),
+    loadFileText: async () => "",
+    listFolder: async () => { throw new Error("not a folder"); },
   };
   return { ports: { ...base, ...overrides }, requests, saved, forgotten, timers };
 }
+
+/** this browser is in: the server reads its files */
+const inside = { ...INITIAL_STATE, connection: { ...INITIAL_STATE.connection, locked: false } };
 
 describe("Mediator", () => {
   it("runs the effects the state machine asks for and feeds their outcome back", async () => {
@@ -210,5 +218,41 @@ describe("Mediator", () => {
     const mediator = new Mediator(ports({ loadRecent: () => ["w1:p2", "w1:p1"] }).ports);
     mediator.dispatch({ type: "open-palette" });
     expect(mediator.getState().palette).toMatchObject({ open: true, recent: ["w1:p2", "w1:p1"] });
+  });
+
+  it("reads a file the viewer opens, then the start of its text; a read that throws says the file could not be opened", async () => {
+    const shown: Array<{ path: string; replace: boolean }> = [];
+    const mediator = new Mediator(ports({
+      showPreview: (preview, replace) => { shown.push({ path: preview.path, replace }); },
+      loadFileInfo: async (_machineId, path) => ({ kind: "info", info: { path: `/w/${path}`, name: path, size: 5, modified: "", mime: "text/plain", kind: "text" } }),
+      loadFileText: async (_machineId, path) => `text of ${path}`,
+    }).ports, inside);
+    mediator.dispatch({ type: "open-file", path: "notes.txt" });
+    expect(shown).toEqual([{ path: "notes.txt", replace: false }]);
+    await until(() => { const content = mediator.getState().files.viewer?.content; return content?.kind === "file" && content.text !== null; });
+    expect(mediator.getState().files.viewer?.content).toMatchObject({ text: "text of /w/notes.txt" });
+    const failing = new Mediator(ports({ loadFileInfo: async () => { throw new Error("500"); } }).ports, inside);
+    failing.dispatch({ type: "open-file", path: "notes.txt" });
+    await until(() => failing.getState().files.viewer?.content.kind === "failed");
+    expect(failing.getState().files.viewer?.content).toEqual({ kind: "failed", reason: "failed" });
+  });
+
+  it("lists the folder at a path no file is at", async () => {
+    const mediator = new Mediator(ports({ listFolder: async () => "/w/src" }).ports, inside);
+    mediator.dispatch({ type: "open-file", path: "src" });
+    await until(() => mediator.getState().files.viewer?.content.kind === "folder");
+    const missing = new Mediator(ports().ports, inside);
+    missing.dispatch({ type: "open-file", path: "src" });
+    await until(() => missing.getState().files.viewer?.content.kind === "failed");
+    expect(missing.getState().files.viewer?.content).toEqual({ kind: "failed", reason: "missing" });
+  });
+
+  it("closes a viewer whose history entry is not its own at once, rather than leaving the page", () => {
+    const left: number[] = [];
+    const mediator = new Mediator(ports({ leavePreview: () => { left.push(1); return false; } }).ports, inside);
+    mediator.dispatch({ type: "open-file", path: "notes.txt" });
+    mediator.dispatch({ type: "close-file" });
+    expect(left).toEqual([1]);
+    expect(mediator.getState().files.viewer).toBeNull();
   });
 });

@@ -1,9 +1,10 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
-import { paneStorageId, type Machine } from "../../shared/machines.ts";
+import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { alertsAllow, shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, FileInfo, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
+import type { FilePreview } from "../lib/fileHistory.ts";
 import { dropletAllows, endedTurn, trackTurn, type DropletKind } from "../lib/droplet.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import { applyPaneStatus } from "../lib/snapshot.ts";
@@ -214,6 +215,44 @@ export interface GateState {
   scannedSent: boolean;
 }
 
+/** What the viewer shows of its file: read, several files of that name, a folder at the path, or why not. */
+export type FileContent =
+  | { kind: "opening" }
+  /** `text`: the start of a text file, null until it arrived (or for any other kind) */
+  | { kind: "file"; info: FileInfo; text: string | null }
+  | { kind: "candidates"; candidates: string[] }
+  | { kind: "folder"; path: string }
+  | { kind: "failed"; reason: "outside" | "missing" | "failed" };
+
+/** What the server said of a path asked for in the viewer. */
+export type FileOutcome =
+  | { kind: "info"; info: FileInfo }
+  | { kind: "candidates"; candidates: string[] }
+  /** outside the pane's folder and the temp folder */
+  | { kind: "outside" }
+  /** no file there */
+  | { kind: "missing" }
+  | { kind: "failed" };
+
+/** The file open in the viewer: a history entry above the chat, so Back closes it. */
+export interface FileViewerState {
+  /** the file as its history entry keeps it */
+  preview: FilePreview;
+  /** the path shown: one of several files of that name replaces the one asked */
+  path: string;
+  content: FileContent;
+  /** Back was asked for: until the browser moves, another open or close is ignored */
+  closing: boolean;
+}
+
+/** The Files dialog on the selected pane, and the file viewer above it (or above the chat). */
+export interface FilesState {
+  dialog: boolean;
+  viewer: FileViewerState | null;
+  /** the viewer's reads so far: an answer to an earlier one is dropped */
+  seq: number;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -245,6 +284,7 @@ export interface UiState {
   alerts: AlertsState;
   newSession: NewSessionState;
   palette: PaletteState;
+  files: FilesState;
   gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
@@ -347,6 +387,21 @@ export type UiEvent =
   | { type: "palette-recent"; machineId: string; recent: string[] }
   /** a pane picked in the palette: it opens, and the palette closes */
   | { type: "palette-pick"; paneId: string }
+  | { type: "open-files" }
+  | { type: "close-files" }
+  /** a file named in the selected pane (its chat, its terminal, Files): `path` is read from the pane's folder */
+  | { type: "open-file"; path: string }
+  /** a file chosen in the viewer's folder listing: in place of the entry, on the viewer's own pane */
+  | { type: "viewer-open"; path: string }
+  /** one of several files of the name asked for */
+  | { type: "choose-candidate"; path: string }
+  | { type: "close-file" }
+  /** history moved (Back, Forward, or the page loaded): the file its entry keeps, if any */
+  | { type: "file-history"; preview: FilePreview | null }
+  | { type: "file-loaded"; seq: number; outcome: FileOutcome }
+  | { type: "file-text"; seq: number; text: string }
+  /** the folder at a path no file is at; null when it is not one either */
+  | { type: "file-folder"; seq: number; path: string | null }
   | { type: "gate-edit"; field: "code" | "token"; value: string }
   | { type: "gate-pair" }
   | { type: "gate-unlock" }
@@ -452,6 +507,12 @@ export type Effect =
   | { kind: "load-recent"; machineId: string }
   | { kind: "remember-pane"; machineId: string; paneId: string }
   | { kind: "remember-agent"; agentKind: string }
+  /** the file as a history entry: a new one, or in place of the open one's */
+  | { kind: "history-preview"; preview: FilePreview; replace: boolean }
+  | { kind: "history-back" }
+  | { kind: "load-file"; machineId: string; paneId: string | null; path: string; seq: number }
+  | { kind: "load-file-text"; machineId: string; paneId: string | null; path: string; seq: number }
+  | { kind: "list-folder"; machineId: string; paneId: string | null; path: string; seq: number }
   | { kind: "create-session"; machineId: string; request: SessionRequest; seq: number }
   /** the tab's own alert */
   | { kind: "notify-pane"; machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" };
@@ -480,6 +541,7 @@ export const INITIAL_STATE: UiState = {
   drawerOpen: false,
   newSession: { open: false },
   palette: { open: false },
+  files: { dialog: false, viewer: null, seq: 0 },
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
@@ -548,6 +610,17 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "palette-pick":
       if (!state.palette.open) return next({});
       return next({ screen: "pane", detail: null, palette: { open: false }, ...pick(state, state.palette.machineId, event.paneId, effects) });
+    case "open-files":
+    case "close-files":
+    case "open-file":
+    case "viewer-open":
+    case "choose-candidate":
+    case "close-file":
+    case "file-history":
+    case "file-loaded":
+    case "file-text":
+    case "file-folder":
+      return filesTransition(state, event, effects);
     case "gate-edit":
       // the code is six digits, typed with or without the space it is shown with
       return next({ gate: { ...state.gate, [event.field]: event.field === "code" ? event.value.replace(/\D/g, "").slice(0, 6) : event.value } });
@@ -1081,7 +1154,11 @@ function subscriptionKey(state: UiState): string | null {
 function followUp(before: UiState, step: Transition): Transition {
   let { state } = step;
   const effects = [...step.effects];
-  if (before.connection.locked !== false && state.connection.locked === false) effects.push({ kind: "open-stream" });
+  if (before.connection.locked !== false && state.connection.locked === false) {
+    effects.push({ kind: "open-stream" });
+    // a file restored from history, or shown while locked out, is read as this browser now may
+    state = readFile(state, effects);
+  }
   if (before.connection.locked === false && state.connection.locked !== false) effects.push({ kind: "close-stream" });
   // a scanned QR code brings its code along: the gate sends it at once, no typing on the phone
   if (state.connection.locked === true && before.connection.locked !== true && !state.gate.scannedSent && state.gate.submitting === null) {
@@ -1090,6 +1167,10 @@ function followUp(before: UiState, step: Transition): Transition {
   }
   // the palette lists the selected PC's panes: another PC's selection takes it down
   if (state.palette.open && state.selection.machineId !== before.selection.machineId) state = { ...state, palette: { open: false } };
+  // Files lists the pane it was opened on, and would open its paths on another
+  if (state.files.dialog && (state.selection.machineId !== before.selection.machineId || state.selection.paneId !== before.selection.paneId)) {
+    state = { ...state, files: { ...state.files, dialog: false } };
+  }
   // the panes opened last, as the palette offers them: each one selected, however it was picked
   if (state.selection.paneId !== null && (state.selection.paneId !== before.selection.paneId || state.selection.machineId !== before.selection.machineId)) {
     effects.push({ kind: "remember-pane", machineId: state.selection.machineId, paneId: state.selection.paneId });
@@ -1176,6 +1257,96 @@ function newSessionTransition(state: UiState, event: NewSessionEvent, effects: E
       return opened(event.paneId);
     case "new-session-failed":
       return next({ newSession: { ...dialog, status: "editing", error: event.invalidCwd ? { kind: "invalid-cwd" } : { kind: "message", message: event.message } } });
+  }
+}
+
+/**
+ * The viewer's file read anew: an answer to an earlier read is dropped, even one asked before
+ * this browser was locked out. `now`: this browser is in, so the read goes now (else on unlocking).
+ */
+function readFile(state: UiState, effects: Effect[], now = true): UiState {
+  const { viewer } = state.files;
+  if (viewer === null) return state;
+  const seq = state.files.seq + 1;
+  if (now) effects.push({ kind: "load-file", machineId: viewer.preview.machineId, paneId: viewer.preview.paneId, path: viewer.path, seq });
+  return { ...state, files: { ...state.files, seq, viewer: { ...viewer, content: { kind: "opening" } } } };
+}
+
+type FilesEvent = Extract<UiEvent, { type: "open-files" | "close-files" | "open-file" | "viewer-open" | "choose-candidate" | "close-file" | "file-history" | "file-loaded" | "file-text" | "file-folder" }>;
+
+/** a path a remote PC's bridge reads as given: a relative one it may read from its own folder */
+const ABSOLUTE_PATH = /^(?:\/|~(?:\/|$)|[A-Za-z]:[\\/])/;
+
+function filesTransition(state: UiState, event: FilesEvent, effects: Effect[]): Transition {
+  const { files } = state;
+  const { viewer } = files;
+  const next = (patch: Partial<FilesState>): Transition => ({ state: { ...state, files: { ...files, ...patch } }, effects });
+  const same: Transition = { state, effects };
+  /** the viewer on `preview`, showing `path`, read now or once this browser is in */
+  const read = (preview: FilePreview, path: string): Transition => {
+    const viewing = { ...state, files: { ...files, viewer: { preview, path, content: { kind: "opening" as const }, closing: false } } };
+    return { state: readFile(viewing, effects, state.connection.locked === false), effects };
+  };
+  /** an answer to the read under way changes what the viewer shows */
+  const shown = (content: FileContent): Transition => (viewer ? next({ viewer: { ...viewer, content } }) : same);
+  switch (event.type) {
+    case "open-files":
+      if (state.selection.paneId === null) return same;
+      return { state: { ...state, drawerOpen: false, files: { ...files, dialog: true } }, effects };
+    case "close-files":
+      return files.dialog ? next({ dialog: false }) : same;
+    case "open-file":
+    case "viewer-open": {
+      if (viewer?.closing) return same;
+      if (event.type === "viewer-open" && viewer === null) return same;
+      const preview = event.type === "viewer-open" && viewer !== null
+        ? { ...viewer.preview, path: event.path }
+        : { path: event.path, paneId: state.selection.paneId, machineId: state.selection.machineId };
+      effects.push({ kind: "history-preview", preview, replace: viewer !== null });
+      return read(preview, event.path);
+    }
+    case "choose-candidate":
+      return viewer && !viewer.closing ? read(viewer.preview, event.path) : same;
+    case "close-file":
+      if (viewer === null || viewer.closing) return same;
+      effects.push({ kind: "history-back" });
+      return next({ viewer: { ...viewer, closing: true } });
+    case "file-history": {
+      const { preview } = event;
+      if (preview === null) return viewer === null ? same : next({ viewer: null });
+      if (viewer && viewer.preview.path === preview.path && viewer.preview.paneId === preview.paneId && viewer.preview.machineId === preview.machineId) {
+        return viewer.closing ? next({ viewer: { ...viewer, closing: false } }) : same;
+      }
+      return read(preview, preview.path);
+    }
+  }
+  if (viewer === null || event.seq !== files.seq) return same;
+  const { machineId, paneId } = viewer.preview;
+  switch (event.type) {
+    case "file-loaded": {
+      const { outcome } = event;
+      switch (outcome.kind) {
+        case "info":
+          // only the first part of a text file travels, from the file found (a bare name may be deeper in the folder)
+          if (outcome.info.kind === "text") effects.push({ kind: "load-file-text", machineId, paneId, path: outcome.info.path, seq: event.seq });
+          return shown({ kind: "file", info: outcome.info, text: null });
+        case "candidates":
+          return shown({ kind: "candidates", candidates: outcome.candidates });
+        case "missing":
+          // a folder is listed from the pane's folder, as a file is found from it
+          if (machineId !== LOCAL_MACHINE && !ABSOLUTE_PATH.test(viewer.path)) return shown({ kind: "failed", reason: "missing" });
+          effects.push({ kind: "list-folder", machineId, paneId, path: viewer.path, seq: event.seq });
+          return same;
+        case "outside":
+        case "failed":
+          return shown({ kind: "failed", reason: outcome.kind });
+      }
+      return same;
+    }
+    case "file-text":
+      return viewer.content.kind === "file" ? shown({ ...viewer.content, text: event.text }) : same;
+    case "file-folder":
+      return shown(event.path === null ? { kind: "failed", reason: "missing" } : { kind: "folder", path: event.path });
   }
 }
 

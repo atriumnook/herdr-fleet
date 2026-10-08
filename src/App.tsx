@@ -15,10 +15,7 @@ import { useSettings, type DefaultView } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
 import type { AppActions, PaneView } from "./lib/actions.ts";
 import { pushSupported } from "./lib/push.ts";
-import { FilesDialog } from "./components/FilesDialog.tsx";
-import { FileViewer } from "./components/FileViewer.tsx";
 import { OpenFileContext } from "./lib/filePaths.ts";
-import { useFileViewer } from "./lib/useFileViewer.ts";
 import { useT } from "./lib/i18n.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
@@ -31,6 +28,8 @@ import { FleetPresenter } from "./ui/FleetPresenter.tsx";
 import { NewSessionPresenter } from "./ui/NewSessionPresenter.tsx";
 import { AccessGatePresenter } from "./ui/AccessGatePresenter.tsx";
 import { CommandPalettePresenter } from "./ui/CommandPalettePresenter.tsx";
+import { FilesDialogPresenter } from "./ui/FilesDialogPresenter.tsx";
+import { FileViewerPresenter } from "./ui/FileViewerPresenter.tsx";
 import { MachineSidebarPresenter } from "./ui/MachineSidebarPresenter.tsx";
 import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
@@ -114,12 +113,8 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   useEffect(() => watchDrawerSwipe(() => drawerOpenRef.current, setDrawerOpen), []);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const lensChoice = useSelected((state) => state.pane.lens);
-  // the Files dialog, and the file open in the viewer (a path as the chat or the dialog gave it)
-  const [filesOpen, setFilesOpen] = useState(false);
-  const { viewing, openFile, closeFile } = useFileViewer();
-  const viewFile = useCallback((path: string) => {
-    openFile({ path, paneId: selectedPaneId, machineId: selectedMachineId });
-  }, [openFile, selectedPaneId, selectedMachineId]);
+  // a file path in the chat or the terminal, read from the selected pane's folder
+  const viewFile = useCallback((path: string) => emit({ type: "open-file", path }), [emit]);
   // the install prompt is the browser's: the Settings dialog asks for it, and this shell handles it
   const installPrompt = useInstallPrompt();
   const settingsEmit = useMemo(() => relay<SettingsDialogEvent, UiEvent>(emit, (event, pass) => {
@@ -259,7 +254,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       lock: canSignOut ? () => void lock() : null,
       enableNotifications: bellVisible && !bell.on ? () => void enableNotifications() : null,
       refresh: () => emitRef.current({ type: "reload-machines" }),
-      openFiles: selectedPaneId !== null ? () => { setDrawerOpen(false); setFilesOpen(true); } : null,
+      openFiles: selectedPaneId !== null ? () => emitRef.current({ type: "open-files" }) : null,
     }),
     [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications],
   );
@@ -392,7 +387,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
           </span>
           {!targetHerdr && <span className="pill pill-offline">{t("herdr offline")}</span>}
           {selectedPane && (
-            <button type="button" className="icon-button files-button" aria-label={t("Browse files")} title={t("Browse files")} onClick={() => setFilesOpen(true)}>
+            <button type="button" className="icon-button files-button" aria-label={t("Browse files")} title={t("Browse files")} onClick={() => emit({ type: "open-files" })}>
               <FolderOpen />
             </button>
           )}
@@ -471,8 +466,8 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       <Droplet onOpen={(machineId, paneId) => {
         // an ended pane's card outlives the pane: the refetch has dropped it, and selecting it attaches nothing
         if (!machinesRef.current.find((m) => m.id === machineId)?.snapshot?.panes.some((p) => p.pane_id === paneId)) return;
-        // Files lists the pane it was opened on, and would open its paths on the new one
-        setFilesOpen(false);
+        // Files lists the pane it was opened on: the card's pane opens in its place, even when it is the same one
+        emitRef.current({ type: "close-files" });
         selectTargetRef.current(machineId, paneId);
       }} />
       <SettingsDialogPresenter
@@ -481,12 +476,8 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         devices={(pairUrl) => <DevicesPanelPresenter pairUrl={pairUrl} auth={auth} emit={emit} />}
         emit={settingsEmit}
       />
-      {filesOpen && selectedPane && (
-        <FilesDialog start={selectedPane.foreground_cwd ?? selectedPane.cwd ?? ""} viewing={viewing !== null} onOpenFile={viewFile} onClose={() => setFilesOpen(false)} />
-      )}
-      {viewing !== null && <MachineContext.Provider value={viewing.machineId}>
-        <FileViewer key={viewing.path} path={viewing.path} paneId={viewing.paneId} onClose={closeFile} onOpen={(path) => openFile({ ...viewing, path })} />
-      </MachineContext.Provider>}
+      <FilesDialogPresenter start={selectedPane ? selectedPane.foreground_cwd ?? selectedPane.cwd ?? "" : null} emit={emit} />
+      <FileViewerPresenter emit={emit} />
       <CommandPalettePresenter snapshot={snapshot} selectedPaneId={selectedPaneId} view={view} offers={paletteOffers} emit={paletteEmit} />
     </div></MachineContext.Provider>
   );

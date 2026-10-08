@@ -295,6 +295,14 @@ export function fileUrl(path: string, paneId: string | null, machineId = "local"
   return machinePath(machineId, `fs/file?${fileQuery(path, paneId)}${download ? "&download=1" : ""}`);
 }
 
+/** Text shows its first part: the rest is a download away. */
+export const TEXT_PREVIEW_BYTES = 256 * 1024;
+
+/** The start of a text file: a range, whatever the file's size. */
+export async function fetchFileStart(path: string, paneId: string | null, machineId = "local"): Promise<string> {
+  return (await fetch(fileUrl(path, paneId, machineId), { headers: { range: `bytes=0-${TEXT_PREVIEW_BYTES - 1}` } })).text();
+}
+
 export interface CreateWorkspaceRequest {
   cwd?: string | null;
   label?: string | null;
