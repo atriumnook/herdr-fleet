@@ -1266,3 +1266,72 @@ describe("the folder browser", () => {
     expect(play([{ type: "browse-folder", slot: "new-session", path: "/w" }], closed).effects).toEqual([]);
   });
 });
+
+describe("the open pane's terminal session", () => {
+  const attached = play([{ type: "pane-attached", paneId: "w1:p1" }]).state;
+  const session = (state: UiState) => state.pane.session;
+
+  it("starts each pane afresh: nothing written, no input yet, nothing held or ended", () => {
+    const dirty = play([{ type: "pane-output", paneId: "w1:p1", secret: "Password:" }, { type: "pane-exited", paneId: "w1:p1" }, { type: "pane-input-failed", paneId: "w1:p1", message: "busy" }], attached).state;
+    expect(session(play([{ type: "pane-attached", paneId: "w1:p2" }], dirty).state)).toEqual({
+      paneId: "w1:p2", outputReady: false, inputReady: false, ended: false, held: false, unsupported: false, inputError: null, outputError: null, secret: null,
+    });
+  });
+
+  it("is ready once output is written, and knows a masked prompt on screen", () => {
+    const shown = play([{ type: "pane-output", paneId: "w1:p1", secret: "Password:" }], attached).state;
+    expect(session(shown)).toMatchObject({ outputReady: true, secret: "Password:" });
+    expect(session(play([{ type: "pane-output", paneId: "w1:p1", secret: null }], shown).state).secret).toBeNull();
+    // each write says the same thing again: nothing re-renders for it
+    expect(play([{ type: "pane-output", paneId: "w1:p1", secret: "Password:" }], shown).state).toBe(shown);
+  });
+
+  it("ignores what is said of a pane it no longer shows", () => {
+    for (const event of [
+      { type: "pane-output", paneId: "w1:p9", secret: null },
+      { type: "pane-exited", paneId: "w1:p9" },
+      { type: "pane-attach-held", paneId: "w1:p9" },
+      { type: "pane-input-failed", paneId: "w1:p9", message: "x" },
+      { type: "pane-terminal-unsupported", paneId: "w1:p9" },
+      { type: "pane-input-ready", paneId: "w1:p9", ready: true },
+    ] satisfies UiEvent[]) expect(play([event], attached).state).toBe(attached);
+  });
+
+  it("is held while another bridge has the terminal, until it resumes; a lost socket forgets the wait", () => {
+    const held = play([{ type: "pane-attach-held", paneId: "w1:p1" }], attached).state;
+    expect(session(held).held).toBe(true);
+    expect(session(play([{ type: "pane-attach-resumed", paneId: "w1:p1" }], held).state).held).toBe(false);
+    const ready = play([{ type: "pane-output", paneId: "w1:p1", secret: null }, { type: "pane-input-ready", paneId: "w1:p1", ready: true }], held).state;
+    expect(session(play([{ type: "pane-socket-lost" }], ready).state)).toMatchObject({ held: false, outputReady: false, inputReady: false });
+  });
+
+  it("says why input or output failed, ends with an output that stopped, and drops a dismissed input error", () => {
+    const failed = play([{ type: "pane-input-failed", paneId: "w1:p1", message: "input not ready" }], attached).state;
+    expect(session(failed).inputError).toBe("input not ready");
+    expect(session(play([{ type: "dismiss-input-error" }], failed).state).inputError).toBeNull();
+    const connected = play([{ type: "pane-connection", connected: true }], attached).state;
+    const stalled = play([{ type: "pane-output-failed", message: "output stalled" }], connected).state;
+    expect(session(stalled)).toMatchObject({ outputError: "output stalled", ended: true });
+    expect(stalled.pane.connected).toBe(false);
+    expect(session(play([{ type: "pane-terminal-unsupported", paneId: "w1:p1" }], attached).state).unsupported).toBe(true);
+    expect(session(play([{ type: "pane-exited", paneId: "w1:p1" }], attached).state).ended).toBe(true);
+  });
+
+  it("drops what is said of the pane before once the terminal attached another; a pick alone changes nothing yet", () => {
+    const first = play([{ type: "pane-output", paneId: "w1:p1", secret: null }, { type: "pane-input-ready", paneId: "w1:p1", ready: true }], attached).state;
+    // the pane picked: the terminal still describes the one it has until it attaches the next
+    expect(session(play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }], first).state)).toMatchObject({ paneId: "w1:p1", outputReady: true });
+    const second = play([{ type: "select-pane", machineId: "local", paneId: "w1:p2" }, { type: "pane-attached", paneId: "w1:p2" }], first).state;
+    for (const event of [
+      { type: "pane-output", paneId: "w1:p1", secret: "Password:" },
+      { type: "pane-exited", paneId: "w1:p1" },
+      { type: "pane-attach-held", paneId: "w1:p1" },
+      { type: "pane-input-ready", paneId: "w1:p1", ready: true },
+    ] satisfies UiEvent[]) expect(session(play([event], second).state)).toEqual({ ...session(second) });
+  });
+
+    it("keeps the state itself when the socket's connection is polled unchanged", () => {
+    const connected = play([{ type: "pane-connection", connected: true }], attached).state;
+    expect(play([{ type: "pane-connection", connected: true }], connected).state).toBe(connected);
+  });
+});

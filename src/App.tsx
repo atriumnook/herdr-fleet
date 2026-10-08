@@ -446,8 +446,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
             theme={resolvedTheme}
             palette={settings.palette}
             role={role}
-            onRoleAck={(next) => emit({ type: "role-ack", role: next })}
-            onConnectionChange={(next) => emit({ type: "pane-connection", connected: next })}
             onServerMessage={handleServerMessage}
             emit={emit}
           />
