@@ -5,15 +5,23 @@ import "./TerminalInput.css";
 import { TERMINAL_LINE_LIMIT } from "../lib/terminalDraft.ts";
 import { submitNote } from "../lib/compose.ts";
 import type { Emit } from "../ui/bubble.ts";
-import { useSelected, useStateNow } from "../ui/presenter.ts";
-import type { LineDraftChange, UiEvent } from "../ui/state.ts";
+import type { LineDraftChange, SendOutcome, UiEvent } from "../ui/state.ts";
 
 import { useT } from "../lib/i18n.ts";
 
-export interface TerminalInputProps {
+/** What the input line draws: its pane's line, whether it is on its way, and what its last send came to. */
+export interface TerminalInputModel {
+  /** the pane's storage id: the line is its */
   owner: string;
-  onComposing?: (active: boolean) => void;
   connected: boolean;
+  text: string;
+  sending: boolean;
+  outcome: { id: number; outcome: SendOutcome } | undefined;
+}
+
+export interface TerminalInputProps {
+  model: TerminalInputModel;
+  onComposing?: (active: boolean) => void;
   /** an empty line's send: Enter alone, for a menu's default or a prompt that asks to continue */
   onEnter: () => boolean;
   /** the line's text goes up to the Root, which keeps it for its pane, and its sends */
@@ -32,18 +40,14 @@ const MAX_ROWS = 4;
  * cannot take back keys it already sent: every revision arrived as more text. Here the line
  * is written with the keyboard's own editing and goes to the pane whole, then Enter.
  */
-export function TerminalInput({ owner, connected, onEnter, onComposing, emit }: TerminalInputProps) {
+export function TerminalInput({ model, onEnter, onComposing, emit }: TerminalInputProps) {
   const t = useT();
-  const emitRef = useRef(emit);
-  emitRef.current = emit;
-  const stateNow = useStateNow();
   // the line belongs to its PC and pane (the Mediator keeps it), never to the mounted view: a late
   // acknowledgement must not erase edits made in a newly mounted input for the same pane
-  const line = useSelected((state) => state.drafts.line[owner]);
-  const text = line?.text ?? "";
-  const sending = line?.sending ?? false;
+  const { owner, connected, text, sending, outcome } = model;
+  const emitRef = useRef(emit);
+  emitRef.current = emit;
   const changeLine = useCallback((change: LineDraftChange) => emitRef.current({ type: "line-draft", owner, change }), [owner]);
-  useLayoutEffect(() => changeLine({ kind: "read" }), [changeLine]);
   const setText = useCallback((value: string) => changeLine({ kind: "set", text: value }), [changeLine]);
   const composing = useRef(false);
   const composingCallback = useRef(onComposing);
@@ -54,7 +58,6 @@ export function TerminalInput({ owner, connected, onEnter, onComposing, emit }: 
   const box = useRef<HTMLTextAreaElement>(null);
 
   // what a send came to, as the Mediator says it once the pane answered (text typed meanwhile stays)
-  const outcome = useSelected((state) => state.sends.outcomes[`line:${owner}`]);
   const seenOutcome = useRef(outcome);
   useEffect(() => {
     if (outcome === seenOutcome.current) return;
@@ -67,14 +70,14 @@ export function TerminalInput({ owner, connected, onEnter, onComposing, emit }: 
   }, [outcome, t]);
 
   const send = useCallback(() => {
-    if (!connected || stateNow().drafts.line[owner]?.sending || composing.current) return;
+    if (!connected || sending || composing.current) return;
     setNote(null);
     if (text.length === 0) {
       if (!onEnter()) setNote(t("Not sent: the terminal is disconnected."));
       return;
     }
     emitRef.current({ type: "send-line", text });
-  }, [connected, onEnter, owner, stateNow, t, text]);
+  }, [connected, onEnter, sending, t, text]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>): void => {
     // Enter sends; Shift+Enter breaks the line; an IME keeps its Enter, including the committing
