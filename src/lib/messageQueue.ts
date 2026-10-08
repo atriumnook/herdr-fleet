@@ -3,31 +3,16 @@ export interface HeldMessage { id: string; text: string }
 type QueueStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 const newId = () => globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 
-/** Target-scoped cache also lets an ACK remove its own item after the user switches panes. */
+/**
+ * Where held messages are kept: this device's storage, behind the Mediator's queue port. The
+ * target-scoped cache also lets an ACK remove its own item after the user switches panes, and
+ * each change reads another tab's writes first. Which one is going out is the state machine's.
+ */
 export class MessageQueueStore {
   private saved = new Map<string, string | null>();
   private unsaved = new Set<string>();
   isUnsaved(owner: string): boolean { return this.unsaved.has(owner); }
   private queues = new Map<string, HeldMessage[]>();
-  private listeners = new Set<() => void>();
-  private pending = new Set<string>();
-  subscribe = (listener: () => void): (() => void) => {
-    this.listeners.add(listener);
-    return () => { this.listeners.delete(listener); };
-  };
-  isSending(id: string): boolean { return this.pending.has(id); }
-  beginSend(owner: string, id: string): boolean {
-    if (this.pending.has(id)) return false;
-    this.pending.add(id);
-    this.queues.set(owner, [...this.read(owner)]);
-    for (const listener of this.listeners) listener();
-    return true;
-  }
-  endSend(owner: string, id: string): void {
-    this.pending.delete(id);
-    this.queues.set(owner, [...this.read(owner)]);
-    for (const listener of this.listeners) listener();
-  }
   constructor(private storage: () => QueueStorage = () => window.localStorage) {}
 
   /** Reconcile storage before mutation; another tab may have written since our last render. */
@@ -38,7 +23,6 @@ export class MessageQueueStore {
       if (this.saved.has(owner) && raw === this.saved.get(owner)) return;
       this.queues.delete(owner);
       this.read(owner);
-      for (const listener of this.listeners) listener();
     } catch { /* keep in-memory messages when storage cannot be read */ }
   }
 
@@ -75,7 +59,6 @@ export class MessageQueueStore {
       this.saved.set(owner, raw);
       this.unsaved.delete(owner);
     } catch { this.unsaved.add(owner); }
-    for (const listener of this.listeners) listener();
   }
 
   add(owner: string, text: string): void {
@@ -95,9 +78,5 @@ export class MessageQueueStore {
 // Machine switches remount the terminal; outstanding sends must share the same owner cache.
 export const messageQueues = new MessageQueueStore();
 
-if (typeof window !== "undefined") {
-  window.addEventListener("storage", (event) => {
-    const prefix = "herdr-fleet:queue:";
-    if (event.key?.startsWith(prefix)) messageQueues.refresh(event.key.slice(prefix.length));
-  });
-}
+/** the storage key prefix: another tab's write to one is that pane's held messages changing */
+export const QUEUE_KEY_PREFIX = "herdr-fleet:queue:";

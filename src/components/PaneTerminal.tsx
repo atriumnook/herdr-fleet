@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -8,8 +8,7 @@ import "./PaneTerminal.css";
 
 import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
 import { EMPTY_DRAFT, draftIsEmpty } from "../lib/draft.ts";
-import { messageQueues } from "../lib/messageQueue.ts";
-import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
+import { QUEUE_READY_STATUS, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation } from "../lib/promptAnswer.ts";
 import { ApiError, fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
 import { parseOsc52 } from "../lib/osc52.ts";
@@ -19,8 +18,9 @@ import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar, type KeyBarEvent } from "./KeyBar.tsx";
 import type { Emit } from "../ui/bubble.ts";
 import type { BackgroundTasksUpEvent } from "../ui/BackgroundTasksPresenter.tsx";
-import { useSelected, useTerminal } from "../ui/presenter.ts";
-import { NO_SESSION, type PaneCommand, type PaneSessionEvent, type UiEvent } from "../ui/state.ts";
+import { useSelected, useStateNow, useTerminal } from "../ui/presenter.ts";
+import { NO_SESSION, type PaneCommand, type PaneSessionEvent, type QueueSendResult, type UiEvent } from "../ui/state.ts";
+import { QueuePresenter, type QueueUpEvent } from "../ui/QueuePresenter.tsx";
 import { TerminalInput } from "./TerminalInput.tsx";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
@@ -76,7 +76,8 @@ export interface PaneTerminalProps {
   /** what the terminal's socket says of the pane, and what the views inside it (the composer's background tasks) send, up to the Root */
   emit: Emit<BackgroundTasksUpEvent | Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }>
     | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" | "draft-open" | "draft-input" | "send-draft" | "discard-draft"
-      | "chat-sent" | "chat-delivered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-prompt-reread" }> | ChatUpEvent>;
+      | "chat-sent" | "chat-delivered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-prompt-reread"
+      | "queue-open" | "queue-add" | "queue-edit" | "queue-discard" | "queue-send-begin" | "queue-send-result" }> | ChatUpEvent>;
 }
 
 
@@ -138,6 +139,7 @@ export function PaneTerminal({
   emitRef.current = emit;
   // the Mediator owns the socket: its messages reach the grid through the sink, keystrokes go out through the link
   const { attachTerminal, terminalLink: link } = useTerminal();
+  const stateNow = useStateNow();
   /** what the grid asks of its socket: the pane shown, its size, the role */
   const command = useCallback((asked: PaneCommand) => emitRef.current({ type: "pane-command", machineId, command: asked }), [machineId]);
   // the attached pane as its socket told the Mediator; until it attached, nothing of it is known
@@ -193,12 +195,7 @@ export function PaneTerminal({
   useEffect(() => {
     if (agentStatus === "working") emitRef.current({ type: "chat-pending-answer-done" });
   }, [agentStatus]);
-  const queueStore = messageQueues;
   const queueOwner = paneId === null ? null : paneStorageId(machineId, paneId);
-  const queued = useSyncExternalStore(queueStore.subscribe, () => queueStore.read(queueOwner ?? ""));
-  const sendingRef = useRef(false);
-  const [queueSending, setQueueSending] = useState<string | null>(null);
-  const [queueError, setQueueError] = useState<{ owner: string; id: string; text: string } | null>(null);
 
   paneRef.current = paneId;
 
@@ -1153,14 +1150,28 @@ export function PaneTerminal({
         );
       }
       if (pane !== null && agent !== null && agentStatus === "working") {
-        queueStore.add(paneStorageId(machineId, pane), text);
+        emitRef.current({ type: "queue-add", owner: paneStorageId(machineId, pane), text });
         return true; // the composer may clear its box: the text lives in the queue card
       }
       return sendComposerText(text);
     },
-    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, sendComposerText, queueStore, machineId],
+    [agent, agentStatus, answerPanePrompt, answering, heldByOpenQueue, sendComposerText, machineId],
   );
 
+
+  // Send now is this terminal's to send (for now): what came of it goes up for the held message
+  const queueEmit = useCallback((event: QueueUpEvent) => {
+    if (event.type !== "queue-send") { emitRef.current(event); return; }
+    const { owner, id, text } = event;
+    emitRef.current({ type: "queue-send-begin", owner, id });
+    // one at a time: the state machine decided whether this one goes
+    const going = stateNow().queue.sending;
+    if (going?.owner !== owner || going.id !== id) return;
+    const result = (sent: QueueSendResult): void => emitRef.current({ type: "queue-send-result", owner, id, result: sent });
+    void Promise.resolve(sendComposerText(text))
+      .then((sent) => result(sent === true ? { kind: "sent" } : typeof sent === "string" ? { kind: "said", text: sent } : { kind: "not-sent" }))
+      .catch(() => result({ kind: "unconfirmed" }));
+  }, [sendComposerText, stateNow]);
 
   // Capture the owner's pane for the entire upload batch, even across a pane switch.
   const uploadImage = useCallback((file: File) => uploadPaneImage(paneId ?? "", file), [paneId]);
@@ -1263,52 +1274,8 @@ export function PaneTerminal({
       </div>
       {/* the queue is the composer's, so it shows under the chat lens only: there alone is an open
           Codex question known (heldByOpenQueue), and Send now must not type into one */}
-      {paneId !== null && chatView && !observing && !ended && queueOwner !== null && queued.length > 0 && (
-        <section className="composer-queue" aria-label={t("Queued messages")}>
-          <div className="composer-queue-heading">
-            <strong>{t("Queued messages ({n})", { n: queued.length })}</strong>
-            <span className="composer-queue-label">{t(readyForQueue ? "Held message — review and send" : "Held until the agent is ready")}</span>
-          </div>
-          {queueStore.isUnsaved(queueOwner) && <p className="composer-queue-error" role="status">{t("Queue could not be saved. Keep this tab open or copy the messages before reloading.")}</p>}
-          <ol className="composer-queue-list">
-          {queued.map((message, index) => <li className="composer-queue-item" key={message.id}>
-            <label className="composer-queue-label" htmlFor={`queued-${message.id}`}>{t("Message {n}", { n: index + 1 })}</label>
-            <textarea
-              id={`queued-${message.id}`}
-              className="composer-queue-text"
-              value={message.text}
-              rows={Math.min(4, message.text.split("\n").length)}
-              aria-label={t("Queued message {n}", { n: index + 1 })}
-              maxLength={MAX_COMPOSER_CHARS}
-              disabled={queueStore.isSending(message.id)}
-              spellCheck={false} autoCapitalize="off" autoCorrect="off"
-              onChange={(event) => { queueStore.edit(queueOwner, message.id, event.target.value); }}
-            />
-            <div className="composer-queue-actions">
-              <button type="button" className="composer-queue-send"
-                disabled={!connected || held || secretActive || queueSending !== null || queued.some((item) => queueStore.isSending(item.id)) || heldByOpenQueue || message.text.trim().length === 0}
-                title={heldByOpenQueue ? t("Codex has a question open in the terminal: answer it above first") : undefined}
-                onClick={() => {
-                  if (sendingRef.current || !queueStore.beginSend(queueOwner, message.id)) return;
-                  sendingRef.current = true;
-                  setQueueSending(message.id); setQueueError(null);
-                  const owner = queueOwner;
-                  void Promise.resolve(sendComposerText(message.text))
-                    .then((result) => {
-                      if (result === true) { queueStore.remove(owner, message.id); }
-                      else setQueueError({ owner, id: message.id, text: typeof result === "string" ? result : t("Not sent. Reconnect and try again.") });
-                    })
-                    .catch(() => setQueueError({ owner, id: message.id, text: t("Not confirmed. Check the terminal before sending again.") }))
-                    .finally(() => { queueStore.endSend(owner, message.id); sendingRef.current = false; setQueueSending(null); });
-                }}>{t("Send now")}</button>
-              <button type="button" className="composer-queue-discard" disabled={queueStore.isSending(message.id)}
-                onClick={() => { queueStore.remove(queueOwner, message.id); }}>{t("Discard")}</button>
-            </div>
-            {queueError?.owner === queueOwner && queueError.id === message.id && <p className="composer-queue-error" role="status">{queueError.text}</p>}
-          </li>)}
-          </ol>
-        </section>
-      )}
+      {queueOwner !== null && <QueuePresenter owner={queueOwner} shown={chatView && !observing && !ended} canSend={connected && !held && !secretActive}
+        heldByOpenQueue={heldByOpenQueue} ready={readyForQueue} emit={queueEmit} />}
       {/* the composer belongs to the chat lens: in terminal mode the grid itself is
           the input surface (key bar included), so a second box would only duplicate it */}
       {paneId !== null && maskedPrompt !== null && !observing && !ended && connected && outputReady && <SecretInput
