@@ -1,7 +1,7 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { alertsAllow, shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, ConversationMetadata, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, OmoRun, OmoTask, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, OmoRun, OmoTask, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
@@ -10,6 +10,8 @@ import type { NotificationState } from "../lib/notifications.ts";
 import { applyPaneStatus } from "../lib/snapshot.ts";
 import { EMPTY_DRAFT, applyToDraft, type InputDraft } from "../lib/draft.ts";
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
+import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
+import { statusEdgeRead } from "../lib/status.ts";
 import { clockOffsetMs } from "../lib/omoTasks.ts";
 import { sanitizeFontFamily } from "../lib/fontFamily.ts";
 import { alertPrefs, DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type Settings } from "../lib/settings.ts";
@@ -382,6 +384,65 @@ export interface ChatState {
   promptSeq: number;
 }
 
+/** how often the chat reads its conversation's newest page */
+export const CONVERSATION_POLL_MS = 2000;
+/** the scrollback read for an agent with no transcript */
+export const TRANSCRIPT_LINES = 400;
+
+/** What the chat lays out: the transcript's turns, or the scrollback's messages for an agent with none. */
+export interface ConversationView {
+  source: "conversation" | "scrollback";
+  turns: ConversationTurn[];
+  messages: TranscriptMessage[];
+  truncated: boolean;
+}
+
+export const EMPTY_VIEW: ConversationView = { source: "conversation", turns: [], messages: [], truncated: false };
+
+/** What one read of a page answered: the page, or why not (`status`: the HTTP status, 409 for a transcript replaced under it). */
+export type ConversationOutcome = { kind: "ok"; conversation: ConversationResponse } | { kind: "failed"; message: string; status: number | null };
+
+/**
+ * The chat's conversation, read from the pane's transcript: the newest page polled, and earlier
+ * pages above it once asked for. Once any shows, the newest page is polled from its start at that
+ * moment (`heldFrom`), so the two always meet; the turns it later moves past join the earlier ones.
+ */
+export interface ConversationState {
+  /** the pane read: the one the chat is open on */
+  open: { machineId: string; paneId: string } | null;
+  /** the read chain running: a pane, a delivered message, a status edge or the page coming back starts another */
+  seq: number;
+  /** bumped whenever the earlier pages are dropped: a read or a page load begun for them answers too late */
+  olderSeq: number;
+  historyId: string | undefined;
+  /** the answer laid out last in full: an unchanged poll (a 304) hands back this very object */
+  answer: ConversationResponse | null;
+  signature: string;
+  view: ConversationView;
+  /** the view changed from an empty one (a pane, a reset): nothing was there to be "new" against */
+  fresh: boolean;
+  /** the earlier pages above the newest: `cursor` is the page before them, null at the beginning, undefined when unknown */
+  older: { turns: ConversationTurn[]; cursor: string | null | undefined; status: "idle" | "loading" | "failed"; heldFrom: string | null };
+  /** a read waiting on its gap fill or its scrollback, with what it read */
+  pending: { conversation: ConversationResponse; moved: ConversationTurn[] } | null;
+  abandoned: NonNullable<ConversationResponse["abandoned"]> | null;
+  error: { message: string; status: number | null } | null;
+  /** the first answer for this pane arrived (or failed): until then an empty chat is only loading */
+  loaded: boolean;
+  /**
+   * The assistant turn that was last when a message went out, with the turns it was read from.
+   * It holds only while those turns are unchanged: once the transcript moves at all, the status
+   * applies again (a slash command Claude logs as no user turn continues the very same turn).
+   */
+  sentOver: { turn: ConversationTurn; page: ConversationTurn[] } | null;
+}
+
+const NO_OLDER: ConversationState["older"] = { turns: [], cursor: undefined, status: "idle", heldFrom: null };
+export const NO_CONVERSATION: ConversationState = {
+  open: null, seq: 0, olderSeq: 0, historyId: undefined, answer: null, signature: "", view: EMPTY_VIEW, fresh: true, older: NO_OLDER,
+  pending: null, abandoned: null, error: null, loaded: false, sentOver: null,
+};
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -418,6 +479,7 @@ export interface UiState {
   backgroundTasks: BackgroundTasksState;
   folders: FoldersState;
   chat: ChatState;
+  conversation: ConversationState;
   gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
@@ -572,7 +634,14 @@ export type UiEvent =
   | { type: "chat-sent" }
   /** the pane confirmed a message */
   | { type: "chat-delivered" }
-  | { type: "chat-metadata"; paneId: string; metadata: ConversationMetadata | null }
+  | { type: "poll-conversation"; seq: number }
+  | { type: "conversation-read"; seq: number; olderSeq: number; outcome: ConversationOutcome }
+  /** the turns between the held start and where the newest page now starts; null when they cannot be joined */
+  | { type: "conversation-gap-filled"; seq: number; olderSeq: number; turns: ConversationTurn[] | null }
+  | { type: "conversation-scrollback-read"; seq: number; olderSeq: number; outcome: { kind: "ok"; text: string; truncated: boolean } | { kind: "failed"; message: string; status: number | null } }
+  /** scrolled near the top, or the button: the page before the earliest shown */
+  | { type: "load-older-conversation" }
+  | { type: "older-conversation-read"; olderSeq: number; before: string; outcome: ConversationOutcome }
   | { type: "open-background-tasks"; machineId: string; paneId: string }
   /** the list closed, or the composer it is in went (another pane, another lens) */
   | { type: "close-background-tasks"; machineId: string; paneId: string }
@@ -729,6 +798,11 @@ export type Effect =
   | { kind: "load-background-tasks"; machineId: string; paneId: string; seq: number }
   /** `sent`: the sends counted now, handed back with the answer */
   | { kind: "load-chat-prompt"; machineId: string; paneId: string; seq: number; sent: number }
+  /** the newest page, from the held start when earlier pages show */
+  | { kind: "read-conversation"; machineId: string; paneId: string; from: string | null; seq: number; olderSeq: number }
+  | { kind: "fill-conversation-gap"; machineId: string; paneId: string; held: string; start: string; seq: number; olderSeq: number }
+  | { kind: "read-conversation-scrollback"; machineId: string; paneId: string; lines: number; seq: number; olderSeq: number }
+  | { kind: "read-older-conversation"; machineId: string; paneId: string; before: string; olderSeq: number }
   /** `path` "" is home */
   | { kind: "list-folders"; slot: FolderSlot; machineId: string; path: string; hidden: boolean; files: boolean; seq: number }
   | { kind: "load-file"; machineId: string; paneId: string | null; path: string; seq: number }
@@ -767,6 +841,7 @@ export const INITIAL_STATE: UiState = {
   backgroundTasks: { open: null, activity: null, failed: false, seq: 0 },
   folders: { open: {}, seq: 0 },
   chat: { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0 },
+  conversation: NO_CONVERSATION,
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
@@ -897,11 +972,17 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "chat-pending-answer":
     case "chat-pending-answer-done":
     case "chat-sent":
-    case "chat-delivered":
-    case "chat-metadata": {
+    case "chat-delivered": {
       const chat = chatTransition(state, event, effects);
       return next(chat === state.chat ? {} : { chat });
     }
+    case "poll-conversation":
+    case "conversation-read":
+    case "conversation-gap-filled":
+    case "conversation-scrollback-read":
+    case "load-older-conversation":
+    case "older-conversation-read":
+      return conversationTransition(state, event, effects);
     case "open-folders":
     case "close-folders":
     case "browse-folder":
@@ -1536,6 +1617,32 @@ function followUp(before: UiState, step: Transition): Transition {
   }
   // the palette lists the selected PC's panes: another PC's selection takes it down
   if (state.palette.open && state.selection.machineId !== before.selection.machineId) state = { ...state, palette: { open: false } };
+  // the conversation follows the chat open on a pane: another pane starts over, a closed chat reads nothing
+  if (state.chat.open !== before.chat.open) {
+    const opened = state.chat.open;
+    const conversation = state.conversation;
+    if (opened === null) state = { ...state, conversation: { ...conversation, open: null, seq: conversation.seq + 1, pending: null } };
+    else if (conversation.open?.machineId !== opened.machineId || conversation.open.paneId !== opened.paneId) {
+      state = { ...state, conversation: { ...NO_CONVERSATION, open: opened, seq: conversation.seq + 1, olderSeq: conversation.olderSeq + 1 } };
+    } else state = { ...state, conversation: { ...conversation, open: opened } };
+  }
+  {
+    // read now: the chat opened, the page came back, a message was delivered, or a turn started or ended (its status entered or left `working`)
+    const reads = conversationReads(state);
+    const opened = state.conversation.open !== before.conversation.open;
+    const edge = state.conversation.open !== null && state.conversation.open === before.conversation.open && statusEdgeRead(openPaneStatus(before), openPaneStatus(state));
+    if (reads && (opened || !conversationReads(before) || state.chat.delivered !== before.chat.delivered || edge)) {
+      state = { ...state, conversation: readConversation(state.conversation, effects) };
+    } else if (!reads && conversationReads(before)) state = { ...state, conversation: { ...state.conversation, seq: state.conversation.seq + 1, pending: null } };
+  }
+  // a message went out: the assistant turn last before it is no longer the one running (sent into a run, that turn is)
+  if (state.chat.sent !== before.chat.sent) {
+    const page = state.conversation.view.turns;
+    const last = page[page.length - 1];
+    const status = openPaneStatus(state);
+    const sentOver = last?.role === "assistant" && status !== "working" && status !== "blocked" ? { turn: last, page } : null;
+    if (sentOver !== state.conversation.sentOver) state = { ...state, conversation: { ...state.conversation, sentOver } };
+  }
   // the chat reads the prompt while it may and the page is on screen; a pane that is no longer live, or has no agent, shows none
   const reads = chatReads(state);
   if (reads && (!chatReads(before) || state.chat.open !== before.chat.open)) state = { ...state, chat: readChatPrompt(state, effects) };
@@ -1740,7 +1847,7 @@ function showPrompt(chat: ChatState, prompt: InteractivePrompt | null): ChatStat
   return kept === chat.prompt && pendingAnswer === chat.pendingAnswer ? chat : { ...chat, prompt: kept, pendingAnswer };
 }
 
-type ChatEvent = Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "poll-chat-prompt" | "chat-prompt-read" | "chat-prompt-failed" | "chat-prompt-reread" | "chat-prompt-answered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-sent" | "chat-delivered" | "chat-metadata" }>;
+type ChatEvent = Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "poll-chat-prompt" | "chat-prompt-read" | "chat-prompt-failed" | "chat-prompt-reread" | "chat-prompt-answered" | "chat-pending-answer" | "chat-pending-answer-done" | "chat-sent" | "chat-delivered" }>;
 
 function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): ChatState {
   const { chat } = state;
@@ -1772,14 +1879,6 @@ function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): Ch
       return { ...chat, sent: chat.sent + 1, suggestion: null };
     case "chat-delivered":
       return { ...chat, delivered: chat.delivered + 1 };
-    case "chat-metadata": {
-      const before = chat.metadata;
-      const value = event.metadata;
-      // the same settings keep the same object: every poll would otherwise re-render the composer
-      if (before?.paneId === event.paneId && before.value?.model === value?.model && before.value?.reasoning_effort === value?.reasoning_effort
-        && before.value?.context?.used === value?.context?.used && before.value?.context?.window === value?.context?.window) return chat;
-      return { ...chat, metadata: { paneId: event.paneId, value } };
-    }
   }
   if (event.seq !== chat.promptSeq || !chatReads(state)) return chat;
   if (event.type === "poll-chat-prompt") return readChatPrompt(state, effects);
@@ -1792,6 +1891,152 @@ function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): Ch
   // a read begun before the latest send answers for the turn before it: its suggestion is dropped
   if (event.sent !== chat.sent || shown.suggestion === event.suggestion) return shown;
   return { ...shown, suggestion: event.suggestion };
+}
+
+/** The settings a read reported for the pane; the same settings keep the same object, as every poll would otherwise re-render the composer. */
+function reportMetadata(chat: ChatState, paneId: string, value: ConversationMetadata | null): ChatState {
+  const before = chat.metadata;
+  if (before?.paneId === paneId && before.value?.model === value?.model && before.value?.reasoning_effort === value?.reasoning_effort
+    && before.value?.context?.used === value?.context?.used && before.value?.context?.window === value?.context?.window) return chat;
+  return { ...chat, metadata: { paneId, value } };
+}
+
+/** The open pane's agent status, as the PCs' sessions say it. */
+function openPaneStatus(state: UiState): AgentStatus | undefined {
+  const open = state.conversation.open;
+  if (open === null) return undefined;
+  return state.machines.list.find((machine) => machine.id === open.machineId)?.snapshot?.panes.find((pane) => pane.pane_id === open.paneId)?.agent_status;
+}
+
+/** The conversation is read while the chat is open on a pane and the page is on screen. */
+const conversationReads = (state: UiState): boolean => state.conversation.open !== null && state.connection.visible;
+
+/** A read of the newest page starts, ending the chain before (its answer is dropped, its timer too). */
+function readConversation(conversation: ConversationState, effects: Effect[]): ConversationState {
+  if (conversation.open === null) return conversation;
+  const seq = conversation.seq + 1;
+  effects.push({ kind: "read-conversation", ...conversation.open, from: conversation.older.heldFrom, seq, olderSeq: conversation.olderSeq });
+  return { ...conversation, seq, pending: null };
+}
+
+/** The earlier pages go: a load still in flight for them answers too late. */
+const dropOlder = (conversation: ConversationState): ConversationState => ({ ...conversation, olderSeq: conversation.olderSeq + 1, older: NO_OLDER });
+
+/** ...and what was laid out with them: the next answer lays out afresh. */
+const startOver = (conversation: ConversationState): ConversationState => ({ ...dropOlder(conversation), view: EMPTY_VIEW, signature: "", answer: null, fresh: true });
+
+type ConversationEvent = Extract<UiEvent, { type: "poll-conversation" | "conversation-read" | "conversation-gap-filled" | "conversation-scrollback-read" | "load-older-conversation" | "older-conversation-read" }>;
+
+function conversationTransition(state: UiState, event: ConversationEvent, effects: Effect[]): Transition {
+  const { conversation } = state;
+  const same: Transition = { state, effects };
+  const put = (next: ConversationState, chat = state.chat): Transition =>
+    ({ state: next === conversation && chat === state.chat ? state : { ...state, conversation: next, chat }, effects });
+  const { open } = conversation;
+  if (open === null) return same;
+  /** read now, as a page load asks; a hidden page reads once it is back */
+  const reread = (next: ConversationState): ConversationState => (conversationReads(state) ? readConversation(next, effects) : next);
+  /** the read ended: the next one is a while away */
+  const settle = (next: ConversationState): ConversationState => {
+    effects.push({ kind: "later", ms: CONVERSATION_POLL_MS, event: { type: "poll-conversation", seq: next.seq } });
+    return next;
+  };
+  /** a failed read: said where the turns would be, the turns read before kept */
+  const fail = (message: string, status: number | null): Transition => {
+    const error = conversation.error?.message === message && conversation.error.status === status ? conversation.error : { message, status };
+    return put(settle(conversation.loaded && error === conversation.error && conversation.pending === null ? conversation : { ...conversation, loaded: true, error, pending: null }));
+  };
+  /** lays the newest page out, with the turns it moved past joined to the earlier ones */
+  const layOut = (base: ConversationState, read: ConversationResponse, moved: ConversationTurn[], view: ConversationView): Transition => {
+    let next = base;
+    if (moved.length > 0) next = { ...next, older: { ...next.older, turns: [...next.older.turns, ...moved] } };
+    const signature = JSON.stringify(view);
+    if (signature !== next.signature) next = { ...next, signature, view, fresh: next.signature === "" };
+    next = { ...next, error: null, loaded: true, pending: null, answer: read };
+    return put(settle(next));
+  };
+  switch (event.type) {
+    case "poll-conversation":
+      return event.seq === conversation.seq && conversationReads(state) ? put(readConversation(conversation, effects)) : same;
+    case "conversation-read": {
+      if (event.seq !== conversation.seq || event.olderSeq !== conversation.olderSeq) return same;
+      const { outcome } = event;
+      if (outcome.kind === "failed") {
+        // a new session or a Codex backtrack replaced the transcript the earlier pages came from
+        if (outcome.status === 409 && conversation.older.heldFrom !== null) {
+          const over = startOver(conversation);
+          effects.push({ kind: "read-conversation", ...open, from: null, seq: over.seq, olderSeq: over.olderSeq });
+          return put(over);
+        }
+        return fail(outcome.message, outcome.status);
+      }
+      const read = outcome.conversation;
+      let next = conversation;
+      if (next.historyId !== read.history_id) next = { ...dropOlder(next), historyId: read.history_id };
+      // a 304 hands back the answer already shown: nothing to compare or lay out again
+      if (read === next.answer) return put(settle(next.error === null ? next : { ...next, error: null }));
+      // the newest page moved past the held start: the turns in between join the earlier pages and
+      // the newest page is held from its new start, so no poll reads more than a page
+      const held = next.older.heldFrom;
+      if (held !== null && read.source !== "scrollback" && typeof read.cursor === "string" && read.cursor !== held) {
+        effects.push({ kind: "fill-conversation-gap", ...open, held, start: read.cursor, seq: next.seq, olderSeq: next.olderSeq });
+        return put({ ...next, pending: { conversation: read, moved: [] } });
+      }
+      return arrive(next, read, []);
+    }
+    case "conversation-gap-filled": {
+      const { pending } = conversation;
+      if (event.seq !== conversation.seq || event.olderSeq !== conversation.olderSeq || pending === null) return same;
+      if (event.turns === null) return put(readConversation(startOver(conversation), effects));
+      const cursor = pending.conversation.cursor as string;
+      return arrive({ ...conversation, older: { ...conversation.older, heldFrom: cursor } }, pending.conversation, event.turns);
+    }
+    case "conversation-scrollback-read": {
+      const { pending } = conversation;
+      if (event.seq !== conversation.seq || event.olderSeq !== conversation.olderSeq || pending === null) return same;
+      if (event.outcome.kind === "failed") return fail(event.outcome.message, event.outcome.status);
+      const view: ConversationView = { source: "scrollback", turns: [], messages: toTranscriptMessages(event.outcome.text).filter((message) => message.role !== "status"), truncated: event.outcome.truncated };
+      return layOut(conversation, pending.conversation, pending.moved, view);
+    }
+    case "load-older-conversation": {
+      const { older } = conversation;
+      if (older.status === "loading" || typeof older.cursor !== "string") return same;
+      effects.push({ kind: "read-older-conversation", ...open, before: older.cursor, olderSeq: conversation.olderSeq });
+      return put({ ...conversation, older: { ...older, status: "loading" } });
+    }
+    case "older-conversation-read": {
+      if (event.olderSeq !== conversation.olderSeq) return same;
+      const { outcome } = event;
+      const { older } = conversation;
+      if (outcome.kind === "failed") {
+        if (outcome.status === 409) return put(reread(startOver(conversation)));
+        return put({ ...conversation, older: { ...older, status: "failed" } });
+      }
+      const page = outcome.conversation;
+      if (page.history_id !== conversation.historyId) return put(reread(startOver(conversation)));
+      // a bridge without pages answers with its newest turns: nothing older to add
+      if (page.source === "scrollback" || page.cursor === undefined) return put({ ...conversation, older: { ...older, cursor: undefined, status: "idle" } });
+      const first = older.heldFrom === null;
+      const next = { ...conversation, older: { turns: [...page.turns, ...older.turns], cursor: page.cursor, status: "idle" as const, heldFrom: older.heldFrom ?? event.before } };
+      // the newest page may have slid since it was read: it is polled from the held start now
+      return put(first ? reread(next) : next);
+    }
+  }
+
+  /** a page read in full (its gap joined): what it says of the pane is taken, and it is laid out (a scrollback read first) */
+  function arrive(base: ConversationState, read: ConversationResponse, moved: ConversationTurn[]): Transition {
+    let next = base;
+    if (next.older.heldFrom === null) next = { ...next, older: { ...next.older, cursor: read.source === "scrollback" ? undefined : read.cursor } };
+    const chat = reportMetadata(state.chat, open!.paneId, read.source === "scrollback" ? null : read.metadata ?? null);
+    const abandoned = read.abandoned ?? null;
+    if (JSON.stringify(abandoned) !== JSON.stringify(next.abandoned)) next = { ...next, abandoned };
+    if (read.source === "scrollback") {
+      effects.push({ kind: "read-conversation-scrollback", ...open!, lines: TRANSCRIPT_LINES, seq: next.seq, olderSeq: next.olderSeq });
+      return put({ ...next, pending: { conversation: read, moved } }, chat);
+    }
+    const laid = layOut(next, read, moved, { source: "conversation", turns: read.turns, messages: [], truncated: false });
+    return chat === state.chat ? laid : { ...laid, state: { ...laid.state, chat } };
+  }
 }
 
 type FoldersEvent = Extract<UiEvent, { type: "open-folders" | "close-folders" | "browse-folder" | "show-hidden-folders" | "folders-listed" | "folders-failed" }>;

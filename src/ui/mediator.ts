@@ -6,12 +6,12 @@ import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AgentKind, ClientRole, DirectoryListing, HerdrPane, InteractivePrompt, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
+import type { AgentKind, ClientRole, ConversationTurn, DirectoryListing, HerdrPane, InteractivePrompt, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { SubmitResult } from "../lib/ws.ts";
 import type { InputDraft } from "../lib/draft.ts";
 import type { Settings } from "../lib/settings.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
-import { INITIAL_STATE, transition, type Effect, type FileOutcome, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
+import { INITIAL_STATE, transition, type ConversationOutcome, type Effect, type FileOutcome, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
 
 type PtyData = Extract<ServerMessage, { type: "pty-data" }>;
 
@@ -114,6 +114,12 @@ export interface EffectPorts {
   leavePreview(): boolean;
   /** what the server says of a path; throws for anything but these */
   loadFileInfo(machineId: string, path: string, paneId: string | null): Promise<Exclude<FileOutcome, { kind: "failed" }>>;
+  /** a page of a pane's conversation: the newest (from `from`, when earlier pages show), or the one before `before` */
+  readConversation(machineId: string, paneId: string, page: { from: string | null } | { before: string }): Promise<ConversationOutcome>;
+  /** the turns between the held start and where the newest page now starts, a page at a time; null when they cannot be joined */
+  conversationBetween(machineId: string, paneId: string, held: string, start: string): Promise<ConversationTurn[] | null>;
+  /** the pane's scrollback, for an agent with no transcript */
+  readScrollback(machineId: string, paneId: string, lines: number): Promise<{ text: string; truncated: boolean }>;
   /** the prompt waiting on a pane, and with none, what its agent suggests typing next */
   loadPromptState(machineId: string, paneId: string): Promise<{ prompt: InteractivePrompt | null; suggestion: string | null }>;
   /** the input held for a pane on this device (lib/draft.ts) */
@@ -452,6 +458,21 @@ export class Mediator {
         else handle.setMode(command.role);
         return;
       }
+      case "read-conversation":
+        this.dispatch({ type: "conversation-read", seq: effect.seq, olderSeq: effect.olderSeq, outcome: await this.ports.readConversation(effect.machineId, effect.paneId, { from: effect.from }) });
+        return;
+      case "fill-conversation-gap":
+        this.dispatch({ type: "conversation-gap-filled", seq: effect.seq, olderSeq: effect.olderSeq, turns: await this.ports.conversationBetween(effect.machineId, effect.paneId, effect.held, effect.start) });
+        return;
+      case "read-conversation-scrollback":
+        try {
+          const { text, truncated } = await this.ports.readScrollback(effect.machineId, effect.paneId, effect.lines);
+          this.dispatch({ type: "conversation-scrollback-read", seq: effect.seq, olderSeq: effect.olderSeq, outcome: { kind: "ok", text, truncated } });
+        } catch (error) { this.dispatch({ type: "conversation-scrollback-read", seq: effect.seq, olderSeq: effect.olderSeq, outcome: { kind: "failed", message: message(error), status: null } }); }
+        return;
+      case "read-older-conversation":
+        this.dispatch({ type: "older-conversation-read", olderSeq: effect.olderSeq, before: effect.before, outcome: await this.ports.readConversation(effect.machineId, effect.paneId, { before: effect.before }) });
+        return;
       case "load-chat-prompt": {
         const { seq, sent } = effect;
         try {
