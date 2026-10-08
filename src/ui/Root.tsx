@@ -14,6 +14,7 @@ import { takeAuthTokenFromUrl } from "../lib/authLink.ts";
 import { deviceLabel, takePairCode } from "../lib/phone.ts";
 import { leavePreview, previewFromState, showPreview } from "../lib/fileHistory.ts";
 import { HerdrSocket } from "../lib/ws.ts";
+import { EMPTY_DRAFT, draftIsEmpty } from "../lib/draft.ts";
 import { INITIAL_STATE } from "./state.ts";
 
 /** A 401 is the server refusing what the gate sent; anything else stays an error. */
@@ -21,6 +22,9 @@ function refusedOr(error: unknown): "refused" {
   if (error instanceof ApiError && error.status === 401) return "refused";
   throw error;
 }
+
+/** the input held for a pane on this device, by the pane's storage id */
+const DRAFT_KEY_PREFIX = "herdr-fleet:terminal-draft:";
 
 /** the agent a new session starts with, as chosen last on this device */
 const LAST_AGENT_KEY = "herdr-fleet:new-session-agent";
@@ -78,6 +82,19 @@ const FLEET_PORTS: EffectPorts = {
     if (error instanceof ApiError && error.code === "invalid_cwd") return "invalid-cwd" as const;
     throw error;
   }),
+  loadDraft: (owner) => {
+    try {
+      const value = JSON.parse(localStorage.getItem(`${DRAFT_KEY_PREFIX}${owner}`) ?? "null");
+      if (value && typeof value.text === "string" && Number.isInteger(value.droppedSpecial)) return value;
+    } catch { /* unreadable: nothing held */ }
+    return EMPTY_DRAFT;
+  },
+  saveDraft: (owner, value) => {
+    try {
+      if (draftIsEmpty(value)) localStorage.removeItem(`${DRAFT_KEY_PREFIX}${owner}`);
+      else localStorage.setItem(`${DRAFT_KEY_PREFIX}${owner}`, JSON.stringify(value));
+    } catch { /* private mode: the draft lives for this page only */ }
+  },
   // the terminal's socket: one per PC shown, reconnecting by itself until closed
   openPaneSocket: (machineId, on) => {
     const socket = new HerdrSocket(`${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws?machine_id=${encodeURIComponent(machineId)}`);

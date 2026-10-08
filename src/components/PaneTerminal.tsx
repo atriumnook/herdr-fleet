@@ -7,7 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
-import { EMPTY_DRAFT, applyToDraft, draftIsEmpty, type InputDraft } from "../lib/draft.ts";
+import { EMPTY_DRAFT, draftIsEmpty } from "../lib/draft.ts";
 import { messageQueues } from "../lib/messageQueue.ts";
 import { MAX_COMPOSER_CHARS, QUEUE_READY_STATUS, composerMessage, composerPayload, submitNote } from "../lib/compose.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
@@ -74,7 +74,8 @@ export interface PaneTerminalProps {
   /** Fires on every change of the socket's connected state (the header shows it). */
   /** Every server frame also reaches App: it merges pane-status and schedules refetches. */
   /** what the terminal's socket says of the pane, and what the views inside it (the composer's background tasks) send, up to the Root */
-  emit: Emit<BackgroundTasksUpEvent | Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }> | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" }>>;
+  emit: Emit<BackgroundTasksUpEvent | Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }>
+    | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" | "draft-open" | "draft-input" | "send-draft" | "discard-draft" }>>;
 }
 
 
@@ -173,19 +174,9 @@ export function PaneTerminal({
   const inputLine = !directTyping && !chatView;
   const inputLineRef = useRef(inputLine);
   inputLineRef.current = inputLine;
-  // input typed while disconnected, held for the user to review and send
-  const [draftState, setDraftState] = useState<{ owner: string | null; value: InputDraft }>({ owner: null, value: EMPTY_DRAFT });
-  const draft = draftState.value;
-  const setDraft = useCallback((value: InputDraft | ((previous: InputDraft) => InputDraft)) => {
-    const owner = paneRef.current ? paneStorageId(machineId, paneRef.current) : null;
-    setDraftState((previous) => ({ owner, value: typeof value === "function" ? value(previous.owner === owner ? previous.value : EMPTY_DRAFT) : value }));
-  }, [machineId]);
-  const draftPaneRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!paneId || draftState.owner !== paneStorageId(machineId, paneId)) return;
-    const key = `herdr-fleet:terminal-draft:${draftState.owner}`;
-    try { if (draftIsEmpty(draft)) localStorage.removeItem(key); else localStorage.setItem(key, JSON.stringify(draft)); } catch {}
-  }, [draftState, paneId, machineId, draft]);
+  // input typed while the terminal could not take it, held for the user to review and send (the Mediator keeps it)
+  const heldInput = useSelected((state) => state.pane.draft);
+  const draft = paneId !== null && heldInput.owner === paneStorageId(machineId, paneId) ? heldInput.value : EMPTY_DRAFT;
   // transient OSC 52 feedback ("copied") — a pill in the banner column
   const [clipboardNote, setClipboardNote] = useState<string | null>(null);
   const clipboardTimerRef = useRef<number | null>(null);
@@ -747,11 +738,7 @@ export function PaneTerminal({
       if (link.sendInput(current, input)) return;
       // A closed socket, an attachment still opening, or a failed synchronous send:
       // keep printable input for explicit review, never replay it automatically.
-      if (draftPaneRef.current !== current) {
-        draftPaneRef.current = current;
-        setDraft(EMPTY_DRAFT);
-      }
-      setDraft((prev) => applyToDraft(prev, input));
+      emitRef.current({ type: "draft-input", owner: paneStorageId(machineId, current), input });
     });
 
     // Browsers expose dropped files as bytes, not local paths. Save them beside
@@ -1017,13 +1004,8 @@ export function PaneTerminal({
     hostRef.current?.toggleAttribute("data-adopted-grid", observeRef.current);
     secretRef.current = null;
     term.options.disableStdin = observeRef.current;
-    let saved = EMPTY_DRAFT;
-    try {
-      const value = paneId ? JSON.parse(localStorage.getItem(`herdr-fleet:terminal-draft:${paneStorageId(machineId, paneId)}`) ?? "null") : null;
-      if (value && typeof value.text === "string" && Number.isInteger(value.droppedSpecial)) saved = value;
-    } catch {}
-    setDraft(saved);
-    draftPaneRef.current = paneId;
+    // the pane's held input, as this device kept it
+    emitRef.current({ type: "draft-open", owner: paneId ? paneStorageId(machineId, paneId) : null });
     term.reset();
     if (!paneId) return;
     try {
@@ -1078,15 +1060,8 @@ export function PaneTerminal({
     command({ kind: "mode", role });
   }, [role]);
 
-  const sendDraft = useCallback(() => {
-    const pane = paneRef.current;
-    if (!pane || draft.text.length === 0 || !link.connected() || secretRef.current !== null || heldRef.current) return;
-    if (link.sendInput(pane, draft.text)) setDraft(EMPTY_DRAFT);
-  }, [draft]);
-
-  const discardDraft = useCallback(() => {
-    setDraft(EMPTY_DRAFT);
-  }, []);
+  const sendDraft = useCallback(() => emit({ type: "send-draft" }), [emit]);
+  const discardDraft = useCallback(() => emit({ type: "discard-draft" }), [emit]);
 
   // the composer goes straight to the socket, not through onData: an armed key-bar Ctrl
   // must not turn a one-letter message into a control key. Offline it sends nothing and

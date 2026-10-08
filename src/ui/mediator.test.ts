@@ -54,6 +54,8 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     createSession: async () => ({ workspace_id: "w9", pane_id: "w9:p1", agent_started: true }),
     loadBackgroundTasks: async () => ({ tasks: [], runs: [], serverTime: null }),
     openPaneSocket: () => { throw new Error("no pane socket in this test"); },
+    loadDraft: () => ({ text: "", droppedSpecial: 0 }),
+    saveDraft: () => {},
     listFolders: async (_machineId, path) => ({ path: path || "/home/me", parent: "/", home: "/home/me", directories: [], truncated: false }),
     showPreview: () => {},
     leavePreview: () => true,
@@ -410,7 +412,28 @@ describe("Mediator", () => {
       expect(mediator.getState().pane.session.ended).toBe(false);
     });
 
-    it("acknowledges output with no terminal to write it, so the server is not left waiting", () => {
+    it("sends the held input once the terminal takes it, and keeps it when the socket does not", () => {
+      const fake = fakeSocket();
+      const saved: Array<{ owner: string; text: string }> = [];
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port, loadDraft: () => ({ text: "ls", droppedSpecial: 0 }), saveDraft: (owner, value) => { saved.push({ owner, text: value.text }); } }).ports);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      mediator.dispatch({ type: "draft-open", owner: "w1:p1" });
+      expect(mediator.getState().pane.draft.value.text).toBe("ls");
+      fake.socket.up = true;
+      fake.say({ type: "pty-data", pane_id: "w1:p1", data: "$" } as ServerMessage);
+      // taken by nothing: it stays
+      fake.socket.sendInput = () => false;
+      mediator.dispatch({ type: "send-draft" });
+      expect(mediator.getState().pane.draft.value.text).toBe("ls");
+      fake.socket.sendInput = (paneId, text) => { fake.calls.push(`input ${paneId} ${text}`); return true; };
+      mediator.dispatch({ type: "send-draft" });
+      expect(fake.calls.at(-1)).toBe("input w1:p1 ls");
+      expect(mediator.getState().pane.draft.value.text).toBe("");
+      expect(saved.at(-1)).toEqual({ owner: "w1:p1", text: "" });
+    });
+
+        it("acknowledges output with no terminal to write it, so the server is not left waiting", () => {
       const fake = fakeSocket();
       const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
       mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
