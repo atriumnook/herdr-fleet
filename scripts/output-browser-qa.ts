@@ -31,7 +31,11 @@ try {
   }
   const [paneA, paneB] = panes as [string, string];
   server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push") });
-  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
+  browser = await chromium.launch({
+    executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"],
+    // the checks read the English UI: Chromium on Linux takes its language from LANG, not --lang
+    env: { ...process.env, LANG: "en_US.UTF-8", LANGUAGE: "en_US", LC_ALL: "en_US.UTF-8" },
+  });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript((ids) => {
     for (const id of ids) localStorage.setItem(`herdr-fleet:view:${id}`, "terminal");
