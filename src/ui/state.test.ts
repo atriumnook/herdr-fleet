@@ -2024,6 +2024,53 @@ describe("answering the waiting prompt in its card", () => {
     expect(failed.state.chat.card).toEqual({ promptId: "p", status: "failed", message: "boom" });
   });
 
+  it("answers only the prompt the open pane shows", () => {
+    const state = shown();
+    expect(play([{ type: "prompt-card-answer", machineId: "local", paneId: "w1:p1", promptId: "q", answer: { option_index: 0 }, typed: false }], state).effects).toEqual([]);
+    expect(play([{ type: "prompt-card-answer", machineId: "local", paneId: "w1:p2", promptId: "p", answer: { option_index: 0 }, typed: false }], state).effects).toEqual([]);
+    expect(play([{ type: "prompt-card-answer", machineId: "remote", paneId: "w1:p1", promptId: "p", answer: { option_index: 0 }, typed: false }], state).effects).toEqual([]);
+  });
+
+  it("keeps an answer that lands after another pane opened off that pane, and holds the card when its pane comes back", () => {
+    const sending = answer(shown()).state;
+    const away = play([{ type: "chat-open", machineId: "local", paneId: "w1:p2" }], sending).state;
+    const other = play([{ type: "chat-prompt-read", seq: away.chat.promptSeq, sent: 0, prompt: prompt("p"), suggestion: null }], away).state;
+    expect(other.chat.card).toBeNull();
+    for (const outcome of [{ kind: "ok" as const }, { kind: "failed" as const, status: 409, code: "prompt_changed", message: "changed" }, { kind: "failed" as const, status: 500, code: null, message: "boom" }]) {
+      const landed = play([{ type: "answer-result", id: sending.sends.seq, outcome }], other);
+      expect(landed.state.chat).toEqual(other.chat);
+      expect(landed.effects).toEqual([]);
+    }
+    // back before it lands: the card is held, and a second answer goes nowhere
+    const back = play([{ type: "chat-open", machineId: "local", paneId: "w1:p1" }], sending).state;
+    expect(back.chat.card).toEqual({ promptId: "p", status: "pending" });
+    const again = play([{ type: "chat-prompt-read", seq: back.chat.promptSeq, sent: 0, prompt: prompt("p"), suggestion: null }], back).state;
+    expect(again.chat.card).toEqual({ promptId: "p", status: "pending" });
+    expect(answer(again).effects).toEqual([]);
+  });
+
+  it("lets a new prompt be answered while the one before is still on its way, and drops what the card said of the one before", () => {
+    const sending = answer(shown()).state;
+    const moved = play([{ type: "chat-prompt-read", seq: sending.chat.promptSeq, sent: 0, prompt: prompt("q"), suggestion: null }], sending).state;
+    expect(moved.chat.card).toBeNull();
+    const landed = play([{ type: "answer-result", id: sending.sends.seq, outcome: { kind: "ok" } }], moved).state;
+    expect(landed.chat.prompt?.id).toBe("q");
+    expect(play([{ type: "prompt-card-answer", machineId: "local", paneId: "w1:p1", promptId: "q", answer: { option_index: 0 }, typed: false }], moved).effects.map((effect) => effect.kind)).toEqual(["answer-prompt"]);
+    const failed = play([{ type: "answer-result", id: sending.sends.seq, outcome: { kind: "failed", status: 500, code: null, message: "boom" } }], sending).state;
+    expect(play([{ type: "chat-prompt-read", seq: failed.chat.promptSeq, sent: 0, prompt: prompt("q"), suggestion: null }], failed).state.chat.card).toBeNull();
+  });
+
+  it("ends the word that the prompt changed only for its own answer", () => {
+    const sending = answer(shown()).state;
+    const changed = play([{ type: "answer-result", id: sending.sends.seq, outcome: { kind: "failed", status: 409, code: "prompt_changed", message: "changed" } }], sending);
+    const later = changed.effects.find((effect) => effect.kind === "later") as Extract<Effect, { kind: "later" }>;
+    // the prompt read again is the same one, answered again and refused again: the first clear is too late
+    const reread = play([{ type: "chat-prompt-read", seq: changed.state.chat.promptSeq, sent: 0, prompt: prompt("p"), suggestion: null }], changed.state).state;
+    const second = answer(reread).state;
+    const again = play([{ type: "answer-result", id: second.sends.seq, outcome: { kind: "failed", status: 409, code: "prompt_changed", message: "changed" } }], second).state;
+    expect(play([later.event], again).state.chat.card).toMatchObject({ status: "changed" });
+  });
+
   it("lets go of a typed pick once its Confirm answered, whatever came of it", () => {
     const picked = play([{ type: "chat-pending-answer", promptId: "p", answer: { option_index: 0 } }], shown()).state;
     const sending = answer(picked, true).state;

@@ -517,7 +517,7 @@ type PendingSend =
   | { target: "composer"; owner: string; via: "box" | "quick"; sent: string }
   | { target: "line"; owner: string }
   | { target: "queue"; owner: string; queueId: string }
-  | { target: "card"; promptId: string; steps: boolean; typed: boolean };
+  | { target: "card"; machineId: string; paneId: string; promptId: string; steps: boolean; typed: boolean };
 
 /** The messages sent from composers, input lines and held messages, one under way per box. */
 export interface SendsState {
@@ -2075,7 +2075,15 @@ function readChatPrompt(state: UiState, effects: Effect[]): ChatState {
 function showPrompt(chat: ChatState, prompt: InteractivePrompt | null): ChatState {
   const kept = chat.prompt !== null && prompt !== null && chat.prompt.id === prompt.id ? chat.prompt : prompt;
   const pendingAnswer = chat.pendingAnswer !== null && chat.pendingAnswer.promptId !== kept?.id ? null : chat.pendingAnswer;
-  return kept === chat.prompt && pendingAnswer === chat.pendingAnswer ? chat : { ...chat, prompt: kept, pendingAnswer };
+  // what the card said of its answer is for that prompt only
+  const card = chat.card !== null && chat.card.promptId !== kept?.id ? null : chat.card;
+  return kept === chat.prompt && pendingAnswer === chat.pendingAnswer && card === chat.card ? chat : { ...chat, prompt: kept, pendingAnswer, card };
+}
+
+/** the card's answer on its way for this pane, if any */
+function cardAnswering(state: UiState, machineId: string, paneId: string): ChatState["card"] {
+  const sending = Object.values(state.sends.pending).find((pending) => pending.target === "card" && pending.machineId === machineId && pending.paneId === paneId);
+  return sending?.target === "card" ? { promptId: sending.promptId, status: "pending" } : null;
 }
 
 type ChatEvent = Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "poll-chat-prompt" | "chat-prompt-read" | "chat-prompt-failed" | "chat-pending-answer" | "chat-pending-answer-done" }>;
@@ -2087,8 +2095,9 @@ function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): Ch
     case "chat-open":
       if (chat.open?.machineId === event.machineId && here(event.paneId)) return chat;
       // another pane: nothing of the one before holds, and its reads answer too late; the settings
-      // reported are kept by pane, so the same pane opened again shows them at once
-      return { ...chat, open: { machineId: event.machineId, paneId: event.paneId }, agent: false, prompt: null, suggestion: null, pendingAnswer: null, card: null, promptSeq: chat.promptSeq + 1 };
+      // reported are kept by pane, so the same pane opened again shows them at once; an answer
+      // still on its way from its card holds the card when its prompt shows again
+      return { ...chat, open: { machineId: event.machineId, paneId: event.paneId }, agent: false, prompt: null, suggestion: null, pendingAnswer: null, card: cardAnswering(state, event.machineId, event.paneId), promptSeq: chat.promptSeq + 1 };
     case "chat-close":
       if (chat.open?.machineId !== event.machineId || !here(event.paneId)) return chat;
       return { ...chat, open: null, agent: false, prompt: null, suggestion: null, pendingAnswer: null, card: null, promptSeq: chat.promptSeq + 1 };
@@ -2422,9 +2431,11 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
       return { state: { ...next, queue: { ...next.queue, sending: { owner: event.owner, id: event.id }, error: null } }, effects };
     }
     case "prompt-card-answer": {
-      // one answer at a time, for the prompt the card shows
-      if (state.chat.card?.status === "pending" || state.chat.prompt?.id !== event.promptId) return { state, effects };
-      const { id, next } = start({ target: "card", promptId: event.promptId, steps: state.chat.prompt.steps !== undefined, typed: event.typed });
+      // one answer at a time, for the prompt the card shows on the pane open
+      const { open, prompt } = state.chat;
+      if (open?.machineId !== event.machineId || open.paneId !== event.paneId || prompt?.id !== event.promptId) return { state, effects };
+      if (cardAnswering(state, event.machineId, event.paneId)?.promptId === event.promptId) return { state, effects };
+      const { id, next } = start({ target: "card", machineId: event.machineId, paneId: event.paneId, promptId: event.promptId, steps: prompt.steps !== undefined, typed: event.typed });
       effects.push({ kind: "answer-prompt", id, machineId: event.machineId, paneId: event.paneId, promptId: event.promptId, answer: event.answer });
       return { state: { ...next, chat: { ...next.chat, card: { promptId: event.promptId, status: "pending" } } }, effects };
     }
@@ -2444,6 +2455,8 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
   const ok = event.outcome.kind === "ok";
   if (event.type === "answer-result" && pending.target === "card") {
     const { chat } = next;
+    // an answer for a prompt no longer shown (another pane open, or the prompt moved on) says nothing here
+    if (chat.open?.machineId !== pending.machineId || chat.open.paneId !== pending.paneId || chat.prompt?.id !== pending.promptId) return { state: next, effects };
     // a typed pick waiting for Confirm goes once its Confirm answered, whatever came of it, and
     // with the prompt once it is answered
     const pendingAnswer = pending.typed ? null : chat.pendingAnswer;
@@ -2453,7 +2466,7 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
       return { state: pending.steps && chatReads(answered) ? { ...answered, chat: readChatPrompt(answered, effects) } : answered, effects };
     }
     if (event.outcome.status === 409 && event.outcome.code === "prompt_changed") {
-      const seq = sends.seq;
+      const seq = event.id;
       const changed: UiState = { ...next, chat: { ...chat, pendingAnswer, card: { promptId: pending.promptId, status: "changed", seq } } };
       const reread = chatReads(changed) ? { ...changed, chat: readChatPrompt(changed, effects) } : changed;
       effects.push({ kind: "later", ms: CARD_CHANGED_MS, event: { type: "prompt-card-clear", seq } });
