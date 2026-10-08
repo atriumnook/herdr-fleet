@@ -21,12 +21,13 @@ import type { BackgroundTasksUpEvent } from "../ui/BackgroundTasksPresenter.tsx"
 import { useSelected, useTerminal } from "../ui/presenter.ts";
 import { NO_SESSION, type PaneCommand, type PaneSessionEvent, type UiEvent } from "../ui/state.ts";
 import { QueuePresenter, type QueueUpEvent } from "../ui/QueuePresenter.tsx";
-import { TerminalInput, type TerminalInputEvent } from "./TerminalInput.tsx";
+import type { TerminalInputEvent } from "./TerminalInput.tsx";
+import { TerminalInputPresenter } from "../ui/TerminalInputPresenter.tsx";
 import { SecretInput } from "./SecretInput.tsx";
 import { secretPrompt } from "../../shared/secret-prompt.ts";
 import { ChatPresenter, type ChatUpEvent } from "../ui/ChatPresenter.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
-import { Composer, type ComposerEvent } from "./Composer.tsx";
+import { ComposerPresenter, type ComposerUpEvent } from "../ui/ComposerPresenter.tsx";
 import type { AgentStatus, ClientRole } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
 import { useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
@@ -80,7 +81,6 @@ export interface PaneTerminalProps {
       | "queue-open" | "queue-edit" | "queue-discard" | "composer-draft" | "line-draft" | "composer-send" | "line-send" | "queue-send"
       | "completions-open" | "file-query" | "slash-used" | "attach-files" | "remove-attachment" | "attachments-sent" | "attachments-close" }> | ChatUpEvent>;
 }
-
 
 /** Whether this device types in the terminal's input line or straight into the grid: remembered per device. */
 const DIRECT_TYPING_KEY = "herdr-fleet:direct-typing";
@@ -998,7 +998,6 @@ export function PaneTerminal({
     };
   }, [paneId]);
 
-
   // the user picked the pane App had switched to on its own (the same row or lens again,
   // which changes neither the pane nor the lens): the grid takes the keyboard now
   const autoSelectedRef = useRef(autoSelected);
@@ -1044,7 +1043,14 @@ export function PaneTerminal({
   // (an answer, a held message, a submit) and sends it straight to the socket, not through onData:
   // an armed key-bar Ctrl must not turn a one-letter message into a control key.
   const bracketedPaste = (): boolean => termRef.current?.modes.bracketedPasteMode ?? false;
-  const composerEmit = useCallback((event: ComposerEvent | BackgroundTasksUpEvent) => {
+  const composerEmit = useCallback((event: ComposerUpEvent) => {
+    // the stop button: Escape interrupts the agent's current turn in every supported TUI (Claude
+    // Code, omp, codex) without killing the process the way ^C would
+    if (event.type === "abort-turn") {
+      const term = termRef.current;
+      if (term && link.connected()) term.input("\u001b");
+      return;
+    }
     if (event.type !== "send-message") { emitRef.current(event); return; }
     const pane = paneRef.current;
     if (pane === null) return;
@@ -1097,14 +1103,6 @@ export function PaneTerminal({
     }
   }, [inputLine, coarse, chatView, directTyping, paneId]);
 
-  // the composer's stop button: Escape interrupts the agent's current turn in every
-  // supported TUI (Claude Code, omp, codex) without killing the process the way ^C would
-  const abortTurn = useCallback(() => {
-    const term = termRef.current;
-    if (!term || !link.connected()) return;
-    term.input("\u001b");
-  }, []);
-
   // While the agent runs, append to its held messages. Each requires an explicit send.
   // a question in Codex's queue leaves the composer alone: Codex keeps working, and a
   // message ("stop, don't touch prod") must reach it, not become the answer; its card answers it
@@ -1122,7 +1120,6 @@ export function PaneTerminal({
     if (pane === null) return;
     emitRef.current({ type: "queue-send", owner: event.owner, id: event.id, text: event.text, paneId: pane, bracketedPaste: bracketedPaste() });
   }, []);
-
 
   return (
     // data-direct-typing: xterm's own field raises the soft keyboard here (lib/viewport.ts)
@@ -1232,7 +1229,7 @@ export function PaneTerminal({
         onCancel={() => { if (link.connected()) link.sendInput(paneId, "\u0003"); }}
       />}
       {paneId !== null && chatView && !secretActive && !observing && !ended && (
-        <Composer
+        <ComposerPresenter
           key={paneId}
           paneId={paneId}
           autoFocus={!autoSelected && !coarse}
@@ -1247,10 +1244,9 @@ export function PaneTerminal({
             : pendingAnswer?.promptId === answering.id ? t("Confirm your answer in the card above, or type another…") : answerHint(answering)}
           // no suggestion under any card, a fallback or queued one included
           suggestion={chatPrompt === null ? chatSuggestion : null}
-          onAbort={abortTurn}
         />
       )}
-      {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInput key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onEnter={pressEnter} emit={lineEmit} />}
+      {paneId !== null && !secretActive && !observing && !ended && inputLine && <TerminalInputPresenter key={paneId} owner={paneStorageId(machineId, paneId)} onComposing={setComposing} connected={connected && !held} onEnter={pressEnter} emit={lineEmit} />}
       {paneId !== null && !secretActive && !observing && !chatView && <KeyBar model={{ disabled: composing, ctrlArmed, directTyping: coarse ? directTyping : null }} emit={keyBarEmit} />}
     </div>
   );

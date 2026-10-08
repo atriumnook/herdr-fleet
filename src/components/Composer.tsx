@@ -9,54 +9,67 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
 import { Clock, FileText, Paperclip, SendHorizontal, Square, X } from "lucide-react";
 
 import "./Composer.css";
 
 import type { AgentStatus, ConversationMetadata, SlashCommand } from "../../shared/protocol.ts";
-import { useMachineId } from "../lib/machineContext.tsx";
 import { answerRefusal } from "../lib/promptAnswer.ts";
-import { useSelected, useStateNow } from "../ui/presenter.ts";
-import type { ComposerAttachment, ComposerDraftChange, UiEvent } from "../ui/state.ts";
+import type { ComposerAttachment, ComposerDraftChange, SendOutcome, UiEvent } from "../ui/state.ts";
 
-/** a message from the box (`quick`: a quick reply, which leaves the box alone), and each edit of the draft */
-export type ComposerEvent = { type: "send-message"; text: string; via: "box" | "quick" }
-  | Extract<UiEvent, { type: "composer-draft" | "completions-open" | "file-query" | "slash-used" | "attach-files" | "remove-attachment" | "attachments-sent" | "attachments-close" }>;
-
-/** nothing to complete: the same empty lists each render */
-const NO_COMMANDS: SlashCommand[] = [];
-const NO_FILES: string[] = [];
-
-/** no draft read back yet */
-const NO_DRAFT = { text: "", sending: false };
-import { paneStorageId } from "../../shared/machines.ts";
+/**
+ * A message from the box (`quick`: a quick reply, which leaves the box alone), the stop button,
+ * each edit of the draft, the name typed after `@`, a command chosen, and the files attached.
+ */
+export type ComposerEvent = { type: "send-message"; text: string; via: "box" | "quick" } | { type: "abort-turn" }
+  | Extract<UiEvent, { type: "composer-draft" | "file-query" | "slash-used" | "attach-files" | "remove-attachment" | "attachments-sent" }>;
 import { agentDisplayLabel, composerStatusWord, contextLeftPercent, formatTokens, imageMention, insertMention, MAX_COMPOSER_CHARS, rankSlashCommands, terminalOnlyCommand, submitNote } from "../lib/compose.ts";
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/mentions.ts";
-import { quickReplyButtons, useSettings } from "../lib/settings.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import type { Emit } from "../ui/bubble.ts";
-import { BackgroundTasksPresenter, type BackgroundTasksUpEvent } from "../ui/BackgroundTasksPresenter.tsx";
 import { useT } from "../lib/i18n.ts";
 
-export interface ComposerProps {
-  connected: boolean;
+/** What the composer draws: its pane's draft, what it offers to complete, the files attached, what its last send came to, and the pane's state. */
+export interface ComposerModel {
+  machineId: string;
   paneId: string;
+  /** the pane's storage id: the draft, the attachments and the sends are its */
+  owner: string;
+  connected: boolean;
   /** false: appearing must not take the keyboard (App switched to this pane on its own) */
-  autoFocus?: boolean;
+  autoFocus: boolean;
   agent: string | null;
-  agentStatus?: AgentStatus;
-  /** an OmO pane's running background tasks: the status line opens their list */
-  backgroundTasks?: number;
-  /** what the composer (its draft and its messages) and the background tasks list send up to the Root */
-  emit: Emit<BackgroundTasksUpEvent | ComposerEvent>;
-  metadata?: ConversationMetadata | null;
-  queueMode?: boolean;
+  agentStatus: AgentStatus | undefined;
+  metadata: ConversationMetadata | null;
+  queueMode: boolean;
   /** replaces the placeholder: how a message answers the agent's waiting prompt */
-  answerHint?: string | null;
+  answerHint: string | null;
   /** what the agent suggests typing next (Claude's grey input text): the placeholder, taken with Tab */
-  suggestion?: string | null;
-  onAbort: () => void;
+  suggestion: string | null;
+  text: string;
+  /** the draft has been read back */
+  draftRead: boolean;
+  sending: boolean;
+  /** what the last acknowledged send left in the box, and whether its sent text was changed meanwhile */
+  settled: { text: string; edited: boolean } | undefined;
+  outcome: { id: number; outcome: SendOutcome } | undefined;
+  commands: SlashCommand[];
+  files: string[];
+  slashUsage: Record<string, number>;
+  attachments: ComposerAttachment[];
+  enterSends: boolean;
+  showSuggestionChip: boolean;
+  /** quick replies beside the box, when chosen in Settings */
+  quickReplies: string[] | null;
+}
+
+export interface ComposerProps {
+  model: ComposerModel;
+  /** the status line's background tasks, drawn by their own Presenter */
+  status: ReactNode;
+  emit: Emit<ComposerEvent>;
 }
 
 const MAX_IMAGES_PER_ACTION = 4;
@@ -84,9 +97,6 @@ export const SOURCE_LABEL: Record<SlashCommand["source"], string> = {
 
 type Attachment = ComposerAttachment;
 
-/** nothing attached: the same empty list each render */
-const NO_ATTACHMENTS: Attachment[] = [];
-
 /** A saved manual height, or null for the automatic one (also for anything malformed). */
 function readComposerHeight(): number | null {
   try {
@@ -108,6 +118,8 @@ function saveComposerHeight(value: number | null): void {
 
 /** Half the visible viewport at most, so a raised keyboard never leaves the transcript without room. */
 function composerHeightLimit(): number {
+  // rendered without a window (a test, or a server): the largest box
+  if (typeof window === "undefined") return COMPOSER_HEIGHT_MAX;
   const viewport = window.visualViewport?.height ?? window.innerHeight;
   return Math.min(COMPOSER_HEIGHT_MAX, Math.floor(viewport / 2));
 }
@@ -146,23 +158,10 @@ function ContextRing({ context }: { context: NonNullable<ConversationMetadata["c
 }
 
 /** Chat-style input surface with pane-local drafts, command/file completion, and image mentions. */
-export function Composer({
-  connected,
-  paneId,
-  autoFocus = true,
-  agent,
-  agentStatus,
-  backgroundTasks = 0,
-  emit,
-  metadata,
-  queueMode = false,
-  answerHint = null,
-  suggestion = null,
-  onAbort,
-}: ComposerProps) {
+export function Composer({ model, status, emit }: ComposerProps) {
   const t = useT();
-  const machineId = useMachineId();
-  const { settings } = useSettings();
+  const { machineId, paneId, owner, connected, autoFocus, agent, agentStatus, metadata, queueMode, answerHint, suggestion, text, draftRead, sending, settled, outcome,
+    commands, files, slashUsage, attachments, enterSends, showSuggestionChip, quickReplies } = model;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const composingRef = useRef(false);
   // the chat lens's input surface takes the keyboard when it appears (a pane switch remounts
@@ -173,28 +172,18 @@ export function Composer({
   }, [autoFocus]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   // the draft belongs to its pane (the Mediator keeps it, and this device's storage), even while this composer is unmounted
-  const owner = paneStorageId(machineId, paneId);
   const emitRef = useRef(emit);
   emitRef.current = emit;
-  const stateNow = useStateNow();
-  const draft = useSelected((state) => state.drafts.composer[owner]);
-  const { text, sending } = draft ?? NO_DRAFT;
   const changeDraft = useCallback((change: ComposerDraftChange) => emitRef.current({ type: "composer-draft", owner, change }), [owner]);
-  useLayoutEffect(() => changeDraft({ kind: "read" }), [changeDraft]);
   const setText = useCallback((value: string | ((previous: string) => string)) => {
-    changeDraft({ kind: "set", text: typeof value === "function" ? value(stateNow().drafts.composer[owner]?.text ?? "") : value });
-  }, [changeDraft, owner, stateNow]);
+    changeDraft({ kind: "set", text: typeof value === "function" ? value(textRef.current) : value });
+  }, [changeDraft]);
   const [caret, setCaret] = useState(text.length);
   const textRef = useRef(text);
   const caretRef = useRef(caret);
-  // the pane's slash commands, the files under a typed `@`, and the usage, as the Mediator reads them
-  const commands = useSelected((state) => (state.completions.commands?.machineId === machineId && state.completions.commands.paneId === paneId ? state.completions.commands.list : NO_COMMANDS));
-  const files = useSelected((state) => (state.completions.files.machineId === machineId && state.completions.files.paneId === paneId ? state.completions.files.list : NO_FILES));
-  const slashUsage = useSelected((state) => state.completions.slashUsage);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
-  // the files attached to this pane's message, uploaded one after another by the Mediator; their thumbnails are this view's own
-  const attachments = useSelected((state) => state.attachments.lists[owner] ?? NO_ATTACHMENTS);
+  // the files attached to this pane's message are uploaded by the Mediator; their thumbnails are this view's own
   const previews = useRef(new Map<number, string>());
   const previewUrl = (attachment: Attachment): string => {
     if (!(PREVIEW_TYPES as readonly string[]).includes(attachment.file.type)) return "";
@@ -210,8 +199,7 @@ export function Composer({
   const [dragging, setDragging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   // shown only when chosen in Settings → Quick replies: a button beside the box was one more thing to read
-  const quickOpen = settings.showQuickReplies;
-  const quickReplies = quickReplyButtons(settings);
+  const quickOpen = quickReplies !== null;
   const [manualHeight, setManualHeight] = useState<number | null>(readComposerHeight);
   /** the box's rendered height, for the grip to announce while the height is automatic */
   const [autoHeight, setAutoHeight] = useState(0);
@@ -223,11 +211,11 @@ export function Composer({
   // the caret starts at the end of the draft read back
   const readBack = useRef(false);
   useLayoutEffect(() => {
-    if (draft === undefined || readBack.current) return;
+    if (!draftRead || readBack.current) return;
     readBack.current = true;
-    caretRef.current = draft.text.length;
-    setCaret(draft.text.length);
-  }, [draft]);
+    caretRef.current = text.length;
+    setCaret(text.length);
+  }, [draftRead]); // eslint-disable-line react-hooks/exhaustive-deps
 
   textRef.current = text;
   caretRef.current = caret;
@@ -243,17 +231,11 @@ export function Composer({
     ? t("Reconnecting… message held here, never queued")
     : answerHint ?? offered ?? t("Message {agent}…", { agent: agentLabel });
 
-  useEffect(() => {
-    emitRef.current({ type: "completions-open", machineId, paneId });
-  }, [machineId, paneId]);
-
   // the files under a typed `@` are searched a moment after the typing stops
   const fileQuery = trigger?.kind === "file" ? trigger.query : null;
   useEffect(() => {
     emitRef.current({ type: "file-query", machineId, paneId, query: fileQuery });
   }, [machineId, paneId, fileQuery]);
-  // gone, it names no file: opened again, the box's `@` is searched anew
-  useEffect(() => () => emitRef.current({ type: "file-query", machineId, paneId, query: null }), [machineId, paneId]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -263,10 +245,8 @@ export function Composer({
     return () => {
       for (const url of previews.current.values()) URL.revokeObjectURL(url);
       previews.current.clear();
-      // leaving the pane leaves its attachments: the uploads not yet started go with them
-      emitRef.current({ type: "attachments-close", owner });
     };
-  }, [owner]);
+  }, []);
 
   useLayoutEffect(() => {
     const element = textareaRef.current;
@@ -450,7 +430,6 @@ export function Composer({
 
   // what a send came to, as the Mediator says it once the pane answered: the box's own
   // bookkeeping (the caret, the attachments sent, the note) follows it here
-  const outcome = useSelected((state) => state.sends.outcomes[`composer:${owner}`]);
   const seenOutcome = useRef(outcome);
   /** the box's send on its way: its attachments leave with it */
   const boxSend = useRef<{ attachments: Attachment[] } | null>(null);
@@ -465,7 +444,7 @@ export function Composer({
       if (sent === null) return;
       // only what was sent leaves the box: text added after it stays exactly as typed. Changed
       // inside while on its way, the whole edit stays, and the note says it was not sent
-      const acknowledged = stateNow().drafts.settled[owner];
+      const acknowledged = settled;
       if (acknowledged === undefined) return;
       const { text: rest, edited } = acknowledged;
       setCaret(rest.length);
@@ -482,7 +461,7 @@ export function Composer({
       : said.kind === "open-queue" ? t("Codex has a question open in the terminal: answer it above, or close it there (alt+↓) to message Codex.")
       : said.kind === "refused" ? answerRefusal(said.prompt)
       : said.kind === "answer-changed" ? t("The question on screen changed; check it and answer again.") : said.message);
-  }, [outcome, owner, stateNow]);
+  }, [outcome]); // eslint-disable-line react-hooks/exhaustive-deps -- settled comes with the outcome
 
   const send = useCallback(() => {
     if (composingRef.current) return;
@@ -533,14 +512,14 @@ export function Composer({
         return;
       }
       if (event.key !== "Enter") return;
-      const shouldSend = settings.enterSends
+      const shouldSend = enterSends
         ? !event.shiftKey && !event.metaKey && !event.ctrlKey
         : (event.metaKey || event.ctrlKey) && !event.shiftKey;
       if (!shouldSend) return;
       event.preventDefault();
       send();
     },
-    [choices, menuOpen, offered, selectCompletion, selectedIndex, send, setTextAndCaret, settings.enterSends, trigger],
+    [choices, menuOpen, offered, selectCompletion, selectedIndex, send, setTextAndCaret, enterSends, trigger],
   );
 
   const onPaste = useCallback(
@@ -575,7 +554,7 @@ export function Composer({
         <span className="composer-agent-label">{agentLabel}</span>
         <span className="composer-status-separator" aria-hidden="true">·</span>
         <strong>{t(composerStatusWord(agentStatus))}</strong>
-        <BackgroundTasksPresenter paneId={paneId} count={backgroundTasks} omo={agent === "omo"} emit={emit} />
+        {status}
         {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
           <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>
           <span className="composer-reasoning" title={metadata.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>
@@ -592,7 +571,7 @@ export function Composer({
       </div>
 
       {/* no Tab key on a phone: the suggestion can be a chip there that fills the box, once chosen in Settings */}
-      {settings.showSuggestionChip && offered !== null && text === "" && (
+      {showSuggestionChip && offered !== null && text === "" && (
         <div className="composer-quick composer-suggestion-row">
           <button type="button" className="composer-quick-reply composer-suggestion" title={t("Use the suggestion")} onClick={() => setTextAndCaret(offered, offered.length)}>
             <span aria-hidden="true">↹ </span>{offered}
@@ -790,7 +769,7 @@ export function Composer({
               aria-label={t("Stop agent")}
               title={t("Stop agent")}
               disabled={!connected}
-              onClick={onAbort}
+              onClick={() => emit({ type: "abort-turn" })}
             >
               <Square aria-hidden="true" />
             </button>
