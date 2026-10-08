@@ -1952,10 +1952,22 @@ describe("files attached to a composer's message", () => {
     expect(failed.effects).toEqual([]);
   });
 
-  it("waits for the upload under way before starting files attached meanwhile", () => {
-    const first = attach(["a.png"]).state;
-    const more = attach(["b.png"], first);
-    expect(more.effects).toEqual([]);
+  it("uploads files attached meanwhile beside the batch under way, each batch one after another", () => {
+    const first = attach(["a.png", "b.png"]).state;
+    const more = attach(["c.png"], first);
+    const c = more.state.attachments.lists[owner]![2]!;
+    expect(more.effects).toEqual([expect.objectContaining({ kind: "upload-file", id: c.id })]);
+    // the first batch's next waits for its own first
+    expect(play([{ type: "upload-done", owner, id: c.id, path: "/tmp/c.png" }], more.state).effects).toEqual([]);
+  });
+
+  it("ignores an upload a closed composer started once files are attached there again", () => {
+    const { state } = attach(["a.png"]);
+    const [a] = state.attachments.lists[owner]!;
+    const again = attach(["b.png"], play([{ type: "attachments-close", owner }], state).state).state;
+    const late = play([{ type: "upload-done", owner, id: a!.id, path: "/tmp/a.png" }], again);
+    expect(late.state).toBe(again);
+    expect(late.effects).toEqual([]);
   });
 
   it("drops a removed file, ignoring its upload's answer, and goes on with the next", () => {

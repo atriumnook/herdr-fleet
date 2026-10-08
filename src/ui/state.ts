@@ -543,6 +543,8 @@ export interface ComposerAttachment {
   /** the pane it goes to: its composer's, when attached */
   machineId: string;
   paneId: string;
+  /** the files attached together: they go up one after another, apart from another batch's */
+  batch: number;
   /** where the pane's PC stored it, once uploaded */
   path: string | null;
   state: "uploading" | "ready" | "error";
@@ -552,8 +554,8 @@ export interface ComposerAttachment {
 /** The files attached to each composer's message, uploaded one after another. */
 export interface AttachmentsState {
   lists: Record<string, ComposerAttachment[]>;
-  /** the upload under way for each composer */
-  uploading: Record<string, number>;
+  /** the uploads under way for each composer, one per batch */
+  uploading: Record<string, Array<{ id: number; batch: number }>>;
   /** attachments so far */
   seq: number;
 }
@@ -2260,35 +2262,41 @@ type AttachmentsEvent = Extract<UiEvent, { type: "attach-files" | "upload-done" 
 function attachmentsTransition(attachments: AttachmentsState, event: AttachmentsEvent, effects: Effect[]): AttachmentsState {
   const { owner } = event;
   const list = attachments.lists[owner] ?? [];
-  const withList = (next: ComposerAttachment[], uploading = attachments.uploading): AttachmentsState => ({ ...attachments, lists: { ...attachments.lists, [owner]: next }, uploading });
-  /** the next file waiting goes up, one at a time */
-  const startNext = (state: AttachmentsState): AttachmentsState => {
-    const { [owner]: _done, ...idle } = state.uploading;
-    const waiting = (state.lists[owner] ?? []).find((item) => item.state === "uploading");
-    if (waiting === undefined) return { ...state, uploading: idle };
-    effects.push({ kind: "upload-file", owner, id: waiting.id, machineId: waiting.machineId, paneId: waiting.paneId, file: waiting.file });
-    return { ...state, uploading: { ...idle, [owner]: waiting.id } };
+  const going = attachments.uploading[owner] ?? [];
+  /** the batch's next file waiting goes up, one at a time within it */
+  const startNext = (next: ComposerAttachment[], inFlight: Array<{ id: number; batch: number }>, batch: number): AttachmentsState => {
+    const waiting = next.find((item) => item.batch === batch && item.state === "uploading" && !inFlight.some((upload) => upload.id === item.id));
+    if (waiting !== undefined) {
+      effects.push({ kind: "upload-file", owner, id: waiting.id, machineId: waiting.machineId, paneId: waiting.paneId, file: waiting.file });
+      inFlight = [...inFlight, { id: waiting.id, batch }];
+    }
+    return { ...attachments, lists: { ...attachments.lists, [owner]: next }, uploading: { ...attachments.uploading, [owner]: inFlight } };
   };
   switch (event.type) {
     case "attach-files": {
       let seq = attachments.seq;
-      const added = event.files.map((file): ComposerAttachment => ({ id: ++seq, file, machineId: event.machineId, paneId: event.paneId, path: null, state: "uploading" }));
-      const next = { ...withList([...list, ...added]), seq };
-      return attachments.uploading[owner] === undefined ? startNext(next) : next;
+      const batch = seq + 1;
+      const added = event.files.map((file): ComposerAttachment => ({ id: ++seq, file, machineId: event.machineId, paneId: event.paneId, batch, path: null, state: "uploading" }));
+      return { ...startNext([...list, ...added], going, batch), seq };
     }
     case "upload-done":
     case "upload-failed": {
       // a composer gone answers to nothing
-      if (attachments.uploading[owner] !== event.id) return attachments;
+      const upload = going.find((item) => item.id === event.id);
+      if (upload === undefined) return attachments;
+      // a file removed while it went up: its answer changes nothing, and its batch goes on
       const settled = list.map((item) => (item.id !== event.id ? item
         : event.type === "upload-done" ? { ...item, path: event.path, state: "ready" as const } : { ...item, state: "error" as const, error: event.message }));
-      return startNext(withList(settled));
+      return startNext(settled, going.filter((item) => item.id !== event.id), upload.batch);
     }
     case "remove-attachment":
-      return withList(list.filter((item) => item.id !== event.id));
-    case "attachments-sent":
-      return withList(list.filter((item) => !event.ids.includes(item.id)));
+    case "attachments-sent": {
+      if (attachments.lists[owner] === undefined) return attachments;
+      const gone = event.type === "remove-attachment" ? [event.id] : event.ids;
+      return { ...attachments, lists: { ...attachments.lists, [owner]: list.filter((item) => !gone.includes(item.id)) } };
+    }
     case "attachments-close": {
+      if (attachments.lists[owner] === undefined && attachments.uploading[owner] === undefined) return attachments;
       const { [owner]: _list, ...lists } = attachments.lists;
       const { [owner]: _upload, ...uploading } = attachments.uploading;
       return { ...attachments, lists, uploading };

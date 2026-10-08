@@ -184,7 +184,6 @@ export function Composer({
   const setText = useCallback((value: string | ((previous: string) => string)) => {
     changeDraft({ kind: "set", text: typeof value === "function" ? value(stateNow().drafts.composer[owner]?.text ?? "") : value });
   }, [changeDraft, owner, stateNow]);
-  const mounted = useRef(true);
   const [caret, setCaret] = useState(text.length);
   const textRef = useRef(text);
   const caretRef = useRef(caret);
@@ -261,9 +260,7 @@ export function Composer({
   }, [trigger?.kind, trigger?.query]);
 
   useEffect(() => {
-    mounted.current = true;
     return () => {
-      mounted.current = false;
       for (const url of previews.current.values()) URL.revokeObjectURL(url);
       previews.current.clear();
       // leaving the pane leaves its attachments: the uploads not yet started go with them
