@@ -4,7 +4,7 @@ import type { Machine } from "../../shared/machines.ts";
 import type { ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, HealthAuth, InteractivePrompt, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
-import { BACKGROUND_TASKS_POLL_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, INITIAL_STATE, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type Transition, type UiEvent, type UiState } from "./state.ts";
+import { BACKGROUND_TASKS_POLL_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, FILE_SEARCH_DELAY_MS, INITIAL_STATE, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type Transition, type UiEvent, type UiState } from "./state.ts";
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, name: id, role: "worker", agent: "pi", group: "g1", herdrName: `h-${id}`, paneId: `w1:${id}`, cwd: "/w",
@@ -1890,5 +1890,46 @@ describe("sending a message", () => {
     const done = play([{ type: "send-result", id: going.state.sends.seq, outcome: { kind: "ok" } }], going.state);
     expect(done.effects).toContainEqual({ kind: "queue-change", owner, change: { kind: "remove", id: "m" } });
     expect(done.state.queue.sending).toBeNull();
+  });
+});
+
+describe("what the composer completes", () => {
+  const kinds = (effects: Effect[]) => effects.map((effect) => effect.kind);
+
+  it("reads the pane's slash commands as its composer opens, and the usage once", () => {
+    const opened = play([{ type: "completions-open", machineId: "local", paneId: "w1:p1" }]);
+    expect(opened.effects).toEqual([{ kind: "load-commands", machineId: "local", paneId: "w1:p1" }, { kind: "load-slash-usage" }]);
+    const listed = play([{ type: "commands-loaded", machineId: "local", paneId: "w1:p1", commands: [{ name: "review", source: "builtin" } as never] }, { type: "slash-usage-loaded", usage: { review: 2 } }], opened.state).state;
+    expect(listed.completions.commands).toMatchObject({ paneId: "w1:p1", list: [{ name: "review" }] });
+    expect(listed.completions.slashUsage).toEqual({ review: 2 });
+    expect(kinds(play([{ type: "completions-open", machineId: "local", paneId: "w1:p2" }], listed).effects)).toEqual(["load-commands", "load-slash-usage"]);
+    // another pane's list answering late is not this one's
+    const other = play([{ type: "completions-open", machineId: "local", paneId: "w1:p2" }], listed).state;
+    expect(play([{ type: "commands-loaded", machineId: "local", paneId: "w1:p1", commands: [{ name: "late", source: "builtin" } as never] }], other).state.completions.commands).toEqual({ machineId: "local", paneId: "w1:p2", list: [] });
+  });
+
+  it("searches the pane's files a moment after the typing stops, the newest search winning", () => {
+    const asked = play([{ type: "file-query", machineId: "local", paneId: "w1:p1", query: "src" }]);
+    const { seq } = asked.state.completions.files;
+    expect(asked.effects).toEqual([{ kind: "later", ms: FILE_SEARCH_DELAY_MS, event: { type: "search-files", seq } }]);
+    expect(play([{ type: "search-files", seq }], asked.state).effects).toEqual([{ kind: "search-files", machineId: "local", paneId: "w1:p1", query: "src", seq }]);
+    const typed = play([{ type: "file-query", machineId: "local", paneId: "w1:p1", query: "src/u" }], asked.state).state;
+    expect(play([{ type: "search-files", seq }], typed).effects).toEqual([]);
+    expect(play([{ type: "files-found", seq, files: ["src/a.ts"] }], typed).state.completions.files.list).toEqual([]);
+    expect(play([{ type: "files-found", seq: typed.completions.files.seq, files: ["src/ui/b.ts"] }], typed).state.completions.files.list).toEqual(["src/ui/b.ts"]);
+    // no file being named: nothing listed, nothing searched
+    expect(play([{ type: "file-query", machineId: "local", paneId: "w1:p1", query: null }], typed)).toMatchObject({ effects: [], state: { completions: { files: { list: [] } } } });
+  });
+
+  it("shows another pane's composer none of this pane's files", () => {
+    const asked = play([{ type: "file-query", machineId: "local", paneId: "w1:p1", query: "ui" }]).state;
+    const found = play([{ type: "files-found", seq: asked.completions.files.seq, files: ["src/ui/a.ts"] }], asked).state;
+    expect(play([{ type: "file-query", machineId: "local", paneId: "w1:p2", query: "x" }], found).state.completions.files.list).toEqual([]);
+  });
+
+    it("counts each slash command used, kept on this device", () => {
+    const used = play([{ type: "slash-used", name: "review" }, { type: "slash-used", name: "review" }]);
+    expect(used.state.completions.slashUsage).toEqual({ review: 2 });
+    expect(used.effects.at(-1)).toEqual({ kind: "save-slash-usage", usage: { review: 2 } });
   });
 });

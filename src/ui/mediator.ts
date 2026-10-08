@@ -6,7 +6,7 @@ import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AgentKind, ClientRole, ConversationTurn, DirectoryListing, HerdrPane, InteractivePrompt, PromptAnswer, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
+import type { AgentKind, ClientRole, SlashCommand, ConversationTurn, DirectoryListing, HerdrPane, InteractivePrompt, PromptAnswer, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { SubmitResult } from "../lib/ws.ts";
 import type { InputDraft } from "../lib/draft.ts";
 import type { HeldMessage } from "../lib/messageQueue.ts";
@@ -115,6 +115,13 @@ export interface EffectPorts {
   leavePreview(): boolean;
   /** what the server says of a path; throws for anything but these */
   loadFileInfo(machineId: string, path: string, paneId: string | null): Promise<Exclude<FileOutcome, { kind: "failed" }>>;
+  /** a pane's slash commands, kept a while */
+  loadCommands(machineId: string, paneId: string): Promise<SlashCommand[]>;
+  /** how often each slash command was used on this device */
+  loadSlashUsage(): Record<string, number>;
+  saveSlashUsage(usage: Record<string, number>): void;
+  /** the files under a pane's folder whose path matches what is typed */
+  searchFiles(machineId: string, paneId: string, query: string): Promise<string[]>;
   /** answers a pane's waiting prompt with one of its options or its own reply row; throws with `status` 409 when the menu moved on */
   answerPrompt(machineId: string, answer: PromptAnswer): Promise<void>;
   /** changes a pane's composer draft and answers it as now kept, with what a settle left */
@@ -464,6 +471,24 @@ export class Mediator {
         else if (command.kind === "resize") handle.resize(command.paneId, command.cols, command.rows, command.force);
         else if (command.kind === "keep-size") handle.keepSize(command.paneId);
         else handle.setMode(command.role);
+        return;
+      }
+      case "load-commands": {
+        let commands: SlashCommand[] = [];
+        try { commands = await this.ports.loadCommands(effect.machineId, effect.paneId); } catch { /* none offered */ }
+        this.dispatch({ type: "commands-loaded", machineId: effect.machineId, paneId: effect.paneId, commands });
+        return;
+      }
+      case "load-slash-usage":
+        this.dispatch({ type: "slash-usage-loaded", usage: this.ports.loadSlashUsage() });
+        return;
+      case "save-slash-usage":
+        this.ports.saveSlashUsage(effect.usage);
+        return;
+      case "search-files": {
+        let files: string[] = [];
+        try { files = await this.ports.searchFiles(effect.machineId, effect.paneId, effect.query); } catch { /* none listed */ }
+        this.dispatch({ type: "files-found", seq: effect.seq, files });
         return;
       }
       case "submit": {

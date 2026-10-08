@@ -15,13 +15,17 @@ import { Clock, FileText, Paperclip, SendHorizontal, Square, X } from "lucide-re
 import "./Composer.css";
 
 import type { AgentStatus, ConversationMetadata, SlashCommand } from "../../shared/protocol.ts";
-import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
+import { useMachineId } from "../lib/machineContext.tsx";
 import { answerRefusal } from "../lib/promptAnswer.ts";
 import { useSelected, useStateNow } from "../ui/presenter.ts";
 import type { ComposerDraftChange, UiEvent } from "../ui/state.ts";
 
 /** a message from the box (`quick`: a quick reply, which leaves the box alone), and each edit of the draft */
-export type ComposerEvent = { type: "send-message"; text: string; via: "box" | "quick" } | Extract<UiEvent, { type: "composer-draft" }>;
+export type ComposerEvent = { type: "send-message"; text: string; via: "box" | "quick" } | Extract<UiEvent, { type: "composer-draft" | "completions-open" | "file-query" | "slash-used" }>;
+
+/** nothing to complete: the same empty lists each render */
+const NO_COMMANDS: SlashCommand[] = [];
+const NO_FILES: string[] = [];
 
 /** no draft read back yet */
 const NO_DRAFT = { text: "", sending: false };
@@ -61,8 +65,6 @@ const MAX_IMAGES_PER_ACTION = 4;
  * and the message mentions its path. These image types also get a thumbnail.
  */
 const PREVIEW_TYPES = ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml"] as const;
-const COMMAND_CACHE_MS = 60_000;
-const SLASH_USAGE_KEY = "herdr-fleet:slash-usage";
 /** One height for every pane on this device: it is the screen, not the conversation, that decides it. */
 const COMPOSER_HEIGHT_KEY = "herdr-fleet:composer-height";
 const COMPOSER_HEIGHT_MAX = 480;
@@ -80,8 +82,6 @@ export const SOURCE_LABEL: Record<SlashCommand["source"], string> = {
   plugin: "Plugins",
 };
 
-type CommandCacheEntry = { loadedAt: number; commands: SlashCommand[] };
-const commandCache = new Map<string, CommandCacheEntry>();
 let attachmentSequence = 0;
 
 type Attachment = {
@@ -91,18 +91,6 @@ type Attachment = {
   path: string | null;
   state: "uploading" | "ready" | "error";
 };
-
-function readSlashUsage(): Record<string, number> {
-  try {
-    const parsed: unknown = JSON.parse(window.localStorage.getItem(SLASH_USAGE_KEY) ?? "{}");
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    return Object.fromEntries(
-      Object.entries(parsed).filter((entry): entry is [string, number] => typeof entry[1] === "number"),
-    );
-  } catch {
-    return {};
-  }
-}
 
 /** A saved manual height, or null for the automatic one (also for anything malformed). */
 function readComposerHeight(): number | null {
@@ -127,14 +115,6 @@ function saveComposerHeight(value: number | null): void {
 function composerHeightLimit(): number {
   const viewport = window.visualViewport?.height ?? window.innerHeight;
   return Math.min(COMPOSER_HEIGHT_MAX, Math.floor(viewport / 2));
-}
-
-async function cachedPaneCommands(paneId: string, machineId: string, fetchCommands: (pane: string) => Promise<SlashCommand[]>): Promise<SlashCommand[]> {
-  const cached = commandCache.get(paneStorageId(machineId, paneId));
-  if (cached && Date.now() - cached.loadedAt < COMMAND_CACHE_MS) return cached.commands;
-  const commands = await fetchCommands(paneId);
-  commandCache.set(paneStorageId(machineId, paneId), { loadedAt: Date.now(), commands });
-  return commands;
 }
 
 /**
@@ -188,7 +168,6 @@ export function Composer({
 }: ComposerProps) {
   const t = useT();
   const machineId = useMachineId();
-  const { fetchPaneCommands, fetchPaneFiles } = useMachineApi();
   const { settings } = useSettings();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const composingRef = useRef(false);
@@ -201,7 +180,6 @@ export function Composer({
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const attachmentsRef = useRef<Attachment[]>([]);
   const removedAttachments = useRef(new Set<number>());
-  const fileRequest = useRef(0);
   // the draft belongs to its pane (the Mediator keeps it, and this device's storage), even while this composer is unmounted
   const owner = paneStorageId(machineId, paneId);
   const emitRef = useRef(emit);
@@ -218,9 +196,10 @@ export function Composer({
   const [caret, setCaret] = useState(text.length);
   const textRef = useRef(text);
   const caretRef = useRef(caret);
-  const [commands, setCommands] = useState<SlashCommand[]>([]);
-  const [files, setFiles] = useState<string[]>([]);
-  const [slashUsage, setSlashUsage] = useState<Record<string, number>>(readSlashUsage);
+  // the pane's slash commands, the files under a typed `@`, and the usage, as the Mediator reads them
+  const commands = useSelected((state) => (state.completions.commands?.machineId === machineId && state.completions.commands.paneId === paneId ? state.completions.commands.list : NO_COMMANDS));
+  const files = useSelected((state) => (state.completions.files.machineId === machineId && state.completions.files.paneId === paneId ? state.completions.files.list : NO_FILES));
+  const slashUsage = useSelected((state) => state.completions.slashUsage);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -262,36 +241,16 @@ export function Composer({
     : answerHint ?? offered ?? t("Message {agent}…", { agent: agentLabel });
 
   useEffect(() => {
-    let live = true;
-    void cachedPaneCommands(paneId, machineId, fetchPaneCommands)
-      .then((next) => {
-        if (live) setCommands(next);
-      })
-      .catch(() => {
-        if (live) setCommands([]);
-      });
-    return () => {
-      live = false;
-    };
-  }, [paneId]);
+    emitRef.current({ type: "completions-open", machineId, paneId });
+  }, [machineId, paneId]);
 
+  // the files under a typed `@` are searched a moment after the typing stops
+  const fileQuery = trigger?.kind === "file" ? trigger.query : null;
   useEffect(() => {
-    const request = ++fileRequest.current;
-    if (trigger?.kind !== "file") {
-      setFiles([]);
-      return;
-    }
-    const timer = window.setTimeout(() => {
-      void fetchPaneFiles(paneId, trigger.query, 20)
-        .then((next) => {
-          if (request === fileRequest.current) setFiles(next);
-        })
-        .catch(() => {
-          if (request === fileRequest.current) setFiles([]);
-        });
-    }, 150);
-    return () => window.clearTimeout(timer);
-  }, [paneId, trigger?.kind, trigger?.query]);
+    emitRef.current({ type: "file-query", machineId, paneId, query: fileQuery });
+  }, [machineId, paneId, fileQuery]);
+  // gone, it names no file: opened again, the box's `@` is searched anew
+  useEffect(() => () => emitRef.current({ type: "file-query", machineId, paneId, query: null }), [machineId, paneId]);
 
   useEffect(() => {
     setSelectedIndex(0);
@@ -447,16 +406,7 @@ export function Composer({
       setTextAndCaret(completed.text, completed.caret);
       setMenuDismissed(true);
       if (currentTrigger.kind === "slash") {
-        const name = (choice as SlashCommand).name;
-        setSlashUsage((current) => {
-          const next = { ...current, [name]: (current[name] ?? 0) + 1 };
-          try {
-            window.localStorage.setItem(SLASH_USAGE_KEY, JSON.stringify(next));
-          } catch {
-            // Completion still works when storage is unavailable.
-          }
-          return next;
-        });
+        emitRef.current({ type: "slash-used", name: (choice as SlashCommand).name });
       }
     },
     [setTextAndCaret, text],

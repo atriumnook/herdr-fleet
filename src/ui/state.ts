@@ -1,7 +1,7 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { alertsAllow, shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, OmoRun, OmoTask, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, OmoRun, OmoTask, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
@@ -525,6 +525,17 @@ export interface SendsState {
   started: number;
 }
 
+/** how long the composer waits after the typing stops before it searches the pane's files */
+export const FILE_SEARCH_DELAY_MS = 150;
+
+/** What the composer offers to complete: the pane's slash commands, files under a typed `@`, and how often each command was used here. */
+export interface CompletionsState {
+  commands: { machineId: string; paneId: string; list: SlashCommand[] } | null;
+  /** `query`: the name being typed after `@`, null when none is; the newest search wins */
+  files: { seq: number; machineId: string; paneId: string; query: string | null; list: string[] };
+  slashUsage: Record<string, number>;
+}
+
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
@@ -565,6 +576,7 @@ export interface UiState {
   queue: QueueState;
   drafts: DraftsState;
   sends: SendsState;
+  completions: CompletionsState;
   gate: GateState;
   /** openings of the new session dialog so far */
   newSessionSeq: number;
@@ -715,6 +727,15 @@ export type UiEvent =
   | { type: "chat-prompt-answered"; steps: boolean }
   | { type: "chat-pending-answer"; promptId: string; answer: TypedAnswer }
   | { type: "chat-pending-answer-done" }
+  /** a pane's composer opened: its slash commands are read */
+  | { type: "completions-open"; machineId: string; paneId: string }
+  | { type: "commands-loaded"; machineId: string; paneId: string; commands: SlashCommand[] }
+  | { type: "slash-usage-loaded"; usage: Record<string, number> }
+  /** the name typed after `@` changed; null: none is being typed */
+  | { type: "file-query"; machineId: string; paneId: string; query: string | null }
+  | { type: "search-files"; seq: number }
+  | { type: "files-found"; seq: number; files: string[] }
+  | { type: "slash-used"; name: string }
   /** a message from a pane's composer (`quick`: a quick reply, which leaves the box alone); `working`: the agent is at work */
   | { type: "composer-send"; owner: string; machineId: string; paneId: string; text: string; via: "box" | "quick"; bracketedPaste: boolean; working: boolean }
   /** the input line's text, typed with its own Enter */
@@ -901,6 +922,11 @@ export type Effect =
   | { kind: "load-chat-prompt"; machineId: string; paneId: string; seq: number; sent: number }
   | { kind: "queue-change"; owner: string; change: QueueChange }
   | { kind: "composer-draft-change"; owner: string; change: ComposerDraftChange }
+  /** the pane's slash commands (kept a minute by the port) */
+  | { kind: "load-commands"; machineId: string; paneId: string }
+  | { kind: "load-slash-usage" }
+  | { kind: "save-slash-usage"; usage: Record<string, number> }
+  | { kind: "search-files"; machineId: string; paneId: string; query: string; seq: number }
   /** `text`: the message as written; `payload`: the same shaped for the pane's paste mode */
   | { kind: "submit"; id: number; paneId: string; text: string; payload: string; typed: boolean }
   | { kind: "answer-prompt"; id: number; machineId: string; paneId: string; promptId: string; answer: TypedAnswer }
@@ -952,6 +978,7 @@ export const INITIAL_STATE: UiState = {
   queue: { lists: {}, unsaved: {}, sending: null, error: null },
   drafts: { composer: {}, settled: {}, line: {} },
   sends: { seq: 0, pending: {}, outcomes: {}, started: 0 },
+  completions: { commands: null, files: { seq: 0, machineId: "local", paneId: "", query: null, list: [] }, slashUsage: {} },
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
@@ -1083,6 +1110,16 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "chat-pending-answer-done": {
       const chat = chatTransition(state, event, effects);
       return next(chat === state.chat ? {} : { chat });
+    }
+    case "completions-open":
+    case "commands-loaded":
+    case "slash-usage-loaded":
+    case "file-query":
+    case "search-files":
+    case "files-found":
+    case "slash-used": {
+      const completions = completionsTransition(state.completions, event, effects);
+      return next(completions === state.completions ? {} : { completions });
     }
     case "composer-send":
     case "line-send":
@@ -2171,6 +2208,44 @@ function conversationTransition(state: UiState, event: ConversationEvent, effect
     }
     const laid = layOut(next, read, moved, { source: "conversation", turns: read.turns, messages: [], truncated: false });
     return chat === state.chat ? laid : { ...laid, state: { ...laid.state, chat } };
+  }
+}
+
+type CompletionsEvent = Extract<UiEvent, { type: "completions-open" | "commands-loaded" | "slash-usage-loaded" | "file-query" | "search-files" | "files-found" | "slash-used" }>;
+
+function completionsTransition(completions: CompletionsState, event: CompletionsEvent, effects: Effect[]): CompletionsState {
+  const { files } = completions;
+  switch (event.type) {
+    case "completions-open":
+      // the usage is read anew each time: another tab may have counted since
+      effects.push({ kind: "load-commands", machineId: event.machineId, paneId: event.paneId }, { kind: "load-slash-usage" });
+      return { ...completions, commands: { machineId: event.machineId, paneId: event.paneId, list: [] } };
+    case "commands-loaded": {
+      const { commands } = completions;
+      if (commands?.machineId !== event.machineId || commands.paneId !== event.paneId) return completions;
+      return { ...completions, commands: { ...commands, list: event.commands } };
+    }
+    case "slash-usage-loaded":
+      return { ...completions, slashUsage: event.usage };
+    case "file-query": {
+      const samePane = files.paneId === event.paneId && files.machineId === event.machineId;
+      if (files.query === event.query && samePane) return completions;
+      const seq = files.seq + 1;
+      if (event.query !== null) effects.push({ kind: "later", ms: FILE_SEARCH_DELAY_MS, event: { type: "search-files", seq } });
+      // the list shown stays while the name is typed on, never into another pane's menu
+      return { ...completions, files: { seq, machineId: event.machineId, paneId: event.paneId, query: event.query, list: event.query !== null && samePane ? files.list : [] } };
+    }
+    case "search-files":
+      if (event.seq !== files.seq || files.query === null) return completions;
+      effects.push({ kind: "search-files", machineId: files.machineId, paneId: files.paneId, query: files.query, seq: files.seq });
+      return completions;
+    case "files-found":
+      return event.seq === files.seq ? { ...completions, files: { ...files, list: event.files } } : completions;
+    case "slash-used": {
+      const slashUsage = { ...completions.slashUsage, [event.name]: (completions.slashUsage[event.name] ?? 0) + 1 };
+      effects.push({ kind: "save-slash-usage", usage: slashUsage });
+      return { ...completions, slashUsage };
+    }
   }
 }
 
