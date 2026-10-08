@@ -173,6 +173,17 @@ export interface PaneSession {
 
 export const NO_SESSION: PaneSession = { paneId: null, outputReady: false, inputReady: false, ended: false, held: false, unsupported: false, inputError: null, outputError: null, secret: null };
 
+/** What the terminal asks of its socket: which pane it shows, at what size, in which role. */
+export type PaneCommand =
+  /** `keepSize`: the chat lens covers the grid, so the shared pty keeps its size */
+  | { kind: "attach"; paneId: string; cols: number; rows: number; keepSize: boolean }
+  | { kind: "detach"; paneId: string }
+  /** `force`: re-assert this size after another client resized the shared pty */
+  | { kind: "resize"; paneId: string; cols: number; rows: number; force: boolean }
+  /** the chat lens covers the grid again: a reconnect attaches without resizing */
+  | { kind: "keep-size"; paneId: string }
+  | { kind: "mode"; role: ClientRole };
+
 /** The pane open in Main: its socket, and the lens the person chose in it. */
 export interface PaneState {
   connected: boolean;
@@ -183,6 +194,10 @@ export interface PaneState {
   /** a lens chosen in the pane, kept here too for a browser that cannot store it; `key` names the pane and what decides its lens */
   lens: { key: string; view: PaneView } | null;
   session: PaneSession;
+  /** the terminal's socket, to the PC it shows; `seq`: the one it is, as each opening is a new one */
+  socket: { machineId: string; seq: number } | null;
+  /** sockets opened so far */
+  socketSeq: number;
 }
 
 /** This device's alerts: the browser's permission, its push subscription, and what the pushes told so far. */
@@ -444,6 +459,11 @@ export type UiEvent =
   | ConnectionEvent
   | { type: "pane-connection"; connected: boolean }
   | PaneSessionEvent
+  /** the terminal for a PC appeared, or went */
+  | { type: "open-pane-socket"; machineId: string }
+  | { type: "close-pane-socket"; machineId: string }
+  /** `machineId`: the PC the terminal asking is on; a socket to another one is not its own */
+  | { type: "pane-command"; machineId: string; command: PaneCommand }
   | { type: "output-stalled" }
   | { type: "role-ack"; role: ClientRole }
   /** `storageId`: where the pane's lens is kept; null with no pane selected */
@@ -642,6 +662,9 @@ export type Effect =
   /** the file as a history entry: a new one, or in place of the open one's */
   | { kind: "history-preview"; preview: FilePreview; replace: boolean }
   | { kind: "history-back" }
+  | { kind: "open-pane-socket"; machineId: string; seq: number }
+  | { kind: "close-pane-socket"; seq: number }
+  | { kind: "pane-command"; seq: number; command: PaneCommand }
   | { kind: "load-background-tasks"; machineId: string; paneId: string; seq: number }
   /** `path` "" is home */
   | { kind: "list-folders"; slot: FolderSlot; machineId: string; path: string; hidden: boolean; files: boolean; seq: number }
@@ -671,7 +694,7 @@ export const INITIAL_STATE: UiState = {
   trees: {},
   connection: { locked: null, reason: null, auth: null, health: null, pairCode: "", pairing: "none", visible: true, pollSeq: 0 },
   machines: { list: [], error: null, revision: 0, refetching: false, checking: null },
-  pane: { connected: false, outputStopped: false, role: "interact", lens: null, session: NO_SESSION },
+  pane: { connected: false, outputStopped: false, role: "interact", lens: null, session: NO_SESSION, socket: null, socketSeq: 0 },
   alerts: { permission: "default", supported: false, push: false, statuses: {}, turnStarts: {}, lastTurns: {}, subscribeSeq: 0 },
   drawerOpen: false,
   newSession: { open: false },
@@ -722,6 +745,22 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       const outputStopped = event.connected ? false : state.pane.outputStopped;
       if (state.pane.connected === event.connected && state.pane.outputStopped === outputStopped) return next({});
       return next({ pane: { ...state.pane, connected: event.connected, outputStopped } });
+    }
+    case "open-pane-socket": {
+      const seq = state.pane.socketSeq + 1;
+      effects.push({ kind: "open-pane-socket", machineId: event.machineId, seq });
+      return next({ pane: { ...state.pane, socket: { machineId: event.machineId, seq }, socketSeq: seq, connected: false } });
+    }
+    case "close-pane-socket": {
+      const { socket } = state.pane;
+      if (socket?.machineId !== event.machineId) return next({});
+      effects.push({ kind: "close-pane-socket", seq: socket.seq });
+      return next({ pane: { ...state.pane, socket: null } });
+    }
+    case "pane-command": {
+      const { socket } = state.pane;
+      if (socket?.machineId === event.machineId) effects.push({ kind: "pane-command", seq: socket.seq, command: event.command });
+      return next({});
     }
     case "pane-attached":
     case "pane-output":

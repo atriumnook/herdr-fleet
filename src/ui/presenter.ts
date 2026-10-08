@@ -44,6 +44,14 @@ export function useStateNow(): () => UiState {
   return useMediator().getState;
 }
 
+/**
+ * The terminal's way to its socket, which the Mediator owns: the sink its xterm takes the
+ * socket's messages through, and the link its keystrokes go out by. Both are past the state.
+ */
+export function useTerminal(): Pick<Mediator, "attachTerminal" | "terminalLink"> {
+  return useMediator();
+}
+
 /** Reads one value from the Mediator's state, re-rendering only when it changes. */
 export function useSelected<T>(select: (state: UiState) => T, isEqual?: (a: T, b: T) => boolean): T {
   const mediator = useMediator();

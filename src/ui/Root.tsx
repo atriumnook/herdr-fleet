@@ -13,6 +13,7 @@ import { loadRecentPanes, rememberPane } from "../lib/recentPanes.ts";
 import { takeAuthTokenFromUrl } from "../lib/authLink.ts";
 import { deviceLabel, takePairCode } from "../lib/phone.ts";
 import { leavePreview, previewFromState, showPreview } from "../lib/fileHistory.ts";
+import { HerdrSocket } from "../lib/ws.ts";
 import { INITIAL_STATE } from "./state.ts";
 
 /** A 401 is the server refusing what the gate sent; anything else stays an error. */
@@ -77,6 +78,14 @@ const FLEET_PORTS: EffectPorts = {
     if (error instanceof ApiError && error.code === "invalid_cwd") return "invalid-cwd" as const;
     throw error;
   }),
+  // the terminal's socket: one per PC shown, reconnecting by itself until closed
+  openPaneSocket: (machineId, on) => {
+    const socket = new HerdrSocket(`${window.location.protocol === "https:" ? "wss:" : "ws:"}//${window.location.host}/ws?machine_id=${encodeURIComponent(machineId)}`);
+    socket.on(on.message);
+    socket.onDisconnect(on.disconnected);
+    socket.connect();
+    return socket;
+  },
   loadBackgroundTasks: (machineId, paneId) => fetchPaneOmoActivity(paneId, machineId),
   // a bridge from before folder browsing has no such route (404)
   listFolders: (machineId, path, hidden, files) => fetchDirectories(path, hidden, machineId, files).catch((error: unknown) => {
