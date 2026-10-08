@@ -5,19 +5,24 @@ import "./KeyBar.css";
 
 import type { KeyBarKey } from "../lib/keys.ts";
 import { useT } from "../lib/i18n.ts";
+import type { Emit } from "../ui/bubble.ts";
 
 export type { KeyBarKey };
 
-export interface KeyBarProps {
-  disabled?: boolean;
-  /** Fires for every key except Control, which toggles the one-shot modifier instead. */
-  onKey: (key: KeyBarKey) => void;
+export interface KeyBarModel {
+  /** an input method is composing in the input line */
+  disabled: boolean;
+  /** Control is armed for the next key */
   ctrlArmed: boolean;
-  onToggleCtrl: () => void;
-  /** on a touch screen: whether the keyboard types straight into the terminal (else the input line) */
-  directTyping?: boolean;
-  onToggleDirect?: () => void;
+  /** on a touch screen: whether the keyboard types straight into the terminal (else the input line); null elsewhere, with no toggle */
+  directTyping: boolean | null;
 }
+
+export type KeyBarEvent =
+  /** every key except Control, which arms the one-shot modifier instead */
+  | { type: "key-bar-key"; key: KeyBarKey }
+  | { type: "toggle-ctrl" }
+  | { type: "toggle-direct" };
 
 /**
  * Cancelling pointerdown AND mousedown keeps focus, and with it the soft
@@ -84,13 +89,15 @@ export const ARROWS: ReadonlyArray<{ key: KeyBarKey; label: string; direction: D
  * for touch, a hardware keyboard already has all of them. Hence role="group", not
  * toolbar: a toolbar promises arrow-key navigation between items, which these skip.
  */
-export function KeyBar({ onKey, ctrlArmed, onToggleCtrl, directTyping, onToggleDirect, disabled }: KeyBarProps) {
+export function KeyBar({ model, emit }: { model: KeyBarModel; emit: Emit<KeyBarEvent> }) {
   const t = useT();
+  const { disabled, ctrlArmed, directTyping } = model;
+  const onKey = (key: KeyBarKey): void => emit({ type: "key-bar-key", key });
   return (
     <div className="key-bar" role="group" aria-label={t("Terminal keys")}>
       {/* first: on a narrow cover screen the row scrolls, and the mode toggle must not be the key cut off */}
-      {onToggleDirect && (
-        <Key disabled={disabled} dataKey="direct" label={t("Type straight into the terminal")} pressed={directTyping} onPress={onToggleDirect}>
+      {directTyping !== null && (
+        <Key disabled={disabled} dataKey="direct" label={t("Type straight into the terminal")} pressed={directTyping} onPress={() => emit({ type: "toggle-direct" })}>
           <Keyboard aria-hidden="true" />
         </Key>
       )}
@@ -100,7 +107,7 @@ export function KeyBar({ onKey, ctrlArmed, onToggleCtrl, directTyping, onToggleD
       <Key disabled={disabled} dataKey="Tab" onPress={() => onKey("Tab")}>
         Tab
       </Key>
-      <Key disabled={disabled} dataKey="Control" pressed={ctrlArmed} onPress={onToggleCtrl}>
+      <Key disabled={disabled} dataKey="Control" pressed={ctrlArmed} onPress={() => emit({ type: "toggle-ctrl" })}>
         Ctrl
       </Key>
       {ARROWS.map((arrow) => (
