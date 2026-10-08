@@ -18,10 +18,11 @@ import type { AgentStatus, ConversationMetadata, SlashCommand } from "../../shar
 import { useMachineId } from "../lib/machineContext.tsx";
 import { answerRefusal } from "../lib/promptAnswer.ts";
 import { useSelected, useStateNow } from "../ui/presenter.ts";
-import type { ComposerDraftChange, UiEvent } from "../ui/state.ts";
+import type { ComposerAttachment, ComposerDraftChange, UiEvent } from "../ui/state.ts";
 
 /** a message from the box (`quick`: a quick reply, which leaves the box alone), and each edit of the draft */
-export type ComposerEvent = { type: "send-message"; text: string; via: "box" | "quick" } | Extract<UiEvent, { type: "composer-draft" | "completions-open" | "file-query" | "slash-used" }>;
+export type ComposerEvent = { type: "send-message"; text: string; via: "box" | "quick" }
+  | Extract<UiEvent, { type: "composer-draft" | "completions-open" | "file-query" | "slash-used" | "attach-files" | "remove-attachment" | "attachments-sent" | "attachments-close" }>;
 
 /** nothing to complete: the same empty lists each render */
 const NO_COMMANDS: SlashCommand[] = [];
@@ -56,7 +57,6 @@ export interface ComposerProps {
   /** what the agent suggests typing next (Claude's grey input text): the placeholder, taken with Tab */
   suggestion?: string | null;
   onAbort: () => void;
-  onUploadImage: (file: File) => Promise<string>;
 }
 
 const MAX_IMAGES_PER_ACTION = 4;
@@ -82,15 +82,10 @@ export const SOURCE_LABEL: Record<SlashCommand["source"], string> = {
   plugin: "Plugins",
 };
 
-let attachmentSequence = 0;
+type Attachment = ComposerAttachment;
 
-type Attachment = {
-  id: number;
-  file: File;
-  previewUrl: string;
-  path: string | null;
-  state: "uploading" | "ready" | "error";
-};
+/** nothing attached: the same empty list each render */
+const NO_ATTACHMENTS: Attachment[] = [];
 
 /** A saved manual height, or null for the automatic one (also for anything malformed). */
 function readComposerHeight(): number | null {
@@ -164,7 +159,6 @@ export function Composer({
   answerHint = null,
   suggestion = null,
   onAbort,
-  onUploadImage,
 }: ComposerProps) {
   const t = useT();
   const machineId = useMachineId();
@@ -178,8 +172,6 @@ export function Composer({
     if (autoFocus) textareaRef.current?.focus({ preventScroll: true });
   }, [autoFocus]);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const attachmentsRef = useRef<Attachment[]>([]);
-  const removedAttachments = useRef(new Set<number>());
   // the draft belongs to its pane (the Mediator keeps it, and this device's storage), even while this composer is unmounted
   const owner = paneStorageId(machineId, paneId);
   const emitRef = useRef(emit);
@@ -192,7 +184,6 @@ export function Composer({
   const setText = useCallback((value: string | ((previous: string) => string)) => {
     changeDraft({ kind: "set", text: typeof value === "function" ? value(stateNow().drafts.composer[owner]?.text ?? "") : value });
   }, [changeDraft, owner, stateNow]);
-  const mounted = useRef(true);
   const [caret, setCaret] = useState(text.length);
   const textRef = useRef(text);
   const caretRef = useRef(caret);
@@ -202,7 +193,20 @@ export function Composer({
   const slashUsage = useSelected((state) => state.completions.slashUsage);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [menuDismissed, setMenuDismissed] = useState(false);
-  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  // the files attached to this pane's message, uploaded one after another by the Mediator; their thumbnails are this view's own
+  const attachments = useSelected((state) => state.attachments.lists[owner] ?? NO_ATTACHMENTS);
+  const previews = useRef(new Map<number, string>());
+  const previewUrl = (attachment: Attachment): string => {
+    if (!(PREVIEW_TYPES as readonly string[]).includes(attachment.file.type)) return "";
+    let url = previews.current.get(attachment.id);
+    if (url === undefined) { url = URL.createObjectURL(attachment.file); previews.current.set(attachment.id, url); }
+    return url;
+  };
+  const dropPreview = (id: number): void => {
+    const url = previews.current.get(id);
+    if (url !== undefined) URL.revokeObjectURL(url);
+    previews.current.delete(id);
+  };
   const [dragging, setDragging] = useState(false);
   const [note, setNote] = useState<string | null>(null);
   // shown only when chosen in Settings → Quick replies: a button beside the box was one more thing to read
@@ -225,7 +229,6 @@ export function Composer({
     setCaret(draft.text.length);
   }, [draft]);
 
-  attachmentsRef.current = attachments;
   textRef.current = text;
   caretRef.current = caret;
   // Codex names its skills with `$`: only there does a `$` open a menu
@@ -257,12 +260,13 @@ export function Composer({
   }, [trigger?.kind, trigger?.query]);
 
   useEffect(() => {
-    mounted.current = true;
     return () => {
-      mounted.current = false;
-      for (const attachment of attachmentsRef.current) URL.revokeObjectURL(attachment.previewUrl);
+      for (const url of previews.current.values()) URL.revokeObjectURL(url);
+      previews.current.clear();
+      // leaving the pane leaves its attachments: the uploads not yet started go with them
+      emitRef.current({ type: "attachments-close", owner });
     };
-  }, []);
+  }, [owner]);
 
   useLayoutEffect(() => {
     const element = textareaRef.current;
@@ -412,48 +416,27 @@ export function Composer({
     [setTextAndCaret, text],
   );
 
-  const uploadImages = useCallback(
-    async (incoming: readonly File[]) => {
-      const images = incoming.slice(0, MAX_IMAGES_PER_ACTION);
-      if (images.length === 0) return;
+  const uploadImages = useCallback((incoming: readonly File[]) => {
+    const images = incoming.slice(0, MAX_IMAGES_PER_ACTION);
+    if (images.length === 0) return;
+    setNote(null);
+    emitRef.current({ type: "attach-files", owner, machineId, paneId, files: images });
+  }, [machineId, owner, paneId]);
 
-      const added = images.map<Attachment>((file) => ({
-        id: ++attachmentSequence,
-        file,
-        previewUrl: (PREVIEW_TYPES as readonly string[]).includes(file.type) ? URL.createObjectURL(file) : "",
-        path: null,
-        state: "uploading",
-      }));
-      setAttachments((current) => [...current, ...added]);
-      setNote(null);
-
-      for (const attachment of added) {
-        if (!mounted.current) break;
-        try {
-          const path = await onUploadImage(attachment.file);
-          if (!mounted.current) break;
-          if (removedAttachments.current.has(attachment.id)) continue;
-          setAttachments((current) =>
-            current.map((item) => (item.id === attachment.id ? { ...item, path, state: "ready" } : item)),
-          );
-          insertMentionAtCursor(imageMention(path));
-        } catch (error) {
-          if (!mounted.current) break;
-          if (removedAttachments.current.has(attachment.id)) continue;
-          setAttachments((current) =>
-            current.map((item) => (item.id === attachment.id ? { ...item, state: "error" } : item)),
-          );
-          setNote(error instanceof Error ? error.message : String(error));
-        }
-      }
-    },
-    [insertMentionAtCursor, onUploadImage],
-  );
+  // an uploaded file is mentioned where the caret is, as typed; one that failed says why
+  const told = useRef(new Set<number>());
+  useEffect(() => {
+    for (const attachment of attachments) {
+      if (attachment.state === "uploading" || told.current.has(attachment.id)) continue;
+      told.current.add(attachment.id);
+      if (attachment.state === "ready" && attachment.path !== null) insertMentionAtCursor(imageMention(attachment.path));
+      else if (attachment.state === "error") setNote(attachment.error ?? null);
+    }
+  }, [attachments, insertMentionAtCursor]);
 
   const removeAttachment = useCallback((attachment: Attachment) => {
-    removedAttachments.current.add(attachment.id);
-    URL.revokeObjectURL(attachment.previewUrl);
-    setAttachments((current) => current.filter((item) => item.id !== attachment.id));
+    dropPreview(attachment.id);
+    emitRef.current({ type: "remove-attachment", owner, id: attachment.id });
     if (attachment.path) {
       const mention = imageMention(attachment.path);
       setText((current) => {
@@ -489,8 +472,8 @@ export function Composer({
       textRef.current = rest;
       caretRef.current = rest.length;
       setNote(edited ? t("Sent as it was. Your changes made while it was sending stayed here and were not sent.") : null);
-      for (const attachment of sent.attachments) URL.revokeObjectURL(attachment.previewUrl);
-      setAttachments((current) => current.filter((attachment) => !sent.attachments.includes(attachment)));
+      for (const attachment of sent.attachments) dropPreview(attachment.id);
+      emitRef.current({ type: "attachments-sent", owner, ids: sent.attachments.map((attachment) => attachment.id) });
       return;
     }
     if (said.kind === "not-sent") return;
@@ -716,7 +699,7 @@ export function Composer({
           <div className="composer-attachments" aria-label={t("Attached files")}>
             {attachments.map((attachment) => (
               <div className={`composer-attachment is-${attachment.state}`} key={attachment.id}>
-                {attachment.previewUrl ? <img src={attachment.previewUrl} alt={attachment.file.name} />
+                {previewUrl(attachment) ? <img src={previewUrl(attachment)} alt={attachment.file.name} />
                   : <span className="composer-attachment-file" title={attachment.file.name}><FileText aria-hidden="true" /><span>{attachment.file.name}</span></span>}
                 <span className="composer-attachment-state">
                   {t(attachment.state === "uploading" ? "Uploading" : attachment.state === "error" ? "Failed" : "Attached")}

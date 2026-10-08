@@ -115,6 +115,8 @@ export interface EffectPorts {
   leavePreview(): boolean;
   /** what the server says of a path; throws for anything but these */
   loadFileInfo(machineId: string, path: string, paneId: string | null): Promise<Exclude<FileOutcome, { kind: "failed" }>>;
+  /** stores a file beside a pane, answering its path */
+  uploadFile(machineId: string, paneId: string, file: File): Promise<string>;
   /** a pane's slash commands, kept a while */
   loadCommands(machineId: string, paneId: string): Promise<SlashCommand[]>;
   /** how often each slash command was used on this device */
@@ -473,6 +475,10 @@ export class Mediator {
         else handle.setMode(command.role);
         return;
       }
+      case "upload-file":
+        try { this.dispatch({ type: "upload-done", owner: effect.owner, id: effect.id, path: await this.ports.uploadFile(effect.machineId, effect.paneId, effect.file) }); }
+        catch (error) { this.dispatch({ type: "upload-failed", owner: effect.owner, id: effect.id, message: message(error) }); }
+        return;
       case "load-commands": {
         let commands: SlashCommand[] = [];
         try { commands = await this.ports.loadCommands(effect.machineId, effect.paneId); } catch { /* none offered */ }
