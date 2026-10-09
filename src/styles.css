@@ -123,7 +123,7 @@
   --chip-h: 20px;
   --icon-size: 18px;
   --mark-size: 22px;
-  --avatar-size: 32px;
+  --avatar-size: 28px;
   --dot-size: 7px;
   --rail-w: 3px;
   --hairline: 1px;
@@ -224,7 +224,7 @@
   --control-h: 32px;
   --row-h: 44px;
   --chip-h: 18px;
-  --avatar-size: 26px;
+  --avatar-size: 24px;
 }
 
 /* ---------- reset + base ---------- */
@@ -701,59 +701,55 @@ button {
 
 /* status badge: tinted background + text, the state readable as a word */
 .badge {
+  --badge-color: var(--idle);
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: 6px;
   height: var(--chip-h);
   padding: 0 var(--space-2);
-  border: var(--hairline) solid transparent;
-  border-radius: var(--radius-sm);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
+  border: var(--hairline) solid var(--badge-color);
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--ink);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
 }
 
-.badge-idle {
-  color: var(--sub);
-  background: var(--field);
+/* the state is told by the word and the dot, edge and face: never by the text color alone */
+.badge::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--badge-color);
 }
 
 .badge-working {
-  color: var(--working);
+  --badge-color: var(--working);
   background: var(--working-tint);
 }
 
-/* RUN is the one state that moves: a dot breathes before the word, the word holds still */
+/* Working is the one state that moves: its dot breathes, the word holds still */
 .badge-working::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-pill);
-  background: currentColor;
   animation: pulse var(--dur-pulse) var(--ease-pulse) infinite;
 }
 
 .badge-blocked {
-  color: var(--needs);
+  --badge-color: var(--needs);
   background: var(--needs-tint);
 }
 
 .badge-done {
-  color: var(--done);
+  --badge-color: var(--done);
   background: var(--done-tint);
 }
 
 /* a pane herdr could not restore: no status to show, and nothing runs in it */
 .badge-restore-error {
-  color: var(--needs-text);
+  --badge-color: var(--needs);
   background: var(--needs-tint);
-}
-
-/* unknown keeps the dim text color (contrast) and is told apart by the dashed edge */
-.badge-unknown {
-  color: var(--sub);
-  border-color: var(--line);
-  border-style: dashed;
 }
 
 /* segmented control: one selected option, the rest quiet */

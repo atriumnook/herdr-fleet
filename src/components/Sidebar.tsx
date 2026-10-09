@@ -55,8 +55,10 @@ export function RestoreErrorBadge({ reason }: { reason: string }) {
   return <span className="badge badge-restore-error" title={reason}>{t("Not restored")}</span>;
 }
 
+/** An agent's state word. A state herdr does not know has no badge at all, not a "—" one. */
 export function StatusBadge({ status }: { status?: AgentStatus }) {
   const value = knownStatus(status);
+  if (value === "unknown") return null;
   return (
     <span className={`badge badge-${value}`} data-status={value} title={t("Agent {status}", { status: t(STATUS_WORD[value]) })}>
       {t(STATUS_WORD[value])}
@@ -347,7 +349,7 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
                     }}
                   >
                     <span className={`agent-mark-holder${pane.agent ? "" : " is-shell"}`} title={pane.agent ?? t("Shell")}>
-                      {pane.agent ? <AgentMark agent={pane.agent} size={22} /> : <Terminal aria-hidden="true" />}
+                      {pane.agent ? <AgentMark agent={pane.agent} size={18} /> : <Terminal aria-hidden="true" />}
                     </span>
                     <span className="pane-copy">
                       <span className="pane-primary">
@@ -386,12 +388,11 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
                           }}
                         />
                       ) : (
-                        <span className="pane-meta">
-                          {pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge status={pane.agent_status} />}
-                          {place && <span className="pane-subtitle">{place}</span>}
-                        </span>
+                        place && <span className="pane-subtitle">{place}</span>
                       )}
                     </span>
+                    {/* a pane with no agent has no state to tell: no badge, not a "—" one */}
+                    {pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : pane.agent && <StatusBadge status={pane.agent_status} />}
                   </div>
                   <div className="pane-actions">
                     <button type="button" className="sidebar-row-action row-menu-toggle" aria-label={t("More for {title}", { title: displayTitle })} aria-haspopup="menu" aria-expanded={paneMenuOpen} onClick={(event) => paneMenuOpen ? setMenu(null) : setMenu({ kind: "pane", anchor: event.currentTarget, pane, workspace, scope, title: displayTitle, place: place || workspace.label })}>

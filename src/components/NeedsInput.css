@@ -9,19 +9,24 @@
   gap: var(--space-2);
   margin: 0;
   padding: var(--space-2);
-  color: var(--ink-strong);
-  font-size: var(--fs-sm);
-  font-weight: var(--fw-semibold);
+  color: var(--sub);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
 }
 
 .needs-input-select {
   width: 100%;
   min-height: var(--row-h);
+  padding: 0 var(--space-3);
+  background: var(--field);
 }
 
-.needs-input-item.is-selected .needs-input-select,
 .needs-input-select:focus-visible {
   background: var(--field-hover);
+}
+
+.needs-input-item.is-selected .needs-input-select {
+  background: var(--tint);
 }
 
 @media (hover: hover) {

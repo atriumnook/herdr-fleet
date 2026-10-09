@@ -290,12 +290,14 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Badge (`.badge`)
 - Agent states read **Idle**, **Working**, **Needs you**, **Done** (`STATUS_WORD` in
-  `src/lib/status.ts`), on every surface; unknown reads **—**. A Fleet run adds **Failed** and
+  `src/lib/status.ts`), on every surface; a state herdr does not know has no badge, never a
+  **—** one. A Fleet run adds **Failed** and
   reads the word of the section it sits in: a starting or unknown run reads **Working**, and an
   ended run, folded under its own button, has no badge.
-- Idle is elevated/dim; working, blocked and done use their own tint and text. Working carries a small
-  breathing dot before the word; the word itself never fades.
-- The written label and unknown dashed edge keep color from being the only signal.
+- A pill at `--chip-h`: a 7px dot, the word in `--ink` at `--fs-xs`, a 1px edge and a face. The
+  dot and the edge take the state's color (`--idle`, `--working`, `--needs`, `--done`); the face is
+  the state's tint (`--field` for Idle). Only Working's dot breathes; the word never fades.
+- The written word keeps color from being the only signal.
 
 ### Pill (`.pill`)
 - Mono metadata at `--chip-h`. The herdr version is a sidebar-footer pill; offline is the one header pill and uses danger tokens.
@@ -319,9 +321,12 @@ One set for both themes: the card is island black wherever it shows.
   workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
 - A workspace header shows drag handle, number, editable label, roll-up status and its `⋯`.
   Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent.
-- Every pane row is two lines: agent/shell mark, then the editable title alone on line one (full
-  width), and the status chip followed by the pane's place on line two. Mark boxes are neutral;
-  the selected row gets the `--accent` rail and an accent-edged mark box. The row ends in one `⋯`
+- Every pane row is a `--field` face at `--row-h`, `--radius-md`, `--space-1` apart: a 28px
+  agent/shell mark, the editable title (`--fs-md`, `--ink`) over the pane's place (mono, `--sub`),
+  then the state badge at the right end. A pane with no agent has no badge. The selected row is
+  `--tint` with its title in `--ink-strong` semibold, an `--accent` rail along its left edge and an
+  accent-edged mark box: my selection is accent, the state stays with the badge. The rows under
+  **Needs you** are the same rows. The row ends in one `⋯`
   (`.row-menu-toggle`: shown on hover, focus, selection and while its menu is open; always on
   touch) that opens the row menu. Inline server failures stay beside their row.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
