@@ -5,10 +5,9 @@
  * mirror of this block and the two must not drift. Dark is the default theme and
  * `[data-theme="light"]` overrides the color group only (src/lib/settings.ts sets
  * the attribute); `[data-density="compact"]` overrides the type scale and row
- * heights. The base blocks are the amber palette, the default and the look before
- * settings load; `[data-palette]` blocks override them for the opt-in report and
- * charcoal palettes. xterm cannot read CSS custom properties, so the --term-* group
- * is mirrored in settings.ts `terminalTheme()`.
+ * heights. There is one palette, aurora (the herdr-fleet design system): its dark values
+ * are the base and the look before settings load. xterm cannot read CSS custom
+ * properties, so the --term-* group is mirrored in settings.ts `terminalTheme()`.
  * Component-scoped rules live beside their component (Sidebar.css,
  * PaneTerminal.css, ...); this file owns the app shell, the header and the
  * primitives (.icon-button, .btn, .pill, .badge, .segmented, .modal, .menu, .kbd)
@@ -19,68 +18,67 @@
   color-scheme: dark;
 
   /* surfaces (tonal steps, darkest to lightest): lamp-lit graphite, warm not tinted */
-  --bg: #12100e;
-  --bg-panel: #181613;
-  --bg-elevated: #211e1a;
-  --bg-hover: #2a2621;
-  --bg-input: #1c1916;
-  --border: #2d2924;
-  --border-strong: #3e3830;
+  --bg: #05070d;
+  --bg-panel: #0b1020;
+  --bg-elevated: #121a2e;
+  --bg-hover: #18223a;
+  --bg-input: #0a0f1c;
+  --border: #1c2742;
+  --border-strong: #2a3858;
 
   /* text */
-  --text: #d8d0c3;
-  --text-dim: #9b9183;
-  --text-strong: #f2ebdf;
+  --text: #d6e2f5;
+  --text-dim: #93a1bb;
+  --text-strong: #f2f7ff;
 
   /* the saturated colors: ONE amber (selection, focus, cursor and the user's own
      action - an amber-phosphor terminal) and the four agent states, none of them amber */
-  --accent: #f0a830;
-  --accent-tint: rgba(240, 168, 48, 0.13);
-  --primary: #f0a830;
-  --primary-hover: #f6bb55;
-  --primary-text: #1b1407;
-  --primary-tint: rgba(240, 168, 48, 0.16);
-  --status-idle: #9b9183;
-  --status-working: #6cb8d6;
-  --status-blocked: #ff7b70;
-  --status-done: #93c36b;
-  --status-working-tint: rgba(108, 184, 214, 0.14);
-  --status-blocked-tint: rgba(255, 123, 112, 0.14);
-  --status-done-tint: rgba(147, 195, 107, 0.14);
-  --danger-tint: rgba(255, 123, 112, 0.12);
-  --danger-text: #ffd9d4;
+  --accent: #7df9ff;
+  --accent-tint: rgba(125, 249, 255, 0.13);
+  --primary: #7df9ff;
+  --primary-hover: #b8fcff;
+  --primary-text: #021018;
+  --primary-tint: rgba(125, 249, 255, 0.16);
+  --status-idle: #93a1bb;
+  --status-working: #8fa8ff;
+  --status-blocked: #ff6b8a;
+  --status-done: #5cf2b0;
+  --status-working-tint: rgba(143, 168, 255, 0.14);
+  --status-blocked-tint: rgba(255, 107, 138, 0.14);
+  --status-done-tint: rgba(92, 242, 176, 0.12);
+  --danger-tint: rgba(255, 107, 138, 0.12);
+  --danger-text: #ffd3dc;
 
   /* usage meters: plenty, getting low, low */
   --meter-ok: var(--status-done);
-  --meter-mid: #e2b93b;
+  --meter-mid: #ffd166;
   --meter-low: var(--status-blocked);
 
-  /* Liquid / Spatial glass: layers that float over the app's backdrop. Derived from each
-     palette's own surfaces, so every palette has them; aurora sets its own below. */
-  --glass: color-mix(in srgb, var(--bg-panel) 55%, transparent);
-  --glass-strong: color-mix(in srgb, var(--bg-panel) 82%, transparent);
-  --glass-edge: color-mix(in srgb, var(--text-strong) 14%, transparent);
-  --glass-hi: color-mix(in srgb, var(--text-strong) 22%, transparent);
-  --glass-sheen-a: color-mix(in srgb, var(--accent) 10%, transparent);
-  --glass-sheen-b: transparent;
-  --glass-shadow: rgba(0, 0, 0, 0.45);
-  --glass-blur: blur(24px) saturate(170%);
-  --backdrop-glow-a: color-mix(in srgb, var(--accent) 18%, transparent);
-  --backdrop-glow-b: color-mix(in srgb, var(--status-working) 16%, transparent);
-  --backdrop-glow-c: color-mix(in srgb, var(--status-done) 10%, transparent);
-  --backdrop-grid: transparent;
+  /* Liquid / Spatial glass: one layer that floats over the app's backdrop */
+  --glass: rgba(16, 22, 38, 0.46);
+  --glass-strong: rgba(24, 32, 54, 0.78);
+  --glass-edge: rgba(150, 200, 255, 0.2);
+  --glass-hi: rgba(220, 240, 255, 0.28);
+  --glass-sheen-a: rgba(125, 249, 255, 0.12);
+  --glass-sheen-b: rgba(160, 140, 255, 0.08);
+  --glass-shadow: rgba(0, 4, 16, 0.6);
+  --glass-blur: blur(28px) saturate(180%);
+  --backdrop-glow-a: rgba(80, 220, 255, 0.2);
+  --backdrop-glow-b: rgba(140, 110, 255, 0.22);
+  --backdrop-glow-c: rgba(40, 255, 200, 0.1);
+  --backdrop-grid: rgba(140, 190, 255, 0.07);
 
   /* overlays */
-  --scrim: rgba(8, 6, 4, 0.55);
-  --shadow-drawer: 0 0 40px rgba(0, 0, 0, 0.6);
-  --shadow-pop: 0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border);
-  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
+  --scrim: rgba(2, 4, 10, 0.6);
+  --shadow-drawer: 0 0 40px rgba(0, 4, 16, 0.7);
+  --shadow-pop: 0 16px 48px rgba(0, 4, 16, 0.6), 0 0 0 1px var(--border);
+  --shadow-card: 0 4px 16px rgba(0, 4, 16, 0.45);
 
   /* terminal theme: mirrored verbatim in src/lib/settings.ts terminalTheme() */
-  --term-bg: #181613;
-  --term-fg: #d8d0c3;
-  --term-cursor: #f0a830;
-  --term-selection: #4a3d26;
+  --term-bg: #0b1020;
+  --term-fg: #d6e2f5;
+  --term-cursor: #7df9ff;
+  --term-selection: #1d3557;
 
   /* type (comfortable density; compact overrides below) */
   --font-ui: "Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Malgun Gothic", sans-serif;
@@ -171,216 +169,8 @@
 
 [data-theme="light"] {
   color-scheme: light;
-  --meter-mid: #865900;
-  --glass-shadow: rgba(40, 32, 22, 0.16);
-  --bg: #eeeae2;
-  --bg-panel: #faf8f3;
-  --bg-elevated: #f2eee6;
-  --bg-hover: #e8e2d6;
-  --bg-input: #fffdf9;
-  --border: #dcd4c6;
-  --border-strong: #c5baa8;
-  --text: #2a251f;
-  --text-dim: #685e52;
-  --text-strong: #16120d;
-  --accent: #8c5000;
-  --accent-tint: rgba(140, 80, 0, 0.1);
-  --primary: #c57d12;
-  --primary-hover: #d48c1f;
-  --primary-text: #1b1407;
-  --primary-tint: rgba(197, 125, 18, 0.14);
-  --status-idle: #685e52;
-  --status-working: #155a72;
-  --status-blocked: #a82323;
-  --status-done: #2f6317;
-  --status-working-tint: rgba(21, 90, 114, 0.12);
-  --status-blocked-tint: rgba(168, 35, 35, 0.12);
-  --status-done-tint: rgba(47, 99, 23, 0.12);
-  --danger-tint: rgba(168, 35, 35, 0.1);
-  --danger-text: #8f1d1d;
-  --scrim: rgba(40, 32, 22, 0.35);
-  --shadow-drawer: 0 0 40px rgba(40, 32, 22, 0.22);
-  --shadow-pop: 0 16px 48px rgba(40, 32, 22, 0.16), 0 0 0 1px var(--border);
-  --shadow-card: 0 4px 16px rgba(40, 32, 22, 0.07);
-  --term-bg: #faf8f3;
-  --term-fg: #2a251f;
-  --term-cursor: #8c5000;
-  --term-selection: #f0d9ae;
-}
-
-/* Dark report palette (Settings → Appearance → Colors): a near-black blue-grey canvas
-   with 1px hairlines and near-square panels. The user's own action (Send, primary
-   buttons) is white on the canvas; electric blue is kept for small marks only - the
-   selected row's rail, focus, links, the cursor. Agent states carry the report's
-   meaning colors: amber working, red input, green done, none of them blue. */
-[data-palette="report"] {
-  --radius-sm: 2px;
-  --radius-md: 3px;
-  --radius-lg: 3px;
-  --radius-xl: 4px;
-}
-
-[data-theme="dark"][data-palette="report"] {
-  --bg: #0a0d12;
-  --bg-panel: #0f1319;
-  --bg-elevated: #141922;
-  --bg-hover: #1a212c;
-  --bg-input: #0c1016;
-  --border: #1e2530;
-  --border-strong: #2a3340;
-  --text: #b4bdc9;
-  --text-dim: #8792a3;
-  --text-strong: #e8ecf2;
-  --accent: #4c9aff;
-  --accent-tint: rgba(76, 154, 255, 0.12);
-  --primary: #e8ecf2;
-  --primary-hover: #ffffff;
-  --primary-text: #0a0d12;
-  --primary-tint: rgba(232, 236, 242, 0.1);
-  --status-idle: #8792a3;
-  --status-working: #f5b544;
-  --status-blocked: #ff6b7a;
-  --status-done: #3ddc97;
-  --status-working-tint: rgba(245, 181, 68, 0.14);
-  --status-blocked-tint: rgba(255, 107, 122, 0.14);
-  --status-done-tint: rgba(61, 220, 151, 0.14);
-  --danger-tint: rgba(255, 107, 122, 0.12);
-  --danger-text: #ffd6db;
-  --scrim: rgba(4, 6, 10, 0.6);
-  /* resting surfaces carry no shadow: the one card, the composer's box, is a hairline */
-  --shadow-card: none;
-  --term-bg: #0f1319;
-  --term-fg: #c9d1dc;
-  --term-cursor: #4c9aff;
-  --term-selection: #1f3a66;
-}
-
-/* Report and charcoal share plain paper in light; charcoal's own light block below
-   swaps the blue for ink */
-[data-theme="light"]:is([data-palette="report"], [data-palette="charcoal"]) {
-  --bg: #f2f2f0;
-  --bg-panel: #fafaf9;
-  --bg-elevated: #efefed;
-  --bg-hover: #e6e6e3;
-  --bg-input: #ffffff;
-  --border: #dcdcd8;
-  --border-strong: #c4c4bf;
-  --text: #242424;
-  --text-dim: #5f5b56;
-  --text-strong: #111111;
-  --accent: #1f5fcc;
-  --accent-tint: rgba(31, 95, 204, 0.1);
-  --primary: #242424;
-  --primary-hover: #3a3a3a;
-  --primary-text: #fafaf9;
-  --primary-tint: rgba(36, 36, 36, 0.1);
-  --scrim: rgba(20, 20, 20, 0.35);
-  --shadow-drawer: 0 0 40px rgba(20, 20, 20, 0.2);
-  --shadow-pop: 0 16px 48px rgba(20, 20, 20, 0.14), 0 0 0 1px var(--border);
-  --shadow-card: 0 4px 16px rgba(20, 20, 20, 0.06);
-  --term-bg: #fafaf9;
-  --term-fg: #242424;
-  --term-cursor: #1f5fcc;
-  --term-selection: #cfe0fb;
-}
-
-/* Charcoal: neutral charcoal, a Ghostty-style terminal (the panel is its #171717), no
-   chrome hue - selection, focus, cursor and the user's action are near-white; agent
-   states are muted as in the terminal palette. Light keeps the base paper with ink. */
-[data-theme="dark"][data-palette="charcoal"] {
-  --bg: #0f0f0f;
-  --bg-panel: #171717;
-  --bg-elevated: #1f1f1f;
-  --bg-hover: #262626;
-  --bg-input: #141414;
-  --border: #262626;
-  --border-strong: #363636;
-  --text: #cbc7c0;
-  --text-dim: #918c85;
-  --text-strong: #f5f2ec;
-  --accent: #e8e4dc;
-  --accent-tint: rgba(232, 228, 220, 0.1);
-  --primary: #e8e4dc;
-  --primary-hover: #f5f2ec;
-  --primary-text: #171717;
-  --primary-tint: rgba(232, 228, 220, 0.12);
-  --status-idle: #9a958e;
-  --status-working: #c2a2af;
-  --status-blocked: #e0877f;
-  --status-done: #a7b789;
-  --status-working-tint: rgba(194, 162, 175, 0.14);
-  --status-blocked-tint: rgba(224, 135, 127, 0.14);
-  --status-done-tint: rgba(167, 183, 137, 0.14);
-  --danger-tint: rgba(224, 135, 127, 0.12);
-  --danger-text: #f2c9c4;
-  --scrim: rgba(0, 0, 0, 0.6);
-  --shadow-card: 0 4px 16px rgba(0, 0, 0, 0.35);
-  --term-bg: #171717;
-  --term-fg: #cbc7c0;
-  --term-cursor: #cbc7c0;
-  --term-selection: #49443d;
-}
-
-[data-theme="light"][data-palette="charcoal"] {
-  --accent: #242424;
-  --accent-tint: rgba(36, 36, 36, 0.08);
-  --term-cursor: #242424;
-  --term-selection: #dedad3;
-}
-
-/* Aurora: a navy-black stage lit by cyan and violet, glass that carries a faint iridescent
-   sheen, an ice-cyan accent. The agent states stay apart from the accent by lightness as well
-   as hue: working periwinkle, waiting magenta-red, done mint. The default palette. */
-[data-theme="dark"][data-palette="aurora"] {
-  --bg: #05070d;
-  --bg-panel: #0b1020;
-  --bg-elevated: #121a2e;
-  --bg-hover: #18223a;
-  --bg-input: #0a0f1c;
-  --border: #1c2742;
-  --border-strong: #2a3858;
-  --text: #d6e2f5;
-  --text-dim: #93a1bb;
-  --text-strong: #f2f7ff;
-  --accent: #7df9ff;
-  --accent-tint: rgba(125, 249, 255, 0.13);
-  --primary: #7df9ff;
-  --primary-hover: #b8fcff;
-  --primary-text: #021018;
-  --primary-tint: rgba(125, 249, 255, 0.16);
-  --status-idle: #93a1bb;
-  --status-working: #8fa8ff;
-  --status-blocked: #ff6b8a;
-  --status-done: #5cf2b0;
-  --status-working-tint: rgba(143, 168, 255, 0.14);
-  --status-blocked-tint: rgba(255, 107, 138, 0.14);
-  --status-done-tint: rgba(92, 242, 176, 0.12);
-  --danger-tint: rgba(255, 107, 138, 0.12);
-  --danger-text: #ffd3dc;
-  --meter-mid: #ffd166;
-  --scrim: rgba(2, 4, 10, 0.6);
-  --shadow-drawer: 0 0 40px rgba(0, 4, 16, 0.7);
-  --shadow-pop: 0 16px 48px rgba(0, 4, 16, 0.6), 0 0 0 1px var(--border);
-  --shadow-card: 0 4px 16px rgba(0, 4, 16, 0.45);
-  --glass: rgba(16, 22, 38, 0.46);
-  --glass-strong: rgba(24, 32, 54, 0.78);
-  --glass-edge: rgba(150, 200, 255, 0.2);
-  --glass-hi: rgba(220, 240, 255, 0.28);
-  --glass-sheen-a: rgba(125, 249, 255, 0.12);
-  --glass-sheen-b: rgba(160, 140, 255, 0.08);
-  --glass-shadow: rgba(0, 4, 16, 0.6);
-  --glass-blur: blur(28px) saturate(180%);
-  --backdrop-glow-a: rgba(80, 220, 255, 0.2);
-  --backdrop-glow-b: rgba(140, 110, 255, 0.22);
-  --backdrop-glow-c: rgba(40, 255, 200, 0.1);
-  --backdrop-grid: rgba(140, 190, 255, 0.07);
-  --term-bg: #0b1020;
-  --term-fg: #d6e2f5;
-  --term-cursor: #7df9ff;
-  --term-selection: #1d3557;
-}
-
-[data-theme="light"][data-palette="aurora"] {
+  --meter-mid: #8a5a00;
+  --glass-shadow: rgba(20, 40, 90, 0.16);
   --bg: #eaf0f8;
   --bg-panel: #f7faff;
   --bg-elevated: #edf2fa;
@@ -406,26 +196,24 @@
   --status-done-tint: rgba(10, 100, 67, 0.1);
   --danger-tint: rgba(166, 24, 62, 0.1);
   --danger-text: #8f1838;
-  --meter-mid: #8a5a00;
   --scrim: rgba(20, 40, 90, 0.25);
   --shadow-drawer: 0 0 40px rgba(20, 40, 90, 0.2);
   --shadow-pop: 0 16px 48px rgba(20, 40, 90, 0.14), 0 0 0 1px var(--border);
   --shadow-card: 0 4px 16px rgba(20, 40, 90, 0.07);
+  --term-bg: #f7faff;
+  --term-fg: #1c2638;
+  --term-cursor: #00609a;
+  --term-selection: #cfe3f7;
   --glass: rgba(255, 255, 255, 0.52);
   --glass-strong: rgba(255, 255, 255, 0.82);
   --glass-edge: rgba(255, 255, 255, 0.9);
   --glass-hi: rgba(255, 255, 255, 1);
   --glass-sheen-a: rgba(60, 190, 255, 0.1);
   --glass-sheen-b: rgba(130, 100, 255, 0.07);
-  --glass-shadow: rgba(20, 40, 90, 0.16);
   --backdrop-glow-a: rgba(60, 190, 255, 0.28);
   --backdrop-glow-b: rgba(130, 100, 255, 0.22);
   --backdrop-glow-c: rgba(0, 200, 160, 0.14);
   --backdrop-grid: rgba(30, 60, 120, 0.07);
-  --term-bg: #f7faff;
-  --term-fg: #1c2638;
-  --term-cursor: #00609a;
-  --term-selection: #cfe3f7;
 }
 
 [data-density="compact"] {
