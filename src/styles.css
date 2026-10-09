@@ -71,6 +71,7 @@
   --shadow-drawer: 0 0 40px rgba(0, 4, 16, 0.7);
   --shadow-pop: 0 16px 48px rgba(0, 4, 16, 0.6), 0 0 0 1px var(--line);
   --shadow-card: 0 4px 16px rgba(0, 4, 16, 0.45);
+  --shadow-panel: inset 0 1px 0 var(--glass-hi), 0 14px 36px var(--glass-shadow);
 
   /* terminal theme: mirrored verbatim in src/lib/settings.ts terminalTheme() */
   --term-bg: #0b1020;
@@ -286,11 +287,66 @@ button {
 
 /* ---------- shell ---------- */
 
+/* the ground: bg with three soft glows, which the glass panels above it blur */
 .app {
   display: flex;
   flex-direction: column;
   height: 100%;
   height: var(--app-height, 100dvh);
+  background:
+    radial-gradient(55% 45% at 8% 4%, var(--glow-1), transparent 70%),
+    radial-gradient(45% 50% at 96% 20%, var(--glow-2), transparent 70%),
+    radial-gradient(60% 40% at 40% 105%, var(--glow-3), transparent 70%),
+    var(--bg);
+}
+
+/* one layer of glass over the ground: the header and the sidebar, never stacked */
+.app-header,
+.sidebar {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: var(--hairline) solid var(--edge);
+  box-shadow: var(--shadow-panel);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-header,
+  .sidebar {
+    background: var(--field);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-header,
+  .sidebar {
+    background: var(--field);
+  }
+}
+
+/* wide screens: the panels float on the ground, and the terminal or chat sits on its own surface */
+@media (min-width: 769px) {
+  .app {
+    gap: var(--space-2);
+    padding: var(--space-2);
+    box-sizing: border-box;
+  }
+
+  .app-header,
+  .sidebar {
+    border-radius: var(--radius-xl);
+  }
+
+  .app-body {
+    gap: var(--space-2);
+  }
+
+  .terminal-host {
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-lg);
+  }
 }
 
 .app-header {
@@ -301,8 +357,6 @@ button {
   height: calc(var(--header-h) + env(safe-area-inset-top, 0px));
   padding: env(safe-area-inset-top, 0px) calc(var(--space-3) + env(safe-area-inset-right, 0px)) 0
     calc(var(--space-3) + env(safe-area-inset-left, 0px));
-  background: var(--surface);
-  border-bottom: var(--hairline) solid var(--line);
   /* Keep the header's painted background at the top of the app. The home-screen
      status-bar layout is controlled by index.html; see docs/ios-home-screen-testing.md. */
   position: sticky;
@@ -321,8 +375,7 @@ button {
   width: var(--sidebar-w);
   flex: 0 0 var(--sidebar-w);
   min-height: 0;
-  background: var(--surface);
-  border-right: var(--hairline) solid var(--line);
+  overflow: hidden;
   padding-left: env(safe-area-inset-left, 0px);
 }
 
@@ -999,6 +1052,15 @@ button {
 
   .app.sidebar-collapsed .sidebar {
     display: flex;
+  }
+
+  /* edge to edge: the glass keeps only the edge that faces the content */
+  .app-header {
+    border-width: 0 0 var(--hairline);
+  }
+
+  .sidebar {
+    border-width: 0 var(--hairline) 0 0;
   }
 
   .sidebar {

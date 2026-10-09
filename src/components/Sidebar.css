@@ -3,7 +3,6 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--surface);
 }
 
 /* one gutter (--space-3) for the list and the footer: every row's hover fill and the footer

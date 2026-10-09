@@ -216,7 +216,11 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Shell
 - `.app` is a full-viewport column: `.app-header` over `.app-body`; the body is sidebar plus
-  `.terminal-host`. While a phone's soft keyboard is up (`data-keyboard`), `--app-height` follows
+  `.terminal-host`. The app's ground is `--bg` with three soft glows; the header and the sidebar
+  are each one glass panel over it (`--glass`, `--edge`, `--glass-blur`, `--shadow-panel`), never
+  stacked. Wider than `768px` they float at `--space-2` with `--radius-xl`, and the terminal or chat
+  sits on its own opaque `--surface` with a hairline and `--radius-lg`; at `<=768px` the header runs
+  edge to edge and the drawer is the same glass. While a phone's soft keyboard is up (`data-keyboard`), `--app-height` follows
   `visualViewport` so the keyboard does not cover input; otherwise the shell is `100dvh`, because an
   iPhone home screen app reports a visual viewport shorter than the screen without a keyboard.
 - Header anatomy, left to right: mobile drawer toggle / desktop sidebar toggle; flexible context
@@ -230,8 +234,8 @@ One set for both themes: the card is island black wherever it shows.
 - The terminal stack contains a positioned terminal surface, then composer or key bar. The xterm
   mount stays alive under the chat lens; changing views never creates a second connection.
 - At `<=480px`, labels shed in priority order: version, brand name, context subtitle, connection
-  text and desktop-only control labels. Icons and selected context remain. Below `720px` the two
-  switches show their icons only.
+  text and desktop-only control labels. Icons and selected context remain. At `<=768px` the header
+  takes a second row, where the two switches share the width as halves with their words.
 
 ## 5. Components
 
@@ -504,7 +508,7 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Strategy
 
-**Tonal shift + hairline, with shadow reserved for overlays.** Resting shell surfaces have no shadow.
+**Tonal shift + hairline, with shadow reserved for glass panels and overlays.** Parts inside a panel have no shadow.
 
 | Type | Value | Usage |
 |------|-------|-------|
@@ -513,6 +517,7 @@ One set for both themes: the card is island black wherever it shows.
 | Dashed edge | `var(--hairline) dashed var(--line)` | Unknown/empty states |
 | Tonal lift | `--field` on `--surface` | Selection, chips, tracks |
 | Tinted lift | Named tint over an opaque surface | Primary and agent states |
+| Panel shadow | `--shadow-panel` | The header and sidebar glass: top highlight plus depth |
 | Drawer shadow | `--shadow-drawer` | Mobile drawer |
 | Overlay shadow | `--shadow-pop` | Menus, palette and modal cards |
 | Card shadow | `--shadow-card` | The composer's input box — the one resting card in chat mode |
@@ -535,7 +540,7 @@ the others derive them from their surfaces with `color-mix`.
 - Depth carries meaning: what waits on the person is nearest (largest shadow, a state-colored edge),
   finished work recedes (smaller shadow, lower opacity).
 - `prefers-reduced-transparency: reduce` and browsers without `backdrop-filter` get `--glass-strong`
-  without blur; `prefers-reduced-motion` drops the lift on hover.
+  without blur (the header and the sidebar: `--field`); `prefers-reduced-motion` drops the lift on hover.
 - The terminal and the chat transcript never sit on glass.
 
 ## 8. Accessibility Constraints & Accepted Debt
