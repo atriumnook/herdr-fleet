@@ -31,19 +31,21 @@ describe("Fleet screen views", () => {
       model: model(state([run("impl"), run("review", { state: "blocked", lastError: "codex asks to run a command" })], {
         usage: { status: "ready", again: false, refreshing: false, data: [{ key: "claude", reading: { readAt: NOW, windows: [{ name: "5h", usedPercent: 92 }] } }] },
       })),
-      screen: "fleet", emit: noop,
+      emit: noop,
     }));
     expect(html.indexOf("review")).toBeLessThan(html.indexOf("impl"));
     expect(html).toContain("codex asks to run a command");
     expect(html).toContain("Open pane to answer");
     expect(html).toContain('class="fleet-capsule level-low"');
     expect(html).toContain("--fleet-ring:92%");
-    expect(html).toContain('aria-pressed="true">Fleet</button>');
+    // the header is the one place that switches screens: none floats over the runs
+    expect(html).not.toContain("aria-pressed");
+    expect(html).toContain("Refresh usage");
   });
 
   it("says when there are no runs yet, and folds ended runs behind a button", () => {
-    expect(renderToStaticMarkup(createElement(FleetScreen, { model: model(state([])), screen: "fleet", emit: noop }))).toContain("No fleet agents yet");
-    const html = renderToStaticMarkup(createElement(FleetScreen, { model: model(state([run("old", { state: "stopped" })])), screen: "fleet", emit: noop }));
+    expect(renderToStaticMarkup(createElement(FleetScreen, { model: model(state([])), emit: noop }))).toContain("No fleet agents yet");
+    const html = renderToStaticMarkup(createElement(FleetScreen, { model: model(state([run("old", { state: "stopped" })])), emit: noop }));
     expect(html).toContain("Show 1 ended runs");
     expect(html).not.toContain(">old<");
   });

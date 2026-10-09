@@ -426,7 +426,8 @@ button {
   flex: 0 0 auto;
 }
 
-/* the switch keeps its size; the pane title (.context) is the header's one flexible item */
+/* the switches keep their size; the pane title (.context) is the header's one flexible item */
+.screen-switch,
 .view-switch {
   flex: 0 0 auto;
 }
@@ -706,10 +707,10 @@ button {
 .segmented {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
+  gap: var(--space-1);
+  padding: 3px;
   background: var(--field);
-  border: var(--hairline) solid var(--line);
+  border: var(--hairline) solid var(--control-edge);
   border-radius: var(--radius-md);
 }
 
@@ -717,8 +718,8 @@ button {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  white-space: nowrap; /* Hangul/CJK may break between any two syllables: keep a label on one line */
-  height: calc(var(--control-h) - 6px);
+  white-space: nowrap; /* CJK may break between any two characters: keep a label on one line */
+  height: 28px;
   padding: 0 var(--space-3);
   background: transparent;
   border: 0;
@@ -737,14 +738,16 @@ button {
   height: 15px;
 }
 
+/* the chosen option: tint face and an accent line along its foot */
 .segmented > button[aria-pressed="true"] {
-  background: var(--field-hover);
+  background: var(--tint);
   color: var(--ink-strong);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
-/* the chosen lens carries the selection color on its glyph, like the rail does in the list */
-.segmented > button[aria-pressed="true"] svg {
-  color: var(--accent);
+/* touch: each option is a full finger wide */
+@media (pointer: coarse) {
+  .segmented > button { height: var(--touch-target); }
 }
 
 /* keyboard key hint */
@@ -1060,9 +1063,43 @@ button {
   .context-sub > span:not(.machine-context-name) { display: none; }
 }
 
-/* just above phone width the lens labels would squeeze the pane title to a glyph: icons only */
-@media (max-width: 560px) {
-  .view-switch .header-desktop-only { display: none; }
+/* at drawer width the switches would squeeze the pane title to a glyph: the header takes a
+   second row, and the switches share it as two halves with their words */
+@media (max-width: 768px) {
+  :root,
+  [data-density="compact"] {
+    --header-h: 100px;
+  }
+
+  .app-header {
+    flex-wrap: wrap;
+    align-content: center;
+    row-gap: var(--space-1);
+  }
+
+  /* the line break between the rows */
+  .app-header::after {
+    content: "";
+    order: 1;
+    flex-basis: 100%;
+  }
+
+  .screen-switch,
+  .view-switch {
+    order: 2;
+    flex: 1 1 0;
+  }
+
+  .screen-switch > button,
+  .view-switch > button {
+    flex: 1 1 0;
+    justify-content: center;
+  }
+
+  .screen-switch .header-desktop-only,
+  .view-switch .header-desktop-only {
+    display: inline;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

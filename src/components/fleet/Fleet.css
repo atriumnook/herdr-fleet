@@ -26,7 +26,7 @@
   height: 100%;
   overflow-y: auto;
   box-sizing: border-box;
-  padding: var(--space-6) var(--space-6) 112px;
+  padding: var(--space-6) var(--space-6) calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
   gap: var(--space-5);
@@ -44,7 +44,6 @@
 .fleet-group,
 .fleet-stack > .fleet-run,
 .fleet-sheet,
-.fleet-ornament,
 .fleet-alert {
   background: linear-gradient(135deg, var(--glass-sheen-a), var(--glass-sheen-b) 45%, transparent 70%), var(--glass);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -54,7 +53,7 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .fleet-capsule, .fleet-group, .fleet-stack > .fleet-run, .fleet-sheet, .fleet-ornament, .fleet-alert {
+  .fleet-capsule, .fleet-group, .fleet-stack > .fleet-run, .fleet-sheet, .fleet-alert {
     background: var(--glass-strong);
     -webkit-backdrop-filter: none;
     backdrop-filter: none;
@@ -62,7 +61,7 @@
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .fleet-capsule, .fleet-group, .fleet-stack > .fleet-run, .fleet-sheet, .fleet-ornament, .fleet-alert {
+  .fleet-capsule, .fleet-group, .fleet-stack > .fleet-run, .fleet-sheet, .fleet-alert {
     background: var(--glass-strong);
   }
 }
@@ -396,7 +395,7 @@
   position: absolute;
   top: var(--space-4);
   right: var(--space-4);
-  bottom: 88px;
+  bottom: var(--space-4);
   z-index: 3;
   width: min(520px, calc(100% - 2 * var(--space-4)));
   box-sizing: border-box;
@@ -541,86 +540,28 @@
   overflow-wrap: anywhere;
 }
 
-/* ---------- ornament ---------- */
-
-.fleet-ornament {
-  position: absolute;
-  left: 50%;
-  bottom: calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
-  transform: translateX(-50%);
-  z-index: 4;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 6px;
-  border-radius: var(--radius-pill);
-  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 30px var(--tint), 0 18px 40px var(--glass-shadow);
-}
-
-.fleet-ornament-switch {
-  display: flex;
-  gap: 2px;
-  padding: 3px;
-  border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--ink-strong) 10%, transparent);
-}
-
-.fleet-ornament-switch button {
-  font: inherit;
-  font-size: var(--fs-sm);
-  min-height: 36px;
-  padding: 0 18px;
-  border: 0;
-  border-radius: var(--radius-pill);
-  background: transparent;
-  color: var(--sub);
-  cursor: pointer;
-}
-
-.fleet-ornament-switch button[aria-pressed="true"] {
-  background: var(--glass-strong);
-  color: var(--ink-strong);
-  font-weight: var(--fw-bold);
-  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 12px var(--tint);
-}
-
-.fleet-ornament-switch button:focus-visible { outline: var(--ring); outline-offset: var(--ring-offset); }
-
 /* ---------- phone ---------- */
 
 @media (max-width: 640px) {
-  .fleet-scroll { padding: var(--space-4) var(--space-4) 104px; gap: var(--space-4); }
+  .fleet-scroll { padding: var(--space-4) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom, 0px)); gap: var(--space-4); }
   .fleet-title h1 { font-size: 24px; }
   .fleet-capsules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
+  .fleet-capsules > .fleet-cap { grid-column: 1 / -1; min-height: var(--touch-target); }
   .fleet-stack > .fleet-run.is-prominent { padding: var(--space-4); }
   .fleet-run-actions { width: 100%; }
   .is-prominent .fleet-run-actions .fleet-cap { flex: 1; min-height: 46px; }
-  .fleet-sheet { inset: var(--space-2) var(--space-2) 84px; width: auto; padding: var(--space-4); }
-  .fleet-ornament { left: var(--space-4); right: var(--space-4); transform: none; justify-content: space-between; }
-  .fleet-ornament-switch { flex: 1; }
-  .fleet-ornament-switch button { flex: 1; min-height: 44px; }
+  .fleet-sheet { inset: var(--space-2) var(--space-2) calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); width: auto; padding: var(--space-4); }
 }
 
-/* ---------- header button (App) ---------- */
+/* ---------- header switch (App) ---------- */
 
 /* the pane under the Fleet screen keeps its own layout: this wrapper adds no box */
 .pane-layer {
   display: contents;
 }
 
-.fleet-button {
-  position: relative;
-}
-
-.fleet-button[aria-pressed="true"] {
-  color: var(--accent);
-  background: var(--tint);
-}
-
+/* the count of runs that need you rides in the Fleet segment, after its word */
 .fleet-button-count {
-  position: absolute;
-  top: 2px;
-  right: 2px;
   min-width: 16px;
   height: 16px;
   padding: 0 4px;
