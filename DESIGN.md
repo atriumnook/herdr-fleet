@@ -4,137 +4,98 @@ Extracted from the shipped client (`src/styles.css`, `src/components/*`), not in
 copy of every token is the `:root` block in `src/styles.css`; every table below mirrors it value for
 value. When a component needs a value that is not here, add it to both first.
 
-## 1. Atmosphere & Identity
+## 1. Principles
 
-A fleet console seen through glass: a navy-black stage lit by cyan and violet aurora (dark) or pale
-ice (light), with chat-app clarity. This is the **aurora** palette, the default since M4 and the
-look before settings load (`index.html` starts with `data-palette="aurora"`). Its one chrome color
-is ice cyan: selection, focus, the terminal cursor and the user's own action (Send, primary
-buttons). Agent states carry the remaining saturated colors, apart from the accent in lightness as
-well as hue: working periwinkle, waiting magenta-red, done mint. The user's chat turns are neutral
-raised cards, so a long thread never turns into a wall of color. Dark is the default, light follows
-the same hierarchy, and comfortable or compact density changes scale without changing information
-architecture. Amber (the warm terminal this UI started as), a dark report look and a neutral
-charcoal one stay opt-in palettes (Settings → Appearance → Colors).
+The herdr-fleet design system (https://claude.ai/artifact/62aan9GDYEJmEYXYELbwf5) is the source
+of the principles, the status words and the token names; this file mirrors the tokens as
+`src/styles.css` holds them. Herdr-fleet is used by one engineer who watches many coding agents:
+the screen recedes, and only what needs the person and what the person has selected stand out.
 
-The structure is **Liquid / Spatial**: chrome floats over the app's backdrop as translucent glass
-layers, depth is told by shadow (what needs the person now is nearest), and switching between whole
-screens sits in a floating ornament. Text a person reads at length — the terminal and the chat
-transcript — stays on opaque surfaces. The glass structure lands screen by screen as each one moves
-to the Passive View architecture; the Fleet screen is the first (section 7).
-
-The signature is the accent status rail: a 3px bar on the selected pane row (whose mark box also
-takes an accent edge), the same accent on focus, the chosen lens glyph and the terminal cursor, tying
-“what I am looking at” to “where I am typing.”
+- **Attention leads.** Color and motion only mark an agent that needs the person, and the
+  person's own selection. Everything else is neutral (`--ink`, `--sub`, `--field`); the only
+  decorative color is the backdrop's glow.
+- **Status words and colors are fixed.** `Working` (`--working`), `Needs you` and `Failed`
+  (`--needs`), `Done` (`--done`), `Idle` (`--idle`): the same words and the same badge on every
+  screen.
+- **One layer of glass.** The sidebar, header, dialogs and sheets are one frosted layer
+  (`--glass` + `--glass-blur`) over the backdrop; what sits inside it is an opaque `--field`.
+  Glass never stacks. The terminal and the chat transcript stay on the opaque `--surface`.
+- **One place to switch.** What to look at (Pane / Fleet, Chat / Terminal) switches in the header.
+- **Two faces.** The UI is set in the OS Japanese gothic (`--font-ui`); mono is for machine values
+  only (role, CLI and model names, paths, commands, times). No all-caps or letter-spaced headings.
+- **Shape by role.** Radius, spacing and height follow a part's role, the same on every screen.
+- **Labels in English, explanations in Japanese.** What is read at a glance (screen and feature
+  names, buttons, items, statuses, headings, counts, progress) is English; what is read word by
+  word (setting descriptions, error and notice bodies, confirmation bodies, guidance) is a
+  Japanese sentence. There is no language switch.
 
 ## 2. Color
 
 ### Palette
 
-Only tokens overridden by `[data-theme="light"]` have a light value. Both columns are literal CSS.
+One palette, aurora. `:root` holds the dark values (the default and the look before settings
+load); `[data-theme="light"]` overrides them. The table is generated from those two blocks.
 
 | Role | Token | Dark | Light |
 |------|-------|------|-------|
-| Surface/base | `--bg` | `#12100e` | `#eeeae2` |
-| Surface/panel | `--surface` | `#181613` | `#faf8f3` |
-| Surface/elevated | `--field` | `#211e1a` | `#f2eee6` |
-| Surface/hover | `--field-hover` | `#2a2621` | `#e8e2d6` |
-| Surface/input | `--input` | `#1c1916` | `#fffdf9` |
-| Border | `--line` | `#2d2924` | `#dcd4c6` |
-| Border/strong | `--line-strong` | `#3e3830` | `#c5baa8` |
-| Text/primary | `--ink` | `#d8d0c3` | `#2a251f` |
-| Text/dim | `--sub` | `#9b9183` | `#685e52` |
-| Text/strong | `--ink-strong` | `#f2ebdf` | `#16120d` |
-| Accent | `--accent` | `#f0a830` | `#8c5000` |
-| Accent/tint | `--tint` | `rgba(240, 168, 48, 0.13)` | `rgba(140, 80, 0, 0.1)` |
-| Primary | `--accent` | `#f0a830` | `#c57d12` |
-| Primary/hover | `--accent-hover` | `#f6bb55` | `#d48c1f` |
-| Primary/text | `--on-accent` | `#1b1407` | `#1b1407` |
-| Primary/tint | `--tint` | `rgba(240, 168, 48, 0.16)` | `rgba(197, 125, 18, 0.14)` |
-| Status/idle | `--idle` | `#9b9183` | `#685e52` |
-| Status/working | `--working` | `#6cb8d6` | `#155a72` |
-| Status/blocked | `--needs` | `#ff7b70` | `#a82323` |
-| Status/done | `--done` | `#93c36b` | `#2f6317` |
-| Working/tint | `--working-tint` | `rgba(108, 184, 214, 0.14)` | `rgba(21, 90, 114, 0.12)` |
-| Blocked/tint | `--needs-tint` | `rgba(255, 123, 112, 0.14)` | `rgba(168, 35, 35, 0.12)` |
-| Done/tint | `--done-tint` | `rgba(147, 195, 107, 0.14)` | `rgba(47, 99, 23, 0.12)` |
-| Danger/tint | `--needs-tint` | `rgba(255, 123, 112, 0.12)` | `rgba(168, 35, 35, 0.1)` |
-| Danger/text | `--needs-text` | `#ffd9d4` | `#8f1d1d` |
-| Meter/plenty | `--meter-ok` | `var(--done)` | `var(--done)` |
-| Meter/getting low | `--meter-mid` | `#e2b93b` | `#865900` |
-| Meter/low | `--meter-low` | `var(--needs)` | `var(--needs)` |
-| Overlay/scrim | `--scrim` | `rgba(8, 6, 4, 0.55)` | `rgba(40, 32, 22, 0.35)` |
-| Drawer shadow | `--shadow-drawer` | `0 0 40px rgba(0, 0, 0, 0.6)` | `0 0 40px rgba(40, 32, 22, 0.22)` |
-| Popover shadow | `--shadow-pop` | `0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--line)` | `0 16px 48px rgba(40, 32, 22, 0.16), 0 0 0 1px var(--line)` |
-| Card shadow | `--shadow-card` | `0 4px 16px rgba(0, 0, 0, 0.35)` | `0 4px 16px rgba(40, 32, 22, 0.07)` |
-
-### Aurora palette (default)
-
-`[data-theme][data-palette="aurora"]` blocks of `src/styles.css` hold the complete values; the
-table lists the ones a component reaches for most.
-
-| Role | Token | Dark | Light |
-|------|-------|------|-------|
-| Surface/base | `--bg` | `#05070d` | `#eaf0f8` |
-| Surface/panel | `--surface` | `#0b1020` | `#f7faff` |
-| Surface/elevated | `--field` | `#121a2e` | `#edf2fa` |
-| Text/primary | `--ink` | `#d6e2f5` | `#1c2638` |
-| Text/dim | `--sub` | `#93a1bb` | `#4a576e` |
+| Ground | `--bg` | `#05070d` | `#eaf0f8` |
+| Glow | `--glow-1` | `rgba(80, 220, 255, 0.2)` | `rgba(60, 190, 255, 0.28)` |
+| Glow | `--glow-2` | `rgba(140, 110, 255, 0.22)` | `rgba(130, 100, 255, 0.22)` |
+| Glow | `--glow-3` | `rgba(40, 255, 200, 0.1)` | `rgba(0, 200, 160, 0.14)` |
+| Glass | `--glass` | `rgba(16, 22, 38, 0.46)` | `rgba(255, 255, 255, 0.52)` |
+| Glass/strong | `--glass-strong` | `rgba(24, 32, 54, 0.78)` | `rgba(255, 255, 255, 0.82)` |
+| Glass edge | `--edge` | `rgba(150, 200, 255, 0.2)` | `rgba(255, 255, 255, 0.9)` |
+| Reading surface | `--surface` | `#0b1020` | `#f7faff` |
+| Part surface | `--field` | `#121a2e` | `#edf2fa` |
+| Part hover | `--field-hover` | `#18223a` | `#e1e9f5` |
+| Input | `--input` | `#0a0f1c` | `#ffffff` |
+| Line | `--line` | `#1c2742` | `#d3dcea` |
+| Line/strong | `--line-strong` | `#2a3858` | `#b9c6da` |
+| Control edge | `--control-edge` | `#5d6f96` | `#74839c` |
+| Text | `--ink` | `#d6e2f5` | `#1c2638` |
 | Text/strong | `--ink-strong` | `#f2f7ff` | `#0a1222` |
+| Text/sub | `--sub` | `#93a1bb` | `#4a576e` |
 | Accent | `--accent` | `#7df9ff` | `#00609a` |
-| Primary | `--accent` | `#7df9ff` | `#006aa6` |
-| Primary/text | `--on-accent` | `#021018` | `#ffffff` |
-| Status/working | `--working` | `#8fa8ff` | `#3049c0` |
-| Status/blocked | `--needs` | `#ff6b8a` | `#a6183e` |
-| Status/done | `--done` | `#5cf2b0` | `#0a6443` |
+| Accent/hover | `--accent-hover` | `#b8fcff` | `#0a7cc0` |
+| On accent | `--on-accent` | `#021018` | `#ffffff` |
+| Tint | `--tint` | `rgba(125, 249, 255, 0.13)` | `rgba(0, 96, 154, 0.1)` |
+| Working | `--working` | `#8fa8ff` | `#3049c0` |
+| Needs you | `--needs` | `#ff6b8a` | `#a6183e` |
+| Done | `--done` | `#5cf2b0` | `#0a6443` |
+| Idle | `--idle` | `#93a1bb` | `#4a576e` |
+| Working/tint | `--working-tint` | `rgba(143, 168, 255, 0.14)` | `rgba(48, 73, 192, 0.1)` |
+| Needs/tint | `--needs-tint` | `rgba(255, 107, 138, 0.14)` | `rgba(166, 24, 62, 0.1)` |
+| Done/tint | `--done-tint` | `rgba(92, 242, 176, 0.12)` | `rgba(10, 100, 67, 0.1)` |
+| Needs/text | `--needs-text` | `#ffd3dc` | `#8f1838` |
+| Meter/plenty | `--meter-ok` | `var(--done)` | `—` |
 | Meter/getting low | `--meter-mid` | `#ffd166` | `#8a5a00` |
-| Terminal | `--term-bg` / `--term-cursor` | `#0b1020` / `#7df9ff` | `#f7faff` / `#00609a` |
-
-A record saved while amber was the default holds `palette: "amber"` whether or not it was chosen:
-`sanitizeSettings` moves such a record to aurora once, and every save since carries
-`paletteRevision: 2`, so amber chosen afterwards stays.
-
-### Dark report and charcoal palettes
-
-`settings.palette` (`amber` default, `report`, `charcoal`) is written as `data-palette`. The
-tables above are amber, the base blocks; the two opt-in palettes override them in
-`[data-theme][data-palette]` blocks of `src/styles.css`, which hold the complete values.
-
-- **Dark report** is a near-black blue-grey canvas with hairlines: `--bg` `#0a0d12`, panel and
-  terminal `#0f1319`, text `#b4bdc9` / `#8792a3` / `#e8ecf2`. Primary (the user's action) is white
-  `#e8ecf2` with `#0a0d12` text; accent is electric blue `#4c9aff`, kept for small marks. Agent
-  states use meaning colors (working `#f5b544`, input `#ff6b7a`, done `#3ddc97`, idle `#8792a3`).
-  Terminal cursor `#4c9aff`, selection `#1f3a66`. It has near-square corners (`--radius-sm/md/lg/xl`
-  = `2/3/3/4px`) and no resting card shadow (`--shadow-card: none`).
-- **Charcoal** is a neutral Ghostty-style dark: `--bg` `#0f0f0f`, panel and terminal `#171717`, text
-  `#cbc7c0` / `#918c85` / `#f5f2ec`, accent and primary near-white `#e8e4dc` with `#171717` text,
-  muted states (working `#c2a2af`, input `#e0877f`, done `#a7b789`, idle `#9a958e`), terminal cursor
-  `#cbc7c0`, selection `#49443d`. It keeps amber's rounded corners and card shadow.
-- In light both use plain paper (`--bg` `#f2f2f0`, panel `#fafaf9`, text `#242424`, primary ink
-  `#242424` with `#fafaf9` text): report with a blue `#1f5fcc` accent and cursor, charcoal with an
-  ink accent and cursor `#242424`.
+| Meter/low | `--meter-low` | `var(--needs)` | `—` |
+| Scrim | `--scrim` | `rgba(2, 4, 10, 0.6)` | `rgba(20, 40, 90, 0.25)` |
+| Terminal bg | `--term-bg` | `#0b1020` | `#f7faff` |
+| Terminal fg | `--term-fg` | `#d6e2f5` | `#1c2638` |
+| Terminal cursor | `--term-cursor` | `#7df9ff` | `#00609a` |
+| Terminal selection | `--term-selection` | `#1d3557` | `#cfe3f7` |
 
 ### Terminal theme
 
 xterm.js reads a JavaScript theme, so `src/lib/settings.ts` `terminalTheme()` mirrors these four
-CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` checks the match).
+CSS tokens verbatim for each resolved theme (`settings.test.ts` checks the match).
 
 | Role | Token | Dark | Light | xterm key |
 |------|-------|------|-------|-----------|
-| Background | `--term-bg` | `#181613` | `#faf8f3` | `background` |
-| Foreground | `--term-fg` | `#d8d0c3` | `#2a251f` | `foreground` |
-| Cursor | `--term-cursor` | `#f0a830` | `#8c5000` | `cursor` |
-| Selection | `--term-selection` | `#4a3d26` | `#f0d9ae` | `selectionBackground` |
+| Background | `--term-bg` | `#0b1020` | `#f7faff` | `background` |
+| Foreground | `--term-fg` | `#d6e2f5` | `#1c2638` | `foreground` |
+| Cursor | `--term-cursor` | `#7df9ff` | `#00609a` | `cursor` |
+| Selection | `--term-selection` | `#1d3557` | `#cfe3f7` | `selectionBackground` |
 
 ### Rules
-- Each palette has one chrome color: ice cyan in aurora, amber in amber. Accent (selected, focused,
-  informational) and primary (the user's action: Send, primary buttons) are both that color; in
-  light, accent is the darker text-safe shade and primary the fill. Agent states never use it. The report palette
-  keeps the same split, accent (blue) marks and primary (white, or ink on paper) acts, and there
-  agent states never use blue.
-- Agent state is always written as a label as well as colored. Unknown uses dim text and a dashed
-  edge rather than inventing a fifth state color.
-- Tints are named tokens; components do not introduce ad hoc translucent state colors.
+- `--accent` marks only the person's selection and action (the selected row's rail, the chosen
+  segment, the primary button, focus, the terminal cursor); agent states never use it.
+- `--needs` marks only what needs the person: `Needs you`, `Failed`, error notices, the nearest
+  layer's edge. Destructive buttons are not red; a confirmation stops them.
+- Agent state is always written as a word as well as colored; the badge text is `--ink`.
+- A control drawn by its edge (field, segmented, toggle) uses `--control-edge` (3:1 on every
+  surface it sits on); `--line` only groups.
 - `theme: "system"` follows `prefers-color-scheme`; `src/lib/settings.ts` writes the resolved
   `data-theme`, `color-scheme`, and matching PWA `<meta name="theme-color">`.
 
@@ -154,7 +115,7 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--font-ui` | `"Pretendard Variable", Pretendard, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Noto Sans KR", "Malgun Gothic", sans-serif` | Chrome and chat prose |
+| `--font-ui` | `"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", system-ui, sans-serif` | Chrome and chat prose |
 | `--font-mono` | `"Symbols Nerd Font Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "D2Coding", monospace` | Paths, keys, terminal-adjacent metadata |
 | `--lh-tight` | `1.2` | Titles |
 | `--lh-base` | `1.5` comfortable / `1.45` compact | Body copy |
@@ -167,7 +128,6 @@ CSS tokens verbatim for each resolved theme and palette (`settings.test.ts` chec
 
 ### Settings
 - `theme`: `dark`, `light`, or `system`; default `dark`.
-- `palette`: `amber`, `report` or `charcoal`; default `amber`.
 - `density`: `comfortable` or `compact`; default `comfortable`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
 - Terminal and chat font families are comma-separated lists, default empty. They go in front of the
@@ -350,7 +310,7 @@ One set for both themes: the card is island black wherever it shows.
   Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent.
 - Every pane row is two lines: agent/shell mark, then the editable title alone on line one (full
   width), and the status chip followed by the pane's place on line two. Mark boxes are neutral;
-  the selected row gets the amber rail and an amber-edged mark box. The row ends in one `⋯`
+  the selected row gets the `--accent` rail and an accent-edged mark box. The row ends in one `⋯`
   (`.row-menu-toggle`: shown on hover, focus, selection and while its menu is open; always on
   touch) that opens the row menu. Inline server failures stay beside their row.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
@@ -376,7 +336,7 @@ One set for both themes: the card is island black wherever it shows.
 - Beside Settings, one button holding up to four chips (three and `+N` past that), one per
   account in the user's order: provider mark, mono `--fs-2xs` percent of the limit closest to
   running out (used, or left when Settings says so), and a 2px bar on a `--line-strong` track
-  filled to that percent. From 80% used the percent and bar take `--needs`; amber stays
+  filled to that percent. From 80% used the percent and bar take `--needs`; the accent stays
   chrome. A chip whose numbers are stale or missing dims. An account hidden in Settings is
   left out of the strip and the popover; with every account hidden, neither shows.
 - The button opens a popover above the footer (`--shadow-pop`, `--radius-lg`), as wide as the
@@ -458,12 +418,6 @@ One set for both themes: the card is island black wherever it shows.
   A desktop's picked pane takes typing at once.
 - Enter sends and Shift+Enter breaks by default; with **Enter sends** off, Mod+Enter sends. IME Enter
   is ignored. While working, Stop sends Escape and Queue stores the next message.
-
-### Voice input
-- A mic button sits beside Attach in the composer and beside Send in the terminal input line; it
-  fills with `--accent` while recording. Dictated text is inserted at the caret, never sent.
-- The recording pill shows Cancel, a **Recording** label, the level bars, a mono timer and Done.
-  Amber only; `--danger` stays for errors.
 
 ### Command palette
 - `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes
