@@ -46,7 +46,7 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what
  *         Tailscale on this PC already serves, or the command to run), no-store
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
- *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
+ *         kinds `agent.start` accepts, plus gjc when it is on this server's PATH,
  *         for the new-session dialog)
  *  GET    /api/pane/read?pane_id=&source=&format=&lines=  -> { read: PaneReadResult }
  *  GET    /api/pane/scroll?pane_id=      -> { scroll: PaneScrollInfo | null } (where the
@@ -58,7 +58,7 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *         history, soft-wrapped lines joined; a terminal selection that outlives one screen)
  *  POST   /api/pane/input  { pane_id, text }   -> { ok: true }
  *  GET    /api/pane/conversation?pane_id=    -> ConversationResponse (structured agent
- *         transcript turns - claude, codex, omp, omo, gjc or pi; source:"scrollback" when the pane has no
+ *         transcript turns - claude, codex, omp, gjc or pi; source:"scrollback" when the pane has no
  *         recognized store)
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
@@ -76,7 +76,7 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *         -> { ok: true } | 409 prompt_changed (the screen no longer shows that prompt)
  *  POST   /api/workspace/create { cwd?, label?, agent?: { kind, name?, args? } }
  *         -> WorkspaceCreated (workspace.create, then agent.start in the root pane when `agent` is given;
- *         omo and gjc, which herdr cannot start, are typed into the root pane's shell)
+ *         gjc, which herdr cannot start, is typed into the root pane's shell)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id } -> { ok: true }
@@ -219,7 +219,7 @@ export interface ConversationMetadata {
 export interface ConversationResponse {
   /** Stable across appends; changes on transcript replacement or native context clear. */
   history_id?: string;
-  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "scrollback";
+  source: "claude-transcript" | "omp-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "scrollback";
   turns: ConversationTurn[];
   metadata?: ConversationMetadata;
   /**
@@ -323,18 +323,9 @@ export interface InteractivePrompt {
    * a message typed in the chat still goes to Codex; open in the terminal, the queue holds the
    * input, so the chat sends nothing until it is answered or closed */
   queued?: "collapsed" | "open";
-  /** the questions of a form that asks several at once (omo), in order: which are answered and
-   * which one the card asks now (none while the answers are reviewed). Absent for one question */
-  steps?: InteractivePromptStep[];
   /** the last-resort card for a blocked pane no reader knows: answered with its own buttons only,
    * so a message typed in the chat still goes to the agent as typed */
   fallback?: true;
-}
-
-export interface InteractivePromptStep {
-  label: string;
-  answered: boolean;
-  current: boolean;
 }
 
 export interface InteractivePromptOption {

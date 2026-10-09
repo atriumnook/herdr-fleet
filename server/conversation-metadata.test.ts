@@ -46,8 +46,8 @@ describe("recorded conversation model settings", () => {
     ), "codex-transcript")).toEqual({ model: "second", reasoning_effort: null });
   });
 
-  it("updates independent omp/omo/pi model and thinking settings, including off", () => {
-    for (const source of ["omp-transcript", "omo-transcript", "pi-transcript"] as const) {
+  it("updates independent omp/pi model and thinking settings, including off", () => {
+    for (const source of ["omp-transcript", "pi-transcript"] as const) {
       expect(parseConversationMetadata(jsonl(
         { type: "model_change", modelId: "first" },
         { type: "thinking_level_change", thinkingLevel: "max" },
@@ -107,7 +107,7 @@ describe("context use", () => {
 
   it("reads omp's usage shape, with no window to go by", () => {
     const entry = { type: "message", message: { role: "assistant", model: "gpt-6", usage: { input: 2, output: 7_000, cacheRead: 10_000, cacheWrite: 22_000 } } };
-    expect(parseConversationMetadata(jsonl(entry), "omo-transcript").context).toEqual({ used: 32_002, window: null });
+    expect(parseConversationMetadata(jsonl(entry), "omp-transcript").context).toEqual({ used: 32_002, window: null });
     expect(parseConversationMetadata(jsonl({ type: "message", message: { role: "user" } }), "omp-transcript").context).toBeUndefined();
   });
 
@@ -148,7 +148,7 @@ describe("context use", () => {
         entry({ provider: "other" }),
       ];
       expect(parseConversationMetadata(jsonl(...changed), "pi-transcript").context).toEqual({ used: 100_000, window: null });
-      // omp, omo and gjc are read by the same code and resolve nothing: their figure stays
+      // omp and gjc are read by the same code and resolve nothing: their figure stays
       const omp = { type: "message", message: { role: "assistant", model: "qwen-test", provider: "lwsa", usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 } } };
       expect(parseConversationMetadata(jsonl(omp), "omp-transcript").context).toEqual({ used: 8, window: null });
     } finally {

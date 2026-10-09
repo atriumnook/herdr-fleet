@@ -1,6 +1,6 @@
 /**
  * Agents herdr's agent.start cannot launch (`herdr agent start --kind` lists its
- * kinds; omo and gjc are not among them). The pane's shell runs the command
+ * kinds; gjc is not among them). The pane's shell runs the command
  * instead, and the pane's process tree, not the prompt, says when it is up.
  *
  * A Windows pane differs in three ways, each live-verified on a Windows PC (herdr 0.9.3):
@@ -11,13 +11,11 @@
  */
 import { herdrRpc } from "./herdr/client.ts";
 import { isGjcProcess } from "./gjc-runtime.ts";
-import { isOmoProcess } from "./omo.ts";
 import { psQuote } from "./powershell.ts";
 import { descendantArgv, windowsProcessTable } from "./windows-processes.ts";
 
 /** kind -> the foreground-process test that proves the agent is running in the pane. */
 export const SHELL_AGENTS: Record<string, (argv: readonly string[]) => boolean> = {
-  omo: isOmoProcess,
   gjc: isGjcProcess,
 };
 /** The shell-started agents known to start on Windows; the others are not offered there. */

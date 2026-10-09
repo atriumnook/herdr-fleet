@@ -501,7 +501,7 @@ type PendingSend =
   | { target: "composer"; owner: string; via: "box" | "quick"; sent: string }
   | { target: "line"; owner: string }
   | { target: "queue"; owner: string; queueId: string }
-  | { target: "card"; machineId: string; paneId: string; promptId: string; steps: boolean; typed: boolean };
+  | { target: "card"; machineId: string; paneId: string; promptId: string; typed: boolean };
 
 /** The messages sent from composers, input lines and held messages, one under way per box. */
 export interface SendsState {
@@ -2403,7 +2403,7 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
       const { open, prompt } = state.chat;
       if (open?.machineId !== event.machineId || open.paneId !== event.paneId || prompt?.id !== event.promptId) return { state, effects };
       if (cardAnswering(state, event.machineId, event.paneId)?.promptId === event.promptId) return { state, effects };
-      const { id, next } = start({ target: "card", machineId: event.machineId, paneId: event.paneId, promptId: event.promptId, steps: prompt.steps !== undefined, typed: event.typed });
+      const { id, next } = start({ target: "card", machineId: event.machineId, paneId: event.paneId, promptId: event.promptId, typed: event.typed });
       effects.push({ kind: "answer-prompt", id, machineId: event.machineId, paneId: event.paneId, promptId: event.promptId, answer: event.answer });
       return { state: { ...next, chat: { ...next.chat, card: { promptId: event.promptId, status: "pending" } } }, effects };
     }
@@ -2430,8 +2430,7 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
     const pendingAnswer = pending.typed ? null : chat.pendingAnswer;
     if (event.outcome.kind === "ok") {
       const answered: UiState = { ...next, chat: { ...showPrompt({ ...chat, pendingAnswer: null }, null), card: null } };
-      // a form of several questions goes on to its next one: read it now, not at the next poll
-      return { state: pending.steps && chatReads(answered) ? { ...answered, chat: readChatPrompt(answered, effects) } : answered, effects };
+      return { state: answered, effects };
     }
     if (event.outcome.status === 409 && event.outcome.code === "prompt_changed") {
       const seq = event.id;

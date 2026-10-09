@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 
 import { forgetHistoryChains } from "./codex.ts";
-import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, isOmoProcess, ompSessionPath, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
+import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, ompSessionPath, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 import { MAX_TURNS, parseOmpTranscript } from "./transcript-records.ts";
 
 /** Minimal but shape-true slices of a Claude Code session jsonl. */
@@ -210,24 +210,6 @@ describe("parseOmpTranscript", () => {
       JSON.stringify({ type: "message", message: { role: "user", content: [{ type: "text", text: `m${i}` }] } }),
     ).join("\n");
     expect(parseOmpTranscript(many).length).toBe(MAX_TURNS);
-  });
-});
-
-describe("omo transcript resolution", () => {
-  it("recognizes omo from a pane's foreground processes, not from herdr's label", () => {
-    // argv exactly as herdr's pane.process_info reported them for an omo pane
-    expect(isOmoProcess(["node", "/home/u/.nvm/versions/node/v24.18.0/bin/omo"])).toBeTrue();
-    expect(isOmoProcess(["bun", "/home/u/lib/node_modules/omo-ai/bin/omo.js"])).toBeTrue();
-    expect(isOmoProcess(["bun", "/home/u/lib/node_modules/omo-ai/node_modules/@code-yeongyu/senpi/dist/bundle/cli.js", "--extension", "/home/u/lib/node_modules/omo-ai/plugin"])).toBeTrue();
-    // the pane herdr labels `claude` because of omo's child still names omo
-    expect(isOmoProcess(["/home/u/lib/node_modules/omo-ai/node_modules/@anthropic-ai/claude-agent-sdk-linux-x64/claude", "--output-format", "stream-json"])).toBeTrue();
-
-    expect(isOmoProcess(["/home/u/.local/bin/claude"])).toBeFalse();
-    expect(isOmoProcess(["omp"])).toBeFalse();
-    expect(isOmoProcess(["node", "/home/u/omo-tools/watch.js"])).toBeFalse();
-    // a shell rc file printing a PATH that has omo-ai's bin directory in it
-    expect(isOmoProcess(["printf", "%s\\n", "/home/u/.local/bin:/home/u/lib/node_modules/omo-ai/node_modules/.bin:/usr/bin"])).toBeFalse();
-    expect(isOmoProcess(["printf", "%s\\n", "/usr/bin:/home/u/.nvm/versions/node/v24.18.0/bin/omo"])).toBeFalse();
   });
 });
 

@@ -4,7 +4,7 @@ import type { ConversationPart } from "../../shared/protocol.ts";
  * The agent's todo tool calls, as the chat's work block shows them. Each agent keeps its
  * list its own way:
  * - Claude Code `TodoWrite` and Codex `update_plan` send the whole list every time;
- * - omp / omo `todo`, gjc `todo_write` (and omo's `mcp__…__todo` through Claude) send
+ * - omp `todo`, gjc `todo_write` send
  *   operations (init, append, start, done, drop, block, note) on one list, and answer
  *   each call with the whole list as it now stands.
  * A call reads as a one-line summary, and opened, as the list its answer shows.
@@ -14,7 +14,7 @@ export type TodoStatus = "pending" | "in_progress" | "completed" | "blocked" | "
 
 export interface TodoItem {
   label: string;
-  /** the phase (omp, omo, gjc) the item belongs to */
+  /** the phase (omp, gjc) the item belongs to */
   phase: string | null;
   status: TodoStatus;
   /** why it is blocked, or a note the agent attached */
@@ -66,7 +66,7 @@ const EMPTY_ANSWER = /^(?:Todo list is empty\.|Todo list cleared\.)/m;
 
 /**
  * The whole list from a `todo` answer, when it has one:
- *   `  Phase:` then `    - [X] item`, `    - [ ] item (in progress)`, `    - [ ] item (dropped)` (omp, omo)
+ *   `  Phase:` then `    - [X] item`, `    - [ ] item (in progress)`, `    - [ ] item (dropped)` (omp)
  *   or `    ✓ item`, `    → item`, `    ○ item` (gjc).
  * Null when the answer has no list, or was cut before its end.
  */

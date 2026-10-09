@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, ClientMessage, ClientRole, HealthAuth, HerdrPane, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, handleAuthRequest, isAuthenticated, parseCookies, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -15,9 +15,7 @@ import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse, sameOrigin } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
-import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
-import { omoPanes } from "./omo.ts";
-import { OMO_ALIASES, OmoStatus } from "./omo-status.ts";
+import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
@@ -145,8 +143,6 @@ const AGENT_LABELS: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
   omp: "Oh My Pi",
-  omo: "OmO",
-  gjc: "Gajae Code",
   pi: "pi",
   gemini: "Gemini CLI",
   cursor: "Cursor",
@@ -436,22 +432,8 @@ export function createServer(
 
   /** `done` for agents herdr loses track of (server/completion.ts), kept across restarts */
   const completions = new CompletionTracker(join(options.stateDir ?? defaultStateDir(), "completions.json"));
-  /** OmO panes get their status from OmO's session files: herdr reports none for them (server/omo-status.ts) */
-  const omo = new OmoStatus({
-    discover: (panes) => omoPanes(panes),
-    snapshot: sessionSnapshot,
-    onChange: (paneId, derived, _background, turn) => omoChanged(paneId, derived, turn),
-    // herdr called it `claude` or `pi` until now: what it finished under that name is its own
-    onFound: (paneId) => completions.adopt(paneId, "omo", OMO_ALIASES),
-  });
-  /** herdr's snapshot with OmO's own status in it: what the completion tracker and web push are given */
-  const rawSnapshot = async (): Promise<SessionSnapshot> => {
-    const snapshot = await sessionSnapshot();
-    await omo.refresh(snapshot.panes);
-    return omo.apply(snapshot);
-  };
   /** the snapshot clients get: finishes settled */
-  const clientSnapshot = (): Promise<SessionSnapshot> => completions.readSnapshot(rawSnapshot);
+  const clientSnapshot = (): Promise<SessionSnapshot> => completions.readSnapshot(sessionSnapshot);
   const machines = options.machines === false ? null : new MachineManager(completions, clientSnapshot);
   /** agents started on callers' behalf (server/fleet): told of herdr's status events by the collector below */
   let listeningPort = 0;
@@ -839,26 +821,13 @@ export function createServer(
   };
 
   /** Status of EVERY pane, attached or not: one collector feeds all connected clients and web push. */
-  function omoChanged(paneId: string, derived: AgentStatus, turn: boolean): void {
-    // a background task starting or ending is no turn: the status stands, and nothing is alerted
-    const status = turn ? completions.observe(paneId, derived, "omo") : completions.current(paneId) ?? completions.observe(paneId, derived, "omo");
-    broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status });
-    if (turn) push.onStatus(paneId, status).catch(logPushError);
-  }
-
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent, replay) => {
       fleet.onPaneStatus(paneId);
-      // read back from a snapshot around a gap between subscriptions. An OmO pane's status there
-      // is OmO's own or herdr's by turns (server/omo-status.ts), and a difference is no change
-      if (replay && (omo.runs(paneId) || !completions.replayed(paneId, raw, replay))) return;
-      // another agent took an OmO pane: what OmO worked on there is not that agent's to finish
-      if (omo.named(paneId, agent)) completions.forget(paneId);
-      // herdr says `claude/idle` for an OmO pane whatever it does: its own status stands
-      if (omo.tracks(paneId)) return;
-      // an agent herdr lost on the way still works and finishes as such (server/completion.ts);
-      // an OmO pane whose session is not known keeps herdr's status, under its own name
-      const status = completions.observe(paneId, raw, omo.runs(paneId) ? "omo" : agent);
+      // read back from a snapshot around a gap between subscriptions
+      if (replay && !completions.replayed(paneId, raw, replay)) return;
+      // an agent herdr lost on the way still works and finishes as such (server/completion.ts)
+      const status = completions.observe(paneId, raw, agent);
       broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status });
       push.onStatus(paneId, status).catch(logPushError);
     },
@@ -883,8 +852,7 @@ export function createServer(
       push.onEnded(paneId).catch(logPushError);
     },
     onStructureChange: () => broadcastAll({ type: "session-changed" }),
-  }, { snapshot: rawSnapshot });
-  omo.start();
+  });
 
   const envPort = process.env["PORT"];
   const server = Bun.serve<SocketData>({
@@ -1200,9 +1168,7 @@ export function createServer(
         try {
           const context = await paneContext(paneId);
           if (pathname === "/api/pane/commands") {
-            // herdr names an omo pane `pi` while omo waits: pi's commands and templates are not omo's
-            const agent = context.agent === "pi" && await paneRunsOmo(paneId) ? "omo" : context.agent;
-            return jsonResponse({ commands: paneCommands(agent, context.cwd) });
+            return jsonResponse({ commands: paneCommands(context.agent, context.cwd) });
           }
           const limitRaw = url.searchParams.get("limit");
           const limit = limitRaw === null ? 20 : Number(limitRaw);
@@ -1768,7 +1734,6 @@ export function createServer(
     stop: () => {
       clearInterval(outputTimer);
       collector.stop();
-      omo.stop();
       machines?.stop();
       fleet.stop();
       if (fleetChangedTimer) clearTimeout(fleetChangedTimer);

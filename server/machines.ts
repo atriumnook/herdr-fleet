@@ -2,7 +2,6 @@ import { hostname } from "node:os";
 import { LOCAL_MACHINE, type Machine, type MachineEvent } from "../shared/machines.ts";
 import type { ServerMessage, SessionSnapshot, HerdrPane } from "../shared/protocol.ts";
 import { sessionSnapshot } from "./herdr/client.ts";
-import { labelOmoPanes } from "./conversation.ts";
 import type { CompletionTracker } from "./completion.ts";
 
 /**
@@ -18,7 +17,7 @@ export class MachineManager {
   private localTimer: ReturnType<typeof setInterval>;
   private local: Machine = { id: LOCAL_MACHINE, name: hostname(), kind: "local", enabled: true, state: "connecting", error: null, snapshot: null };
 
-  constructor(private completions: CompletionTracker, private readLocal: () => Promise<SessionSnapshot> = () => this.completions.readSnapshot(sessionSnapshot, labelOmoPanes)) {
+  constructor(private completions: CompletionTracker, private readLocal: () => Promise<SessionSnapshot> = () => this.completions.readSnapshot(sessionSnapshot)) {
     void this.refreshLocal();
     this.localTimer = setInterval(() => void this.refreshLocal(), 5000);
     this.localTimer.unref();

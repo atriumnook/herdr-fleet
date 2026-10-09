@@ -1956,7 +1956,7 @@ describe("answering the waiting prompt in its card", () => {
     expect(answer(state).effects).toEqual([]);
   });
 
-  it("drops the answered prompt, and reads a form's next question at once", () => {
+  it("drops the answered prompt", () => {
     const sending = answer(shown()).state;
     const done = play([{ type: "answer-result", id: sending.sends.seq, outcome: { kind: "ok" } }], sending);
     expect(done.state.chat).toMatchObject({ prompt: null, card: null });
@@ -1964,8 +1964,6 @@ describe("answering the waiting prompt in its card", () => {
     // a typed pick for the prompt goes with it, even when another button answered
     const picked = answer(play([{ type: "chat-pending-answer", promptId: "p", answer: { option_index: 1 } }], shown()).state).state;
     expect(play([{ type: "answer-result", id: picked.sends.seq, outcome: { kind: "ok" } }], picked).state.chat.pendingAnswer).toBeNull();
-    const form = answer(shown({ steps: [{ label: "a", answered: false, current: true }] })).state;
-    expect(kinds(play([{ type: "answer-result", id: form.sends.seq, outcome: { kind: "ok" } }], form).effects)).toEqual(["load-chat-prompt"]);
   });
 
   it("says the prompt changed for a while and reads it again; any other failure says why", () => {

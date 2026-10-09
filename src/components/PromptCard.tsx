@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { Check, Send } from "lucide-react";
+import { Send } from "lucide-react";
 
 import "./PromptCard.css";
 
@@ -64,18 +64,6 @@ export function PromptCard({ prompt, typedAnswer = null, card, emit }: PromptCar
         <span className="badge badge-blocked">{t("input needed")}</span>
         <h2>{prompt.title}</h2>
       </header>
-      {/* a form of several questions (omo): each one, answered or not, and the one asked now */}
-      {prompt.steps && (
-        <ol className="prompt-card-steps" aria-label={t("Questions")}>
-          {prompt.steps.map((step, index) => (
-            <li key={index} className={`prompt-card-step${step.answered ? " is-answered" : ""}${step.current ? " is-current" : ""}`} aria-current={step.current ? "step" : undefined}>
-              <span className="prompt-card-step-mark" aria-hidden="true">{step.answered ? <Check /> : index + 1}</span>
-              <span className="prompt-card-step-label">{step.label}</span>
-              {step.answered && <span className="visually-hidden">{t("(answered)")}</span>}
-            </li>
-          ))}
-        </ol>
-      )}
       {/* a Claude approval's heading is its question too: said once */}
       {prompt.question !== prompt.title && <p className="prompt-card-question">{prompt.question}</p>}
       {prompt.queued && (

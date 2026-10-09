@@ -103,13 +103,13 @@ test("Codex tool and native read records count one skill and keep the tool outpu
   expect(turns[1]!.parts[0]).toMatchObject({ output: expect.stringContaining("Instructions"), skill: { status: "loaded" } });
 });
 
-const invoked = (name: string, location = `/home/u/.omo/skills/${name}/SKILL.md`) =>
-  `The user explicitly invoked the "${name}" skill. Follow the instructions in <skill-instruction> as binding for this request, while respecting higher-priority instructions.\n\n<skill-instruction name="${name}" location="${location}">\nReferences are relative to /home/u/.omo/skills/${name}.\n\nPRIVATE ${name} INSTRUCTIONS\n</skill-instruction>`;
-const loaded = (name: string): SkillActivity => ({ name, path: `/home/u/.omo/skills/${name}/SKILL.md`, evidence: "instructions", status: "loaded" });
+const invoked = (name: string, location = `/home/u/.omp/skills/${name}/SKILL.md`) =>
+  `The user explicitly invoked the "${name}" skill. Follow the instructions in <skill-instruction> as binding for this request, while respecting higher-priority instructions.\n\n<skill-instruction name="${name}" location="${location}">\nReferences are relative to /home/u/.omp/skills/${name}.\n\nPRIVATE ${name} INSTRUCTIONS\n</skill-instruction>`;
+const loaded = (name: string): SkillActivity => ({ name, path: `/home/u/.omp/skills/${name}/SKILL.md`, evidence: "instructions", status: "loaded" });
 const piUser = (text: string) => ({ type: "message", timestamp: "2026-10-02T00:00:00Z", message: { role: "user", content: [{ type: "text", text }] } });
 const piAnswer = (text: string) => ({ type: "message", timestamp: "2026-10-02T00:00:05Z", message: { role: "assistant", content: [{ type: "text", text }] } });
 
-test("an omo/omp skill invocation reads as the request, with the skill on it", () => {
+test("an omp skill invocation reads as the request, with the skill on it", () => {
   const text = `${invoked("ulw-research")}\n\n<user-request>\n  compare the three apps\n</user-request>`;
   expect(skillInvocationPrompt(text)).toEqual({ skills: [loaded("ulw-research")], request: "compare the three apps" });
   const turns = parseOmpTranscript(lines([piUser(text), piAnswer("On it.")]));

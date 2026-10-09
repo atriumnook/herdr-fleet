@@ -886,7 +886,7 @@
 
 .chat-skill[open] .chat-skill-caret { transform: rotate(180deg); }
 
-/* omo's goal as the turn left it: one line beside the skills, the whole objective on request */
+/* Codex's goal as the turn left it: one line beside the skills, the whole objective on request */
 .chat-goal {
   min-width: 0;
   max-width: 100%;

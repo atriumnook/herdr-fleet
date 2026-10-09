@@ -3,7 +3,7 @@ import { parseTodoAnswer, todoCallSummary } from "./todos.ts";
 
 const call = (name: string, input: unknown, output = "") => ({ kind: "tool" as const, name, summary: name, input: JSON.stringify(input), output });
 
-// an omp/omo answer, as the tool prints it
+// an omp answer, as the tool prints it
 const OMP_ANSWER = `Remaining items (2):
   - E2E check [in_progress] (Verify)
   - Release run [pending] (Verify)
@@ -29,7 +29,7 @@ Phase 1/2 "Recovery" — 1/2 tasks complete
     ○ Run regressions`;
 
 describe("parseTodoAnswer", () => {
-  it("reads omp/omo boxes and gjc glyphs, with a blocked item's reason", () => {
+  it("reads omp boxes and gjc glyphs, with a blocked item's reason", () => {
     expect(parseTodoAnswer(GJC_ANSWER)!.map((item) => item.status)).toEqual(["completed", "in_progress", "pending"]);
     const blocked = parseTodoAnswer("Remaining items (1):\n  Ops:\n    - [ ] Update tailscale (blocked: needs sudo)")!;
     expect(blocked).toEqual([{ label: "Update tailscale", phase: "Ops", status: "blocked", note: "needs sudo" }]);

@@ -62,5 +62,5 @@ it("gives up on a process-table query that stalls, and kills it", async () => {
 });
 
 it("offers on Windows only the shell-started agents known to start there", () => {
-  expect(shellAgentExecutable("omo", "win32")).toBeNull();
+  expect(shellAgentExecutable("pi", "win32")).toBeNull();
 });
