@@ -2,13 +2,14 @@ import { describe, expect, it } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup as renderBare } from "react-dom/server";
 import { DEFAULT_SETTINGS, SettingsProvider } from "../../lib/settings.ts";
-import type { AgentRun } from "../../../shared/fleet.ts";
+import type { AgentRun, AgentState } from "../../../shared/fleet.ts";
 import { fleetScreenModel } from "../../ui/fleetView.ts";
 import { INITIAL_STATE, type UiState } from "../../ui/state.ts";
 import { FleetScreen, forRun } from "./FleetScreen.tsx";
 import { RunCard } from "./RunCard.tsx";
 import { RunDetailSheet } from "./RunDetailSheet.tsx";
 import { UsageCapsule } from "./UsageCapsule.tsx";
+import { StateBadge } from "./format.tsx";
 import { t } from "../../lib/i18n.ts";
 
 const NOW = Date.now();
@@ -54,6 +55,18 @@ describe("Fleet screen views", () => {
     expect(html).not.toContain("Interrupt");
     const done = model(state([run("scout", { state: "done", result: "HANDOFF\noutcome: read only" })])).sections[0]!.runs[0]!;
     expect(renderToStaticMarkup(createElement(RunCard, { run: done, now: NOW, emit: noop }))).toContain("outcome: read only");
+  });
+
+  it("writes a run's state with the word of its section, and none on an ended run", () => {
+    const badge = (state: AgentState) => renderToStaticMarkup(createElement(StateBadge, { state }));
+    expect(badge("starting")).toContain(">Working<");
+    expect(badge("unknown")).toContain(">Working<");
+    expect(badge("idle")).toContain(">Done<");
+    expect(badge("blocked")).toContain(">Needs you<");
+    expect(badge("failed")).toContain(">Failed<");
+    expect(badge("stopped")).toBe("");
+    const ended = model(state([run("old", { state: "stopped" })])).ended[0]!;
+    expect(renderToStaticMarkup(createElement(RunCard, { run: ended, now: NOW, emit: noop }))).not.toContain("fleet-badge");
   });
 
   it("shows a cooldown with the way to end it, and an account it could not read", () => {

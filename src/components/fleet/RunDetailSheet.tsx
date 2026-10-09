@@ -24,7 +24,7 @@ export function RunDetailSheet({ run, now, emit }: { run: RunCardModel; now: num
       </header>
 
       <dl className="fleet-sheet-facts">
-        <div><dt>{t("State")}</dt><dd><StateBadge state={run.state} /></dd></div>
+        {run.tone !== "ended" && <div><dt>{t("State")}</dt><dd><StateBadge state={run.state} /></dd></div>}
         <div><dt>{t("Elapsed")}</dt><dd className="mono">{elapsed(now - run.startedAt)}</dd></div>
         <div><dt>{t("Group")}</dt><dd className="mono">{run.group}</dd></div>
       </dl>

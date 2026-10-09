@@ -330,10 +330,9 @@
 }
 
 .fleet-badge.is-working { color: var(--working); background: var(--working-tint); }
-.fleet-badge.is-blocked { color: var(--needs); background: var(--needs-tint); }
+.fleet-badge.is-needs { color: var(--needs); background: var(--needs-tint); }
 .fleet-badge.is-done { color: var(--done); background: var(--done-tint); }
 .fleet-badge.is-failed { color: var(--needs); border: var(--hairline) solid var(--needs); }
-.fleet-badge.is-ended { color: var(--sub); background: var(--field-hover); }
 
 /* capsule buttons: the glass's own controls */
 .fleet-cap {

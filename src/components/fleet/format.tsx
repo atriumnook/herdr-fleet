@@ -1,5 +1,6 @@
 import type { AgentState } from "../../../shared/fleet.ts";
 import { t } from "../../lib/i18n.ts";
+import { toneOf, type RunTone } from "../../ui/fleetView.ts";
 
 /** `4:12`, `1:03:07`: how long a run has gone, from its start. */
 export function elapsed(ms: number): string {
@@ -19,15 +20,14 @@ export function clock(ms: number, now: number): string {
     : at.toLocaleString([], { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
 }
 
-/** A run's state, written as well as colored. */
+// the section a run sits in names its state: starting and unknown runs sit under Working
+const WORD: Record<Exclude<RunTone, "ended">, string> = { needs: "Needs you", failed: "Failed", working: "Working", done: "Done" };
+
+/** A run's state, written as well as colored. An ended run has none: the folded section says it ended. */
 export function StateBadge({ state }: { state: AgentState }) {
-  const tone = state === "blocked" ? "blocked" : state === "failed" ? "failed" : state === "idle" || state === "done" ? "done" : state === "stopped" ? "ended" : "working";
-  return (
-    <span className={`fleet-badge is-${tone}`}>
-      {t(state === "blocked" ? "Needs you" : state === "failed" ? "Failed" : state === "starting" ? "Starting" : state === "unknown" ? "Unknown"
-        : state === "idle" || state === "done" ? "Done" : state === "stopped" ? "Ended" : "Working")}
-    </span>
-  );
+  const tone = toneOf(state);
+  if (tone === "ended") return null;
+  return <span className={`fleet-badge is-${tone}`}>{t(WORD[tone])}</span>;
 }
 
 /** A usage window's name as the server gives it: `5h` stays, `weekly` and `monthly` are words. */

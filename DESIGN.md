@@ -281,8 +281,9 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Badge (`.badge`)
 - Agent states read **Idle**, **Working**, **Needs you**, **Done** (`STATUS_WORD` in
-  `src/lib/status.ts`), on every surface; unknown reads **—**. A Fleet run adds **Failed**, and
-  **Starting** / **Ended** / **Unknown** for a run that is not yet or no longer an agent turn.
+  `src/lib/status.ts`), on every surface; unknown reads **—**. A Fleet run adds **Failed** and
+  reads the word of the section it sits in: a starting or unknown run reads **Working**, and an
+  ended run, folded under its own button, has no badge.
 - Idle is elevated/dim; working, blocked and done use their own tint and text. Working carries a small
   breathing dot before the word; the word itself never fades.
 - The written label and unknown dashed edge keep color from being the only signal.
