@@ -40,7 +40,7 @@ function compactKeys(keys: readonly string[]): string {
   return formatKeys(keys).map((key) => ({ Shift: "⇧", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" }[key] ?? (key.length === 1 ? key.toUpperCase() : key))).join("+");
 }
 
-const FONT_FAMILY_PLACEHOLDER = 'D2Coding, "Cascadia Mono"';
+const FONT_FAMILY_PLACEHOLDER = 'HackGen, "JetBrains Mono"';
 
 /** A font family list as typed: the Mediator keeps the draft and saves it when the field is left or on Enter. */
 function FontFamilyInput({ value, label, onEdit, onCommit }: { value: string; label: string; onEdit: (text: string) => void; onCommit: () => void }) {
