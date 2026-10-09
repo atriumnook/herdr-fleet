@@ -52,7 +52,7 @@ export function displayPaneTitle(pane: PaneInfo): string {
 
 /** herdr could not bring this pane back after a restart (0.9.3+ `restore_error`): its reason, on hover. */
 export function RestoreErrorBadge({ reason }: { reason: string }) {
-  return <span className="badge badge-restore-error" title={reason}>{t("NOT RESTORED")}</span>;
+  return <span className="badge badge-restore-error" title={reason}>{t("Not restored")}</span>;
 }
 
 export function StatusBadge({ status }: { status?: AgentStatus }) {

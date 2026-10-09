@@ -56,7 +56,7 @@ export async function checkDroplet(browser: Browser, origin: string): Promise<vo
 
     await block(otherPane);
     await card.waitFor({ state: "visible" });
-    assert.match((await card.getAttribute("aria-label")) ?? "", /Needs input/);
+    assert.match((await card.getAttribute("aria-label")) ?? "", /Needs you/);
     assert.equal(await droplet.getAttribute("data-kind"), "blocked");
     // it hangs under the top edge, centred, inside the screen
     await Bun.sleep(1_000);

@@ -71,7 +71,7 @@ export function Droplet({ model, emit }: { model: DropletModel; emit: Emit<Dropl
     emit({ type: "droplet-release" });
   };
 
-  const what = t(current.kind === "blocked" ? "Needs input" : current.kind === "done" ? "Finished" : "terminal ended");
+  const what = t(current.kind === "blocked" ? "Needs you" : current.kind === "done" ? "Done" : "terminal ended");
   const detail = current.machineName ? `${current.machineName} · ${what}` : what;
   return (
     <div className="droplet" role="status" aria-live="polite" data-phase={phase} data-kind={current.kind} data-dragging={drag !== 0 ? "" : undefined} style={{ "--droplet-drag": `${drag}px` } as CSSProperties}>

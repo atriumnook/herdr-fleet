@@ -200,11 +200,11 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
             <p className="settings-description">{t("For this device. An alert waits a little first, and none comes when the pane changes meanwhile, as when you answer at the PC.")}</p>
             {alerts}
             <div className="settings-row">
-              <div><span className="settings-label">{t("Needs input")}</span><span className="settings-description">{t("An agent waits for an answer or a permission.")}</span></div>
-              <Toggle label={t("Needs input")} checked={settings.alertInput} onChange={(alertInput) => update({ alertInput })} />
+              <div><span className="settings-label">{t("Needs you")}</span><span className="settings-description">{t("An agent waits for an answer or a permission.")}</span></div>
+              <Toggle label={t("Needs you")} checked={settings.alertInput} onChange={(alertInput) => update({ alertInput })} />
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Finished")}</span><span className="settings-description">{t("Long turns tells only of work that took a minute or more.")}</span></div>
+              <div><span className="settings-label">{t("Done")}</span><span className="settings-description">{t("Long turns tells only of work that took a minute or more.")}</span></div>
               <div className="segmented" aria-label={t("Done")}>
                 {(["off", "long", "always"] as const).map((alertDone) => (
                   <button key={alertDone} type="button" aria-pressed={settings.alertDone === alertDone} onClick={() => update({ alertDone })}>

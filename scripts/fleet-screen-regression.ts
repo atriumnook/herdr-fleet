@@ -79,14 +79,14 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     // the button names how many runs wait on the person, and opens the screen
     const button = page.locator(".fleet-button");
     await page.locator(".fleet-button-count", { hasText: "1" }).waitFor();
-    assert.equal(await button.getAttribute("aria-label"), "Fleet: 1 waiting on you");
+    assert.equal(await button.getAttribute("aria-label"), "Fleet: 1 need you");
     await button.click();
     const screen = page.locator(".fleet-screen");
     await screen.waitFor();
     // scout's settle comes after the grace period: wait for it to reach Done
     await page.locator(".fleet-section.tone-done").waitFor();
     const headings = await screen.locator(".fleet-section-head h2").allTextContents();
-    assert.deepEqual(headings, ["Waiting on you", "Working", "Done"]);
+    assert.deepEqual(headings, ["Needs you", "Working", "Done"]);
     assert.equal(await screen.locator(".fleet-run.is-prominent .fleet-run-name b").textContent(), "review");
     assert.match(await screen.locator(".fleet-capsule.level-low").textContent() ?? "", /claude/);
     await save(page, shots, "fleet-desktop-dark");

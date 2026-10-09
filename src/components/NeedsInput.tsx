@@ -18,7 +18,7 @@ export function NeedsInput({ machines, selectedMachineId, selectedPaneId, emit }
 }) {
   const waiting = panesNeedingInput(machines);
   return <>
-    <p className="visually-hidden" role="status">{t("Panes waiting for input: {n}", { n: waiting.length })}</p>
+    <p className="visually-hidden" role="status">{t("Panes that need you: {n}", { n: waiting.length })}</p>
     {waiting.length > 0 && <section className="needs-input" aria-label={t("Needs you")}>
     <h2 className="needs-input-heading">{t("Needs you")} <span className="pill">{waiting.length}</span></h2>
     <ul className="pane-list">

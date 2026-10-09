@@ -19,7 +19,7 @@ describe("In-app alert view", () => {
   it("names the pane and what happened, and offers to open it", () => {
     const html = render(model());
     expect(html).toContain('data-kind="blocked"');
-    expect(html).toContain('aria-label="api, Needs input. Open pane"');
+    expect(html).toContain('aria-label="api, Needs you. Open pane"');
     expect(html).toContain('<span class="droplet-title">api</span>');
   });
 

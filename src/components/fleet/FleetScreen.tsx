@@ -43,7 +43,7 @@ export function FleetScreen({ model, screen, emit }: { model: FleetScreenModel; 
   const [endedOpen, setEndedOpen] = useState(false);
   const empty = model.status === "ready" && model.sections.length === 0 && model.ended.length === 0;
   const heading: Record<Exclude<RunTone, "ended">, string> = {
-    needs: t("Waiting on you"), failed: t("Failed"), working: t("Working"), done: t("Done"),
+    needs: t("Needs you"), failed: t("Failed"), working: t("Working"), done: t("Done"),
   };
   const card = (run: RunCardModel) => <RunCard key={run.id} run={run} now={run.tone === "working" || run.tone === "needs" ? now : run.updatedAt} emit={forRun(emit, run.id)} />;
 
@@ -54,7 +54,7 @@ export function FleetScreen({ model, screen, emit }: { model: FleetScreenModel; 
         <header className="fleet-head">
           <div className="fleet-title">
             <h1>{t("Fleet")}</h1>
-            <span>{t("{needs} waiting · {failed} failed · {working} working · {done} done", model.counts)}</span>
+            <span>{t("{needs} need you · {failed} failed · {working} working · {done} done", model.counts)}</span>
           </div>
           <div className="fleet-capsules" role="group" aria-label={t("Usage")}>
             {model.usage.capsules.map((capsule) => (

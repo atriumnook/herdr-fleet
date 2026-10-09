@@ -24,7 +24,7 @@ export function StateBadge({ state }: { state: AgentState }) {
   const tone = state === "blocked" ? "blocked" : state === "failed" ? "failed" : state === "idle" || state === "done" ? "done" : state === "stopped" ? "ended" : "working";
   return (
     <span className={`fleet-badge is-${tone}`}>
-      {t(state === "blocked" ? "Waiting" : state === "failed" ? "Failed" : state === "starting" ? "Starting" : state === "unknown" ? "Unknown"
+      {t(state === "blocked" ? "Needs you" : state === "failed" ? "Failed" : state === "starting" ? "Starting" : state === "unknown" ? "Unknown"
         : state === "idle" || state === "done" ? "Done" : state === "stopped" ? "Ended" : "Working")}
     </span>
   );

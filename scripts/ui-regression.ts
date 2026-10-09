@@ -143,7 +143,7 @@ try {
   releasePoll();
   await until(() => pollFinished, "stale machines response released");
   await page.waitForTimeout(300);
-  assert.equal(await badge.getAttribute("data-status"), "working", "stale poll must not revert RUN to INPUT");
+  assert.equal(await badge.getAttribute("data-status"), "working", "stale poll must not revert Working to Needs you");
   if (process.env.UI_EVIDENCE_DIR) {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "pane-status-poll.png") });

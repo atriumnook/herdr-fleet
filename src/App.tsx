@@ -382,7 +382,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
           <button
             type="button"
             className={`icon-button fleet-button${needs > 0 ? " has-needs" : ""}`}
-            aria-label={needs > 0 ? t("Fleet: {count} waiting on you", { count: needs }) : t("Fleet")}
+            aria-label={needs > 0 ? t("Fleet: {count} need you", { count: needs }) : t("Fleet")}
             aria-pressed={screen === "fleet"}
             title={t("Fleet")}
             onClick={() => emit({ type: "show-screen", screen: screen === "fleet" ? "pane" : "fleet" })}

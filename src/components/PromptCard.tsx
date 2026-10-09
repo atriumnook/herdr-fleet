@@ -60,7 +60,7 @@ export function PromptCard({ prompt, typedAnswer = null, card, emit }: PromptCar
   return (
     <section className="prompt-card" role="region" aria-label={t("Agent is asking")} aria-busy={pending}>
       <header className="prompt-card-header">
-        <span className="badge badge-blocked">{t("input needed")}</span>
+        <span className="badge badge-blocked">{t("Needs you")}</span>
         <h2>{prompt.title}</h2>
       </header>
       {/* a Claude approval's heading is its question too: said once */}

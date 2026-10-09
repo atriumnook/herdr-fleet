@@ -281,8 +281,10 @@ One set for both themes: the card is island black wherever it shows.
   at once. After a confirmed close, focus lands on the header's workspace-list toggle.
 
 ### Badge (`.badge`)
-- Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**.
-- Idle is elevated/dim; working, blocked and done use their own tint and text. RUN carries a small
+- Agent states read **Idle**, **Working**, **Needs you**, **Done** (`STATUS_WORD` in
+  `src/lib/status.ts`), on every surface; unknown reads **—**. A Fleet run adds **Failed**, and
+  **Starting** / **Ended** / **Unknown** for a run that is not yet or no longer an agent turn.
+- Idle is elevated/dim; working, blocked and done use their own tint and text. Working carries a small
   breathing dot before the word; the word itself never fades.
 - The written label and unknown dashed edge keep color from being the only signal.
 

@@ -100,10 +100,10 @@ export function terminalOnlyCommand(agent: string | null, text: string): string 
   return agents !== undefined && agents.includes(agent) ? (word ?? null) : null;
 }
 
-/** The composer's status word: the shared vocabulary, with a blank state reading as READY (a shell is always ready). */
+/** The composer's status word: the shared vocabulary, with a blank state reading as Idle (a shell waits for input). */
 export function composerStatusWord(status?: AgentStatus): string {
   const known = knownStatus(status);
-  return known === "unknown" ? "READY" : STATUS_WORD[known];
+  return known === "unknown" ? "Idle" : STATUS_WORD[known];
 }
 
 /** Herdr agent ids are machine-friendly; the composer presents a short human label. */
