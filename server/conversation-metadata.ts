@@ -32,7 +32,7 @@ function contextOf(used: number, model: string | null, window: number | null, be
 }
 
 /** Read recorded settings, never infer effort from the presence of thinking text.
- * Codex turn_context is a snapshot; omp/omo setting changes are separate events. */
+ * Codex turn_context is a snapshot; omp setting changes are separate events. */
 export function parseConversationMetadata(text: string, source: ConversationResponse["source"], before?: ConversationMetadata): ConversationMetadata {
   // `before` is what the text preceding this one said: the fold picks up where it stopped
   const metadata: ConversationMetadata = before ? { ...before } : { model: null, reasoning_effort: null };
@@ -61,7 +61,7 @@ export function parseConversationMetadata(text: string, source: ConversationResp
       if (model) metadata.model = model;
       // A new complete context without effort must not retain an older value.
       if (model || effort !== undefined) metadata.reasoning_effort = label(effort);
-    } else if (source === "omp-transcript" || source === "omo-transcript" || source === "gjc-transcript" || source === "pi-transcript") {
+    } else if (source === "omp-transcript" || source === "pi-transcript") {
       if (entry.type === "model_change") { metadata.model = label(entry.modelId); piProvider = label(entry.provider); }
       if (entry.type === "thinking_level_change") metadata.reasoning_effort = label(entry.thinkingLevel);
       const message = piMessage(entry) ?? {};
@@ -73,7 +73,7 @@ export function parseConversationMetadata(text: string, source: ConversationResp
       if (entry.type === "message" && message.role === "assistant") {
         const usage = record(message.usage);
         if (source !== "pi-transcript") {
-          // omp, omo and gjc are read the same way but resolve no window, so their figure
+          // omp is read the same way but resolve no window, so their figure
           // stays as it was rather than moving to a rule only pi states
           metadata.context = contextOf(count(usage.input) + count(usage.cacheRead) + count(usage.cacheWrite), metadata.model, null, metadata.context);
           continue;

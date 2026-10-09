@@ -5,15 +5,12 @@ import type { AgentStatus, HerdrPane, SessionSnapshot } from "../../shared/proto
  * instantly; the debounced /api/session refetch that follows brings the derived
  * workspace/tab rollups back in line. Pure: returns the same object when nothing changed.
  */
-export function applyPaneStatus(snapshot: SessionSnapshot, paneId: string, status: AgentStatus, background?: number): SessionSnapshot {
+export function applyPaneStatus(snapshot: SessionSnapshot, paneId: string, status: AgentStatus): SessionSnapshot {
   let paneChanged = false;
   const panes = snapshot.panes.map((pane: HerdrPane) => {
-    // a frame that says nothing of background tasks leaves the count as it was
-    const tasks = background === undefined ? pane.background_tasks : background > 0 ? background : undefined;
-    if (pane.pane_id !== paneId || (pane.agent_status === status && pane.background_tasks === tasks)) return pane;
+    if (pane.pane_id !== paneId || pane.agent_status === status) return pane;
     paneChanged = true;
-    const { background_tasks: _before, ...rest } = pane;
-    return { ...rest, agent_status: status, ...(tasks === undefined ? {} : { background_tasks: tasks }) };
+    return { ...pane, agent_status: status };
   });
   if (!paneChanged) return snapshot;
   const agents = snapshot.agents.map((agent) =>

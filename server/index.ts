@@ -3,7 +3,7 @@ import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
-import type { AgentKind, AgentStatus, ClientMessage, ClientRole, HealthAuth, HerdrPane, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
+import type { AgentKind, ClientMessage, ClientRole, HealthAuth, HerdrPane, ServerFeature, ServerMessage, SessionSnapshot } from "../shared/protocol.ts";
 import { paneTitle } from "../shared/notify-policy.ts";
 import { DEFAULT_PORT } from "../shared/protocol.ts";
 import { DEVICE_COOKIE, handleAuthRequest, isAuthenticated, parseCookies, requiresAuth, unauthorizedJson } from "./auth.ts";
@@ -15,13 +15,9 @@ import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse, sameOrigin } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
-import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
-import { omoPanes } from "./omo.ts";
-import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
-import { omoRuns, omoTasks } from "./omo-tasks.ts";
+import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
-import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, fileRoots, locateFile, withinRoots } from "./file-view.ts";
 import {
@@ -146,8 +142,6 @@ const AGENT_LABELS: Record<string, string> = {
   claude: "Claude Code",
   codex: "Codex",
   omp: "Oh My Pi",
-  omo: "OmO",
-  gjc: "Gajae Code",
   pi: "pi",
   gemini: "Gemini CLI",
   cursor: "Cursor",
@@ -437,26 +431,8 @@ export function createServer(
 
   /** `done` for agents herdr loses track of (server/completion.ts), kept across restarts */
   const completions = new CompletionTracker(join(options.stateDir ?? defaultStateDir(), "completions.json"));
-  /** OmO panes get their status from OmO's session files: herdr reports none for them (server/omo-status.ts) */
-  const omo = new OmoStatus({
-    discover: (panes) => omoPanes(panes),
-    snapshot: sessionSnapshot,
-    onChange: (paneId, derived, background, turn) => omoChanged(paneId, derived, background, turn),
-    // herdr called it `claude` or `pi` until now: what it finished under that name is its own
-    onFound: (paneId) => completions.adopt(paneId, "omo", OMO_ALIASES),
-  });
-  /** herdr's snapshot with OmO's own status in it: what the completion tracker and web push are given */
-  const rawSnapshot = async (): Promise<SessionSnapshot> => {
-    const snapshot = await sessionSnapshot();
-    await omo.refresh(snapshot.panes);
-    return omo.apply(snapshot);
-  };
-  /** the snapshot clients get: finishes settled, OmO panes named, their running background tasks counted */
-  const clientSnapshot = async (): Promise<SessionSnapshot> => {
-    const snapshot = await completions.readSnapshot(rawSnapshot);
-    if (!snapshot.panes.some((pane) => omo.backgroundOf(pane.pane_id) > 0)) return snapshot;
-    return { ...snapshot, panes: snapshot.panes.map((pane) => omo.backgroundOf(pane.pane_id) > 0 ? { ...pane, background_tasks: omo.backgroundOf(pane.pane_id) } : pane) };
-  };
+  /** the snapshot clients get: finishes settled */
+  const clientSnapshot = (): Promise<SessionSnapshot> => completions.readSnapshot(sessionSnapshot);
   const machines = options.machines === false ? null : new MachineManager(completions, clientSnapshot);
   /** agents started on callers' behalf (server/fleet): told of herdr's status events by the collector below */
   let listeningPort = 0;
@@ -844,26 +820,13 @@ export function createServer(
   };
 
   /** Status of EVERY pane, attached or not: one collector feeds all connected clients and web push. */
-  function omoChanged(paneId: string, derived: AgentStatus, background: number, turn: boolean): void {
-    // a background task starting or ending is no turn: the status stands, and nothing is alerted
-    const status = turn ? completions.observe(paneId, derived, "omo") : completions.current(paneId) ?? completions.observe(paneId, derived, "omo");
-    broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status, background_tasks: background });
-    if (turn) push.onStatus(paneId, status).catch(logPushError);
-  }
-
   const collector = startStatusCollector({
     onStatus: (paneId, raw, agent, replay) => {
       fleet.onPaneStatus(paneId);
-      // read back from a snapshot around a gap between subscriptions. An OmO pane's status there
-      // is OmO's own or herdr's by turns (server/omo-status.ts), and a difference is no change
-      if (replay && (omo.runs(paneId) || !completions.replayed(paneId, raw, replay))) return;
-      // another agent took an OmO pane: what OmO worked on there is not that agent's to finish
-      if (omo.named(paneId, agent)) completions.forget(paneId);
-      // herdr says `claude/idle` for an OmO pane whatever it does: its own status stands
-      if (omo.tracks(paneId)) return;
-      // an agent herdr lost on the way still works and finishes as such (server/completion.ts);
-      // an OmO pane whose session is not known keeps herdr's status, under its own name
-      const status = completions.observe(paneId, raw, omo.runs(paneId) ? "omo" : agent);
+      // read back from a snapshot around a gap between subscriptions
+      if (replay && !completions.replayed(paneId, raw, replay)) return;
+      // an agent herdr lost on the way still works and finishes as such (server/completion.ts)
+      const status = completions.observe(paneId, raw, agent);
       broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status });
       push.onStatus(paneId, status).catch(logPushError);
     },
@@ -888,8 +851,7 @@ export function createServer(
       push.onEnded(paneId).catch(logPushError);
     },
     onStructureChange: () => broadcastAll({ type: "session-changed" }),
-  }, { snapshot: rawSnapshot });
-  omo.start();
+  });
 
   const envPort = process.env["PORT"];
   const server = Bun.serve<SocketData>({
@@ -1024,8 +986,6 @@ export function createServer(
           const kinds = new Set((await agentManifests()).manifests.map((manifest) => manifest.agent));
           kinds.add("omp");
           kinds.add("claude");
-          // not herdr kinds: offered where this server can run them (see shell-agent.ts)
-          for (const kind of Object.keys(SHELL_AGENTS)) if (shellAgentExecutable(kind)) kinds.add(kind);
           const agents: AgentKind[] = [...kinds]
             .map((kind) => ({ kind, label: AGENT_LABELS[kind] ?? kind }))
             .sort((left, right) => left.label.localeCompare(right.label) || left.kind.localeCompare(right.kind));
@@ -1106,32 +1066,29 @@ export function createServer(
           }
           try {
             const kind = payload.agent.kind as string;
-            if (isShellAgentKind(kind)) await startShellAgent(kind, created.root_pane.pane_id, payload.agent.args as string[] | undefined);
-            else {
-              const given = typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : null;
-              // herdr refuses a name another agent holds. Two creations at once can pick the same
-              // free one: the refused one picks again. It also refuses a pane whose shell is not up
-              // yet (`agent_pane_busy`, herdr 0.9.3), which a workspace made a moment ago can be.
-              const shellDeadline = Date.now() + 10_000;
-              for (let attempt = 1; ; ) {
-                try {
-                  await agentStart({
-                    name: given ?? freeAgentName(kind, (await sessionSnapshot()).agents.map((agent) => agent.name)),
-                    kind,
-                    paneId: created.root_pane.pane_id,
-                    ...(payload.agent.args === undefined ? {} : { args: payload.agent.args as string[] }),
-                    timeoutMs: 60_000,
-                  });
-                  break;
-                } catch (error) {
-                  if (!(error instanceof HerdrError)) throw error;
-                  if (error.code === "agent_pane_busy" && Date.now() < shellDeadline) {
-                    await Bun.sleep(100);
-                    continue;
-                  }
-                  if (given !== null || attempt === 3 || error.code !== "agent_name_taken") throw error;
-                  attempt += 1;
+            const given = typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : null;
+            // herdr refuses a name another agent holds. Two creations at once can pick the same
+            // free one: the refused one picks again. It also refuses a pane whose shell is not up
+            // yet (`agent_pane_busy`, herdr 0.9.3), which a workspace made a moment ago can be.
+            const shellDeadline = Date.now() + 10_000;
+            for (let attempt = 1; ; ) {
+              try {
+                await agentStart({
+                  name: given ?? freeAgentName(kind, (await sessionSnapshot()).agents.map((agent) => agent.name)),
+                  kind,
+                  paneId: created.root_pane.pane_id,
+                  ...(payload.agent.args === undefined ? {} : { args: payload.agent.args as string[] }),
+                  timeoutMs: 60_000,
+                });
+                break;
+              } catch (error) {
+                if (!(error instanceof HerdrError)) throw error;
+                if (error.code === "agent_pane_busy" && Date.now() < shellDeadline) {
+                  await Bun.sleep(100);
+                  continue;
                 }
+                if (given !== null || attempt === 3 || error.code !== "agent_name_taken") throw error;
+                attempt += 1;
               }
             }
             return jsonResponse({ workspace_id: created.workspace.workspace_id, pane_id: created.root_pane.pane_id, agent_started: true });
@@ -1205,9 +1162,7 @@ export function createServer(
         try {
           const context = await paneContext(paneId);
           if (pathname === "/api/pane/commands") {
-            // herdr names an omo pane `pi` while omo waits: pi's commands and templates are not omo's
-            const agent = context.agent === "pi" && await paneRunsOmo(paneId) ? "omo" : context.agent;
-            return jsonResponse({ commands: paneCommands(agent, context.cwd) });
+            return jsonResponse({ commands: paneCommands(context.agent, context.cwd) });
           }
           const limitRaw = url.searchParams.get("limit");
           const limit = limitRaw === null ? 20 : Number(limitRaw);
@@ -1216,17 +1171,6 @@ export function createServer(
         } catch (error) {
           return errorResponse(error);
         }
-      }
-
-      if (pathname === "/api/pane/omo-tasks") {
-        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
-        const paneId = url.searchParams.get("pane_id");
-        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
-        const session = omo.sessionOf(paneId);
-        // server_time: the browser's clock can differ from this PC's, and the list says how long tasks ran
-        const server_time = new Date().toISOString();
-        if (session === null) return jsonResponse({ tasks: [], runs: [], server_time });
-        return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), server_time });
       }
 
       if (pathname === "/api/pane/read") {
@@ -1784,7 +1728,6 @@ export function createServer(
     stop: () => {
       clearInterval(outputTimer);
       collector.stop();
-      omo.stop();
       machines?.stop();
       fleet.stop();
       if (fleetChangedTimer) clearTimeout(fleetChangedTimer);

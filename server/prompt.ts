@@ -1,9 +1,8 @@
 import { createHash } from "node:crypto";
 
-import type { HerdrPane, InteractivePrompt, PromptAnswer } from "../shared/protocol.ts";
+import type { InteractivePrompt, PromptAnswer } from "../shared/protocol.ts";
 import { codexTranscriptPath, unansweredCodexQuestions, type QueuedQuestion } from "./codex.ts";
 import { HerdrError, paneRead, paneSendKeys, paneSendText, sessionSnapshot } from "./herdr/client.ts";
-import { omoTranscriptForPane } from "./omo.ts";
 import { badRequest, errorResponse, jsonResponse } from "./http.ts";
 
 const ANSI_RE = /\u001b\[[0-?]*[ -/]*[@-~]/g;
@@ -31,21 +30,6 @@ const SOLID_RULE_RE = /^[─━]{8,}$/;
 const CODEX_APPROVAL_HEADER_RE =
   /(?:Would you like to (?:run|make|apply|continue|grant)|Allow Codex to|Approve (?:this )?(?:app )?tool call|Do you trust the contents|Trust this folder\?|Enable full access)/i;
 const NUMBERED_OPTION_RE = /^\s*([›>❯])?\s*(\d+)\.\s+(.+)$/;
-// OmO's ask_user_question form (omo 5.1): `Ask user · 30m`, a tab per question then Submit, and
-// under them the active question or, on the Submit tab, the review of the answers
-const OMO_ASK_TITLE_RE = /^Ask user(?:\s+·.*)?$/;
-const OMO_OPTIONS_HINT_RE = /^↑↓ move\s+1-9 select\s+space (select|toggle)\s+enter (?:next|toggle)\b.*\besc cancel/;
-const OMO_REVIEW_HINT_RE = /^enter (submit|edit answer)\s+↑.*\btab next question\s+esc back/;
-const OMO_TYPING_HINT_RE = /^enter save and next\s+↑↓ back to options\b.*\besc discard/;
-const OMO_OWN_ANSWER = "Type your own answer...";
-/** the lines a narrow pane wraps the form's key hint onto, at most */
-const OMO_HINT_LINES = 5;
-/** lines of OmO's footer under the form's rule, at most: cwd and context, then model (one may wrap) */
-const OMO_FOOTER_LINES = 3;
-/** where each of the form's hints ends, however a narrow pane wraps it */
-const OMO_HINT_END_RE = /\besc (?:cancel|back|discard)$/;
-/** never a line of OmO's footer: an input box (`>`, `❯`) or a shell's prompt */
-const OMO_NOT_FOOTER_RE = /^[>❯›➜$%#]|[$%#>❯›]$/;
 
 const KEY = {
   up: "up",
@@ -76,9 +60,6 @@ type Responder =
   | "claude-approval"
   | "claude-plan"
   | "claude-confirm"
-  | "omo-question"
-  | "omo-review"
-  | "omo-typing"
   | "pi-question"
   | "pi-confirm"
   | "pi-input"
@@ -95,10 +76,6 @@ type ParsedPrompt = InteractivePrompt & {
   rejectWithEscapeIndex: number | null;
   /** each option's own steps, for a card whose options are not rows of a menu */
   optionSteps?: AnswerStep[][];
-  /** the steps for a typed answer, for a card whose menu does not take one the usual way */
-  customSteps?: (text: string) => AnswerStep[];
-  /** the steps for a multiple choice, for a card whose menu does not toggle the usual way */
-  multiSteps?: (choices: number[]) => AnswerStep[];
 };
 
 type AnswerStep = { keys?: string[]; text?: string };
@@ -228,7 +205,6 @@ function publicPrompt(parsed: ParsedPrompt): InteractivePrompt {
     multi_select: parsed.multi_select,
     custom_option_index: parsed.custom_option_index,
     ...(parsed.queued ? { queued: parsed.queued } : {}),
-    ...(parsed.steps ? { steps: parsed.steps } : {}),
     ...(parsed.fallback ? { fallback: true as const } : {}),
   };
   parsedByPublicPrompt.set(prompt, parsed);
@@ -502,443 +478,6 @@ function parseClaudeSubmit(screen: string): ParsedPrompt | null {
   });
 }
 
-interface OmoForm {
-  /** the line the tab bar ends on (a narrow pane wraps it between tabs) */
-  barEnd: number;
-  tabs: { label: string; answered: boolean; current: boolean }[];
-  /** the Submit tab is the current one: the answers are reviewed */
-  reviewing: boolean;
-}
-
-/**
- * The head of OmO's form above its hint: the `Ask user` title, then the tab bar, each tab whole
- * on its line (`→` marks the current one, `✓` an answered one) and Submit last:
- *
- *    Ask user · 30m
- *      표시 위치 ✓  → 월 한도    Submit
- */
-function omoForm(lines: string[], hintIndex: number): OmoForm | null {
-  const titleIndex = findLastIndex(lines.slice(0, hintIndex), (line) => OMO_ASK_TITLE_RE.test(cleanLine(line)));
-  if (titleIndex < 0 || hintIndex - titleIndex > 120) return null;
-  let barEnd = titleIndex + 1;
-  while (barEnd < hintIndex && !/(?:^|\s)(?:→\s)?Submit$/.test(cleanLine(lines[barEnd]!))) barEnd += 1;
-  if (barEnd >= hintIndex || barEnd - titleIndex > 12) return null;
-  const labels = lines.slice(titleIndex + 1, barEnd + 1).map(cleanLine).filter(Boolean).join("  ").split(/\s{2,}/);
-  const submit = labels.pop()!;
-  const tabs = labels.map((label) => ({
-    label: label.replace(/^→\s+/, "").replace(/\s+✓$/, ""),
-    answered: /\s✓$/.test(label),
-    current: label.startsWith("→"),
-  }));
-  const reviewing = submit.startsWith("→");
-  if (tabs.length === 0 || tabs.some((tab) => !tab.label) || tabs.filter((tab) => tab.current).length !== (reviewing ? 0 : 1)) return null;
-  return { barEnd, tabs, reviewing };
-}
-
-/**
- * The questions of the form omo waits on, as its ask_user_question call asked them: the card's
- * text comes from here when the pane's session shows the call, never cut or wrapped by the pane.
- */
-export interface OmoAsk {
-  questions: { header: string; question: string; multiSelect: boolean; options: { label: string; description: string | null }[] }[];
-}
-
-/**
- * The ask_user_question call omo's session (its .jsonl, or the tail of it) still waits on: the
- * newest assistant message's call, unless a tool result answers it. null otherwise, or for a call
- * whose arguments are not the shape omo asks with.
- */
-export function pendingOmoAsk(jsonl: string): OmoAsk | null {
-  const answered = new Set<string>();
-  const lines = jsonl.split("\n");
-  for (let index = lines.length - 1; index >= 0; index -= 1) {
-    let message: { role?: unknown; toolCallId?: unknown; content?: unknown } | undefined;
-    try { message = (JSON.parse(lines[index]!) as { message?: typeof message }).message; } catch { continue; }
-    if (message?.role === "toolResult" && typeof message.toolCallId === "string") answered.add(message.toolCallId);
-    if (message?.role !== "assistant" || !Array.isArray(message.content)) continue;
-    const call = [...(message.content as { type?: unknown; name?: unknown; id?: unknown; arguments?: unknown }[])].reverse()
-      .find((part) => part?.type === "toolCall" && part.name === "ask_user_question");
-    if (!call || typeof call.id !== "string" || answered.has(call.id)) return null;
-    const questions = (call.arguments as { questions?: unknown } | undefined)?.questions;
-    if (!Array.isArray(questions) || questions.length === 0) return null;
-    const ask: OmoAsk = { questions: [] };
-    for (const question of questions as Record<string, unknown>[]) {
-      if (typeof question?.["header"] !== "string" || typeof question["question"] !== "string" || !Array.isArray(question["options"])) return null;
-      const options = (question["options"] as Record<string, unknown>[]).map((option) => ({
-        label: typeof option?.["label"] === "string" ? option["label"] : "",
-        description: typeof option?.["description"] === "string" && option["description"] ? option["description"] : null,
-      }));
-      if (options.length === 0 || options.some((option) => !option.label)) return null;
-      ask.questions.push({ header: question["header"], question: question["question"], multiSelect: question["multiSelect"] === true, options });
-    }
-    return ask;
-  }
-  return null;
-}
-
-/** A tab shows its question's header, cut with an ellipsis when the pane is too narrow for it. */
-function sameHeader(tab: string, header: string): boolean {
-  const shown = normalizeText(tab);
-  const asked = normalizeText(header);
-  return shown === asked || (shown.endsWith("…") && asked.startsWith(shown.slice(0, -1).trimEnd()));
-}
-
-/** The session's call is the form on screen: as many tabs, each its question's header. */
-function askOnScreen(form: OmoForm, ask: OmoAsk): boolean {
-  return form.tabs.length === ask.questions.length && form.tabs.every((tab, index) => sameHeader(tab.label, ask.questions[index]!.header));
-}
-
-/** The steps for the card, from the tabs on screen, named as asked when the call is known. */
-function omoSteps(tabs: OmoForm["tabs"], ask: OmoAsk | null): InteractivePrompt["steps"] {
-  return tabs.length > 1 ? tabs.map((tab, index) => ({ ...tab, label: ask?.questions[index]?.header ?? tab.label })) : undefined;
-}
-
-/** The card's title: where the question stands among several, else its header. */
-function omoTitle(tabs: OmoForm["tabs"], index: number, ask: OmoAsk | null): string {
-  return tabs.length > 1 ? `Question ${index + 1} of ${tabs.length}` : ask?.questions[index]?.header ?? tabs[index]!.label;
-}
-
-/**
- * Keys from omo's cursor to a row of its list. Without a cursor on screen (its row above the
- * visible part) they start from the top: ↑ stops at the first row, so `rows` of them get there.
- */
-function omoWalk(to: number, from: number, rows: number): string[] {
-  return from >= 0 ? navigationKeys(to - from) : [...navigationKeys(-rows), ...navigationKeys(to)];
-}
-
-/**
- * Lines a narrow pane wrapped, joined back into one text (`lead` cut off the first line's
- * start, a row's number). A wrap at a space dropped it, so the lines join with one; but Korean,
- * Japanese and Chinese also wrap inside a word: a line that ends in a wide character, filled to
- * the pane's edge (`width`, its widest line) so that the next line's first character (wide, or
- * closing punctuation) would not have fitted after it, goes on without a space. A line filled
- * that far can also have ended at a space; the word wrapped inside is the likelier reading. The
- * session's own text, when there is one, makes this a fallback.
- */
-function joinWrapped(raw: string[], width: number, lead?: RegExp): string {
-  let text = "";
-  let previous = "";
-  for (const line of raw) {
-    const clean = text === "" && lead ? cleanLine(line).replace(lead, "") : cleanLine(line);
-    if (!clean) continue;
-    const first = [...clean][0]!;
-    const glued = text !== "" && Bun.stringWidth([...previous.trimEnd()].at(-1) ?? "") === 2
-      && (Bun.stringWidth(first) === 2 || /^[.,!?;:)\]}…]/.test(first))
-      && Bun.stringWidth(previous.trimEnd()) + Bun.stringWidth(first) > width - 1;
-    text += text === "" || glued ? clean : ` ${clean}`;
-    previous = line;
-  }
-  return normalizeText(text);
-}
-
-/** The pane's width as the screen shows it: OmO's rules and its footer span all of it. */
-function screenWidth(lines: string[]): number {
-  return Math.max(0, ...lines.map((line) => Bun.stringWidth(line.trimEnd())));
-}
-
-/** "Submit (1/2 answered)": how many of the form's questions have an answer. */
-function omoAnsweredCount(lines: string[], from: number, to: number): number | null {
-  const match = /Submit \((\d+)\/\d+ answered\)/.exec(lines.slice(from, to).map(cleanLine).join(" "));
-  return match ? Number(match[1]) : null;
-}
-
-interface OmoQuestionView {
-  /** the question's lines; none when the pane cut them off */
-  question: string[];
-  /** the options in view: a pane too short for the form shows only the last ones */
-  rows: { number: number; label: string[]; description: string[]; selected: boolean }[];
-  own: { selected: boolean; lineIndex: number } | null;
-}
-
-/**
- * The question, its numbered options (`→` on the highlighted row, `✓` after a chosen one) with
- * descriptions indented under them, and the row for a typed answer, between `start` and `end`:
- *
- *    음성 사용량과 추정 비용을 어디에 보여줄까요?
- *    → 1. 설정 > 음성 입력 (추천)
- *         오늘, 이번 달, 누적의 분·횟수·추정 비용을 보여주고 … 변경 범위가 가장 작습니
- *    다.
- *      2. 설정 + 사이드바 미터
- *      Type your own answer...
- *
- * A wrapped line starts at the pane's edge, so the indent tells rows from descriptions only on a
- * line's first row: lines under an option are its label wrapped until the first indented one,
- * the description, which takes the rest. From the screen's top (`cut`, the form taller than the
- * pane) the first row in view may be any number, and lines above it belong to rows out of view.
- */
-function omoQuestionView(lines: string[], start: number, end: number, cut: boolean): OmoQuestionView {
-  const view: OmoQuestionView = { question: [], rows: [], own: null };
-  for (let index = start; index < end && view.own === null; index += 1) {
-    const raw = lines[index]!;
-    const line = cleanLine(raw);
-    if (!line || isDivider(line)) continue;
-    const indent = raw.search(/\S/);
-    const selected = line.startsWith("→");
-    const text = line.replace(/^→\s+/, "");
-    // the row's label, cut by a narrow pane: "Type your own" / "answer..."
-    if (view.rows.length > 0 && (selected || indent >= 2) && /^Type your own\b/.test(text)) {
-      view.own = { selected, lineIndex: index };
-      continue;
-    }
-    const row = /^(\d+)\.\s+(.+)$/.exec(text);
-    const last = view.rows.at(-1);
-    const next = last ? last.number + 1 : cut ? Number(row?.[1]) : 1;
-    if (row && Number(row[1]) === next && (selected || (indent >= 2 && indent < 5))) {
-      view.rows.push({ number: next, label: [raw], description: [], selected });
-      continue;
-    }
-    if (!last) { if (!cut) view.question.push(raw); }
-    else if (last.description.length > 0 || indent >= 5) last.description.push(raw);
-    else last.label.push(raw);
-  }
-  return view;
-}
-
-/**
- * The question of the session's call a cut-off form shows: the one whose options end with the
- * rows in view, each matched by its first line (which the pane may cut). Unique, or -1.
- */
-function askedQuestion(view: OmoQuestionView, ask: OmoAsk): number {
-  const start = (raw: string): string => comparable(cleanLine(raw).replace(/^(?:→\s+)?\d+\.\s+/, "").replace(/\s+✓$/, ""));
-  const last = view.rows.at(-1)?.number;
-  const matches = ask.questions.flatMap((question, index) => question.options.length === last
-    && view.rows.every((row) => comparable(question.options[row.number - 1]!.label).startsWith(start(row.label[0]!))) ? [index] : []);
-  return matches.length === 1 ? matches[0]! : -1;
-}
-
-/**
- * Where the form stands when its tabs are out of view: the question asked now, answered ones
- * before it when the count says so (answered in order, as the card does), none after it.
- */
-function cutSteps(ask: OmoAsk, current: number, currentAnswered: boolean, answeredCount: number | null): OmoForm["tabs"] {
-  const inOrder = answeredCount !== null && answeredCount - (currentAnswered ? 1 : 0) === current;
-  return ask.questions.map((question, index) => ({
-    label: question.header,
-    answered: index === current ? currentAnswered : inOrder && index < current,
-    current: index === current,
-  }));
-}
-
-/**
- * OmO's form on a question: the tab bar (`→ 표시 위치    월 한도    Submit`) over the question view,
- * then `Submit (0/2 answered) — Enter advances` and the key hint:
- *
- *    ↑↓ move  1-9 select  space select  enter next  tab next question  c comment  esc cancel
- *
- * The question and options read from the session's call when it shows; from the screen
- * otherwise, which then needs the whole form in view. A number picks a single option and moves
- * on (the last question goes to the review, a lone one is submitted); in a multiple choice the
- * answer is cleared (Backspace) and its numbers toggle the choice, then Tab moves on.
- */
-function parseOmoQuestion(screen: string, ask: OmoAsk | null, trusted: boolean): ParsedPrompt | null {
-  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (_, index) => OMO_OPTIONS_HINT_RE.test(wrapped(lines, index, OMO_HINT_LINES)));
-  if (hintIndex < 0) return null;
-  const form = omoForm(lines, hintIndex);
-  if (form?.reviewing || (!form && !ask)) return null;
-  const known = ask && (!form || askOnScreen(form, ask)) ? ask : null;
-  if (!trusted && !known) return null;
-  const view = omoQuestionView(lines, form ? form.barEnd + 1 : 0, hintIndex, !form);
-  if (view.own === null || view.rows.length === 0) return null;
-  const multiSelect = OMO_OPTIONS_HINT_RE.exec(wrapped(lines, hintIndex, OMO_HINT_LINES))![1] === "toggle";
-  const width = screenWidth(lines);
-  const shownLabels = view.rows.map((row) => joinWrapped(row.label, width, /^(?:→\s+)?\d+\.\s+/));
-  const currentAnswered = shownLabels.some((label) => /\s✓$/.test(label)) || /^(?:→\s+)?Type your own answer\.\.\.:/.test(cleanLine(lines[view.own.lineIndex]!));
-  let index: number;
-  let tabs: OmoForm["tabs"];
-  let question: string;
-  let options: InteractivePrompt["options"];
-  if (known) {
-    index = form ? form.tabs.findIndex((tab) => tab.current) : askedQuestion(view, known);
-    if (index < 0) return null;
-    const asked = known.questions[index]!;
-    // the screen must show this question's rows, numbered to its last option
-    if (asked.multiSelect !== multiSelect || view.rows.at(-1)!.number !== asked.options.length) return null;
-    tabs = form ? form.tabs : cutSteps(known, index, currentAnswered, omoAnsweredCount(lines, view.own.lineIndex, hintIndex));
-    question = normalizeText(asked.question);
-    options = asked.options.map((option) => ({ label: normalizeText(option.label), description: option.description && normalizeText(option.description) }));
-  } else {
-    if (!form || view.question.length === 0 || view.rows[0]!.number !== 1) return null;
-    index = form.tabs.findIndex((tab) => tab.current);
-    tabs = form.tabs;
-    question = joinWrapped(view.question, width);
-    options = shownLabels.map((label, row) => ({
-      label: label.replace(/\s+✓$/, ""),
-      description: view.rows[row]!.description.length > 0 ? joinWrapped(view.rows[row]!.description, width) : null,
-    }));
-  }
-  const highlighted = view.rows.find((row) => row.selected);
-  // the cursor, when its row is in view: on an option, or on the typed answer's row
-  const selectedIndex = view.own.selected ? options.length : highlighted ? highlighted.number - 1 : -1;
-  const rows = options.length + 1;
-  const pick = (option: number): AnswerStep[] => option < 9
-    ? [{ text: String(option + 1) }]
-    : keySteps([...omoWalk(option, selectedIndex, rows), KEY.enter]);
-  return finishPrompt("omo", {
-    // several questions: the card's steps name them, the title says where this one stands
-    kind: "question", title: omoTitle(tabs, index, known),
-    question, body: null, options, multi_select: multiSelect, custom_option_index: multiSelect ? null : options.length,
-    steps: omoSteps(tabs, known),
-  }, {
-    responder: "omo-question", menuLabels: [...options.map((option) => option.label), OMO_OWN_ANSWER], selectedIndex,
-    checkedOptionIndices: view.rows.flatMap((row, at) => /\s✓$/.test(shownLabels[at]!) ? [row.number - 1] : []),
-    customMenuIndex: options.length, rejectWithEscapeIndex: null,
-    optionSteps: options.map((_, option) => pick(option)),
-    // what was typed before stays in the row: a Backspace on the options clears the answer first
-    customSteps: (text) => [...keySteps([KEY.backspace, ...omoWalk(options.length, selectedIndex, rows), KEY.enter]), { text }, ...keySteps([KEY.enter])],
-    multiSteps: (choices) => {
-      let at = selectedIndex;
-      const steps = keySteps([KEY.backspace]);
-      for (const option of [...choices].sort((a, b) => a - b)) {
-        if (option < 9) { steps.push({ text: String(option + 1) }); continue; }
-        steps.push(...keySteps([...omoWalk(option, at, rows), KEY.space]));
-        at = option;
-      }
-      return [...steps, ...keySteps([KEY.tab])];
-    },
-  });
-}
-
-/**
- * OmO's form while an answer is typed in the terminal (the typed answer's row opened):
- *
- *    Your answer (enter to save, ↑↓ back to options, esc to discard)
- *    > 안녕
- *    Submit (0/2 answered) — Enter advances
- *    enter save and next  ↑↓ back to options  tab next question  esc discard
- *
- * The card offers to save what is typed (Enter, which moves on as an answer does) or to discard it.
- */
-function parseOmoTyping(screen: string, ask: OmoAsk | null, trusted: boolean): ParsedPrompt | null {
-  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (_, index) => OMO_TYPING_HINT_RE.test(wrapped(lines, index, OMO_HINT_LINES)));
-  if (hintIndex < 0) return null;
-  const form = omoForm(lines, hintIndex);
-  if (form?.reviewing || (!form && !ask)) return null;
-  const known = ask && (!form || askOnScreen(form, ask)) ? ask : null;
-  if (!trusted && !known) return null;
-  const label = findLastIndex(lines.slice(0, hintIndex), (line) => /^Your answer \(/.test(cleanLine(line)));
-  const field = findLastIndex(lines.slice(0, hintIndex), (line, index) => index > label && /^>/.test(cleanLine(line)));
-  if (label < 0 || field < 0) return null;
-  const typed = cleanLine(lines[field]!).replace(/^>\s?/, "").trim();
-  const view = omoQuestionView(lines, form ? form.barEnd + 1 : 0, label, !form);
-  let index: number;
-  let tabs: OmoForm["tabs"];
-  let question: string;
-  if (known) {
-    index = form ? form.tabs.findIndex((tab) => tab.current) : view.rows.length > 0 ? askedQuestion(view, known) : -1;
-    if (index < 0) return null;
-    tabs = form ? form.tabs : cutSteps(known, index, false, null);
-    question = normalizeText(known.questions[index]!.question);
-  } else {
-    if (!form || view.question.length === 0) return null;
-    index = form.tabs.findIndex((tab) => tab.current);
-    tabs = form.tabs;
-    question = joinWrapped(view.question, screenWidth(lines));
-  }
-  const choices: { label: string; description: string | null; steps: AnswerStep[] }[] = [
-    { label: "Save the typed answer", description: typed || null, steps: keySteps([KEY.enter]) },
-    { label: "Discard it", description: null, steps: keySteps([KEY.escape]) },
-  ];
-  return finishPrompt("omo", {
-    // a menu: a number typed in the chat acts on the terminal's input, so it waits for Confirm
-    kind: "menu", title: omoTitle(tabs, index, known), question, body: null,
-    options: choices.map((choice) => ({ label: choice.label, description: choice.description })),
-    multi_select: false, custom_option_index: null, steps: omoSteps(tabs, known),
-  }, {
-    responder: "omo-typing", menuLabels: choices.map((choice) => choice.label), selectedIndex: -1,
-    checkedOptionIndices: [], customMenuIndex: null, rejectWithEscapeIndex: null,
-    optionSteps: choices.map((choice) => choice.steps),
-  });
-}
-
-/**
- * OmO's form on its Submit tab, after the last question or a Tab past it: a row per question
- * with its answer, then a comment field, which has the cursor until ↑ moves it onto a row:
- *
- *    Review your answers
- *      표시 위치: 설정 > 음성 입력 (추천)
- *    → 월 한도: 월 $5 한도
- *
- *    Comment (optional; unanswered questions are reported)
- *    >
- *    Submit (2/2 answered)
- *    enter edit answer  ↑↓ move  tab next question  esc back
- *
- * Enter on the comment submits the form (with the comment, when one is typed); on a row it opens
- * that question again. The card offers Submit, each row to change its answer, and the comment.
- * With the tabs out of view, the session's call names the rows; a row above the screen's top
- * then shows by its question's header alone.
- */
-function parseOmoReview(screen: string, ask: OmoAsk | null, trusted: boolean): ParsedPrompt | null {
-  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (_, index) => OMO_REVIEW_HINT_RE.test(wrapped(lines, index, OMO_HINT_LINES)));
-  if (hintIndex < 0) return null;
-  const form = omoForm(lines, hintIndex);
-  if ((form && !form.reviewing) || (!form && !ask)) return null;
-  const known = ask && (!form || askOnScreen(form, ask)) ? ask : null;
-  if (!trusted && !known) return null;
-  const heading = findLastIndex(lines.slice(0, hintIndex), (line, index) => index > (form?.barEnd ?? -1) && cleanLine(line) === "Review your answers");
-  if (heading < 0 && form) return null;
-  const rows: { text: string[]; selected: boolean }[] = [];
-  let index = heading + 1;
-  for (; index < hintIndex; index += 1) {
-    const raw = lines[index]!;
-    const line = cleanLine(raw);
-    // the comment field's label, or with that cut off the field itself
-    if (line.startsWith("Comment (") || line.startsWith(">")) break;
-    if (!line) { if (heading >= 0 || rows.length > 0) break; continue; }
-    const selected = line.startsWith("→");
-    if (selected || raw.search(/\S/) >= 2) rows.push({ text: [raw], selected });
-    else if (rows.length > 0) rows.at(-1)!.text.push(raw);
-  }
-  const width = screenWidth(lines);
-  const shown = rows.map((row) => ({ label: joinWrapped(row.text, width, /^→\s+/), selected: row.selected }));
-  const count = known ? known.questions.length : form!.tabs.length;
-  // each question's row: by its header when the call is known (rows above the screen's top are
-  // out of view), else in order, all of them
-  const rowOf = known
-    ? known.questions.map((question) => shown.find((row) => row.label.startsWith(`${normalizeText(question.header)}:`)))
-    : shown.length === count ? shown : null;
-  if (!rowOf) return null;
-  const rest = lines.slice(index, hintIndex).filter((line) => cleanLine(line) && !isDivider(line));
-  // the field's label (a narrow pane wraps it), the field (`>` and what is typed there), then
-  // a notice (`! …`) and the Submit line, both wrapped as well
-  const field = rest.findIndex((line) => cleanLine(line).startsWith(">"));
-  if (field < 0) return null;
-  const commentLabel = joinWrapped(rest.slice(0, field), width) || "Comment";
-  const comment = cleanLine(rest[field]!).replace(/^>\s?/, "").trim();
-  const after = joinWrapped(rest.slice(field + 1), width);
-  const submitAt = after.search(/Submit \(\d+\/\d+ answered\)/);
-  const notice = (submitAt < 0 ? after : after.slice(0, submitAt)).replace(/^!\s*/, "").trim();
-  const answeredCount = omoAnsweredCount(lines, index, hintIndex);
-  // the cursor: on the comment (the row after the answers), on the answer it marks, or out of view
-  const onComment = OMO_REVIEW_HINT_RE.exec(wrapped(lines, hintIndex, OMO_HINT_LINES))![1] === "submit";
-  const selectedIndex = onComment ? count : rowOf.findIndex((row) => row?.selected);
-  const labels = rowOf.map((row, at) => row?.label ?? normalizeText(known!.questions[at]!.header));
-  const tabs = form ? form.tabs : known!.questions.map((question, at) => ({
-    label: question.header,
-    answered: rowOf[at] ? !/:\s*unanswered$/.test(rowOf[at]!.label) : answeredCount === count,
-    current: false,
-  }));
-  const choices: { label: string; steps: AnswerStep[] }[] = [
-    { label: "Submit", steps: keySteps([...omoWalk(count, selectedIndex, count + 1), KEY.enter]) },
-    ...labels.map((label, row) => ({ label, steps: keySteps([...omoWalk(row, selectedIndex, count + 1), KEY.enter]) })),
-  ];
-  return finishPrompt("omo", {
-    // a menu: a number typed in the chat submits the whole form, so it waits for Confirm
-    kind: "menu", title: "Review your answers", question: submitAt < 0 ? "Submit your answers?" : after.slice(submitAt),
-    body: [notice, comment ? `Comment: ${comment}` : ""].filter(Boolean).join("\n") || null,
-    options: [...choices.map(({ label }) => ({ label, description: null })), { label: commentLabel, description: null }],
-    multi_select: false, custom_option_index: choices.length, steps: omoSteps(tabs, known),
-  }, {
-    responder: "omo-review", menuLabels: [...labels, commentLabel], selectedIndex,
-    checkedOptionIndices: [], customMenuIndex: count, rejectWithEscapeIndex: null,
-    optionSteps: [...choices.map(({ steps }) => steps), []],
-    customSteps: (text) => [...keySteps(omoWalk(count, selectedIndex, count + 1)), { text }, ...keySteps([KEY.enter])],
-  });
-}
-
 function parseCodexApproval(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const headerIndex = findLastIndex(lines, (line) => CODEX_APPROVAL_HEADER_RE.test(line) && !NUMBERED_OPTION_RE.test(line));
@@ -1132,28 +671,6 @@ function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   if (prompt.responder === "omp-approval") return ends(/^(?:Approve|Deny)$|esc.*cancel/i);
   if (prompt.responder === "claude-approval") return ends(/esc to cancel.*(?:tab|ctrl\+e)|ctrl\+e to explain/i);
   if (prompt.responder === "claude-confirm") return ends(CLAUDE_CONFIRM_HINT_RE);
-  if (prompt.responder === "omo-question" || prompt.responder === "omo-review" || prompt.responder === "omo-typing") {
-    // The form is live only with nothing but OmO's own footer under its hint: blank lines, one
-    // rule, then the footer's few lines (cwd, context, model). Anything else is the form's text
-    // in another program (printed in a shell, quoted in a transcript over an input box), where
-    // an answer's keys would be typed into that program.
-    const hint = { "omo-question": OMO_OPTIONS_HINT_RE, "omo-review": OMO_REVIEW_HINT_RE, "omo-typing": OMO_TYPING_HINT_RE }[prompt.responder];
-    const at = findLastIndex(cleanLines, (line, index) => line !== "" && hint.test(wrapped(cleanLines, index, OMO_HINT_LINES)));
-    if (at < 0) return false;
-    let end = at;
-    while (end < at + OMO_HINT_LINES && !OMO_HINT_END_RE.test(cleanLines.slice(at, end + 1).join(" ").trim())) end += 1;
-    if (end >= at + OMO_HINT_LINES) return false;
-    let rules = 0;
-    let footer = 0;
-    for (const line of cleanLines.slice(end + 1)) {
-      if (!line) continue;
-      if (SOLID_RULE_RE.test(line)) {
-        if (rules > 0 || footer > 0) return false;
-        rules = 1;
-      } else if (rules === 0 || ++footer > OMO_FOOTER_LINES || OMO_NOT_FOOTER_RE.test(line)) return false;
-    }
-    return rules === 1;
-  }
   // pi keeps its footer under every dialog — the pane's folder, then its context meter — so the
   // hint sits near the end without being it. A dialog already answered leaves its hint far
   // above whatever came after, which is what keeps this window narrow.
@@ -1418,23 +935,16 @@ function parsePiDialog(screen: string): ParsedPrompt | null {
   });
 }
 
-function parsePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true): ParsedPrompt | null {
-  const omo = () => [parseOmoQuestion(screen, omoAsk, omoTrusted), parseOmoTyping(screen, omoAsk, omoTrusted), parseOmoReview(screen, omoAsk, omoTrusted)];
+function parsePrompt(agent: string, screen: string): ParsedPrompt | null {
   const candidates = agent === "codex"
     ? [parseCodexContinueMenu(screen), parseCodexQuestion(screen), parseCodexAsyncQuestion(screen), parseCodexApproval(screen)]
     : agent === "omp"
       ? [parseOmpQuestion(screen), parseOmpApproval(screen)]
-      // herdr names an omo pane `pi` while omo waits (or no agent at all, as it can for an omo
-      // started in the pane's shell), `claude` while its claude-sdk child runs. A pane named
-      // `pi` reads pi's own dialogs first: pi's hint is its own, so an omo form never matches
-      // it and falls through to omo()'s parsers.
       : agent === "claude"
-        ? [parseClaudeQuestion(screen), parseClaudeSubmit(screen), parseClaudeApproval(screen), parseClaudeConfirm(screen), ...omo()]
+        ? [parseClaudeQuestion(screen), parseClaudeSubmit(screen), parseClaudeApproval(screen), parseClaudeConfirm(screen)]
         : agent === "pi"
-          ? [parsePiModel(screen), parsePiDialog(screen), ...omo()]
-        : agent === "omo" || agent === ""
-          ? omo()
-          : [];
+          ? [parsePiModel(screen), parsePiDialog(screen)]
+        : [];
   return candidates.find((candidate): candidate is ParsedPrompt => candidate !== null && promptTailIsActive(candidate, screen)) ?? null;
 }
 
@@ -1457,12 +967,8 @@ export function codexQueuedPrompt(screen: string, unanswered: QueuedQuestion[], 
   return queued ? publicPrompt(queued) : null;
 }
 
-/**
- * `omoAsk`: the call an omo pane's session waits on (pendingOmoAsk), for its form's own text.
- * `omoTrusted` false: an omo form on the screen counts only when that call matches it.
- */
-export function parseInteractivePrompt(agent: string, screen: string, omoAsk: OmoAsk | null = null, omoTrusted = true): InteractivePrompt | null {
-  const parsed = parsePrompt(agent, screen, omoAsk, omoTrusted);
+export function parseInteractivePrompt(agent: string, screen: string): InteractivePrompt | null {
+  const parsed = parsePrompt(agent, screen);
   return parsed ? publicPrompt(parsed) : null;
 }
 
@@ -1486,7 +992,6 @@ export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer,
     if (typeof answer.custom_text !== "string") throw new InvalidAnswer("Custom text must be a string.");
     const text = answer.custom_text.trim();
     if (!text || parsed.customMenuIndex === null || parsed.multi_select) throw new InvalidAnswer("This prompt does not accept a custom answer.");
-    if (parsed.customSteps) return parsed.customSteps(text);
     const navigation = navigationKeys(parsed.customMenuIndex - parsed.selectedIndex);
     // Codex's queue types into its last row once it is selected: no enter first. pi's text
     // dialog is the same but for a worse reason: its `>` line already owns the input, so an
@@ -1511,7 +1016,6 @@ export function answerKeys(prompt: InteractivePrompt, answer: Pick<PromptAnswer,
     if (choices.some((choice) => !Number.isInteger(choice) || choice < 0 || choice >= parsed.options.length)) {
       throw new InvalidAnswer("An option index is outside the displayed range.");
     }
-    if (parsed.multiSteps) return parsed.multiSteps(choices);
     const desired = new Set(choices);
     const checked = new Set(parsed.checkedOptionIndices);
     const toggles = parsed.options.flatMap((_, index) => desired.has(index) !== checked.has(index) ? [index] : []);
@@ -1733,10 +1237,6 @@ const FALLBACK_LOGGED_MAX = 256;
  */
 const queueFronts = new Map<string, QueueFront & { rollout: string }>();
 
-/** When each pane's omo form was last answered from the chat (see readPrompt). */
-const formsAnswered = new Map<string, number>();
-const FORM_SETTLE_MS = 3_000;
-
 /** Each pane's rollout, resolved for its collapsed queue: a poll every 2s would otherwise redo it. */
 const queueRollouts = new Map<string, { path: string | null; at: number }>();
 const QUEUE_ROLLOUT_MS = 15_000;
@@ -1818,11 +1318,8 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   if (!pane) throw new HerdrError("pane_not_found", `pane ${paneId} not found`);
   const agent = pane.agent ?? "";
   const status = pane.agent_status;
-  const known = await readKnownPrompt(paneId, pane, agent, codexHome, panes);
-  // an omo form just answered has closed, while herdr still reports the wait for a moment: that
-  // is no screen to answer, and its fallback card would flash up after the form's last answer
-  const settling = Date.now() - (formsAnswered.get(paneId) ?? 0) < FORM_SETTLE_MS;
-  if (known.prompt !== null || status !== "blocked" || !agent || settling) {
+  const known = await readKnownPrompt(paneId, pane, agent, codexHome);
+  if (known.prompt !== null || status !== "blocked" || !agent) {
     fallbackLogged.delete(paneId);
     return { agent, status, prompt: known.prompt };
   }
@@ -1841,55 +1338,15 @@ async function readPrompt(paneId: string, codexHome?: string): Promise<{ agent: 
   return { agent, status, prompt };
 }
 
-/** omo's form on a screen, by a line of its key hint: worth a look in the pane's session. */
-const OMO_FORM_RE = /\b1-9 select\b|enter save and next|\btab next question\b/;
-/**
- * Each omo pane's session file, resolved while its form shows: a poll every 2s would otherwise
- * redo it. Only a found one is kept: an omo just started has none yet, and its form's text
- * would be read off the screen until a remembered miss ran out.
- */
-const omoSessions = new Map<string, { path: string; at: number }>();
-const OMO_SESSION_MS = 15_000;
-/** The end of a session file read for its pending call: the form's call is in its newest message. */
-const OMO_TAIL_BYTES = 1 << 20;
-
-/** The ask_user_question call an omo pane's session waits on; null when it cannot be read. */
-async function omoAskFor(paneId: string, cwd: string, panes: HerdrPane[]): Promise<OmoAsk | null> {
-  let session = omoSessions.get(paneId);
-  if (!session || Date.now() - session.at > OMO_SESSION_MS) {
-    omoSessions.delete(paneId);
-    const path = await omoTranscriptForPane(paneId, cwd, panes).catch(() => null);
-    if (!path) return null;
-    session = { path, at: Date.now() };
-    omoSessions.set(paneId, session);
-    if (omoSessions.size > 64) omoSessions.delete(omoSessions.keys().next().value!);
-  }
-  try {
-    const file = Bun.file(session.path);
-    const text = await file.slice(Math.max(0, file.size - OMO_TAIL_BYTES)).text();
-    // a tail starts inside a record: from the next one
-    return pendingOmoAsk(file.size > OMO_TAIL_BYTES ? text.slice(text.indexOf("\n") + 1) : text);
-  } catch {
-    return null; // the session went away
-  }
-}
-
 async function readKnownPrompt(
   paneId: string,
-  pane: { cwd?: string | null; agent_status?: string },
+  pane: { cwd?: string | null },
   agent: string,
   codexHome?: string,
-  panes: HerdrPane[] = [],
 ): Promise<{ prompt: InteractivePrompt | null; screen?: string }> {
-  if (!["claude", "omp", "codex", "omo", "pi", ""].includes(agent)) return { prompt: null };
+  if (!["claude", "omp", "codex", "pi", ""].includes(agent)) return { prompt: null };
   const screen = await paneRead({ paneId, source: "visible", format: "text" });
-  // omo's form reads its text from the session's call, the screen showing where the form stands
-  const omoAsk = ["omo", "pi", "claude", ""].includes(agent) && pane.cwd && OMO_FORM_RE.test(screen.text)
-    ? await omoAskFor(paneId, pane.cwd, panes) : null;
-  // a pane herdr names claude, or not at all, is omo's only on evidence: herdr reports it waiting
-  // on the user, or the session's pending call is the form on screen
-  const omoTrusted = (agent !== "claude" && agent !== "") || pane.agent_status === "blocked";
-  const prompt = parseInteractivePrompt(agent, screen.text, omoAsk, omoTrusted);
+  const prompt = parseInteractivePrompt(agent, screen.text);
   const count = agent === "codex" && prompt === null ? queuedQuestionCount(screen.text) : 0;
   if (count === 0 || !pane.cwd) return { prompt, screen: screen.text };
   let rollout = queueRollouts.get(paneId);
@@ -2003,20 +1460,6 @@ async function modelCursorSettled(paneId: string, label: string | undefined): Pr
   return false;
 }
 
-/**
- * After an answer to a form of several questions (omo): back once the pane shows its next step
- * (the next question, the review, or no form when it was submitted), so the card's read right
- * after the answer gets that step and never the one just answered. A screen that does not move
- * within a second leaves it to the card's next poll.
- */
-async function formMovedOn(paneId: string, answered: string, codexHome?: string): Promise<void> {
-  for (let attempt = 0; attempt < 20; attempt += 1) {
-    await Bun.sleep(50);
-    const { prompt } = await readPrompt(paneId, codexHome).catch(() => ({ prompt: null }));
-    if (prompt?.id !== answered) return;
-  }
-}
-
 function promptChanged(): Response {
   return jsonResponse({ error: { code: "prompt_changed", message: "The interactive prompt changed; reopen it and try again." } }, 409);
 }
@@ -2061,7 +1504,6 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
     // read, checked and answered in the pane's turn: a message still in flight goes first, and
     // one sent meanwhile waits until the queue is opened, answered and closed again
     const serialize = options.serialize ?? (<T>(_paneId: string, task: () => Promise<T>) => task());
-    const form: { answered?: string } = {};
     const response = await serialize(body.pane_id, async () => {
       const { prompt } = await readPrompt(body.pane_id, options.codexHome);
       if (!prompt || prompt.id !== body.prompt_id) return promptChanged();
@@ -2120,17 +1562,8 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
         queueFronts.delete(body.pane_id);
         await closeQueue(body.pane_id, target.id);
       }
-      const responder = parsedByPublicPrompt.get(target)?.responder;
-      if (responder === "omo-question" || responder === "omo-review" || responder === "omo-typing") {
-        formsAnswered.set(body.pane_id, Date.now());
-        if (formsAnswered.size > 64) formsAnswered.delete(formsAnswered.keys().next().value!);
-      }
-      if (target.steps) form.answered = target.id;
       return jsonResponse({ ok: true });
     });
-    // the wait for the form's next step only reads the pane: after the pane's turn, so a message
-    // queued for it meanwhile is not held up behind the polls
-    if (form.answered !== undefined) await formMovedOn(body.pane_id, form.answered, options.codexHome);
     return response;
   } catch (error) {
     return errorResponse(error);

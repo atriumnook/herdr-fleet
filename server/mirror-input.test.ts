@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { mirrorInput } from "./mirror-input.ts";
 
-const agent = async () => "gjc";
+const agent = async () => "claude";
 const noAgent = async () => null;
 const unreachable = async (): Promise<string | null> => { throw new Error("herdr did not answer"); };
 
@@ -22,7 +22,7 @@ describe("typing into a mirrored pane", () => {
 
   test("keys and a line that ends in Enter go as they were typed, and herdr is not asked about them", async () => {
     let asked = 0;
-    const counted = async () => { asked += 1; return "gjc"; };
+    const counted = async () => { asked += 1; return "claude"; };
     for (const typed of ["a", "한", "\r", "\x03", "\x1b", "\t", "\x1b[A", "\x1bOA", "echo a\r", "\r\r"]) {
       expect(await mirrorInput(typed, counted)).toBe(typed);
     }

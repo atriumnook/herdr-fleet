@@ -1,7 +1,7 @@
 import type { ConversationPart } from "../../shared/protocol.ts";
 
 /**
- * omo's goal (`create_goal` / `update_goal` / `get_goal`) as the chat shows it on the turn. Each
+ * Codex's goal (`create_goal` / `update_goal` / `get_goal`) as the chat shows it on the turn. Each
  * call answers with the goal as it now stands, `{"goal": {objective, status, tokensUsed,
  * timeUsedSeconds, blockedReason?}}`, or `{"goal": null}` when there is none. An answer cut
  * for length (a long objective) loses its JSON: a `create_goal` still has its objective in the
@@ -57,7 +57,7 @@ export function goalOf(part: Tool): GoalState | null {
   return asked === null ? null : { objective: asked, status: "active", tokensUsed: null, timeUsedSeconds: null, blockedReason: null };
 }
 
-/** `45s`, `12m`, `2h 5m`: how long omo has worked on the goal. */
+/** `45s`, `12m`, `2h 5m`: how long Codex has worked on the goal. */
 export function formatGoalTime(seconds: number): string {
   if (seconds < 60) return `${Math.round(seconds)}s`;
   const minutes = Math.floor(seconds / 60);

@@ -10,9 +10,9 @@ import { herdrSocketPath } from "./herdr/client.ts";
  * herdr reports `done` for an agent that went back to idle while its pane was not being
  * looked at (not focused), and `idle` once it is. It follows the agent it saw working, so
  * an agent recognised from its screen and processes rather than an integration can
- * finish as plain `idle`: an omo pane reads `pi/working`, then `claude/unknown` while
- * omo's claude child runs, then `claude/idle` (live-traced with omo 5.0), and the
- * working agent herdr knew never finished. The sidebar said READY, and no alert came.
+ * finish as plain `idle`: a pane reads `pi/working`, then `claude/unknown` while
+ * a claude child process runs, then `claude/idle`, and the working agent herdr knew never
+ * finished. The sidebar said READY, and no alert came.
  *
  * herdr's focus is also no sign that anyone saw a finish. It is the pane its terminal
  * last had in front, and it stays there while the user works from a browser or a phone,
@@ -23,7 +23,7 @@ import { herdrSocketPath } from "./herdr/client.ts";
  * work is reported as `done` until the pane works again or focus moves onto it (`seen`):
  * what herdr itself reports for an agent it did not lose in a pane it has not in front.
  * And the `unknown` in between, while another agent is there, is reported as `working`
- * (omo's whole turn read `claude/unknown` after `pi/working`, and the sidebar showed no RUN).
+ * (such a turn read `claude/unknown` after `pi/working`, and the sidebar showed no RUN).
  *
  * The agent that worked reading `unknown` itself is a finish, not more work: Codex, which
  * herdr follows through its integration, reads `codex/working` for a turn and then
@@ -31,7 +31,7 @@ import { herdrSocketPath } from "./herdr/client.ts";
  * ever worked read RUN for good, and no done alert came.
  *
  * herdr keeps its own `done` across a restart of this server; what is kept here was lost
- * with it, and every omo or gjc pane that had finished read READY again after an update.
+ * with it, and every pane that had finished read READY again after an update.
  * So the finished panes are kept in a file too, for the herdr they were seen in: a herdr
  * started anew reuses pane ids for other panes, and its socket is then another file. The
  * panes still working are not: what became of them while this server was down (finished,
@@ -86,29 +86,6 @@ export class CompletionTracker {
     if (changed || current !== undefined) this.record(paneId, changed ? "idle" : current!, ++this.order);
     if (changed) this.save();
     return changed;
-  }
-
-  /**
-   * The pane's agent is now known under another name (an OmO pane herdr called `claude` or
-   * `pi`): what it worked on and finished stays its own. A finish is matched by identity, and
-   * would otherwise be dropped as another agent's. What another agent did in the pane before
-   * (Codex, then OmO started in its place) is not OmO's: that is dropped.
-   */
-  adopt(paneId: string, agent: string, from: readonly string[]): void {
-    let kept = false;
-    for (const state of [this.finished, this.worked]) {
-      if (!state.has(paneId)) continue;
-      const was = state.get(paneId) ?? null;
-      if (was === null || was === agent || from.includes(was)) { state.set(paneId, agent); kept = true; }
-      else state.delete(paneId);
-    }
-    if (!kept) {
-      // nothing of its own to go on from: what the pane was last reported as may be another
-      // agent's, in a snapshot still being read too, and its status is settled anew
-      this.reported.delete(paneId);
-      for (const changes of this.pending.values()) changes.delete(paneId);
-    }
-    this.save();
   }
 
   /**
@@ -167,14 +144,13 @@ export class CompletionTracker {
   }
 
   /** Read an asynchronous snapshot without undoing statuses or focus changes made while it was pending. */
-  async readSnapshot(read: () => Promise<SessionSnapshot>, label?: (snapshot: SessionSnapshot) => Promise<SessionSnapshot>): Promise<SessionSnapshot> {
+  async readSnapshot(read: () => Promise<SessionSnapshot>): Promise<SessionSnapshot> {
     const order = ++this.order;
     const newer = new Map<string, AgentStatus | null>();
     this.pending.set(order, newer);
     try {
       const raw = await read();
-      // Display labels such as omo must not replace the herdr identity used to match a finish.
-      return this.project(raw, newer, order, label ? await label(raw) : raw);
+      return this.project(raw, newer, order);
     }
     finally { this.pending.delete(order); }
   }
@@ -184,7 +160,7 @@ export class CompletionTracker {
     return this.project(snapshot, new Map(), ++this.order);
   }
 
-  private project(snapshot: SessionSnapshot, newer: Map<string, AgentStatus | null>, order: number, display = snapshot): SessionSnapshot {
+  private project(snapshot: SessionSnapshot, newer: Map<string, AgentStatus | null>, order: number): SessionSnapshot {
     const statuses = new Map<string, AgentStatus>();
     const ended = new Set<string>();
     for (const pane of snapshot.panes) {
@@ -202,11 +178,11 @@ export class CompletionTracker {
       if (!live.has(pane) && !newer.has(pane)) this.drop(pane, order);
     }
     this.save();
-    if (statuses.size === 0 && ended.size === 0) return display;
+    if (statuses.size === 0 && ended.size === 0) return snapshot;
     return {
-      ...display,
-      panes: display.panes.filter((pane) => !ended.has(pane.pane_id)).map((pane) => statuses.has(pane.pane_id) ? { ...pane, agent_status: statuses.get(pane.pane_id)! } : pane),
-      agents: display.agents.filter((agent) => !ended.has(agent.pane_id)).map((agent) => statuses.has(agent.pane_id) ? { ...agent, agent_status: statuses.get(agent.pane_id)! } : agent),
+      ...snapshot,
+      panes: snapshot.panes.filter((pane) => !ended.has(pane.pane_id)).map((pane) => statuses.has(pane.pane_id) ? { ...pane, agent_status: statuses.get(pane.pane_id)! } : pane),
+      agents: snapshot.agents.filter((agent) => !ended.has(agent.pane_id)).map((agent) => statuses.has(agent.pane_id) ? { ...agent, agent_status: statuses.get(agent.pane_id)! } : agent),
     };
   }
 

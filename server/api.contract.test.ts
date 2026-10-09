@@ -110,23 +110,6 @@ describe("workspace and discovery endpoints", () => {
     expect(agents.map((agent) => agent.label)).toEqual([...agents.map((agent) => agent.label)].sort((a, b) => a.localeCompare(b)));
   });
 
-  it("offers omo and gjc, which herdr cannot start, exactly when they are on PATH", async () => {
-    const bin = mkdtempSync(join(tmpdir(), "herdr-fleet-shell-agents-"));
-    const path = process.env["PATH"];
-    const kinds = async () => ((await (await fetch(`${base()}/api/agents`)).json()) as { agents: AgentKind[] }).agents;
-    try {
-      process.env["PATH"] = bin;
-      expect((await kinds()).map((agent) => agent.kind)).not.toContain("gjc");
-      for (const name of ["omo", "gjc"]) writeFileSync(join(bin, name), "#!/bin/sh\n", { mode: 0o755 });
-      const offered = await kinds();
-      expect(offered).toContainEqual({ kind: "omo", label: "OmO" });
-      expect(offered).toContainEqual({ kind: "gjc", label: "Gajae Code" });
-    } finally {
-      process.env["PATH"] = path;
-      rmSync(bin, { recursive: true, force: true });
-    }
-  });
-
   it("rejects a workspace cwd that is not an existing directory", async () => {
     const res = await fetch(`${base()}/api/workspace/create`, {
       method: "POST",
@@ -234,20 +217,6 @@ describe("workspace and discovery endpoints", () => {
       expect(res.status).toBe(400);
       expect(((await res.json()) as ApiError).error.code).toBe(code);
     }
-  });
-});
-
-describe("GET /api/pane/omo-tasks", () => {
-  it("answers 400 without a pane, and no tasks for a pane that runs no OmO", async () => {
-    const missing = await fetch(`${base()}/api/pane/omo-tasks`);
-    expect(missing.status).toBe(400);
-    expect(((await missing.json()) as ApiError).error.code).toBe("missing_pane_id");
-    const unknown = await fetch(`${base()}/api/pane/omo-tasks?pane_id=w0:p0`);
-    expect(unknown.status).toBe(200);
-    const body = await unknown.json() as { tasks: unknown[]; runs: unknown[]; server_time: string };
-    expect(body.tasks).toEqual([]);
-    expect(body.runs).toEqual([]);
-    expect(Number.isFinite(Date.parse(body.server_time))).toBe(true);
   });
 });
 

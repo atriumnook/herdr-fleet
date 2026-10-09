@@ -410,7 +410,7 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
     return <article className="chat-turn chat-turn-user">
       <UserImages paneId={paneId} parts={turn.parts} text={text} />
       {text.length > 0 && <div className="chat-bubble"><Markdown>{text}</Markdown></div>}
-      {/* the skill this message invoked (omp, omo, pi): the runtime recorded its instructions with it */}
+      {/* the skill this message invoked (omp, pi): the runtime recorded its instructions with it */}
       <SkillActivityList parts={turn.parts} />
       <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}{text.length > 0 && <CopyButton text={text} label={t("Copy message")} />}</div>
     </article>;

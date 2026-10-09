@@ -38,7 +38,7 @@ test("Pi variants normalize visible text, tool aliases and nested/string results
   expect(turns[1]?.parts[0]).toEqual({ kind: "text", text: "plain answer" });
   expect(turns[1]?.parts[1]).toMatchObject({ kind: "tool", name: "Read", summary: "one", output_ref: "a", error: true });
   expect(turns[1]?.parts[2]).toMatchObject({ kind: "tool", name: "Bash", summary: "pwd", output_ref: "b" });
-  for (const source of ["omp-transcript", "omo-transcript", "gjc-transcript"] as const) {
+  for (const source of ["omp-transcript"] as const) {
     expect(transcriptToolOutput(source, path, "a")).toBe("A".repeat(9000));
     expect(transcriptToolOutput(source, path, "b")).toBe("B".repeat(9000));
     expect(transcriptPage(source, path).turns).toEqual(turns);
@@ -65,7 +65,7 @@ test("only explicit complete reset records clear history; compaction and quoted 
   expect(isContextClear(clear, "codex-transcript")).toBe(false);
 });
 
-for (const source of ["omp-transcript", "omo-transcript", "gjc-transcript", "claude-transcript"] as const) {
+for (const source of ["omp-transcript", "claude-transcript"] as const) {
   test(`${source}: clear invalidates held/cached cursors and metadata, even before the next prompt`, () => {
     const user = (text: string) => source === "claude-transcript" ? { type: "user", message: { role: "user", content: text } } : message("user", text);
     const reset = source === "claude-transcript" ? claudeClear : clear;
@@ -109,7 +109,7 @@ test("reset scanning crosses chunk boundaries, excludes pre-clear full outputs a
   expect(parseClaudeTranscript(claude)).toEqual([]);
 });
 
-for (const source of ["omp-transcript", "omo-transcript", "gjc-transcript"] as const) {
+for (const source of ["omp-transcript"] as const) {
   test(`${source}: a thinking-level change between the metadata head and the newest page sets the reasoning shown`, () => {
     const level = (thinkingLevel: string) => ({ type: "thinking_level_change", thinkingLevel });
     const padding = { type: "padding", text: "x".repeat(70 * 1024) }; // past the 64 KiB metadata head

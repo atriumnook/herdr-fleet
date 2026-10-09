@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 
-import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt, pendingOmoAsk } from "./prompt.ts";
+import { answerKeys, codexQuestionsCollapsed, codexQueuedPrompt, handlePromptRequest, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt } from "./prompt.ts";
 
 const labels = (prompt: InteractivePrompt | null) => prompt?.options.map((option) => option.label);
 
@@ -816,313 +816,6 @@ ${after}`;
   });
 });
 
-describe("OmO's ask_user_question form", () => {
-  // omo 5.1.7 in a 120-column herdr pane, as herdr reads it: the overlay between two rules, then
-  // omo's footer. herdr labels the pane `pi` while omo waits on it.
-  const rule = "─".repeat(120);
-  const footer = `${rule}\n/private/tmp/omo-ask${" ".repeat(74)}[----------] 42K/1M (4.2%)\n${" ".repeat(86)}claude-opus-5-5 · high · OmO 5.1.7\n`;
-  const form = (body: string) => `\n [표시 위치] [월 한도] wait for answer\n\n${rule}\n\n Ask user · 30m\n${body}\n${footer}`;
-  const first = form(` → 표시 위치    월 한도    Submit
- 음성 사용량과 추정 비용을 어디에 보여줄까요?
- → 1. 설정 > 음성 입력 (추천)
-      오늘, 이번 달, 누적의 분·횟수·추정 비용을 보여주고 OpenAI 사용량 페이지 링크를 붙입니다. 변경 범위가 가장 작습니
- 다.
-   2. 설정 + 사이드바 미터
-      사이드바의 구독 사용량 미터 옆에 음성 항목도 넣습니다. 한눈에 보이지만 UI 변경이 커집니다.
-   Type your own answer...
- Submit (0/2 answered) — Enter advances
- ↑↓ move  1-9 select  space select  enter next  tab next question  c comment  esc cancel
-`);
-
-  test("reads the question asked now, its options and the form's steps", () => {
-    const prompt = parseInteractivePrompt("pi", first);
-    expect(prompt).toMatchObject({
-      agent: "omo", kind: "question", title: "Question 1 of 2", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?",
-      multi_select: false, custom_option_index: 2,
-      steps: [{ label: "표시 위치", answered: false, current: true }, { label: "월 한도", answered: false, current: false }],
-    });
-    expect(labels(prompt)).toEqual(["설정 > 음성 입력 (추천)", "설정 + 사이드바 미터"]);
-    // a word the pane wrapped at its edge is one word again
-    expect(prompt?.options[0]?.description).toEndWith("변경 범위가 가장 작습니다.");
-    // a number picks the option and moves on; a typed answer replaces one typed before
-    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ text: "2" }]);
-    expect(answerKeys(prompt!, { custom_text: "둘 다" })).toEqual([
-      { keys: ["backspace"] }, { keys: ["down"] }, { keys: ["down"] }, { keys: ["enter"] }, { text: "둘 다" }, { keys: ["enter"] },
-    ]);
-    expect(() => answerKeys(prompt!, { option_index: 2 })).toThrow("valid option index");
-    // herdr may name the pane omo, or claude while omo's SDK child runs
-    expect(parseInteractivePrompt("omo", first)?.id).toBe(prompt?.id);
-    expect(parseInteractivePrompt("claude", first)?.id).toBe(prompt?.id);
-    expect(parseInteractivePrompt("", first)?.id).toBe(prompt?.id);
-    expect(parseInteractivePrompt("codex", first)).toBeNull();
-  });
-
-  test("marks answered questions and chosen options, and a new step is another card", () => {
-    const second = form(`   표시 위치 ✓  → 월 한도 ✓    Submit
- 월 사용 한도를 둘까요?
-   1. 한도 없음
-      경고만 표시합니다.
-   2. 월 $5 한도 ✓
-      넘으면 음성 입력을 막습니다.
- → Type your own answer...
- Submit (2/2 answered) — Enter advances
- ↑↓ move  1-9 select  space select  enter next  tab next question  c comment  esc cancel
-`);
-    const prompt = parseInteractivePrompt("pi", second);
-    expect(prompt).toMatchObject({ title: "Question 2 of 2", question: "월 사용 한도를 둘까요?" });
-    expect(labels(prompt)).toEqual(["한도 없음", "월 $5 한도"]);
-    expect(prompt?.steps?.map((step) => [step.answered, step.current])).toEqual([[true, false], [true, true]]);
-    expect(prompt?.id).not.toBe(parseInteractivePrompt("pi", first)?.id);
-    // the cursor is on the typed answer's row already
-    expect(answerKeys(prompt!, { custom_text: "없음" })).toEqual([{ keys: ["backspace"] }, { keys: ["enter"] }, { text: "없음" }, { keys: ["enter"] }]);
-  });
-
-  test("answers a multiple choice afresh by number, then moves on with Tab", () => {
-    const prompt = parseInteractivePrompt("pi", form(` → 검사    보고    Submit
- 어떤 검사를 돌릴까요?
- → 1. Lint ✓
-      빠른 정적 검사
-   2. Tests
-      단위 테스트
-   3. Build
-   Type your own answer...
- Submit (1/2 answered) — Enter toggles; Tab to Submit
- ↑↓ move  1-9 select  space toggle  enter toggle  tab next / Submit  c comment  esc cancel
-`));
-    expect(prompt).toMatchObject({ title: "Question 1 of 2", multi_select: true, custom_option_index: null });
-    expect(labels(prompt)).toEqual(["Lint", "Tests", "Build"]);
-    expect(prompt?.options[2]?.description).toBeNull();
-    // Backspace clears what was chosen before (Lint here, or rows out of view), then each number toggles one
-    expect(answerKeys(prompt!, { option_indices: [2, 0] })).toEqual([{ keys: ["backspace"] }, { text: "1" }, { text: "3" }, { keys: ["tab"] }]);
-    expect(answerKeys(prompt!, { option_indices: [1] })).toEqual([{ keys: ["backspace"] }, { text: "2" }, { keys: ["tab"] }]);
-  });
-
-  test("reviews the answers: Submit, a row to change, or a comment", () => {
-    const review = (rows: string, hint: string) => form(`   표시 위치 ✓    월 한도 ✓  → Submit
- Review your answers
-${rows}
-
- Comment (optional; unanswered questions are reported)
->
- Submit (2/2 answered)
- ${hint}
-`);
-    const onComment = parseInteractivePrompt("pi", review("   표시 위치: 설정 > 음성 입력 (추천)\n   월 한도: 월 $5 한도", "enter submit  ↑ review answers  shift+tab back  tab next question  esc back"));
-    expect(onComment).toMatchObject({
-      kind: "menu", title: "Review your answers", question: "Submit (2/2 answered)", body: null, custom_option_index: 3,
-      steps: [{ label: "표시 위치", answered: true, current: false }, { label: "월 한도", answered: true, current: false }],
-    });
-    expect(labels(onComment)).toEqual(["Submit", "표시 위치: 설정 > 음성 입력 (추천)", "월 한도: 월 $5 한도", "Comment (optional; unanswered questions are reported)"]);
-    expect(answerKeys(onComment!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
-    expect(answerKeys(onComment!, { option_index: 1 })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { keys: ["enter"] }]);
-    expect(answerKeys(onComment!, { custom_text: "급해요" })).toEqual([{ text: "급해요" }, { keys: ["enter"] }]);
-    expect(() => answerKeys(onComment!, { option_index: 3 })).toThrow("valid option index");
-
-    const onRow = parseInteractivePrompt("pi", review("   표시 위치: 설정 > 음성 입력 (추천)\n → 월 한도: 월 $5 한도", "enter edit answer  ↑↓ move  tab next question  esc back"));
-    expect(onRow?.id).toBe(onComment?.id);
-    expect(answerKeys(onRow!, { option_index: 0 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
-    expect(answerKeys(onRow!, { option_index: 1 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
-    expect(answerKeys(onRow!, { custom_text: "급해요" })).toEqual([{ keys: ["down"] }, { text: "급해요" }, { keys: ["enter"] }]);
-  });
-
-  test("joins what a narrow pane wraps, the tab bar, the hint and words cut at the edge", () => {
-    // omo's own renderer at 40 columns
-    const narrow = `${"─".repeat(40)}
-
- Ask user
- → 표시 위치    월 한도    Submit
- 음성 사용량과 추정 비용을 어디에 보여
- 줄까요?
- → 1. 설정 > 음성 입력 (추천)
-      오늘, 이번 달, 누적의 분·횟수·추
- 정 비용을 보여줍니다.
-   2. 설정 + 사이드바 미터
-      한눈에 보이지만 UI 변경이 커집니
- 다.
-   Type your own answer...
- Submit (0/2 answered) — Enter advances
- ↑↓ move  1-9 select  space select
- enter next  tab next question  c
- comment  esc cancel
-
-${"─".repeat(40)}
-`;
-    const prompt = parseInteractivePrompt("pi", narrow);
-    expect(prompt?.question).toBe("음성 사용량과 추정 비용을 어디에 보여줄까요?");
-    expect(prompt?.options.map((option) => option.description)).toEqual(["오늘, 이번 달, 누적의 분·횟수·추정 비용을 보여줍니다.", "한눈에 보이지만 UI 변경이 커집니다."]);
-  });
-
-  test("is no card once output has followed the form", () => {
-    const later = first.replace(footer, `${Array.from({ length: 12 }, (_, index) => ` line ${index}`).join("\n")}\n${footer}`);
-    expect(parseInteractivePrompt("pi", later)).toBeNull();
-  });
-
-  // The form's text on a screen that is not omo's live form: printed in a shell, or quoted in
-  // Claude's transcript. A card there would type its answer into that program. Each is tried as
-  // the form alone and with the rule and footer omo drew under it.
-  const printed = [first.replace(footer, ""), first];
-  const claudeBox = `\n${rule}\n❯ \n${rule}\n  ? for shortcuts\n`;
-  const agents = ["", "pi", "omo", "claude"];
-
-  test("is no card for the form's text printed in a shell, its prompt below", () => {
-    for (const text of printed) {
-      for (const agent of agents) expect(parseInteractivePrompt(agent, `${text}user@host:~/project$ `)).toBeNull();
-    }
-  });
-
-  test("is no card for the form's text in a shell with output after it", () => {
-    for (const text of printed) {
-      for (const agent of agents) expect(parseInteractivePrompt(agent, `${text} M server/prompt.ts\n M CHANGELOG.md\n 2 files changed\n`)).toBeNull();
-    }
-  });
-
-  test("is no card for the form's text in Claude's transcript, over Claude's input box", () => {
-    for (const text of printed) {
-      for (const agent of agents) expect(parseInteractivePrompt(agent, `${text}${claudeBox}`)).toBeNull();
-    }
-  });
-
-  test("is no card for the form's text quoted (indented) in Claude's transcript", () => {
-    for (const text of printed) {
-      const quoted = text.split("\n").map((line) => line ? `  ${line}` : line).join("\n");
-      for (const agent of agents) expect(parseInteractivePrompt(agent, `${quoted}${claudeBox}`)).toBeNull();
-    }
-  });
-
-  test("needs the session's matching call when the pane is not known to wait on the user", () => {
-    // what the server asks for a pane herdr names claude, or not at all, that is not blocked
-    expect(parseInteractivePrompt("", first, null, false)).toBeNull();
-    expect(parseInteractivePrompt("claude", first, null, false)).toBeNull();
-    const ask = { questions: ["표시 위치", "월 한도"].map((header) => ({
-      header, question: "q", multiSelect: false, options: [{ label: "a", description: null }, { label: "b", description: null }],
-    })) };
-    expect(parseInteractivePrompt("", first, ask, false)).toMatchObject({ title: "Question 1 of 2" });
-    // another form's call is no evidence
-    ask.questions[1]!.header = "다른 질문";
-    expect(parseInteractivePrompt("claude", first, ask, false)).toBeNull();
-  });
-
-  // omo's session file for the form below: the ask_user_question call, then (once answered) its result
-  const call = {
-    questions: [
-      { header: "표시 위치", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?", options: [
-        { label: "설정 > 음성 입력 (추천)", description: "오늘, 이번 달, 누적을 보여줍니다." },
-        { label: "설정 + 사이드바 미터", description: "한눈에 보이지만 UI 변경이 커집니다." },
-        { label: "상단 상태 표시줄", description: "항상 보입니다." },
-        { label: "표시하지 않음" },
-      ] },
-      { header: "월 한도", question: "월 사용 한도를 둘까요?", options: [{ label: "한도 없음" }, { label: "월 $5 한도" }] },
-    ],
-    waitForAnswer: true,
-  };
-  const record = (message: unknown) => JSON.stringify({ type: "message", message });
-  const asking = [
-    record({ role: "user", content: [{ type: "text", text: "ask me" }] }),
-    record({ role: "assistant", content: [{ type: "toolCall", id: "call-1", name: "ask_user_question", arguments: call }] }),
-  ].join("\n");
-  // omo's own renderer at 60 columns, in a pane too short for the whole form
-  const rule60 = "─".repeat(60);
-
-  test("finds the call omo's session waits on", () => {
-    const ask = pendingOmoAsk(asking);
-    expect(ask?.questions.map((question) => [question.header, question.options.length, question.multiSelect])).toEqual([["표시 위치", 4, false], ["월 한도", 2, false]]);
-    expect(ask?.questions[0]!.options[3]).toEqual({ label: "표시하지 않음", description: null });
-    // answered, the agent moved on, or not the shape omo asks with
-    expect(pendingOmoAsk(`${asking}\n${record({ role: "toolResult", toolCallId: "call-1", content: [] })}`)).toBeNull();
-    expect(pendingOmoAsk(`${asking}\n${record({ role: "assistant", content: [{ type: "text", text: "done" }] })}`)).toBeNull();
-    expect(pendingOmoAsk(asking.replace('"questions"', '"items"'))).toBeNull();
-    // a tail read from inside a record
-    expect(pendingOmoAsk(`ge":{"role":"user"}}\n${asking}`)?.questions).toHaveLength(2);
-  });
-
-  test("takes the form's text from the session's call, the screen telling where it stands", () => {
-    const short = `      한눈에 보이지만 UI 변경이 커집니다.
-   3. 상단 상태 표시줄
-      항상 보입니다.
-   4. 표시하지 않음
-   Type your own answer...
- Submit (0/2 answered) — Enter advances
- ↑↓ move  1-9 select  space select  enter next  tab next
- question  c comment  esc cancel
-
-${rule60}
-`;
-    // the title, the tabs and the question are above the pane's top
-    expect(parseInteractivePrompt("pi", short)).toBeNull();
-    const prompt = parseInteractivePrompt("pi", short, pendingOmoAsk(asking));
-    expect(prompt).toMatchObject({
-      title: "Question 1 of 2", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?", custom_option_index: 4,
-      steps: [{ label: "표시 위치", answered: false, current: true }, { label: "월 한도", answered: false, current: false }],
-    });
-    expect(labels(prompt)).toEqual(["설정 > 음성 입력 (추천)", "설정 + 사이드바 미터", "상단 상태 표시줄", "표시하지 않음"]);
-    expect(prompt?.options[0]?.description).toBe("오늘, 이번 달, 누적을 보여줍니다.");
-    expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ text: "1" }]);
-    // the cursor's row is out of view: to the typed answer's row from the top, where ↑ stops
-    expect(answerKeys(prompt!, { custom_text: "둘 다" })).toEqual([
-      { keys: ["backspace"] }, ...Array(5).fill({ keys: ["up"] }), ...Array(4).fill({ keys: ["down"] }), { keys: ["enter"] },
-      { text: "둘 다" }, { keys: ["enter"] },
-    ]);
-    // rows that are not the call's question's are no card
-    expect(parseInteractivePrompt("pi", short, { questions: [pendingOmoAsk(asking)!.questions[1]!] })).toBeNull();
-
-    // with the whole form in view the call's text wins over the pane's wrap; another call is ignored
-    const ask = pendingOmoAsk(asking.replaceAll("상단 상태 표시줄", "x").replace("오늘, 이번 달, 누적을 보여줍니다.", "원문 설명"))!;
-    ask.questions[0]!.options.splice(2);
-    expect(parseInteractivePrompt("pi", first, ask)?.options[0]?.description).toBe("원문 설명");
-    ask.questions[1]!.header = "다른 질문";
-    expect(parseInteractivePrompt("pi", first, ask)?.options[0]?.description).toEndWith("가장 작습니다.");
-  });
-
-  test("offers to save or discard an answer typed in the terminal", () => {
-    const typing = `      항상 보입니다.
-   4. 표시하지 않음
-   Type your own answer...
- Your answer (enter to save, ↑↓ back to options, esc to
- discard)
-> 안녕
- Submit (0/2 answered) — Enter advances
- enter save and next  ↑↓ back to options  tab next question
-   esc discard
-
-${rule60}
-`;
-    const prompt = parseInteractivePrompt("pi", typing, pendingOmoAsk(asking));
-    expect(prompt).toMatchObject({ kind: "menu", title: "Question 1 of 2", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?", custom_option_index: null });
-    expect(prompt?.options).toEqual([{ label: "Save the typed answer", description: "안녕" }, { label: "Discard it", description: null }]);
-    expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
-    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["esc"] }]);
-    // the whole form in view needs no session
-    const whole = form(` → 표시 위치    월 한도    Submit
- 음성 사용량과 추정 비용을 어디에 보여줄까요?
-   1. 설정 > 음성 입력 (추천)
-   Type your own answer...
- Your answer (enter to save, ↑↓ back to options, esc to discard)
-> 안녕
- Submit (0/2 answered) — Enter advances
- enter save and next  ↑↓ back to options  tab next question  esc discard
-`);
-    expect(parseInteractivePrompt("pi", whole)).toMatchObject({ title: "Question 1 of 2", question: "음성 사용량과 추정 비용을 어디에 보여줄까요?" });
-  });
-
-  test("reviews the answers of a form whose rows are out of view, by the call's headers", () => {
-    const short = `
- Comment (optional; unanswered questions are reported)
->
- Submit (2/2 answered)
- enter submit  ↑ review answers  shift+tab back  tab next
- question  esc back
-
-${rule60}
-`;
-    expect(parseInteractivePrompt("pi", short)).toBeNull();
-    const prompt = parseInteractivePrompt("pi", short, pendingOmoAsk(asking));
-    expect(labels(prompt)).toEqual(["Submit", "표시 위치", "월 한도", "Comment (optional; unanswered questions are reported)"]);
-    expect(prompt?.steps?.every((step) => step.answered && !step.current)).toBeTrue();
-    expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["enter"] }]);
-    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["up"] }, { keys: ["up"] }, { keys: ["enter"] }]);
-  });
-});
-
 describe("Claude's suggested next prompt", () => {
   // Claude Code 2.1.284 as herdr reads it with ANSI: the grey suggestion in the empty input box
   const RULE = "\u001b[0m\u001b[38;2;136;136;136m" + "─".repeat(60) + "\u001b[0m";
@@ -1175,7 +868,7 @@ describe("Claude's suggested next prompt", () => {
 
 describe("the fallback card for a blocked pane no reader knows", () => {
   test("offers a numbered menu at the screen's end as options answered by their number", () => {
-    const prompt = parseFallbackPrompt("gjc", `
+    const prompt = parseFallbackPrompt("cursor", `
  Apply these 3 file changes?
  src/a.ts, src/b.ts, src/c.ts
 
@@ -1196,7 +889,7 @@ describe("the fallback card for a blocked pane no reader knows", () => {
   });
 
   test("offers Enter and Esc after the rows, for a program that reads a whole line", () => {
-    const prompt = parseFallbackPrompt("gjc", "Pick a profile:\n1. Work\n2. Home\n\nEnter a number >\n");
+    const prompt = parseFallbackPrompt("cursor", "Pick a profile:\n1. Work\n2. Home\n\nEnter a number >\n");
     expect(labels(prompt)).toEqual(["Work", "Home", "Enter", "Esc"]);
     // the number goes alone; the Enter that submits it is its own tap
     expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ text: "2" }]);
@@ -1205,24 +898,24 @@ describe("the fallback card for a blocked pane no reader knows", () => {
   });
 
   test("joins the lines the last row wraps onto into its label", () => {
-    const prompt = parseFallbackPrompt("gjc", "Trust this folder?\n\n❯ 1. No, exit\n  2. Yes, trust folder and\n     allow all commands without asking\n\n Enter to confirm\n");
+    const prompt = parseFallbackPrompt("cursor", "Trust this folder?\n\n❯ 1. No, exit\n  2. Yes, trust folder and\n     allow all commands without asking\n\n Enter to confirm\n");
     expect(labels(prompt)).toEqual(["No, exit", "Yes, trust folder and allow all commands without asking", "Enter", "Esc"]);
   });
 
   test("reads no menu when the last row's wrapped label ends in its own letter key", () => {
-    const prompt = parseFallbackPrompt("gjc", "Access?\n1. Read only\n2. Full access, every file and\n   command (f)\n\nEnter to select\n");
+    const prompt = parseFallbackPrompt("cursor", "Access?\n1. Read only\n2. Full access, every file and\n   command (f)\n\nEnter to select\n");
     expect(labels(prompt)).toEqual(["Enter", "Esc"]);
     // or ends the row's first line, a description wrapped under it
-    expect(labels(parseFallbackPrompt("gjc", "Access?\n1. Cancel\n2. Full access (f)\n   Allows writing to every file\n\nType f, then Enter\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Access?\n1. Cancel\n2. Full access (f)\n   Allows writing to every file\n\nType f, then Enter\n"))).toEqual(["Enter", "Esc"]);
   });
 
   test("takes the last line for a hint only when it names a way to choose", () => {
-    const menu = (hint: string) => labels(parseFallbackPrompt("gjc", `Pick one:\n1. Alpha\n2. Beta\n\n${hint}\n`));
+    const menu = (hint: string) => labels(parseFallbackPrompt("cursor", `Pick one:\n1. Alpha\n2. Beta\n\n${hint}\n`));
     // a plain Enter or Press asks for something else: a digit typed there is no answer
     for (const hint of ["Enter recovery code", "Enter your password", "Enter your phone number", "Press any key", "Enter to continue"]) {
       expect(menu(hint)).toEqual(["Enter", "Esc"]);
     }
-    expect(labels(parseFallbackPrompt("gjc", "1. A\n2. B\nEnter recovery code\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "1. A\n2. B\nEnter recovery code\n"))).toEqual(["Enter", "Esc"]);
     for (const hint of ["Enter to select", "↵ choose · esc back", "Enter to confirm · Esc to cancel", "Enter a number", "Type 1-2", "↑/↓ to move", "Tab/arrows to navigate"]) {
       expect(menu(hint)).toEqual(["Alpha", "Beta", "Enter", "Esc"]);
     }
@@ -1230,25 +923,25 @@ describe("the fallback card for a blocked pane no reader knows", () => {
 
   test("reads no menu unless its hint is the screen's last line, with only the last row's wrap above it", () => {
     // a new prompt under the hint takes what is typed now: a digit there is no menu answer
-    expect(labels(parseFallbackPrompt("gjc", "Pick:\n1. Read only\n2. Full access\nEnter to select\nEnter recovery code ABCD\n"))).toEqual(["Enter", "Esc"]);
-    expect(labels(parseFallbackPrompt("gjc", "Pick:\n1. Read only\n2. Full access\n\nEnter to select\nWaiting for the token\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Pick:\n1. Read only\n2. Full access\nEnter to select\nEnter recovery code ABCD\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Pick:\n1. Read only\n2. Full access\n\nEnter to select\nWaiting for the token\n"))).toEqual(["Enter", "Esc"]);
     // a line under the last row, not indented past its number, is not its wrap
-    expect(labels(parseFallbackPrompt("gjc", "Pick:\n  1. Read only\n  2. Full access\n  Saved.\nEnter to select\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Pick:\n  1. Read only\n  2. Full access\n  Saved.\nEnter to select\n"))).toEqual(["Enter", "Esc"]);
     // nor a hint inside the last row's wrap, with a new prompt under it
-    expect(labels(parseFallbackPrompt("gjc", "Done:\n1. Read settings\n2. Load profiles\n   Profiles loaded\n   Enter to continue\nEnter recovery code ABCD\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Done:\n1. Read settings\n2. Load profiles\n   Profiles loaded\n   Enter to continue\nEnter recovery code ABCD\n"))).toEqual(["Enter", "Esc"]);
     // nor an input field there, or more output than a wrapped label
-    expect(labels(parseFallbackPrompt("gjc", "Done:\n1. Load configuration\n2. Connect to account\n   Authentication required\n   Password:\nEnter password and press Enter\n"))).toEqual(["Enter", "Esc"]);
-    expect(labels(parseFallbackPrompt("gjc", "Done:\n1. Load configuration\n2. Connect to account\n   Connected to example.com\n   Authentication required\n   Waiting\nEnter to continue\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Done:\n1. Load configuration\n2. Connect to account\n   Authentication required\n   Password:\nEnter password and press Enter\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Done:\n1. Load configuration\n2. Connect to account\n   Connected to example.com\n   Authentication required\n   Waiting\nEnter to continue\n"))).toEqual(["Enter", "Esc"]);
     // a wrapped label's own words are no hint
-    expect(labels(parseFallbackPrompt("gjc", "Access?\n1. Cancel\n2. Allow access to the\n   selected account number only\n\nEnter to select\n"))).toEqual(["Cancel", "Allow access to the selected account number only", "Enter", "Esc"]);
-    expect(labels(parseFallbackPrompt("gjc", "Where?\n1. Here\n2. Allow the agent to\n   choose a directory\n\nEnter to select\n"))).toEqual(["Here", "Allow the agent to choose a directory", "Enter", "Esc"]);
-    expect(labels(parseFallbackPrompt("gjc", "Retry?\n1. Never\n2. Retry with a maximum\n   attempt count: 3\n\nEnter to select\n"))).toEqual(["Never", "Retry with a maximum attempt count: 3", "Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Access?\n1. Cancel\n2. Allow access to the\n   selected account number only\n\nEnter to select\n"))).toEqual(["Cancel", "Allow access to the selected account number only", "Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Where?\n1. Here\n2. Allow the agent to\n   choose a directory\n\nEnter to select\n"))).toEqual(["Here", "Allow the agent to choose a directory", "Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Retry?\n1. Never\n2. Retry with a maximum\n   attempt count: 3\n\nEnter to select\n"))).toEqual(["Never", "Retry with a maximum attempt count: 3", "Enter", "Esc"]);
     // a hint right under the last row, indented like its wrap, is still the hint
-    expect(labels(parseFallbackPrompt("gjc", "Pick a profile:\n1. Work\n2. Home\n   Enter a number >\n"))).toEqual(["Work", "Home", "Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Pick a profile:\n1. Work\n2. Home\n   Enter a number >\n"))).toEqual(["Work", "Home", "Enter", "Esc"]);
   });
 
   test("keeps a wrapped label on its own row, since each row starts with its number", () => {
-    const prompt = parseFallbackPrompt("gjc", "Trust this folder?\n\n❯ 1. No, exit and keep this folder\n     untrusted\n  2. Yes, trust folder\n  3. Yes, trust and allow hooks\n\n Enter to confirm\n");
+    const prompt = parseFallbackPrompt("cursor", "Trust this folder?\n\n❯ 1. No, exit and keep this folder\n     untrusted\n  2. Yes, trust folder\n  3. Yes, trust and allow hooks\n\n Enter to confirm\n");
     expect(labels(prompt)).toEqual(["No, exit and keep this folder untrusted", "Yes, trust folder", "Yes, trust and allow hooks", "Enter", "Esc"]);
     expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ text: "2" }]);
   });
@@ -1269,10 +962,10 @@ describe("the fallback card for a blocked pane no reader knows", () => {
   });
 
   test("reads a numbered list as no menu without a hint to choose, or before an input field", () => {
-    expect(labels(parseFallbackPrompt("gjc", "My plan:\n\n1. Inspect files\n2. Remove backups\n\nPassword:\n"))).toEqual(["Enter", "Esc"]);
-    expect(labels(parseFallbackPrompt("gjc", "Pick:\n1. A\n2. B\nEnter a number\nChoice: 2\n"))).toEqual(["Enter", "Esc"]);
-    expect(labels(parseFallbackPrompt("gjc", "Access?\n1. Read only (r)\n2. Full access (f)\nType r or f, then Enter\n"))).toEqual(["Enter", "Esc"]);
-    expect(labels(parseFallbackPrompt("gjc", "Pick\n1. One\n❯ \n2. Two\nEnter to select\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "My plan:\n\n1. Inspect files\n2. Remove backups\n\nPassword:\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Pick:\n1. A\n2. B\nEnter a number\nChoice: 2\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Access?\n1. Read only (r)\n2. Full access (f)\nType r or f, then Enter\n"))).toEqual(["Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Pick\n1. One\n❯ \n2. Two\nEnter to select\n"))).toEqual(["Enter", "Esc"]);
   });
 
   test("offers no letters or arrows for an input box, a quote or a word", () => {
@@ -1292,12 +985,12 @@ describe("the fallback card for a blocked pane no reader knows", () => {
   });
 
   test("offers a (y/n) question at the screen's end as Yes and No, typing the letter alone", () => {
-    const prompt = parseFallbackPrompt("gjc", " config.json already exists.\n Overwrite it? (y/n)\n Press Enter to keep it, or Esc to abort\n");
+    const prompt = parseFallbackPrompt("cursor", " config.json already exists.\n Overwrite it? (y/n)\n Press Enter to keep it, or Esc to abort\n");
     expect(prompt.question).toBe("Overwrite it? (y/n)");
     expect(labels(prompt)).toEqual(["Yes (y)", "No (n)", "Enter", "Esc"]);
     expect(answerKeys(prompt, { option_index: 0 })).toEqual([{ text: "y" }]);
     expect(answerKeys(prompt, { option_index: 1 })).toEqual([{ text: "n" }]);
-    expect(labels(parseFallbackPrompt("gjc", "Delete the branch? [Y/n] "))).toEqual(["Yes (y)", "No (n)", "Enter", "Esc"]);
+    expect(labels(parseFallbackPrompt("cursor", "Delete the branch? [Y/n] "))).toEqual(["Yes (y)", "No (n)", "Enter", "Esc"]);
   });
 
   test("offers no letters for a (y/n) only mentioned above the prompt", () => {
@@ -1306,7 +999,7 @@ describe("the fallback card for a blocked pane no reader knows", () => {
   });
 
   test("takes the question from the line that asks it, not the hint below", () => {
-    const prompt = parseFallbackPrompt("gjc", "Found 3 stale caches.\nClear them now?\nPress Enter to continue, Esc to skip\n");
+    const prompt = parseFallbackPrompt("cursor", "Found 3 stale caches.\nClear them now?\nPress Enter to continue, Esc to skip\n");
     expect(prompt.question).toBe("Clear them now?");
     expect(prompt.body).toBe("Found 3 stale caches.\nPress Enter to continue, Esc to skip");
     expect(labels(prompt)).toEqual(["Enter", "Esc"]);
@@ -1314,14 +1007,14 @@ describe("the fallback card for a blocked pane no reader knows", () => {
 
   test("gives the same id to the same screen, and another to a changed one", () => {
     const screen = "Pick\n\n❯ 1. One\n  2. Two\n\n Enter to select\n";
-    expect(parseFallbackPrompt("omo", screen).id).toBe(parseFallbackPrompt("omo", screen).id);
-    expect(parseFallbackPrompt("omo", screen.replace("Two", "Three")).id).not.toBe(parseFallbackPrompt("omo", screen).id);
+    expect(parseFallbackPrompt("cursor", screen).id).toBe(parseFallbackPrompt("cursor", screen).id);
+    expect(parseFallbackPrompt("cursor", screen.replace("Two", "Three")).id).not.toBe(parseFallbackPrompt("cursor", screen).id);
     const context = (command: string) => [`$ ${command}`, ...Array.from({ length: 14 }, (_, i) => `line ${i}`), "Run it?", "", "❯ 1. Yes", "  2. No", "", " Enter to select"].join("\n");
-    expect(parseFallbackPrompt("gjc", context("rm -rf important")).id).not.toBe(parseFallbackPrompt("gjc", context("rm safe.tmp")).id);
+    expect(parseFallbackPrompt("cursor", context("rm -rf important")).id).not.toBe(parseFallbackPrompt("cursor", context("rm safe.tmp")).id);
     const keys = (command: string) => [`$ ${command}`, ...Array.from({ length: 18 }, (_, i) => `line ${i}`), "Proceed? (y/n)"].join("\n");
-    expect(parseFallbackPrompt("gjc", keys("rm -rf important")).id).not.toBe(parseFallbackPrompt("gjc", keys("rm safe.tmp")).id);
+    expect(parseFallbackPrompt("cursor", keys("rm -rf important")).id).not.toBe(parseFallbackPrompt("cursor", keys("rm safe.tmp")).id);
     const footer = (end: string) => `Pick\n\n❯ 1. One\n  2. Two\n\n ${end}\n`;
-    expect(parseFallbackPrompt("gjc", footer("Enter to select")).id).not.toBe(parseFallbackPrompt("gjc", footer("Enter to select · done")).id);
+    expect(parseFallbackPrompt("cursor", footer("Enter to select")).id).not.toBe(parseFallbackPrompt("cursor", footer("Enter to select · done")).id);
   });
 
   /** a numbered menu under the line an agent keeps showing while it waits */
@@ -1382,7 +1075,7 @@ describe("the fallback card for a blocked pane no reader knows", () => {
     // another program's working line, and Claude's line in a pane that does not run Claude
     differ("• Working (12s • esc to interrupt)", "• Working (47s • esc to interrupt)");
     differ("⠋ Thinking... (3s)", "⠹ Thinking... (9s)");
-    differ("✢ Tempering… (5s · ↓ 1.0k tokens)", "✻ Tempering… (9s · ↓ 1.3k tokens)", "gjc");
+    differ("✢ Tempering… (5s · ↓ 1.0k tokens)", "✻ Tempering… (9s · ↓ 1.3k tokens)", "cursor");
   });
 
   test("tells the working line from a line that holds its blanked form as text", () => {

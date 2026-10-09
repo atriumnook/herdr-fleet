@@ -99,39 +99,6 @@ describe("CompletionTracker", () => {
     expect(tracker.present(snapshot([{ id: "p", agent: "claude", status: "unknown" }])).panes[0]!.agent_status).toBe("unknown");
   });
 
-  it("matches finished raw identities before applying an omo display label", async () => {
-    const tracker = new CompletionTracker();
-    tracker.observe("p", "working", "pi");
-    tracker.observe("p", "unknown", "claude");
-    expect(tracker.observe("p", "idle", "claude")).toBe("done");
-    const raw = snapshot([{ id: "p", agent: "claude", status: "idle" }]);
-    const shown = await tracker.readSnapshot(async () => raw, async (value) => ({
-      ...value,
-      panes: value.panes.map((pane) => ({ ...pane, agent: "omo" })),
-      agents: value.agents.map((agent) => ({ ...agent, agent: "omo" })),
-    }));
-    expect(shown.panes[0]!.agent).toBe("omo");
-    expect(shown.panes[0]!.agent_status).toBe("done");
-    expect(shown.agents[0]!.agent_status).toBe("done");
-  });
-
-  it("keeps new work ahead of a snapshot still waiting for display labeling", async () => {
-    const tracker = new CompletionTracker();
-    const raw = snapshot([{ id: "p", agent: "claude", status: "unknown" }]);
-    const label = delayedSnapshot();
-    let entered!: () => void;
-    const labeling = new Promise<void>((resolve) => { entered = resolve; });
-    const reading = tracker.readSnapshot(async () => raw, () => { entered(); return label.read(); });
-    await labeling;
-    tracker.observe("p", "working", "claude");
-    label.release(snapshot([{ id: "p", agent: "omo", status: "unknown" }]));
-    const shown = await reading;
-    expect(shown.panes[0]!.agent).toBe("omo");
-    expect(shown.panes[0]!.agent_status).toBe("working");
-    expect(tracker.seen("p")).toBe(false);
-    expect(tracker.observe("p", "unknown", "claude")).toBe("done");
-  });
-
   it("drops a derived finish when its agent leaves or another agent replaces it", () => {
     const tracker = new CompletionTracker();
     tracker.observe("left", "working", "codex");
@@ -159,9 +126,9 @@ describe("CompletionTracker", () => {
 
   it("reports an idle after work as done until focus moves onto the pane, as herdr does for agents it does not lose", () => {
     const tracker = new CompletionTracker();
-    // omo, live-traced: pi/working, then claude/unknown, then claude/idle
+    // pi/working, then claude/unknown while a claude child runs, then claude/idle
     expect(tracker.observe("p", "working", "pi")).toBe("working");
-    // the turn goes on under omo's claude child: still working, not unknown
+    // the turn goes on under the claude child: still working, not unknown
     expect(tracker.observe("p", "unknown", "claude")).toBe("working");
     expect(tracker.observe("p", "idle", "claude")).toBe("done");
     // snapshots keep saying done until the pane is seen
@@ -227,7 +194,7 @@ describe("CompletionTracker", () => {
 
   it("lets an unknown with no agent left be unknown: the agent quit", () => {
     const tracker = new CompletionTracker();
-    tracker.observe("p", "working", "gjc");
+    tracker.observe("p", "working", "cursor");
     expect(tracker.observe("p", "unknown", null)).toBe("unknown");
     expect(tracker.observe("p", "idle", null)).toBe("idle");
   });
@@ -245,17 +212,17 @@ describe("CompletionTracker", () => {
     try {
       const file = join(dir, "completions.json");
       const before = new CompletionTracker(file, () => "herdr-a");
-      before.observe("finished", "working", "gjc");
-      expect(before.observe("finished", "idle", "gjc")).toBe("done");
-      // omo mid-turn when the server stopped: its finish may have been seen at herdr's terminal meanwhile
+      before.observe("finished", "working", "cursor");
+      expect(before.observe("finished", "idle", "cursor")).toBe("done");
+      // a pane mid-turn when the server stopped: its finish may have been seen at herdr's terminal meanwhile
       before.observe("running", "working", "pi");
       const after = new CompletionTracker(file, () => "herdr-a");
-      const panes = after.present(snapshot([{ id: "finished", agent: "gjc", status: "idle" }, { id: "running", agent: "pi", status: "idle" }])).panes;
+      const panes = after.present(snapshot([{ id: "finished", agent: "cursor", status: "idle" }, { id: "running", agent: "pi", status: "idle" }])).panes;
       expect(panes.map((pane) => pane.agent_status)).toEqual(["done", "idle"]);
       // seen after the restart stays seen after the next one
       expect(after.seen("finished")).toBe(true);
       const again = new CompletionTracker(file, () => "herdr-a");
-      expect(again.present(snapshot([{ id: "finished", agent: "gjc", status: "idle" }])).panes[0]!.agent_status).toBe("idle");
+      expect(again.present(snapshot([{ id: "finished", agent: "cursor", status: "idle" }])).panes[0]!.agent_status).toBe("idle");
     } finally { rmSync(dir, { recursive: true, force: true }); }
   });
 
@@ -280,7 +247,7 @@ describe("CompletionTracker", () => {
       const file = join(dir, "completions.json");
       writeFileSync(file, JSON.stringify({ herdr: "herdr-a", finished: ["idle", "unknown"] }));
       const tracker = new CompletionTracker(file, () => "herdr-a");
-      const shown = tracker.present(snapshot([{ id: "idle", agent: "gjc", status: "idle" }, { id: "unknown", agent: "codex", status: "unknown" }]));
+      const shown = tracker.present(snapshot([{ id: "idle", agent: "cursor", status: "idle" }, { id: "unknown", agent: "codex", status: "unknown" }]));
       expect(shown.panes.map((pane) => pane.agent_status)).toEqual(["done", "unknown"]);
       expect(tracker.seen("unknown")).toBe(false);
       expect(tracker.seen("idle")).toBe(true);

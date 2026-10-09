@@ -6,7 +6,7 @@ import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AgentKind, ClientRole, SlashCommand, ConversationTurn, DirectoryListing, HerdrPane, InteractivePrompt, PromptAnswer, OmoRun, OmoTask, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
+import type { AgentKind, ClientRole, SlashCommand, ConversationTurn, DirectoryListing, HerdrPane, InteractivePrompt, PromptAnswer, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { SubmitResult } from "../lib/ws.ts";
 import type { InputDraft } from "../lib/draft.ts";
 import type { HeldMessage } from "../lib/messageQueue.ts";
@@ -148,8 +148,6 @@ export interface EffectPorts {
   openPaneSocket(machineId: string, on: { message(message: ServerMessage): void; disconnected(): void }): PaneSocketHandle;
   /** the folders (and files, when asked) in a folder on a PC; "" is home. Throws for anything but these failures */
   listFolders(machineId: string, path: string, hidden: boolean, files: boolean): Promise<DirectoryListing | { failure: "unsupported" | "invalid" }>;
-  /** a pane's OmO background tasks and workflows, with the PC's clock they are timed on */
-  loadBackgroundTasks(machineId: string, paneId: string): Promise<{ tasks: OmoTask[]; runs: OmoRun[]; serverTime: string | null }>;
   /** the start of a text file */
   loadFileText(machineId: string, path: string, paneId: string | null): Promise<string>;
   /** the folder at a path, as listed (absolute) */
@@ -565,10 +563,6 @@ export class Mediator {
       case "send-draft":
         // never queued: a draft the socket does not take stays for the person to send again
         if (this.paneSocket?.handle.sendInput(effect.paneId, effect.text)) this.dispatch({ type: "draft-sent", owner: effect.owner });
-        return;
-      case "load-background-tasks":
-        try { this.dispatch({ type: "background-tasks-read", seq: effect.seq, activity: await this.ports.loadBackgroundTasks(effect.machineId, effect.paneId), at: Date.now() }); }
-        catch { this.dispatch({ type: "background-tasks-failed", seq: effect.seq }); }
         return;
       case "later":
         this.ports.later(effect.ms, () => this.dispatch(effect.event));

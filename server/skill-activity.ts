@@ -33,7 +33,7 @@ function loadedSkill(name: string | undefined, location: string | undefined): Sk
 }
 
 /**
- * The prompt omp/omo record when the user invokes a skill (`/skill:name`, `$name`, a keyword): the
+ * The prompt omp records when the user invokes a skill (`/skill:name`, `$name`, a keyword): the
  * whole SKILL.md before the request, tens of KB the user never typed. Mirrors pi's own
  * `parseSkillBlock` (core/skill-invocation.ts): chained invocations, then `<user-request>`, or the
  * legacy `<skill name location>` form. Anything else is left as the user's text.

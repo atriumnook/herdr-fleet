@@ -27,8 +27,7 @@ import type { AgentStatus, PaneInfo, SessionSnapshot, TabInfo, WorkspaceInfo } f
 /** Friendly aliases used across the UI. */
 export type HerdrWorkspace = WorkspaceInfo;
 export type HerdrTab = TabInfo;
-/** `background_tasks`: an OmO pane's `task` children still running, counted by the server; absent when none */
-export type HerdrPane = PaneInfo & { background_tasks?: number };
+export type HerdrPane = PaneInfo;
 
 export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines.ts";
 
@@ -47,8 +46,7 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what
  *         Tailscale on this PC already serves, or the command to run), no-store
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
- *         kinds `agent.start` accepts, plus omo and gjc when they are on this server's PATH,
- *         for the new-session dialog)
+ *         kinds `agent.start` accepts, for the new-session dialog)
  *  GET    /api/pane/read?pane_id=&source=&format=&lines=  -> { read: PaneReadResult }
  *  GET    /api/pane/scroll?pane_id=      -> { scroll: PaneScrollInfo | null } (where the
  *         viewport sits: its top row in the history is max_offset_from_bottom - offset_from_bottom)
@@ -59,7 +57,7 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *         history, soft-wrapped lines joined; a terminal selection that outlives one screen)
  *  POST   /api/pane/input  { pane_id, text }   -> { ok: true }
  *  GET    /api/pane/conversation?pane_id=    -> ConversationResponse (structured agent
- *         transcript turns - claude, codex, omp, omo, gjc or pi; source:"scrollback" when the pane has no
+ *         transcript turns - claude, codex, omp or pi; source:"scrollback" when the pane has no
  *         recognized store)
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
@@ -68,10 +66,6 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *         pasted image -> file under <pane cwd>/.herdr-fleet/, path for the prompt
  *  GET    /api/pane/commands?pane_id=   -> { commands: SlashCommand[] } (the agent's slash
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
- *  GET    /api/pane/omo-tasks?pane_id=  -> OmoActivity (the background tasks and workflows the
- *         pane's OmO session started: running ones, then those that ended in the last day; empty
- *         for a pane that is not OmO or whose session is not known yet. server_time: that PC's
- *         clock, which the times are on)
  *  GET    /api/pane/files?pane_id=&q=&limit=  -> { files: string[] } (paths relative to the pane
  *         cwd matching q, for @-mentions; git ls-files when the cwd is a repo, bounded walk otherwise)
  *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null }
@@ -80,8 +74,7 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *  POST   /api/pane/prompt/answer { pane_id, prompt_id, option_index?, option_indices?, custom_text? }
  *         -> { ok: true } | 409 prompt_changed (the screen no longer shows that prompt)
  *  POST   /api/workspace/create { cwd?, label?, agent?: { kind, name?, args? } }
- *         -> WorkspaceCreated (workspace.create, then agent.start in the root pane when `agent` is given;
- *         omo and gjc, which herdr cannot start, are typed into the root pane's shell)
+ *         -> WorkspaceCreated (workspace.create, then agent.start in the root pane when `agent` is given)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id } -> { ok: true }
@@ -205,7 +198,7 @@ export type ConversationPart =
   | { kind: "image"; media_type: string; ref: string }
   /** the summary a compaction left; the conversation before it is what it sums up */
   | { kind: "compact"; text: string }
-  /** a message the agent's runtime put in the user's seat (gjc's background-job result): it starts a turn, nobody typed it */
+  /** a message the agent's runtime put in the user's seat: it starts a turn, nobody typed it */
   | { kind: "notice"; text: string };
 
 /** Latest model settings actually recorded by this agent. */
@@ -220,55 +213,11 @@ export interface ConversationMetadata {
   context?: { used: number; window: number | null };
 }
 
-/** One background task of an OmO session (GET /api/pane/omo-tasks), from OmO's task record. */
-export interface OmoTask {
-  id: string;
-  /** the task's summary, else its description or name */
-  title: string;
-  /** the category or agent type it ran as */
-  category: string | null;
-  model: string | null;
-  /** `lost`: OmO's process that ran it is gone */
-  status: "running" | "completed" | "failed" | "cancelled" | "lost";
-  started_at: string | null;
-  ended_at: string | null;
-  turns: number | null;
-  tool_calls: number | null;
-  tokens: number | null;
-}
-
-/** One step of an OmO workflow (a DAG node); `error` is why a failed one failed. */
-export interface OmoRunNode {
-  id: string;
-  label: string;
-  state: "pending" | "scheduled" | "running" | "blocked" | "completed" | "failed" | "skipped" | "cancelled";
-  error: string | null;
-}
-
-/** One OmO workflow (a DAG run): its steps by wave, a wave's steps able to run side by side. */
-export interface OmoRun {
-  id: string;
-  name: string;
-  /** `pending` and `paused` have not ended either */
-  status: "pending" | "running" | "paused" | "completed" | "failed" | "cancelled";
-  started_at: string | null;
-  ended_at: string | null;
-  waves: OmoRunNode[][];
-}
-
-/** GET /api/pane/omo-tasks */
-export interface OmoActivity {
-  tasks: OmoTask[];
-  runs: OmoRun[];
-  /** the PC's clock, which the times are on */
-  server_time: string;
-}
-
 /** GET /api/pane/conversation: native conversation with settings, or scrollback fallback. */
 export interface ConversationResponse {
   /** Stable across appends; changes on transcript replacement or native context clear. */
   history_id?: string;
-  source: "claude-transcript" | "omp-transcript" | "omo-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "scrollback";
+  source: "claude-transcript" | "omp-transcript" | "pi-transcript" | "codex-transcript" | "scrollback";
   turns: ConversationTurn[];
   metadata?: ConversationMetadata;
   /**
@@ -372,18 +321,9 @@ export interface InteractivePrompt {
    * a message typed in the chat still goes to Codex; open in the terminal, the queue holds the
    * input, so the chat sends nothing until it is answered or closed */
   queued?: "collapsed" | "open";
-  /** the questions of a form that asks several at once (omo), in order: which are answered and
-   * which one the card asks now (none while the answers are reviewed). Absent for one question */
-  steps?: InteractivePromptStep[];
   /** the last-resort card for a blocked pane no reader knows: answered with its own buttons only,
    * so a message typed in the chat still goes to the agent as typed */
   fallback?: true;
-}
-
-export interface InteractivePromptStep {
-  label: string;
-  answered: boolean;
-  current: boolean;
 }
 
 export interface InteractivePromptOption {
@@ -478,7 +418,7 @@ export type ServerMessage =
   | { type: "submit-result"; id: number; pane_id: string; ok: boolean; code?: string; message?: string }
   | { type: "secret-result"; id: number; pane_id: string; ok: boolean; code?: string }
   /** agent-status push for ANY pane, attached or not (server-side status collector) */
-  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; /** an OmO pane's running background tasks, when the frame is about one */ background_tasks?: number }
+  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus }
   /** a pane's process exited (pushed even when nobody is attached to it) */
   | { type: "pane-exited"; pane_id: string }
   /** session structure changed (pane created/closed): refetch /api/session */
