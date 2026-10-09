@@ -80,7 +80,7 @@
 
   /* type (comfortable density; compact overrides below) */
   --font-ui: "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", system-ui, sans-serif;
-  --font-mono: "Symbols Nerd Font Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "D2Coding", monospace;
+  --font-mono: "Symbols Nerd Font Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
   --fs-2xs: 11px;
   --fs-xs: 12px;
   --fs-sm: 13px;

@@ -9,12 +9,12 @@ describe("terminal font stack", () => {
   });
 
   it("puts the typed list after the icon font and in front of the text fonts, never in place of them", () => {
-    const stack = terminalFontStack('D2Coding, "Cascadia Mono"');
+    const stack = terminalFontStack('HackGen, "Cascadia Mono"');
     // the bundled icon font never sizes a cell, so it stays first and its icons draw over any font
-    expect(stack.startsWith('"Symbols Nerd Font Mono", D2Coding, "Cascadia Mono", "JetBrains Mono"')).toBe(true);
-    // a missing font falls through to today's order, and Malgun Gothic stays the last resort
-    expect(stack.replace('D2Coding, "Cascadia Mono", ', "")).toBe(TERMINAL_FONT_STACK);
-    expect(stack.endsWith('monospace, "Malgun Gothic"')).toBe(true);
+    expect(stack.startsWith('"Symbols Nerd Font Mono", HackGen, "Cascadia Mono", "JetBrains Mono"')).toBe(true);
+    // a missing font falls through to today's order, and the generic monospace stays the last resort
+    expect(stack.replace('HackGen, "Cascadia Mono", ', "")).toBe(TERMINAL_FONT_STACK);
+    expect(stack.endsWith(', monospace')).toBe(true);
   });
 
   it("never lets an unsanitized list through", () => {
