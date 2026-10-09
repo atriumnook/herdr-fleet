@@ -17,8 +17,7 @@ import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, paneRunsOmo, toolOutput } from "./conversation.ts";
 import { omoPanes } from "./omo.ts";
-import { OMO_ALIASES, OmoStatus, processAlive } from "./omo-status.ts";
-import { omoRuns, omoTasks } from "./omo-tasks.ts";
+import { OMO_ALIASES, OmoStatus } from "./omo-status.ts";
 import { CompletionTracker } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
@@ -441,7 +440,7 @@ export function createServer(
   const omo = new OmoStatus({
     discover: (panes) => omoPanes(panes),
     snapshot: sessionSnapshot,
-    onChange: (paneId, derived, background, turn) => omoChanged(paneId, derived, background, turn),
+    onChange: (paneId, derived, _background, turn) => omoChanged(paneId, derived, turn),
     // herdr called it `claude` or `pi` until now: what it finished under that name is its own
     onFound: (paneId) => completions.adopt(paneId, "omo", OMO_ALIASES),
   });
@@ -451,12 +450,8 @@ export function createServer(
     await omo.refresh(snapshot.panes);
     return omo.apply(snapshot);
   };
-  /** the snapshot clients get: finishes settled, OmO panes named, their running background tasks counted */
-  const clientSnapshot = async (): Promise<SessionSnapshot> => {
-    const snapshot = await completions.readSnapshot(rawSnapshot);
-    if (!snapshot.panes.some((pane) => omo.backgroundOf(pane.pane_id) > 0)) return snapshot;
-    return { ...snapshot, panes: snapshot.panes.map((pane) => omo.backgroundOf(pane.pane_id) > 0 ? { ...pane, background_tasks: omo.backgroundOf(pane.pane_id) } : pane) };
-  };
+  /** the snapshot clients get: finishes settled */
+  const clientSnapshot = (): Promise<SessionSnapshot> => completions.readSnapshot(rawSnapshot);
   const machines = options.machines === false ? null : new MachineManager(completions, clientSnapshot);
   /** agents started on callers' behalf (server/fleet): told of herdr's status events by the collector below */
   let listeningPort = 0;
@@ -844,10 +839,10 @@ export function createServer(
   };
 
   /** Status of EVERY pane, attached or not: one collector feeds all connected clients and web push. */
-  function omoChanged(paneId: string, derived: AgentStatus, background: number, turn: boolean): void {
+  function omoChanged(paneId: string, derived: AgentStatus, turn: boolean): void {
     // a background task starting or ending is no turn: the status stands, and nothing is alerted
     const status = turn ? completions.observe(paneId, derived, "omo") : completions.current(paneId) ?? completions.observe(paneId, derived, "omo");
-    broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status, background_tasks: background });
+    broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status });
     if (turn) push.onStatus(paneId, status).catch(logPushError);
   }
 
@@ -1216,17 +1211,6 @@ export function createServer(
         } catch (error) {
           return errorResponse(error);
         }
-      }
-
-      if (pathname === "/api/pane/omo-tasks") {
-        if (request.method !== "GET") return badRequest("method_not_allowed", "use GET");
-        const paneId = url.searchParams.get("pane_id");
-        if (!paneId) return badRequest("missing_pane_id", "pane_id query parameter is required");
-        const session = omo.sessionOf(paneId);
-        // server_time: the browser's clock can differ from this PC's, and the list says how long tasks ran
-        const server_time = new Date().toISOString();
-        if (session === null) return jsonResponse({ tasks: [], runs: [], server_time });
-        return jsonResponse({ tasks: omoTasks(session.cwd, session.sessionId, processAlive), runs: omoRuns(session.cwd, session.sessionId), server_time });
       }
 
       if (pathname === "/api/pane/read") {

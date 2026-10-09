@@ -27,8 +27,7 @@ import type { AgentStatus, PaneInfo, SessionSnapshot, TabInfo, WorkspaceInfo } f
 /** Friendly aliases used across the UI. */
 export type HerdrWorkspace = WorkspaceInfo;
 export type HerdrTab = TabInfo;
-/** `background_tasks`: an OmO pane's `task` children still running, counted by the server; absent when none */
-export type HerdrPane = PaneInfo & { background_tasks?: number };
+export type HerdrPane = PaneInfo;
 
 export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines.ts";
 
@@ -68,10 +67,6 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *         pasted image -> file under <pane cwd>/.herdr-fleet/, path for the prompt
  *  GET    /api/pane/commands?pane_id=   -> { commands: SlashCommand[] } (the agent's slash
  *         commands: built-ins per agent kind + the user's and the project's custom commands)
- *  GET    /api/pane/omo-tasks?pane_id=  -> OmoActivity (the background tasks and workflows the
- *         pane's OmO session started: running ones, then those that ended in the last day; empty
- *         for a pane that is not OmO or whose session is not known yet. server_time: that PC's
- *         clock, which the times are on)
  *  GET    /api/pane/files?pane_id=&q=&limit=  -> { files: string[] } (paths relative to the pane
  *         cwd matching q, for @-mentions; git ls-files when the cwd is a repo, bounded walk otherwise)
  *  GET    /api/pane/prompt?pane_id=     -> { prompt: InteractivePrompt | null, suggestion: string | null }
@@ -218,50 +213,6 @@ export interface ConversationMetadata {
    * response reports its usage. `window` is null when the transcript does not say it.
    */
   context?: { used: number; window: number | null };
-}
-
-/** One background task of an OmO session (GET /api/pane/omo-tasks), from OmO's task record. */
-export interface OmoTask {
-  id: string;
-  /** the task's summary, else its description or name */
-  title: string;
-  /** the category or agent type it ran as */
-  category: string | null;
-  model: string | null;
-  /** `lost`: OmO's process that ran it is gone */
-  status: "running" | "completed" | "failed" | "cancelled" | "lost";
-  started_at: string | null;
-  ended_at: string | null;
-  turns: number | null;
-  tool_calls: number | null;
-  tokens: number | null;
-}
-
-/** One step of an OmO workflow (a DAG node); `error` is why a failed one failed. */
-export interface OmoRunNode {
-  id: string;
-  label: string;
-  state: "pending" | "scheduled" | "running" | "blocked" | "completed" | "failed" | "skipped" | "cancelled";
-  error: string | null;
-}
-
-/** One OmO workflow (a DAG run): its steps by wave, a wave's steps able to run side by side. */
-export interface OmoRun {
-  id: string;
-  name: string;
-  /** `pending` and `paused` have not ended either */
-  status: "pending" | "running" | "paused" | "completed" | "failed" | "cancelled";
-  started_at: string | null;
-  ended_at: string | null;
-  waves: OmoRunNode[][];
-}
-
-/** GET /api/pane/omo-tasks */
-export interface OmoActivity {
-  tasks: OmoTask[];
-  runs: OmoRun[];
-  /** the PC's clock, which the times are on */
-  server_time: string;
 }
 
 /** GET /api/pane/conversation: native conversation with settings, or scrollback fallback. */
@@ -478,7 +429,7 @@ export type ServerMessage =
   | { type: "submit-result"; id: number; pane_id: string; ok: boolean; code?: string; message?: string }
   | { type: "secret-result"; id: number; pane_id: string; ok: boolean; code?: string }
   /** agent-status push for ANY pane, attached or not (server-side status collector) */
-  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus; /** an OmO pane's running background tasks, when the frame is about one */ background_tasks?: number }
+  | { type: "pane-status"; pane_id: string; agent_status: AgentStatus }
   /** a pane's process exited (pushed even when nobody is attached to it) */
   | { type: "pane-exited"; pane_id: string }
   /** session structure changed (pane created/closed): refetch /api/session */

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, answerPanePrompt, createWorkspace, uploadPaneImage, fetchPaneCommands, fetchPaneFiles, fetchPaneConversation, fetchPaneOmoActivity, fetchPanePromptState, fetchPaneTranscript, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, answerPanePrompt, createWorkspace, uploadPaneImage, fetchPaneCommands, fetchPaneFiles, fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -175,7 +175,6 @@ export const FLEET_PORTS: EffectPorts = {
     socket.connect();
     return socket;
   },
-  loadBackgroundTasks: (machineId, paneId) => fetchPaneOmoActivity(paneId, machineId),
   // a bridge from before folder browsing has no such route (404)
   listFolders: (machineId, path, hidden, files) => fetchDirectories(path, hidden, machineId, files).catch((error: unknown) => {
     if (error instanceof ApiError && error.status === 404) return { failure: "unsupported" as const };

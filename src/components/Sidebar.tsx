@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
-import { ChevronDown, ChevronRight, Ellipsis, Folder, GripVertical, Layers, Pencil, Plus, Terminal, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Ellipsis, Folder, GripVertical, Pencil, Plus, Terminal, X } from "lucide-react";
 
 import "./Sidebar.css";
 
-import type { AgentStatus, PaneInfo, SessionSnapshot, WorkspaceInfo, HerdrPane } from "../../shared/protocol.ts";
+import type { AgentStatus, PaneInfo, SessionSnapshot, WorkspaceInfo } from "../../shared/protocol.ts";
 import { paneTitle } from "../../shared/notify-policy.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { TreeEvent, TreeState } from "../ui/state.ts";
@@ -62,22 +62,6 @@ export function StatusBadge({ status }: { status?: AgentStatus }) {
   return (
     <span className={`badge badge-${value}`} data-status={value} title={t("Agent {status}", { status: t(STATUS_WORD[value]) })}>
       {t(STATUS_WORD[value])}
-    </span>
-  );
-}
-
-/**
- * Background tasks an agent started that still run (OmO's `task` children): the main turn can be
- * done while they work, and they wake the session by themselves. A count beside the state word,
- * not a state of its own: DONE stays the moment the agent answered.
- */
-export function BackgroundBadge({ count }: { count?: number }) {
-  const t = useT();
-  if (!count || count <= 0) return null;
-  const label = t("Background tasks running: {count}", { count });
-  return (
-    <span className="badge badge-background" title={label} aria-label={label} data-testid="background-tasks">
-      <Layers aria-hidden="true" />{count}
     </span>
   );
 }
@@ -407,7 +391,6 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
                       ) : (
                         <span className="pane-meta">
                           {pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : <StatusBadge status={pane.agent_status} />}
-                          <BackgroundBadge count={(pane as HerdrPane).background_tasks} />
                           {place && <span className="pane-subtitle">{place}</span>}
                         </span>
                       )}

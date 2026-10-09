@@ -24,7 +24,6 @@ import { checkDroplet } from "./droplet-regression.ts";
 import { checkChatKeepsTerminalSize } from "./chat-size-regression.ts";
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
 import { checkFleetScreen } from "./fleet-screen-regression.ts";
-import { checkBackgroundTasks } from "./background-tasks-regression.ts";
 import { checkDirectoryBrowser } from "./directory-browser-regression.ts";
 import { checkTerminalSession } from "./terminal-session-regression.ts";
 import { checkTerminalDraft } from "./terminal-draft-regression.ts";
@@ -319,7 +318,6 @@ try {
   await checkDefaultView(browser, origin);
   await checkComposerReconnect(browser, origin, paneB);
   await checkDroplet(browser, origin);
-  await checkBackgroundTasks(browser, origin);
   await checkDirectoryBrowser(browser, origin);
   await checkTerminalSession(browser, origin);
   await checkTerminalDraft(browser, origin);

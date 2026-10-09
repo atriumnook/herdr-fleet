@@ -1,7 +1,7 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { alertsAllow, shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, OmoRun, OmoTask, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
@@ -14,7 +14,6 @@ import { composerMessage, composerPayload } from "../lib/compose.ts";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
 import { statusEdgeRead } from "../lib/status.ts";
 import type { HeldMessage } from "../lib/messageQueue.ts";
-import { clockOffsetMs } from "../lib/omoTasks.ts";
 import { sanitizeFontFamily } from "../lib/fontFamily.ts";
 import { alertPrefs, DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type Settings } from "../lib/settings.ts";
 
@@ -316,21 +315,6 @@ export interface DropletState {
   reducedMotion: boolean;
 }
 
-/** how often an open background tasks list reads the pane's tasks again */
-export const BACKGROUND_TASKS_POLL_MS = 3000;
-
-/** The status line's background tasks list (OmO's), read while it is open. */
-export interface BackgroundTasksState {
-  /** the pane whose list is open */
-  open: { machineId: string; paneId: string } | null;
-  /** read last: `offset` is the PC's clock minus this browser's, as task times are on the PC's */
-  activity: { tasks: OmoTask[]; runs: OmoRun[]; offset: number; readAt: number } | null;
-  /** the last read failed: the list is as it read before */
-  failed: boolean;
-  /** the read chain running: one at a time, closing ends it */
-  seq: number;
-}
-
 /** Where a folder browser shows: the new session dialog, Files, and a folder opened in the file viewer (above Files). */
 export type FolderSlot = "new-session" | "files" | "viewer";
 
@@ -598,7 +582,6 @@ export interface UiState {
   palette: PaletteState;
   files: FilesState;
   droplet: DropletState;
-  backgroundTasks: BackgroundTasksState;
   folders: FoldersState;
   chat: ChatState;
   conversation: ConversationState;
@@ -803,13 +786,6 @@ export type UiEvent =
   /** scrolled near the top, or the button: the page before the earliest shown */
   | { type: "load-older-conversation" }
   | { type: "older-conversation-read"; olderSeq: number; before: string; outcome: ConversationOutcome }
-  | { type: "open-background-tasks"; machineId: string; paneId: string }
-  /** the list closed, or the composer it is in went (another pane, another lens) */
-  | { type: "close-background-tasks"; machineId: string; paneId: string }
-  | { type: "poll-background-tasks"; seq: number }
-  /** `at`: when it arrived, on this browser's clock */
-  | { type: "background-tasks-read"; seq: number; activity: { tasks: OmoTask[]; runs: OmoRun[]; serverTime: string | null }; at: number }
-  | { type: "background-tasks-failed"; seq: number }
   | { type: "open-files" }
   | { type: "close-files" }
   /** a file named in the selected pane (its chat, its terminal, Files): `path` is read from the pane's folder */
@@ -956,7 +932,6 @@ export type Effect =
   /** an empty draft is forgotten */
   | { kind: "save-draft"; owner: string; value: InputDraft }
   | { kind: "send-draft"; owner: string; paneId: string; text: string }
-  | { kind: "load-background-tasks"; machineId: string; paneId: string; seq: number }
   /** `sent`: the sends counted now, handed back with the answer */
   | { kind: "load-chat-prompt"; machineId: string; paneId: string; seq: number; sent: number }
   | { kind: "queue-change"; owner: string; change: QueueChange }
@@ -1012,7 +987,6 @@ export const INITIAL_STATE: UiState = {
   palette: { open: false },
   files: { dialog: false, viewer: null, seq: 0 },
   droplet: { shown: null, phase: "in", next: null, lastShown: {}, count: 0, timerSeq: 0, reducedMotion: false },
-  backgroundTasks: { open: null, activity: null, failed: false, seq: 0 },
   folders: { open: {}, seq: 0 },
   chat: { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0, card: null },
   conversation: NO_CONVERSATION,
@@ -1221,12 +1195,6 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "folders-listed":
     case "folders-failed":
       return next({ folders: foldersTransition(state.folders, event, effects) });
-    case "open-background-tasks":
-    case "close-background-tasks":
-    case "poll-background-tasks":
-    case "background-tasks-read":
-    case "background-tasks-failed":
-      return next({ backgroundTasks: backgroundTasksTransition(state.backgroundTasks, event, effects) });
     case "open-files":
     case "close-files":
     case "open-file":
@@ -1679,7 +1647,7 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
       let list = machines.list;
       let refetching = machines.refetching;
       if (message.type === "pane-status" && machine.snapshot) {
-        const snapshot = applyPaneStatus(machine.snapshot, message.pane_id, message.agent_status, message.background_tasks);
+        const snapshot = applyPaneStatus(machine.snapshot, message.pane_id, message.agent_status);
         if (snapshot !== machine.snapshot) list = list.map((candidate) => (candidate === machine ? { ...machine, snapshot } : candidate));
       }
       if ((message.type === "session-changed" || message.type === "pane-exited") && !refetching) {
@@ -2576,31 +2544,6 @@ function foldersTransition(folders: FoldersState, event: FoldersEvent, effects: 
       if (browser.homeIfInvalid && event.reason === "invalid") return read(browser, "", { homeIfInvalid: false });
       return put({ ...browser, error: event.reason, loading: false, homeIfInvalid: false });
   }
-}
-
-type BackgroundTasksListEvent = Extract<UiEvent, { type: "open-background-tasks" | "close-background-tasks" | "poll-background-tasks" | "background-tasks-read" | "background-tasks-failed" }>;
-
-function backgroundTasksTransition(list: BackgroundTasksState, event: BackgroundTasksListEvent, effects: Effect[]): BackgroundTasksState {
-  switch (event.type) {
-    case "open-background-tasks": {
-      // each opening reads anew: what an earlier one asked answers too late
-      const seq = list.seq + 1;
-      effects.push({ kind: "load-background-tasks", machineId: event.machineId, paneId: event.paneId, seq });
-      return { open: { machineId: event.machineId, paneId: event.paneId }, activity: null, failed: false, seq };
-    }
-    case "close-background-tasks":
-      if (list.open?.machineId !== event.machineId || list.open.paneId !== event.paneId) return list;
-      return { open: null, activity: null, failed: false, seq: list.seq + 1 };
-  }
-  if (list.open === null || event.seq !== list.seq) return list;
-  if (event.type === "poll-background-tasks") {
-    effects.push({ kind: "load-background-tasks", ...list.open, seq: list.seq });
-    return list;
-  }
-  effects.push({ kind: "later", ms: BACKGROUND_TASKS_POLL_MS, event: { type: "poll-background-tasks", seq: list.seq } });
-  if (event.type === "background-tasks-failed") return { ...list, failed: true };
-  const { tasks, runs, serverTime } = event.activity;
-  return { ...list, activity: { tasks, runs, offset: clockOffsetMs(serverTime, event.at), readAt: event.at }, failed: false };
 }
 
 type FilesEvent = Extract<UiEvent, { type: "open-files" | "close-files" | "open-file" | "viewer-open" | "choose-candidate" | "close-file" | "file-history" | "file-loaded" | "file-text" | "file-folder" }>;

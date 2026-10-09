@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
-import type { HerdrPane } from "../shared/protocol.ts";
 import { displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
@@ -433,7 +432,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
             restoreError={selectedPane?.restore_error ?? null}
             agent={selectedAgent}
             agentStatus={selectedPane?.agent_status}
-            backgroundTasks={(selectedPane as HerdrPane | null)?.background_tasks ?? 0}
             view={view}
             autoSelected={autoSelected}
             terminalFontSize={settings.terminalFontSize}

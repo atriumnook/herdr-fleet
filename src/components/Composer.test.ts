@@ -22,7 +22,7 @@ function render(element: ReturnType<typeof createElement>): string {
     else Reflect.deleteProperty(navigator, "languages");
   }
 }
-const composer = (values: ComposerModel) => render(createElement(Composer, { model: values, status: null, emit: () => {} }));
+const composer = (values: ComposerModel) => render(createElement(Composer, { model: values, emit: () => {} }));
 
 describe("Composer view", () => {
   it("shows the draft, and says what a message does now in the placeholder", () => {

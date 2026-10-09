@@ -17,7 +17,6 @@ import { useMachineApi, useMachineId } from "../lib/machineContext.tsx";
 import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar, type KeyBarEvent } from "./KeyBar.tsx";
 import type { Emit } from "../ui/bubble.ts";
-import type { BackgroundTasksUpEvent } from "../ui/BackgroundTasksPresenter.tsx";
 import { useSelected, useTerminal } from "../ui/presenter.ts";
 import { NO_SESSION, type PaneCommand, type PaneSessionEvent, type UiEvent } from "../ui/state.ts";
 import { QueuePresenter, type QueueUpEvent } from "../ui/QueuePresenter.tsx";
@@ -53,8 +52,6 @@ export interface PaneTerminalProps {
   agent?: string | null;
   /** the pane's live agent status: `working` turns composer sends into the queue */
   agentStatus?: AgentStatus;
-  /** an OmO pane's running background tasks: the composer's status line offers their list */
-  backgroundTasks?: number;
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
   /** App selected this pane itself (the selected one closed): switching to it must not take the keyboard */
@@ -72,8 +69,8 @@ export interface PaneTerminalProps {
   /** Fires with the server-confirmed role (the header toggle shows it). */
   /** Fires on every change of the socket's connected state (the header shows it). */
   /** Every server frame also reaches App: it merges pane-status and schedules refetches. */
-  /** what the terminal's socket says of the pane, and what the views inside it (the composer's background tasks) send, up to the Root */
-  emit: Emit<BackgroundTasksUpEvent | Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }>
+  /** what the terminal's socket says of the pane, and what the views inside it send, up to the Root */
+  emit: Emit<Extract<PaneSessionEvent, { type: "pane-attached" | "pane-output" | "dismiss-input-error" }>
     | Extract<UiEvent, { type: "open-pane-socket" | "close-pane-socket" | "pane-command" | "draft-open" | "draft-input" | "send-draft" | "discard-draft"
       | "chat-pending-answer-done"
       | "queue-open" | "queue-edit" | "queue-discard" | "composer-draft" | "line-draft" | "composer-send" | "line-send" | "queue-send"
@@ -105,7 +102,6 @@ export function PaneTerminal({
   restoreError = null,
   agent = null,
   agentStatus,
-  backgroundTasks = 0,
   view,
   autoSelected = false,
   terminalFontSize,
@@ -1232,7 +1228,6 @@ export function PaneTerminal({
           autoFocus={!autoSelected && !coarse}
           agent={agent}
           agentStatus={agentStatus}
-          backgroundTasks={backgroundTasks}
           emit={composerEmit}
           metadata={chatMetadata}
           connected={connected && !held}

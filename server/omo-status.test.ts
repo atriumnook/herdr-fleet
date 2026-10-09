@@ -5,7 +5,6 @@ import { join } from "node:path";
 
 import type { AgentStatus, HerdrPane, SessionSnapshot } from "../shared/protocol.ts";
 import { CompletionTracker } from "./completion.ts";
-import { paneAfterStatus } from "./machines.ts";
 import { earliestStart, holderStartedAt } from "./omo.ts";
 import { noTurn, OMO_ALIASES, omoBackgroundTasks, omoSessionId, OmoStatus, omoTurnAfter, omoTurnStatus, readLines, type OmoLine, type OmoPane } from "./omo-status.ts";
 
@@ -378,14 +377,6 @@ describe("OmO panes' status in place of herdr's", () => {
     expect(earliestStart([1_790_000_000_000, null])).toBe(1_790_000_000_000);
     expect(earliestStart([5, 3])).toBe(3);
     expect(earliestStart([null])).toBeNull();
-  });
-
-  it("keeps a remote PC's count of background tasks as its frames say", () => {
-    const frame = (background_tasks?: number) => ({ type: "pane-status" as const, pane_id: "omo", agent_status: "working" as const, ...(background_tasks === undefined ? {} : { background_tasks }) });
-    const two = paneAfterStatus(pane("omo", "omo", "idle"), frame(2));
-    expect(two).toMatchObject({ agent_status: "working", background_tasks: 2 });
-    expect(paneAfterStatus(two, frame())).toMatchObject({ background_tasks: 2 });
-    expect("background_tasks" in paneAfterStatus(two, frame(0))).toBe(false);
   });
 
   it("looks the panes up once per refresh, and not again while nothing changed", async () => {

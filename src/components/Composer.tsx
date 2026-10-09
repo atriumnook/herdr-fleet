@@ -9,7 +9,6 @@ import {
   type DragEvent,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
-  type ReactNode,
 } from "react";
 import { Clock, FileText, Paperclip, SendHorizontal, Square, X } from "lucide-react";
 
@@ -67,8 +66,6 @@ export interface ComposerModel {
 
 export interface ComposerProps {
   model: ComposerModel;
-  /** the status line's background tasks, drawn by their own Presenter */
-  status: ReactNode;
   emit: Emit<ComposerEvent>;
 }
 
@@ -158,7 +155,7 @@ function ContextRing({ context }: { context: NonNullable<ConversationMetadata["c
 }
 
 /** Chat-style input surface with pane-local drafts, command/file completion, and image mentions. */
-export function Composer({ model, status, emit }: ComposerProps) {
+export function Composer({ model, emit }: ComposerProps) {
   const t = useT();
   const { machineId, paneId, owner, connected, autoFocus, agent, agentStatus, metadata, queueMode, answerHint, suggestion, text, draftRead, sending, settled, outcome,
     commands, files, slashUsage, attachments, enterSends, showSuggestionChip, quickReplies } = model;
@@ -554,7 +551,6 @@ export function Composer({ model, status, emit }: ComposerProps) {
         <span className="composer-agent-label">{agentLabel}</span>
         <span className="composer-status-separator" aria-hidden="true">·</span>
         <strong>{t(composerStatusWord(agentStatus))}</strong>
-        {status}
         {(metadata?.model || metadata?.reasoning_effort) && <span className="composer-model-info" aria-label={t("Model and reasoning")}>
           <span className="composer-model" title={metadata.model ?? t("Model not available")}>{metadata.model ?? t("Model —")}</span>
           <span className="composer-reasoning" title={metadata.reasoning_effort ? t("Reasoning effort: {effort}", { effort: metadata.reasoning_effort }) : t("Reasoning effort not available")}>

@@ -4,12 +4,11 @@ import { paneStorageId } from "../../shared/machines.ts";
 import { Composer, type ComposerEvent, type ComposerModel } from "../components/Composer.tsx";
 import { useMachineId } from "../lib/machineContext.tsx";
 import { quickReplyButtons, useSettings } from "../lib/settings.ts";
-import { BackgroundTasksPresenter, type BackgroundTasksUpEvent } from "./BackgroundTasksPresenter.tsx";
 import type { Emit } from "./bubble.ts";
 import type { ComposerAttachment, UiEvent } from "./state.ts";
 import { useSelected } from "./presenter.ts";
 
-export type ComposerUpEvent = ComposerEvent | BackgroundTasksUpEvent | Extract<UiEvent, { type: "completions-open" | "attachments-close" }>;
+export type ComposerUpEvent = ComposerEvent | Extract<UiEvent, { type: "completions-open" | "attachments-close" }>;
 
 /** nothing yet: the same empty lists each render */
 const NO_COMMANDS: SlashCommand[] = [];
@@ -22,8 +21,6 @@ export interface ComposerPresenterProps {
   autoFocus: boolean;
   agent: string | null;
   agentStatus: AgentStatus | undefined;
-  /** an OmO pane's running background tasks: the status line opens their list */
-  backgroundTasks: number;
   metadata: ConversationMetadata | null;
   queueMode: boolean;
   answerHint: string | null;
@@ -37,7 +34,7 @@ export interface ComposerPresenterProps {
  * the settings that shape the box. It reads the draft back and the commands as it opens, and as
  * it goes, the files it attached go with it and its `@` names no file any more.
  */
-export function ComposerPresenter({ paneId, connected, autoFocus, agent, agentStatus, backgroundTasks, metadata, queueMode, answerHint, suggestion, emit }: ComposerPresenterProps) {
+export function ComposerPresenter({ paneId, connected, autoFocus, agent, agentStatus, metadata, queueMode, answerHint, suggestion, emit }: ComposerPresenterProps) {
   const machineId = useMachineId();
   const owner = paneStorageId(machineId, paneId);
   const emitRef = useRef(emit);
@@ -65,5 +62,5 @@ export function ComposerPresenter({ paneId, connected, autoFocus, agent, agentSt
     text: draft?.text ?? "", draftRead: draft !== undefined, sending: draft?.sending ?? false, settled, outcome, commands, files, slashUsage, attachments,
     enterSends: settings.enterSends, showSuggestionChip: settings.showSuggestionChip, quickReplies,
   };
-  return <Composer model={model} status={<BackgroundTasksPresenter paneId={paneId} count={backgroundTasks} omo={agent === "omo"} emit={emit} />} emit={emit} />;
+  return <Composer model={model} emit={emit} />;
 }
