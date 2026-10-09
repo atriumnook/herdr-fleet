@@ -18,8 +18,7 @@
   background:
     radial-gradient(55% 45% at 12% 8%, var(--backdrop-glow-a), transparent 70%),
     radial-gradient(45% 50% at 92% 30%, var(--backdrop-glow-b), transparent 70%),
-    radial-gradient(60% 40% at 50% 105%, var(--backdrop-glow-c), transparent 70%),
-    radial-gradient(var(--backdrop-grid) 1px, transparent 1.5px) 0 0 / 28px 28px;
+    radial-gradient(60% 40% at 50% 105%, var(--backdrop-glow-c), transparent 70%);
 }
 
 .fleet-scroll {
