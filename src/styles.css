@@ -95,7 +95,6 @@
   --fw-semibold: 600;
   --fw-bold: 700;
   --tracking-tight: -0.01em;
-  --tracking-caps: 0.06em;
 
   /* space (4px base) */
   --space-1: 4px;
@@ -644,7 +643,6 @@ button {
   color: var(--accent);
   border-color: var(--accent);
   background: var(--tint);
-  text-transform: uppercase;
 }
 
 /* status badge: tinted background + text, the state readable as a word */
@@ -658,8 +656,6 @@ button {
   border-radius: var(--radius-sm);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
   white-space: nowrap;
 }
 
@@ -847,8 +843,6 @@ button {
   font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
   color: var(--sub);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
 }
 
 .field-hint {
@@ -948,8 +942,6 @@ button {
   padding: var(--space-2) var(--space-2) var(--space-1);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
   color: var(--sub);
 }
 

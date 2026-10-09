@@ -141,7 +141,6 @@
   color: var(--sub);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-caps);
   cursor: pointer;
 }
 
@@ -517,8 +516,6 @@
   color: var(--sub);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-semibold);
-  text-transform: uppercase;
-  letter-spacing: var(--tracking-caps);
 }
 
 .chat-checklist {
@@ -637,8 +634,6 @@
   color: var(--sub);
   font-size: var(--chat-fs-2xs);
   font-weight: var(--fw-semibold);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
 }
 
 .todo-item {
