@@ -159,7 +159,7 @@ function FallbackMark({ agent, size }: { agent: string; size: number }) {
   const initial = agent.trim().charAt(0).toUpperCase() || "?";
   return (
     <svg viewBox="0 0 24 24" width={size} height={size} role="img" aria-label={agent}>
-      <circle cx="12" cy="12" r="11" fill="var(--bg-elevated)" stroke="var(--border)" strokeWidth="1" />
+      <circle cx="12" cy="12" r="11" fill="var(--field)" stroke="var(--line)" strokeWidth="1" />
       <text x="12" y="16" textAnchor="middle" fontSize="11" fill="currentColor">
         {initial}
       </text>

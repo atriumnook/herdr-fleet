@@ -30,7 +30,7 @@ import { RenderBoundary } from "./RenderBoundary.tsx";
 import { ComposerPresenter, type ComposerUpEvent } from "../ui/ComposerPresenter.tsx";
 import type { AgentStatus, ClientRole } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
-import { useSettings, terminalTheme, type Palette, type ResolvedTheme } from "../lib/settings.ts";
+import { useSettings, terminalTheme, type ResolvedTheme } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
 import { useT } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
@@ -67,8 +67,6 @@ export interface PaneTerminalProps {
   terminalFontFamily: string;
   /** the resolved UI theme: the xterm theme object mirrors it */
   theme: ResolvedTheme;
-  /** the chrome palette (settings.ts): the terminal cursor and selection follow it */
-  palette: Palette;
   /** The connection's desired role; changes are sent to the server, its ack goes up as role-ack. */
   role?: ClientRole;
   /** Fires with the server-confirmed role (the header toggle shows it). */
@@ -114,7 +112,6 @@ export function PaneTerminal({
   terminalWheelSpeed,
   terminalFontFamily,
   theme,
-  palette,
   role = "interact",
   emit,
 }: PaneTerminalProps) {
@@ -231,7 +228,7 @@ export function PaneTerminal({
       fontSize: terminalFontSize,
       // a chosen family follows in the font effect below, once its faces have loaded
       fontFamily: TERMINAL_FONT_STACK,
-      theme: terminalTheme(theme, palette),
+      theme: terminalTheme(theme),
       linkHandler: {
         activate: (event, uri) => {
           if (!linkPressed(event)) return;
@@ -909,8 +906,8 @@ export function PaneTerminal({
   // the theme follows the settings without a remount
   useEffect(() => {
     const term = termRef.current;
-    if (term) term.options.theme = terminalTheme(theme, palette);
-  }, [theme, palette]);
+    if (term) term.options.theme = terminalTheme(theme);
+  }, [theme]);
 
   // the font follows too, and a font change moves the grid. xterm measures the cell (and the DOM
   // renderer its glyph widths) when fontFamily or fontSize changes, and setting the same value

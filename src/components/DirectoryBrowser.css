@@ -2,9 +2,9 @@
 .dir-browser {
   display: flex;
   flex-direction: column;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--bg-elevated);
+  background: var(--field);
   overflow: hidden;
 }
 
@@ -13,7 +13,7 @@
   align-items: center;
   gap: var(--space-1);
   padding: var(--space-1);
-  border-bottom: var(--hairline) solid var(--border);
+  border-bottom: var(--hairline) solid var(--line);
 }
 
 /* a long path keeps its end, the part that says where you are */
@@ -26,7 +26,7 @@
   text-align: left;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
 }
@@ -49,7 +49,7 @@
   gap: var(--space-2);
   border: 0;
   background: transparent;
-  color: var(--text);
+  color: var(--ink);
   font: inherit;
   font-size: var(--fs-sm);
   text-align: left;
@@ -58,8 +58,8 @@
 
 .dir-browser-item:hover:not(:disabled),
 .dir-browser-item:focus-visible {
-  background: var(--bg-hover);
-  color: var(--text-strong);
+  background: var(--field-hover);
+  color: var(--ink-strong);
 }
 
 .dir-browser-item svg {
@@ -78,12 +78,12 @@
 .dir-browser-note {
   margin: 0;
   padding: var(--space-2) var(--space-3);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-sm);
 }
 
 .dir-browser-error {
-  color: var(--status-blocked);
+  color: var(--needs);
 }
 
 .dir-browser-footer {
@@ -92,14 +92,14 @@
   justify-content: space-between;
   gap: var(--space-2);
   padding: var(--space-2);
-  border-top: var(--hairline) solid var(--border);
+  border-top: var(--hairline) solid var(--line);
 }
 
 .dir-browser-hidden {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-sm);
   cursor: pointer;
 }
@@ -107,13 +107,13 @@
 .dir-browser-size {
   flex: none;
   margin-left: auto;
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-2xs);
   font-variant-numeric: tabular-nums;
 }
 
 .dir-browser-item.is-file svg {
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 @media (pointer: coarse) {

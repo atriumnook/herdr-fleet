@@ -8,9 +8,9 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  border: var(--hairline) solid var(--status-blocked);
+  border: var(--hairline) solid var(--needs);
   border-radius: var(--radius-xl);
-  background: var(--bg-panel);
+  background: var(--surface);
   box-shadow: var(--shadow-pop);
 }
 
@@ -28,7 +28,7 @@
 }
 
 .prompt-card-header h2 {
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-md);
   font-weight: var(--fw-semibold);
 }
@@ -50,9 +50,9 @@
   align-items: center;
   gap: var(--space-1);
   padding: 2px var(--space-2) 2px 2px;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-pill);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
   line-height: var(--lh-tight);
   transition:
@@ -68,7 +68,7 @@
   display: inline-grid;
   place-items: center;
   border-radius: var(--radius-pill);
-  background: var(--bg-elevated);
+  background: var(--field);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
 }
@@ -87,7 +87,7 @@
 }
 
 .prompt-card-step.is-answered {
-  color: var(--text);
+  color: var(--ink);
 }
 
 .prompt-card-step.is-answered .prompt-card-step-mark {
@@ -96,19 +96,19 @@
 
 .prompt-card-step.is-current {
   border-color: var(--accent);
-  background: var(--accent-tint);
-  color: var(--text-strong);
+  background: var(--tint);
+  color: var(--ink-strong);
   font-weight: var(--fw-medium);
 }
 
 .prompt-card-step.is-current .prompt-card-step-mark {
-  background: var(--primary);
-  color: var(--primary-text);
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
 /* what the agent asks is the line to read first: full strength, not a caption under the title */
 .prompt-card-question {
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-md);
   line-height: var(--lh-base);
   overflow-wrap: anywhere;
@@ -116,7 +116,7 @@
 
 /* a question in Codex's queue: the agent is not waiting on it, so the card says who answers what */
 .prompt-card-hint {
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
   line-height: var(--lh-base);
 }
@@ -126,10 +126,10 @@
   margin: 0;
   padding: var(--space-2) var(--space-3);
   overflow: auto;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
   background: var(--bg);
-  color: var(--text);
+  color: var(--ink);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   line-height: var(--lh-base);
@@ -153,10 +153,10 @@
   align-items: baseline;
   gap: var(--space-2);
   padding: var(--space-2) var(--space-3);
-  background: var(--bg-elevated);
-  border: var(--hairline) solid var(--border);
+  background: var(--field);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-sm);
   line-height: var(--lh-base);
   text-align: left;
@@ -169,8 +169,8 @@
 }
 
 .prompt-card-option:hover {
-  background: var(--bg-hover);
-  border-color: var(--border-strong);
+  background: var(--field-hover);
+  border-color: var(--line-strong);
 }
 
 .prompt-card-option:hover .prompt-card-number {
@@ -184,14 +184,14 @@
 }
 
 .prompt-card[aria-busy="true"] .prompt-card-option:hover {
-  background: var(--bg-elevated);
-  border-color: var(--border);
+  background: var(--field);
+  border-color: var(--line);
 }
 
 /* a picked option: a checked box, or a typed pick of an approval's option that waits for Confirm */
 .prompt-card-option.is-checked,
 .prompt-card-option.is-typed {
-  background: var(--accent-tint);
+  background: var(--tint);
   border-color: var(--accent);
 }
 
@@ -199,7 +199,7 @@
 .prompt-card-number {
   flex: none;
   min-width: 2ch;
-  color: var(--text-dim);
+  color: var(--sub);
   font-family: var(--font-mono);
   font-weight: var(--fw-regular);
 }
@@ -216,7 +216,7 @@
   height: 16px;
   /* centred on the label's first line */
   margin: calc((var(--fs-sm) * var(--lh-base) - 16px) / 2) 0 0;
-  accent-color: var(--primary);
+  accent-color: var(--accent);
   cursor: inherit;
 }
 
@@ -233,7 +233,7 @@
 }
 
 .prompt-card-option-description {
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
   font-weight: var(--fw-regular);
 }
@@ -243,7 +243,7 @@
   display: inline-block;
   padding: 1px var(--space-1);
   border-radius: var(--radius-sm);
-  background: var(--accent-tint);
+  background: var(--tint);
   color: var(--accent);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-semibold);
@@ -259,7 +259,7 @@
   padding: var(--space-2) var(--space-3);
   border: var(--hairline) solid var(--accent);
   border-radius: var(--radius-md);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-sm);
 }
 
@@ -280,7 +280,7 @@
 }
 
 .prompt-card-custom-label {
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
 }
 
@@ -302,7 +302,7 @@
 }
 
 .prompt-card-error {
-  color: var(--status-blocked);
+  color: var(--needs);
   font-size: var(--fs-xs);
 }
 

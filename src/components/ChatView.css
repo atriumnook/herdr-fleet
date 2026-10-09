@@ -48,7 +48,7 @@
 }
 
 .chat-terminal-fallback {
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-sm);
 }
 
@@ -62,7 +62,7 @@
   align-items: flex-end;
   gap: var(--space-1);
   padding-top: var(--space-4);
-  border-top: var(--hairline) solid var(--border);
+  border-top: var(--hairline) solid var(--line);
 }
 
 .chat-turn-user:first-child {
@@ -75,10 +75,10 @@
 .chat-bubble {
   max-width: 80%;
   padding: var(--space-3) var(--space-4);
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-lg) var(--radius-lg) var(--radius-sm) var(--radius-lg);
-  background: var(--bg-elevated);
-  color: var(--text-strong);
+  background: var(--field);
+  color: var(--ink-strong);
   overflow-wrap: anywhere;
 }
 
@@ -88,7 +88,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-2xs);
   opacity: 0;
   transition: opacity var(--dur-fast) var(--ease-out);
@@ -117,7 +117,7 @@
   flex-direction: column;
   align-items: flex-start;
   gap: var(--space-3);
-  color: var(--text);
+  color: var(--ink);
 }
 
 .chat-agent-meta {
@@ -138,7 +138,7 @@
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-semibold);
   letter-spacing: var(--tracking-caps);
@@ -146,8 +146,8 @@
 }
 
 .chat-meta-btn:hover {
-  background: var(--bg-hover);
-  color: var(--text-strong);
+  background: var(--field-hover);
+  color: var(--ink-strong);
 }
 
 .markdown {
@@ -191,7 +191,7 @@
 .markdown h3,
 .markdown h4,
 .markdown h5 { color: inherit; font-weight: var(--fw-semibold); line-height: var(--lh-tight); }
-.markdown h6 { color: var(--text-dim); font-weight: var(--fw-semibold); line-height: var(--lh-tight); }
+.markdown h6 { color: var(--sub); font-weight: var(--fw-semibold); line-height: var(--lh-tight); }
 
 .markdown-list {
   padding-left: var(--space-5);
@@ -209,21 +209,21 @@
 
 .markdown blockquote {
   padding-left: var(--space-3);
-  border-left: var(--rail-w) solid var(--border-strong);
-  color: var(--text-dim);
+  border-left: var(--rail-w) solid var(--line-strong);
+  color: var(--sub);
 }
 
 .markdown :not(pre) > code {
   padding-inline: var(--space-1);
   border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  color: var(--text-strong);
+  background: var(--field);
+  color: var(--ink-strong);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
 }
 
 .chat-bubble .markdown :not(pre) > code {
-  background: var(--bg-hover);
+  background: var(--field-hover);
 }
 
 .markdown a {
@@ -234,23 +234,23 @@
 
 .chat-bubble .markdown pre,
 .chat-bubble .markdown-code {
-  background: var(--bg-panel);
+  background: var(--surface);
 }
 
 .markdown hr {
   margin: var(--space-4) 0;
   border: 0;
-  border-top: var(--hairline) solid var(--border);
+  border-top: var(--hairline) solid var(--line);
 }
 
 .markdown-code {
   width: 100%;
   margin-bottom: var(--space-3);
   overflow: hidden;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--bg-panel);
-  color: var(--text);
+  background: var(--surface);
+  color: var(--ink);
 }
 
 .markdown-code-header {
@@ -259,8 +259,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: var(--hairline) solid var(--border);
-  color: var(--text-dim);
+  border-bottom: var(--hairline) solid var(--line);
+  color: var(--sub);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
 }
@@ -281,9 +281,9 @@
   min-height: var(--control-h);
   padding: 0 var(--space-3);
   border: 0;
-  border-top: var(--hairline) solid var(--border);
+  border-top: var(--hairline) solid var(--line);
   background: transparent;
-  color: var(--text-dim);
+  color: var(--sub);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   text-align: left;
@@ -291,8 +291,8 @@
 }
 
 .markdown-code-more:hover {
-  background: var(--bg-hover);
-  color: var(--text);
+  background: var(--field-hover);
+  color: var(--ink);
 }
 
 .markdown-table-wrap {
@@ -310,13 +310,13 @@
 .markdown th,
 .markdown td {
   padding: var(--space-2);
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   text-align: left;
 }
 
 .markdown th {
-  background: var(--bg-elevated);
-  color: var(--text-strong);
+  background: var(--field);
+  color: var(--ink-strong);
   font-weight: var(--fw-semibold);
 }
 
@@ -340,7 +340,7 @@
   border: 0;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-sm);
   text-align: left;
   cursor: pointer;
@@ -348,7 +348,7 @@
 
 .work-block-head:hover,
 .work-row-head:hover {
-  background: var(--bg-hover);
+  background: var(--field-hover);
 }
 
 .work-row-caret {
@@ -356,7 +356,7 @@
   display: inline-flex;
   width: var(--fs-md);
   height: var(--fs-md);
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .work-row-caret svg {
@@ -366,7 +366,7 @@
 
 .work-block-title {
   flex: none;
-  color: var(--text);
+  color: var(--ink);
   font-weight: var(--fw-medium);
 }
 
@@ -374,7 +374,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--status-working);
+  color: var(--working);
 }
 
 /* the dot breathes, the words hold still (same rule as the RUN badge) */
@@ -420,7 +420,7 @@
 
 .work-row-name {
   flex: none;
-  color: var(--text);
+  color: var(--ink);
   font-weight: var(--fw-medium);
 }
 
@@ -442,13 +442,13 @@
 
 .work-row-thinking .work-row-name {
   font-style: italic;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 /* what the agent said mid-work: prose, but dim and one step smaller than the answer */
 .work-narration {
   padding: var(--space-1) var(--space-1) var(--space-2);
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .work-narration .markdown {
@@ -461,11 +461,11 @@
   gap: var(--space-2);
   margin: var(--space-1) 0 var(--space-2) calc(var(--fs-md) + var(--space-2));
   padding-left: var(--space-3);
-  border-left: var(--hairline) solid var(--border);
+  border-left: var(--hairline) solid var(--line);
 }
 
 .work-thinking-text {
-  color: var(--text-dim);
+  color: var(--sub);
   font-style: italic;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -477,10 +477,10 @@
   margin: 0;
   padding: var(--space-2) var(--space-3);
   overflow: auto;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--bg-panel);
-  color: var(--text);
+  background: var(--surface);
+  color: var(--ink);
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   line-height: var(--lh-base);
@@ -501,12 +501,12 @@
   margin-top: var(--space-2);
 }
 
-.chat-tool-file { color: var(--text-strong); }
-.chat-tool-io-meta { color: var(--text-dim); font-size: var(--fs-2xs); }
+.chat-tool-file { color: var(--ink-strong); }
+.chat-tool-io-meta { color: var(--sub); font-size: var(--fs-2xs); }
 .chat-diff { display: block; white-space: pre; overflow-x: auto; }
-.chat-diff-add { color: var(--status-done); }
-.chat-diff-del { color: var(--status-blocked); }
-.chat-diff-head { color: var(--text-dim); font-weight: var(--fw-semibold); }
+.chat-diff-add { color: var(--done); }
+.chat-diff-del { color: var(--needs); }
+.chat-diff-head { color: var(--sub); font-weight: var(--fw-semibold); }
 
 .chat-tool-output {
   width: 100%;
@@ -514,7 +514,7 @@
 
 .chat-tool-output h4 {
   margin: 0 0 var(--space-1);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-semibold);
   text-transform: uppercase;
@@ -528,16 +528,16 @@
   font-size: var(--fs-xs);
 }
 
-.chat-checklist-box { display: inline-block; width: var(--space-4); color: var(--text-dim); }
-.chat-checklist li.is-done { color: var(--text-dim); text-decoration: line-through; }
-.chat-checklist li.is-active .chat-checklist-box { color: var(--status-working); }
-.chat-checklist-phase { margin-top: var(--space-2); color: var(--text-dim); font-weight: var(--fw-semibold); }
+.chat-checklist-box { display: inline-block; width: var(--space-4); color: var(--sub); }
+.chat-checklist li.is-done { color: var(--sub); text-decoration: line-through; }
+.chat-checklist li.is-active .chat-checklist-box { color: var(--working); }
+.chat-checklist-phase { margin-top: var(--space-2); color: var(--sub); font-weight: var(--fw-semibold); }
 
 /* the top of what is loaded: the way to the page before it */
 .chat-older {
   align-self: center;
   min-height: var(--control-h);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
 }
 
@@ -545,11 +545,11 @@
 .chat-endcap {
   align-self: center;
   margin: 0;
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
 }
 
-.chat-inline-error { color: var(--status-blocked); }
+.chat-inline-error { color: var(--needs); }
 
 .chat-endcap {
   width: 100%;
@@ -562,7 +562,7 @@
 .chat-endcap::after {
   content: "";
   flex: 1 1 auto;
-  border-top: var(--hairline) solid var(--border);
+  border-top: var(--hairline) solid var(--line);
 }
 
 .chat-empty {
@@ -572,7 +572,7 @@
   place-content: center;
   justify-items: center;
   gap: var(--space-3);
-  color: var(--text-dim);
+  color: var(--sub);
   text-align: center;
 }
 
@@ -634,7 +634,7 @@
 
 .todo-phase {
   margin: var(--space-2) 0 var(--space-1);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--chat-fs-2xs);
   font-weight: var(--fw-semibold);
   letter-spacing: var(--tracking-caps);
@@ -655,17 +655,17 @@
   width: calc(var(--icon-size) * 0.9);
   height: calc(var(--icon-size) * 0.9);
   margin-top: 0.15em;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .todo-label { min-width: 0; overflow-wrap: anywhere; }
-.todo-note { display: block; color: var(--text-dim); font-size: var(--chat-fs-xs); }
-.todo-item.is-completed { color: var(--text-dim); }
-.todo-item.is-completed .todo-icon { color: var(--status-done); }
-.todo-item.is-in_progress { color: var(--text-strong); font-weight: var(--fw-medium); }
-.todo-item.is-in_progress .todo-icon { color: var(--status-working); }
-.todo-item.is-blocked .todo-icon { color: var(--status-blocked); }
-.todo-item.is-dropped { color: var(--text-dim); text-decoration: line-through; }
+.todo-note { display: block; color: var(--sub); font-size: var(--chat-fs-xs); }
+.todo-item.is-completed { color: var(--sub); }
+.todo-item.is-completed .todo-icon { color: var(--done); }
+.todo-item.is-in_progress { color: var(--ink-strong); font-weight: var(--fw-medium); }
+.todo-item.is-in_progress .todo-icon { color: var(--working); }
+.todo-item.is-blocked .todo-icon { color: var(--needs); }
+.todo-item.is-dropped { color: var(--sub); text-decoration: line-through; }
 
 /* a todo call's detail in the work block shows the list after it */
 .work-row-detail .todo-list { padding: var(--space-1) var(--space-3); }
@@ -726,15 +726,15 @@
 /* a call that failed: its name in the alert colour and a word that says so, even folded */
 .work-row.is-error .work-row-name,
 .work-row.is-error .work-row-icon {
-  color: var(--status-blocked);
+  color: var(--needs);
 }
 
 .work-row-failed {
   flex: none;
   padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
-  background: var(--status-blocked-tint);
-  color: var(--status-blocked);
+  background: var(--needs-tint);
+  color: var(--needs);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-semibold);
 }
@@ -786,9 +786,9 @@
   display: block;
   padding: 0;
   overflow: hidden;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
+  background: var(--field);
   cursor: zoom-in;
 }
 
@@ -803,7 +803,7 @@
 /* where a compaction folded the conversation: a quiet divider, its summary on request */
 .chat-compact {
   margin: var(--space-4) 0;
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-sm);
 }
 
@@ -819,7 +819,7 @@
 .chat-compact > summary::after {
   content: "";
   flex: 1 1 auto;
-  border-top: var(--hairline) solid var(--border);
+  border-top: var(--hairline) solid var(--line);
 }
 
 .chat-compact > summary::-webkit-details-marker {
@@ -829,7 +829,7 @@
 .chat-compact-text {
   margin-top: var(--space-2);
   padding: var(--space-3);
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-lg);
 }
 
@@ -864,9 +864,9 @@
 }
 .chat-skill {
   max-width: 100%;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--bg-elevated);
+  background: var(--field);
   font-size: var(--fs-xs);
 }
 .chat-skill > summary {
@@ -879,10 +879,10 @@
 }
 .chat-skill > summary > svg { width: 14px; height: 14px; flex-shrink: 0; }
 .chat-skill-name { overflow-wrap: anywhere; }
-.chat-skill-status { color: var(--text-dim); }
-.chat-skill.is-error { border-color: var(--status-blocked); }
+.chat-skill-status { color: var(--sub); }
+.chat-skill.is-error { border-color: var(--needs); }
 .chat-skill-detail { padding: 0 var(--space-2) var(--space-2); overflow-wrap: anywhere; }
-.chat-skill-detail p { margin: 0 0 var(--space-1); color: var(--text-dim); }
+.chat-skill-detail p { margin: 0 0 var(--space-1); color: var(--sub); }
 
 .chat-skill[open] .chat-skill-caret { transform: rotate(180deg); }
 
@@ -891,9 +891,9 @@
   min-width: 0;
   max-width: 100%;
   margin-bottom: var(--space-2);
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--bg-elevated);
+  background: var(--field);
   font-size: var(--fs-xs);
 }
 .chat-goal > summary {
@@ -907,19 +907,19 @@
 .chat-goal > summary::-webkit-details-marker { display: none; }
 .chat-goal > summary > svg { width: 14px; height: 14px; flex-shrink: 0; }
 .chat-goal-label { font-weight: var(--fw-medium); }
-.chat-goal-objective { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-dim); }
-.chat-goal-status { flex-shrink: 0; color: var(--text-dim); }
-.chat-goal.is-active .chat-goal-status, .chat-goal.is-active > summary > svg:first-child { color: var(--status-working); }
-.chat-goal.is-complete .chat-goal-status, .chat-goal.is-complete > summary > svg:first-child { color: var(--status-done); }
-.chat-goal.is-blocked, .chat-goal.is-budget_limited { border-color: var(--status-blocked); }
-.chat-goal.is-blocked .chat-goal-status, .chat-goal.is-budget_limited .chat-goal-status { color: var(--status-blocked); }
+.chat-goal-objective { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--sub); }
+.chat-goal-status { flex-shrink: 0; color: var(--sub); }
+.chat-goal.is-active .chat-goal-status, .chat-goal.is-active > summary > svg:first-child { color: var(--working); }
+.chat-goal.is-complete .chat-goal-status, .chat-goal.is-complete > summary > svg:first-child { color: var(--done); }
+.chat-goal.is-blocked, .chat-goal.is-budget_limited { border-color: var(--needs); }
+.chat-goal.is-blocked .chat-goal-status, .chat-goal.is-budget_limited .chat-goal-status { color: var(--needs); }
 .chat-goal[open] .chat-skill-caret { transform: rotate(180deg); }
 /* opened, the whole objective is right below: the cut copy would say it twice */
 .chat-goal[open] .chat-goal-objective { visibility: hidden; }
 .chat-goal-detail { padding: 0 var(--space-2) var(--space-2); overflow-wrap: anywhere; }
 .chat-goal-detail p { margin: 0 0 var(--space-1); }
 .chat-goal-text { white-space: pre-wrap; }
-.chat-goal-reason, .chat-goal-spent { color: var(--text-dim); }
+.chat-goal-reason, .chat-goal-spent { color: var(--sub); }
 
 /* under the message that invoked it, on the message's side */
 .chat-turn-user .chat-skills { justify-content: flex-end; margin: 0; }
@@ -929,4 +929,4 @@
    what the agent answers from. */
 .chat-abandoned { margin: var(--space-2) 0; }
 .chat-abandoned > summary { font-style: italic; }
-.chat-abandoned-note { margin: var(--space-2) 0 0; color: var(--text-dim); }
+.chat-abandoned-note { margin: var(--space-2) 0 0; color: var(--sub); }

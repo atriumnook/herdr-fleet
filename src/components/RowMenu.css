@@ -9,13 +9,13 @@
 
 .row-menu .menu-item:focus-visible {
   outline: none;
-  background: var(--bg-hover);
-  color: var(--text-strong);
+  background: var(--field-hover);
+  color: var(--ink-strong);
 }
 
 .row-menu .menu-item.is-danger,
 .row-sheet-item.is-danger {
-  color: var(--status-blocked);
+  color: var(--needs);
 }
 
 .row-menu .menu-item.is-danger svg,
@@ -26,7 +26,7 @@
 .row-menu-divider {
   height: var(--hairline);
   margin: var(--space-1) 0;
-  background: var(--border);
+  background: var(--line);
 }
 
 /* the phone's sheet: a grip, the row's name, then one tall button per action, and Cancel */
@@ -40,7 +40,7 @@
   height: 4px;
   margin-bottom: var(--space-2);
   border-radius: var(--radius-pill);
-  background: var(--border-strong);
+  background: var(--line-strong);
 }
 
 .row-sheet-head {
@@ -52,7 +52,7 @@
 
 .row-sheet-title {
   overflow: hidden;
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-md);
   font-weight: var(--fw-semibold);
   text-overflow: ellipsis;
@@ -61,7 +61,7 @@
 
 .row-sheet-subtitle {
   overflow: hidden;
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -76,7 +76,7 @@
   background: transparent;
   border: 0;
   border-radius: var(--radius-md);
-  color: var(--text);
+  color: var(--ink);
   font: inherit;
   font-size: var(--fs-md);
   text-align: left;
@@ -87,7 +87,7 @@
   flex: 0 0 auto;
   width: 18px;
   height: 18px;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .row-sheet-item.has-divider {
@@ -102,13 +102,13 @@
   right: 0;
   left: 0;
   height: var(--hairline);
-  background: var(--border);
+  background: var(--line);
 }
 
 .row-sheet-item:active,
 .row-sheet-item:focus-visible {
   outline: none;
-  background: var(--bg-hover);
+  background: var(--field-hover);
 }
 
 .row-sheet-cancel {

@@ -15,9 +15,6 @@ export type ThemeSetting = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
 export type Density = "compact" | "comfortable";
 export type SidebarGrouping = "workspace" | "directory";
-/** amber: the herdr look (the default); report: the dark technical report look; charcoal: neutral Ghostty-style dark */
-export type Palette = "aurora" | "amber" | "report" | "charcoal";
-export const PALETTES: readonly Palette[] = ["aurora", "amber", "report", "charcoal"];
 /** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
 export type DefaultView = "auto" | "chat" | "terminal";
 
@@ -30,8 +27,6 @@ export interface Settings {
   density: Density;
   /** The sidebar's display grouping; workspaces themselves remain independent. */
   sidebarGrouping: SidebarGrouping;
-  /** the chrome color family, keyed as data-palette in src/styles.css */
-  palette: Palette;
   /** xterm font size in px */
   terminalFontSize: number;
   /** mouse reports sent to herdr per wheel event in the terminal: 1 is what xterm sends by itself */
@@ -74,7 +69,6 @@ export const DEFAULT_SETTINGS: Settings = {
   theme: "dark",
   density: "comfortable",
   sidebarGrouping: "workspace",
-  palette: "aurora",
   terminalFontSize: 13,
   terminalWheelSpeed: 1,
   terminalFontFamily: "",
@@ -128,20 +122,6 @@ export function chatFontSize(settings: Settings): number {
   return settings.chatFontSize ?? CHAT_BASE_FONT[settings.density];
 }
 
-/**
- * Aurora became the default with PALETTE_REVISION 2. Amber was the default before, and a record
- * saved then holds it whether or not it was chosen: such a record moves to aurora once, and a
- * record saved since keeps whatever it holds.
- */
-const PALETTE_REVISION = 2;
-
-function storedPalette(record: Record<string, unknown>): Palette {
-  const palette = record["palette"];
-  if (!PALETTES.includes(palette as Palette)) return DEFAULT_SETTINGS.palette;
-  if (palette === "amber" && record["paletteRevision"] !== PALETTE_REVISION) return DEFAULT_SETTINGS.palette;
-  return palette as Palette;
-}
-
 /** Only known keys with the right type survive: a stale or hand-edited record never breaks the UI. */
 export function sanitizeSettings(raw: unknown): Settings {
   const record = typeof raw === "object" && raw !== null ? (raw as Record<string, unknown>) : {};
@@ -155,7 +135,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     theme: theme === "dark" || theme === "light" || theme === "system" ? theme : DEFAULT_SETTINGS.theme,
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
     sidebarGrouping: record["sidebarGrouping"] === "workspace" || record["sidebarGrouping"] === "directory" ? record["sidebarGrouping"] : DEFAULT_SETTINGS.sidebarGrouping,
-    palette: storedPalette(record),
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
     terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])
       ? Math.min(TERMINAL_WHEEL_SPEED_MAX, Math.max(TERMINAL_WHEEL_SPEED_MIN, Math.round(record["terminalWheelSpeed"])))
@@ -194,7 +173,7 @@ export function loadSettings(): Settings {
 
 export function saveSettings(settings: Settings): void {
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...settings, paletteRevision: PALETTE_REVISION }));
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
   } catch {
     /* private mode: preferences last for the session */
   }
@@ -209,44 +188,24 @@ export function resolveTheme(setting: ThemeSetting): ResolvedTheme {
 
 type TerminalColors = { background: string; foreground: string; cursor: string; selectionBackground: string };
 
-/** The xterm theme for a resolved theme and palette: the `--term-*` tokens of src/styles.css, verbatim. */
-const TERMINAL_THEMES: Record<Palette, Record<ResolvedTheme, TerminalColors>> = {
-  aurora: {
-    light: { background: "#f7faff", foreground: "#1c2638", cursor: "#00609a", selectionBackground: "#cfe3f7" },
-    dark: { background: "#0b1020", foreground: "#d6e2f5", cursor: "#7df9ff", selectionBackground: "#1d3557" },
-  },
-  amber: {
-    light: { background: "#faf8f3", foreground: "#2a251f", cursor: "#8c5000", selectionBackground: "#f0d9ae" },
-    dark: { background: "#181613", foreground: "#d8d0c3", cursor: "#f0a830", selectionBackground: "#4a3d26" },
-  },
-  report: {
-    light: { background: "#fafaf9", foreground: "#242424", cursor: "#1f5fcc", selectionBackground: "#cfe0fb" },
-    dark: { background: "#0f1319", foreground: "#c9d1dc", cursor: "#4c9aff", selectionBackground: "#1f3a66" },
-  },
-  charcoal: {
-    light: { background: "#fafaf9", foreground: "#242424", cursor: "#242424", selectionBackground: "#dedad3" },
-    dark: { background: "#171717", foreground: "#cbc7c0", cursor: "#cbc7c0", selectionBackground: "#49443d" },
-  },
+/** The xterm theme for a resolved theme: the `--term-*` tokens of src/styles.css, verbatim. */
+const TERMINAL_THEMES: Record<ResolvedTheme, TerminalColors> = {
+  light: { background: "#f7faff", foreground: "#1c2638", cursor: "#00609a", selectionBackground: "#cfe3f7" },
+  dark: { background: "#0b1020", foreground: "#d6e2f5", cursor: "#7df9ff", selectionBackground: "#1d3557" },
 };
 
-export function terminalTheme(theme: ResolvedTheme, palette: Palette = DEFAULT_SETTINGS.palette): TerminalColors {
-  return TERMINAL_THEMES[palette][theme];
+export function terminalTheme(theme: ResolvedTheme): TerminalColors {
+  return TERMINAL_THEMES[theme];
 }
 
 /** `<meta name="theme-color">` follows the panel surface so the PWA title bar matches. */
-const THEME_COLOR: Record<Palette, Record<ResolvedTheme, string>> = {
-  aurora: { dark: "#0b1020", light: "#f7faff" },
-  amber: { dark: "#181613", light: "#faf8f3" },
-  report: { dark: "#0f1319", light: "#fafaf9" },
-  charcoal: { dark: "#171717", light: "#fafaf9" },
-};
+const THEME_COLOR: Record<ResolvedTheme, string> = { dark: "#0b1020", light: "#f7faff" };
 
 function applyToDocument(settings: Settings, resolved: ResolvedTheme, language: Language): void {
   const root = document.documentElement;
   root.lang = LOCALE_TAGS[language];
   root.dataset["theme"] = resolved;
   root.dataset["density"] = settings.density;
-  root.dataset["palette"] = settings.palette;
   // ChatView.css scales its type tokens by this: the chosen size over the density's
   root.style.setProperty("--chat-scale", String(chatFontSize(settings) / CHAT_BASE_FONT[settings.density]));
   // ChatView.css sets the transcript's prose in this, and falls back to --font-ui without it
@@ -254,7 +213,7 @@ function applyToDocument(settings: Settings, resolved: ResolvedTheme, language: 
   if (chatFont === null) root.style.removeProperty("--font-chat");
   else root.style.setProperty("--font-chat", chatFont);
   root.style.colorScheme = resolved;
-  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[settings.palette][resolved]);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute("content", THEME_COLOR[resolved]);
 }
 
 interface SettingsContextValue {

@@ -13,8 +13,8 @@
   gap: var(--space-1);
   height: calc(var(--keybar-h) + env(safe-area-inset-bottom, 0px));
   padding: 0 0 env(safe-area-inset-bottom, 0px);
-  border-top: var(--hairline) solid var(--border);
-  background: var(--bg-panel);
+  border-top: var(--hairline) solid var(--line);
+  background: var(--surface);
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -34,9 +34,9 @@
   height: var(--touch-target);
   padding: 0 var(--space-1);
   background: transparent;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-sm);
-  color: var(--text);
+  color: var(--ink);
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   white-space: nowrap;
@@ -58,15 +58,15 @@
 /* hover only where a pointer can hover: a tapped key must not stay lit */
 @media (hover: hover) {
   .key:hover {
-    background: var(--bg-hover);
+    background: var(--field-hover);
   }
 }
 
 .key:active,
 .key.is-armed {
-  background: var(--bg-elevated);
+  background: var(--field);
   border-color: var(--accent);
-  color: var(--text-strong);
+  color: var(--ink-strong);
 }
 
 @media (pointer: coarse), (max-width: 768px) {

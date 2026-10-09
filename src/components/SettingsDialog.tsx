@@ -4,7 +4,7 @@ import { Minus, Plus, X } from "lucide-react";
 import "./SettingsDialog.css";
 
 import { SHORTCUTS, formatKeys, shortcutKeys, shortcutConflict } from "../lib/shortcuts.ts";
-import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, PALETTES, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, type Settings } from "../lib/settings.ts";
+import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, type Settings } from "../lib/settings.ts";
 import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
 import { FONT_FAMILY_MAX_CHARS } from "../lib/fontFamily.ts";
 import type { Emit } from "../ui/bubble.ts";
@@ -103,16 +103,6 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
                 {(["dark", "light", "system"] as const).map((theme, index) => (
                   <button key={theme} ref={index === 0 ? firstControlRef : undefined} type="button" aria-pressed={settings.theme === theme} onClick={() => update({ theme })}>
                     {t(theme === "dark" ? "Dark" : theme === "light" ? "Light" : "System")}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="settings-row">
-              <div><span className="settings-label">{t("Colors")}</span><span className="settings-description">{t("Futuristic aurora, herdr's amber, a dark report, or neutral charcoal")}</span></div>
-              <div className="segmented" aria-label={t("Colors")}>
-                {PALETTES.map((palette) => (
-                  <button key={palette} type="button" aria-pressed={settings.palette === palette} onClick={() => update({ palette })}>
-                    {t(palette === "aurora" ? "Aurora" : palette === "report" ? "Dark report" : palette === "amber" ? "Amber" : "Charcoal")}
                   </button>
                 ))}
               </div>

@@ -172,53 +172,29 @@ describe("quick replies row", () => {
   });
 });
 
-describe("palette", () => {
-  it("defaults to aurora and keeps only a known palette", () => {
-    expect(DEFAULT_SETTINGS.palette).toBe("aurora");
-    // settings stored before palettes existed carry no palette key
-    expect(sanitizeSettings({ theme: "light" }).palette).toBe("aurora");
-    expect(sanitizeSettings({ palette: "report" }).palette).toBe("report");
-    expect(sanitizeSettings({ palette: "charcoal" }).palette).toBe("charcoal");
-    expect(sanitizeSettings({ palette: "pink" }).palette).toBe("aurora");
-  });
-
-  it("moves amber saved while it was the default to aurora once, and keeps amber chosen since", () => {
-    // saved before aurora: amber was the default, chosen or not
-    expect(sanitizeSettings({ palette: "amber" }).palette).toBe("aurora");
-    // saved since: the record carries the revision, so amber there was chosen
-    expect(sanitizeSettings({ palette: "amber", paletteRevision: 2 }).palette).toBe("amber");
-    expect(sanitizeSettings({ palette: "report" }).palette).toBe("report");
-  });
-
+describe("theme tokens", () => {
   const css = readFileSync(join(import.meta.dir, "..", "styles.css"), "utf8");
   const block = (selector: string): string => {
     const start = css.indexOf(`${selector} {`);
     expect(start).toBeGreaterThanOrEqual(0);
     return css.slice(start, css.indexOf("}", start));
   };
-  const paper = '[data-theme="light"]:is([data-palette="report"], [data-palette="charcoal"])';
   // each case lists its blocks from the most specific to the base; the first one naming a token wins
   const cases = [
-    { theme: "dark", palette: "aurora", layers: ['[data-theme="dark"][data-palette="aurora"]', ":root"] },
-    { theme: "light", palette: "aurora", layers: ['[data-theme="light"][data-palette="aurora"]', '[data-theme="light"]', ":root"] },
-    { theme: "dark", palette: "amber", layers: [":root"] },
-    { theme: "light", palette: "amber", layers: ['[data-theme="light"]', ":root"] },
-    { theme: "dark", palette: "report", layers: ['[data-theme="dark"][data-palette="report"]', ":root"] },
-    { theme: "light", palette: "report", layers: [paper, '[data-theme="light"]', ":root"] },
-    { theme: "dark", palette: "charcoal", layers: ['[data-theme="dark"][data-palette="charcoal"]', ":root"] },
-    { theme: "light", palette: "charcoal", layers: ['[data-theme="light"][data-palette="charcoal"]', paper, '[data-theme="light"]', ":root"] },
+    { theme: "dark", layers: [":root"] },
+    { theme: "light", layers: ['[data-theme="light"]', ":root"] },
   ] as const;
   const tokens = (layers: readonly string[]) => (name: string): string =>
     layers.map((selector) => block(selector).match(new RegExp(`--${name}: ([^;]+);`))?.[1]).find((value) => value !== undefined)!;
 
-  it("mirrors each palette's --term-* tokens of styles.css for xterm", () => {
-    for (const { theme, palette, layers } of cases) {
+  it("mirrors each theme's --term-* tokens of styles.css for xterm", () => {
+    for (const { theme, layers } of cases) {
       const read = tokens(layers);
-      expect(terminalTheme(theme, palette)).toEqual({ background: read("term-bg"), foreground: read("term-fg"), cursor: read("term-cursor"), selectionBackground: read("term-selection") });
+      expect(terminalTheme(theme)).toEqual({ background: read("term-bg"), foreground: read("term-fg"), cursor: read("term-cursor"), selectionBackground: read("term-selection") });
     }
   });
 
-  it("keeps text and agent states readable (WCAG AA 4.5:1) on every surface of every palette", () => {
+  it("keeps text and agent states readable (WCAG AA 4.5:1) on every surface of both themes", () => {
     type Rgb = [number, number, number];
     const rgba = (value: string): [Rgb, number] => {
       const hex = value.match(/^#([0-9a-f]{6})$/);
@@ -239,30 +215,32 @@ describe("palette", () => {
       return (hi + 0.05) / (lo + 0.05);
     };
     const failures: string[] = [];
-    for (const { theme, palette, layers } of cases) {
+    for (const { theme, layers } of cases) {
       const read = tokens(layers);
       const color = (name: string): Rgb => rgba(read(name))[0];
-      for (const surface of ["bg", "bg-panel", "bg-elevated", "bg-hover"]) {
-        for (const text of ["text", "text-dim"]) {
-          if (ratio(color(text), color(surface)) < 4.5) failures.push(`${theme}/${palette} ${text} on ${surface}`);
+      for (const surface of ["bg", "surface", "field", "field-hover"]) {
+        for (const text of ["ink", "sub"]) {
+          if (ratio(color(text), color(surface)) < 4.5) failures.push(`${theme} ${text} on ${surface}`);
         }
         // a status badge: its color on its tint, over a (hovered or selected) row
-        for (const state of ["working", "blocked", "done"]) {
-          const backdrop = over(read(`status-${state}-tint`), color(surface));
-          if (ratio(color(`status-${state}`), backdrop) < 4.5) failures.push(`${theme}/${palette} ${state} badge on ${surface}`);
+        for (const state of ["working", "needs", "done"]) {
+          const backdrop = over(read(`${state}-tint`), color(surface));
+          if (ratio(color(state), backdrop) < 4.5) failures.push(`${theme} ${state} badge on ${surface}`);
         }
+      }
+      // a control drawn by its edge (a field, a segmented choice, a toggle): 3:1 on whatever it sits on (WCAG 1.4.11)
+      for (const surface of ["bg", "input", "field", "field-hover"]) {
+        if (ratio(color("control-edge"), color(surface)) < 3) failures.push(`${theme} control-edge on ${surface}`);
       }
     }
     expect(failures).toEqual([]);
   });
 
-  it("paints the default palette before settings load: the page starts in it", () => {
+  it("paints the default theme before settings load: the page starts in it", () => {
     const html = readFileSync(join(import.meta.dir, "..", "..", "index.html"), "utf8");
-    expect(html).toContain(`data-palette="${DEFAULT_SETTINGS.palette}"`);
     expect(html).toContain(`data-theme="${DEFAULT_SETTINGS.theme}"`);
-    // the title bar before settings load is the default palette's panel, which is also its terminal
+    // the title bar before settings load is the panel, which is also the terminal
     expect(html).toContain(`<meta name="theme-color" content="${terminalTheme("dark").background}" />`);
-    expect(terminalTheme("dark")).toEqual(terminalTheme("dark", "aurora"));
   });
 });
 

@@ -440,7 +440,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
             terminalWheelSpeed={settings.terminalWheelSpeed}
             terminalFontFamily={settings.terminalFontFamily}
             theme={resolvedTheme}
-            palette={settings.palette}
             role={role}
             emit={emit}
           />

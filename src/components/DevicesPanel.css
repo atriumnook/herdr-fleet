@@ -8,7 +8,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  border-top: var(--hairline) solid var(--border);
+  border-top: var(--hairline) solid var(--line);
 }
 
 .devices-row {
@@ -18,7 +18,7 @@
   gap: var(--space-3);
   min-height: var(--row-h);
   padding: var(--space-2) 0;
-  border-bottom: var(--hairline) solid var(--border);
+  border-bottom: var(--hairline) solid var(--line);
 }
 
 .devices-name {
@@ -32,7 +32,7 @@
   margin-left: var(--space-2);
   padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
-  background: var(--accent-tint);
+  background: var(--tint);
   color: var(--accent);
   font-size: var(--fs-2xs);
   font-weight: var(--fw-semibold);
@@ -62,8 +62,8 @@
   align-items: flex-start;
   gap: var(--space-4);
   padding: var(--space-4);
-  background: var(--bg-elevated);
-  border: var(--hairline) solid var(--border);
+  background: var(--field);
+  border: var(--hairline) solid var(--line);
   border-left: var(--rail-w) solid var(--accent);
   border-radius: var(--radius-md);
 }
@@ -78,7 +78,7 @@
   font-size: 32px;
   font-weight: var(--fw-semibold);
   letter-spacing: 0.12em;
-  color: var(--text-strong);
+  color: var(--ink-strong);
 }
 
 .devices-pairing .phone-actions {

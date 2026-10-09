@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100%;
   min-height: 0;
-  background: var(--bg-panel);
+  background: var(--surface);
 }
 
 /* one gutter (--space-3) for the list and the footer: every row's hover fill and the footer
@@ -19,7 +19,7 @@
 .tree-state {
   margin: 0;
   padding: var(--space-2);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-sm);
 }
 
@@ -31,7 +31,7 @@
   gap: var(--space-3);
   margin: var(--space-2) 0;
   padding: var(--space-4);
-  border: var(--hairline) dashed var(--border);
+  border: var(--hairline) dashed var(--line);
   border-radius: var(--radius-md);
   text-align: center;
 }
@@ -60,14 +60,14 @@
   border: 0;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--text-dim);
+  color: var(--sub);
   text-align: left;
   cursor: pointer;
 }
 
 .directory-header:hover,
 .directory-header:focus-visible {
-  background: var(--bg-hover);
+  background: var(--field-hover);
 }
 
 .directory-header > svg {
@@ -91,7 +91,7 @@
 }
 
 .directory-name {
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
 }
@@ -103,7 +103,7 @@
 
 .directory-contents {
   margin-left: var(--space-3);
-  border-left: var(--hairline) solid var(--border);
+  border-left: var(--hairline) solid var(--line);
   padding-left: var(--space-1);
 }
 
@@ -123,7 +123,7 @@
 
 .workspace-header:hover,
 .workspace-header:focus-within {
-  background: var(--bg-hover);
+  background: var(--field-hover);
 }
 
 .workspace-toggle {
@@ -138,13 +138,13 @@
   background: transparent;
   border: 0;
   border-radius: var(--radius-sm);
-  color: var(--text-dim);
+  color: var(--sub);
   cursor: pointer;
 }
 
 .workspace-toggle:hover,
 .workspace-toggle:focus-visible {
-  color: var(--text-strong);
+  color: var(--ink-strong);
 }
 
 .workspace-toggle svg {
@@ -165,8 +165,8 @@
   height: var(--chip-h);
   padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  color: var(--text-dim);
+  background: var(--field);
+  color: var(--sub);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
 }
@@ -178,7 +178,7 @@
   overflow: hidden;
   background: transparent;
   border: 0;
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
   text-align: left;
@@ -220,7 +220,7 @@
   background: transparent;
   border: 0;
   border-radius: var(--radius-sm);
-  color: var(--text-dim);
+  color: var(--sub);
   cursor: pointer;
 }
 
@@ -252,12 +252,12 @@
 .sidebar-drag-handle:hover,
 .sidebar-row-action:hover,
 .sidebar-row-action:focus-visible {
-  color: var(--text-strong);
+  color: var(--ink-strong);
 }
 
 .sidebar-row-action:hover,
 .sidebar-row-action:focus-visible {
-  background: var(--bg-elevated);
+  background: var(--field);
 }
 
 .sidebar-drag-handle svg,
@@ -291,7 +291,7 @@
 .pane-item:hover .pane-row,
 .pane-item:focus-within .pane-row,
 .pane-item.is-selected .pane-row {
-  background: var(--bg-hover);
+  background: var(--field-hover);
 }
 
 /* the selected rail: a straight bar outside the rounded box, not an inset shadow that
@@ -318,7 +318,7 @@
   background: transparent;
   border: 0;
   border-radius: var(--radius-md);
-  color: var(--text);
+  color: var(--ink);
   text-align: left;
   cursor: pointer;
 }
@@ -332,20 +332,20 @@
   flex: 0 0 var(--avatar-size);
   width: var(--avatar-size);
   height: var(--avatar-size);
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--bg-elevated);
-  color: var(--text-strong);
+  background: var(--field);
+  color: var(--ink-strong);
 }
 
 .pane-item.is-selected .agent-mark-holder {
   border-color: var(--accent);
-  background: var(--accent-tint);
+  background: var(--tint);
 }
 
 .agent-mark-holder.is-shell {
-  background: var(--bg-elevated);
-  color: var(--text-dim);
+  background: var(--field);
+  color: var(--sub);
 }
 
 .agent-mark-holder svg {
@@ -374,7 +374,7 @@
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
   line-height: var(--lh-tight);
@@ -398,8 +398,8 @@
 
 /* background tasks still running: quieter than the state word beside it, and a number, not a word */
 .badge-background {
-  color: var(--text-dim);
-  border-color: var(--border);
+  color: var(--sub);
+  border-color: var(--line);
   font-variant-numeric: tabular-nums;
 }
 
@@ -411,7 +411,7 @@
 .pane-subtitle {
   min-width: 0;
   overflow: hidden;
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
   line-height: var(--lh-tight);
   text-overflow: ellipsis;
@@ -445,7 +445,7 @@
 .sidebar-inline-error {
   margin: 0;
   padding: var(--space-1) var(--space-3) var(--space-2);
-  color: var(--status-blocked);
+  color: var(--needs);
   font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }
@@ -457,7 +457,7 @@
   flex-direction: column;
   gap: var(--space-1);
   padding: var(--space-2) var(--space-3) calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
-  border-top: var(--hairline) solid var(--border);
+  border-top: var(--hairline) solid var(--line);
 }
 
 .sidebar-footer-action {
@@ -482,7 +482,7 @@
 .sidebar-install-help {
   margin: 0;
   padding: 0 var(--space-2) var(--space-1);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
 }
 
@@ -497,7 +497,7 @@
 
 .sidebar-app-name {
   overflow: hidden;
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
