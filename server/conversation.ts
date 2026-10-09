@@ -8,8 +8,6 @@
  *   at ~/.claude/projects/<project>/<session>.jsonl (claude-store.ts finds it).
  * - omp: herdr's agent.get hands us the session jsonl path outright under
  *   ~/.omp/agent/sessions/<cwd-slug>/ — same shape of truth, one less hop.
- * - gjc: an open session file or fresh native terminal breadcrumb belonging to
- *   its process (gjc-runtime.ts). It writes omp's session shape too.
  * - pi: herdr's agent.get names the session jsonl outright under
  *   ~/.pi/agent/sessions/<cwd-slug>/ (pi.ts). Its records are the session shape
  *   parseOmpTranscript reads, but its file is an entry tree, not a log: /tree
@@ -31,7 +29,6 @@ import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
-import { forgetGjcState, gjcTranscriptForPane, storeRelative } from "./gjc-runtime.ts";
 import { piTranscriptPath } from "./pi.ts";
 import { piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
 import { trimOutput } from "./tool-output.ts";
@@ -235,7 +232,7 @@ export class HistoryChanged extends Error {
 
 /** What paneConversation resolved: which store the turns came from, and where they start. */
 export type RecognizedConversation = {
-  source: "claude-transcript" | "omp-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript";
+  source: "claude-transcript" | "omp-transcript" | "pi-transcript" | "codex-transcript";
   turns: ConversationTurn[];
   metadata: ConversationMetadata;
   /** the first turn's position, for the page before it; null at the conversation's beginning */
@@ -406,7 +403,6 @@ const TURN_MARK: Record<RecognizedConversation["source"], Buffer> = {
   "codex-transcript": Buffer.from('"task_started"'),
   "claude-transcript": Buffer.from('"user"'),
   "omp-transcript": Buffer.from('"user"'),
-  "gjc-transcript": Buffer.from('"user"'),
   "pi-transcript": Buffer.from('"user"'),
 };
 
@@ -541,7 +537,7 @@ function newestPage(path: string, stream: TranscriptStream, source: RecognizedCo
 
 function parseTurns(source: RecognizedConversation["source"], text: string): ConversationTurn[] {
   return source === "codex-transcript" ? parseCodexTranscript(text, Infinity)
-    // only pi keeps a tool's images in the entry as base64; omp and gjc are read the same
+    // only pi keeps a tool's images in the entry as base64; omp is read the same
     // way but would carry image refs nothing can answer, so the option stays with pi alone
     : source === "claude-transcript" ? parseClaudeTranscript(text, Infinity)
       : parseOmpTranscript(text, Infinity, { toolImages: source === "pi-transcript" });
@@ -628,7 +624,6 @@ function liveTurns(path: string, stream: TranscriptStream, source: RecognizedCon
 export function forgetTranscriptState(): void {
   cache.clear();
   forgetClaudeSessions();
-  forgetGjcState();
   liveScans.clear();
   settledTurns.clear();
   codexTurns.clear();
@@ -649,13 +644,6 @@ function parseCursor(stream: TranscriptStream, cursor: string): number {
   return offset;
 }
 
-/** gjc's resolver answers null; the chat lens reports why it fell back to scrollback. */
-export async function gjcTranscriptPath(paneId: string, cwd: string, home?: string): Promise<string> {
-  const path = await gjcTranscriptForPane(paneId, cwd, home);
-  if (!path) throw new ConversationUnavailable("no_session_path");
-  return path;
-}
-
 /** Claude's transcript for a pane: herdr names the session id, claude-store.ts finds its project. */
 async function claudeTranscriptPath(paneId: string, cwds: readonly (string | null | undefined)[]): Promise<string> {
   const info = await herdrRpc<{ agent: { agent_session?: { value?: unknown } } }>("agent.get", { target: paneId });
@@ -664,6 +652,19 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
   const path = await claudeTranscriptFile(process.env["HOME"] ?? "", session, cwds);
   if (!path) throw new ConversationUnavailable("transcript_missing");
   return path;
+}
+
+/**
+ * The path below `root` as the platform's own rules decide: a Windows path comes with backslashes
+ * and a drive letter whose case means nothing, and a prefix test would take `sessions-evil` or a
+ * `..` for the store. Null when `file` is outside `root`.
+ */
+function storeRelative(root: string, file: string, paths: PlatformPath = nodePath): string[] | null {
+  const relative = paths.relative(root, file);
+  // another drive or share comes back absolute
+  if (relative === "" || paths.isAbsolute(relative)) return null;
+  const parts = relative.split(paths.sep);
+  return parts[0] === ".." ? null : parts;
 }
 
 /**
@@ -697,11 +698,6 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
   // Claude's project is the directory it started in, the process's own cwd more often than the pane's
   if (agent === "claude") return { source: "claude-transcript", path: await claudeTranscriptPath(paneId, [cwd, pane.foreground_cwd]) };
   if (agent === "omp") return { source: "omp-transcript", path: await ompTranscriptPath(paneId) };
-  if (agent === "gjc") {
-    // GJC can change its own cwd without changing the pane's shell directory.
-    const sessionCwd = typeof pane.foreground_cwd === "string" && pane.foreground_cwd.length > 0 ? pane.foreground_cwd : cwd;
-    return { source: "gjc-transcript", path: await gjcTranscriptPath(paneId, sessionCwd) };
-  }
   if (agent === "pi") {
     const path = await piTranscriptPath(paneId);
     if (!path) throw new ConversationUnavailable("no_session_path");

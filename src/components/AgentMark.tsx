@@ -5,7 +5,7 @@ import { AGENT_SVG_MARKS } from "./agentSvgMarks.ts";
 /**
  * Provider marks for the agents herdr names, ported from chatmux's
  * llm-logo-provider set (same owner, same visual language). Monochrome marks
- * (codex, cursor, the fallback) ride currentColor; claude/omp/opencode/gjc
+ * (codex, cursor, the fallback) ride currentColor; claude/omp/opencode
  * carry their own brand fills.
  */
 
@@ -73,65 +73,6 @@ function OmpMark({ size }: { size: number }) {
   );
 }
 
-/** gjc (Gajae Code): its mascot, a straw hat over a lobster-red visor. Ids are per instance. */
-function GjcMark({ size }: { size: number }) {
-  const id = useId();
-  return (
-    <svg viewBox="76 62 872 872" width={size} height={size} role="img" aria-label="gjc">
-      <defs>
-        <linearGradient id={`${id}-hatGold`} x1="0" y1="0" x2="0.85" y2="1">
-          <stop offset="0" stopColor="#FFD65B"/>
-          <stop offset="0.48" stopColor="#FFB52B"/>
-          <stop offset="1" stopColor="#F69A15"/>
-        </linearGradient>
-        <linearGradient id={`${id}-hatHighlight`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#FFE17A"/>
-          <stop offset="1" stopColor="#F5A11C"/>
-        </linearGradient>
-        <linearGradient id={`${id}-hatBand`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#9C5317"/>
-          <stop offset="1" stopColor="#5D2A0E"/>
-        </linearGradient>
-        <linearGradient id={`${id}-lobsterRed`} x1="0" y1="0" x2="0.8" y2="1">
-          <stop offset="0" stopColor="#FF5128"/>
-          <stop offset="0.52" stopColor="#FF3518"/>
-          <stop offset="1" stopColor="#E91F12"/>
-        </linearGradient>
-        <linearGradient id={`${id}-lobsterRedHighlight`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0" stopColor="#FF6030"/>
-          <stop offset="1" stopColor="#F32615"/>
-        </linearGradient>
-        <linearGradient id={`${id}-eyeGreen`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stopColor="#A5FFB8"/>
-          <stop offset="0.5" stopColor="#83FCA5"/>
-          <stop offset="1" stopColor="#6FEF98"/>
-        </linearGradient>
-        <filter id={`${id}-eyeGlow`} x="-80%" y="-250%" width="260%" height="600%" colorInterpolationFilters="sRGB">
-          <feGaussianBlur stdDeviation="12" result="blur"/>
-          <feColorMatrix in="blur" type="matrix" values="0 0 0 0 0.29  0 0 0 0 1  0 0 0 0 0.55  0 0 0 0.55 0" result="greenBlur"/>
-          <feMerge>
-            <feMergeNode in="greenBlur"/>
-            <feMergeNode in="SourceGraphic"/>
-          </feMerge>
-        </filter>
-      </defs>
-      <path d="M284 493 C307 423 337 375 377 349 C416 318 463 303 512 303 C561 303 608 318 647 349 C687 375 717 423 740 493 C615 454 409 454 284 493 Z" fill={`url(#${id}-hatGold)`}/>
-      <path d="M294 455 C411 408 613 408 730 455 L739 508 C610 465 414 465 285 508 Z" fill={`url(#${id}-hatBand)`} opacity="0.96"/>
-      <path d="M371 478 C355 367 304 260 197 229" fill="none" stroke={`url(#${id}-lobsterRedHighlight)`} strokeWidth="38" strokeLinecap="round"/>
-      <path d="M653 478 C669 367 720 260 827 229" fill="none" stroke={`url(#${id}-lobsterRedHighlight)`} strokeWidth="38" strokeLinecap="round"/>
-      <ellipse cx="512" cy="613" rx="372" ry="104" fill="#06162F"/>
-      <path d="M98 613 C109 510 295 451 512 451 C729 451 915 510 926 613 C935 681 850 744 759 765 L763 717 C833 698 883 655 881 613 C875 554 711 513 512 513 C313 513 149 554 143 613 C141 655 191 698 261 717 L265 765 C174 744 89 681 98 613 Z" fill={`url(#${id}-hatHighlight)`}/>
-      <rect x="262" y="560" width="500" height="226" rx="94" fill={`url(#${id}-lobsterRed)`}/>
-      <rect x="293" y="586" width="438" height="174" rx="71" fill="#06162F"/>
-      <rect x="300" y="593" width="424" height="160" rx="65" fill="#071A35" opacity="0.36"/>
-      <g filter={`url(#${id}-eyeGlow)`}>
-        <rect x="350" y="654" width="116" height="31" rx="15.5" fill={`url(#${id}-eyeGreen)`}/>
-        <rect x="558" y="654" width="116" height="31" rx="15.5" fill={`url(#${id}-eyeGreen)`}/>
-      </g>
-    </svg>
-  );
-}
-
 /** The agent nobody has drawn yet: its initial in a quiet disc. */
 /** A mark kept as SVG markup; its ids get this instance's prefix so copies never collide. */
 function SvgMark({ agent, size }: { agent: string; size: number }) {
@@ -165,8 +106,6 @@ export function AgentMark({ agent, size = 16, className }: AgentMarkProps) {
       <CursorMark size={size} />
     ) : agent === "opencode" ? (
       <OpenCodeMark size={size} />
-    ) : agent === "gjc" ? (
-      <GjcMark size={size} />
     ) : Object.hasOwn(AGENT_SVG_MARKS, agent) ? (
       <SvgMark agent={agent} size={size} />
     ) : (

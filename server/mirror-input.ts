@@ -4,7 +4,7 @@
  * A mirror repaint carries no terminal modes, so the browser's xterm never learns that the
  * program turned bracketed paste on and sends a pasted block as bare lines joined by CR. An
  * agent's composer takes the first CR for Enter and sends line one alone. Checked on a
- * Windows PC (#257): the same block inside the paste markers stays in gjc's composer unsent.
+ * Windows PC (#257): the same block inside the paste markers stays in the agent's composer unsent.
  *
  * Only a pane herdr names an agent on gets the markers. cmd and PowerShell do not read VT
  * input, and the Windows console drops a sequence it has no key for on the way to them, but a
@@ -16,7 +16,7 @@
  * A Linux or macOS PC mirrors too, when it has no Node for the PTY sidecar, and herdr there
  * hands `send_text` to the program byte for byte, adding no markers even where the program
  * turned bracketed paste on (measured, herdr 0.9.0: `cat -v` after `ESC[?2004h` showed the two
- * lines bare). Two lines sent from the terminal's input line to gjc on such a mirror went as
+ * lines bare). Two lines sent from the terminal's input line to an agent on such a mirror went as
  * two messages (#269), so the same shaping applies wherever a pane is mirrored.
  */
 const PASTE_START = "\x1b[200~";

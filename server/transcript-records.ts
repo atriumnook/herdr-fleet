@@ -78,7 +78,7 @@ export function piImageBlock(message: Row, toolCallId: string, index: number): {
 export const MAX_TURNS = 100;
 
 /**
- * gjc wakes the agent with a `custom_message` (a background job's result, `display: true`)
+ * A runtime wakes the agent with a `custom_message` (a background job's result, `display: true`)
  * in the user's seat: the answer before it is final and the work after it is a new turn.
  * Merging across it buried that answer in the work block. The envelope is chrome.
  */

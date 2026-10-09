@@ -18,7 +18,6 @@ import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
 import { freeAgentName } from "./agent-name.ts";
-import { SHELL_AGENTS, isShellAgentKind, shellAgentExecutable, startShellAgent } from "./shell-agent.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, fileRoots, locateFile, withinRoots } from "./file-view.ts";
 import {
@@ -987,8 +986,6 @@ export function createServer(
           const kinds = new Set((await agentManifests()).manifests.map((manifest) => manifest.agent));
           kinds.add("omp");
           kinds.add("claude");
-          // not herdr kinds: offered where this server can run them (see shell-agent.ts)
-          for (const kind of Object.keys(SHELL_AGENTS)) if (shellAgentExecutable(kind)) kinds.add(kind);
           const agents: AgentKind[] = [...kinds]
             .map((kind) => ({ kind, label: AGENT_LABELS[kind] ?? kind }))
             .sort((left, right) => left.label.localeCompare(right.label) || left.kind.localeCompare(right.kind));
@@ -1069,32 +1066,29 @@ export function createServer(
           }
           try {
             const kind = payload.agent.kind as string;
-            if (isShellAgentKind(kind)) await startShellAgent(kind, created.root_pane.pane_id, payload.agent.args as string[] | undefined);
-            else {
-              const given = typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : null;
-              // herdr refuses a name another agent holds. Two creations at once can pick the same
-              // free one: the refused one picks again. It also refuses a pane whose shell is not up
-              // yet (`agent_pane_busy`, herdr 0.9.3), which a workspace made a moment ago can be.
-              const shellDeadline = Date.now() + 10_000;
-              for (let attempt = 1; ; ) {
-                try {
-                  await agentStart({
-                    name: given ?? freeAgentName(kind, (await sessionSnapshot()).agents.map((agent) => agent.name)),
-                    kind,
-                    paneId: created.root_pane.pane_id,
-                    ...(payload.agent.args === undefined ? {} : { args: payload.agent.args as string[] }),
-                    timeoutMs: 60_000,
-                  });
-                  break;
-                } catch (error) {
-                  if (!(error instanceof HerdrError)) throw error;
-                  if (error.code === "agent_pane_busy" && Date.now() < shellDeadline) {
-                    await Bun.sleep(100);
-                    continue;
-                  }
-                  if (given !== null || attempt === 3 || error.code !== "agent_name_taken") throw error;
-                  attempt += 1;
+            const given = typeof payload.agent.name === "string" && payload.agent.name.length > 0 ? payload.agent.name : null;
+            // herdr refuses a name another agent holds. Two creations at once can pick the same
+            // free one: the refused one picks again. It also refuses a pane whose shell is not up
+            // yet (`agent_pane_busy`, herdr 0.9.3), which a workspace made a moment ago can be.
+            const shellDeadline = Date.now() + 10_000;
+            for (let attempt = 1; ; ) {
+              try {
+                await agentStart({
+                  name: given ?? freeAgentName(kind, (await sessionSnapshot()).agents.map((agent) => agent.name)),
+                  kind,
+                  paneId: created.root_pane.pane_id,
+                  ...(payload.agent.args === undefined ? {} : { args: payload.agent.args as string[] }),
+                  timeoutMs: 60_000,
+                });
+                break;
+              } catch (error) {
+                if (!(error instanceof HerdrError)) throw error;
+                if (error.code === "agent_pane_busy" && Date.now() < shellDeadline) {
+                  await Bun.sleep(100);
+                  continue;
                 }
+                if (given !== null || attempt === 3 || error.code !== "agent_name_taken") throw error;
+                attempt += 1;
               }
             }
             return jsonResponse({ workspace_id: created.workspace.workspace_id, pane_id: created.root_pane.pane_id, agent_started: true });

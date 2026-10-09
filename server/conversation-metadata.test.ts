@@ -148,7 +148,7 @@ describe("context use", () => {
         entry({ provider: "other" }),
       ];
       expect(parseConversationMetadata(jsonl(...changed), "pi-transcript").context).toEqual({ used: 100_000, window: null });
-      // omp and gjc are read by the same code and resolve nothing: their figure stays
+      // omp is read by the same code and resolves nothing: their figure stays
       const omp = { type: "message", message: { role: "assistant", model: "qwen-test", provider: "lwsa", usage: { input: 1, output: 2, cacheRead: 3, cacheWrite: 4 } } };
       expect(parseConversationMetadata(jsonl(omp), "omp-transcript").context).toEqual({ used: 8, window: null });
     } finally {

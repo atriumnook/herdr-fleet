@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 
 import { forgetHistoryChains } from "./codex.ts";
-import { ConversationUnavailable, gjcTranscriptPath, HistoryChanged, ompSessionPath, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
+import { HistoryChanged, ompSessionPath, parseClaudeTranscript, unwrapPastes, transcriptImage, transcriptPage, transcriptToolOutput } from "./conversation.ts";
 import { MAX_TURNS, parseOmpTranscript } from "./transcript-records.ts";
 
 /** Minimal but shape-true slices of a Claude Code session jsonl. */
@@ -238,25 +238,7 @@ describe("omp session path", () => {
   });
 });
 
-describe("gjc sessions", () => {
-  const roots: string[] = [];
-  afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
-  const session = (dir: string, name: string, cwd: string, mtime: string) => {
-    mkdirSync(dir, { recursive: true });
-    const path = join(dir, name);
-    writeFileSync(path, `${JSON.stringify({ type: "session", version: 5, cwd })}\n`);
-    utimesSync(path, new Date(mtime), new Date(mtime));
-    return path;
-  };
-
-  it("does not infer a session from cwd, even if there is only one file", async () => {
-    const home = mkdtempSync(join(tmpdir(), "herdr-gjc-")); roots.push(home);
-    const dir = join(home, ".gjc", "agent", "sessions", "v2-abc");
-    session(dir, "only.jsonl", "/home/u/project", "2026-09-20T00:00:00.000Z");
-    writeFileSync(join(dir, ".gjc-managed-session-scope.v2.json"), JSON.stringify({ canonicalPath: "/home/u/project" }));
-    await expect(gjcTranscriptPath("w9999:p9999", "/home/u/project", home)).rejects.toThrow(ConversationUnavailable);
-  });
-
+describe("omp transcript records", () => {
   it("shows a failed request's error instead of an empty answer", () => {
     const text = [
       JSON.stringify({ type: "message", timestamp: "2026-09-25T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text: "hi" }] } }),
@@ -265,7 +247,7 @@ describe("gjc sessions", () => {
     expect(parseOmpTranscript(text).at(-1)?.parts).toEqual([{ kind: "text", text: "Error: 401 Authentication Failed" }]);
   });
 
-  it("ends a turn at a background result gjc delivers, so the answer before it stays the answer", () => {
+  it("ends a turn at a background result the runtime delivers, so the answer before it stays the answer", () => {
     const assistant = (ts: string, text: string) => JSON.stringify({ type: "message", timestamp: ts, message: { role: "assistant", content: [{ type: "text", text }] } });
     const text = [
       JSON.stringify({ type: "message", timestamp: "2026-10-01T00:00:00.000Z", message: { role: "user", content: [{ type: "text", text: "run it in the background" }] } }),

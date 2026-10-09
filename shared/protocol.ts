@@ -46,8 +46,7 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *  GET    /api/access                    -> RemoteAccess (how a phone can reach this server: what
  *         Tailscale on this PC already serves, or the command to run), no-store
  *  GET    /api/agents                    -> { agents: AgentKind[] } (herdr's agent manifests: the
- *         kinds `agent.start` accepts, plus gjc when it is on this server's PATH,
- *         for the new-session dialog)
+ *         kinds `agent.start` accepts, for the new-session dialog)
  *  GET    /api/pane/read?pane_id=&source=&format=&lines=  -> { read: PaneReadResult }
  *  GET    /api/pane/scroll?pane_id=      -> { scroll: PaneScrollInfo | null } (where the
  *         viewport sits: its top row in the history is max_offset_from_bottom - offset_from_bottom)
@@ -58,7 +57,7 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *         history, soft-wrapped lines joined; a terminal selection that outlives one screen)
  *  POST   /api/pane/input  { pane_id, text }   -> { ok: true }
  *  GET    /api/pane/conversation?pane_id=    -> ConversationResponse (structured agent
- *         transcript turns - claude, codex, omp, gjc or pi; source:"scrollback" when the pane has no
+ *         transcript turns - claude, codex, omp or pi; source:"scrollback" when the pane has no
  *         recognized store)
  *  POST   /api/pane/close { pane_id }         -> { ok: true } (pane.close RPC; the collector's
  *         session-changed broadcast removes it from every client's sidebar)
@@ -75,8 +74,7 @@ export type { Machine, MachineEvent, PaneTarget, BridgeHealth } from "./machines
  *  POST   /api/pane/prompt/answer { pane_id, prompt_id, option_index?, option_indices?, custom_text? }
  *         -> { ok: true } | 409 prompt_changed (the screen no longer shows that prompt)
  *  POST   /api/workspace/create { cwd?, label?, agent?: { kind, name?, args? } }
- *         -> WorkspaceCreated (workspace.create, then agent.start in the root pane when `agent` is given;
- *         gjc, which herdr cannot start, is typed into the root pane's shell)
+ *         -> WorkspaceCreated (workspace.create, then agent.start in the root pane when `agent` is given)
  *  POST   /api/workspace/rename { workspace_id, label } -> { ok: true }
  *  POST   /api/workspace/move   { workspace_id, insert_index } -> { ok: true } (sidebar reorder)
  *  POST   /api/workspace/close  { workspace_id } -> { ok: true }
@@ -200,7 +198,7 @@ export type ConversationPart =
   | { kind: "image"; media_type: string; ref: string }
   /** the summary a compaction left; the conversation before it is what it sums up */
   | { kind: "compact"; text: string }
-  /** a message the agent's runtime put in the user's seat (gjc's background-job result): it starts a turn, nobody typed it */
+  /** a message the agent's runtime put in the user's seat: it starts a turn, nobody typed it */
   | { kind: "notice"; text: string };
 
 /** Latest model settings actually recorded by this agent. */
@@ -219,7 +217,7 @@ export interface ConversationMetadata {
 export interface ConversationResponse {
   /** Stable across appends; changes on transcript replacement or native context clear. */
   history_id?: string;
-  source: "claude-transcript" | "omp-transcript" | "gjc-transcript" | "pi-transcript" | "codex-transcript" | "scrollback";
+  source: "claude-transcript" | "omp-transcript" | "pi-transcript" | "codex-transcript" | "scrollback";
   turns: ConversationTurn[];
   metadata?: ConversationMetadata;
   /**

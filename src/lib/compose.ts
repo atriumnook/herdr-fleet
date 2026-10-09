@@ -82,8 +82,7 @@ export const QUEUE_READY_STATUS: Readonly<Partial<Record<string, true>>> = { don
  * Deliberately not a block: the composer sends text as written and nothing filters it, so typing
  * these still reaches the agent. The point is that the chat no longer points at them and says why
  * when they are typed anyway. claude and codex are absent because there is no evidence they have
- * the command, and telling a reader about a browser their agent does not have is its own wrong; gjc
- * is absent for the same reason, unverified rather than found wanting.
+ * the command, and telling a reader about a browser their agent does not have is its own wrong.
  */
 const TERMINAL_ONLY_COMMANDS: Readonly<Record<string, readonly string[]>> = {
   tree: ["pi", "omp"],

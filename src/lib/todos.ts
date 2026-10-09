@@ -4,7 +4,7 @@ import type { ConversationPart } from "../../shared/protocol.ts";
  * The agent's todo tool calls, as the chat's work block shows them. Each agent keeps its
  * list its own way:
  * - Claude Code `TodoWrite` and Codex `update_plan` send the whole list every time;
- * - omp `todo`, gjc `todo_write` send
+ * - omp `todo` sends
  *   operations (init, append, start, done, drop, block, note) on one list, and answer
  *   each call with the whole list as it now stands.
  * A call reads as a one-line summary, and opened, as the list its answer shows.
@@ -14,7 +14,7 @@ export type TodoStatus = "pending" | "in_progress" | "completed" | "blocked" | "
 
 export interface TodoItem {
   label: string;
-  /** the phase (omp, gjc) the item belongs to */
+  /** the phase (omp) the item belongs to */
   phase: string | null;
   status: TodoStatus;
   /** why it is blocked, or a note the agent attached */
@@ -27,7 +27,7 @@ type Kind = "whole" | "codex-plan" | "ops";
 function toolKind(name: string): Kind | null {
   if (name === "TodoWrite") return "whole";
   if (name === "update_plan") return "codex-plan";
-  if (name === "todo" || name === "todo_write" || /^mcp__.+__todo$/.test(name)) return "ops";
+  if (name === "todo") return "ops";
   return null;
 }
 
@@ -47,7 +47,7 @@ function args(part: Tool): Record<string, unknown> {
   try { return record(JSON.parse(part.input)); } catch { return {}; }
 }
 
-/** The operations of one `todo` / `todo_write` call: `ops: [...]`, or the call itself as one. */
+/** The operations of one `todo` call: `ops: [...]`, or the call itself as one. */
 function operations(input: Record<string, unknown>): Record<string, unknown>[] {
   return Array.isArray(input["ops"]) ? input["ops"].map(record) : [input];
 }
@@ -66,8 +66,7 @@ const EMPTY_ANSWER = /^(?:Todo list is empty\.|Todo list cleared\.)/m;
 
 /**
  * The whole list from a `todo` answer, when it has one:
- *   `  Phase:` then `    - [X] item`, `    - [ ] item (in progress)`, `    - [ ] item (dropped)` (omp)
- *   or `    ✓ item`, `    → item`, `    ○ item` (gjc).
+ *   `  Phase:` then `    - [X] item`, `    - [ ] item (in progress)`, `    - [ ] item (dropped)` (omp).
  * Null when the answer has no list, or was cut before its end.
  */
 export function parseTodoAnswer(output: string): TodoItem[] | null {
@@ -91,11 +90,6 @@ export function parseTodoAnswer(output: string): TodoItem[] | null {
       }
       items.push(note === undefined ? { label, phase, status } : { label, phase, status, note });
       continue;
-    }
-    const glyph = /^ {4}([✓→○✗⊘!]) (.+)$/.exec(line);
-    if (glyph) {
-      const mark = glyph[1];
-      items.push({ label: glyph[2]!, phase, status: mark === "✓" ? "completed" : mark === "→" ? "in_progress" : mark === "○" ? "pending" : mark === "!" ? "blocked" : "dropped" });
     }
   }
   if (items.length === 0) return null;
