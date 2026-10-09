@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { Emit } from "../../ui/bubble.ts";
 import { relay } from "../../ui/bubble.ts";
 import type { FleetScreenModel, RunCardModel, RunTone } from "../../ui/fleetView.ts";
-import type { Screen, UiEvent } from "../../ui/state.ts";
+import type { UiEvent } from "../../ui/state.ts";
 import { t } from "../../lib/i18n.ts";
 import { RunCard, type RunCardEvent } from "./RunCard.tsx";
 import { RunDetailSheet, type RunDetailEvent } from "./RunDetailSheet.tsx";
@@ -10,7 +10,7 @@ import { UsageCapsule, type UsageCapsuleEvent } from "./UsageCapsule.tsx";
 import "./Fleet.css";
 
 /** What the Fleet screen hands up to the Root: the Mediator's own events, complete. */
-export type FleetScreenEvent = Extract<UiEvent, { type: "show-screen" | "show-run" | "hide-run" | "open-pane" | "interrupt-run" | "close-done" | "clear-cooldown" | "refresh-usage" | "dismiss-error" }>;
+export type FleetScreenEvent = Extract<UiEvent, { type: "show-run" | "hide-run" | "open-pane" | "interrupt-run" | "close-done" | "clear-cooldown" | "refresh-usage" | "dismiss-error" }>;
 
 /** The clock the elapsed times read: a view-only tick, it decides nothing. */
 function useNow(intervalMs: number): number {
@@ -37,7 +37,7 @@ export function forRun(emit: Emit<FleetScreenEvent>, runId: string): Emit<RunCar
  * the runs in the order they need the person, ended ones folded at the end, and the chosen run's
  * detail on a sheet in front. It floats over the pane, which stays attached underneath.
  */
-export function FleetScreen({ model, screen, emit }: { model: FleetScreenModel; screen: Screen; emit: Emit<FleetScreenEvent> }) {
+export function FleetScreen({ model, emit }: { model: FleetScreenModel; emit: Emit<FleetScreenEvent> }) {
   const now = useNow(1000);
   // purely visual: whether the folded ended runs are shown
   const [endedOpen, setEndedOpen] = useState(false);
@@ -60,6 +60,11 @@ export function FleetScreen({ model, screen, emit }: { model: FleetScreenModel; 
             {model.usage.capsules.map((capsule) => (
               <UsageCapsule key={capsule.key} capsule={capsule} now={now} emit={relay<UsageCapsuleEvent, FleetScreenEvent>(emit, (_, pass) => pass({ type: "clear-cooldown", key: capsule.key }))} />
             ))}
+            {model.canAct && (
+              <button type="button" className="fleet-cap" disabled={model.usage.refreshing} onClick={() => emit({ type: "refresh-usage" })}>
+                {model.usage.refreshing ? t("Refreshing…") : t("Refresh usage")}
+              </button>
+            )}
           </div>
         </header>
 
@@ -103,18 +108,6 @@ export function FleetScreen({ model, screen, emit }: { model: FleetScreenModel; 
       </div>
 
       {model.detail && <RunDetailSheet run={model.detail} now={model.detail.tone === "working" || model.detail.tone === "needs" ? now : model.detail.updatedAt} emit={forRun(emit, model.detail.id)} />}
-
-      <div className="fleet-ornament" role="toolbar" aria-label={t("Screen")}>
-        <div className="fleet-ornament-switch">
-          <button type="button" aria-pressed={screen === "pane"} onClick={() => emit({ type: "show-screen", screen: "pane" })}>{t("Pane")}</button>
-          <button type="button" aria-pressed={screen === "fleet"} onClick={() => emit({ type: "show-screen", screen: "fleet" })}>{t("Fleet")}</button>
-        </div>
-        {model.canAct && (
-          <button type="button" className="fleet-cap" disabled={model.usage.refreshing} onClick={() => emit({ type: "refresh-usage" })}>
-            {model.usage.refreshing ? t("Refreshing…") : t("Refresh usage")}
-          </button>
-        )}
-      </div>
     </div>
   );
 }

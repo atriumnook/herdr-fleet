@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
+import { AppWindow, Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
 import { displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
@@ -351,8 +351,26 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         ) : (
           <><Brand /><span className="machine-context-name">{selectedMachine?.name ?? selectedMachineId}</span></>
         )}
-        {selectedPane && (
-          <div className="segmented view-switch" role="group" aria-label="Pane view">
+        <div className="segmented screen-switch" role="group" aria-label={t("Screen")}>
+          <button type="button" aria-pressed={screen === "pane"} title={t("Pane")} onClick={() => emit({ type: "show-screen", screen: "pane" })}>
+            <AppWindow />
+            <span className="header-desktop-only">{t("Pane")}</span>
+          </button>
+          <button
+            type="button"
+            className={`fleet-button${needs > 0 ? " has-needs" : ""}`}
+            aria-label={needs > 0 ? t("Fleet: {count} need you", { count: needs }) : t("Fleet")}
+            aria-pressed={screen === "fleet"}
+            title={t("Fleet")}
+            onClick={() => emit({ type: "show-screen", screen: "fleet" })}
+          >
+            <Orbit />
+            <span className="header-desktop-only">{t("Fleet")}</span>
+            {needs > 0 && <span className="fleet-button-count" aria-hidden="true">{needs}</span>}
+          </button>
+        </div>
+        {selectedPane && screen === "pane" && (
+          <div className="segmented view-switch" role="group" aria-label={t("Pane view")}>
             <button type="button" aria-pressed={view === "chat"} onClick={() => setView("chat")} title={t("Chat transcript (⌘⇧J)")}>
               <MessageSquare />
               <span className="header-desktop-only">{t("Chat")}</span>
@@ -379,17 +397,6 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
               <FolderOpen />
             </button>
           )}
-          <button
-            type="button"
-            className={`icon-button fleet-button${needs > 0 ? " has-needs" : ""}`}
-            aria-label={needs > 0 ? t("Fleet: {count} need you", { count: needs }) : t("Fleet")}
-            aria-pressed={screen === "fleet"}
-            title={t("Fleet")}
-            onClick={() => emit({ type: "show-screen", screen: screen === "fleet" ? "pane" : "fleet" })}
-          >
-            <Orbit />
-            {needs > 0 && <span className="fleet-button-count" aria-hidden="true">{needs}</span>}
-          </button>
           <button type="button" className="icon-button" aria-label={t("Command palette")} title={t("Command palette (⌘⇧K)")} onClick={() => emit({ type: "open-palette" })}>
             <Search />
           </button>
@@ -441,7 +448,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
             emit={emit}
           />
           </div>
-          {screen === "fleet" && <FleetPresenter screen={screen} emit={emit} />}
+          {screen === "fleet" && <FleetPresenter emit={emit} />}
         </main>
         </OpenFileContext.Provider>
       </div>

@@ -220,8 +220,9 @@ One set for both themes: the card is island black wherever it shows.
   `visualViewport` so the keyboard does not cover input; otherwise the shell is `100dvh`, because an
   iPhone home screen app reports a visual viewport shorter than the screen without a keyboard.
 - Header anatomy, left to right: mobile drawer toggle / desktop sidebar toggle; flexible context
-  title plus PC/workspace/cwd subtitle; segmented Chat/Terminal switch; the connection chip (herdr
-  version in its tooltip) and meta actions for palette, notifications, settings and lock. Theme
+  title plus PC/workspace/cwd subtitle; the segmented Pane/Fleet switch, then the Chat/Terminal
+  switch (Pane only); the connection chip (herdr version in its tooltip) and meta actions for
+  files, palette, notifications and lock. Theme
   lives in Settings and the palette; the herdr version also sits in the sidebar footer.
 - The sidebar is fixed-width on desktop and a `<=768px` drawer. The desktop collapse removes its
   column; the drawer uses a scrim and keeps safe-area insets. On touch, a mostly horizontal swipe in
@@ -229,7 +230,8 @@ One set for both themes: the card is island black wherever it shows.
 - The terminal stack contains a positioned terminal surface, then composer or key bar. The xterm
   mount stays alive under the chat lens; changing views never creates a second connection.
 - At `<=480px`, labels shed in priority order: version, brand name, context subtitle, connection
-  text and desktop-only control labels. Icons and selected context remain.
+  text and desktop-only control labels. Icons and selected context remain. Below `720px` the two
+  switches show their icons only.
 
 ## 5. Components
 
@@ -241,9 +243,12 @@ One set for both themes: the card is island black wherever it shows.
 - Coarse pointers grow controls to `--touch-target`.
 
 ### Segmented control (`.segmented`)
-- One `aria-pressed="true"` option receives hover fill and strong text; the group itself is an
-  elevated, bordered `--radius-md` track.
-- Used for Chat/Terminal, theme and density. It is not a generic tab list.
+- The track is `--field` with a 1px `--control-edge` edge, `--radius-md`, `3px` inside. Options are
+  `28px` high (`--touch-target` on coarse pointers), `--radius-sm`, `--fs-sm`; the rest read in
+  `--sub`. The one `aria-pressed="true"` option reads `--ink-strong` on `--tint`, with a 2px
+  `--accent` line along its foot.
+- Used for Pane/Fleet, Chat/Terminal and Settings choices. No other shape switches the same thing:
+  not tabs, a row of buttons, or an ornament along the bottom of the screen.
 
 ### Keyboard hint (`.kbd`)
 - An inline mono keycap: `18px` high, strong bottom edge, `--radius-sm`, `--fs-2xs`.
@@ -361,7 +366,8 @@ One set for both themes: the card is island black wherever it shows.
 ### Header context and connection
 - A selected pane shows agent mark + title over workspace + cwd. With no selection, the brand fills
   the context slot.
-- The segmented Chat/Terminal view switch lives in the header. There is no floating view-toggle pill.
+- Both switches live in the header: Pane/Fleet always, Chat/Terminal while a pane is shown. The
+  Fleet segment carries the count of runs that need you. Nothing floats along the bottom.
 - Connection is one quiet chip: a dot plus the written live/reconnecting/disconnected state;
   reconnecting pulses the dot. On phones the chip keeps only its dot.
 

@@ -76,13 +76,19 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await page.goto(origin);
     await page.locator(".conn-live").waitFor();
 
-    // the button names how many runs wait on the person, and opens the screen
+    // the header's screen switch names how many runs wait on the person, and opens the screen;
+    // choosing Fleet again keeps it, and the pane's Chat / Terminal switch steps aside meanwhile
     const button = page.locator(".fleet-button");
     await page.locator(".fleet-button-count", { hasText: "1" }).waitFor();
     assert.equal(await button.getAttribute("aria-label"), "Fleet: 1 need you");
     await button.click();
     const screen = page.locator(".fleet-screen");
     await screen.waitFor();
+    await button.click();
+    assert.equal(await screen.isVisible(), true, "choosing Fleet again keeps the Fleet screen");
+    assert.equal(await page.locator(".screen-switch button[aria-pressed='true']").getAttribute("title"), "Fleet");
+    assert.equal(await page.locator(".view-switch").count(), 0, "Chat / Terminal steps aside on the Fleet screen");
+    assert.equal(await page.locator(".fleet-ornament").count(), 0, "no switch floats over the screen");
     // scout's settle comes after the grace period: wait for it to reach Done
     await page.locator(".fleet-section.tone-done").waitFor();
     const headings = await screen.locator(".fleet-section-head h2").allTextContents();
@@ -113,6 +119,13 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await page.waitForURL(origin + "/");
     assert.equal(await page.locator(".pane-layer").getAttribute("inert"), null);
     await page.locator(".context", { hasText: "herdr-fleet-test-fleet-screen" }).waitFor();
+    assert.equal(await page.locator(".screen-switch button[aria-pressed='true']").getAttribute("title"), "Pane");
+    await page.locator(".view-switch").waitFor();
+    // and the switch takes the person back and forth
+    await button.click();
+    await screen.waitFor();
+    await page.locator(".screen-switch").getByRole("button", { name: "Pane", exact: true }).click();
+    await screen.waitFor({ state: "detached" });
     assert.deepEqual(errors, []);
     await desktop.close();
 
@@ -127,7 +140,7 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
       await context.close();
     }
 
-    // on a phone the switch is a tab bar along the bottom, and the screen still reads top to bottom
+    // on a phone the header's switch still fits, and the screen reads top to bottom with nothing over it
     const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "en-US" });
     await phone.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({})));
     const mobile = await phone.newPage();
@@ -136,8 +149,17 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await mobile.goto(origin);
     await mobile.locator(".fleet-button").click();
     await mobile.locator(".fleet-section.tone-done").waitFor();
-    const ornament = await mobile.locator(".fleet-ornament").boundingBox();
-    assert.ok(ornament && ornament.width > 330, `the ornament spans the phone: ${JSON.stringify(ornament)}`);
+    const header = await mobile.evaluate(() => {
+      const bar = document.querySelector(".app-header")!;
+      const box = document.querySelector(".screen-switch")!.getBoundingClientRect();
+      const title = document.querySelector(".context")!.getBoundingClientRect();
+      return { overflow: bar.scrollWidth - bar.clientWidth, right: box.right, height: box.height, title: title.width };
+    });
+    // the switches take a row of their own, so the pane title keeps most of the first
+    assert.ok(header.title >= 390 / 2, `the pane title keeps its room: ${JSON.stringify(header)}`);
+    assert.equal(header.overflow, 0, `the header fits the phone: ${JSON.stringify(header)}`);
+    assert.ok(header.right <= 390 && header.height >= 40, `the switch is on screen, a finger tall: ${JSON.stringify(header)}`);
+    assert.equal(await mobile.locator(".fleet-ornament").count(), 0);
     const overflow = await mobile.evaluate(() => document.querySelector(".fleet-scroll")!.scrollWidth - document.querySelector(".fleet-scroll")!.clientWidth);
     assert.equal(overflow, 0, "nothing scrolls sideways on a phone");
     await save(mobile, shots, "fleet-phone-dark");
