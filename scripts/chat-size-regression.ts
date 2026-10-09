@@ -63,11 +63,11 @@ export async function checkChatKeepsTerminalSize(browser: Browser, origin: strin
     const attached = (page: Page) => page.waitForFunction(() => (window as unknown as { frames_: { dir: string; type: string }[] }).frames_.some((f) => f.dir === "in" && f.type === "input-ready"), undefined, { timeout: 15_000 });
     const sent = (page: Page) => page.evaluate(() => (window as unknown as { frames_: { dir: string; type: string; keep_size?: boolean }[] }).frames_.filter((f) => f.dir === "out" && (f.type === "attach" || f.type === "resize")));
 
-    const desktop = await open({ viewport: { width: 1280, height: 800 } }, { language: "en", defaultView: "terminal" });
+    const desktop = await open({ viewport: { width: 1280, height: 800 } }, { defaultView: "terminal" });
     await attached(desktop);
     const desktopSize = await size();
 
-    const phone = await open({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, { language: "en", defaultView: "chat" });
+    const phone = await open({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, { defaultView: "chat" });
     await phone.locator(".terminal-stack.is-chat").waitFor({ state: "attached" });
     await attached(phone);
     // the chat lens attaches without driving the grid, and sends no resize of its own

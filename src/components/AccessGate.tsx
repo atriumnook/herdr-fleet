@@ -3,7 +3,7 @@ import "./AccessGate.css";
 import { type FormEvent, useEffect, useRef } from "react";
 
 import type { AccessRefusal } from "../../shared/protocol.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { GateState, UiEvent } from "../ui/state.ts";
 
@@ -24,7 +24,6 @@ export interface AccessGateProps {
  * HttpOnly cookie either way.
  */
 export function AccessGate({ reason, gate, emit }: AccessGateProps) {
-  const t = useT();
   const codeRef = useRef<HTMLInputElement | null>(null);
   const tokenRef = useRef<HTMLInputElement | null>(null);
   const { code, token, submitting } = gate;

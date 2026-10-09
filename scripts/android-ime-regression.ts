@@ -66,7 +66,7 @@ try {
   context = await device.launchBrowser({ hasTouch: true, viewport: null, args: ["--no-first-run", "--disable-fre"] });
   const page = await context.newPage();
   await page.addInitScript((pane) => {
-    localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en", terminalInputMode: "line" }));
+    localStorage.setItem("herdr-fleet:settings", JSON.stringify({ terminalInputMode: "line" }));
     localStorage.setItem(`herdr-fleet:view:${pane}`, "terminal");
     (window as any).nativeImeEvents = [];
     for (const type of ["compositionstart", "compositionupdate", "compositionend", "keydown", "input"]) document.addEventListener(type, (event: any) => {

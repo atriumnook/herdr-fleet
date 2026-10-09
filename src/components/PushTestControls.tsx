@@ -1,4 +1,4 @@
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { PushTest } from "../ui/state.ts";
 
@@ -16,7 +16,6 @@ export interface PushTestModel {
 export type PushTestEvent = { type: "send-test-push" } | { type: "repair-alerts" };
 
 export function PushTestControls({ model, emit }: { model: PushTestModel; emit: Emit<PushTestEvent> }) {
-  const t = useT();
   const { alertsOn, supported, denied, result } = model;
   const busy = result === "sending";
   const enable = !alertsOn || result === "missing" || result === "permission";
@@ -24,7 +23,7 @@ export function PushTestControls({ model, emit }: { model: PushTestModel; emit: 
   return (
     <>
       <div className="settings-row">
-        <div><span className="settings-label">{t("Test notification")}</span><span className="settings-description">{t("Check whether this device can receive push alerts")}</span></div>
+        <div><span className="settings-label">{t("Test notification")}</span><span className="settings-description">{t("Check whether this device can receive push alerts.")}</span></div>
         <button type="button" className="btn" disabled={busy || !alertsOn || !supported || denied} onClick={() => emit({ type: "send-test-push" })}>{busy ? t("Sending…") : t("Send test")}</button>
       </div>
       <p className="settings-hint" role="status">

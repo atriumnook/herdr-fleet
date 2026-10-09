@@ -5,7 +5,7 @@ import "./DirectoryBrowser.css";
 
 import type { DirectoryListing } from "../../shared/protocol.ts";
 import { formatBytes } from "../lib/formatBytes.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { FolderFailure } from "../ui/state.ts";
 
@@ -46,7 +46,6 @@ function childPath(parent: string, name: string): string {
  * a time, read from the PC by the state machine. Nothing is kept but the folder shown now.
  */
 export function DirectoryBrowser({ model, emit }: { model: DirectoryBrowserModel; emit: Emit<DirectoryBrowserEvent> }) {
-  const t = useT();
   const { start, listing, hidden, loading, error, files, canPick } = model;
   const listRef = useRef<HTMLUListElement>(null);
   // each folder listed starts at its top

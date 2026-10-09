@@ -9,6 +9,7 @@ import { FleetScreen, forRun } from "./FleetScreen.tsx";
 import { RunCard } from "./RunCard.tsx";
 import { RunDetailSheet } from "./RunDetailSheet.tsx";
 import { UsageCapsule } from "./UsageCapsule.tsx";
+import { t } from "../../lib/i18n.ts";
 
 const NOW = Date.now();
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
@@ -18,16 +19,9 @@ const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
 const state = (runs: AgentRun[], extra: Partial<UiState> = {}): UiState => ({ ...INITIAL_STATE, screen: "fleet", runs: { status: "ready", data: runs, again: false }, ...extra });
 const model = (s: UiState) => fleetScreenModel(s, NOW);
 const noop = () => {};
-/** the views read the language from the settings, as under the app's own provider; English here */
+/** the views read the settings, as under the app's own provider */
 function renderToStaticMarkup(element: ReturnType<typeof createElement>): string {
-  const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-  Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-  try {
-    return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: element }));
-  } finally {
-    if (languages) Object.defineProperty(navigator, "languages", languages);
-    else Reflect.deleteProperty(navigator, "languages");
-  }
+  return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: element }));
 }
 
 describe("Fleet screen views", () => {
@@ -79,7 +73,7 @@ describe("Fleet screen views", () => {
     expect(html).toContain("claude:sonnet");
     expect(html).toContain("claude has used 92% of its 5h limit");
     expect(html).toContain("codex:gpt-6");
-    expect(html).toContain("The fleet never answers a question; only a person does.");
+    expect(html).toContain(t("The fleet never answers a question; only a person does."));
     expect(html).toContain("1:03");
   });
 });

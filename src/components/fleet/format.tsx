@@ -1,5 +1,5 @@
 import type { AgentState } from "../../../shared/fleet.ts";
-import { useT } from "../../lib/i18n.ts";
+import { t } from "../../lib/i18n.ts";
 
 /** `4:12`, `1:03:07`: how long a run has gone, from its start. */
 export function elapsed(ms: number): string {
@@ -21,7 +21,6 @@ export function clock(ms: number, now: number): string {
 
 /** A run's state, written as well as colored. */
 export function StateBadge({ state }: { state: AgentState }) {
-  const t = useT();
   const tone = state === "blocked" ? "blocked" : state === "failed" ? "failed" : state === "idle" || state === "done" ? "done" : state === "stopped" ? "ended" : "working";
   return (
     <span className={`fleet-badge is-${tone}`}>
@@ -33,7 +32,6 @@ export function StateBadge({ state }: { state: AgentState }) {
 
 /** A usage window's name as the server gives it: `5h` stays, `weekly` and `monthly` are words. */
 export function WindowName({ name }: { name: string }) {
-  const t = useT();
   if (name === "weekly" || name === "monthly") return <>{t(name === "weekly" ? "Week" : "Month")}</>;
   return <>{name}</>;
 }

@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, WebSocketRoute } from "playwright-core";
 import { workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { t } from "../src/lib/i18n.ts";
 
 /**
  * The terminal lens says what its socket hears of the pane: held by another app until it lets
@@ -18,7 +19,7 @@ export async function checkTerminalSession(browser: Browser, origin: string): Pr
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
   try {
     await context.addInitScript((id) => {
-      localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" }));
+      localStorage.setItem("herdr-fleet:settings", JSON.stringify({}));
       localStorage.setItem(`herdr-fleet:view:${id}`, "terminal");
     }, pane);
     const page = await context.newPage();
@@ -37,13 +38,13 @@ export async function checkTerminalSession(browser: Browser, origin: string): Pr
     const banner = (text: string) => page.locator(".terminal-banner", { hasText: text });
 
     say({ type: "error", code: "attach_held", message: "held", pane_id: pane });
-    await banner("Another app has this pane open").waitFor();
+    await banner(t("Another app has this pane open. It connects here as soon as that app lets go.")).waitFor();
     say({ type: "attach-resumed", pane_id: pane });
-    await banner("Another app has this pane open").waitFor({ state: "detached" });
+    await banner(t("Another app has this pane open. It connects here as soon as that app lets go.")).waitFor({ state: "detached" });
     // a wait for a pane this terminal left is not this pane's
     say({ type: "error", code: "attach_held", message: "held", pane_id: "w999:p1" });
     await Bun.sleep(300);
-    assert.equal(await banner("Another app has this pane open").count(), 0);
+    assert.equal(await banner(t("Another app has this pane open. It connects here as soon as that app lets go.")).count(), 0);
     console.log("PASS the terminal says another app holds the pane, until it lets go");
 
     say({ type: "error", code: "input_failed", message: "The pane did not take the input.", pane_id: pane });
@@ -55,7 +56,7 @@ export async function checkTerminalSession(browser: Browser, origin: string): Pr
     console.log("PASS input the pane refused is said, and goes when dismissed");
 
     say({ type: "error", code: "terminal_unsupported", message: "unsupported", pane_id: pane });
-    await banner("Live terminal is coming to Windows PCs").waitFor();
+    await banner(t("Live terminal is coming to Windows PCs: herdr cannot attach a terminal there yet. The chat lens works now.")).waitFor();
     say({ type: "pty-exit", pane_id: pane, code: 0 });
     await banner("terminal ended").waitFor();
     assert.deepEqual(errors, []);

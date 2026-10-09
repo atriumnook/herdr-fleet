@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS, SettingsProvider } from "../lib/settings.ts";
 import { shownOrder } from "../ui/SidebarPresenter.tsx";
 import { EMPTY_TREE, type TreeState } from "../ui/state.ts";
 import { Sidebar, type SidebarModel } from "./Sidebar.tsx";
+import { t } from "../lib/i18n.ts";
 
 const workspace = (id: string, label: string, number: number): WorkspaceInfo => ({ workspace_id: id, number, label, focused: false, pane_count: 1, tab_count: 1, active_tab_id: `${id}:t1`, agent_status: "idle" } as WorkspaceInfo);
 const pane = (id: string, workspaceId: string, label?: string): PaneInfo => ({ pane_id: id, workspace_id: workspaceId, tab_id: `${workspaceId}:t1`, focused: false, cwd: "/w", agent_status: "idle", label } as PaneInfo);
@@ -13,15 +14,8 @@ const snapshot = { workspaces: [workspace("w1", "api", 1), workspace("w2", "web"
 
 /** English, as under the app's own provider with an English browser */
 function render(tree: Partial<TreeState> = {}, extra: Partial<SidebarModel> = {}): string {
-  const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-  Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-  try {
-    const model: SidebarModel = { machineId: "local", snapshot, selectedPaneId: null, grouping: "workspace", workspaceOrder: ["w1", "w2"], tree: { ...EMPTY_TREE, ...tree }, ...extra };
-    return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(Sidebar, { model, emit: () => {} }) }));
-  } finally {
-    if (languages) Object.defineProperty(navigator, "languages", languages);
-    else Reflect.deleteProperty(navigator, "languages");
-  }
+  const model: SidebarModel = { machineId: "local", snapshot, selectedPaneId: null, grouping: "workspace", workspaceOrder: ["w1", "w2"], tree: { ...EMPTY_TREE, ...tree }, ...extra };
+  return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(Sidebar, { model, emit: () => {} }) }));
 }
 
 describe("Session tree view", () => {
@@ -36,7 +30,7 @@ describe("Session tree view", () => {
   });
 
   it("notes a refused change beside its pane's row, in words", () => {
-    expect(render({ failure: { kind: "close", reason: "pane is busy", paneId: "w1:p1", seq: 1 } })).toContain("Close failed: pane is busy");
+    expect(render({ failure: { kind: "close", reason: "pane is busy", paneId: "w1:p1", seq: 1 } })).toContain(t("Could not close. {reason}", { reason: "pane is busy" }));
   });
 });
 

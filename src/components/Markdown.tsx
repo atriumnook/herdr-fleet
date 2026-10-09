@@ -5,7 +5,7 @@ import katex from "katex";
 import { foldCode, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
 import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
 import { fileUriPath } from "../lib/terminalFileLinks.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 
 function MathExpression({ value, displayMode = false }: { value: string; displayMode?: boolean }) {
   try {
@@ -19,7 +19,6 @@ function MathExpression({ value, displayMode = false }: { value: string; display
 
 /** A file path the viewer opens: a button that reads as the text or code it replaced. */
 function FilePath({ path, code, open }: { path: string; code: boolean; open: (path: string) => void }) {
-  const t = useT();
   const label = code ? <code>{path}</code> : path;
   return <button type="button" className={`markdown-file${code ? " is-code" : ""}`} title={t("Open {path}", { path })} onClick={() => open(path)}>{label}</button>;
 }
@@ -28,7 +27,6 @@ function FilePath({ path, code, open }: { path: string; code: boolean; open: (pa
 function Inline({ nodes, interactive = true }: { nodes: InlineNode[]; interactive?: boolean }) {
   const context = useContext(OpenFileContext);
   const open = interactive ? context : null;
-  const t = useT();
   return <>{nodes.map((node, index) => {
     const key = `${node.type}-${index}`;
     switch (node.type) {
@@ -73,7 +71,6 @@ function List({ block }: { block: ListBlock }) {
 }
 
 function CodeBlock({ language, value }: { language: string; value: string }) {
-  const t = useT();
   const [copied, setCopied] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const block = useRef<HTMLDivElement>(null);

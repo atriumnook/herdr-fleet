@@ -30,7 +30,7 @@ export async function checkDroplet(browser: Browser, origin: string): Promise<vo
 
     await context.addInitScript(() => {
       // finished turns stay quiet here: putting a pane back to idle between steps reads as one
-      if (localStorage.getItem("herdr-fleet:settings") === null) localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en", alertDone: "off" }));
+      if (localStorage.getItem("herdr-fleet:settings") === null) localStorage.setItem("herdr-fleet:settings", JSON.stringify({ alertDone: "off" }));
     });
     const page = await context.newPage();
     const errors: string[] = [];

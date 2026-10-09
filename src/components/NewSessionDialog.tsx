@@ -4,7 +4,7 @@ import { FolderOpen, X } from "lucide-react";
 import "./NewSessionDialog.css";
 
 import { AgentPicker } from "./AgentPicker.tsx";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { NewSessionState, UiEvent } from "../ui/state.ts";
 
@@ -27,7 +27,6 @@ function directoryBasename(value: string): string {
 
 /** A new workspace on a PC, with an agent or a shell in it. The folder browser being open is the view's own. */
 export function NewSessionDialog({ model, browser, emit }: NewSessionDialogProps) {
-  const t = useT();
   const { agents, agentKind, cwd, name, createdPaneId } = model;
   const pending = model.status === "starting";
   const [browsing, setBrowsing] = useState(false);
@@ -54,7 +53,7 @@ export function NewSessionDialog({ model, browser, emit }: NewSessionDialogProps
   const selectedAgent = agents.find((agent) => agent.kind === agentKind);
   const pendingLabel = selectedAgent ? t("Starting {agent}… up to 60s", { agent: selectedAgent.label }) : t("Starting shell…");
   const fieldsDisabled = pending || createdPaneId !== null;
-  const error = model.error === null ? null : model.error.kind === "invalid-cwd" ? t("Directory not found") : model.error.message;
+  const error = model.error === null ? null : model.error.kind === "invalid-cwd" ? t("This folder does not exist.") : model.error.message;
 
   const submit = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();

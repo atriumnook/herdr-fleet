@@ -19,7 +19,7 @@ export async function checkChatQueue(browser: Browser, origin: string): Promise<
   try {
     await report("working");
     await context.addInitScript((id) => {
-      if (!localStorage.getItem("herdr-fleet:settings")) localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" }));
+      if (!localStorage.getItem("herdr-fleet:settings")) localStorage.setItem("herdr-fleet:settings", JSON.stringify({}));
       localStorage.setItem(`herdr-fleet:view:${id}`, "chat");
     }, pane);
     // the pane's answers to Send now: refused, held until released, or passed to the server

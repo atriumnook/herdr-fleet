@@ -12,7 +12,7 @@ import { SHORTCUTS, formatKeys, type ShortcutId } from "../lib/shortcuts.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
 import { placeLine } from "../lib/paneName.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 
 /** The actions the palette lists; the shell runs them. */
 export type PaletteActionId = "new" | "view" | "sidebar" | "theme" | "settings" | "notifications" | "lock" | "files" | "refresh";
@@ -57,7 +57,6 @@ function ShortcutHint({ shortcutId }: { shortcutId?: ShortcutId }) {
 
 /** Panes and actions by search. Which row is highlighted is the view's own. */
 export function CommandPalette({ model, emit }: { model: CommandPaletteModel; emit: Emit<CommandPaletteEvent> }) {
-  const t = useT();
   const { snapshot, selectedPaneId, view, query, recent: recentPaneIds, offers } = model;
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);

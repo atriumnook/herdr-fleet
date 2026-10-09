@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup as renderBare } from "react-dom/server";
 import { DEFAULT_SETTINGS, SettingsProvider } from "../lib/settings.ts";
 import { QueuedMessages, type QueuedMessagesModel } from "./QueuedMessages.tsx";
+import { t } from "../lib/i18n.ts";
 
 const model = (extra: Partial<QueuedMessagesModel> = {}): QueuedMessagesModel => ({
   messages: [{ id: "a", text: "first" }, { id: "b", text: "second" }], unsaved: false, sending: null, anySending: false, error: null, canSend: true, heldByOpenQueue: false, ready: true, ...extra,
@@ -10,14 +11,7 @@ const model = (extra: Partial<QueuedMessagesModel> = {}): QueuedMessagesModel =>
 
 /** English, as under the app's own provider with an English browser */
 function render(values: QueuedMessagesModel): string {
-  const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-  Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-  try {
-    return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(QueuedMessages, { model: values, emit: () => {} }) }));
-  } finally {
-    if (languages) Object.defineProperty(navigator, "languages", languages);
-    else Reflect.deleteProperty(navigator, "languages");
-  }
+  return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(QueuedMessages, { model: values, emit: () => {} }) }));
 }
 
 describe("Held messages view", () => {
@@ -35,8 +29,8 @@ describe("Held messages view", () => {
   });
 
   it("says why the last one did not go, and a queue this device could not keep", () => {
-    expect(render(model({ error: { owner: "o", id: "a", note: { kind: "submit-failed", code: "input_failed", message: "the pane refused it" } } }))).toContain("Not sent: the pane refused it");
-    expect(render(model({ error: { owner: "o", id: "a", note: { kind: "not-sent" } } }))).toContain("Not sent. Reconnect and try again.");
-    expect(render(model({ unsaved: true }))).toContain("Queue could not be saved.");
+    expect(render(model({ error: { owner: "o", id: "a", note: { kind: "submit-failed", code: "input_failed", message: "the pane refused it" } } }))).toContain(t("Not sent. {message}", { message: "the pane refused it" }));
+    expect(render(model({ error: { owner: "o", id: "a", note: { kind: "not-sent" } } }))).toContain(t("Not sent. Reconnect and try again."));
+    expect(render(model({ unsaved: true }))).toContain(t("Queue could not be saved. Keep this tab open or copy the messages before reloading."));
   });
 });

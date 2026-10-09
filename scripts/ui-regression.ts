@@ -33,6 +33,7 @@ import { checkChatQueue } from "./chat-queue-regression.ts";
 import { checkComposerSend } from "./composer-send-regression.ts";
 import { checkComposerCompletion } from "./composer-completion-regression.ts";
 import { checkComposerAttachment } from "./composer-attachment-regression.ts";
+import { t } from "../src/lib/i18n.ts";
 
 const root = realpathSync(mkdtempSync(join(tmpdir(), "herdr-fleet-browser-")));
 const workspaces: string[] = [];
@@ -69,14 +70,14 @@ try {
   browser = await chromium.launch({
     executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome",
     headless: true, args: ["--no-sandbox"],
-    // the checks read the English UI: Chromium on Linux takes its language from LANG, not --lang,
-    // so a machine set to another language would otherwise show the UI in it
+    // the checks read times and dates in the en-US form: Chromium on Linux takes its locale from
+    // LANG, not --lang
     env: { ...process.env, LANG: "en_US.UTF-8", LANGUAGE: "en_US", LC_ALL: "en_US.UTF-8" },
   });
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   await context.addInitScript((ids) => {
     // only the first load: a reload must keep what Settings stored, such as the sidebar grouping
-    if (!localStorage.getItem("herdr-fleet:settings")) localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" }));
+    if (!localStorage.getItem("herdr-fleet:settings")) localStorage.setItem("herdr-fleet:settings", JSON.stringify({}));
     for (const id of ids) localStorage.setItem(`herdr-fleet:view:${id}`, "chat");
   }, panes);
   const page = await context.newPage();
@@ -912,7 +913,7 @@ try {
   await gate.getByText("Have an access token instead?", { exact: true }).click();
   await gate.getByLabel("Access token", { exact: true }).fill("not-the-token");
   await gate.getByRole("button", { name: "Unlock", exact: true }).click();
-  await gate.getByText("Token does not match.", { exact: true }).waitFor();
+  await gate.getByText(t("Token does not match."), { exact: true }).waitFor();
   await gate.getByLabel("Access token", { exact: true }).fill("browser-test-token");
   await gate.getByRole("button", { name: "Unlock", exact: true }).click();
   await signedIn.waitFor();
@@ -923,7 +924,7 @@ try {
   const wrong = issued === "000000" ? "111111" : "000000";
   await gate.getByLabel("Pairing code", { exact: true }).fill(wrong);
   await gate.getByRole("button", { name: "Pair this device", exact: true }).click();
-  await gate.getByText("That code is wrong, used up or expired. Start a new pairing on the PC.", { exact: true }).waitFor();
+  await gate.getByText(t("That code is wrong, used up or expired. Start a new pairing on the PC."), { exact: true }).waitFor();
   // a code is spent after five wrong tries: one more is fine
   await gate.getByLabel("Pairing code", { exact: true }).fill(issued);
   await gate.getByRole("button", { name: "Pair this device", exact: true }).click();

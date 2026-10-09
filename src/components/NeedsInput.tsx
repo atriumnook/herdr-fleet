@@ -1,6 +1,6 @@
 import type { Machine } from "../../shared/machines.ts";
 import { paneStorageId } from "../../shared/machines.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import { panesNeedingInput } from "../lib/needsInput.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
@@ -16,7 +16,6 @@ export function NeedsInput({ machines, selectedMachineId, selectedPaneId, emit }
   selectedPaneId: string | null;
   emit: Emit<NeedsInputEvent>;
 }) {
-  const t = useT();
   const waiting = panesNeedingInput(machines);
   return <>
     <p className="visually-hidden" role="status">{t("Panes waiting for input: {n}", { n: waiting.length })}</p>

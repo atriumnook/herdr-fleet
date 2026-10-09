@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { JA } from "./i18n.ja.ts";
-import { resolveLanguage, translate } from "./i18n.ts";
+import { isSentence, t } from "./i18n.ts";
 
 const root = join(import.meta.dir, "..");
 
@@ -70,24 +70,27 @@ function labelMapKeys(): string[] {
   ];
 }
 
-const DICTIONARIES = { Japanese: JA };
-
-describe.each(Object.entries(DICTIONARIES))("%s dictionary", (_name, dictionary) => {
+describe("the Japanese dictionary", () => {
   const inCode = keysInCode();
   const keys = new Set([...inCode.keys(), ...labelMapKeys()]);
 
-  it("has every string the code asks for", () => {
-    const missing = [...keys].filter((key) => !(key in dictionary)).sort();
+  it("has every sentence the code asks for", () => {
+    const missing = [...keys].filter((key) => isSentence(key) && !(key in JA)).sort();
     expect(missing).toEqual([]);
   });
 
+  it("translates sentences only: labels stay in English", () => {
+    const labels = Object.keys(JA).filter((key) => !isSentence(key)).sort();
+    expect(labels).toEqual([]);
+  });
+
   it("keeps no entry the code no longer uses", () => {
-    const stale = Object.keys(dictionary).filter((key) => !keys.has(key)).sort();
+    const stale = Object.keys(JA).filter((key) => !keys.has(key)).sort();
     expect(stale).toEqual([]);
   });
 
   it("keeps every placeholder of the English in the translation", () => {
-    const broken = Object.entries(dictionary).filter(([en, text]) => {
+    const broken = Object.entries(JA).filter(([en, text]) => {
       const want = [...en.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
       const have = [...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]).sort();
       return want.join() !== have.join();
@@ -95,31 +98,18 @@ describe.each(Object.entries(DICTIONARIES))("%s dictionary", (_name, dictionary)
     expect(broken).toEqual([]);
   });
 
-  it("is not just the English repeated", () => {
-    // names and key caps read the same in every language; Chinese UIs leave "Shell" and "Agent" in English
-    const sameOnPurpose = new Set(["PC {name}", "Control C", "Shell", "Agent", "Fleet"]);
-    const same = Object.entries(dictionary).filter(([en, text]) => en === text && /[a-z]{3}/i.test(en) && !sameOnPurpose.has(en));
-    expect(same.map(([en]) => en)).toEqual([]);
+  it("is Japanese, not the English repeated", () => {
+    const english = Object.entries(JA).filter(([, text]) => !/[\u3040-\u30ff\u4e00-\u9fff]/.test(text)).map(([en]) => en);
+    expect(english).toEqual([]);
   });
 });
 
-describe("translate", () => {
-  it("fills placeholders, falls back to English, and leaves unknown placeholders alone", () => {
-    expect(translate("en", "Worked for {duration}", { duration: "7s" })).toBe("Worked for 7s");
-    expect(translate("ja", "Worked for {duration}", { duration: "7秒" })).toBe(JA["Worked for {duration}"]!.replace("{duration}", "7秒"));
-    expect(translate("ja", "not a key", { x: 1 })).toBe("not a key");
-    expect(translate("ja", "Settings")).toBe(JA["Settings"]!);
-    expect(translate("en", "{a} and {b}", { a: 1 })).toBe("1 and {b}");
-  });
-
-  it("follows the browser only when asked to", () => {
-    expect(resolveLanguage("system", ["ja-JP", "en-US"])).toBe("ja");
-    expect(resolveLanguage("system", ["en-US", "ja"])).toBe("ja");
-    expect(resolveLanguage("system", ["en-US"])).toBe("en");
-    expect(resolveLanguage("system", [])).toBe("en");
-    expect(resolveLanguage("en", ["ja-JP"])).toBe("en");
-    expect(resolveLanguage("ja", ["en-US"])).toBe("ja");
-    expect(resolveLanguage("system", ["ja-JP"])).toBe("ja");
-    expect(resolveLanguage("system", ["ko-KR", "zh-CN"])).toBe("en");
+describe("t", () => {
+  it("gives a sentence in Japanese and a label as it is, placeholders filled", () => {
+    expect(t("This folder cannot be opened.")).toBe(JA["This folder cannot be opened."]!);
+    expect(t("Showing the first {shown} of {total}.", { shown: 3, total: 9 })).toBe(JA["Showing the first {shown} of {total}."]!.replace("{shown}", "3").replace("{total}", "9"));
+    expect(t("Settings")).toBe("Settings");
+    expect(t("{n} min ago", { n: 5 })).toBe("5 min ago");
+    expect(t("{a} and {b}", { a: 1 })).toBe("1 and {b}");
   });
 });

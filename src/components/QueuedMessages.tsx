@@ -1,6 +1,6 @@
 import { MAX_COMPOSER_CHARS, submitNote } from "../lib/compose.ts";
 import type { HeldMessage } from "../lib/messageQueue.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { QueueState } from "../ui/state.ts";
 
@@ -28,7 +28,6 @@ export type QueuedMessagesEvent =
 
 /** Messages held while the agent works: edited in place, sent one at a time when the person says so, or discarded. */
 export function QueuedMessages({ model, emit }: { model: QueuedMessagesModel; emit: Emit<QueuedMessagesEvent> }) {
-  const t = useT();
   const { messages, unsaved, sending, anySending, error, canSend, heldByOpenQueue, ready } = model;
   const said = (note: NonNullable<QueueState["error"]>["note"]): string => note.kind === "submit-failed" ? submitNote(note.code, note.message)
     : note.kind === "not-sent" ? t("Not sent. Reconnect and try again.") : t("Not confirmed. Check the terminal before sending again.");
@@ -56,7 +55,7 @@ export function QueuedMessages({ model, emit }: { model: QueuedMessagesModel; em
         <div className="composer-queue-actions">
           <button type="button" className="composer-queue-send"
             disabled={!canSend || anySending || heldByOpenQueue || message.text.trim().length === 0}
-            title={heldByOpenQueue ? t("Codex has a question open in the terminal: answer it above first") : undefined}
+            title={heldByOpenQueue ? t("Codex has a question open in the terminal: answer it above first.") : undefined}
             onClick={() => emit({ type: "queue-send", id: message.id, text: message.text })}>{t("Send now")}</button>
           <button type="button" className="composer-queue-discard" disabled={sending === message.id}
             onClick={() => emit({ type: "queue-discard", id: message.id })}>{t("Discard")}</button>

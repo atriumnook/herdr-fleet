@@ -1,6 +1,7 @@
 /** Settings → Devices against the test server's own device store (in its temporary state folder). */
 import assert from "node:assert/strict";
 import type { Browser } from "playwright-core";
+import { t } from "../src/lib/i18n.ts";
 
 /** Pairs a device from a browser of its own, as a phone that typed the code would. */
 async function pairFrom(browser: Browser, origin: string, code: string, label: string): Promise<void> {
@@ -20,13 +21,13 @@ async function pairFrom(browser: Browser, origin: string, code: string, label: s
 export async function checkDevices(browser: Browser, origin: string): Promise<void> {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 } });
   try {
-    await context.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" })));
+    await context.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({})));
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
     await page.goto(origin);
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     const panel = page.locator(".devices-panel");
-    await panel.getByText("No devices paired yet.").waitFor();
+    await panel.getByText(t("No devices paired yet.")).waitFor();
 
     // a code, then the device it lets in shows up on its own (the panel polls while the code is out)
     await panel.getByRole("button", { name: "Pair a device", exact: true }).click();
@@ -34,7 +35,7 @@ export async function checkDevices(browser: Browser, origin: string): Promise<vo
     await codeText.waitFor();
     await pairFrom(browser, origin, (await codeText.textContent())!.replace(/\s/g, ""), "First phone");
     // the first device to pair is named too, and its code is put away
-    await panel.getByText("Paired: First phone.").waitFor({ timeout: 8000 });
+    await panel.getByText(t("Paired: {name}.", { name: "First phone" })).waitFor({ timeout: 8000 });
     assert.equal(await codeText.count(), 0, "the code goes once its device paired");
     await panel.getByText("First phone", { exact: true }).waitFor();
 
@@ -42,7 +43,7 @@ export async function checkDevices(browser: Browser, origin: string): Promise<vo
     await panel.getByRole("button", { name: "Pair a device", exact: true }).click();
     await codeText.waitFor();
     await pairFrom(browser, origin, (await codeText.textContent())!.replace(/\s/g, ""), "Second phone");
-    await panel.getByText("Paired: Second phone.").waitFor({ timeout: 8000 });
+    await panel.getByText(t("Paired: {name}.", { name: "Second phone" })).waitFor({ timeout: 8000 });
     assert.equal(await codeText.count(), 0, "the code goes once its device paired");
 
     // a rename keeps the name being typed until saved

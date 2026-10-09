@@ -18,7 +18,7 @@ export async function checkTerminalDraft(browser: Browser, origin: string): Prom
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
   try {
     await context.addInitScript((id) => {
-      if (!localStorage.getItem("herdr-fleet:settings")) localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" }));
+      if (!localStorage.getItem("herdr-fleet:settings")) localStorage.setItem("herdr-fleet:settings", JSON.stringify({}));
       localStorage.setItem(`herdr-fleet:view:${id}`, "terminal");
     }, pane);
     const page = await context.newPage();

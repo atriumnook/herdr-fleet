@@ -15,17 +15,10 @@ const model = (extra: Partial<MachineSidebarModel> = {}): MachineSidebarModel =>
 
 /** English, as under the app's own provider with an English browser */
 function render(values: MachineSidebarModel): string {
-  const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-  Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-  try {
-    return renderBare(createElement(SettingsProvider, {
-      settings: DEFAULT_SETTINGS, onChange: () => {},
-      children: createElement(MachineSidebar, { model: values, tree: (machine: Machine) => `TREE-${machine.id}`, emit: () => {} }),
-    }));
-  } finally {
-    if (languages) Object.defineProperty(navigator, "languages", languages);
-    else Reflect.deleteProperty(navigator, "languages");
-  }
+  return renderBare(createElement(SettingsProvider, {
+    settings: DEFAULT_SETTINGS, onChange: () => {},
+    children: createElement(MachineSidebar, { model: values, tree: (machine: Machine) => `TREE-${machine.id}`, emit: () => {} }),
+  }));
 }
 
 describe("Machine sidebar view", () => {

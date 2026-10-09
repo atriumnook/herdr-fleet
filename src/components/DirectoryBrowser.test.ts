@@ -4,20 +4,14 @@ import { renderToStaticMarkup as renderBare } from "react-dom/server";
 import type { DirectoryListing } from "../../shared/protocol.ts";
 import { DEFAULT_SETTINGS, SettingsProvider } from "../lib/settings.ts";
 import { DirectoryBrowser, type DirectoryBrowserModel } from "./DirectoryBrowser.tsx";
+import { t } from "../lib/i18n.ts";
 
 const listing = (extra: Partial<DirectoryListing> = {}): DirectoryListing => ({ path: "/home/me/w", parent: "/home/me", home: "/home/me", directories: ["api"], truncated: false, ...extra });
 const model = (extra: Partial<DirectoryBrowserModel> = {}): DirectoryBrowserModel => ({ start: "~/w", listing: listing(), hidden: false, loading: false, error: null, files: false, canPick: true, ...extra });
 
 /** English, as under the app's own provider with an English browser */
 function render(values: DirectoryBrowserModel): string {
-  const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-  Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-  try {
-    return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(DirectoryBrowser, { model: values, emit: () => {} }) }));
-  } finally {
-    if (languages) Object.defineProperty(navigator, "languages", languages);
-    else Reflect.deleteProperty(navigator, "languages");
-  }
+  return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(DirectoryBrowser, { model: values, emit: () => {} }) }));
 }
 
 describe("Folder browser view", () => {
@@ -40,8 +34,8 @@ describe("Folder browser view", () => {
   });
 
   it("says why a folder was not listed", () => {
-    expect(render(model({ error: "unsupported" }))).toContain("This PC&#x27;s bridge cannot browse folders yet. Type the path instead.");
-    expect(render(model({ error: "invalid" }))).toContain("This folder cannot be opened.");
-    expect(render(model({ error: "failed" }))).toContain("Folders could not be loaded.");
+    expect(render(model({ error: "unsupported" }))).toContain(t("This PC's bridge cannot browse folders yet. Type the path instead."));
+    expect(render(model({ error: "invalid" }))).toContain(t("This folder cannot be opened."));
+    expect(render(model({ error: "failed" }))).toContain(t("Folders could not be loaded."));
   });
 });

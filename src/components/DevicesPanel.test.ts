@@ -6,21 +6,15 @@ import { DEFAULT_SETTINGS, SettingsProvider } from "../lib/settings.ts";
 import { devicesPanelModel } from "../ui/devicesView.ts";
 import { NO_DEVICES, type DevicesState } from "../ui/state.ts";
 import { DevicesPanel } from "./DevicesPanel.tsx";
+import { t } from "../lib/i18n.ts";
 
 const device: PairedDevice = { id: "a", label: "iPhone", role: "drive", created_at: "2026-10-01T00:00:00Z", last_seen_at: null, current: true };
 const code = { code: "123456", expires_at: new Date(Date.now() + 600_000).toISOString() };
 
 /** English, as under the app's own provider with an English browser */
 function render(devices: Partial<DevicesState>, pairUrl: string | null = null): string {
-  const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-  Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-  try {
-    const model = devicesPanelModel({ ...NO_DEVICES, ...devices }, pairUrl, { required: false, authenticated: true, via: "local" } as never);
-    return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(DevicesPanel, { model, emit: () => {} }) }));
-  } finally {
-    if (languages) Object.defineProperty(navigator, "languages", languages);
-    else Reflect.deleteProperty(navigator, "languages");
-  }
+  const model = devicesPanelModel({ ...NO_DEVICES, ...devices }, pairUrl, { required: false, authenticated: true, via: "local" } as never);
+  return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(DevicesPanel, { model, emit: () => {} }) }));
 }
 
 describe("Devices panel view", () => {
@@ -29,7 +23,7 @@ describe("Devices panel view", () => {
     const html = render({ list: [device] });
     expect(html).toContain("iPhone");
     expect(html).toContain("this device");
-    expect(html).toContain("You are on the PC itself.");
+    expect(html).toContain(t("You are on the PC itself."));
   });
 
   it("asks for the second press on Revoke, and keeps the name being typed", () => {
@@ -45,7 +39,7 @@ describe("Devices panel view", () => {
 
   it("offers no pairing where the server keeps no devices, and says why", () => {
     const html = render({ list: [], unavailable: true, failure: { kind: "unavailable" } });
-    expect(html).toContain("Devices are managed on a real server.");
+    expect(html).toContain(t("Devices are managed on a real server."));
     expect(html).toMatch(/disabled="">Pair a device<\/button>/);
   });
 });

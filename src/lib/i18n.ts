@@ -1,79 +1,28 @@
 /**
- * UI text in the user's language. The English string is the key: `t("Rename pane")`,
- * `t("Worked for {duration}", { duration })`. A key the dictionary (i18n.ja.ts)
- * lacks comes back in English, so a new string is never blank, and
- * src/lib/i18n.test.ts scans the code for every `t("…")` and fails when one is missing from
- * any dictionary.
- *
- * Components take `t` from `useT()`, whose identity changes with the language so memoized
- * work is redone. Helpers outside React (status labels, shortcut labels, work summaries)
- * call the module-level `t`, which reads the language the SettingsProvider last set.
+ * UI text. Labels (names, buttons, states, headings, counts) stay in English; sentences read
+ * word for word (setting descriptions, error and notice bodies, confirmations, guidance) are
+ * Japanese. The English string is the key: `t("Rename pane")`, `t("Token does not match.")`.
+ * A sentence ends with a full stop (see isSentence), and only sentences have an entry in
+ * i18n.ja.ts; src/lib/i18n.test.ts scans the code for every `t("…")` and fails when a sentence
+ * lacks its Japanese or a label has one. There is no language setting.
  */
-import { useMemo } from "react";
 import { JA } from "./i18n.ja.ts";
-import { useSettings } from "./settings.ts";
 
-export const LANGUAGE_SETTINGS = ["system", "en", "ja"] as const;
-export type LanguageSetting = (typeof LANGUAGE_SETTINGS)[number];
-export type Language = Exclude<LanguageSetting, "system">;
-
-export const LANGUAGE_NAMES: Record<LanguageSetting, string> = { system: "System", en: "English", ja: "日本語" };
-
-/** The BCP 47 tag for `<html lang>` and Intl formatting. */
-export const LOCALE_TAGS: Record<Language, string> = { en: "en-US", ja: "ja-JP" };
-
-const DICTIONARIES: Record<Language, Record<string, string>> = { en: {}, ja: JA };
+/** The tag for `<html lang>` and Intl formatting: the sentences are Japanese. */
+export const LOCALE = "ja-JP";
 
 /**
- * `system` follows the browser: the first tag in its list for a translated language picks it
- * (`["en-US", "ja"]` is Japanese), otherwise English.
+ * Whether `key` is a sentence, the only kind of text that is translated: it ends with a full
+ * stop, or with a full stop and then the detail it reports (`Could not close. {reason}`).
  */
-export function resolveLanguage(setting: LanguageSetting, languages: readonly string[] = typeof navigator !== "undefined" ? navigator.languages : []): Language {
-  if (setting !== "system") return setting;
-  for (const tag of languages) {
-    const match = /^(ja)\b/i.exec(tag);
-    if (match) return match[1]!.toLowerCase() as Language;
-  }
-  return "en";
-}
-
-let current: Language = "en";
-
-export function setCurrentLanguage(language: Language): void {
-  current = language;
-}
-
-export function currentLanguage(): Language {
-  return current;
-}
-
-/** The BCP 47 tag of the language the SettingsProvider last set, for Intl outside React. */
-export function currentLocale(): string {
-  return LOCALE_TAGS[current];
+export function isSentence(key: string): boolean {
+  return /\.(?: \{\w+\})?$/.test(key);
 }
 
 export type Vars = Record<string, string | number>;
 
-/** The text for `key` in `language`, placeholders filled; pure, for tests and for both `t`s. */
-export function translate(language: Language, key: string, vars?: Vars): string {
-  const text = DICTIONARIES[language][key] ?? key;
-  return vars === undefined ? text : text.replace(/\{(\w+)\}/g, (match, name: string) => (name in vars ? String(vars[name]) : match));
-}
-
+/** The text for `key`, placeholders filled: the Japanese of a sentence, a label as it is. */
 export function t(key: string, vars?: Vars): string {
-  return translate(current, key, vars);
-}
-
-export type Translate = (key: string, vars?: Vars) => string;
-
-/** `t` bound to the current language, a new function whenever the language changes. */
-export function useT(): Translate {
-  const { resolvedLanguage } = useSettings();
-  return useMemo<Translate>(() => (key, vars) => translate(resolvedLanguage, key, vars), [resolvedLanguage]);
-}
-
-/** The BCP 47 tag for Intl formatting in the current language. */
-export function useLocale(): string {
-  const { resolvedLanguage } = useSettings();
-  return LOCALE_TAGS[resolvedLanguage];
+  const text = JA[key] ?? key;
+  return vars === undefined ? text : text.replace(/\{(\w+)\}/g, (match, name: string) => (name in vars ? String(vars[name]) : match));
 }

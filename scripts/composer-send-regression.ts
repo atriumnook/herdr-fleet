@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { Browser, WebSocketRoute } from "playwright-core";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { t } from "../src/lib/i18n.ts";
 
 const question = (extra: Partial<InteractivePrompt> = {}): InteractivePrompt => ({
   id: "q-1", agent: "codex", kind: "question", title: "Pick one", question: "Which file?", body: null,
@@ -27,7 +28,7 @@ export async function checkComposerSend(browser: Browser, origin: string): Promi
   try {
     await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "codex", state: "idle" });
     await context.addInitScript((id) => {
-      if (!localStorage.getItem("herdr-fleet:settings")) localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" }));
+      if (!localStorage.getItem("herdr-fleet:settings")) localStorage.setItem("herdr-fleet:settings", JSON.stringify({}));
       localStorage.setItem(`herdr-fleet:view:${id}`, "chat");
     }, pane);
     const page = await context.newPage();
@@ -62,7 +63,7 @@ export async function checkComposerSend(browser: Browser, origin: string): Promi
 
     await composer.fill("hello");
     await composer.press("Enter");
-    await note.filter({ hasText: "Not sent: the pane refused it" }).waitFor();
+    await note.filter({ hasText: t("Not sent. {message}", { message: "the pane refused it" }) }).waitFor();
     assert.equal(await composer.inputValue(), "hello", "a refused message keeps its text");
     console.log("PASS a message the pane refused keeps its text and says why");
 
@@ -81,7 +82,7 @@ export async function checkComposerSend(browser: Browser, origin: string): Promi
     await composer.fill("xbc");
     (release as (() => void) | null)?.();
     release = null;
-    await note.filter({ hasText: "Sent as it was." }).waitFor();
+    await note.filter({ hasText: t("Sent as it was. Your changes made while it was sending stayed here and were not sent.") }).waitFor();
     assert.equal(await composer.inputValue(), "xbc", "a sent text changed meanwhile stays as changed");
     console.log("PASS text typed while a message is on its way stays, and a sent text changed meanwhile stays with a note");
 
@@ -90,7 +91,8 @@ export async function checkComposerSend(browser: Browser, origin: string): Promi
     for (let i = 0; i < 100 && release === null; i++) await Bun.sleep(20);
     release = null;
     await (route as WebSocketRoute | null)?.close();
-    await note.filter({ hasText: "Not confirmed" }).waitFor();
+    // the composer's own note or the pane's refusal: both open with the same first sentence
+    await note.filter({ hasText: t("Not confirmed. Check the terminal before sending again.").split("。")[0]! }).waitFor();
     assert.equal(await composer.inputValue(), "lost", "a message not confirmed keeps its text");
     await page.locator(".conn-live").waitFor({ timeout: 30_000 });
     mode = "pass";
@@ -100,17 +102,17 @@ export async function checkComposerSend(browser: Browser, origin: string): Promi
     await page.locator(".prompt-card").waitFor();
     await composer.fill("stop, don't touch prod");
     await composer.press("Enter");
-    await note.filter({ hasText: "Codex has a question open in the terminal" }).waitFor();
+    await note.filter({ hasText: t("Codex has a question open in the terminal: answer it above, or close it there (alt+↓) to message Codex.") }).waitFor();
     assert.equal(await composer.inputValue(), "stop, don't touch prod");
     // a new prompt (another id): the same id keeps the prompt shown
     prompt = question({ id: "q-2" });
     await page.waitForFunction(() => document.querySelector("textarea[aria-label='Message']")?.getAttribute("placeholder")?.startsWith("Answer above") === true);
     await composer.fill("9");
     await composer.press("Enter");
-    await note.filter({ hasText: "Choose one of the options above: type 1–2." }).waitFor();
+    await note.filter({ hasText: t("Choose one of the options above: type {range}.", { range: "1–2" }) }).waitFor();
     await composer.fill("1");
     await composer.press("Enter");
-    await note.filter({ hasText: "The question on screen changed; check it and answer again." }).waitFor();
+    await note.filter({ hasText: t("The question on screen changed; check it and answer again.") }).waitFor();
     assert.deepEqual(errors, []);
     console.log("PASS an open Codex question takes no message, an answer out of range is refused, and one the prompt moved past says so");
   } finally {

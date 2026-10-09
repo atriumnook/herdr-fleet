@@ -14,14 +14,7 @@ const model = (extra: Partial<ChatViewModel> = {}): ChatViewModel => ({
 
 /** English, as under the app's own provider with an English browser */
 function render(values: ChatViewModel): string {
-  const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-  Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-  try {
-    return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(ChatView, { model: values, emit: () => {} }) }));
-  } finally {
-    if (languages) Object.defineProperty(navigator, "languages", languages);
-    else Reflect.deleteProperty(navigator, "languages");
-  }
+  return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(ChatView, { model: values, emit: () => {} }) }));
 }
 
 describe("Chat view", () => {

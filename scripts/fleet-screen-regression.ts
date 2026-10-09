@@ -10,6 +10,7 @@ import { DEFAULT_CONFIG } from "../server/fleet/config.ts";
 import type { AgentRuntime } from "../server/fleet/runtime.ts";
 import type { AgentState } from "../server/fleet/types.ts";
 import { UsageTracker } from "../server/fleet/usage.ts";
+import { t } from "../src/lib/i18n.ts";
 
 /**
  * The Fleet screen in a real browser, over a server whose fleet runs on a stand-in runtime (no
@@ -68,7 +69,7 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await spawn("scout", "scout");
 
     const desktop = await browser.newContext({ viewport: { width: 1280, height: 860 }, locale: "en-US" });
-    await desktop.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" })));
+    await desktop.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({})));
     const page = await desktop.newPage();
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
@@ -100,7 +101,7 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await screen.locator(".fleet-run-name", { hasText: "review" }).click();
     const sheet = page.locator(".fleet-sheet");
     await sheet.waitFor();
-    assert.match(await sheet.textContent() ?? "", /The fleet never answers a question; only a person does\./);
+    assert.ok((await sheet.textContent() ?? "").includes(t("The fleet never answers a question; only a person does.")));
     assert.match(await sheet.textContent() ?? "", /codex:gpt-6/);
     await save(page, shots, "fleet-detail-dark");
     await sheet.getByRole("button", { name: "Close" }).click();
@@ -117,7 +118,7 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
 
     for (const theme of shots ? ["light"] : []) {
       const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, locale: "en-US" });
-      await context.addInitScript((t) => localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en", theme: t })), theme);
+      await context.addInitScript((t) => localStorage.setItem("herdr-fleet:settings", JSON.stringify({ theme: t })), theme);
       const light = await context.newPage();
       await light.goto(origin);
       await light.locator(".fleet-button").click();
@@ -128,7 +129,7 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
 
     // on a phone the switch is a tab bar along the bottom, and the screen still reads top to bottom
     const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "en-US" });
-    await phone.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" })));
+    await phone.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({})));
     const mobile = await phone.newPage();
     const mobileErrors: string[] = [];
     mobile.on("pageerror", (error) => mobileErrors.push(error.message));

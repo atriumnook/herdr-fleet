@@ -15,7 +15,7 @@ import { useShortcuts } from "./lib/shortcuts.ts";
 import type { AppActions, PaneView } from "./lib/actions.ts";
 import { pushSupported } from "./lib/push.ts";
 import { OpenFileContext } from "./lib/filePaths.ts";
-import { useT } from "./lib/i18n.ts";
+import { t } from "./lib/i18n.ts";
 import { useScreenWakeLock } from "./lib/wakeLock.ts";
 import { watchDrawerSwipe } from "./lib/edgeSwipe.ts";
 import { relay, type Emit } from "./ui/bubble.ts";
@@ -77,7 +77,6 @@ function Brand() {
  * the runs waiting on the person, a pane the Mediator asks for) and sends events up through `emit`.
  */
 export function App({ emit }: { emit: Emit<UiEvent> }) {
-  const t = useT();
   const emitRef = useRef(emit);
   emitRef.current = emit;
   const screen = useSelected((state) => state.screen);
@@ -197,17 +196,17 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
 
   const bell: { label: string; title: string; on: boolean; run: () => void } =
     notifications !== "granted"
-      ? { label: t("Enable notifications"), title: t("Notify me when a pane needs input or finishes"), on: false, run: enableNotifications }
+      ? { label: t("Enable notifications"), title: t("Notify me when a pane needs you or is done."), on: false, run: enableNotifications }
       : !alertsOn
-        ? { label: t("Alerts off"), title: t("Alerts off on this device — tap to turn them on"), on: false, run: enableNotifications }
+        ? { label: t("Alerts off"), title: t("Alerts are off on this device. Tap to turn them on."), on: false, run: enableNotifications }
         : pushOn
-          ? { label: t("Alerts on"), title: t("Alerts on — pushed to this device, even with the app closed. Tap to turn them off"), on: true, run: disableNotifications }
+          ? { label: t("Alerts on"), title: t("Alerts on — pushed to this device, even with the app closed. Tap to turn them off."), on: true, run: disableNotifications }
           : {
               label: t("Alerts on in this tab"),
               // turning them off and on again retries the push subscription
               title: pushSupported()
-                ? t("Alerts on while this tab is open. Tap to turn them off")
-                : t("Alerts on while this tab is open (closed-app alerts need https, and on iPhone the home-screen app). Tap to turn them off"),
+                ? t("Alerts on while this tab is open. Tap to turn them off.")
+                : t("Alerts on while this tab is open (closed-app alerts need https, and on iPhone the home-screen app). Tap to turn them off."),
               on: true,
               run: disableNotifications,
             };
@@ -358,7 +357,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
               <MessageSquare />
               <span className="header-desktop-only">{t("Chat")}</span>
             </button>
-            <button type="button" aria-pressed={view === "terminal"} onClick={() => setView("terminal")} title={terminalAttach ? t("Live terminal (⌘⇧J)") : t("Live terminal: coming to Windows PCs once herdr can attach there")}>
+            <button type="button" aria-pressed={view === "terminal"} onClick={() => setView("terminal")} title={terminalAttach ? t("Live terminal (⌘⇧J)") : t("Live terminal comes to Windows PCs once herdr can attach there.")}>
               <SquareTerminal />
               <span className="header-desktop-only">{t("Terminal")}</span>
               {!terminalAttach && <span className="pill pill-soon">{t("soon")}</span>}

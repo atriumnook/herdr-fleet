@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 
 import type { InteractivePrompt } from "../../shared/protocol.ts";
 import { answerFromText, answerHint, answerRefusal, needsConfirmation } from "./promptAnswer.ts";
+import { t } from "./i18n.ts";
 
 const prompt = (options: string[], custom: number | null, multi = false): InteractivePrompt => ({
   id: "p", agent: "claude", kind: "question", title: "Question", question: "?", body: null,
@@ -35,7 +36,7 @@ describe("answering a prompt from the chat", () => {
     expect(answerFromText(approval, "4")).toBeNull();
     expect(answerFromText(approval, "maybe later")).toBeNull();
     expect(answerHint(approval)).toBe("Answer above: type 1–3 to choose…");
-    expect(answerRefusal(approval)).toBe("Choose one of the options above: type 1–3.");
+    expect(answerRefusal(approval)).toBe(t("Choose one of the options above: type {range}.", { range: "1–3" }));
     // typed, an approval's pick waits for Confirm; a question's does not
     expect(needsConfirmation(approval, { option_index: 0 })).toBe(true);
     expect(needsConfirmation(prompt(["LM-O"], 1), { option_index: 0 })).toBe(false);

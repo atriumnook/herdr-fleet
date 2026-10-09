@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { LockKeyhole, Send } from "lucide-react";
 import { validSecret } from "../../shared/secret-prompt.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import type { SubmitResult } from "../lib/ws.ts";
 import "./SecretInput.css";
 
@@ -11,7 +11,6 @@ export function SecretInput({ prompt, onSend, onCancel }: {
   onSend: (value: string) => Promise<SubmitResult> | null;
   onCancel: () => void;
 }) {
-  const t = useT();
   const input = useRef<HTMLInputElement>(null);
   const alive = useRef(true);
   const busy = useRef(false);

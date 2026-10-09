@@ -7,7 +7,7 @@ import { submitNote } from "../lib/compose.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { LineDraftChange, SendOutcome, UiEvent } from "../ui/state.ts";
 
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 
 /** What the input line draws: its pane's line, whether it is on its way, and what its last send came to. */
 export interface TerminalInputModel {
@@ -41,7 +41,6 @@ const MAX_ROWS = 4;
  * is written with the keyboard's own editing and goes to the pane whole, then Enter.
  */
 export function TerminalInput({ model, onEnter, onComposing, emit }: TerminalInputProps) {
-  const t = useT();
   // the line belongs to its PC and pane (the Mediator keeps it), never to the mounted view: a late
   // acknowledgement must not erase edits made in a newly mounted input for the same pane
   const { owner, connected, text, sending, outcome } = model;
