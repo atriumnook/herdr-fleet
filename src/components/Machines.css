@@ -9,7 +9,7 @@
 .machine-group {
   --machine-indent: calc(var(--space-3) + 16px + var(--space-2) + 16px + var(--space-2));
   padding-bottom: var(--space-2);
-  border-bottom: var(--hairline) solid var(--border);
+  border-bottom: var(--hairline) solid var(--line);
 }
 
 .machine-header {
@@ -29,7 +29,7 @@
   padding: 0;
   background: transparent;
   border: 0;
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font: inherit;
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
@@ -42,7 +42,7 @@
   flex: none;
   width: 16px;
   height: 16px;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .machine-name {
@@ -54,7 +54,7 @@
 
 .machine-kind {
   flex: none;
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
   font-weight: var(--fw-regular);
 }
@@ -64,15 +64,15 @@
   width: var(--dot-size);
   height: var(--dot-size);
   border-radius: var(--radius-pill);
-  background: var(--status-idle);
+  background: var(--idle);
 }
 
-.machine-dot.is-connected { background: var(--status-done); }
-.machine-dot.is-error { background: var(--status-blocked); }
+.machine-dot.is-connected { background: var(--done); }
+.machine-dot.is-error { background: var(--needs); }
 
 .machine-dot.is-connecting,
 .machine-dot.is-reconnecting {
-  background: var(--status-working);
+  background: var(--working);
   animation: pulse var(--dur-pulse) var(--ease-pulse) infinite;
 }
 
@@ -87,13 +87,13 @@
 }
 
 .machine-state-word {
-  color: var(--text-dim);
+  color: var(--sub);
   font-weight: var(--fw-medium);
 }
 
-.machine-state.is-error .machine-state-word { color: var(--status-blocked); }
+.machine-state.is-error .machine-state-word { color: var(--needs); }
 .machine-state.is-connecting .machine-state-word,
-.machine-state.is-reconnecting .machine-state-word { color: var(--status-working); }
+.machine-state.is-reconnecting .machine-state-word { color: var(--working); }
 
 /* the server's own words can run long (socket paths): two lines, the full text on hover */
 .machine-state-detail {
@@ -101,7 +101,7 @@
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
-  color: var(--text-dim);
+  color: var(--sub);
   overflow-wrap: anywhere;
 }
 
@@ -115,7 +115,7 @@
 .machine-context-name {
   max-width: 140px;
   overflow: hidden;
-  color: var(--text-strong);
+  color: var(--ink-strong);
   text-overflow: ellipsis;
   white-space: nowrap;
 }

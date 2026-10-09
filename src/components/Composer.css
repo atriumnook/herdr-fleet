@@ -9,7 +9,7 @@
      The indicator is a thin bar near the bottom edge: the box may sit 16px into its 34px inset
      and still clear it, and the full inset left a band of nothing under the box */
   padding: 0 var(--space-4) max(var(--space-4), calc(env(safe-area-inset-bottom, 0px) - var(--space-4)));
-  background: var(--bg-panel);
+  background: var(--surface);
 }
 
 /* the soft keyboard covers the home indicator: the box sits just above the keyboard */
@@ -36,7 +36,7 @@
   gap: var(--space-1);
   min-height: var(--chip-h);
   padding: 0 var(--space-2) var(--space-1);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
   white-space: nowrap;
   overflow: hidden;
@@ -54,7 +54,7 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: var(--text);
+  color: var(--ink);
 }
 
 .composer-reasoning-short {
@@ -68,7 +68,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   padding-inline: var(--space-1);
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-sm);
 }
 
@@ -83,7 +83,7 @@
   padding: 0;
   border: 0;
   background: none;
-  color: var(--text-dim);
+  color: var(--sub);
   font: inherit;
   font-variant-numeric: tabular-nums;
   cursor: pointer;
@@ -108,7 +108,7 @@
 }
 
 .composer-context-track {
-  stroke: var(--border);
+  stroke: var(--line);
 }
 
 .composer-context-used {
@@ -117,7 +117,7 @@
 }
 
 .composer-context.is-low {
-  color: var(--status-blocked);
+  color: var(--needs);
 }
 
 .composer-status .agent-mark {
@@ -127,21 +127,21 @@
 
 .composer-status strong {
   flex: none;
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-xs);
   letter-spacing: var(--tracking-caps);
 }
 
 .composer-status[data-status="working"] strong {
-  color: var(--status-working);
+  color: var(--working);
 }
 
 .composer-status[data-status="blocked"] strong {
-  color: var(--status-blocked);
+  color: var(--needs);
 }
 
 .composer-status[data-status="done"] strong {
-  color: var(--status-done);
+  color: var(--done);
 }
 
 .composer-status-hint {
@@ -162,8 +162,8 @@
     "attachments attachments attachments"
     "left text right";
   align-items: end;
-  background: var(--bg-elevated);
-  border: var(--hairline) solid var(--border);
+  background: var(--field);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-card);
   transition:
@@ -175,7 +175,7 @@
    textarea inside it (the global :focus-visible ring is suppressed below) */
 .composer-surface:focus-within {
   border-color: var(--accent);
-  box-shadow: var(--shadow-card), 0 0 0 var(--hairline) var(--accent-tint);
+  box-shadow: var(--shadow-card), 0 0 0 var(--hairline) var(--tint);
 }
 
 .composer-surface.is-dragging {
@@ -206,7 +206,7 @@
   width: var(--space-8);
   height: 4px;
   border-radius: var(--radius-pill);
-  background: var(--border-strong);
+  background: var(--line-strong);
   transform: translateY(2px);
   pointer-events: none;
   transition: background-color var(--dur-fast) var(--ease-out);
@@ -235,7 +235,7 @@
   background: transparent;
   border: 0;
   outline: 0;
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-family: var(--font-ui);
   font-size: var(--fs-input);
   line-height: var(--lh-base);
@@ -253,7 +253,7 @@
 }
 
 .composer-text::placeholder {
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .composer-text:disabled {
@@ -286,7 +286,7 @@
 }
 
 .composer-controls .icon-button {
-  color: var(--text-dim);
+  color: var(--sub);
   border-radius: var(--radius-pill);
 }
 
@@ -299,7 +299,7 @@
   padding: 0;
   border: var(--hairline) solid transparent;
   border-radius: var(--radius-pill);
-  color: var(--primary-text);
+  color: var(--on-accent);
 }
 
 .composer-action svg,
@@ -310,14 +310,14 @@
 }
 
 .composer-send {
-  background: var(--primary);
-  border-color: var(--primary);
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 .composer-stop {
-  background: var(--status-blocked-tint);
-  border-color: var(--status-blocked);
-  color: var(--status-blocked);
+  background: var(--needs-tint);
+  border-color: var(--needs);
+  color: var(--needs);
 }
 
 .composer-queue-button {
@@ -327,10 +327,10 @@
   gap: var(--space-1);
   min-height: var(--control-h);
   padding: 0 var(--space-2);
-  background: var(--primary-tint);
-  border: var(--hairline) solid var(--primary);
+  background: var(--tint);
+  border: var(--hairline) solid var(--accent);
   border-radius: var(--radius-pill);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font: inherit;
   font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
@@ -346,17 +346,17 @@
 
 @media (hover: hover) {
   .composer-send:hover:not(:disabled) {
-    background: var(--primary-hover);
-    border-color: var(--primary-hover);
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
   }
 
   .composer-stop:hover:not(:disabled) {
-    background: var(--danger-tint);
+    background: var(--needs-tint);
   }
 
   .composer-queue-button:hover:not(:disabled),
   .composer-controls .icon-button:hover:not(:disabled) {
-    background: var(--bg-hover);
+    background: var(--field-hover);
   }
 }
 
@@ -425,9 +425,9 @@
   width: calc(var(--control-h) * 2);
   height: calc(var(--control-h) * 2);
   overflow: visible;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
+  background: var(--field);
 }
 
 .composer-attachment img {
@@ -443,8 +443,8 @@
   padding: var(--hairline) var(--space-1);
   overflow: hidden;
   border-radius: var(--radius-pill);
-  background: var(--bg-panel);
-  color: var(--text-strong);
+  background: var(--surface);
+  color: var(--ink-strong);
   font-size: var(--fs-2xs);
   line-height: var(--lh-tight);
   text-align: center;
@@ -453,7 +453,7 @@
 }
 
 .composer-attachment.is-error {
-  border-color: var(--status-blocked);
+  border-color: var(--needs);
 }
 
 .composer-attachment button {
@@ -466,16 +466,16 @@
   width: var(--chip-h);
   height: var(--chip-h);
   padding: 0;
-  background: var(--bg-panel);
-  border: var(--hairline) solid var(--border-strong);
+  background: var(--surface);
+  border: var(--hairline) solid var(--line-strong);
   border-radius: var(--radius-pill);
-  color: var(--text-strong);
+  color: var(--ink-strong);
 }
 
 .composer-note {
   margin-top: var(--space-1);
   padding: 0 var(--space-2);
-  color: var(--danger-text);
+  color: var(--needs-text);
   font-size: var(--fs-xs);
 }
 
@@ -557,19 +557,19 @@
   flex-direction: column;
   gap: var(--space-1);
   padding: var(--space-2) var(--space-3);
-  border-top: var(--hairline) solid var(--border);
-  background: var(--accent-tint);
+  border-top: var(--hairline) solid var(--line);
+  background: var(--tint);
 }
 
 .terminal-stack.is-chat .composer-queue {
   width: min(100%, var(--content-w));
   margin: 0 auto;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
 }
 
 .composer-queue-label {
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-2xs);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
@@ -579,10 +579,10 @@
   min-height: 2lh;
   padding: var(--space-1) var(--space-2);
   resize: none;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--bg-panel);
-  color: var(--text-strong);
+  background: var(--surface);
+  color: var(--ink-strong);
   font: inherit;
   font-size: var(--fs-sm);
 }
@@ -608,15 +608,15 @@
 }
 
 .composer-queue-send {
-  border: var(--hairline) solid var(--border);
-  background: var(--bg-elevated);
-  color: var(--text);
+  border: var(--hairline) solid var(--line);
+  background: var(--field);
+  color: var(--ink);
 }
 
 .composer-queue-discard {
   background: transparent;
   border: 0;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 /* a file without a thumbnail: its icon and name fill the tile */
@@ -630,7 +630,7 @@
   justify-content: center;
   gap: var(--space-1);
   overflow: hidden;
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-2xs);
   line-height: var(--lh-tight);
   text-align: center;
@@ -668,10 +668,10 @@
   min-height: var(--control-h);
   padding: 0 var(--space-3);
   overflow: hidden;
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: 999px;
-  background: var(--bg-elevated);
-  color: var(--text);
+  background: var(--field);
+  color: var(--ink);
   font: inherit;
   font-size: var(--fs-sm);
   text-overflow: ellipsis;
@@ -699,7 +699,7 @@
 .composer-suggestion {
   max-width: 100%;
   border-style: dashed;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 @media (pointer: fine) {
@@ -711,14 +711,14 @@
 .composer-queue-heading { display: grid; gap: var(--space-1); font-size: var(--fs-sm); }
 .composer-queue-list { margin: 0; padding: 0; list-style: none; }
 .composer-queue-item { display: grid; gap: var(--space-1); padding: var(--space-2) 0; }
-.composer-queue-item + .composer-queue-item { border-top: var(--hairline) solid var(--border); }
-.composer-queue-error { margin: 0; color: var(--text); font-size: var(--fs-xs); }
+.composer-queue-item + .composer-queue-item { border-top: var(--hairline) solid var(--line); }
+.composer-queue-error { margin: 0; color: var(--ink); font-size: var(--fs-xs); }
 
 /* A command the agent runs but the chat cannot finish. Advice, not a failure: it reads quieter than
    .composer-note, which means the message did not go */
 .composer-hint {
   margin-top: var(--space-1);
   padding: 0 var(--space-2);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
 }

@@ -19,58 +19,57 @@
 
   /* surfaces (tonal steps, darkest to lightest): lamp-lit graphite, warm not tinted */
   --bg: #05070d;
-  --bg-panel: #0b1020;
-  --bg-elevated: #121a2e;
-  --bg-hover: #18223a;
-  --bg-input: #0a0f1c;
-  --border: #1c2742;
-  --border-strong: #2a3858;
+  --surface: #0b1020;
+  --field: #121a2e;
+  --field-hover: #18223a;
+  --input: #0a0f1c;
+  --line: #1c2742;
+  /* the edge of a control drawn by its edge (field, segmented, toggle): 3:1 on bg, input and field */
+  --control-edge: #5d6f96;
+  --line-strong: #2a3858;
 
   /* text */
-  --text: #d6e2f5;
-  --text-dim: #93a1bb;
-  --text-strong: #f2f7ff;
+  --ink: #d6e2f5;
+  --sub: #93a1bb;
+  --ink-strong: #f2f7ff;
 
   /* the saturated colors: ONE amber (selection, focus, cursor and the user's own
      action - an amber-phosphor terminal) and the four agent states, none of them amber */
   --accent: #7df9ff;
-  --accent-tint: rgba(125, 249, 255, 0.13);
-  --primary: #7df9ff;
-  --primary-hover: #b8fcff;
-  --primary-text: #021018;
-  --primary-tint: rgba(125, 249, 255, 0.16);
-  --status-idle: #93a1bb;
-  --status-working: #8fa8ff;
-  --status-blocked: #ff6b8a;
-  --status-done: #5cf2b0;
-  --status-working-tint: rgba(143, 168, 255, 0.14);
-  --status-blocked-tint: rgba(255, 107, 138, 0.14);
-  --status-done-tint: rgba(92, 242, 176, 0.12);
-  --danger-tint: rgba(255, 107, 138, 0.12);
-  --danger-text: #ffd3dc;
+  --tint: rgba(125, 249, 255, 0.13);
+  --accent-hover: #b8fcff;
+  --on-accent: #021018;
+  --idle: #93a1bb;
+  --working: #8fa8ff;
+  --needs: #ff6b8a;
+  --done: #5cf2b0;
+  --working-tint: rgba(143, 168, 255, 0.14);
+  --needs-tint: rgba(255, 107, 138, 0.14);
+  --done-tint: rgba(92, 242, 176, 0.12);
+  --needs-text: #ffd3dc;
 
   /* usage meters: plenty, getting low, low */
-  --meter-ok: var(--status-done);
+  --meter-ok: var(--done);
   --meter-mid: #ffd166;
-  --meter-low: var(--status-blocked);
+  --meter-low: var(--needs);
 
   /* Liquid / Spatial glass: one layer that floats over the app's backdrop */
   --glass: rgba(16, 22, 38, 0.46);
   --glass-strong: rgba(24, 32, 54, 0.78);
-  --glass-edge: rgba(150, 200, 255, 0.2);
+  --edge: rgba(150, 200, 255, 0.2);
   --glass-hi: rgba(220, 240, 255, 0.28);
   --glass-sheen-a: rgba(125, 249, 255, 0.12);
   --glass-sheen-b: rgba(160, 140, 255, 0.08);
   --glass-shadow: rgba(0, 4, 16, 0.6);
   --glass-blur: blur(28px) saturate(180%);
-  --backdrop-glow-a: rgba(80, 220, 255, 0.2);
-  --backdrop-glow-b: rgba(140, 110, 255, 0.22);
-  --backdrop-glow-c: rgba(40, 255, 200, 0.1);
+  --glow-1: rgba(80, 220, 255, 0.2);
+  --glow-2: rgba(140, 110, 255, 0.22);
+  --glow-3: rgba(40, 255, 200, 0.1);
 
   /* overlays */
   --scrim: rgba(2, 4, 10, 0.6);
   --shadow-drawer: 0 0 40px rgba(0, 4, 16, 0.7);
-  --shadow-pop: 0 16px 48px rgba(0, 4, 16, 0.6), 0 0 0 1px var(--border);
+  --shadow-pop: 0 16px 48px rgba(0, 4, 16, 0.6), 0 0 0 1px var(--line);
   --shadow-card: 0 4px 16px rgba(0, 4, 16, 0.45);
 
   /* terminal theme: mirrored verbatim in src/lib/settings.ts terminalTheme() */
@@ -171,33 +170,31 @@
   --meter-mid: #8a5a00;
   --glass-shadow: rgba(20, 40, 90, 0.16);
   --bg: #eaf0f8;
-  --bg-panel: #f7faff;
-  --bg-elevated: #edf2fa;
-  --bg-hover: #e1e9f5;
-  --bg-input: #ffffff;
-  --border: #d3dcea;
-  --border-strong: #b9c6da;
-  --text: #1c2638;
-  --text-dim: #4a576e;
-  --text-strong: #0a1222;
+  --surface: #f7faff;
+  --field: #edf2fa;
+  --field-hover: #e1e9f5;
+  --input: #ffffff;
+  --line: #d3dcea;
+  --control-edge: #74839c;
+  --line-strong: #b9c6da;
+  --ink: #1c2638;
+  --sub: #4a576e;
+  --ink-strong: #0a1222;
   --accent: #00609a;
-  --accent-tint: rgba(0, 96, 154, 0.1);
-  --primary: #006aa6;
-  --primary-hover: #0a7cc0;
-  --primary-text: #ffffff;
-  --primary-tint: rgba(0, 106, 166, 0.12);
-  --status-idle: #4a576e;
-  --status-working: #3049c0;
-  --status-blocked: #a6183e;
-  --status-done: #0a6443;
-  --status-working-tint: rgba(48, 73, 192, 0.1);
-  --status-blocked-tint: rgba(166, 24, 62, 0.1);
-  --status-done-tint: rgba(10, 100, 67, 0.1);
-  --danger-tint: rgba(166, 24, 62, 0.1);
-  --danger-text: #8f1838;
+  --tint: rgba(0, 96, 154, 0.1);
+  --accent-hover: #0a7cc0;
+  --on-accent: #ffffff;
+  --idle: #4a576e;
+  --working: #3049c0;
+  --needs: #a6183e;
+  --done: #0a6443;
+  --working-tint: rgba(48, 73, 192, 0.1);
+  --needs-tint: rgba(166, 24, 62, 0.1);
+  --done-tint: rgba(10, 100, 67, 0.1);
+  --needs-text: #8f1838;
   --scrim: rgba(20, 40, 90, 0.25);
   --shadow-drawer: 0 0 40px rgba(20, 40, 90, 0.2);
-  --shadow-pop: 0 16px 48px rgba(20, 40, 90, 0.14), 0 0 0 1px var(--border);
+  --shadow-pop: 0 16px 48px rgba(20, 40, 90, 0.14), 0 0 0 1px var(--line);
   --shadow-card: 0 4px 16px rgba(20, 40, 90, 0.07);
   --term-bg: #f7faff;
   --term-fg: #1c2638;
@@ -205,13 +202,13 @@
   --term-selection: #cfe3f7;
   --glass: rgba(255, 255, 255, 0.52);
   --glass-strong: rgba(255, 255, 255, 0.82);
-  --glass-edge: rgba(255, 255, 255, 0.9);
+  --edge: rgba(255, 255, 255, 0.9);
   --glass-hi: rgba(255, 255, 255, 1);
   --glass-sheen-a: rgba(60, 190, 255, 0.1);
   --glass-sheen-b: rgba(130, 100, 255, 0.07);
-  --backdrop-glow-a: rgba(60, 190, 255, 0.28);
-  --backdrop-glow-b: rgba(130, 100, 255, 0.22);
-  --backdrop-glow-c: rgba(0, 200, 160, 0.14);
+  --glow-1: rgba(60, 190, 255, 0.28);
+  --glow-2: rgba(130, 100, 255, 0.22);
+  --glow-3: rgba(0, 200, 160, 0.14);
 }
 
 [data-density="compact"] {
@@ -245,7 +242,7 @@ body,
 
 body {
   background: var(--bg);
-  color: var(--text);
+  color: var(--ink);
   font-family: var(--font-ui);
   font-size: var(--fs-md);
   font-weight: var(--fw-regular);
@@ -305,8 +302,8 @@ button {
   height: calc(var(--header-h) + env(safe-area-inset-top, 0px));
   padding: env(safe-area-inset-top, 0px) calc(var(--space-3) + env(safe-area-inset-right, 0px)) 0
     calc(var(--space-3) + env(safe-area-inset-left, 0px));
-  background: var(--bg-panel);
-  border-bottom: var(--hairline) solid var(--border);
+  background: var(--surface);
+  border-bottom: var(--hairline) solid var(--line);
   /* Keep the header's painted background at the top of the app. The home-screen
      status-bar layout is controlled by index.html; see docs/ios-home-screen-testing.md. */
   position: sticky;
@@ -325,8 +322,8 @@ button {
   width: var(--sidebar-w);
   flex: 0 0 var(--sidebar-w);
   min-height: 0;
-  background: var(--bg-panel);
-  border-right: var(--hairline) solid var(--border);
+  background: var(--surface);
+  border-right: var(--hairline) solid var(--line);
   padding-left: env(safe-area-inset-left, 0px);
 }
 
@@ -344,7 +341,7 @@ button {
   min-width: 0;
   min-height: 0;
   overflow: hidden;
-  background: var(--bg-panel);
+  background: var(--surface);
   padding: 0 env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);
 }
 
@@ -366,7 +363,7 @@ button {
   font-weight: var(--fw-bold);
   letter-spacing: var(--tracking-tight);
   line-height: var(--lh-tight);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   white-space: nowrap;
 }
 
@@ -377,7 +374,7 @@ button {
 }
 
 .brand-sub {
-  color: var(--text-dim);
+  color: var(--sub);
   font-weight: var(--fw-medium);
 }
 
@@ -398,7 +395,7 @@ button {
   min-width: 0;
   font-size: var(--fs-lg);
   font-weight: var(--fw-semibold);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   letter-spacing: var(--tracking-tight);
 }
 
@@ -416,7 +413,7 @@ button {
   min-width: 0;
   margin-top: 2px;
   font-size: var(--fs-xs);
-  color: var(--text-dim);
+  color: var(--sub);
   white-space: nowrap;
 }
 
@@ -453,23 +450,23 @@ button {
   white-space: nowrap;
   padding: 0 var(--space-2);
   border-radius: var(--radius-pill);
-  background: var(--bg-elevated);
-  color: var(--text-dim);
+  background: var(--field);
+  color: var(--sub);
 }
 
 .conn-dot {
   width: var(--dot-size);
   height: var(--dot-size);
   border-radius: var(--radius-pill);
-  background: var(--status-done);
+  background: var(--done);
 }
 
 .conn-reconnecting {
-  color: var(--status-working);
+  color: var(--working);
 }
 
 .conn-reconnecting .conn-dot {
-  background: var(--status-working);
+  background: var(--working);
   animation: pulse var(--dur-pulse) var(--ease-pulse) infinite;
 }
 
@@ -494,7 +491,7 @@ button {
   background: transparent;
   border: var(--hairline) solid transparent;
   border-radius: var(--radius-md);
-  color: var(--text);
+  color: var(--ink);
   cursor: pointer;
   transition:
     background-color var(--dur-fast) var(--ease-out),
@@ -502,11 +499,11 @@ button {
 }
 
 .icon-button.is-outlined {
-  border-color: var(--border);
+  border-color: var(--line);
 }
 
 /* a disabled control must not read as the strongest control on screen: 0.7 keeps the dark
-   accent glyph at 4.93:1 on --bg-panel (disabled controls are exempt from the AA minimum) */
+   accent glyph at 4.93:1 on --surface (disabled controls are exempt from the AA minimum) */
 .icon-button:disabled {
   opacity: 0.7;
   cursor: default;
@@ -520,15 +517,15 @@ button {
 /* hover only where a pointer can hover: after a tap a touch screen keeps :hover on the button */
 @media (hover: hover) {
   .icon-button:hover:not(:disabled) {
-    background: var(--bg-hover);
+    background: var(--field-hover);
   }
 }
 
 .icon-button:active,
 .icon-button[aria-expanded="true"] {
-  background: var(--bg-elevated);
+  background: var(--field);
   border-color: var(--accent);
-  color: var(--text-strong);
+  color: var(--ink-strong);
 }
 
 /* after .icon-button on purpose: same specificity, and hidden must win on desktop */
@@ -544,10 +541,10 @@ button {
   gap: var(--space-2);
   height: var(--control-h);
   padding: 0 var(--space-3);
-  background: var(--bg-elevated);
-  border: var(--hairline) solid var(--border);
+  background: var(--field);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   white-space: nowrap;
@@ -566,8 +563,8 @@ button {
 
 @media (hover: hover) {
   .btn:hover:not(:disabled) {
-    background: var(--bg-hover);
-    border-color: var(--border-strong);
+    background: var(--field-hover);
+    border-color: var(--line-strong);
   }
 }
 
@@ -577,28 +574,28 @@ button {
 }
 
 .btn-primary {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: var(--primary-text);
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
 }
 
 @media (hover: hover) {
   .btn-primary:hover:not(:disabled) {
-    background: var(--primary-hover);
-    border-color: var(--primary-hover);
+    background: var(--accent-hover);
+    border-color: var(--accent-hover);
   }
 }
 
 .btn-danger {
-  background: var(--danger-tint);
-  border-color: var(--status-blocked);
-  color: var(--danger-text);
+  background: var(--needs-tint);
+  border-color: var(--needs);
+  color: var(--needs-text);
 }
 
 .btn-ghost {
   background: transparent;
   border-color: transparent;
-  color: var(--text);
+  color: var(--ink);
 }
 
 @media (hover: hover) {
@@ -625,18 +622,18 @@ button {
   align-items: center;
   height: var(--chip-h);
   padding: 0 var(--space-2);
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-pill);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
-  color: var(--text-dim);
+  color: var(--sub);
   white-space: nowrap;
 }
 
 .pill-offline {
-  color: var(--status-blocked);
-  border-color: var(--status-blocked);
-  background: var(--danger-tint);
+  color: var(--needs);
+  border-color: var(--needs);
+  background: var(--needs-tint);
 }
 
 /* a lens that is on its way: inside a segmented button, so it stays small */
@@ -646,7 +643,7 @@ button {
   margin-left: var(--space-1);
   color: var(--accent);
   border-color: var(--accent);
-  background: var(--accent-tint);
+  background: var(--tint);
   text-transform: uppercase;
 }
 
@@ -667,13 +664,13 @@ button {
 }
 
 .badge-idle {
-  color: var(--text-dim);
-  background: var(--bg-elevated);
+  color: var(--sub);
+  background: var(--field);
 }
 
 .badge-working {
-  color: var(--status-working);
-  background: var(--status-working-tint);
+  color: var(--working);
+  background: var(--working-tint);
 }
 
 /* RUN is the one state that moves: a dot breathes before the word, the word holds still */
@@ -687,25 +684,25 @@ button {
 }
 
 .badge-blocked {
-  color: var(--status-blocked);
-  background: var(--status-blocked-tint);
+  color: var(--needs);
+  background: var(--needs-tint);
 }
 
 .badge-done {
-  color: var(--status-done);
-  background: var(--status-done-tint);
+  color: var(--done);
+  background: var(--done-tint);
 }
 
 /* a pane herdr could not restore: no status to show, and nothing runs in it */
 .badge-restore-error {
-  color: var(--danger-text);
-  background: var(--danger-tint);
+  color: var(--needs-text);
+  background: var(--needs-tint);
 }
 
 /* unknown keeps the dim text color (contrast) and is told apart by the dashed edge */
 .badge-unknown {
-  color: var(--text-dim);
-  border-color: var(--border);
+  color: var(--sub);
+  border-color: var(--line);
   border-style: dashed;
 }
 
@@ -715,8 +712,8 @@ button {
   align-items: center;
   gap: 2px;
   padding: 2px;
-  background: var(--bg-elevated);
-  border: var(--hairline) solid var(--border);
+  background: var(--field);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
 }
 
@@ -730,7 +727,7 @@ button {
   background: transparent;
   border: 0;
   border-radius: var(--radius-sm);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   cursor: pointer;
@@ -745,8 +742,8 @@ button {
 }
 
 .segmented > button[aria-pressed="true"] {
-  background: var(--bg-hover);
-  color: var(--text-strong);
+  background: var(--field-hover);
+  color: var(--ink-strong);
 }
 
 /* the chosen lens carries the selection color on its glyph, like the rail does in the list */
@@ -760,11 +757,11 @@ button {
   align-items: center;
   height: 18px;
   padding: 0 5px;
-  border: var(--hairline) solid var(--border-strong);
+  border: var(--hairline) solid var(--line-strong);
   border-bottom-width: 2px;
   border-radius: var(--radius-sm);
-  background: var(--bg-elevated);
-  color: var(--text-dim);
+  background: var(--field);
+  color: var(--sub);
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
   line-height: 1;
@@ -787,7 +784,7 @@ button {
   flex-direction: column;
   width: min(100%, 560px);
   max-height: min(100%, 720px);
-  background: var(--bg-panel);
+  background: var(--surface);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-pop);
   overflow: hidden;
@@ -798,7 +795,7 @@ button {
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-4) var(--space-5);
-  border-bottom: var(--hairline) solid var(--border);
+  border-bottom: var(--hairline) solid var(--line);
 }
 
 .modal-title {
@@ -806,7 +803,7 @@ button {
   margin: 0;
   font-size: var(--fs-lg);
   font-weight: var(--fw-semibold);
-  color: var(--text-strong);
+  color: var(--ink-strong);
 }
 
 .modal-body {
@@ -821,7 +818,7 @@ button {
   justify-content: flex-end;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-5);
-  border-top: var(--hairline) solid var(--border);
+  border-top: var(--hairline) solid var(--line);
 }
 
 @media (max-width: 640px) {
@@ -849,24 +846,24 @@ button {
 .field-label {
   font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
-  color: var(--text-dim);
+  color: var(--sub);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
 }
 
 .field-hint {
   font-size: var(--fs-xs);
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .input,
 .select {
   height: var(--control-h);
   padding: 0 var(--space-3);
-  background: var(--bg-input);
-  border: var(--hairline) solid var(--border);
+  background: var(--input);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font: inherit;
   font-size: var(--fs-input);
 }
@@ -892,8 +889,8 @@ button {
   display: flex;
   flex-direction: column;
   padding: var(--space-1);
-  background: var(--bg-panel);
-  border: var(--hairline) solid var(--border);
+  background: var(--surface);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-pop);
   overflow: hidden;
@@ -908,7 +905,7 @@ button {
   background: transparent;
   border: 0;
   border-radius: var(--radius-md);
-  color: var(--text);
+  color: var(--ink);
   font-size: var(--fs-sm);
   text-align: left;
   cursor: pointer;
@@ -918,18 +915,18 @@ button {
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .menu-item[aria-selected="true"] {
-  background: var(--bg-hover);
-  color: var(--text-strong);
+  background: var(--field-hover);
+  color: var(--ink-strong);
 }
 
 @media (hover: hover) {
   .menu-item:hover {
-    background: var(--bg-hover);
-    color: var(--text-strong);
+    background: var(--field-hover);
+    color: var(--ink-strong);
   }
 }
 
@@ -944,7 +941,7 @@ button {
 .menu-item-hint {
   flex: 0 0 auto;
   font-size: var(--fs-xs);
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .menu-heading {
@@ -953,7 +950,7 @@ button {
   font-weight: var(--fw-semibold);
   letter-spacing: var(--tracking-caps);
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 /* ---------- sidebar error state (App-owned) ---------- */
@@ -961,15 +958,15 @@ button {
 .error-state {
   margin: var(--space-2);
   padding: var(--space-3);
-  border: var(--hairline) solid var(--status-blocked);
+  border: var(--hairline) solid var(--needs);
   border-radius: var(--radius-md);
-  background: var(--danger-tint);
+  background: var(--needs-tint);
 }
 
 .error-message {
   margin: 0 0 var(--space-3);
   font-size: var(--fs-sm);
-  color: var(--danger-text);
+  color: var(--needs-text);
   overflow-wrap: anywhere;
 }
 
@@ -977,9 +974,9 @@ button {
   height: var(--control-h);
   padding: 0 var(--space-3);
   background: transparent;
-  border: var(--hairline) solid var(--status-blocked);
+  border: var(--hairline) solid var(--needs);
   border-radius: var(--radius-sm);
-  color: var(--danger-text);
+  color: var(--needs-text);
   font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   cursor: pointer;
@@ -988,7 +985,7 @@ button {
 
 @media (hover: hover) {
   .error-retry:hover {
-    background: var(--danger-tint);
+    background: var(--needs-tint);
   }
 }
 

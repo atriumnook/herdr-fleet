@@ -1,6 +1,6 @@
 .needs-input {
   padding: var(--space-2) var(--space-3);
-  border-bottom: var(--hairline) solid var(--border);
+  border-bottom: var(--hairline) solid var(--line);
 }
 
 .needs-input-heading {
@@ -9,7 +9,7 @@
   gap: var(--space-2);
   margin: 0;
   padding: var(--space-2);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
 }
@@ -21,11 +21,11 @@
 
 .needs-input-item.is-selected .needs-input-select,
 .needs-input-select:focus-visible {
-  background: var(--bg-hover);
+  background: var(--field-hover);
 }
 
 @media (hover: hover) {
   .needs-input-select:hover {
-    background: var(--bg-hover);
+    background: var(--field-hover);
   }
 }

@@ -7,17 +7,17 @@
   gap: var(--space-2);
   align-items: end;
   padding: var(--space-2) var(--space-2) 0;
-  border-top: var(--hairline) solid var(--border);
-  background: var(--bg-panel);
+  border-top: var(--hairline) solid var(--line);
+  background: var(--surface);
 }
 
 .terminal-input-text {
   min-height: var(--touch-target);
   padding: var(--space-2) var(--space-3);
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-lg);
-  background: var(--bg-elevated);
-  color: var(--text);
+  background: var(--field);
+  color: var(--ink);
   font: inherit;
   font-size: max(16px, var(--fs-md)); /* below 16px iOS zooms the page on focus */
   line-height: var(--lh-base);
@@ -55,6 +55,6 @@
 .terminal-input-note {
   grid-column: 1 / -1;
   margin: 0;
-  color: var(--danger-text);
+  color: var(--needs-text);
   font-size: var(--fs-xs);
 }

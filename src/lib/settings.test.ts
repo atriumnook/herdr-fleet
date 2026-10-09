@@ -218,15 +218,19 @@ describe("theme tokens", () => {
     for (const { theme, layers } of cases) {
       const read = tokens(layers);
       const color = (name: string): Rgb => rgba(read(name))[0];
-      for (const surface of ["bg", "bg-panel", "bg-elevated", "bg-hover"]) {
-        for (const text of ["text", "text-dim"]) {
+      for (const surface of ["bg", "surface", "field", "field-hover"]) {
+        for (const text of ["ink", "sub"]) {
           if (ratio(color(text), color(surface)) < 4.5) failures.push(`${theme} ${text} on ${surface}`);
         }
         // a status badge: its color on its tint, over a (hovered or selected) row
-        for (const state of ["working", "blocked", "done"]) {
-          const backdrop = over(read(`status-${state}-tint`), color(surface));
-          if (ratio(color(`status-${state}`), backdrop) < 4.5) failures.push(`${theme} ${state} badge on ${surface}`);
+        for (const state of ["working", "needs", "done"]) {
+          const backdrop = over(read(`${state}-tint`), color(surface));
+          if (ratio(color(state), backdrop) < 4.5) failures.push(`${theme} ${state} badge on ${surface}`);
         }
+      }
+      // a control drawn by its edge (a field, a segmented choice, a toggle): 3:1 on whatever it sits on (WCAG 1.4.11)
+      for (const surface of ["bg", "input", "field", "field-hover"]) {
+        if (ratio(color("control-edge"), color(surface)) < 3) failures.push(`${theme} control-edge on ${surface}`);
       }
     }
     expect(failures).toEqual([]);

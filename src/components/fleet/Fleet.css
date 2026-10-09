@@ -8,7 +8,7 @@
   z-index: calc(var(--z-banner) + 1);
   overflow: hidden;
   background: var(--bg);
-  color: var(--text);
+  color: var(--ink);
 }
 
 .fleet-backdrop {
@@ -16,9 +16,9 @@
   inset: 0;
   pointer-events: none;
   background:
-    radial-gradient(55% 45% at 12% 8%, var(--backdrop-glow-a), transparent 70%),
-    radial-gradient(45% 50% at 92% 30%, var(--backdrop-glow-b), transparent 70%),
-    radial-gradient(60% 40% at 50% 105%, var(--backdrop-glow-c), transparent 70%);
+    radial-gradient(55% 45% at 12% 8%, var(--glow-1), transparent 70%),
+    radial-gradient(45% 50% at 92% 30%, var(--glow-2), transparent 70%),
+    radial-gradient(60% 40% at 50% 105%, var(--glow-3), transparent 70%);
 }
 
 .fleet-scroll {
@@ -49,7 +49,7 @@
   background: linear-gradient(135deg, var(--glass-sheen-a), var(--glass-sheen-b) 45%, transparent 70%), var(--glass);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
-  border: var(--hairline) solid var(--glass-edge);
+  border: var(--hairline) solid var(--edge);
   box-shadow: inset 0 1px 0 var(--glass-hi), 0 14px 36px var(--glass-shadow);
 }
 
@@ -88,12 +88,12 @@
   font-size: 30px;
   line-height: var(--lh-tight);
   letter-spacing: 0.02em;
-  color: var(--text-strong);
+  color: var(--ink-strong);
 }
 
 .fleet-title span {
   font-size: var(--fs-sm);
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .fleet-capsules {
@@ -112,12 +112,12 @@
 
 .fleet-capsule.is-cooling {
   border-style: dashed;
-  border-color: var(--status-blocked);
+  border-color: var(--needs);
 }
 
 .fleet-capsule.level-low:not(.is-cooling) {
   border-color: var(--meter-low);
-  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 24px var(--status-blocked-tint), 0 14px 36px var(--glass-shadow);
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 24px var(--needs-tint), 0 14px 36px var(--glass-shadow);
 }
 
 .fleet-ring {
@@ -128,7 +128,7 @@
   border-radius: 50%;
   display: grid;
   place-items: center;
-  background: conic-gradient(var(--fleet-ring-color) var(--fleet-ring), color-mix(in srgb, var(--text-strong) 12%, transparent) 0);
+  background: conic-gradient(var(--fleet-ring-color) var(--fleet-ring), color-mix(in srgb, var(--ink-strong) 12%, transparent) 0);
 }
 
 .level-mid .fleet-ring { --fleet-ring-color: var(--meter-mid); }
@@ -142,7 +142,7 @@
   place-items: center;
   background: var(--glass-strong);
   font: var(--fw-semibold) 9.5px var(--font-mono);
-  color: var(--text-strong);
+  color: var(--ink-strong);
 }
 
 .fleet-capsule-text {
@@ -154,18 +154,18 @@
 
 .fleet-capsule-text b {
   font: var(--fw-semibold) var(--fs-xs) var(--font-mono);
-  color: var(--text-strong);
+  color: var(--ink-strong);
 }
 
 .fleet-capsule-sub {
   font-size: var(--fs-2xs);
-  color: var(--text-dim);
+  color: var(--sub);
   font-variant-numeric: tabular-nums;
 }
 
 .fleet-capsule-sub.is-cooling,
 .level-low .fleet-capsule-sub {
-  color: var(--status-blocked);
+  color: var(--needs);
 }
 
 /* ---------- sections and runs ---------- */
@@ -189,10 +189,10 @@
   font: var(--fw-semibold) var(--fs-2xs) var(--font-mono);
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
-.tone-needs .fleet-section-head h2 { color: var(--status-blocked); }
+.tone-needs .fleet-section-head h2 { color: var(--needs); }
 
 .fleet-stack {
   display: flex;
@@ -230,9 +230,9 @@
 .fleet-stack > .fleet-run.is-prominent {
   padding: var(--space-5) var(--space-6);
   border-radius: 26px;
-  border-color: var(--status-blocked);
-  background: linear-gradient(135deg, var(--status-blocked-tint), transparent 55%), var(--glass-strong);
-  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 40px var(--status-blocked-tint), 0 28px 64px var(--glass-shadow);
+  border-color: var(--needs);
+  background: linear-gradient(135deg, var(--needs-tint), transparent 55%), var(--glass-strong);
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 40px var(--needs-tint), 0 28px 64px var(--glass-shadow);
 }
 
 .fleet-stack > .fleet-run.tone-done {
@@ -266,7 +266,7 @@
 .fleet-run-name:focus-visible { outline: var(--ring); outline-offset: var(--ring-offset); }
 
 .fleet-run-name b {
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-size: var(--fs-md);
 }
 
@@ -274,7 +274,7 @@
 
 .fleet-run-meta {
   font: var(--fs-2xs) var(--font-mono);
-  color: var(--text-dim);
+  color: var(--sub);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -282,7 +282,7 @@
 
 .fleet-run-elapsed {
   font: var(--fs-2xs) var(--font-mono);
-  color: var(--text-dim);
+  color: var(--sub);
   font-variant-numeric: tabular-nums;
 }
 
@@ -296,18 +296,18 @@
   margin: 0;
   padding: 10px 12px;
   border-radius: 16px;
-  background: var(--status-blocked-tint);
+  background: var(--needs-tint);
   font-size: var(--fs-sm);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   overflow-wrap: anywhere;
 }
 
-.fleet-run-error { color: var(--status-blocked); }
+.fleet-run-error { color: var(--needs); }
 
 .fleet-run-note {
   margin: 0;
   font-size: var(--fs-xs);
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .fleet-run-result {
@@ -315,7 +315,7 @@
   padding: 10px 12px;
   border-radius: 14px;
   background: var(--glass-strong);
-  border: var(--hairline) solid var(--glass-edge);
+  border: var(--hairline) solid var(--edge);
   font: var(--fs-xs) / 1.55 var(--font-mono);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -331,11 +331,11 @@
   white-space: nowrap;
 }
 
-.fleet-badge.is-working { color: var(--status-working); background: var(--status-working-tint); }
-.fleet-badge.is-blocked { color: var(--status-blocked); background: var(--status-blocked-tint); }
-.fleet-badge.is-done { color: var(--status-done); background: var(--status-done-tint); }
-.fleet-badge.is-failed { color: var(--status-blocked); border: var(--hairline) solid var(--status-blocked); }
-.fleet-badge.is-ended { color: var(--text-dim); background: var(--bg-hover); }
+.fleet-badge.is-working { color: var(--working); background: var(--working-tint); }
+.fleet-badge.is-blocked { color: var(--needs); background: var(--needs-tint); }
+.fleet-badge.is-done { color: var(--done); background: var(--done-tint); }
+.fleet-badge.is-failed { color: var(--needs); border: var(--hairline) solid var(--needs); }
+.fleet-badge.is-ended { color: var(--sub); background: var(--field-hover); }
 
 /* capsule buttons: the glass's own controls */
 .fleet-cap {
@@ -344,26 +344,26 @@
   min-height: 34px;
   padding: 0 14px;
   border-radius: var(--radius-pill);
-  border: var(--hairline) solid var(--glass-edge);
+  border: var(--hairline) solid var(--edge);
   background: var(--glass-strong);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   box-shadow: inset 0 1px 0 var(--glass-hi);
   cursor: pointer;
   white-space: nowrap;
 }
 
-.fleet-cap:hover:not(:disabled) { border-color: var(--border-strong); }
+.fleet-cap:hover:not(:disabled) { border-color: var(--line-strong); }
 .fleet-cap:focus-visible { outline: var(--ring); outline-offset: var(--ring-offset); }
 .fleet-cap:disabled { opacity: 0.55; cursor: default; }
-.fleet-cap.is-quiet { background: transparent; box-shadow: none; color: var(--text); }
+.fleet-cap.is-quiet { background: transparent; box-shadow: none; color: var(--ink); }
 
 .fleet-cap.is-primary {
   min-height: 40px;
   border-color: transparent;
-  background: var(--primary);
-  color: var(--primary-text);
+  background: var(--accent);
+  color: var(--on-accent);
   font-weight: var(--fw-bold);
-  box-shadow: 0 0 24px var(--primary-tint);
+  box-shadow: 0 0 24px var(--tint);
 }
 
 .fleet-alert {
@@ -372,21 +372,21 @@
   gap: var(--space-3);
   padding: 10px 14px;
   border-radius: 18px;
-  border-color: var(--status-blocked);
-  color: var(--status-blocked);
+  border-color: var(--needs);
+  color: var(--needs);
   font-size: var(--fs-sm);
 }
 
 .fleet-alert span { flex: 1; overflow-wrap: anywhere; }
 
 .fleet-empty {
-  color: var(--text-dim);
+  color: var(--sub);
   text-align: center;
   padding-block: 12vh 0;
 }
 
 .fleet-empty p { margin: 0 0 var(--space-1); }
-.fleet-empty p:first-child { color: var(--text-strong); font-size: var(--fs-lg); }
+.fleet-empty p:first-child { color: var(--ink-strong); font-size: var(--fs-lg); }
 
 @media (prefers-reduced-motion: no-preference) {
   .fleet-stack > .fleet-run { transition: transform var(--dur-base) var(--ease-out), box-shadow var(--dur-base) var(--ease-out); }
@@ -410,7 +410,7 @@
   gap: var(--space-5);
   border-radius: 30px;
   background: linear-gradient(135deg, var(--glass-sheen-a), var(--glass-sheen-b) 40%, transparent 70%), var(--glass-strong);
-  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 60px var(--primary-tint), 0 40px 90px var(--glass-shadow);
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 60px var(--tint), 0 40px 90px var(--glass-shadow);
 }
 
 .fleet-sheet-head {
@@ -430,12 +430,12 @@
 .fleet-sheet-title h2 {
   margin: 0;
   font-size: var(--fs-xl);
-  color: var(--text-strong);
+  color: var(--ink-strong);
 }
 
 .fleet-sheet-title span {
   font: var(--fs-2xs) var(--font-mono);
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .fleet-sheet-facts {
@@ -449,7 +449,7 @@
   padding: 10px 12px;
   border-radius: 16px;
   background: var(--glass);
-  border: var(--hairline) solid var(--glass-edge);
+  border: var(--hairline) solid var(--edge);
   min-width: 0;
 }
 
@@ -459,14 +459,14 @@
   font: var(--fw-semibold) 10px var(--font-mono);
   letter-spacing: 0.1em;
   text-transform: uppercase;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
-.fleet-sheet-section h3.is-blocked { color: var(--status-blocked); }
+.fleet-sheet-section h3.is-blocked { color: var(--needs); }
 
 .fleet-sheet-facts dd {
   margin: 0;
-  color: var(--text-strong);
+  color: var(--ink-strong);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -487,19 +487,19 @@
 .fleet-sheet-empty {
   margin: 0;
   font-size: var(--fs-xs);
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .fleet-sheet-empty {
   padding: 12px 14px;
   border-radius: 16px;
-  border: var(--hairline) dashed var(--glass-edge);
+  border: var(--hairline) dashed var(--edge);
 }
 
 .fleet-sheet-foot {
   margin-top: auto;
   font-size: var(--fs-2xs);
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .fleet-route {
@@ -525,7 +525,7 @@
   height: 10px;
   margin-top: 5px;
   border-radius: 50%;
-  border: 2px solid var(--status-idle);
+  border: 2px solid var(--idle);
 }
 
 .fleet-route li.is-chosen::before {
@@ -536,13 +536,13 @@
 
 .fleet-route b {
   font: var(--fw-semibold) var(--fs-xs) var(--font-mono);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   overflow-wrap: anywhere;
 }
 
 .fleet-route span {
   font-size: var(--fs-xs);
-  color: var(--text-dim);
+  color: var(--sub);
   overflow-wrap: anywhere;
 }
 
@@ -559,7 +559,7 @@
   gap: var(--space-2);
   padding: 6px;
   border-radius: var(--radius-pill);
-  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 30px var(--primary-tint), 0 18px 40px var(--glass-shadow);
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 30px var(--tint), 0 18px 40px var(--glass-shadow);
 }
 
 .fleet-ornament-switch {
@@ -567,7 +567,7 @@
   gap: 2px;
   padding: 3px;
   border-radius: var(--radius-pill);
-  background: color-mix(in srgb, var(--text-strong) 10%, transparent);
+  background: color-mix(in srgb, var(--ink-strong) 10%, transparent);
 }
 
 .fleet-ornament-switch button {
@@ -578,15 +578,15 @@
   border: 0;
   border-radius: var(--radius-pill);
   background: transparent;
-  color: var(--text-dim);
+  color: var(--sub);
   cursor: pointer;
 }
 
 .fleet-ornament-switch button[aria-pressed="true"] {
   background: var(--glass-strong);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-weight: var(--fw-bold);
-  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 12px var(--primary-tint);
+  box-shadow: inset 0 1px 0 var(--glass-hi), 0 0 12px var(--tint);
 }
 
 .fleet-ornament-switch button:focus-visible { outline: var(--ring); outline-offset: var(--ring-offset); }
@@ -619,7 +619,7 @@
 
 .fleet-button[aria-pressed="true"] {
   color: var(--accent);
-  background: var(--accent-tint);
+  background: var(--tint);
 }
 
 .fleet-button-count {
@@ -631,7 +631,7 @@
   padding: 0 4px;
   box-sizing: border-box;
   border-radius: var(--radius-pill);
-  background: var(--status-blocked);
+  background: var(--needs);
   color: var(--bg);
   font: var(--fw-bold) 10px/16px var(--font-mono);
   text-align: center;

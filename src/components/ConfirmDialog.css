@@ -8,13 +8,13 @@
 
 .confirm-body {
   margin: 0;
-  color: var(--text);
+  color: var(--ink);
   font-size: var(--fs-sm);
 }
 
 .confirm-error {
   margin: var(--space-2) 0 0;
-  color: var(--status-blocked);
+  color: var(--needs);
   font-size: var(--fs-xs);
   overflow-wrap: anywhere;
 }

@@ -15,8 +15,8 @@
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-3);
-  background: var(--bg-panel);
-  border-bottom: var(--hairline) solid var(--border);
+  background: var(--surface);
+  border-bottom: var(--hairline) solid var(--line);
 }
 
 .palette-search .input {
@@ -52,8 +52,8 @@
   justify-content: center;
   width: var(--avatar-size);
   height: var(--avatar-size);
-  color: var(--text-dim);
-  background: var(--bg-elevated);
+  color: var(--sub);
+  background: var(--field);
   border-radius: var(--radius-md);
 }
 
@@ -69,13 +69,13 @@
 
 .palette-row-title {
   gap: var(--space-2);
-  color: var(--text-strong);
+  color: var(--ink-strong);
   font-weight: var(--fw-medium);
 }
 
 .palette-row-subtitle {
   margin-top: var(--space-1);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-xs);
 }
 
@@ -97,7 +97,7 @@
 
 .palette-empty {
   margin: var(--space-6) var(--space-3);
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-sm);
   text-align: center;
 }

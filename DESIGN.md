@@ -36,36 +36,36 @@ Only tokens overridden by `[data-theme="light"]` have a light value. Both column
 | Role | Token | Dark | Light |
 |------|-------|------|-------|
 | Surface/base | `--bg` | `#12100e` | `#eeeae2` |
-| Surface/panel | `--bg-panel` | `#181613` | `#faf8f3` |
-| Surface/elevated | `--bg-elevated` | `#211e1a` | `#f2eee6` |
-| Surface/hover | `--bg-hover` | `#2a2621` | `#e8e2d6` |
-| Surface/input | `--bg-input` | `#1c1916` | `#fffdf9` |
-| Border | `--border` | `#2d2924` | `#dcd4c6` |
-| Border/strong | `--border-strong` | `#3e3830` | `#c5baa8` |
-| Text/primary | `--text` | `#d8d0c3` | `#2a251f` |
-| Text/dim | `--text-dim` | `#9b9183` | `#685e52` |
-| Text/strong | `--text-strong` | `#f2ebdf` | `#16120d` |
+| Surface/panel | `--surface` | `#181613` | `#faf8f3` |
+| Surface/elevated | `--field` | `#211e1a` | `#f2eee6` |
+| Surface/hover | `--field-hover` | `#2a2621` | `#e8e2d6` |
+| Surface/input | `--input` | `#1c1916` | `#fffdf9` |
+| Border | `--line` | `#2d2924` | `#dcd4c6` |
+| Border/strong | `--line-strong` | `#3e3830` | `#c5baa8` |
+| Text/primary | `--ink` | `#d8d0c3` | `#2a251f` |
+| Text/dim | `--sub` | `#9b9183` | `#685e52` |
+| Text/strong | `--ink-strong` | `#f2ebdf` | `#16120d` |
 | Accent | `--accent` | `#f0a830` | `#8c5000` |
-| Accent/tint | `--accent-tint` | `rgba(240, 168, 48, 0.13)` | `rgba(140, 80, 0, 0.1)` |
-| Primary | `--primary` | `#f0a830` | `#c57d12` |
-| Primary/hover | `--primary-hover` | `#f6bb55` | `#d48c1f` |
-| Primary/text | `--primary-text` | `#1b1407` | `#1b1407` |
-| Primary/tint | `--primary-tint` | `rgba(240, 168, 48, 0.16)` | `rgba(197, 125, 18, 0.14)` |
-| Status/idle | `--status-idle` | `#9b9183` | `#685e52` |
-| Status/working | `--status-working` | `#6cb8d6` | `#155a72` |
-| Status/blocked | `--status-blocked` | `#ff7b70` | `#a82323` |
-| Status/done | `--status-done` | `#93c36b` | `#2f6317` |
-| Working/tint | `--status-working-tint` | `rgba(108, 184, 214, 0.14)` | `rgba(21, 90, 114, 0.12)` |
-| Blocked/tint | `--status-blocked-tint` | `rgba(255, 123, 112, 0.14)` | `rgba(168, 35, 35, 0.12)` |
-| Done/tint | `--status-done-tint` | `rgba(147, 195, 107, 0.14)` | `rgba(47, 99, 23, 0.12)` |
-| Danger/tint | `--danger-tint` | `rgba(255, 123, 112, 0.12)` | `rgba(168, 35, 35, 0.1)` |
-| Danger/text | `--danger-text` | `#ffd9d4` | `#8f1d1d` |
-| Meter/plenty | `--meter-ok` | `var(--status-done)` | `var(--status-done)` |
+| Accent/tint | `--tint` | `rgba(240, 168, 48, 0.13)` | `rgba(140, 80, 0, 0.1)` |
+| Primary | `--accent` | `#f0a830` | `#c57d12` |
+| Primary/hover | `--accent-hover` | `#f6bb55` | `#d48c1f` |
+| Primary/text | `--on-accent` | `#1b1407` | `#1b1407` |
+| Primary/tint | `--tint` | `rgba(240, 168, 48, 0.16)` | `rgba(197, 125, 18, 0.14)` |
+| Status/idle | `--idle` | `#9b9183` | `#685e52` |
+| Status/working | `--working` | `#6cb8d6` | `#155a72` |
+| Status/blocked | `--needs` | `#ff7b70` | `#a82323` |
+| Status/done | `--done` | `#93c36b` | `#2f6317` |
+| Working/tint | `--working-tint` | `rgba(108, 184, 214, 0.14)` | `rgba(21, 90, 114, 0.12)` |
+| Blocked/tint | `--needs-tint` | `rgba(255, 123, 112, 0.14)` | `rgba(168, 35, 35, 0.12)` |
+| Done/tint | `--done-tint` | `rgba(147, 195, 107, 0.14)` | `rgba(47, 99, 23, 0.12)` |
+| Danger/tint | `--needs-tint` | `rgba(255, 123, 112, 0.12)` | `rgba(168, 35, 35, 0.1)` |
+| Danger/text | `--needs-text` | `#ffd9d4` | `#8f1d1d` |
+| Meter/plenty | `--meter-ok` | `var(--done)` | `var(--done)` |
 | Meter/getting low | `--meter-mid` | `#e2b93b` | `#865900` |
-| Meter/low | `--meter-low` | `var(--status-blocked)` | `var(--status-blocked)` |
+| Meter/low | `--meter-low` | `var(--needs)` | `var(--needs)` |
 | Overlay/scrim | `--scrim` | `rgba(8, 6, 4, 0.55)` | `rgba(40, 32, 22, 0.35)` |
 | Drawer shadow | `--shadow-drawer` | `0 0 40px rgba(0, 0, 0, 0.6)` | `0 0 40px rgba(40, 32, 22, 0.22)` |
-| Popover shadow | `--shadow-pop` | `0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--border)` | `0 16px 48px rgba(40, 32, 22, 0.16), 0 0 0 1px var(--border)` |
+| Popover shadow | `--shadow-pop` | `0 16px 48px rgba(0, 0, 0, 0.55), 0 0 0 1px var(--line)` | `0 16px 48px rgba(40, 32, 22, 0.16), 0 0 0 1px var(--line)` |
 | Card shadow | `--shadow-card` | `0 4px 16px rgba(0, 0, 0, 0.35)` | `0 4px 16px rgba(40, 32, 22, 0.07)` |
 
 ### Aurora palette (default)
@@ -76,17 +76,17 @@ table lists the ones a component reaches for most.
 | Role | Token | Dark | Light |
 |------|-------|------|-------|
 | Surface/base | `--bg` | `#05070d` | `#eaf0f8` |
-| Surface/panel | `--bg-panel` | `#0b1020` | `#f7faff` |
-| Surface/elevated | `--bg-elevated` | `#121a2e` | `#edf2fa` |
-| Text/primary | `--text` | `#d6e2f5` | `#1c2638` |
-| Text/dim | `--text-dim` | `#93a1bb` | `#4a576e` |
-| Text/strong | `--text-strong` | `#f2f7ff` | `#0a1222` |
+| Surface/panel | `--surface` | `#0b1020` | `#f7faff` |
+| Surface/elevated | `--field` | `#121a2e` | `#edf2fa` |
+| Text/primary | `--ink` | `#d6e2f5` | `#1c2638` |
+| Text/dim | `--sub` | `#93a1bb` | `#4a576e` |
+| Text/strong | `--ink-strong` | `#f2f7ff` | `#0a1222` |
 | Accent | `--accent` | `#7df9ff` | `#00609a` |
-| Primary | `--primary` | `#7df9ff` | `#006aa6` |
-| Primary/text | `--primary-text` | `#021018` | `#ffffff` |
-| Status/working | `--status-working` | `#8fa8ff` | `#3049c0` |
-| Status/blocked | `--status-blocked` | `#ff6b8a` | `#a6183e` |
-| Status/done | `--status-done` | `#5cf2b0` | `#0a6443` |
+| Primary | `--accent` | `#7df9ff` | `#006aa6` |
+| Primary/text | `--on-accent` | `#021018` | `#ffffff` |
+| Status/working | `--working` | `#8fa8ff` | `#3049c0` |
+| Status/blocked | `--needs` | `#ff6b8a` | `#a6183e` |
+| Status/done | `--done` | `#5cf2b0` | `#0a6443` |
 | Meter/getting low | `--meter-mid` | `#ffd166` | `#8a5a00` |
 | Terminal | `--term-bg` / `--term-cursor` | `#0b1020` / `#7df9ff` | `#f7faff` / `#00609a` |
 
@@ -276,7 +276,7 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Button (`.btn`, `.icon-button`)
 - `.btn` is a medium text control. Variants: neutral, `.btn-primary`, `.btn-danger`, `.btn-ghost`.
-  Primary uses `--primary`; danger uses danger tint plus blocked border; ghost removes fill/edge.
+  Primary uses `--accent`; danger uses danger tint plus blocked border; ghost removes fill/edge.
 - `.icon-button` is a square unlabeled visual control with mandatory `aria-label`; `.is-outlined`
   adds the border. Both families use `--control-h`, `--radius-md`, focus ring, hover and disabled.
 - Coarse pointers grow controls to `--touch-target`.
@@ -300,19 +300,19 @@ One set for both themes: the card is island black wherever it shows.
   and a failure shows inside it. A no gives the focus back to what opened it.
 
 ### Field (`.field`, `.input`, `.select`)
-- Stacked uppercase label, optional hint and `--bg-input` field. Desktop fields use `--fs-sm`;
+- Stacked uppercase label, optional hint and `--input` field. Desktop fields use `--fs-sm`;
   small-screen fields retain `--fs-input` to avoid focus zoom.
 - Focus names the edge with accent; errors use blocked/danger tokens and `role="alert"`.
 
 ### Menu / popover (`.menu*`)
 - Bordered `--radius-lg` surface with `--shadow-pop`; rows use `--control-h`, `--radius-md`, icon,
   ellipsized main label and optional hint.
-- Hover or `aria-selected` uses `--bg-hover`. Headings are dim uppercase micro labels.
+- Hover or `aria-selected` uses `--field-hover`. Headings are dim uppercase micro labels.
 - The sidebar's row menu (`.row-menu`) is a `.menu` drawn through a portal at fixed coordinates,
   under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
   A one-pane row offers Rename workspace, Rename pane, then Close under a hairline; a workspace
   header Rename workspace and Close workspace; a pane under a header Rename pane and Close. The
-  danger item takes `--status-blocked`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
+  danger item takes `--needs`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
   `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
@@ -375,8 +375,8 @@ One set for both themes: the card is island black wherever it shows.
 ### Plan meters (`.usage*`)
 - Beside Settings, one button holding up to four chips (three and `+N` past that), one per
   account in the user's order: provider mark, mono `--fs-2xs` percent of the limit closest to
-  running out (used, or left when Settings says so), and a 2px bar on a `--border-strong` track
-  filled to that percent. From 80% used the percent and bar take `--status-blocked`; amber stays
+  running out (used, or left when Settings says so), and a 2px bar on a `--line-strong` track
+  filled to that percent. From 80% used the percent and bar take `--needs`; amber stays
   chrome. A chip whose numbers are stale or missing dims. An account hidden in Settings is
   left out of the strip and the popover; with every account hidden, neither shows.
 - The button opens a popover above the footer (`--shadow-pop`, `--radius-lg`), as wide as the
@@ -407,7 +407,7 @@ One set for both themes: the card is island black wherever it shows.
 - The chat lens is a centered `--content-w` transcript over the still-attached terminal surface.
   Structured Claude/omp transcripts fall back to ANSI-stripped pane scrollback when unavailable.
 - The register is Codex / gajae-code-app: a quiet document. User turns are right-aligned neutral
-  cards (`--bg-elevated`, hairline edge, `--radius-lg` with a `--radius-sm` tail corner, ≤80% wide,
+  cards (`--field`, hairline edge, `--radius-lg` with a `--radius-sm` tail corner, ≤80% wide,
   no avatar or name) and open a new exchange with a hairline above. Assistant turns have no header: the answer is plain prose; a meta row (MD / TXT
   copy, time) fades in on hover (always visible on coarse pointers).
 - Markdown supports headings, lists, links, quotes, tables, inline/fenced code and code-copy actions.
@@ -417,7 +417,7 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Work block (`.work-block`, `.work-row`)
 - One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
-  timestamp minus this one's; "Working…" in `--status-working` behind a breathing dot while the agent runs) over
+  timestamp minus this one's; "Working…" in `--working` behind a breathing dot while the agent runs) over
   one-line rows `▸ [icon] name / summary` in mono, indented under the header; mid-work narration
   sits between rows as dim, one-step-smaller prose. The newest turn opens by default, older ones
   fold. A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane.
@@ -427,20 +427,20 @@ One set for both themes: the card is island black wherever it shows.
   omo or codex question, approval or plan menu.
 - A form of several questions (omo) shows a row of step chips (`.prompt-card-steps`) under the
   header: a chip per question, pill-shaped, mono number or a check once answered (`--accent`), the
-  one asked now with an `--accent` border, `--accent-tint` fill and a `--primary` number. The title
+  one asked now with an `--accent` border, `--tint` fill and a `--accent` number. The title
   then reads `Question 1 of 2`; the review after the last question keeps the chips, all checked.
 - Single options submit immediately; multi-select exposes checks plus Submit; supported custom input
   has its own labelled field. The prompt content hash rejects a stale answer with `prompt_changed`.
 - Options are full-width rows (`.prompt-card-option`): the menu's number in mono, the label, its
-  description under it in `--text-dim`. No option is filled as a default; a checked or typed pick
-  gets `--accent-tint` + an `--accent` border. A `(Recommended)` suffix renders as a tag.
+  description under it in `--sub`. No option is filled as a default; a checked or typed pick
+  gets `--tint` + an `--accent` border. A `(Recommended)` suffix renders as a tag.
 - `POST /api/pane/prompt/answer` translates the chosen answer into the agent's navigation keys and
   sends them through herdr `pane.send_keys` / text input. The card never fabricates a chat reply.
 
 ### Composer (`.composer`)
 - Chat mode is ONE surface: the stack, the transcript and the composer region all sit on `--bg`,
   and the composer column equals the transcript column (`--content-w`, same `--space-4` gutter).
-  The only card is the input box: `--bg-elevated`, hairline border, `--radius-xl`, `--shadow-card`;
+  The only card is the input box: `--field`, hairline border, `--radius-xl`, `--shadow-card`;
   focus turns its border `--accent` (no inner outline). Above it the agent/status line and the
   completion popover; inside, ONE row — attach control | auto-growing textarea | Send / Queue /
   Stop — with the controls bottom-aligned so they stay beside the last line as the box grows;
@@ -483,7 +483,7 @@ One set for both themes: the card is island black wherever it shows.
   workspace-list toggle. Under the row, once the server has answered, the bridge auto-update switch.
 - Install reflects installed, promptable or browser-instructions state; About links the repository.
 - Subscription usage: the on switch with one description, then (when on) Used / Remaining and one
-  hairline card of accounts (`.usage-accounts`, `--radius-md`): an uppercase `--bg-elevated` header
+  hairline card of accounts (`.usage-accounts`, `--radius-md`): an uppercase `--field` header
   with **Nearest limit first** at its right once the user has ordered, then one 38px row per account
   (mark, name, dim ellipsized email, then 28px move-up, move-down and eye controls in fixed columns;
   a move that cannot happen keeps its column but is not shown). A hidden account's row fades and
@@ -550,10 +550,10 @@ One set for both themes: the card is island black wherever it shows.
 
 | Type | Value | Usage |
 |------|-------|-------|
-| Hairline | `var(--hairline) solid var(--border)` | Shell, fields, controls |
-| Strong edge | `var(--border-strong)` | Hover/focus separation |
-| Dashed edge | `var(--hairline) dashed var(--border)` | Unknown/empty states |
-| Tonal lift | `--bg-elevated` on `--bg-panel` | Selection, chips, tracks |
+| Hairline | `var(--hairline) solid var(--line)` | Shell, fields, controls |
+| Strong edge | `var(--line-strong)` | Hover/focus separation |
+| Dashed edge | `var(--hairline) dashed var(--line)` | Unknown/empty states |
+| Tonal lift | `--field` on `--surface` | Selection, chips, tracks |
 | Tinted lift | Named tint over an opaque surface | Primary and agent states |
 | Drawer shadow | `--shadow-drawer` | Mobile drawer |
 | Overlay shadow | `--shadow-pop` | Menus, palette and modal cards |
@@ -567,9 +567,9 @@ the others derive them from their surfaces with `color-mix`.
 
 | Token | Use |
 |-------|-----|
-| `--backdrop-glow-a/b/c`, `--backdrop-grid` | The screen's backdrop: three soft glows over `--bg`, plus aurora's dot grid |
+| `--glow-1/b/c`, `--backdrop-grid` | The screen's backdrop: three soft glows over `--bg`, plus aurora's dot grid |
 | `--glass`, `--glass-strong` | A floating layer's fill: `--glass` for groups, `--glass-strong` for the item lifted inside one and for sheets |
-| `--glass-edge`, `--glass-hi` | Its 1px edge and the inset highlight along its top |
+| `--edge`, `--glass-hi` | Its 1px edge and the inset highlight along its top |
 | `--glass-sheen-a/b` | The faint iridescent sweep across a layer (aurora) |
 | `--glass-blur` | `backdrop-filter` of a layer |
 | `--glass-shadow` | Depth: the nearer a layer, the larger its shadow |

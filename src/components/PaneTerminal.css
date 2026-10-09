@@ -83,7 +83,7 @@
   z-index: var(--z-banner); /* above the xterm mount, like the banners; pointer-events stay off */
   display: grid;
   place-items: center;
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-md);
   pointer-events: none;
 }
@@ -106,7 +106,7 @@
 }
 
 .terminal-placeholder.is-restore-error svg {
-  color: var(--status-blocked);
+  color: var(--needs);
 }
 
 /* herdr's own words: what failed and what to do about it */
@@ -138,11 +138,11 @@
   gap: var(--space-1);
   min-height: var(--chip-h);
   padding: 0 var(--space-2);
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-pill);
-  background: var(--bg-elevated);
+  background: var(--field);
   font-size: var(--fs-xs);
-  color: var(--text-dim);
+  color: var(--sub);
   white-space: nowrap;
 }
 
@@ -152,15 +152,15 @@
 }
 
 .terminal-banner-warning {
-  border-color: var(--status-working);
-  color: var(--status-working);
+  border-color: var(--working);
+  color: var(--working);
 }
 
 /* not a fault: a lens herdr does not offer on this PC yet */
 .terminal-banner-soon {
   border-color: var(--accent);
-  color: var(--text);
-  background: linear-gradient(var(--accent-tint), var(--accent-tint)) var(--bg-elevated);
+  color: var(--ink);
+  background: linear-gradient(var(--tint), var(--tint)) var(--field);
 }
 
 .terminal-banner-output-error {
@@ -176,7 +176,7 @@
 .terminal-banner-observe {
   border-color: var(--accent);
   color: var(--accent);
-  background: linear-gradient(var(--accent-tint), var(--accent-tint)) var(--bg-elevated);
+  background: linear-gradient(var(--tint), var(--tint)) var(--field);
 }
 
 /* the held-input review banner: wider than a pill because it carries text + actions,
@@ -200,7 +200,7 @@
 }
 
 .terminal-banner-draft .draft-label {
-  color: var(--status-working);
+  color: var(--working);
 }
 
 .terminal-banner-draft .draft-text {
@@ -208,11 +208,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: var(--font-mono);
-  color: var(--text);
+  color: var(--ink);
 }
 
 .terminal-banner-draft .draft-dropped {
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .terminal-banner-draft .draft-actions {
@@ -223,12 +223,12 @@
 .terminal-banner-draft .draft-actions button {
   height: var(--control-h);
   padding: 0 var(--space-2);
-  border: var(--hairline) solid var(--border);
+  border: var(--hairline) solid var(--line);
   border-radius: var(--radius-sm);
-  background: var(--bg-hover);
+  background: var(--field-hover);
   font-size: var(--fs-xs);
   font-family: inherit;
-  color: var(--text);
+  color: var(--ink);
   cursor: pointer;
   transition:
     border-color var(--dur-fast) var(--ease-out),
@@ -240,7 +240,7 @@
 }
 
 .terminal-banner-draft .draft-actions button:active {
-  background: var(--bg-elevated);
+  background: var(--field);
 }
 
 .terminal-banner-draft .draft-actions button:disabled {

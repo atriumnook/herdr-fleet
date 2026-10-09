@@ -12,12 +12,12 @@
 }
 
 .new-session-note {
-  color: var(--text-dim);
+  color: var(--sub);
   font-size: var(--fs-sm);
 }
 
 .new-session-error {
-  color: var(--status-blocked);
+  color: var(--needs);
   overflow-wrap: anywhere;
 }
 
@@ -75,7 +75,7 @@
   width: 16px;
   height: 16px;
   flex: none;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .agent-picker .agent-mark,
@@ -87,7 +87,7 @@
 .agent-picker-shell svg {
   width: 16px;
   height: 16px;
-  color: var(--text-dim);
+  color: var(--sub);
 }
 
 .agent-picker-menu {
@@ -100,12 +100,12 @@
    the highlight, which the shared menu gives aria-selected elsewhere */
 .agent-picker-menu .menu-item[aria-selected="true"] {
   background: transparent;
-  color: var(--text);
+  color: var(--ink);
 }
 
 .agent-picker-menu .menu-item[data-active] {
-  background: var(--bg-hover);
-  color: var(--text-strong);
+  background: var(--field-hover);
+  color: var(--ink-strong);
 }
 
 .agent-picker-menu .menu-item[aria-selected="true"] .menu-item-main {
