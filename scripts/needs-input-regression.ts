@@ -59,7 +59,7 @@ export async function checkNeedsInput(browser: Browser, origin: string, paneId: 
     offline = true;
     await page.evaluate(() => document.dispatchEvent(new Event("visibilitychange")));
     await group.waitFor({ state: "detached" });
-    assert.equal(await page.locator('.machine-list > [role="status"]').textContent(), "Panes waiting for input: 0");
+    assert.equal(await page.locator('.machine-list > [role="status"]').textContent(), "Panes that need you: 0");
     assert.deepEqual(errors, []);
     console.log("PASS Needs you: collapsed PCs, same pane IDs, selection, resume, offline and mobile drawer");
   } finally { await context.close(); }

@@ -5,7 +5,7 @@ import "./PromptCard.css";
 
 import type { InteractivePrompt } from "../../shared/protocol.ts";
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { ChatState, UiEvent } from "../ui/state.ts";
 
@@ -22,7 +22,6 @@ export interface PromptCardProps {
 export type PromptCardEvent = { type: "card-answer"; answer: TypedAnswer; typed: boolean } | Extract<UiEvent, { type: "chat-pending-answer-done" }>;
 
 export function PromptCard({ prompt, typedAnswer = null, card, emit }: PromptCardProps) {
-  const t = useT();
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [custom, setCustom] = useState("");
   const answering = card !== null && card.promptId === prompt.id ? card : null;
@@ -61,7 +60,7 @@ export function PromptCard({ prompt, typedAnswer = null, card, emit }: PromptCar
   return (
     <section className="prompt-card" role="region" aria-label={t("Agent is asking")} aria-busy={pending}>
       <header className="prompt-card-header">
-        <span className="badge badge-blocked">{t("input needed")}</span>
+        <span className="badge badge-blocked">{t("Needs you")}</span>
         <h2>{prompt.title}</h2>
       </header>
       {/* a Claude approval's heading is its question too: said once */}

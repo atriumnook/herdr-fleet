@@ -10,7 +10,7 @@ import { createPortal } from "react-dom";
 
 import "./ConfirmDialog.css";
 
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 
 interface Props {
   title: string;
@@ -25,7 +25,6 @@ interface Props {
 }
 
 export function ConfirmDialog({ title, body, confirmLabel, pending, error, onConfirm, onClose }: Props) {
-  const t = useT();
   const id = useId();
   const surface = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);

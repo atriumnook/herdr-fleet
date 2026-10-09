@@ -31,7 +31,7 @@ import type { AgentStatus, ClientRole } from "../../shared/protocol.ts";
 import type { PaneView } from "../lib/actions.ts";
 import { useSettings, terminalTheme, type ResolvedTheme } from "../lib/settings.ts";
 import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fontFamily.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
 import { fileUriPath, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
@@ -111,7 +111,6 @@ export function PaneTerminal({
   role = "interact",
   emit,
 }: PaneTerminalProps) {
-  const t = useT();
   const openFile = useContext(OpenFileContext);
   const openFileRef = useRef(openFile);
   openFileRef.current = openFile;
@@ -1121,7 +1120,7 @@ export function PaneTerminal({
         <div className="terminal-placeholder is-restore-error" role="status">
           <div className="terminal-placeholder-inner">
             <TriangleAlert aria-hidden="true" />
-            <span>{t("herdr could not restore this pane")}</span>
+            <span>{t("herdr could not restore this pane.")}</span>
             <span className="terminal-placeholder-detail">{restoreError}</span>
           </div>
         </div>

@@ -19,7 +19,7 @@ export async function checkComposerCompletion(browser: Browser, origin: string):
   try {
     await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "claude", state: "idle" });
     await context.addInitScript((id) => {
-      if (!localStorage.getItem("herdr-fleet:settings")) localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" }));
+      if (!localStorage.getItem("herdr-fleet:settings")) localStorage.setItem("herdr-fleet:settings", JSON.stringify({}));
       localStorage.setItem(`herdr-fleet:view:${id}`, "chat");
     }, pane);
     const page = await context.newPage();

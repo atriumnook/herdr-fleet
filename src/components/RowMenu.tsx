@@ -13,7 +13,7 @@ import type { LucideIcon } from "lucide-react";
 
 import "./RowMenu.css";
 
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 
 export interface RowMenuItem {
   id: string;
@@ -42,7 +42,6 @@ const POPOVER_ITEMS = '[role="menuitem"]';
 const SHEET_ITEMS = '.row-sheet-item, .row-sheet-cancel';
 
 export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
-  const t = useT();
   const [sheet] = useState(() => window.matchMedia(SHEET_QUERY).matches);
   const surface = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<{ top: number; left: number } | null>(null);

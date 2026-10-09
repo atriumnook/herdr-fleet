@@ -13,7 +13,7 @@ import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { folderName, placeLine, shortPathTitle } from "../lib/paneName.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import { groupDirectories } from "../lib/directoryGroups.ts";
 import type { SidebarGrouping } from "../lib/settings.ts";
 
@@ -52,12 +52,10 @@ export function displayPaneTitle(pane: PaneInfo): string {
 
 /** herdr could not bring this pane back after a restart (0.9.3+ `restore_error`): its reason, on hover. */
 export function RestoreErrorBadge({ reason }: { reason: string }) {
-  const t = useT();
-  return <span className="badge badge-restore-error" title={reason}>{t("NOT RESTORED")}</span>;
+  return <span className="badge badge-restore-error" title={reason}>{t("Not restored")}</span>;
 }
 
 export function StatusBadge({ status }: { status?: AgentStatus }) {
-  const t = useT();
   const value = knownStatus(status);
   return (
     <span className={`badge badge-${value}`} data-status={value} title={t("Agent {status}", { status: t(STATUS_WORD[value]) })}>
@@ -90,9 +88,9 @@ export type SidebarEvent = TreeEvent | { type: "select-pane"; machineId: string;
 
 /** what a refused change says, beside its row */
 export const FAILED: Record<NonNullable<TreeState["failure"]>["kind"], string> = {
-  close: "Close failed: {reason}",
-  rename: "Rename failed: {reason}",
-  reorder: "Reorder failed: {reason}",
+  close: "Could not close. {reason}",
+  rename: "Could not rename. {reason}",
+  reorder: "Could not reorder. {reason}",
 };
 
 /**
@@ -100,7 +98,6 @@ export const FAILED: Record<NonNullable<TreeState["failure"]>["kind"], string> =
  * folds (stored per PC and group), the workspace being dragged.
  */
 export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<SidebarEvent> }) {
-  const t = useT();
   const { machineId, snapshot, selectedPaneId, workspaceOrder, tree } = model;
   const byFolder = model.grouping === "directory";
   const [menu, setMenu] = useState<MenuState | null>(null);

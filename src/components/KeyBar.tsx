@@ -4,7 +4,7 @@ import { Keyboard } from "lucide-react";
 import "./KeyBar.css";
 
 import type { KeyBarKey } from "../lib/keys.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 
 export type { KeyBarKey };
@@ -90,7 +90,6 @@ export const ARROWS: ReadonlyArray<{ key: KeyBarKey; label: string; direction: D
  * toolbar: a toolbar promises arrow-key navigation between items, which these skip.
  */
 export function KeyBar({ model, emit }: { model: KeyBarModel; emit: Emit<KeyBarEvent> }) {
-  const t = useT();
   const { disabled, ctrlArmed, directTyping } = model;
   const onKey = (key: KeyBarKey): void => emit({ type: "key-bar-key", key });
   return (

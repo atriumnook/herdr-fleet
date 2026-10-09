@@ -12,21 +12,14 @@ const model = (extra: Partial<DropletModel["notice"]> = {}, phase: DropletModel[
 
 /** English, as under the app's own provider with an English browser */
 function render(values: DropletModel): string {
-  const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-  Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-  try {
-    return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(Droplet, { model: values, emit: () => {} }) }));
-  } finally {
-    if (languages) Object.defineProperty(navigator, "languages", languages);
-    else Reflect.deleteProperty(navigator, "languages");
-  }
+  return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(Droplet, { model: values, emit: () => {} }) }));
 }
 
 describe("In-app alert view", () => {
   it("names the pane and what happened, and offers to open it", () => {
     const html = render(model());
     expect(html).toContain('data-kind="blocked"');
-    expect(html).toContain('aria-label="api, Needs input. Open pane"');
+    expect(html).toContain('aria-label="api, Needs you. Open pane"');
     expect(html).toContain('<span class="droplet-title">api</span>');
   });
 

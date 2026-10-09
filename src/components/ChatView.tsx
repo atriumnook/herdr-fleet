@@ -34,7 +34,7 @@ const ChatPaneContext = createContext<string | null>(null);
 const ChatHistoryContext = createContext("");
 import type { AgentStatus, ConversationPart, ConversationResponse, ConversationTurn, InteractivePrompt } from "../../shared/protocol.ts";
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
-import { currentLocale, useT } from "../lib/i18n.ts";
+import { LOCALE, t } from "../lib/i18n.ts";
 
 /** Scrolling this close to the top asks for the page before it. */
 const LOAD_OLDER_PX = 400;
@@ -71,7 +71,7 @@ export type ChatViewEvent = PromptCardEvent | Extract<UiEvent, { type: "load-old
 function formatTime(ts: string | null): string | null {
   if (ts === null) return null;
   const date = new Date(ts);
-  return Number.isNaN(date.getTime()) ? null : date.toLocaleTimeString(currentLocale(), { hour: "2-digit", minute: "2-digit" });
+  return Number.isNaN(date.getTime()) ? null : date.toLocaleTimeString(LOCALE, { hour: "2-digit", minute: "2-digit" });
 }
 
 function plainText(markdown: string): string {
@@ -85,7 +85,6 @@ function plainText(markdown: string): string {
 
 /** A quiet text button that copies and says "Copied" for a moment. */
 function CopyButton({ text, label, className = "icon-button chat-copy", children }: { text: string; label: string; className?: string; children?: React.ReactNode }) {
-  const t = useT();
   const [copied, setCopied] = useState(false);
   const copy = async (): Promise<void> => {
     await navigator.clipboard.writeText(text);
@@ -145,7 +144,6 @@ function ompEditLineClass(line: string): string | undefined {
 
 /** A file a tool call names: it opens in the viewer where one can, and reads as text elsewhere. */
 function ToolFile({ path, suffix }: { path: string; suffix?: string }) {
-  const t = useT();
   const open = useContext(OpenFileContext);
   if (open === null) return <p className="chat-tool-file">{path}{suffix}</p>;
   return <p className="chat-tool-file"><button type="button" className="chat-tool-file-link" title={t("Open {path}", { path })} onClick={() => open(path)}>{path}</button>{suffix}</p>;
@@ -240,7 +238,6 @@ function useWholeOutput(ref: string | undefined): { text: string | null; state: 
 
 /** Images a tool returned (pi reads a picture into the result); opened with the row. */
 function ToolImages({ paneId, part }: { paneId: string; part: ToolPartType }) {
-  const t = useT();
   const machineId = useMachineId();
   if (part.images === undefined || part.images.length === 0) return null;
   return <div className="chat-tool-images">{part.images.map((image) => {
@@ -251,7 +248,6 @@ function ToolImages({ paneId, part }: { paneId: string; part: ToolPartType }) {
 
 /** One row of a work block: `▸ name  summary`, expanding to the call's input and output. */
 function WorkRow({ paneId, part }: { paneId: string; part: ToolPartType }) {
-  const t = useT();
   const [open, setOpen] = useState(false);
   const whole = useWholeOutput(part.output_ref);
   const Icon = toolIcon(part.name);
@@ -274,7 +270,6 @@ function WorkRow({ paneId, part }: { paneId: string; part: ToolPartType }) {
 }
 
 function ThinkingRow({ text }: { text: string }) {
-  const t = useT();
   const [open, setOpen] = useState(false);
   return <div className="work-row work-row-thinking">
     <button type="button" className="work-row-head" aria-expanded={open} onClick={() => setOpen(!open)}>
@@ -292,7 +287,6 @@ function ThinkingRow({ text }: { text: string }) {
  * each until opened; the narration reads as dim prose between them.
  */
 function WorkBlockView({ paneId, parts, duration, live, defaultOpen, showThinking }: { paneId: string; parts: ConversationPart[]; duration: string | null; live: boolean; defaultOpen: boolean; showThinking: boolean }) {
-  const t = useT();
   const [chosenOpen, setOpen] = useState<boolean | null>(null);
   const open = chosenOpen ?? defaultOpen;
   const visible = parts.filter((part) => part.kind !== "skill" && (showThinking || part.kind !== "thinking"));
@@ -314,7 +308,6 @@ function WorkBlockView({ paneId, parts, duration, live, defaultOpen, showThinkin
 
 /** Skill evidence stays visible even when the surrounding work block is folded. */
 function SkillActivityList({ parts }: { parts: ConversationPart[] }) {
-  const t = useT();
   const skills = turnSkills(parts);
   if (skills.length === 0) return null;
   return <div className="chat-skills" role="group" aria-label={t("Skill activity")}>
@@ -333,7 +326,6 @@ function SkillActivityList({ parts }: { parts: ConversationPart[] }) {
 
 /** The goal as this turn left it: like a skill, visible while the work block is folded. */
 function GoalActivity({ goal }: { goal: GoalState }) {
-  const t = useT();
   const word: Record<GoalStatus, string> = {
     active: t("in progress"), paused: t("paused"), blocked: t("blocked"), complete: t("complete"), budget_limited: t("out of budget"),
   };
@@ -356,7 +348,6 @@ function GoalActivity({ goal }: { goal: GoalState }) {
 const IMAGE_MENTION = /(?:^|\s)@(\S+\.(?:png|jpe?g|gif|webp))(?=\s|$)/gi;
 
 function UserImages({ paneId, parts, text }: { paneId: string; parts: ConversationPart[]; text: string }) {
-  const t = useT();
   const machineId = useMachineId();
   const open = useContext(OpenFileContext);
   const pasted = parts.filter((part): part is Extract<ConversationPart, { kind: "image" }> => part.kind === "image");
@@ -388,7 +379,6 @@ interface TurnProps {
 
 // a turn that did not change keeps its object across polls: skip re-rendering it
 const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: TurnProps) {
-  const t = useT();
   const time = formatTime(turn.ts);
   const compact = turn.parts.find((part): part is Extract<ConversationPart, { kind: "compact" }> => part.kind === "compact");
   if (compact !== undefined) {
@@ -444,7 +434,6 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
  * an unchanged model sits those out (memo).
  */
 export const ChatView = memo(function ChatView({ model, emit }: { model: ChatViewModel; emit: Emit<ChatViewEvent> }) {
-  const t = useT();
   const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking } = model;
   const [newMessages, setNewMessages] = useState(false);
   /** scrolled up from the end: the way back is offered even when nothing new came */

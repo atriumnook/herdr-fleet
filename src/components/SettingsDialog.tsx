@@ -5,7 +5,7 @@ import "./SettingsDialog.css";
 
 import { SHORTCUTS, formatKeys, shortcutKeys, shortcutConflict } from "../lib/shortcuts.ts";
 import { CHAT_FONT_MAX, CHAT_FONT_MIN, chatFontSize, DEFAULT_SETTINGS, QUICK_REPLIES_MAX, QUICK_REPLY_MAX_CHARS, TERMINAL_FONT_MAX, TERMINAL_FONT_MIN, TERMINAL_WHEEL_SPEED_MAX, TERMINAL_WHEEL_SPEED_MIN, type Settings } from "../lib/settings.ts";
-import { LANGUAGE_NAMES, LANGUAGE_SETTINGS, useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import { FONT_FAMILY_MAX_CHARS } from "../lib/fontFamily.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { SettingsDialogModel } from "../ui/settingsView.ts";
@@ -40,7 +40,7 @@ function compactKeys(keys: readonly string[]): string {
   return formatKeys(keys).map((key) => ({ Shift: "⇧", ArrowUp: "↑", ArrowDown: "↓", ArrowLeft: "←", ArrowRight: "→" }[key] ?? (key.length === 1 ? key.toUpperCase() : key))).join("+");
 }
 
-const FONT_FAMILY_PLACEHOLDER = 'D2Coding, "Cascadia Mono"';
+const FONT_FAMILY_PLACEHOLDER = 'HackGen, "JetBrains Mono"';
 
 /** A font family list as typed: the Mediator keeps the draft and saves it when the field is left or on Enter. */
 function FontFamilyInput({ value, label, onEdit, onCommit }: { value: string; label: string; onEdit: (text: string) => void; onCommit: () => void }) {
@@ -69,7 +69,6 @@ function FontFamilyInput({ value, label, onEdit, onCommit }: { value: string; la
 /** Settings for this device, drawn while it is open. */
 export function SettingsDialog({ model, install, alerts, devices, emit }: SettingsDialogProps) {
   const { settings, fonts, phone } = model;
-  const t = useT();
   const firstControlRef = useRef<HTMLButtonElement>(null);
   const update = (patch: Partial<Settings>): void => emit({ type: "change-settings", patch });
   const onClose = (): void => emit({ type: "close-settings" });
@@ -98,7 +97,7 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
           <section className="settings-section">
             <h3>{t("Appearance")}</h3>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Theme")}</span><span className="settings-description">{t("Choose the app color scheme")}</span></div>
+              <div><span className="settings-label">{t("Theme")}</span><span className="settings-description">{t("Choose the app color scheme.")}</span></div>
               <div className="segmented" aria-label={t("Theme")}>
                 {(["dark", "light", "system"] as const).map((theme, index) => (
                   <button key={theme} ref={index === 0 ? firstControlRef : undefined} type="button" aria-pressed={settings.theme === theme} onClick={() => update({ theme })}>
@@ -108,7 +107,7 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Density")}</span><span className="settings-description">{t("Adjust spacing throughout the interface")}</span></div>
+              <div><span className="settings-label">{t("Density")}</span><span className="settings-description">{t("Adjust spacing throughout the interface.")}</span></div>
               <div className="segmented" aria-label={t("Density")}>
                 {(["comfortable", "compact"] as const).map((density) => (
                   <button key={density} type="button" aria-pressed={settings.density === density} onClick={() => update({ density })}>
@@ -118,17 +117,7 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Language")}</span><span className="settings-description">{t("Follows the browser unless you choose one")}</span></div>
-              <div className="segmented" aria-label={t("Language")}>
-                {LANGUAGE_SETTINGS.map((language) => (
-                  <button key={language} type="button" aria-pressed={settings.language === language} onClick={() => update({ language })}>
-                    {language === "system" ? t("System") : LANGUAGE_NAMES[language]}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="settings-row">
-              <div><span className="settings-label">{t("Sidebar grouping")}</span><span className="settings-description">{t("Group sessions by workspace or by full folder path on each PC")}</span></div>
+              <div><span className="settings-label">{t("Sidebar grouping")}</span><span className="settings-description">{t("Group sessions by workspace or by full folder path on each PC.")}</span></div>
               <div className="segmented" aria-label={t("Sidebar grouping")}>
                 {(["workspace", "directory"] as const).map((grouping) => (
                   <button key={grouping} type="button" aria-pressed={settings.sidebarGrouping === grouping} onClick={() => update({ sidebarGrouping: grouping })}>
@@ -138,7 +127,7 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Terminal font size")}</span><span className="settings-description">{t("Applied to every terminal pane")}</span></div>
+              <div><span className="settings-label">{t("Terminal font size")}</span><span className="settings-description">{t("Applied to every terminal pane.")}</span></div>
               <div className="settings-stepper" aria-label={t("Terminal font size")}>
                 <button type="button" className="icon-button" aria-label={t("Decrease terminal font size")} disabled={settings.terminalFontSize <= TERMINAL_FONT_MIN} onClick={() => update({ terminalFontSize: settings.terminalFontSize - 1 })}><Minus /></button>
                 <output aria-live="polite">{settings.terminalFontSize}px</output>
@@ -150,7 +139,7 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
               <FontFamilyInput value={fonts.terminalFontFamily} label={t("Terminal font")} onEdit={(text) => emit({ type: "edit-font", field: "terminalFontFamily", text })} onCommit={() => emit({ type: "commit-font", field: "terminalFontFamily" })} />
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Wheel scroll speed")}</span><span className="settings-description">{t("How far one turn of the wheel scrolls the terminal")}</span></div>
+              <div><span className="settings-label">{t("Wheel scroll speed")}</span><span className="settings-description">{t("How far one turn of the wheel scrolls the terminal.")}</span></div>
               <div className="settings-stepper" aria-label={t("Wheel scroll speed")}>
                 <button type="button" className="icon-button" aria-label={t("Slower wheel scrolling")} disabled={settings.terminalWheelSpeed <= TERMINAL_WHEEL_SPEED_MIN} onClick={() => update({ terminalWheelSpeed: settings.terminalWheelSpeed - 1 })}><Minus /></button>
                 <output aria-live="polite">{settings.terminalWheelSpeed}×</output>
@@ -167,7 +156,7 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
           <section className="settings-section">
             <h3>{t("Composer")}</h3>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Enter sends")}</span><span className="settings-description">{t("When off, Mod+Enter sends")}</span></div>
+              <div><span className="settings-label">{t("Enter sends")}</span><span className="settings-description">{t("When off, Mod+Enter sends.")}</span></div>
               <Toggle label={t("Enter sends")} checked={settings.enterSends} onChange={(enterSends) => update({ enterSends })} />
             </div>
             <div className="settings-row">
@@ -189,11 +178,11 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
               </div>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Show thinking")}</span><span className="settings-description">{t("Include the agent's reasoning blocks")}</span></div>
+              <div><span className="settings-label">{t("Show thinking")}</span><span className="settings-description">{t("Include the agent's reasoning blocks.")}</span></div>
               <Toggle label={t("Show thinking")} checked={settings.showThinking} onChange={(showThinking) => update({ showThinking })} />
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Chat font size")}</span><span className="settings-description">{t("Messages, code and prompt cards in the chat view")}</span></div>
+              <div><span className="settings-label">{t("Chat font size")}</span><span className="settings-description">{t("Messages, code and prompt cards in the chat view.")}</span></div>
               <div className="settings-stepper" aria-label={t("Chat font size")}>
                 <button type="button" className="icon-button" aria-label={t("Decrease chat font size")} disabled={chatFontSize(settings) <= CHAT_FONT_MIN} onClick={() => update({ chatFontSize: chatFontSize(settings) - 1 })}><Minus /></button>
                 <output aria-live="polite">{chatFontSize(settings)}px</output>
@@ -211,12 +200,12 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
             <p className="settings-description">{t("For this device. An alert waits a little first, and none comes when the pane changes meanwhile, as when you answer at the PC.")}</p>
             {alerts}
             <div className="settings-row">
-              <div><span className="settings-label">{t("Needs input")}</span><span className="settings-description">{t("An agent waits for an answer or a permission")}</span></div>
-              <Toggle label={t("Needs input")} checked={settings.alertInput} onChange={(alertInput) => update({ alertInput })} />
+              <div><span className="settings-label">{t("Needs you")}</span><span className="settings-description">{t("An agent waits for an answer or a permission.")}</span></div>
+              <Toggle label={t("Needs you")} checked={settings.alertInput} onChange={(alertInput) => update({ alertInput })} />
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Finished")}</span><span className="settings-description">{t("Long turns: only work that took a minute or more")}</span></div>
-              <div className="segmented" aria-label={t("Finished")}>
+              <div><span className="settings-label">{t("Done")}</span><span className="settings-description">{t("Long turns tells only of work that took a minute or more.")}</span></div>
+              <div className="segmented" aria-label={t("Done")}>
                 {(["off", "long", "always"] as const).map((alertDone) => (
                   <button key={alertDone} type="button" aria-pressed={settings.alertDone === alertDone} onClick={() => update({ alertDone })}>
                     {t(alertDone === "off" ? "Off" : alertDone === "long" ? "Long turns" : "Every turn")}

@@ -4,6 +4,7 @@ import { renderToStaticMarkup as renderBare } from "react-dom/server";
 import { DEFAULT_SETTINGS, SettingsProvider } from "../lib/settings.ts";
 import { Composer, type ComposerModel } from "./Composer.tsx";
 import { TerminalInput, type TerminalInputModel } from "./TerminalInput.tsx";
+import { t } from "../lib/i18n.ts";
 
 const model = (extra: Partial<ComposerModel> = {}): ComposerModel => ({
   machineId: "local", paneId: "w1:p1", owner: "w1:p1", connected: true, autoFocus: false, agent: "claude", agentStatus: "idle", metadata: null, queueMode: false,
@@ -13,21 +14,14 @@ const model = (extra: Partial<ComposerModel> = {}): ComposerModel => ({
 
 /** English, as under the app's own provider with an English browser */
 function render(element: ReturnType<typeof createElement>): string {
-  const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-  Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-  try {
-    return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: element }));
-  } finally {
-    if (languages) Object.defineProperty(navigator, "languages", languages);
-    else Reflect.deleteProperty(navigator, "languages");
-  }
+  return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: element }));
 }
 const composer = (values: ComposerModel) => render(createElement(Composer, { model: values, emit: () => {} }));
 
 describe("Composer view", () => {
   it("shows the draft, and says what a message does now in the placeholder", () => {
     expect(composer(model({ text: "hello" }))).toContain(">hello</textarea>");
-    expect(composer(model({ connected: false }))).toContain('placeholder="Reconnecting… message held here, never queued"');
+    expect(composer(model({ connected: false }))).toContain(`placeholder="${t("Reconnecting. The message stays here and is not queued.")}"`);
     expect(composer(model({ answerHint: "Answer above: type 1–2 to choose…" }))).toContain('placeholder="Answer above: type 1–2 to choose…"');
     expect(composer(model({ suggestion: "run the tests" }))).toContain('placeholder="run the tests"');
   });

@@ -4,10 +4,10 @@ export type KnownStatus = "idle" | "working" | "blocked" | "done" | "unknown";
 
 /** The one word every surface (sidebar, palette, composer) uses for an agent state. */
 export const STATUS_WORD: Readonly<Record<KnownStatus, string>> = {
-  idle: "READY",
-  working: "RUN",
-  blocked: "INPUT",
-  done: "DONE",
+  idle: "Idle",
+  working: "Working",
+  blocked: "Needs you",
+  done: "Done",
   unknown: "—",
 };
 

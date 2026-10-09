@@ -1,6 +1,6 @@
 import type { Emit } from "../../ui/bubble.ts";
 import type { UsageCapsuleModel } from "../../ui/fleetView.ts";
-import { useT } from "../../lib/i18n.ts";
+import { t } from "../../lib/i18n.ts";
 import { WindowName, clock } from "./format.tsx";
 
 /** What a capsule can ask for; the strip adds which account. */
@@ -11,11 +11,10 @@ export type UsageCapsuleEvent = { type: "clear-cooldown" };
  * its windows, and, while it cools down after a rate limit, until when and a way to end it.
  */
 export function UsageCapsule({ capsule, now, emit }: { capsule: UsageCapsuleModel; now: number; emit: Emit<UsageCapsuleEvent> }) {
-  const t = useT();
   const percent = capsule.worst ? Math.round(capsule.worst.usedPercent) : null;
   const title = [
     ...capsule.windows.map((window) => `${window.name} ${window.usedPercent}%${window.resetsAt ? ` (${clock(window.resetsAt, now)})` : ""}`),
-    capsule.error ? t("Last read failed: {error}", { error: capsule.error }) : "",
+    capsule.error ? t("The last read failed. {error}", { error: capsule.error }) : "",
   ].filter(Boolean).join("\n");
   return (
     <div className={`fleet-capsule level-${capsule.level}${capsule.cooldown ? " is-cooling" : ""}`} title={title || undefined}>

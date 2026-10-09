@@ -10,10 +10,7 @@
 // prints, which no system font has and Safari will not take from a font the user installed.
 // It stays first, ahead of a chosen font too, so the icons draw even when that font has none
 const TERMINAL_SYMBOLS_FONT = '"Symbols Nerd Font Mono"';
-// xterm sizes every cell from the first matching font, so a proportional one (Malgun Gothic)
-// must never win it: it stays behind the generic monospace as a per-glyph Hangul fallback
-const TERMINAL_TEXT_FONTS =
-  '"JetBrains Mono", "Fira Code", "D2Coding", Menlo, Monaco, "Cascadia Mono", Consolas, "Noto Sans Mono CJK KR", monospace, "Malgun Gothic"';
+const TERMINAL_TEXT_FONTS = '"JetBrains Mono", "Fira Code", Menlo, Monaco, "Cascadia Mono", Consolas, "Noto Sans Mono CJK JP", monospace';
 export const TERMINAL_FONT_STACK = `${TERMINAL_SYMBOLS_FONT}, ${TERMINAL_TEXT_FONTS}`;
 
 /** the chat's own stack: --font-ui in src/styles.css */

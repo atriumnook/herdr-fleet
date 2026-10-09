@@ -49,7 +49,7 @@ try {
   browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
   const context = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
   const page = await context.newPage();
-  await page.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" })));
+  await page.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({})));
   page.setDefaultTimeout(10_000);
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

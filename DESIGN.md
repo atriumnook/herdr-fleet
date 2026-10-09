@@ -116,7 +116,7 @@ CSS tokens verbatim for each resolved theme (`settings.test.ts` checks the match
 | Token | Value | Usage |
 |-------|-------|-------|
 | `--font-ui` | `"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", system-ui, sans-serif` | Chrome and chat prose |
-| `--font-mono` | `"Symbols Nerd Font Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, "D2Coding", monospace` | Paths, keys, terminal-adjacent metadata |
+| `--font-mono` | `"Symbols Nerd Font Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace` | Paths, keys, terminal-adjacent metadata |
 | `--lh-tight` | `1.2` | Titles |
 | `--lh-base` | `1.5` comfortable / `1.45` compact | Body copy |
 | `--fw-regular` | `400` | Body |
@@ -124,7 +124,6 @@ CSS tokens verbatim for each resolved theme (`settings.test.ts` checks the match
 | `--fw-semibold` | `600` | Labels and titles |
 | `--fw-bold` | `700` | Brand |
 | `--tracking-tight` | `-0.01em` | Brand and primary titles |
-| `--tracking-caps` | `0.06em` | Uppercase operational labels |
 
 ### Settings
 - `theme`: `dark`, `light`, or `system`; default `dark`.
@@ -260,14 +259,14 @@ One set for both themes: the card is island black wherever it shows.
   and a failure shows inside it. A no gives the focus back to what opened it.
 
 ### Field (`.field`, `.input`, `.select`)
-- Stacked uppercase label, optional hint and `--input` field. Desktop fields use `--fs-sm`;
+- Stacked label, optional hint and `--input` field. Desktop fields use `--fs-sm`;
   small-screen fields retain `--fs-input` to avoid focus zoom.
 - Focus names the edge with accent; errors use blocked/danger tokens and `role="alert"`.
 
 ### Menu / popover (`.menu*`)
 - Bordered `--radius-lg` surface with `--shadow-pop`; rows use `--control-h`, `--radius-md`, icon,
   ellipsized main label and optional hint.
-- Hover or `aria-selected` uses `--field-hover`. Headings are dim uppercase micro labels.
+- Hover or `aria-selected` uses `--field-hover`. Headings are dim micro labels.
 - The sidebar's row menu (`.row-menu`) is a `.menu` drawn through a portal at fixed coordinates,
   under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
   A one-pane row offers Rename workspace, Rename pane, then Close under a hairline; a workspace
@@ -281,8 +280,11 @@ One set for both themes: the card is island black wherever it shows.
   at once. After a confirmed close, focus lands on the header's workspace-list toggle.
 
 ### Badge (`.badge`)
-- Agent states read **READY**, **RUN**, **INPUT**, **DONE**; unknown reads **—**.
-- Idle is elevated/dim; working, blocked and done use their own tint and text. RUN carries a small
+- Agent states read **Idle**, **Working**, **Needs you**, **Done** (`STATUS_WORD` in
+  `src/lib/status.ts`), on every surface; unknown reads **—**. A Fleet run adds **Failed** and
+  reads the word of the section it sits in: a starting or unknown run reads **Working**, and an
+  ended run, folded under its own button, has no badge.
+- Idle is elevated/dim; working, blocked and done use their own tint and text. Working carries a small
   breathing dot before the word; the word itself never fades.
 - The written label and unknown dashed edge keep color from being the only signal.
 
@@ -433,7 +435,7 @@ One set for both themes: the card is island black wherever it shows.
   workspace-list toggle. Under the row, once the server has answered, the bridge auto-update switch.
 - Install reflects installed, promptable or browser-instructions state; About links the repository.
 - Subscription usage: the on switch with one description, then (when on) Used / Remaining and one
-  hairline card of accounts (`.usage-accounts`, `--radius-md`): an uppercase `--field` header
+  hairline card of accounts (`.usage-accounts`, `--radius-md`): a `--field` header
   with **Nearest limit first** at its right once the user has ordered, then one 38px row per account
   (mark, name, dim ellipsized email, then 28px move-up, move-down and eye controls in fixed columns;
   a move that cannot happen keeps its column but is not shown). A hidden account's row fades and

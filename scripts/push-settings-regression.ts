@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { Browser } from "playwright-core";
+import { t } from "../src/lib/i18n.ts";
 
 export async function checkPushSettings(browser: Browser, origin: string): Promise<void> {
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, permissions: ["notifications"] });
@@ -14,7 +15,7 @@ export async function checkPushSettings(browser: Browser, origin: string): Promi
   let registrations = 0;
   try {
     await context.addInitScript((endpoint) => {
-      localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" }));
+      localStorage.setItem("herdr-fleet:settings", JSON.stringify({}));
       let subscription: object | null = null;
       const pushManager = {
         getSubscription: async () => subscription,
@@ -54,7 +55,7 @@ export async function checkPushSettings(browser: Browser, origin: string): Promi
     assert.equal(await page.getByRole("button", { name: "Sending…", exact: true }).isDisabled(), true);
     release!();
     hold = undefined;
-    await page.getByText("Test notification sent. Check this device for the alert.", { exact: true }).waitFor();
+    await page.getByText(t("Test notification sent. Check this device for the alert."), { exact: true }).waitFor();
     assert.deepEqual(tests, [endpoint]);
     assert.equal(registrations, 1, "Send test must not repair the registration first");
     if (process.env.UI_EVIDENCE_DIR) {
@@ -65,15 +66,15 @@ export async function checkPushSettings(browser: Browser, origin: string): Promi
 
     status = 404;
     await send.click();
-    await page.getByText("This device's push subscription is missing. Turn alerts on again.", { exact: true }).waitFor();
+    await page.getByText(t("This device's push subscription is missing. Turn alerts on again."), { exact: true }).waitFor();
     status = 204;
     await page.getByRole("button", { name: "Turn alerts on again", exact: true }).click();
-    await page.getByText("Test notification sent. Check this device for the alert.", { exact: true }).waitFor();
+    await page.getByText(t("Test notification sent. Check this device for the alert."), { exact: true }).waitFor();
     assert.equal(registrations, 2, "explicit recovery registers this device again");
 
     status = 502;
     await send.click();
-    await page.getByText("Could not send the test notification. Try again.", { exact: true }).waitFor();
+    await page.getByText(t("Could not send the test notification. Try again."), { exact: true }).waitFor();
     assert.equal(await send.isEnabled(), true);
     await page.setViewportSize({ width: 390, height: 844 });
     await send.scrollIntoViewIfNeeded();
@@ -84,7 +85,7 @@ export async function checkPushSettings(browser: Browser, origin: string): Promi
     await page.evaluate(async () => (await (await navigator.serviceWorker.getRegistration())?.pushManager.getSubscription())?.unsubscribe());
     const beforeMissing = tests.length;
     await send.click();
-    await page.getByText("This device's push subscription is missing. Turn alerts on again.", { exact: true }).waitFor();
+    await page.getByText(t("This device's push subscription is missing. Turn alerts on again."), { exact: true }).waitFor();
     assert.equal(tests.length, beforeMissing);
 
     await page.getByRole("button", { name: "Close settings", exact: true }).click();

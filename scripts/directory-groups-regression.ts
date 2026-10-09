@@ -115,10 +115,9 @@ try {
   });
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 }, locale: "en-US" });
   await context.addInitScript(({ ids, legacyFoldKey }) => {
-    // Browser locale alone does not override the app's remembered language.
-    // Preserve a language changed through Settings across subsequent reloads.
+    // Preserve what Settings stored across subsequent reloads.
     if (!localStorage.getItem("herdr-fleet:settings")) {
-      localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en", alertsOn: false }));
+      localStorage.setItem("herdr-fleet:settings", JSON.stringify({ alertsOn: false }));
       localStorage.setItem(legacyFoldKey, "1");
     }
     for (const id of ids) localStorage.setItem(`herdr-fleet:view:${id}`, "chat");
@@ -459,45 +458,21 @@ try {
     () => page.locator(header).focus(), "keyboard focus on directory header");
   await screenshot("focus");
 
-  // Switch through the real Settings surface for Japanese evidence; fictional
-  // labels and owned temp paths are the only session data staged in this page.
+  // Fictional labels and owned temp paths are the only session data staged in this page.
   await page.getByRole("button", { name: "Settings", exact: true }).click();
   await page.locator(".settings-dialog").waitFor({ state: "attached" });
   await page.locator(grouping).scrollIntoViewIfNeeded();
   const groupingControl = await page.locator(grouping).elementHandle();
   assert.ok(groupingControl);
-  await screenshot("settings-en");
-  await changeState(page, [{ selector: "html", attribute: ["lang", "ja-JP"] }],
-    () => page.locator(".settings-dialog").getByRole("button", { name: "日本語", exact: true }).click(),
-    "Settings changes the UI language to Japanese");
-  await groupingControl.scrollIntoViewIfNeeded();
-  await screenshot("settings-ja");
+  await screenshot("settings");
   await page.setViewportSize({ width: 375, height: 900 });
   await groupingControl.scrollIntoViewIfNeeded();
   const mobileGrouping = await groupingControl.boundingBox();
   assert.ok(mobileGrouping && mobileGrouping.x >= 0 && mobileGrouping.x + mobileGrouping.width <= 375, "mobile grouping choices fit the viewport");
-  await screenshot("settings-ja-375");
+  await screenshot("settings-375");
   await page.setViewportSize({ width: 1280, height: 900 });
   await changeState(page, [{ selector: ".settings-dialog", count: 0 }],
-    () => page.keyboard.press("Escape"), "Japanese Settings closes");
-  for (const width of [1280, 768, 375]) {
-    await page.setViewportSize({ width, height: 900 });
-    if (await page.locator(".drawer-toggle").isVisible()
-      && await page.locator(".drawer-toggle").getAttribute("aria-expanded") !== "true") {
-      await changeState(page, [{ selector: "#workspace-drawer.is-open" }],
-        () => page.locator(".drawer-toggle").click(), `Japanese drawer opens at ${width}`);
-    }
-    assert.equal(await page.locator(header).isVisible(), true);
-    await screenshot(`ja-${width}`);
-  }
-  await page.setViewportSize({ width: 1280, height: 900 });
-  await page.getByRole("button", { name: "設定", exact: true }).click();
-  await page.locator(".settings-dialog").waitFor({ state: "attached" });
-  await changeState(page, [{ selector: "html", attribute: ["lang", "en-US"] }],
-    () => page.locator(".settings-dialog").getByRole("button", { name: "English", exact: true }).click(),
-    "Settings restores English action locators");
-  await changeState(page, [{ selector: ".settings-dialog", count: 0 }],
-    () => page.keyboard.press("Escape"), "English Settings closes");
+    () => page.keyboard.press("Escape"), "Settings closes");
 
   // When closing one grouped pane through its row menu, Then
   // its sibling survives, still under the same full-path header.

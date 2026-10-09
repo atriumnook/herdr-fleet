@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup as renderBare } from "react-dom/server";
 import { DEFAULT_SETTINGS, SettingsProvider } from "../lib/settings.ts";
 import { NewSessionDialog, type NewSessionModel } from "./NewSessionDialog.tsx";
+import { t } from "../lib/i18n.ts";
 
 const model = (extra: Partial<NewSessionModel> = {}): NewSessionModel => ({
   open: true, machineId: "local", machineName: "omarchy", seq: 1, agents: [{ kind: "claude", label: "Claude Code" }] as never,
@@ -11,14 +12,7 @@ const model = (extra: Partial<NewSessionModel> = {}): NewSessionModel => ({
 
 /** English, as under the app's own provider with an English browser */
 function render(values: NewSessionModel): string {
-  const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-  Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-  try {
-    return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(NewSessionDialog, { model: values, browser: () => null, emit: () => {} }) }));
-  } finally {
-    if (languages) Object.defineProperty(navigator, "languages", languages);
-    else Reflect.deleteProperty(navigator, "languages");
-  }
+  return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(NewSessionDialog, { model: values, browser: () => null, emit: () => {} }) }));
 }
 
 describe("New session dialog view", () => {
@@ -42,6 +36,6 @@ describe("New session dialog view", () => {
   });
 
   it("says a folder that is not there in words", () => {
-    expect(render(model({ error: { kind: "invalid-cwd" } }))).toContain("Directory not found");
+    expect(render(model({ error: { kind: "invalid-cwd" } }))).toContain(t("This folder does not exist."));
   });
 });

@@ -7,17 +7,10 @@ import { FOLD_CODE_AFTER_LINES, FOLDED_CODE_LINES, foldCode, parseInline, parseM
 
 describe("parseMarkdown", () => {
   it("renders inline and display math while leaving fenced code untouched", () => {
-    const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-    Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-    try {
-      const html = renderToStaticMarkup(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(Markdown, { children: "\\(x_i\\)\n\n\\[\\mathrm{ECA@}k=\\frac{1}{N}\\sum_i\\mathbf{1}[\\text{예측}_i=\\text{정답}_i]\\]" }) }));
-      expect(html).toContain("katex-display");
-      expect(html).toContain("katex-html");
-      expect(html).not.toContain("katex-error");
-    } finally {
-      if (languages) Object.defineProperty(navigator, "languages", languages);
-      else Reflect.deleteProperty(navigator, "languages");
-    }
+    const html = renderToStaticMarkup(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(Markdown, { children: "\\(x_i\\)\n\n\\[\\mathrm{ECA@}k=\\frac{1}{N}\\sum_i\\mathbf{1}[\\text{예측}_i=\\text{정답}_i]\\]" }) }));
+    expect(html).toContain("katex-display");
+    expect(html).toContain("katex-html");
+    expect(html).not.toContain("katex-error");
   });
   it("parses level one through three headings", () => {
     expect(parseMarkdown("# One\n## Two\n### Three").map((block) => block.type === "heading" ? block.level : null)).toEqual([1, 2, 3]);
@@ -218,14 +211,7 @@ describe("foldCode", () => {
 
 describe("numbered lists as agents write them", () => {
   const render = (source: string): string => {
-    const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-    Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-    try {
-      return renderToStaticMarkup(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(Markdown, { children: source }) }));
-    } finally {
-      if (languages) Object.defineProperty(navigator, "languages", languages);
-      else Reflect.deleteProperty(navigator, "languages");
-    }
+    return renderToStaticMarkup(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(Markdown, { children: source }) }));
   };
   const lists = (source: string) => parseMarkdown(source).map((block) => block.type === "list" ? { start: block.start ?? 1, items: block.items.length } : block.type);
 

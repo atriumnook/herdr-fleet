@@ -7,7 +7,6 @@
  */
 
 import { createContext, createElement, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import { LANGUAGE_SETTINGS, LOCALE_TAGS, resolveLanguage, setCurrentLanguage, type Language, type LanguageSetting } from "./i18n.ts";
 import type { AlertPrefs, DoneAlerts } from "../../shared/notify-policy.ts";
 import { chatFontStack, sanitizeFontFamily } from "./fontFamily.ts";
 
@@ -43,8 +42,6 @@ export interface Settings {
   showThinking: boolean;
   /** request a screen wake lock while a pane is open in this visible tab */
   keepScreenOn: boolean;
-  /** UI language; `system` follows the browser (src/lib/i18n.ts) */
-  language: LanguageSetting;
   /** alerts on this device at all: the bell turns them off (push subscription dropped) and on */
   alertsOn: boolean;
   /** alert this device when an agent waits on the user (shared/notify-policy.ts AlertPrefs) */
@@ -77,7 +74,6 @@ export const DEFAULT_SETTINGS: Settings = {
   enterSends: true,
   showThinking: false,
   keepScreenOn: false,
-  language: "system",
   alertsOn: true,
   alertInput: true,
   alertDone: "long",
@@ -147,7 +143,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     enterSends: typeof record["enterSends"] === "boolean" ? record["enterSends"] : DEFAULT_SETTINGS.enterSends,
     showThinking: typeof record["showThinking"] === "boolean" ? record["showThinking"] : DEFAULT_SETTINGS.showThinking,
     keepScreenOn: typeof record["keepScreenOn"] === "boolean" ? record["keepScreenOn"] : DEFAULT_SETTINGS.keepScreenOn,
-    language: LANGUAGE_SETTINGS.includes(record["language"] as LanguageSetting) ? record["language"] as LanguageSetting : DEFAULT_SETTINGS.language,
     alertsOn: typeof record["alertsOn"] === "boolean" ? record["alertsOn"] : DEFAULT_SETTINGS.alertsOn,
     alertInput: typeof record["alertInput"] === "boolean" ? record["alertInput"] : DEFAULT_SETTINGS.alertInput,
     alertDone: record["alertDone"] === "off" || record["alertDone"] === "long" || record["alertDone"] === "always" ? record["alertDone"] : DEFAULT_SETTINGS.alertDone,
@@ -201,9 +196,8 @@ export function terminalTheme(theme: ResolvedTheme): TerminalColors {
 /** `<meta name="theme-color">` follows the panel surface so the PWA title bar matches. */
 const THEME_COLOR: Record<ResolvedTheme, string> = { dark: "#0b1020", light: "#f7faff" };
 
-function applyToDocument(settings: Settings, resolved: ResolvedTheme, language: Language): void {
+function applyToDocument(settings: Settings, resolved: ResolvedTheme): void {
   const root = document.documentElement;
-  root.lang = LOCALE_TAGS[language];
   root.dataset["theme"] = resolved;
   root.dataset["density"] = settings.density;
   // ChatView.css scales its type tokens by this: the chosen size over the density's
@@ -220,8 +214,6 @@ interface SettingsContextValue {
   settings: Settings;
   /** the theme after resolving `system` against the OS preference */
   resolvedTheme: ResolvedTheme;
-  /** the language after resolving `system` against the browser's */
-  resolvedLanguage: Language;
   update: (patch: Partial<Settings>) => void;
 }
 
@@ -244,21 +236,11 @@ export function SettingsProvider({ settings, onChange, children }: { settings: S
 
   const resolvedTheme: ResolvedTheme = settings.theme === "system" ? (systemDark ? "dark" : "light") : settings.theme;
 
-  const [browserLanguages, setBrowserLanguages] = useState<readonly string[]>(() => (typeof navigator !== "undefined" ? navigator.languages : []));
   useEffect(() => {
-    const onChange = (): void => setBrowserLanguages([...navigator.languages]);
-    window.addEventListener("languagechange", onChange);
-    return () => window.removeEventListener("languagechange", onChange);
-  }, []);
-  const resolvedLanguage = resolveLanguage(settings.language, browserLanguages);
-  // helpers outside React read this during the same render, so it is set before the children render
-  setCurrentLanguage(resolvedLanguage);
+    applyToDocument(settings, resolvedTheme);
+  }, [settings, resolvedTheme]);
 
-  useEffect(() => {
-    applyToDocument(settings, resolvedTheme, resolvedLanguage);
-  }, [settings, resolvedTheme, resolvedLanguage]);
-
-  const value = useMemo(() => ({ settings, resolvedTheme, resolvedLanguage, update: onChange }), [settings, resolvedTheme, resolvedLanguage, onChange]);
+  const value = useMemo(() => ({ settings, resolvedTheme, update: onChange }), [settings, resolvedTheme, onChange]);
   return createElement(SettingsContext.Provider, { value }, children);
 }
 

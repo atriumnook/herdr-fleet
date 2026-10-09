@@ -28,7 +28,7 @@ import { agentDisplayLabel, composerStatusWord, contextLeftPercent, formatTokens
 import { activeTrigger, applyCompletion, type ActiveTrigger } from "../lib/mentions.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import type { Emit } from "../ui/bubble.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 
 /** What the composer draws: its pane's draft, what it offers to complete, the files attached, what its last send came to, and the pane's state. */
 export interface ComposerModel {
@@ -127,7 +127,6 @@ function composerHeightLimit(): number {
  * screen has no hover). A window the transcript does not name draws no ring.
  */
 function ContextRing({ context }: { context: NonNullable<ConversationMetadata["context"]> }) {
-  const t = useT();
   const [shown, setShown] = useState(false);
   const left = contextLeftPercent(context);
   if (left === null || context.window === null) return null;
@@ -156,7 +155,6 @@ function ContextRing({ context }: { context: NonNullable<ConversationMetadata["c
 
 /** Chat-style input surface with pane-local drafts, command/file completion, and image mentions. */
 export function Composer({ model, emit }: ComposerProps) {
-  const t = useT();
   const { machineId, paneId, owner, connected, autoFocus, agent, agentStatus, metadata, queueMode, answerHint, suggestion, text, draftRead, sending, settled, outcome,
     commands, files, slashUsage, attachments, enterSends, showSuggestionChip, quickReplies } = model;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -225,7 +223,7 @@ export function Composer({ model, emit }: ComposerProps) {
   // the agent's suggestion stands in the empty box as it does in its own input, until anything is typed
   const offered = connected && answerHint === null && suggestion !== null ? suggestion : null;
   const placeholder = !connected
-    ? t("Reconnecting… message held here, never queued")
+    ? t("Reconnecting. The message stays here and is not queued.")
     : answerHint ?? offered ?? t("Message {agent}…", { agent: agentLabel });
 
   // the files under a typed `@` are searched a moment after the typing stops
@@ -561,7 +559,7 @@ export function Composer({ model, emit }: ComposerProps) {
         {metadata?.context && <ContextRing context={metadata.context} />}
         {(uploading || !connected) && (
           <span className="composer-status-hint">
-            <span aria-hidden="true">·</span> {t(uploading ? "Uploading file…" : "Reconnecting… message held here, never queued")}
+            <span aria-hidden="true">·</span> {t(uploading ? "Uploading file…" : "Reconnecting. The message stays here and is not queued.")}
           </span>
         )}
       </div>

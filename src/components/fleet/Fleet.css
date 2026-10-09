@@ -187,8 +187,6 @@
 .fleet-section-head h2 {
   margin: 0 auto 0 0;
   font: var(--fw-semibold) var(--fs-2xs) var(--font-mono);
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
   color: var(--sub);
 }
 
@@ -332,10 +330,9 @@
 }
 
 .fleet-badge.is-working { color: var(--working); background: var(--working-tint); }
-.fleet-badge.is-blocked { color: var(--needs); background: var(--needs-tint); }
+.fleet-badge.is-needs { color: var(--needs); background: var(--needs-tint); }
 .fleet-badge.is-done { color: var(--done); background: var(--done-tint); }
 .fleet-badge.is-failed { color: var(--needs); border: var(--hairline) solid var(--needs); }
-.fleet-badge.is-ended { color: var(--sub); background: var(--field-hover); }
 
 /* capsule buttons: the glass's own controls */
 .fleet-cap {
@@ -457,8 +454,6 @@
 .fleet-sheet-section h3 {
   margin: 0 0 2px;
   font: var(--fw-semibold) 10px var(--font-mono);
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
   color: var(--sub);
 }
 

@@ -1,6 +1,6 @@
 import type { Emit } from "../../ui/bubble.ts";
 import type { RunCardModel } from "../../ui/fleetView.ts";
-import { useT } from "../../lib/i18n.ts";
+import { t } from "../../lib/i18n.ts";
 import { AgentMark } from "../AgentMark.tsx";
 import { StateBadge, elapsed } from "./format.tsx";
 
@@ -12,7 +12,6 @@ export type RunCardEvent = { type: "open-pane" } | { type: "interrupt" } | { typ
  * question and the way to answer it; the rest are rows. Passive: it shows `run` and emits.
  */
 export function RunCard({ run, now, emit }: { run: RunCardModel; now: number; emit: Emit<RunCardEvent> }) {
-  const t = useT();
   const prominent = run.tone === "needs";
   return (
     <article className={`fleet-run tone-${run.tone}${prominent ? " is-prominent" : ""}${run.depth > 1 ? " is-child" : ""}`} style={{ "--fleet-depth": Math.max(0, run.depth - 1) } as React.CSSProperties}>

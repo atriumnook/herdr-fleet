@@ -1,7 +1,7 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { X } from "lucide-react";
 
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { UiEvent } from "../ui/state.ts";
 
@@ -23,7 +23,6 @@ export interface FilesDialogProps {
 
 /** The files of the pane's folder (and any other), each opened in the file viewer. */
 export function FilesDialog({ model, browser, emit }: FilesDialogProps) {
-  const t = useT();
   const { start, viewing } = model;
   const emitRef = useRef(emit);
   emitRef.current = emit;

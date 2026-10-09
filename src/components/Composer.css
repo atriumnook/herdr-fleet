@@ -129,7 +129,6 @@
   flex: none;
   color: var(--ink-strong);
   font-size: var(--fs-xs);
-  letter-spacing: var(--tracking-caps);
 }
 
 .composer-status[data-status="working"] strong {
@@ -571,8 +570,6 @@
 .composer-queue-label {
   color: var(--sub);
   font-size: var(--fs-2xs);
-  letter-spacing: var(--tracking-caps);
-  text-transform: uppercase;
 }
 
 .composer-queue-text {

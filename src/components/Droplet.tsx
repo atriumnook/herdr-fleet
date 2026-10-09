@@ -1,6 +1,6 @@
 import { useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { flickVelocity, type DropletNotice, type PressSample } from "../lib/droplet.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { UiEvent } from "../ui/state.ts";
 import { AgentMark } from "./AgentMark.tsx";
@@ -32,7 +32,6 @@ export type DropletEvent = Extract<UiEvent, { type: "droplet-press" | "droplet-r
 
 /** One notice's card: the parent keys it by the notice, so a new one starts undragged. */
 export function Droplet({ model, emit }: { model: DropletModel; emit: Emit<DropletEvent> }) {
-  const t = useT();
   const { notice: current, title, phase } = model;
   const [drag, setDrag] = useState(0);
   // a press that dragged ends in a click on a mouse: that click is not a tap
@@ -72,7 +71,7 @@ export function Droplet({ model, emit }: { model: DropletModel; emit: Emit<Dropl
     emit({ type: "droplet-release" });
   };
 
-  const what = t(current.kind === "blocked" ? "Needs input" : current.kind === "done" ? "Finished" : "terminal ended");
+  const what = t(current.kind === "blocked" ? "Needs you" : current.kind === "done" ? "Done" : "terminal ended");
   const detail = current.machineName ? `${current.machineName} · ${what}` : what;
   return (
     <div className="droplet" role="status" aria-live="polite" data-phase={phase} data-kind={current.kind} data-dragging={drag !== 0 ? "" : undefined} style={{ "--droplet-drag": `${drag}px` } as CSSProperties}>

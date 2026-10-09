@@ -16,7 +16,7 @@ export async function checkDirectoryBrowser(browser: Browser, origin: string): P
   mkdirSync(join(root, ".hidden-dir"));
   const context = await browser.newContext({ viewport: { width: 1280, height: 800 }, locale: "en-US" });
   try {
-    await context.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({ language: "en" })));
+    await context.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({})));
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
     const errors: string[] = [];

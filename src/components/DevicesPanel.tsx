@@ -6,7 +6,7 @@ import "./DevicesPanel.css";
 import { copyText } from "../lib/clipboard.ts";
 import type { HealthAuth } from "../../shared/protocol.ts";
 import { QrCode } from "./QrCode.tsx";
-import { currentLocale, t as tt, useT } from "../lib/i18n.ts";
+import { LOCALE, t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { DevicesPanelModel } from "../ui/devicesView.ts";
 import type { UiEvent } from "../ui/state.ts";
@@ -27,12 +27,12 @@ export const VIA: Record<NonNullable<HealthAuth["via"]>, string> = {
 };
 
 function lastSeen(value: string | null): string {
-  if (value === null) return tt("never");
+  if (value === null) return t("never");
   const minutes = Math.round((Date.now() - Date.parse(value)) / 60_000);
-  if (minutes < 2) return tt("just now");
-  if (minutes < 60) return tt("{n} min ago", { n: minutes });
-  if (minutes < 60 * 48) return tt("{n} h ago", { n: Math.round(minutes / 60) });
-  return new Date(value).toLocaleDateString(currentLocale());
+  if (minutes < 2) return t("just now");
+  if (minutes < 60) return t("{n} min ago", { n: minutes });
+  if (minutes < 60 * 48) return t("{n} h ago", { n: Math.round(minutes / 60) });
+  return new Date(value).toLocaleDateString(LOCALE);
 }
 
 /** The time a code has left, as m:ss; drawn on a clock of its own, as the Mediator drops the code once it expires. */
@@ -53,7 +53,6 @@ function useTimeLeft(expiresAt: string | null): string {
 
 /** Settings → Devices: the paired devices, and a code to pair one more. */
 export function DevicesPanel({ model, emit }: DevicesPanelProps) {
-  const t = useT();
   const { list: devices, pairing, renaming, confirming, justPaired } = model;
   const left = useTimeLeft(pairing?.expiresAt ?? null);
   // the copy feedback is the button's own: the clipboard needs the link element for its fallback
@@ -103,14 +102,14 @@ export function DevicesPanel({ model, emit }: DevicesPanelProps) {
         <div className="devices-pairing" role="status">
           {qrValue !== null && <QrCode value={qrValue} label={t("QR code that pairs a phone with code {code}", { code: pairing.code })} />}
           <div>
-            <p className="settings-label">{t("On the other device, enter this code")}</p>
+            <p className="settings-label">{t("Enter this code on the other device.")}</p>
             <p className="devices-code">{pairing.spaced}</p>
             <p className="settings-description">
               {t(qrValue !== null ? "Or scan the QR code: it opens the app with the code filled in." : "Open the app's address on that device and enter it.")} {t("Expires in {time}.", { time: left })}
             </p>
             {qrValue !== null && (
               <p className="devices-link">
-                <span className="settings-description">{t("Or send this link to it:")}</span>
+                <span className="settings-description">{t("Or send it this link.")}</span>
                 <a ref={linkRef} href={qrValue}>{qrValue}</a>
                 <button type="button" className="btn btn-ghost" onClick={() => void copyText(qrValue, linkRef.current).then((ok) => { if (ok) { setLinkCopied(true); window.setTimeout(() => setLinkCopied(false), 1600); } })}>{t(linkCopied ? "Copied" : "Copy")}</button>
               </p>

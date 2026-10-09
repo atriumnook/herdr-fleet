@@ -5,7 +5,7 @@ import "./FileViewer.css";
 
 import { TEXT_PREVIEW_BYTES } from "../lib/api.ts";
 import { formatBytes } from "../lib/formatBytes.ts";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { FileContent, UiEvent } from "../ui/state.ts";
 
@@ -36,7 +36,6 @@ export interface FileViewerProps {
  * play and seek at once), PDFs, and the start of a text file. Anything can be downloaded.
  */
 export function FileViewer({ model, browser, emit }: FileViewerProps) {
-  const t = useT();
   const { path, content, url, downloadUrl } = model;
   const info = content.kind === "file" ? content.info : null;
   const emitRef = useRef(emit);

@@ -6,7 +6,7 @@ import "./PhonePanel.css";
 import { copyText } from "../lib/clipboard.ts";
 import type { PhonePlan } from "../lib/phone.ts";
 import { QrCode } from "./QrCode.tsx";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 
 const README_PHONE = "https://github.com/atriumnook/herdr-fleet/blob/main/docs/guide.md#on-your-phone";
 const README_SAFETY = "https://github.com/atriumnook/herdr-fleet#アクセス制御";
@@ -20,19 +20,17 @@ export interface PhonePanelProps {
 
 /** Settings → Phone: the address a phone can open, or the one step still missing on this PC. */
 export function PhonePanel({ plan, loading, onRefresh }: PhonePanelProps) {
-  const t = useT();
   return <div className="phone-panel">{loading && plan.kind !== "here" ? <p className="settings-hint" role="status">{t("Asking this PC about Tailscale…")}</p> : <Plan plan={plan} loading={loading} onRefresh={onRefresh} />}</div>;
 }
 
 function Plan({ plan, loading, onRefresh }: PhonePanelProps) {
-  const t = useT();
   const checkAgain = <button type="button" className="btn" onClick={onRefresh} disabled={loading}><RefreshCw aria-hidden="true" />{t("Check again")}</button>;
   switch (plan.kind) {
     case "here":
     case "served":
       return (
         <>
-          <Address url={plan.url} title={t(plan.kind === "here" ? "Open this address on your phone" : "Tailscale already serves this PC")} />
+          <Address url={plan.url} title={t(plan.kind === "here" ? "Open this address on your phone." : "Tailscale already serves this PC.")} />
           <p className="settings-description">{t("Once it is open, install the app and tap the bell for alerts.")}</p>
           {plan.kind === "served" && <Sharing />}
         </>
@@ -85,7 +83,6 @@ function Address({ url, title }: { url: string; title: string }) {
 }
 
 function Command({ command }: { command: string }) {
-  const t = useT();
   const codeRef = useRef<HTMLElement>(null);
   const [copied, setCopied] = useState(false);
   const copy = async () => {
@@ -102,6 +99,5 @@ function Command({ command }: { command: string }) {
 }
 
 function Sharing() {
-  const t = useT();
   return <p className="settings-hint">{t("Your own Tailscale devices get in as you; with an access token set, each asks for it once. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.")} <a href={README_SAFETY} target="_blank" rel="noreferrer">{t("Access and safety")}</a></p>;
 }

@@ -3,7 +3,7 @@ import type { Emit } from "../../ui/bubble.ts";
 import { relay } from "../../ui/bubble.ts";
 import type { FleetScreenModel, RunCardModel, RunTone } from "../../ui/fleetView.ts";
 import type { Screen, UiEvent } from "../../ui/state.ts";
-import { useT } from "../../lib/i18n.ts";
+import { t } from "../../lib/i18n.ts";
 import { RunCard, type RunCardEvent } from "./RunCard.tsx";
 import { RunDetailSheet, type RunDetailEvent } from "./RunDetailSheet.tsx";
 import { UsageCapsule, type UsageCapsuleEvent } from "./UsageCapsule.tsx";
@@ -38,13 +38,12 @@ export function forRun(emit: Emit<FleetScreenEvent>, runId: string): Emit<RunCar
  * detail on a sheet in front. It floats over the pane, which stays attached underneath.
  */
 export function FleetScreen({ model, screen, emit }: { model: FleetScreenModel; screen: Screen; emit: Emit<FleetScreenEvent> }) {
-  const t = useT();
   const now = useNow(1000);
   // purely visual: whether the folded ended runs are shown
   const [endedOpen, setEndedOpen] = useState(false);
   const empty = model.status === "ready" && model.sections.length === 0 && model.ended.length === 0;
   const heading: Record<Exclude<RunTone, "ended">, string> = {
-    needs: t("Waiting on you"), failed: t("Failed"), working: t("Working"), done: t("Done"),
+    needs: t("Needs you"), failed: t("Failed"), working: t("Working"), done: t("Done"),
   };
   const card = (run: RunCardModel) => <RunCard key={run.id} run={run} now={run.tone === "working" || run.tone === "needs" ? now : run.updatedAt} emit={forRun(emit, run.id)} />;
 
@@ -55,7 +54,7 @@ export function FleetScreen({ model, screen, emit }: { model: FleetScreenModel; 
         <header className="fleet-head">
           <div className="fleet-title">
             <h1>{t("Fleet")}</h1>
-            <span>{t("{needs} waiting · {failed} failed · {working} working · {done} done", model.counts)}</span>
+            <span>{t("{needs} need you · {failed} failed · {working} working · {done} done", model.counts)}</span>
           </div>
           <div className="fleet-capsules" role="group" aria-label={t("Usage")}>
             {model.usage.capsules.map((capsule) => (
@@ -70,7 +69,7 @@ export function FleetScreen({ model, screen, emit }: { model: FleetScreenModel; 
             <button type="button" className="fleet-cap" onClick={() => emit({ type: "dismiss-error" })}>{t("Dismiss")}</button>
           </div>
         )}
-        {model.status === "error" && <div className="fleet-alert" role="alert">{t("Could not load the fleet: {error}", { error: model.error ?? "" })}</div>}
+        {model.status === "error" && <div className="fleet-alert" role="alert">{t("Could not load the fleet. {error}", { error: model.error ?? "" })}</div>}
         {model.status === "loading" && model.sections.length === 0 && <p className="fleet-empty">{t("Loading the fleet…")}</p>}
         {empty && (
           <div className="fleet-empty">

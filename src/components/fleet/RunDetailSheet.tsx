@@ -1,7 +1,7 @@
 import { X } from "lucide-react";
 import type { Emit } from "../../ui/bubble.ts";
 import type { RunCardModel } from "../../ui/fleetView.ts";
-import { useT } from "../../lib/i18n.ts";
+import { t } from "../../lib/i18n.ts";
 import { AgentMark } from "../AgentMark.tsx";
 import { StateBadge, elapsed } from "./format.tsx";
 
@@ -12,7 +12,6 @@ export type RunDetailEvent = { type: "close" } | { type: "open-pane" } | { type:
  * how the fleet routed it (the candidates passed over and why), and its last result.
  */
 export function RunDetailSheet({ run, now, emit }: { run: RunCardModel; now: number; emit: Emit<RunDetailEvent> }) {
-  const t = useT();
   return (
     <aside className="fleet-sheet" role="dialog" aria-modal="false" aria-labelledby="fleet-sheet-title">
       <header className="fleet-sheet-head">
@@ -25,7 +24,7 @@ export function RunDetailSheet({ run, now, emit }: { run: RunCardModel; now: num
       </header>
 
       <dl className="fleet-sheet-facts">
-        <div><dt>{t("State")}</dt><dd><StateBadge state={run.state} /></dd></div>
+        {run.tone !== "ended" && <div><dt>{t("State")}</dt><dd><StateBadge state={run.state} /></dd></div>}
         <div><dt>{t("Elapsed")}</dt><dd className="mono">{elapsed(now - run.startedAt)}</dd></div>
         <div><dt>{t("Group")}</dt><dd className="mono">{run.group}</dd></div>
       </dl>

@@ -13,21 +13,14 @@ const open = (extra: Partial<UiState> = {}): UiState => ({ ...INITIAL_STATE, set
 const install = { installed: false, canInstall: true, help: "" };
 const noop = () => {};
 
-/** the dialog reads the language from the settings, as under the app's own provider; English here */
+/** the dialog reads the settings, as under the app's own provider */
 function render(state: UiState, extra: Partial<Parameters<typeof SettingsDialog>[0]> = {}): string {
   const model = settingsDialogModel(state, LOCAL);
   if (!model) throw new Error("the dialog is closed");
-  const languages = Object.getOwnPropertyDescriptor(navigator, "languages");
-  Object.defineProperty(navigator, "languages", { configurable: true, value: ["en"] });
-  try {
-    return renderBare(createElement(SettingsProvider, {
-      settings: DEFAULT_SETTINGS, onChange: noop,
-      children: createElement(SettingsDialog, { model, install, alerts: "ALERTS-SLOT", devices: "DEVICES-SLOT", emit: noop, ...extra }),
-    }));
-  } finally {
-    if (languages) Object.defineProperty(navigator, "languages", languages);
-    else Reflect.deleteProperty(navigator, "languages");
-  }
+  return renderBare(createElement(SettingsProvider, {
+    settings: DEFAULT_SETTINGS, onChange: noop,
+    children: createElement(SettingsDialog, { model, install, alerts: "ALERTS-SLOT", devices: "DEVICES-SLOT", emit: noop, ...extra }),
+  }));
 }
 
 describe("Settings dialog view", () => {

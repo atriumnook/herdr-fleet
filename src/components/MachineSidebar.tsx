@@ -4,7 +4,7 @@ import type { Machine, MachineState } from "../../shared/machines.ts";
 import type { Emit } from "../ui/bubble.ts";
 import { NeedsInput, type NeedsInputEvent } from "./NeedsInput.tsx";
 import "./Machines.css";
-import { useT } from "../lib/i18n.ts";
+import { t } from "../lib/i18n.ts";
 
 declare const __APP_VERSION__: string;
 
@@ -41,7 +41,6 @@ interface Props {
 }
 
 export function MachineSidebar(props: Props) {
-  const t = useT();
   const { machines, selectedMachineId, selectedPaneId, version, install: { canInstall, installed, help } } = props.model;
   const emit = props.emit;
   const [installHelpOpen, setInstallHelpOpen] = useState(false);
@@ -69,7 +68,6 @@ export function MachineSidebar(props: Props) {
 
 /** One PC: its header, its state when not connected, and its sessions. Folding it is the view's own, kept per PC. */
 function MachineGroup({ machine, current, tree, emit }: { machine: Machine; current: boolean; tree: Props["tree"]; emit: Emit<MachineSidebarEvent> }) {
-  const t = useT();
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(`herdr-fleet:pc-collapsed:${machine.id}`) === "1"; } catch { return false; } });
   const online = machine.state === "connected";
   const toggle = () => {
@@ -83,7 +81,7 @@ function MachineGroup({ machine, current, tree, emit }: { machine: Machine; curr
         <Monitor className="machine-icon" aria-hidden="true" />
         <span className="machine-name">{machine.name}</span>
         {/* the computer this app's server runs on; on a phone "this PC" read as the phone */}
-        {machine.kind === "local" && <span className="machine-kind" title={t("The computer this app runs on")}>{t("Host")}</span>}
+        {machine.kind === "local" && <span className="machine-kind" title={t("The computer this app runs on.")}>{t("Host")}</span>}
         <span className={`machine-dot is-${machine.state}`} title={t(STATE_WORD[machine.state])} aria-hidden="true" />
       </button>
       <button className="sidebar-row-action" disabled={!online} aria-label={t("New session on {name}", { name: machine.name })} title={t("New session")} onClick={() => emit({ type: "new-session", machineId: machine.id })}><Plus aria-hidden="true" /></button>
