@@ -101,6 +101,31 @@ describe("spawn", () => {
     expect(require("node:fs").readdirSync(root).filter((name: string) => name.startsWith("herdr-fleet-"))).toEqual([]);
   });
 
+  it("asks an agent caller for a full brief before any pane, and hands its helper the brief as the task", async () => {
+    const { fleet, runtime } = setup();
+    await expect(spawn(fleet, { depth: 1 })).rejects.toMatchObject({ code: "incomplete_brief" });
+    expect(runtime.locations).toEqual([]);
+    const brief = { goal: "Fix the retry.", write: ["src/retry.ts"], context: "none", done: "One notification per retry.", verify: "bun test" };
+    const run = await spawn(fleet, { depth: 1, task: undefined, brief });
+    expect(run.write).toEqual(["/work/src/retry.ts"]);
+    expect(runtime.prompts[0]!.text).toContain("## Goal\n\nFix the retry.");
+  });
+
+  it("refuses a second writer of paths a working agent holds, and lets it in once that agent's turn settles", async () => {
+    const { fleet, runtime, registry } = setup();
+    const brief = { goal: "g", write: ["src"], context: "none", done: "d", verify: "v" };
+    const first = await spawn(fleet, { depth: 1, brief });
+    const error = await spawn(fleet, { depth: 1, brief: { ...brief, write: ["src/retry.ts"] } }).catch((e) => e);
+    expect(error).toMatchObject({ code: "scope_conflict" });
+    expect(error.message).toContain(`worker (${first.id}) is still changing /work/src`);
+    expect(runtime.locations).toHaveLength(1);
+    // a reader holds nothing, and a worktree run writes its own checkout
+    await spawn(fleet, { depth: 1, brief: { ...brief, write: [] } });
+    expect((await spawn(fleet, { depth: 1, brief, worktree: true })).write).toBeUndefined();
+    registry.upsert({ ...registry.get(first.id)!, state: "idle" });
+    await spawn(fleet, { depth: 1, brief: { ...brief, write: ["src/retry.ts"] } });
+  });
+
   it("records the idle herdr shows right after a prompt as working", async () => {
     const { fleet, runtime } = setup();
     runtime.promptStatus = "idle";

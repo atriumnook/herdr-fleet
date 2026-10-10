@@ -4,6 +4,7 @@ import { join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
+import { checkBrief, overlap, renderBrief, writeScope } from "./brief.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
 import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel } from "./types.ts";
@@ -26,7 +27,12 @@ export const RESULT_MAX_BYTES = 64 * 1024;
 const RESULT_FILE = "handoff.md";
 
 /** A spawn whose configured fallbacks (candidate entries) are still untried: consulted if its first turn fails. */
-interface SpawnPlan { request: SpawnRequest & { group: string }; fallbacks: string[] }
+/** A spawn with its brief turned into the task and the paths it may write, ready to try candidates for. */
+type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[] };
+interface SpawnPlan { request: PlannedSpawn; fallbacks: string[] }
+
+/** the states in which a run may still be writing the paths its brief gave it */
+const HOLDS_SCOPE: ReadonlySet<AgentState> = new Set(["starting", "working", "blocked", "unknown"]);
 
 export const isCompleted = (state: AgentState): boolean => state === "idle" || state === "done";
 export const isLive = (run: AgentRun): boolean => run.state !== "stopped" && run.state !== "failed";
@@ -179,7 +185,16 @@ export class Orchestrator {
   async spawn(request: SpawnRequest, signal?: AbortSignal): Promise<AgentRun> {
     const group = request.group ?? makeGroupId();
     if (!/^[a-z0-9][a-z0-9_-]{0,47}$/i.test(group)) throw new FleetError("invalid_group", "group must be letters, digits, - and _ (up to 48)");
-    return this.spawnWithFallbacks({ ...request, group }, signal);
+    const depth = request.depth ?? 0;
+    const maxDepth = this.deps.config(resolve(request.cwd ?? process.cwd())).maxDepth;
+    if (depth >= maxDepth) throw new FleetError("depth_limit", `Agent nesting limit reached: depth=${depth}, maxDepth=${maxDepth}`);
+    // a person may say it in a line; an agent handing work on writes the brief its helper cannot ask back
+    const { brief: given, ...rest } = request;
+    const brief = given !== undefined || depth >= 1 ? checkBrief(given) : undefined;
+    const task = brief ? renderBrief(brief, request.task) : request.task ?? "";
+    if (!task.trim()) throw new FleetError("missing_task", "task is required");
+    const write = brief && !request.worktree ? writeScope(resolve(request.cwd ?? process.cwd()), brief.write) : undefined;
+    return this.spawnWithFallbacks({ ...rest, group, task, ...(write ? { write } : {}) }, signal);
   }
 
   /**
@@ -189,11 +204,9 @@ export class Orchestrator {
    * Every other error is the caller's. `fallbacks` replaces the configured list for a re-spawn after
    * a failed first turn, so candidates already tried are not tried again.
    */
-  private async spawnWithFallbacks(request: SpawnRequest & { group: string }, signal?: AbortSignal, fallbacks?: string[], fallbackFrom?: string): Promise<AgentRun> {
+  private async spawnWithFallbacks(request: PlannedSpawn, signal?: AbortSignal, fallbacks?: string[], fallbackFrom?: string): Promise<AgentRun> {
     const cwd = resolve(request.cwd ?? process.cwd());
     const config = this.deps.config(cwd);
-    const depth = request.depth ?? 0;
-    if (depth >= config.maxDepth) throw new FleetError("depth_limit", `Agent nesting limit reached: depth=${depth}, maxDepth=${config.maxDepth}`);
     const agents = this.deps.agents(cwd);
     const definition = findAgent(agents, request.role);
     if (!definition) throw new FleetError("unknown_role", `Unknown agent role: ${request.role}. Available: ${agents.map((a) => a.name).join(", ")}`);
@@ -239,7 +252,7 @@ export class Orchestrator {
     throw new FleetError("no_candidates", "No model candidates to spawn.");
   }
 
-  private async spawnAttempt(request: SpawnRequest & { cwd: string; group: string }, config: FleetConfig, definition: AgentDefinition, override: RoleOverride,
+  private async spawnAttempt(request: PlannedSpawn & { cwd: string }, config: FleetConfig, definition: AgentDefinition, override: RoleOverride,
     kind: AgentKind, model: string | undefined, thinking: ThinkingLevel | undefined, fallbacks: string[], fallbackFrom: string | undefined, skipped: SkippedCandidate[], signal?: AbortSignal): Promise<AgentRun> {
     const adapter = adapterFor(kind);
     const depth = (request.depth ?? 0) + 1;
@@ -263,6 +276,12 @@ export class Orchestrator {
       if (signal?.aborted) throw abortError(signal);
       const active = this.deps.registry.all().filter((r) => r.state === "starting" || r.state === "working");
       if (active.length >= config.maxConcurrent) throw new FleetError("concurrency_limit", `Agent concurrency limit reached: ${active.length}/${config.maxConcurrent}`);
+      // one writer per path: two agents changing the same files at once overwrite each other
+      for (const holder of this.deps.registry.all()) {
+        if (!request.write || !holder.write || !HOLDS_SCOPE.has(holder.state)) continue;
+        const clash = overlap(request.write, holder.write);
+        if (clash) throw new FleetError("scope_conflict", `${holder.name} (${holder.id}) is still changing ${clash.theirs}; wait for it, or give this task paths it does not hold.`);
+      }
       const location = await this.deps.runtime.createLocation({
         cwd: request.cwd, label: displayName, worktree, branch: worktree ? `agents/${definition.name}-${id}` : undefined,
         direction: request.direction, callerPaneId: request.callerPaneId, env,
@@ -271,7 +290,7 @@ export class Orchestrator {
       run = {
         id, name: displayName, role: definition.name, agent: kind, group: request.group, herdrName, paneId: location.paneId, workspaceId: location.workspaceId,
         cwd: location.cwd, model, thinking, fallbackFrom, state: "starting", depth, interactive, worktree, startedAt: now, updatedAt: now,
-        ...(skipped.length ? { skipped } : {}),
+        ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
       };
       this.save(run);
     } finally {
@@ -376,7 +395,10 @@ export class Orchestrator {
       `- Message one: ${fleet} send <name-or-id> "<message>"`,
       `- Read one's recent output: ${fleet} read <name-or-id>`,
       canSpawn
-        ? `- Start a helper when splitting the work materially improves the result: ${fleet} spawn --role <role> --task "<task>", then ${fleet} wait <id>`
+        ? [
+          `- Start a helper when splitting the work materially improves the result, with a brief it can work from without asking you: ${fleet} spawn --role <role> --goal "<the outcome, one sentence>" --write <path> (repeat; --read-only when it only reads) --context "<files, earlier results and decisions it needs, or none>" --done "<a checkable condition>" --verify "<commands to run, and the evidence to return>", then ${fleet} wait <id>.`,
+          "  Each part has one executor: do not work on a part you handed on, or hand it to two agents. Two agents never write the same paths at once; the fleet refuses a spawn whose paths another working agent holds. Start a review only after the writer has finished.",
+        ].join("\n")
         : "Do not start other agents.",
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
       "Treat herdr's 'unknown' as uncertainty, not completion.",

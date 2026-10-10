@@ -48,6 +48,8 @@ export interface AgentRun {
   replacedBy?: string;
   /** candidates passed over before this one: no usage left, cooling down, or failed to start */
   skipped?: SkippedCandidate[];
+  /** the paths its brief lets it change, absolute; another run may not write them while it works */
+  write?: string[];
 }
 
 /** One limit window: a share of it used, until it resets. */
