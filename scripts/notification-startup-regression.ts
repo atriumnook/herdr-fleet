@@ -79,7 +79,7 @@ export async function checkNotificationStartup(browser: Browser, upstream: strin
   try {
     await context.addInitScript(() => {
       const selections: unknown[] = [];
-      (window as ProbeWindow).selections = selections;
+      (window as unknown as ProbeWindow).selections = selections;
       navigator.serviceWorker.addEventListener("message", (event) => {
         if (event.data?.type === "select-pane") selections.push(event.data);
       });
@@ -87,10 +87,10 @@ export async function checkNotificationStartup(browser: Browser, upstream: strin
     const origin = `http://127.0.0.1:${proxy.port}`;
     const driver = await context.newPage();
     await driver.goto(`${origin}/probe-controller`);
-    await driver.waitForFunction(() => (window as ProbeWindow).ready && !!navigator.serviceWorker.controller);
+    await driver.waitForFunction(() => (window as unknown as ProbeWindow).ready && !!navigator.serviceWorker.controller);
     await driver.locator("#old").click();
-    await driver.waitForFunction(() => (window as ProbeWindow).messages.some((message) => message.type === "probe-open-request"));
-    const request = await driver.evaluate(() => (window as ProbeWindow).messages.find((message) => message.type === "probe-open-request")!);
+    await driver.waitForFunction(() => (window as unknown as ProbeWindow).messages.some((message) => message.type === "probe-open-request"));
+    const request = await driver.evaluate(() => (window as unknown as ProbeWindow).messages.find((message) => message.type === "probe-open-request")!);
     const app = await context.newPage();
     const errors: string[] = [];
     app.on("pageerror", (error) => errors.push(error.message));
@@ -100,13 +100,13 @@ export async function checkNotificationStartup(browser: Browser, upstream: strin
       await Promise.race([jsRequested, new Promise((_, reject) => { timeout = setTimeout(() => reject(new Error("cold app JS was not requested")), 15000); })]);
     } finally { clearTimeout(timeout); }
     await driver.evaluate(() => navigator.serviceWorker.controller!.postMessage({ type: "probe-open-created" }));
-    await driver.waitForFunction((pane) => (window as ProbeWindow).messages.some((message) => message.type === "probe-done" && message.pane === pane), olderPane);
+    await driver.waitForFunction((pane) => (window as unknown as ProbeWindow).messages.some((message) => message.type === "probe-done" && message.pane === pane), olderPane);
     await driver.locator("#new").click();
-    await driver.waitForFunction((pane) => (window as ProbeWindow).messages.some((message) => message.type === "probe-done" && message.pane === pane), newerPane);
+    await driver.waitForFunction((pane) => (window as unknown as ProbeWindow).messages.some((message) => message.type === "probe-done" && message.pane === pane), newerPane);
     releaseJS();
     await app.waitForLoadState("load");
     await app.waitForFunction((pane) => JSON.parse(sessionStorage.getItem("herdr-fleet:selection") ?? "null")?.pane_id === pane, newerPane);
-    const result = await app.evaluate(() => ({ selection: JSON.parse(sessionStorage.getItem("herdr-fleet:selection") ?? "null"), selections: (window as ProbeWindow).selections }));
+    const result = await app.evaluate(() => ({ selection: JSON.parse(sessionStorage.getItem("herdr-fleet:selection") ?? "null"), selections: (window as unknown as ProbeWindow).selections }));
     assert.deepEqual(result.selection, { machine_id: "local", pane_id: newerPane });
     assert.deepEqual(result.selections.at(-1), { type: "select-pane", machine_id: "local", pane_id: newerPane });
     assert.deepEqual(errors, []);

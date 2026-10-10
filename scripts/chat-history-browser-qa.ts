@@ -52,18 +52,18 @@ try {
   await page.locator("#fetch-output").click();
   assert.equal(await page.evaluate(() => window.qa.requests.length), 1, "duplicate load deduplicated");
   await page.evaluate(() => window.qa.target("/qa-output?pane=b&ref=x", "one"));
-  await page.waitForFunction(() => window.qa.requests[0].signal.aborted);
-  await page.evaluate(() => window.qa.requests[0].resolve("STALE A"));
+  await page.waitForFunction(() => window.qa.requests[0]!.signal.aborted);
+  await page.evaluate(() => window.qa.requests[0]!.resolve("STALE A"));
   assert.equal(await output.textContent(), "idle:");
   await page.locator("#fetch-output").click();
-  await page.evaluate(() => window.qa.requests[1].resolve("B result"));
+  await page.evaluate(() => window.qa.requests[1]!.resolve("B result"));
   await page.waitForFunction(() => document.querySelector("#output")?.textContent === "idle:B result");
   await page.evaluate(() => window.qa.target("/qa-output?pane=b&ref=y", "one"));
   await page.waitForFunction(() => document.querySelector("#output")?.textContent === "idle:");
   await page.locator("#fetch-output").click();
   await page.evaluate(() => window.qa.target("/qa-output?pane=b&ref=y", "two"));
-  await page.waitForFunction(() => window.qa.requests[2].signal.aborted);
-  await page.evaluate(() => window.qa.requests[2].reject());
+  await page.waitForFunction(() => window.qa.requests[2]!.signal.aborted);
+  await page.evaluate(() => window.qa.requests[2]!.reject());
   assert.equal(await output.textContent(), "idle:");
   console.log("PASS duplicate requests, pane/ref/history changes, abort, late success and late failure");
 
@@ -89,8 +89,8 @@ try {
   epoch = "three"; newest = "newest after another clear";
   await refresh();
   await page.getByText(newest, { exact: true }).waitFor();
-  await page.waitForFunction((i) => window.qa.requests[i].signal.aborted, requestIndex);
-  await page.evaluate((i) => window.qa.requests[i].resolve("STALE TOOL OUTPUT"), requestIndex);
+  await page.waitForFunction((i) => window.qa.requests[i]!.signal.aborted, requestIndex);
+  await page.evaluate((i) => window.qa.requests[i]!.resolve("STALE TOOL OUTPUT"), requestIndex);
   await page.locator(".work-row-head").click();
   assert.equal(await page.getByText("STALE TOOL OUTPUT", { exact: true }).count(), 0);
   assert.equal(await page.locator(".chat-tool-more").count(), 1);
@@ -98,8 +98,8 @@ try {
   await page.locator(".chat-tool-more").click();
   const remoteIndex = await page.evaluate(() => window.qa.requests.length - 1);
   await page.evaluate(() => window.qa.chat("a", "remote-pc"));
-  await page.waitForFunction((i) => window.qa.requests[i].signal.aborted, remoteIndex);
-  await page.evaluate((i) => window.qa.requests[i].reject(), remoteIndex);
+  await page.waitForFunction((i) => window.qa.requests[i]!.signal.aborted, remoteIndex);
+  await page.evaluate((i) => window.qa.requests[i]!.reject(), remoteIndex);
   await page.getByText(newest, { exact: true }).waitFor();
   assert.equal(await page.getByText("Couldn't load the whole output — retry", { exact: true }).count(), 0);
   // Already loaded older history must be discarded when a held cursor gets 409.

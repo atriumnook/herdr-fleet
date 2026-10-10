@@ -13,13 +13,13 @@ import "../src/styles.css";
 declare global { interface Window { qa: { requests: { url: string; signal: AbortSignal; resolve: (text: string) => void; reject: () => void }[]; target: (url: string, scope: string) => void; chat: (pane: string, machine?: string) => void; refresh: () => void } } }
 const nativeFetch = window.fetch;
 window.qa = { requests: [], target: () => {}, chat: () => {}, refresh: () => {} };
-window.fetch = (input, init) => {
+window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
   const url = String(input);
   if (!url.includes("tool-output") && !url.startsWith("/qa-output")) return nativeFetch(input, init);
   // Deliberately ignores cancellation: late transports must still be harmless.
   return new Promise((resolve, reject) => window.qa.requests.push({ url, signal: init!.signal as AbortSignal,
     resolve: (text) => resolve(new Response(text)), reject: () => reject(new Error("late failure")) }));
-};
+}) as typeof window.fetch;
 // the Root's Mediator reads the chat's conversation, as in the app (no prompt is read: no agent)
 const mediator = new Mediator(FLEET_PORTS);
 

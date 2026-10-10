@@ -112,7 +112,7 @@ try {
   const beforeWait = requests;
   await page.waitForTimeout(2500);
   assert.equal(requests, beforeWait, "slow polls must not overlap");
-  release();
+  release!();
   await page.unrouteAll({ behavior: "wait" });
   console.log("PASS send refresh preserves history and slow polling does not overlap");
 

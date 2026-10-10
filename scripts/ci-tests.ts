@@ -18,3 +18,5 @@ const child = Bun.spawn([process.execPath, "test", ...(suite === "integration" ?
   windowsHide: true, stdin: "inherit", stdout: "inherit", stderr: "inherit",
 });
 process.exit(await child.exited);
+
+export {};

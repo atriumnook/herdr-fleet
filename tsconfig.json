@@ -34,6 +34,7 @@
     "shared",
     "vite.config.ts",
     "bin",
-    "e2e"
+    "e2e",
+    "scripts"
   ]
 }

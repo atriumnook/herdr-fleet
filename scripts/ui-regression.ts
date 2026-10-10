@@ -729,7 +729,7 @@ try {
   mobilePage.on("pageerror", (error) => errors.push(error.message));
   await mobilePage.goto(`${origin}/?pane=${encodeURIComponent(paneB)}`);
   await mobilePage.locator(".conn-live").waitFor();
-  const tapHighlight = await mobilePage.locator(".view-switch button").first().evaluate((node) => getComputedStyle(node).webkitTapHighlightColor);
+  const tapHighlight = await mobilePage.locator(".view-switch button").first().evaluate((node) => getComputedStyle(node).getPropertyValue("-webkit-tap-highlight-color"));
   assert.equal(tapHighlight, "rgba(0, 0, 0, 0)", "native tap overlays do not obscure selection");
   await mobilePage.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
   await mobilePage.getByRole("textbox", { name: "Message", exact: true }).fill("mobile draft");
@@ -741,7 +741,7 @@ try {
   assert.equal(await mobilePage.getByRole("button", { name: "Report a problem", exact: true }).count(), 0, "no report action on a phone");
   assert.equal(await mobilePage.getByRole("button", { name: "Hide keyboard", exact: true }).count(), 0, "no keyboard button on a phone");
   await mobilePage.evaluate(() => document.documentElement.removeAttribute("data-keyboard"));
-  assert.deepEqual(errors, []);
+  assert.deepEqual([...errors], []);
   console.log("PASS mobile composer with unavailable storage and no horizontal overflow");
 
   // a phone reads a pane before it answers: a pane picked from the drawer raises no keyboard,
@@ -786,7 +786,7 @@ try {
   await chipPage.getByTitle("Use the suggestion", { exact: true }).click();
   assert.equal(await chipPage.getByRole("textbox", { name: "Message", exact: true }).inputValue(), "run the tests", "the chip puts the suggestion in the box");
   await chipPhone.close();
-  assert.deepEqual(errors, []);
+  assert.deepEqual([...errors], []);
   console.log("PASS a phone offers Claude's suggestion as a chip only once Settings turns it on");
 
   await checkTerminalInput(browser, origin, paneA, paneB);
@@ -837,7 +837,7 @@ try {
   for (const [key, text] of [["Escape", /^\x1b$/], ["ArrowUp", /^\x1b[[O]A$/], ["ctrl-c", /^\x03$/]] as const) {
     const before = touchSent.length;
     await keyBar.locator(`[data-key="${key}"]`).click();
-    await until(() => touchSent.length > before && touchSent.at(-1)?.type === "input" && text.test(touchSent.at(-1)?.text ?? ""), `key bar ${key}`);
+    await until(() => touchSent.length > before && touchSent.at(-1)?.type === "input" && text.test(String(touchSent.at(-1)?.text ?? "")), `key bar ${key}`);
   }
   const ctrl = keyBar.locator('[data-key="Control"]');
   await ctrl.click();
@@ -863,7 +863,7 @@ try {
   assert.equal(await line.inputValue(), "unsent 한글 😀", "reload preserves the unsent line");
   await line.fill("");
   assert.equal(await touchPage.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
-  assert.deepEqual(errors, []);
+  assert.deepEqual([...errors], []);
   if (process.env.UI_EVIDENCE_DIR) {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await touchPage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-input-mobile.png") });
@@ -896,7 +896,7 @@ try {
   await sheet.getByRole("button", { name: "Cancel", exact: true }).click();
   await sheet.waitFor({ state: "detached" });
   assert.equal(await touchPage.locator(".sidebar.is-open").count(), 1, "the press that opened the menu did not also pick the row");
-  assert.deepEqual(errors, []);
+  assert.deepEqual([...errors], []);
   await touch.close();
   console.log("PASS touch: a long press on a row opens its menu and keeps it up, a finger that moves on does not");
 
