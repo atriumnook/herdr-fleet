@@ -450,13 +450,6 @@
   min-width: 0;
 }
 
-.sidebar-install-help {
-  margin: 0;
-  padding: 0 var(--space-2) var(--space-1);
-  color: var(--sub);
-  font-size: var(--fs-xs);
-}
-
 .sidebar-brandline {
   display: flex;
   align-items: center;

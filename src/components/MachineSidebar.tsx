@@ -30,7 +30,8 @@ export interface MachineSidebarModel {
   selectedPaneId: string | null;
   /** herdr's version on this PC */
   version: string | null;
-  install: { installed: boolean; canInstall: boolean; help: string };
+  /** the sidebar offers the browser's install prompt only; the steps for other browsers are in Settings */
+  install: { installed: boolean; canInstall: boolean };
 }
 
 interface Props {
@@ -41,9 +42,8 @@ interface Props {
 }
 
 export function MachineSidebar(props: Props) {
-  const { machines, selectedMachineId, selectedPaneId, version, install: { canInstall, installed, help } } = props.model;
+  const { machines, selectedMachineId, selectedPaneId, version, install: { canInstall, installed } } = props.model;
   const emit = props.emit;
-  const [installHelpOpen, setInstallHelpOpen] = useState(false);
   // no top bar: a session starts from its PC's header
   return <div className="sidebar-shell">
     <div className="machine-list" aria-label={t("PCs and workspaces")}>
@@ -52,9 +52,7 @@ export function MachineSidebar(props: Props) {
       {!machines.length && <p className="tree-state" role="status">{t("Loading PCs…")}</p>}
     </div>
     <footer className="sidebar-footer">
-      {/* browsers without an install prompt (iOS, plain HTTP) get the steps instead */}
-      {!installed && <button className="btn btn-ghost sidebar-footer-action" aria-expanded={canInstall ? undefined : installHelpOpen} onClick={() => { if (canInstall) emit({ type: "install-app" }); else setInstallHelpOpen(!installHelpOpen); }}><Download aria-hidden="true" />{t("Install app")}</button>}
-      {!installed && !canInstall && installHelpOpen && <p className="sidebar-install-help" role="status">{help}</p>}
+      {!installed && canInstall && <button className="btn btn-ghost sidebar-footer-action" onClick={() => emit({ type: "install-app" })}><Download aria-hidden="true" />{t("Install app")}</button>}
       <div className="sidebar-footer-row">
         <button className="btn btn-ghost sidebar-footer-action" title={t("Settings (⌘⇧,)")} onClick={() => emit({ type: "open-settings" })}><Settings aria-hidden="true" />{t("Settings")}</button>
       </div>
