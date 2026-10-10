@@ -1,6 +1,6 @@
 import { HerdrError } from "../herdr/client.ts";
 import { isJsonObject, jsonResponse } from "../http.ts";
-import { AgentWaitTimeoutError, type Orchestrator } from "./orchestrator.ts";
+import { AgentWaitTimeoutError, type Orchestrator, type ThreadRequest } from "./orchestrator.ts";
 import { FleetError } from "./runtime.ts";
 import type { Brief } from "./brief.ts";
 import type { SpawnRequest } from "./types.ts";
@@ -45,6 +45,11 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
     if (parts[0] === "roles" && parts.length === 1 && method === "GET") {
       const roles = fleet.roles(query.get("cwd") || process.cwd()).map(({ name, description, agent, source }) => ({ name, description, agent, source }));
       return jsonResponse({ roles });
+    }
+    if (parts[0] === "threads" && parts.length === 1 && method === "POST") {
+      const body = await readBody();
+      const run = await fleet.startThread(threadRequest(body), request.signal);
+      return jsonResponse({ run }, 201);
     }
     if (parts[0] === "spawn" && parts.length === 1 && method === "POST") {
       const body = await readBody();
@@ -134,6 +139,23 @@ function spawnRequest(body: Record<string, unknown>): SpawnRequest {
   };
 }
 
+function threadRequest(body: Record<string, unknown>): ThreadRequest {
+  const text = (key: string): string | undefined => {
+    const value = body[key];
+    if (value === undefined || value === null) return undefined;
+    if (typeof value !== "string") throw new FleetError("invalid_body", `${key} must be a string`);
+    return value;
+  };
+  const title = text("title");
+  if (!title?.trim()) throw new FleetError("invalid_title", "title is required");
+  const brief = briefOf(body["brief"]);
+  const task = text("task");
+  if (!brief && !task?.trim()) throw new FleetError("missing_task", "task is required");
+  const depth = body["depth"];
+  if (depth !== undefined && (typeof depth !== "number" || !Number.isInteger(depth) || depth < 0)) throw new FleetError("invalid_body", "depth must be a whole number");
+  return { title, task, cwd: text("cwd"), ...(brief ? { brief } : {}), ...(depth !== undefined ? { depth: depth as number } : {}) };
+}
+
 /** The brief's fields as given, each checked for its type; which are missing is the orchestrator's to say. */
 function briefOf(value: unknown): Partial<Brief> | undefined {
   if (value === undefined || value === null) return undefined;
@@ -155,7 +177,7 @@ function briefOf(value: unknown): Partial<Brief> | undefined {
 
 const STATUS: Record<string, number> = {
   run_not_found: 404, unknown_role: 404, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
-  agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429, scope_conflict: 409,
+  agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429, scope_conflict: 409, setup_failed: 502,
 };
 
 function fleetError(error: unknown): Response {
