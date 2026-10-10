@@ -367,7 +367,7 @@ try {
   await page.locator(itemSelector(alpha.paneId)).hover();
   await changeState(page, [{ selector: ".pane-rename-input" }],
     async () => {
-      await page.locator(`${itemSelector(alpha.paneId)} .row-menu-toggle`).click();
+      await page.locator(`${itemSelector(alpha.paneId)} .pane-row`).click({ button: "right" });
       await page.getByRole("menuitem", { name: "Rename pane", exact: true }).click();
     }, "rename editor opens");
   await page.locator(".pane-rename-input").fill(renamed);
@@ -427,7 +427,7 @@ try {
   assert.equal(await page.locator(otherHeader(single, away)).count(), 1);
   await changeState(page, [{ selector: ".workspace-rename-input:focus", count: 1 }, { selector: ".workspace-rename-input", count: 1 }],
     async () => {
-      await page.locator(`${otherHeader(distinct, other.paneId)} .workspace-menu`).click();
+      await page.locator(otherHeader(distinct, other.paneId)).click({ button: "right" });
       await page.getByRole("menuitem", { name: "Rename workspace", exact: true }).click();
     }, "one workspace rename editor opens and keeps the focus");
   await changeState(page, [{ selector: ".workspace-rename-input", count: 0 }],
@@ -477,12 +477,12 @@ try {
   // When closing one grouped pane through its row menu, Then
   // its sibling survives, still under the same full-path header.
   const closeOwnedPane = async (paneId: string, states: readonly State[]): Promise<void> => {
-    // from the row's ⋯ menu: a pane that leaves its workspace standing closes at once, a lone
+    // from the row's menu (a right click): a pane that leaves its workspace standing closes at once, a lone
     // pane (its row carries the workspace's drag handle) takes the workspace with it and asks first
     const item = page.locator(itemSelector(paneId));
     const lone = await item.locator(".pane-row > .sidebar-drag-handle").count() === 1;
     await item.hover();
-    await item.locator(".row-menu-toggle").click();
+    await item.locator(".pane-row").click({ button: "right" });
     const response = page.waitForResponse((candidate) => candidate.request().method() === "POST"
       && new URL(candidate.url()).pathname.endsWith("/pane/close")
       && candidate.request().postDataJSON().pane_id === paneId);

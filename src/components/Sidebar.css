@@ -197,16 +197,6 @@
   flex: 0 0 auto;
 }
 
-.workspace-menu {
-  opacity: 0;
-}
-
-.workspace-header:hover .workspace-menu,
-.workspace-header:focus-within .workspace-menu,
-.workspace-menu[aria-expanded="true"] {
-  opacity: 1;
-}
-
 .sidebar-drag-handle,
 .sidebar-row-action {
   display: inline-flex;
@@ -419,22 +409,6 @@
   font-size: var(--fs-sm);
 }
 
-.pane-actions {
-  display: flex;
-  align-items: center;
-  flex: 0 0 auto;
-  padding-right: var(--space-1);
-  opacity: 0;
-  transition: opacity var(--dur-fast) var(--ease-out);
-}
-
-.pane-item:hover .pane-actions,
-.pane-item:focus-within .pane-actions,
-.pane-item.is-selected .pane-actions,
-.pane-actions:has([aria-expanded="true"]) {
-  opacity: 1;
-}
-
 .sidebar-inline-error {
   margin: 0;
   padding: var(--space-1) var(--space-3) var(--space-2);
@@ -502,22 +476,44 @@
     height: var(--touch-target);
   }
 
-  /* no hover on touch: the grip stays, quiet, and the row actions are always there */
-  .sidebar-drag-handle,
-  .pane-actions,
-  .workspace-menu {
+  /* no hover on touch: the grip stays, quiet */
+  .sidebar-drag-handle {
     opacity: 1;
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
   .workspace,
-  .pane-row,
-  .pane-actions {
+  .pane-row {
     transition: none;
   }
 }
 
 .pane-select > .badge {
   flex: 0 0 auto;
+}
+
+/* a row's menu opens from the row (right click, long press, menu key): a held finger must not
+   start the system's text selection or link callout, and the row stays lit while its menu is up */
+.pane-row,
+.workspace-header {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.pane-item .pane-row.has-menu,
+.workspace-header.has-menu {
+  background: var(--field-hover);
+}
+
+.pane-item.is-selected .pane-row.has-menu {
+  background: var(--tint);
+}
+
+/* the rename fields inside a row still take a caret and a selection */
+.pane-rename-input,
+.workspace-rename-input {
+  -webkit-user-select: text;
+  user-select: text;
 }

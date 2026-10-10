@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
-import { ChevronDown, ChevronRight, Ellipsis, Folder, GripVertical, Pencil, Plus, Terminal, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, GripVertical, Pencil, Plus, Terminal, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -9,6 +9,7 @@ import type { Emit } from "../ui/bubble.ts";
 import type { TreeEvent, TreeState } from "../ui/state.ts";
 import { knownStatus, STATUS_WORD } from "../lib/status.ts";
 import { AgentMark } from "./AgentMark.tsx";
+import { menuPress, type PressPoint } from "../lib/longPress.ts";
 import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
@@ -72,8 +73,15 @@ function cwdBasename(cwd: string | null | undefined): string {
 
 /** The row whose ⋯ menu is open: a pane's row, or the header of a workspace with several panes. */
 type MenuState =
-  | { kind: "pane"; anchor: HTMLElement; pane: PaneInfo; workspace: WorkspaceInfo; scope: string; title: string; place: string }
-  | { kind: "workspace"; anchor: HTMLElement; workspace: WorkspaceInfo; scope: string };
+  | { kind: "pane"; anchor: HTMLElement; at: PressPoint | null; pane: PaneInfo; workspace: WorkspaceInfo; scope: string; title: string; place: string }
+  | { kind: "workspace"; anchor: HTMLElement; at: PressPoint | null; workspace: WorkspaceInfo; scope: string };
+
+/** The row's part the focus goes back to: what has it now, else its first control. */
+function rowFocus(row: HTMLElement, own: string): HTMLElement {
+  const active = document.activeElement;
+  if (active instanceof HTMLElement && row.contains(active)) return active;
+  return row.querySelector<HTMLElement>(own) ?? row;
+}
 /** What a PC's session tree draws. */
 export interface SidebarModel {
   machineId: string;
@@ -172,6 +180,8 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
   }, [snapshot?.panes]);
 
   const closeMenu = useCallback(() => setMenu(null), []);
+  // a row's menu opens from the row itself: right click, long press, or the menu key
+  const press = useMemo(() => menuPress(), []);
 
   // A close that takes the workspace with it asks first, as herdr's ui.confirm_close does; a
   // pane that leaves its workspace standing closes at once, as herdr's tab menu does.
@@ -280,7 +290,8 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
       >
         {!merged && (
           <header
-            className="workspace-header"
+            className={`workspace-header${workspaceMenuOpen ? " has-menu" : ""}`}
+            {...press((at, row) => setMenu({ kind: "workspace", anchor: rowFocus(row, ".workspace-toggle, .sidebar-drag-handle"), at, workspace, scope }))}
             draggable
             onDragStart={(event) => onDragStart(event, workspace.workspace_id)}
             onDragEnd={() => setDragWorkspaceId(null)}
@@ -309,9 +320,6 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
               </span>
             )}
             <StatusBadge status={workspace.agent_status} />
-            <button type="button" className="sidebar-row-action row-menu-toggle workspace-menu" aria-label={t("More for workspace {name}", { name: workspace.label })} aria-haspopup="menu" aria-expanded={workspaceMenuOpen} onClick={(event) => workspaceMenuOpen ? setMenu(null) : setMenu({ kind: "workspace", anchor: event.currentTarget, workspace, scope })}>
-              <Ellipsis aria-hidden="true" />
-            </button>
           </header>
         )}
 
@@ -333,7 +341,10 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
             const paneMenuOpen = menu?.kind === "pane" && menu.pane.pane_id === pane.pane_id;
             return (
               <li className={`pane-item${selected ? " is-selected" : ""}`} key={pane.pane_id}>
-                <div className="pane-row">
+                <div
+                  className={`pane-row${paneMenuOpen ? " has-menu" : ""}`}
+                  {...press((at, row) => setMenu({ kind: "pane", anchor: rowFocus(row, ".pane-select"), at, pane, workspace, scope, title: displayTitle, place: place || workspace.label }))}
+                >
                   {merged && dragHandle(workspace, true)}
                   <div
                     className="pane-select"
@@ -394,11 +405,6 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
                     {/* a pane with no agent has no state to tell: no badge, not a "—" one */}
                     {pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : pane.agent && <StatusBadge status={pane.agent_status} />}
                   </div>
-                  <div className="pane-actions">
-                    <button type="button" className="sidebar-row-action row-menu-toggle" aria-label={t("More for {title}", { title: displayTitle })} aria-haspopup="menu" aria-expanded={paneMenuOpen} onClick={(event) => paneMenuOpen ? setMenu(null) : setMenu({ kind: "pane", anchor: event.currentTarget, pane, workspace, scope, title: displayTitle, place: place || workspace.label })}>
-                      <Ellipsis aria-hidden="true" />
-                    </button>
-                  </div>
                 </div>
                 {inlineError?.paneId === pane.pane_id && <p className="sidebar-inline-error" role="alert">{inlineError.message}</p>}
               </li>
@@ -438,7 +444,7 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
           <p className="sidebar-inline-error" role="alert">{inlineError.message}</p>
         )}
       </nav>
-      {menu && <RowMenu anchor={menu.anchor} title={menu.kind === "pane" ? menu.title : menu.workspace.label} subtitle={menu.kind === "pane" ? menu.place : undefined} items={menuItems(menu)} onClose={closeMenu} />}
+      {menu && <RowMenu anchor={menu.anchor} at={menu.at} title={menu.kind === "pane" ? menu.title : menu.workspace.label} subtitle={menu.kind === "pane" ? menu.place : undefined} items={menuItems(menu)} onClose={closeMenu} />}
       {confirm && <ConfirmDialog title={confirm.title} body={confirm.body} confirmLabel={t("Close")} pending={confirm.status === "running"} error={confirm.error ?? null} onConfirm={() => emit({ type: "tree-confirm", ...on })} onClose={() => emit({ type: "tree-cancel", ...on })} />}
     </div>
   );

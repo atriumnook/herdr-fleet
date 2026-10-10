@@ -276,14 +276,17 @@ One set for both themes: the card is island black wherever it shows.
 - Bordered `--radius-lg` surface with `--shadow-pop`; rows use `--control-h`, `--radius-md`, icon,
   ellipsized main label and optional hint.
 - Hover or `aria-selected` uses `--field-hover`. Headings are dim micro labels.
-- The sidebar's row menu (`.row-menu`) is a `.menu` drawn through a portal at fixed coordinates,
-  under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
+- The sidebar's row menu (`.row-menu`) has no button: a right click, a long press on touch
+  (`500ms`, a finger that moves `10px` scrolls instead) or the menu key (`Shift+F10`) opens it
+  (`src/lib/longPress.ts`). It is a `.menu` drawn through a portal at fixed coordinates, at the
+  press (under the row for the key), above it when the screen ends first, and over the drawer.
+  The row stays lit while its menu is up, and a held finger starts no text selection or callout.
   A one-pane row offers Rename workspace, Rename pane, then Close under a hairline; a workspace
   header Rename workspace and Close workspace; a pane under a header Rename pane and Close. The
   danger item takes `--needs`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
-  `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
+  row. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
 - Close follows herdr's `ui.confirm_close`: a close that takes the workspace with it (a one-pane
   row, Close workspace) asks in a confirm first; a pane that leaves its workspace standing closes
   at once. After a confirmed close, focus lands on the header's workspace-list toggle.
@@ -319,16 +322,17 @@ One set for both themes: the card is island black wherever it shows.
   remembered per PC and path; opening a pane unfolds its folder, but status updates do not.
 - Folder order follows the first workspace in server order; workspace handles still reorder
   workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
-- A workspace header shows drag handle, number, editable label, roll-up status and its `⋯`.
+- A workspace header shows drag handle, number, editable label and roll-up status; its menu
+  opens from the header itself, like a row's.
   Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent.
 - Every pane row is a `--field` face at `--row-h`, `--radius-md`, `--space-1` apart: a 28px
   agent/shell mark, the editable title (`--fs-md`, `--ink`) over the pane's place (mono, `--sub`),
   then the state badge at the right end. A pane with no agent has no badge. The selected row is
   `--tint` with its title in `--ink-strong` semibold, an `--accent` rail along its left edge and an
   accent-edged mark box: my selection is accent, the state stays with the badge. The rows under
-  **Needs you** are the same rows. The row ends in one `⋯`
-  (`.row-menu-toggle`: shown on hover, focus, selection and while its menu is open; always on
-  touch) that opens the row menu. Inline server failures stay beside their row.
+  **Needs you** are the same rows, under a heading that says the state in words. No row carries a
+  `⋯`: its menu opens from the row (see the row menu above). Inline server failures stay beside
+  their row.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
   in the row's tooltip. Line two names what the group header does not: the folder under a

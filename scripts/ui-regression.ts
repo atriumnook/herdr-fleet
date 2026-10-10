@@ -825,33 +825,68 @@ try {
     mkdirSync(process.env.UI_EVIDENCE_DIR, { recursive: true });
     await touchPage.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "terminal-input-mobile.png") });
   }
-  await touch.close();
   console.log("PASS touch terminal input line sends whole lines, Enter alone, and yields to direct typing");
+
+  // on touch a row's menu is a long press: a held finger opens it as a sheet, a moving one scrolls
+  await touchPage.locator(".drawer-toggle").click();
+  await touchPage.locator(".sidebar.is-open").waitFor();
+  const heldRow = touchPage.locator(`.pane-item:has(.pane-select[title^="${paneB} —"]) .pane-row`);
+  await heldRow.waitFor();
+  // the drawer slides in: measure the row once it is in place
+  await until(async () => ((await heldRow.boundingBox())?.x ?? -1) >= 0, "the drawer is in place");
+  const held = (await heldRow.boundingBox())!;
+  const fingers = await touch.newCDPSession(touchPage);
+  const touchAt = (type: "touchStart" | "touchEnd") => fingers.send("Input.dispatchTouchEvent", { type, touchPoints: type === "touchEnd" ? [] : [{ x: held.x + 60, y: held.y + held.height / 2 }] });
+  // a finger that moves on is scrolling the list: no menu (a tap here would pick the row and close the drawer)
+  await touchAt("touchStart");
+  await fingers.send("Input.dispatchTouchEvent", { type: "touchMove", touchPoints: [{ x: held.x + 60, y: held.y + held.height / 2 + 30 }] });
+  await Bun.sleep(700);
+  await touchAt("touchEnd");
+  assert.equal(await touchPage.getByRole("dialog").count(), 0, "a moving finger does not open the row's menu");
+  await touchAt("touchStart");
+  const sheet = touchPage.getByRole("dialog");
+  await sheet.waitFor();
+  await touchAt("touchEnd");
+  await Bun.sleep(300);
+  assert.equal(await sheet.count(), 1, "lifting the finger leaves the menu up");
+  await sheet.getByRole("button", { name: "Rename pane", exact: true }).waitFor();
+  await sheet.getByRole("button", { name: "Cancel", exact: true }).click();
+  await sheet.waitFor({ state: "detached" });
+  assert.equal(await touchPage.locator(".sidebar.is-open").count(), 1, "the press that opened the menu did not also pick the row");
+  assert.deepEqual(errors, []);
+  await touch.close();
+  console.log("PASS touch: a long press on a row opens its menu and keeps it up, a finger that moves on does not");
 
   // A closed pane and an obsolete saved pane both yield to a live pane. Local access
   // is automatic, so it must not offer a sign-out action that cannot lock the app.
   assert.equal(await page.getByRole("button", { name: "Sign out", exact: true }).count(), 0);
   await page.locator(`.pane-select[title^="${created.pane_id} —"]`).click();
-  // closed from the row's ⋯ menu; its last pane takes the workspace with it, so a confirm asks first
-  await page.locator(".pane-item.is-selected .row-menu-toggle").click();
+  // closed from the row's menu, which a right click opens at the pointer (the row has no ⋯);
+  // its last pane takes the workspace with it, so a confirm asks first
+  assert.equal(await page.locator(".row-menu-toggle").count(), 0, "no row carries a ⋯ button");
+  const selectedRow = page.locator(".pane-item.is-selected .pane-row");
+  const rowBox = (await selectedRow.boundingBox())!;
+  await selectedRow.click({ button: "right", position: { x: 40, y: 20 } });
   const rowMenu = page.getByRole("menu");
   await rowMenu.waitFor();
-  // Escape puts the menu away and the focus back on its button; Enter there opens it again
+  const menuBox = (await rowMenu.boundingBox())!;
+  assert.ok(Math.abs(menuBox.x - (rowBox.x + 40)) <= 2 && menuBox.y >= rowBox.y + 20, `the menu opens at the press: ${JSON.stringify({ rowBox, menuBox })}`);
+  // Escape puts the menu away and the focus back on the row; the menu key opens it again
   await page.keyboard.press("Escape");
   await rowMenu.waitFor({ state: "detached" });
-  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("row-menu-toggle") ?? false), true, "Escape returns focus to the row's ⋯");
-  await page.keyboard.press("Enter");
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("pane-select") ?? false), true, "Escape returns focus to the row");
+  await page.keyboard.press("Shift+F10");
   await rowMenu.getByRole("menuitem", { name: "Close", exact: true }).click();
   const confirmClose = page.getByRole("alertdialog");
   await confirmClose.waitFor();
   await until(async () => await page.evaluate(() => document.activeElement?.textContent === "Cancel"), "the confirm starts on Cancel");
-  // a no gives the focus back to the row's ⋯; Tab stays inside the confirm
+  // a no gives the focus back to the row; Tab stays inside the confirm
   await page.keyboard.press("Tab");
   assert.equal(await page.evaluate(() => document.activeElement?.textContent), "Close", "Tab moves to the confirm's action");
   await page.keyboard.press("Escape");
   await confirmClose.waitFor({ state: "detached" });
-  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("row-menu-toggle") ?? false), true, "cancelling the confirm returns focus to the row's ⋯");
-  await page.keyboard.press("Enter");
+  assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("pane-select") ?? false), true, "cancelling the confirm returns focus to the row");
+  await page.keyboard.press("Shift+F10");
   await rowMenu.getByRole("menuitem", { name: "Close", exact: true }).click();
   await confirmClose.waitFor();
   await confirmClose.getByRole("button", { name: "Close", exact: true }).click();
