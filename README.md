@@ -72,6 +72,20 @@ fleet usage             # 使用量とクールダウンの一覧(古い値は�
 fleet usage clear agy   # クールダウンを解除する(アカウント名、CLI 名、または省略ですべて)
 ```
 
+## スレッド
+
+スレッドは、プロジェクトの作業の 1 単位です。専用のワークスペースを持ち、git リポジトリでは専用の worktree(ブランチ `fleet/<id>`)で作業します。worktree はリポジトリの中の `.herdr-fleet/worktrees/<id>` に作ります。リポジトリを信頼済みの CLI(claude、codex、cursor で確認)は、その下のフォルダについて改めて信頼を聞かないためです。元のチェックアウトの `git status` に出ないよう、リポジトリの `.git/info/exclude` に 1 行足します(`.gitignore` は変えません)。担当(役割 `lead`)は自分でも手を動かし、他のエージェントに渡した作業は、そのワークスペースのタブに 1 人ずつ開きます。担当は、受け入れ条件を結果ファイルの隣の `contract.md` に書き、それと照らし合わせて終わります。
+
+```bash
+fleet thread --title "通知の重複を直す" --task "リトライで通知が 2 回届く。再現してから直す。"
+```
+
+新しい worktree には依存が入っていないので、担当が起動する前に走らせる準備のコマンドを、リポジトリごとに `~/.config/herdr-fleet/fleet.json` に書けます。リポジトリ側の `.herdr-fleet/fleet.json` に書いたものは使いません(リポジトリが、fleet に実行させるコマンドを決められないようにするため)。
+
+```json
+{ "projects": { "/home/me/git/app": { "setup": "bun install --ignore-scripts" } } }
+```
+
 ## 開発
 
 ```bash

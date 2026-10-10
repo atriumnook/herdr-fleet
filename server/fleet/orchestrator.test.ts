@@ -66,7 +66,13 @@ const role = (name: string, extra: Partial<AgentDefinition> = {}): AgentDefiniti
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown>; agents?: AgentDefinition[]; usage?: UsageTracker } = {}) {
+interface SetupOptions {
+  config?: Partial<FleetConfig> | Record<string, unknown>; agents?: AgentDefinition[]; usage?: UsageTracker;
+  gitRoot?: (cwd: string) => Promise<string | null>; runSetup?: (cwd: string, command: string) => Promise<{ ok: boolean; output: string }>;
+  excludeWorktrees?: (repo: string) => Promise<void>;
+}
+
+function setup(options: SetupOptions = {}) {
   const root = mkdtempSync(join(tmpdir(), "fleet-orchestrator-"));
   roots.push(root);
   const runtime = new FakeRuntime();
@@ -75,7 +81,7 @@ function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown
   const fleet = new Orchestrator({
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
-    usage: options.usage, usageScreenMs: 300,
+    usage: options.usage, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}),
   });
   return { fleet, runtime, registry, root };
 }
@@ -759,5 +765,54 @@ describe("agent kinds", () => {
     const run = await spawn(fleet);
     expect(run).toMatchObject({ model: "gemini-pro", fallbackFrom: "no-such", state: "working" });
     expect(runtime.closed).toEqual(["w1:p1"]);
+  });
+});
+
+describe("threads", () => {
+  const lead = role("lead", { interactive: true, spawning: true });
+
+  it("start a lead in a workspace named by the title, on a worktree of its own after the user's setup command", async () => {
+    const setups: Array<{ cwd: string; command: string }> = [];
+    const excluded: string[] = [];
+    const { fleet, runtime } = setup({
+      agents: [lead], gitRoot: async () => "/repo", config: { projects: { "/repo": { setup: "bun install --ignore-scripts" } } },
+      runSetup: async (cwd, command) => { setups.push({ cwd, command }); return { ok: true, output: "" }; },
+      excludeWorktrees: async (repo) => { excluded.push(repo); },
+    });
+    const run = await fleet.startThread({ title: "Fix the retry", task: "Fix the duplicate notification.", cwd: "/repo/src" });
+    expect(run).toMatchObject({ role: "lead", name: "Fix the retry", interactive: true, worktree: true, branch: `fleet/${run.id}`, depth: 1 });
+    // inside the repository, which the agent CLIs already trust, and out of its git status
+    expect(runtime.locations[0]).toMatchObject({ cwd: "/repo/src", label: "Fix the retry", worktree: true, branch: `fleet/${run.id}`, path: `/repo/.herdr-fleet/worktrees/${run.id}` });
+    expect(excluded).toEqual(["/repo"]);
+    expect(runtime.locations[0]!.callerPaneId).toBeUndefined();
+    expect(setups).toEqual([{ cwd: "/repo/src", command: "bun install --ignore-scripts" }]);
+    expect(runtime.prompts[0]!.text).toBe("Fix the duplicate notification.");
+    // each thread is a fleet of its own
+    const second = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo" });
+    expect(second.group).not.toBe(run.group);
+  });
+
+  it("fail before the lead starts when the setup command fails, and close the pane", async () => {
+    const { fleet, runtime, registry } = setup({
+      agents: [lead], gitRoot: async () => "/repo", config: { projects: { "/repo": { setup: "false" } } },
+      runSetup: async () => ({ ok: false, output: "npm ERR! missing script" }),
+    });
+    const error = await fleet.startThread({ title: "t", task: "t", cwd: "/repo" }).catch((e) => e);
+    expect(error).toMatchObject({ code: "setup_failed" });
+    expect(error.message).toContain("npm ERR! missing script");
+    expect(runtime.starts).toEqual([]);
+    expect(runtime.closed).toEqual(["w1:p1"]);
+    expect(registry.all()[0]).toMatchObject({ state: "failed" });
+  });
+
+  it("work in a plain workspace outside a repository, with no setup and no branch", async () => {
+    let setups = 0;
+    const { fleet, runtime } = setup({ agents: [lead], runSetup: async () => { setups += 1; return { ok: true, output: "" }; }, config: { projects: { "/notes": { setup: "x" } } } });
+    const run = await fleet.startThread({ title: "Notes", task: "t", cwd: "/notes" });
+    expect(run.worktree).toBe(false);
+    expect(run.branch).toBeUndefined();
+    expect(runtime.locations[0]).toMatchObject({ worktree: false, branch: undefined });
+    expect(setups).toBe(0);
+    await expect(fleet.startThread({ title: " ", task: "t" })).rejects.toMatchObject({ code: "invalid_title" });
   });
 });

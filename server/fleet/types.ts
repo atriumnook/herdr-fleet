@@ -68,6 +68,12 @@ export interface ModelPolicy {
   thinking?: ThinkingLevel[];
 }
 
+/** What the user's config says about one repository, by its absolute path. */
+export interface ProjectConfig {
+  /** the shell command a thread's fresh worktree runs before its lead starts (dependencies are not in a new checkout) */
+  setup?: string;
+}
+
 export interface FleetConfig {
   defaultModel?: string;
   defaultThinking?: ThinkingLevel;
@@ -85,6 +91,8 @@ export interface FleetConfig {
   rateLimitCooldownMinutes: number;
   roles: Record<string, RoleOverride>;
   models: Record<string, ModelPolicy>;
+  /** only from the user's own fleet.json: a repository must not name commands the fleet runs */
+  projects: Record<string, ProjectConfig>;
 }
 
 

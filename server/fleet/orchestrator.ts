@@ -4,7 +4,8 @@ import { join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
-import { checkBrief, overlap, renderBrief, writeScope } from "./brief.ts";
+import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
+import { excludeWorktrees, gitRoot, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
 import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel } from "./types.ts";
@@ -28,7 +29,22 @@ const RESULT_FILE = "handoff.md";
 
 /** A spawn whose configured fallbacks (candidate entries) are still untried: consulted if its first turn fails. */
 /** A spawn with its brief turned into the task and the paths it may write, ready to try candidates for. */
-type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[] };
+type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[]; thread?: ThreadPlace };
+
+/** Where a thread works: the repository its worktree comes from, or none outside one. */
+interface ThreadPlace { repo: string | null }
+
+/** A thread to start: its lead gets the task, in a workspace (and worktree) of its own named by the title. */
+export interface ThreadRequest {
+  title: string;
+  task?: string;
+  brief?: Partial<Brief>;
+  cwd?: string;
+  /** the caller's depth: 0 for a person, the screen, or a top-level agent */
+  depth?: number;
+}
+
+const THREAD_ROLE = "lead";
 interface SpawnPlan { request: PlannedSpawn; fallbacks: string[] }
 
 /** the states in which a run may still be writing the paths its brief gave it */
@@ -65,6 +81,12 @@ export interface OrchestratorDeps {
   config: (cwd: string) => FleetConfig;
   /** the roles that exist in a folder */
   agents: (cwd: string) => AgentDefinition[];
+  /** the repository a folder lies in (thread.ts gitRoot); tests stand in their own */
+  gitRoot?: (cwd: string) => Promise<string | null>;
+  /** runs a project's setup command in a thread's fresh worktree (thread.ts runSetup) */
+  runSetup?: (cwd: string, command: string, signal?: AbortSignal) => Promise<SetupOutcome>;
+  /** keeps the threads' worktrees out of the repository's git status (thread.ts excludeWorktrees) */
+  excludeWorktrees?: (repo: string) => Promise<void>;
   /** the shell command an agent runs to reach the fleet (bin/fleet.ts) */
   fleetCommand: string;
   /** set in each agent's pane so its own fleet commands reach this server; read at each spawn */
@@ -183,6 +205,27 @@ export class Orchestrator {
   // ---- spawn -------------------------------------------------------------------------------
 
   async spawn(request: SpawnRequest, signal?: AbortSignal): Promise<AgentRun> {
+    return this.launch(request, signal);
+  }
+
+  /**
+   * A thread: a fleet of its own, whose lead starts in a new workspace named by the title, on a
+   * worktree of its own when the folder is a repository (after the user's setup command for it).
+   * The lead stays when its turn ends, so the thread can be asked again.
+   */
+  async startThread(request: ThreadRequest, signal?: AbortSignal): Promise<AgentRun> {
+    const title = request.title.trim();
+    if (!title || title.length > 120) throw new FleetError("invalid_title", "A thread needs a title of up to 120 characters.");
+    const cwd = resolve(request.cwd ?? process.cwd());
+    const repo = await (this.deps.gitRoot ?? gitRoot)(cwd);
+    if (repo) await (this.deps.excludeWorktrees ?? excludeWorktrees)(repo);
+    return this.launch({
+      role: THREAD_ROLE, name: title, task: request.task, brief: request.brief, cwd, depth: request.depth,
+      group: makeGroupId(), worktree: repo !== null, interactive: true,
+    }, signal, { repo });
+  }
+
+  private async launch(request: SpawnRequest, signal?: AbortSignal, thread?: ThreadPlace): Promise<AgentRun> {
     const group = request.group ?? makeGroupId();
     if (!/^[a-z0-9][a-z0-9_-]{0,47}$/i.test(group)) throw new FleetError("invalid_group", "group must be letters, digits, - and _ (up to 48)");
     const depth = request.depth ?? 0;
@@ -194,7 +237,7 @@ export class Orchestrator {
     const task = brief ? renderBrief(brief, request.task) : request.task ?? "";
     if (!task.trim()) throw new FleetError("missing_task", "task is required");
     const write = brief && !request.worktree ? writeScope(resolve(request.cwd ?? process.cwd()), brief.write) : undefined;
-    return this.spawnWithFallbacks({ ...rest, group, task, ...(write ? { write } : {}) }, signal);
+    return this.spawnWithFallbacks({ ...rest, group, task, ...(write ? { write } : {}), ...(thread ? { thread } : {}) }, signal);
   }
 
   /**
@@ -283,13 +326,15 @@ export class Orchestrator {
         if (clash) throw new FleetError("scope_conflict", `${holder.name} (${holder.id}) is still changing ${clash.theirs}; wait for it, or give this task paths it does not hold.`);
       }
       const location = await this.deps.runtime.createLocation({
-        cwd: request.cwd, label: displayName, worktree, branch: worktree ? `agents/${definition.name}-${id}` : undefined,
+        cwd: request.cwd, label: displayName, worktree, branch: worktree ? (request.thread ? `fleet/${id}` : `agents/${definition.name}-${id}`) : undefined,
+        ...(worktree && request.thread?.repo ? { path: join(request.thread.repo, THREAD_WORKTREES, id) } : {}),
         direction: request.direction, callerPaneId: request.callerPaneId, env,
       }, signal);
       const now = Date.now();
       run = {
         id, name: displayName, role: definition.name, agent: kind, group: request.group, herdrName, paneId: location.paneId, workspaceId: location.workspaceId,
         cwd: location.cwd, model, thinking, fallbackFrom, state: "starting", depth, interactive, worktree, startedAt: now, updatedAt: now,
+        ...(worktree && request.thread ? { branch: `fleet/${id}` } : {}),
         ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
       };
       this.save(run);
@@ -312,6 +357,8 @@ export class Orchestrator {
     writeFileSync(promptFile, instructions, { mode: 0o600 });
     let notReady = false;
     try {
+      const setup = worktree && request.thread?.repo ? config.projects[request.thread.repo]?.setup : undefined;
+      if (setup) await this.setUp(run, setup, signal);
       try {
         run.state = await this.deps.runtime.start({
           kind, name: herdrName, paneId: run.paneId, signal, startupError: (screen) => adapter.startupError(screen),
@@ -366,6 +413,20 @@ export class Orchestrator {
     } finally {
       rmSync(promptDir, { recursive: true, force: true });
     }
+  }
+
+  /** The user's setup command in the thread's fresh worktree; a failure fails the run before its lead starts. */
+  private async setUp(run: AgentRun, command: string, signal?: AbortSignal): Promise<void> {
+    const outcome = await (this.deps.runSetup ?? runSetup)(run.cwd, command, signal);
+    if (signal?.aborted) throw abortError(signal);
+    if (outcome.ok) return;
+    run.state = "failed";
+    run.lastError = `The setup command \`${command}\` failed in ${run.cwd}:\n${outcome.output}`;
+    run.updatedAt = Date.now();
+    this.dropUndelivered(run);
+    this.save(run);
+    await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
+    throw new FleetError("setup_failed", run.lastError);
   }
 
   /**
