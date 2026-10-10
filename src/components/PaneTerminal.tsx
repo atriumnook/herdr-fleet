@@ -213,7 +213,8 @@ export function PaneTerminal({
     const linkPressed = (event: MouseEvent): boolean => event.button === 0 && !term.hasSelection();
     const term = new Terminal({
       convertEol: false,
-      cursorBlink: true,
+      // a steady cursor: a blinking one draws the eye on every pane that waits for input
+      cursorBlink: false,
       // xterm keeps no scrollback: the attach stream lives in the alternate screen and herdr
       // owns scrollback (wheel and touch go to it). With scrollback on, the fit addon reserves
       // a scrollbar column - 15px by fallback wherever scrollbars are overlays - and the last

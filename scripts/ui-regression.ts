@@ -158,6 +158,11 @@ try {
   await page.getByTitle("Live terminal (⌘⇧J)", { exact: true }).click();
   await checkTerminalFileInput(page, sockets[0]!);
   const terminalInput = page.locator(".xterm-helper-textarea");
+  // the cursor holds still: with the terminal focused, xterm draws its cursor, and marks a
+  // blinking one with xterm-cursor-blink
+  await terminalInput.focus();
+  await page.locator(".xterm-rows .xterm-cursor").first().waitFor();
+  assert.equal(await page.locator(".xterm-rows .xterm-cursor-blink").count(), 0, "the terminal cursor does not blink");
   for (const [shortcut, text] of [
     ["Control+v", "# terminal paste 한글"],
     ["Control+v", "# first line\n# second line"],
