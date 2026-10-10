@@ -38,7 +38,7 @@ describe("File viewer view", () => {
 
   it("offers each of several files of the name, lists a folder, and says why a file did not open", () => {
     const several = viewer(model({ kind: "candidates", candidates: ["/w/a/notes.txt", "/w/b/notes.txt"] }));
-    expect(several).toContain("Several files are named notes.txt:");
+    expect(several).toContain(t("Several files are named {name}.", { name: "notes.txt" }));
     expect(several).toContain(">/w/b/notes.txt</button>");
     expect(viewer(model({ kind: "folder", path: "/w/src" }, "src"))).toContain("browsing /w/src");
     expect(viewer(model({ kind: "failed", reason: "outside" }))).toContain(t("Only files in the pane's folder or the temp folder open here."));

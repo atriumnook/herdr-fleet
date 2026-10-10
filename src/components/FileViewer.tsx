@@ -59,7 +59,7 @@ export function FileViewer({ model, browser, emit }: FileViewerProps) {
           : content.reason === "missing" ? t("No readable file at this path.") : t("The file could not be opened.")}</p>;
       case "candidates":
         return <div className="file-viewer-choices">
-          <p className="file-viewer-note">Several files are named {path.split("/").pop()}:</p>
+          <p className="file-viewer-note">{t("Several files are named {name}.", { name: path.split("/").pop() ?? path })}</p>
           <ul>{content.candidates.map((candidate) => <li key={candidate}><button type="button" className="btn btn-ghost" onClick={() => emit({ type: "choose-candidate", path: candidate })}>{candidate}</button></li>)}</ul>
         </div>;
       case "opening":
