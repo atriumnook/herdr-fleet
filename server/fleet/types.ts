@@ -44,6 +44,8 @@ export interface AgentDefinition {
   worktree?: boolean;
   interactive?: boolean;
   spawning?: boolean;
+  /** false: the role edits no file, and only a CLI that can be held to that plays it */
+  edits?: boolean;
   source: "project" | "user" | "bundled";
   filePath: string;
 }

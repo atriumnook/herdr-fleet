@@ -24,6 +24,8 @@ export interface AgentAdapter {
   readonly instructionsInPrompt: boolean;
   /** argv after the executable, for herdr's `agent.start` */
   launchArgs(options: LaunchOptions): string[];
+  /** argv that takes the CLI's file-editing tools away, for a role that edits nothing; absent where the CLI cannot be held to that */
+  readonly readOnlyArgs?: readonly string[];
   /** the CLI gave up while starting: the screen it left, read once no agent runs in the pane */
   startupError(screen: string): string | undefined;
   /**
@@ -139,6 +141,8 @@ export const claudeAdapter: AgentAdapter = {
       "--add-dir", options.resultDir,
     ];
   },
+  // codex is not: its --approve-for-me overrides a read-only sandbox
+  readOnlyArgs: ["--disallowedTools", "Edit,Write,NotebookEdit"],
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },

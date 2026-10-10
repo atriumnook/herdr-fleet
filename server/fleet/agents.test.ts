@@ -51,6 +51,13 @@ describe("role discovery", () => {
     expect(warnings.filter((w) => w.startsWith("fleet: skipping invalid role file")).map((w) => w.includes("scout.md") || w.includes("odd.md"))).toEqual([true, true]);
   });
 
+  it("reads whether a role edits files", () => {
+    const { cwd, dirs } = fixture({ "watcher.md": "---\nname: watcher\nagent: claude\nedits: false\n---\nYou read." });
+    const agents = discoverAgents(cwd, [], dirs);
+    expect(findAgent(agents, "watcher")!.edits).toBe(false);
+    expect(findAgent(agents, "worker")!.edits).toBeUndefined();
+  });
+
   it("reads a file without frontmatter as all body", () => {
     expect(parseFrontmatter("just text")).toEqual({ frontmatter: {}, body: "just text" });
     expect(parseFrontmatter("---\nname: x\n---\nbody")).toEqual({ frontmatter: { name: "x" }, body: "body" });

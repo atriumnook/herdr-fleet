@@ -492,6 +492,29 @@ describe("usage routing", () => {
     expect(runtime.locations).toEqual([]);
   });
 
+  it("plays a role that edits nothing only on a CLI that can be held to that, with its editing tools off", async () => {
+    const { fleet, runtime } = setup({ agents: [role("coordinator", { model: "codex:gpt-6", fallbackModels: ["claude:sonnet"], edits: false })] });
+    const run = await spawn(fleet, { role: "coordinator" });
+    expect(run).toMatchObject({ agent: "claude", model: "sonnet" });
+    expect(run.skipped).toEqual([{ candidate: "codex:gpt-6", reason: "codex cannot be kept from editing files" }]);
+    expect(runtime.starts[0]!.args.join(" ")).toContain("--disallowedTools Edit,Write,NotebookEdit");
+    expect(runtime.instructions[0]).toContain("your file-editing tools are off");
+  });
+
+  it("refuses a role that edits nothing when no candidate CLI can be held to that", async () => {
+    const { fleet, runtime } = setup({ agents: [role("coordinator", { model: "codex:gpt-6", fallbackModels: ["cursor:auto"], edits: false })] });
+    const error = await spawn(fleet, { role: "coordinator" }).catch((e) => e);
+    expect(error).toMatchObject({ code: "no_candidates" });
+    expect(error.message).toContain("cursor:auto: cursor cannot be kept from editing files");
+    expect(runtime.locations).toEqual([]);
+  });
+
+  it("leaves a role's editing tools as they are unless it says it edits nothing", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { model: "claude:sonnet" })] });
+    await spawn(fleet);
+    expect(runtime.starts[0]!.args).not.toContain("--disallowedTools");
+  });
+
   it("lets a caller pick another CLI with an <agent>:<model> model", async () => {
     const { fleet, runtime } = setup();
     const run = await spawn(fleet, { model: "agy:gemini-pro" });

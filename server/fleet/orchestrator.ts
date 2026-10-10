@@ -273,7 +273,8 @@ export class Orchestrator {
       const entry = candidates[i];
       const { agent: kind, model } = parseCandidate(entry, roleKind);
       const last = i === candidates.length - 1;
-      const avoided = request.avoid?.includes(kind) ? `the caller keeps ${kind} out` : undefined;
+      const avoided = request.avoid?.includes(kind) ? `the caller keeps ${kind} out`
+        : definition.edits === false && !adapterFor(kind).readOnlyArgs ? `${kind} cannot be kept from editing files` : undefined;
       const unusable = avoided ?? await this.deps.usage?.unavailable(kind, model, config.maxUsedPercent);
       if (unusable) {
         if (!avoided) outOfUsage = true;
@@ -372,7 +373,10 @@ export class Orchestrator {
       try {
         run.state = await this.deps.runtime.start({
           kind, name: herdrName, paneId: run.paneId, signal, startupError: (screen) => adapter.startupError(screen),
-          args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
+          args: [
+            ...adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
+            ...(definition.edits === false ? adapter.readOnlyArgs ?? [] : []),
+          ],
         });
         if (run.state === "blocked") run.lastError = "Agent stopped at a question before its first prompt; the task has not been sent.";
         else if (adapter.question || adapter.readyError) {
@@ -474,6 +478,7 @@ export class Orchestrator {
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
       "Treat herdr's 'unknown' as uncertainty, not completion.",
       `Your result file is ${resultFile}.`,
+      ...(definition.edits === false ? ["You edit no file, and your file-editing tools are off: write your result file with a shell command."] : []),
       "At the end of each delegated turn, write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section.",
       "The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED, and the evidence for it (what you ran and what it showed). Under ISSUES, list every issue you can prove, not only the first. Then: outcome, changed files, verification, unresolved questions.",
       ...(standing ? ["", "## Standing orders", "The person who runs this fleet gives these to every agent. Follow them in every turn. Every agent of the fleet gets them, so a task you hand on need not repeat them.", standing] : []),
