@@ -68,7 +68,22 @@ describe("Fleet screen views", () => {
     expect(badge("failed")).toContain(">Failed<");
     expect(badge("stopped")).toBe("");
     const ended = model(state([run("old", { state: "stopped" })])).ended[0]!;
-    expect(renderToStaticMarkup(createElement(RunCard, { run: ended, now: NOW, emit: noop }))).not.toContain("fleet-badge");
+    expect(renderToStaticMarkup(createElement(RunCard, { run: ended, now: NOW, emit: noop }))).not.toContain('class="badge');
+  });
+
+  it("draws a run that needs you or failed nearest, and only the one that needs you with the way to answer", () => {
+    const card = (runState: AgentRun["state"]) => {
+      const m = model(state([run("r", { state: runState })]));
+      return renderToStaticMarkup(createElement(RunCard, { run: m.sections[0]!.runs[0]!, now: NOW, emit: noop }));
+    };
+    expect(card("blocked")).toContain("is-near");
+    expect(card("blocked")).toContain('class="btn btn-primary"');
+    expect(card("failed")).toContain("is-near");
+    expect(card("failed")).not.toContain("btn-primary");
+    expect(card("working")).not.toContain("is-near");
+    // the app's one badge, with the state's own class
+    expect(card("failed")).toContain('class="badge badge-failed"');
+    expect(card("working")).toContain('class="badge badge-working"');
   });
 
   it("shows a cooldown with the way to end it, and an account it could not read", () => {

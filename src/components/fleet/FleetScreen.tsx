@@ -61,7 +61,7 @@ export function FleetScreen({ model, emit }: { model: FleetScreenModel; emit: Em
               <UsageCapsule key={capsule.key} capsule={capsule} now={now} emit={relay<UsageCapsuleEvent, FleetScreenEvent>(emit, (_, pass) => pass({ type: "clear-cooldown", key: capsule.key }))} />
             ))}
             {model.canAct && (
-              <button type="button" className="fleet-cap" disabled={model.usage.refreshing} onClick={() => emit({ type: "refresh-usage" })}>
+              <button type="button" className="btn" disabled={model.usage.refreshing} onClick={() => emit({ type: "refresh-usage" })}>
                 {model.usage.refreshing ? t("Refreshing…") : t("Refresh usage")}
               </button>
             )}
@@ -71,7 +71,7 @@ export function FleetScreen({ model, emit }: { model: FleetScreenModel; emit: Em
         {model.requestError && (
           <div className="fleet-alert" role="alert">
             <span>{model.requestError}</span>
-            <button type="button" className="fleet-cap" onClick={() => emit({ type: "dismiss-error" })}>{t("Dismiss")}</button>
+            <button type="button" className="btn" onClick={() => emit({ type: "dismiss-error" })}>{t("Dismiss")}</button>
           </div>
         )}
         {model.status === "error" && <div className="fleet-alert" role="alert">{t("Could not load the fleet. {error}", { error: model.error ?? "" })}</div>}
@@ -88,7 +88,7 @@ export function FleetScreen({ model, emit }: { model: FleetScreenModel; emit: Em
             <div className="fleet-section-head">
               <h2 id={`fleet-${section.tone}`}>{heading[section.tone]}</h2>
               {section.tone === "done" && model.closableGroups.map((group) => (
-                <button key={group} type="button" className="fleet-cap is-quiet" disabled={model.busy} onClick={() => emit({ type: "close-done", group })}>
+                <button key={group} type="button" className="btn btn-ghost" disabled={model.busy} onClick={() => emit({ type: "close-done", group })}>
                   {t("Close finished panes")}{model.closableGroups.length > 1 ? ` · ${group}` : ""}
                 </button>
               ))}
@@ -99,7 +99,7 @@ export function FleetScreen({ model, emit }: { model: FleetScreenModel; emit: Em
 
         {model.ended.length > 0 && (
           <section className="fleet-section tone-ended">
-            <button type="button" className="fleet-cap is-quiet" aria-expanded={endedOpen} onClick={() => setEndedOpen((open) => !open)}>
+            <button type="button" className="btn btn-ghost" aria-expanded={endedOpen} onClick={() => setEndedOpen((open) => !open)}>
               {endedOpen ? t("Hide ended runs") : t("Show {count} ended runs", { count: model.ended.length })}
             </button>
             {endedOpen && <div className="fleet-stack">{model.ended.map(card)}</div>}
