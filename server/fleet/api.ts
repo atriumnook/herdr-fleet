@@ -157,7 +157,8 @@ function threadRequest(body: Record<string, unknown>): ThreadRequest {
   if (!brief && !task?.trim()) throw new FleetError("missing_task", "task is required");
   const depth = body["depth"];
   if (depth !== undefined && (typeof depth !== "number" || !Number.isInteger(depth) || depth < 0)) throw new FleetError("invalid_body", "depth must be a whole number");
-  return { title, task, cwd: text("cwd"), ...(brief ? { brief } : {}), ...(depth !== undefined ? { depth: depth as number } : {}) };
+  const callerRun = text("caller_run");
+  return { title, task, cwd: text("cwd"), ...(brief ? { brief } : {}), ...(depth !== undefined ? { depth: depth as number } : {}), ...(callerRun ? { callerRun } : {}) };
 }
 
 /** The brief's fields as given, each checked for its type; which are missing is the orchestrator's to say. */

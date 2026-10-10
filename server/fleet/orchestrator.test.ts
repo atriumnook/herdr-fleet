@@ -98,7 +98,7 @@ describe("spawn", () => {
     const { fleet, runtime, root } = setup();
     const run = await spawn(fleet, { callerPaneId: "w0:p1", name: "impl" });
     expect(run).toMatchObject({ name: "impl", role: "worker", agent: "pi", group: "g1", depth: 1, state: "working" });
-    expect(runtime.locations[0]).toMatchObject({ cwd: "/work", callerPaneId: "w0:p1", env: { HERDR_FLEET_URL: "http://127.0.0.1:1", HERDR_FLEET_GROUP: "g1", HERDR_FLEET_DEPTH: "1" } });
+    expect(runtime.locations[0]).toMatchObject({ cwd: "/work", callerPaneId: "w0:p1", env: { HERDR_FLEET_URL: "http://127.0.0.1:1", HERDR_FLEET_GROUP: "g1", HERDR_FLEET_DEPTH: "1", HERDR_FLEET_RUN: run.id } });
     expect(runtime.starts[0]!.args).toContain("--append-system-prompt");
     expect(runtime.instructions[0]).toContain("You are worker.");
     expect(runtime.instructions[0]).toContain("fleet send <name-or-id>");
@@ -157,7 +157,7 @@ describe("spawn", () => {
     const { fleet, runtime } = setup();
     await expect(spawn(fleet, { role: "nobody" })).rejects.toThrow("Unknown agent role");
     await expect(spawn(fleet, { thinking: "turbo" })).rejects.toThrow("Invalid thinking level");
-    await expect(spawn(fleet, { depth: 2 })).rejects.toMatchObject({ code: "depth_limit" });
+    await expect(spawn(fleet, { depth: 3 })).rejects.toMatchObject({ code: "depth_limit" });
     await expect(spawn(fleet, { group: "bad group" })).rejects.toMatchObject({ code: "invalid_group" });
     expect(runtime.locations).toEqual([]);
   });
@@ -819,6 +819,15 @@ describe("threads", () => {
     // each thread is a fleet of its own
     const second = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo" });
     expect(second.group).not.toBe(run.group);
+  });
+
+  it("belong to the run that starts them, and to the repository they work in", async () => {
+    const { fleet } = setup({ agents: [lead, role("coordinator", { interactive: true, spawning: true })], gitRoot: async () => "/repo" });
+    const coordinator = await fleet.spawn({ role: "coordinator", task: "coordinate", cwd: "/repo", group: "p1" });
+    const thread = await fleet.startThread({ title: "t", cwd: "/repo", depth: 1, callerRun: coordinator.id,
+      brief: { goal: "g", write: ["src"], context: "none", done: "d", verify: "v" } });
+    expect(thread).toMatchObject({ owner: coordinator.id, project: "/repo", depth: 2 });
+    await expect(fleet.startThread({ title: "t", task: "t", callerRun: "nobody" })).rejects.toMatchObject({ code: "run_not_found" });
   });
 
   it("fail before the lead starts when the setup command fails, and close the pane", async () => {

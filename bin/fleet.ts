@@ -7,6 +7,7 @@
  *   HERDR_FLEET_TOKEN  its access token, when it has one
  *   HERDR_FLEET_GROUP  the fleet to act in; else one per herdr pane (HERDR_PANE_ID)
  *   HERDR_FLEET_DEPTH  how deep this caller is (0 for a person or a top-level agent)
+ *   HERDR_FLEET_RUN    the caller's own run, when the fleet started it: a thread it starts is its own
  */
 import { parseArgs } from "node:util";
 
@@ -45,6 +46,7 @@ const baseUrl = (env["HERDR_FLEET_URL"] || "http://127.0.0.1:7317").replace(/\/$
 const paneId = env["HERDR_PANE_ID"];
 const group = env["HERDR_FLEET_GROUP"] || (paneId ? `fleet-${paneId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}` : "fleet-default");
 const depth = Number.parseInt(env["HERDR_FLEET_DEPTH"] ?? "0", 10) || 0;
+const callerRun = env["HERDR_FLEET_RUN"] || undefined;
 
 class CliError extends Error {
   constructor(message: string, readonly exitCode = 1, readonly body?: { run?: Run }) { super(message); }
@@ -177,7 +179,7 @@ async function main(argv: string[]): Promise<number> {
     case "thread": {
       const brief = briefOf(values);
       if (!values.title || (!values.task && !brief)) throw new CliError("fleet thread: --title and --task (or a brief) are required", 2);
-      const { run } = await call<{ run: Run }>("POST", "/threads", { title: values.title, task: values.task, brief, cwd: values.cwd ?? process.cwd(), depth });
+      const { run } = await call<{ run: Run }>("POST", "/threads", { title: values.title, task: values.task, brief, cwd: values.cwd ?? process.cwd(), depth, caller_run: callerRun });
       print(json, run, () => [describe(run), run.lastError ? `note: ${run.lastError}` : ""].filter(Boolean).join("\n"));
       return run.state === "blocked" ? 4 : 0;
     }

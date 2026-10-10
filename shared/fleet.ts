@@ -50,6 +50,10 @@ export interface AgentRun {
   skipped?: SkippedCandidate[];
   /** a thread lead's branch, when its thread works on a worktree */
   branch?: string;
+  /** the repository a thread or a project's coordinator works for */
+  project?: string;
+  /** the run that started this thread, a project's coordinator: its results and questions go there */
+  owner?: string;
   /** the paths its brief lets it change, absolute; another run may not write them while it works */
   write?: string[];
 }

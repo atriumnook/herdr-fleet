@@ -31,8 +31,8 @@ const RESULT_FILE = "handoff.md";
 /** A spawn with its brief turned into the task and the paths it may write, ready to try candidates for. */
 type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[]; thread?: ThreadPlace };
 
-/** Where a thread works: the repository its worktree comes from, or none outside one. */
-interface ThreadPlace { repo: string | null }
+/** Where a thread works (the repository its worktree comes from, or none outside one), and the run that owns it. */
+interface ThreadPlace { repo: string | null; owner?: string }
 
 /** A thread to start: its lead gets the task, in a workspace (and worktree) of its own named by the title. */
 export interface ThreadRequest {
@@ -42,6 +42,8 @@ export interface ThreadRequest {
   cwd?: string;
   /** the caller's depth: 0 for a person, the screen, or a top-level agent */
   depth?: number;
+  /** the run that starts the thread (HERDR_FLEET_RUN), which then owns it: its results and questions go there */
+  callerRun?: string;
 }
 
 const THREAD_ROLE = "lead";
@@ -219,12 +221,14 @@ export class Orchestrator {
     const title = request.title.trim();
     if (!title || title.length > 120) throw new FleetError("invalid_title", "A thread needs a title of up to 120 characters.");
     const cwd = resolve(request.cwd ?? process.cwd());
+    const owner = request.callerRun ? this.deps.registry.get(request.callerRun) : undefined;
+    if (request.callerRun && !owner) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
     const repo = await (this.deps.gitRoot ?? gitRoot)(cwd);
     if (repo) await (this.deps.excludeWorktrees ?? excludeWorktrees)(repo);
     return this.launch({
       role: THREAD_ROLE, name: title, task: request.task, brief: request.brief, cwd, depth: request.depth,
       group: makeGroupId(), worktree: repo !== null, interactive: true,
-    }, signal, { repo });
+    }, signal, { repo, ...(owner ? { owner: owner.id } : {}) });
   }
 
   private async launch(request: SpawnRequest, signal?: AbortSignal, thread?: ThreadPlace): Promise<AgentRun> {
@@ -311,7 +315,7 @@ export class Orchestrator {
     const id = makeId();
     const herdrName = makeHerdrName(request.group, definition.name, id);
     const displayName = request.name?.trim() || definition.name;
-    const env = { ...this.deps.agentEnv(), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth) };
+    const env = { ...this.deps.agentEnv(), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
 
     // the budget counts runs across fleets: the check and the first save must not interleave
     const previousGate = this.spawnGate;
@@ -340,6 +344,7 @@ export class Orchestrator {
         id, name: displayName, role: definition.name, agent: kind, group: request.group, herdrName, paneId: location.paneId, workspaceId: location.workspaceId,
         cwd: location.cwd, model, thinking, fallbackFrom, state: "starting", depth, interactive, worktree, startedAt: now, updatedAt: now,
         ...(worktree && request.thread ? { branch: `fleet/${id}` } : {}),
+        ...(request.thread?.repo ? { project: request.thread.repo } : {}), ...(request.thread?.owner ? { owner: request.thread.owner } : {}),
         ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
       };
       this.save(run);
