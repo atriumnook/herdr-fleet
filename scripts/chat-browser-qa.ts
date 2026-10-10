@@ -45,7 +45,11 @@ try {
   await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "idle", agent_session_path: rollout });
   await herdrRpc("pane.send_text", { pane_id: paneId, text: `printf '%s\\n' '${answer}'\n` });
   server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push"), codexHome });
-  browser = await chromium.launch({ executablePath: process.env["CHROME_PATH"] ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
+  browser = await chromium.launch({
+    executablePath: process.env["CHROME_PATH"] ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"],
+    // the checks read the English UI: Chromium on Linux takes its language from LANG, not --lang
+    env: { ...process.env, LANG: "en_US.UTF-8", LANGUAGE: "en_US", LC_ALL: "en_US.UTF-8" },
+  });
   const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
   // a pane opens its terminal the first time; this QA is about the chat lens
   await page.addInitScript((id) => localStorage.setItem(`herdr-fleet:view:${id}`, "chat"), paneId);

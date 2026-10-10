@@ -23,7 +23,11 @@ try {
     { type: "assistant", timestamp: "2026-09-27T00:00:01Z", message: { content: [{ type: "tool_use", id: "one", name: "Skill", input: { skill: "team:review" } }] } },
   ];
   let turns = parseClaudeTranscript(lines(rows));
-  browser = await chromium.launch({ executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"] });
+  browser = await chromium.launch({
+    executablePath: process.env.CHROME_PATH ?? "/opt/google/chrome/chrome", headless: true, args: ["--no-sandbox"],
+    // the checks read the English UI: Chromium on Linux takes its language from LANG, not --lang
+    env: { ...process.env, LANG: "en_US.UTF-8", LANGUAGE: "en_US", LC_ALL: "en_US.UTF-8" },
+  });
   const page = await browser.newPage({ viewport: { width: 1200, height: 800 } });
   const errors: string[] = [];
   page.on("pageerror", (error) => errors.push(error.message));

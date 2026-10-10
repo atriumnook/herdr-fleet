@@ -30,7 +30,8 @@ function Fixture() {
   const output = useWholeOutput(target.url, target.scope);
   window.qa.target = (url, scope) => setTarget({ url, scope });
   window.qa.chat = (pane, machine = "local") => { setPane(pane); setMachine(machine); };
-  window.qa.refresh = () => mediator.dispatch({ type: "chat-delivered" });
+  // the next poll of the open chat's conversation, at once
+  window.qa.refresh = () => mediator.dispatch({ type: "poll-conversation", seq: mediator.getState().conversation.seq });
   return <><button id="fetch-output" onClick={() => { output.load(); output.load(); }}>Load output</button><output id="output">{output.state}:{output.text}</output>
     <div style={{ position: "relative", height: 600 }}><MachineContext.Provider value={machine}><ChatPresenter key={machine} paneId={pane} connected={false} ended={false} agent={null} agentStatus={undefined} emit={mediator.dispatch} /></MachineContext.Provider></div></>;
 }
