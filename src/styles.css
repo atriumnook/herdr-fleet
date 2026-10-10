@@ -118,6 +118,7 @@
   /* sizes */
   --header-h: 52px;
   --sidebar-w: 320px;
+  --input-h: 44px;
   --control-h: 34px;
   --touch-target: 40px;
   --keybar-h: 48px;
@@ -599,8 +600,8 @@ button {
   background: var(--field);
   border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
-  color: var(--ink-strong);
-  font-size: var(--fs-sm);
+  color: var(--ink);
+  font-size: var(--fs-md);
   font-weight: var(--fw-medium);
   white-space: nowrap;
   text-decoration: none; /* a link styled as a button (Reconnect, Star on GitHub) */
@@ -632,6 +633,7 @@ button {
   background: var(--accent);
   border-color: var(--accent);
   color: var(--on-accent);
+  font-weight: var(--fw-bold);
 }
 
 @media (hover: hover) {
@@ -855,29 +857,47 @@ button {
   background: var(--scrim);
 }
 
+/* a dialog or sheet: one glass panel over the scrim; what sits inside it is opaque */
 .modal {
   display: flex;
   flex-direction: column;
   width: min(100%, 560px);
   max-height: min(100%, 720px);
-  background: var(--surface);
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: var(--hairline) solid var(--edge);
   border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-pop);
+  box-shadow: var(--shadow-panel);
   overflow: hidden;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .modal {
+    background: var(--field);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .modal {
+    background: var(--field);
+  }
 }
 
 .modal-header {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-4);
   border-bottom: var(--hairline) solid var(--line);
 }
 
 .modal-title {
   flex: 1 1 auto;
   margin: 0;
-  font-size: var(--fs-lg);
+  font-size: var(--fs-xl);
   font-weight: var(--fw-semibold);
   color: var(--ink-strong);
 }
@@ -886,14 +906,14 @@ button {
   flex: 1 1 auto;
   min-height: 0;
   overflow-y: auto;
-  padding: var(--space-4) var(--space-5);
+  padding: var(--space-4);
 }
 
 .modal-footer {
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-3) var(--space-4);
   border-top: var(--hairline) solid var(--line);
 }
 
@@ -926,36 +946,32 @@ button {
 }
 
 .field-hint {
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   color: var(--sub);
 }
 
+/* a field: 44px, the input face, an edge that holds 3:1, 16px text (no zoom on a phone) */
 .input,
 .select {
-  height: var(--control-h);
+  height: var(--input-h);
   padding: 0 var(--space-3);
   background: var(--input);
-  border: var(--hairline) solid var(--line);
+  border: var(--hairline) solid var(--control-edge);
   border-radius: var(--radius-md);
   color: var(--ink-strong);
   font: inherit;
   font-size: var(--fs-input);
 }
 
-/* a bordered field shows focus on its own border; the offset ring is for controls without one */
+/* a bordered field shows focus on its own edge, 2px of accent; the offset ring is for controls
+   without one. The inset shadow thickens the edge without moving the text. */
 .input:focus,
 .select:focus,
 .input:focus-visible,
 .select:focus-visible {
   border-color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
   outline: none;
-}
-
-@media (min-width: 641px) {
-  .input,
-  .select {
-    font-size: var(--fs-sm);
-  }
 }
 
 /* popover menu (palette rows, slash/@ completions) */
@@ -1020,8 +1036,8 @@ button {
 
 .menu-heading {
   padding: var(--space-2) var(--space-2) var(--space-1);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   color: var(--sub);
 }
 

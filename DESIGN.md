@@ -262,7 +262,9 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Modal (`.modal*`)
 - `.modal-scrim` centers an `aria-modal` dialog at `--z-modal`; `.modal` is a capped scrollable
-  column with header, body and footer and `--shadow-pop`.
+  column with header, body and footer, and one glass panel (`--glass-strong`, 1px `--edge`,
+  `--glass-blur`, `--radius-xl`, `--shadow-panel`; `--field` without blur where transparency is
+  reduced). Header, body and footer are `--space-4` inside; the title is `--fs-xl` (18px).
 - At `<=640px`, it becomes a bottom sheet with top `--radius-xl` corners and safe-area padding.
 - Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
@@ -270,9 +272,11 @@ One set for both themes: the card is island black wherever it shows.
   and a failure shows inside it. A no gives the focus back to what opened it.
 
 ### Field (`.field`, `.input`, `.select`)
-- Stacked label, optional hint and `--input` field. Desktop fields use `--fs-sm`;
-  small-screen fields retain `--fs-input` to avoid focus zoom.
-- Focus names the edge with accent; errors use blocked/danger tokens and `role="alert"`.
+- Stacked label (`--fs-xs` medium `--sub`), optional hint (`--fs-sm` `--sub`) and the field:
+  `--input-h` (44px), `--input` face, 1px `--control-edge`, `--radius-md`, `--fs-input` (16px) on
+  every screen.
+- Focus makes the edge 2px of `--accent`; errors use a `--needs-tint` notice in `--needs-text`
+  with `role="alert"`.
 
 ### Menu / popover (`.menu*`)
 - Bordered `--radius-lg` surface with `--shadow-pop`; rows use `--control-h`, `--radius-md`, icon,
