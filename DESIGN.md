@@ -216,7 +216,11 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Shell
 - `.app` is a full-viewport column: `.app-header` over `.app-body`; the body is sidebar plus
-  `.terminal-host`. While a phone's soft keyboard is up (`data-keyboard`), `--app-height` follows
+  `.terminal-host`. The app's ground is `--bg` with three soft glows; the header and the sidebar
+  are each one glass panel over it (`--glass`, `--edge`, `--glass-blur`, `--shadow-panel`), never
+  stacked. Wider than `768px` they float at `--space-2` with `--radius-xl`, and the terminal or chat
+  sits on its own opaque `--surface` with a hairline and `--radius-lg`; at `<=768px` the header runs
+  edge to edge and the drawer is the same glass. While a phone's soft keyboard is up (`data-keyboard`), `--app-height` follows
   `visualViewport` so the keyboard does not cover input; otherwise the shell is `100dvh`, because an
   iPhone home screen app reports a visual viewport shorter than the screen without a keyboard.
 - Header anatomy, left to right: mobile drawer toggle / desktop sidebar toggle; flexible context
@@ -230,8 +234,8 @@ One set for both themes: the card is island black wherever it shows.
 - The terminal stack contains a positioned terminal surface, then composer or key bar. The xterm
   mount stays alive under the chat lens; changing views never creates a second connection.
 - At `<=480px`, labels shed in priority order: version, brand name, context subtitle, connection
-  text and desktop-only control labels. Icons and selected context remain. Below `720px` the two
-  switches show their icons only.
+  text and desktop-only control labels. Icons and selected context remain. At `<=768px` the header
+  takes a second row, where the two switches share the width as halves with their words.
 
 ## 5. Components
 
@@ -272,26 +276,33 @@ One set for both themes: the card is island black wherever it shows.
 - Bordered `--radius-lg` surface with `--shadow-pop`; rows use `--control-h`, `--radius-md`, icon,
   ellipsized main label and optional hint.
 - Hover or `aria-selected` uses `--field-hover`. Headings are dim micro labels.
-- The sidebar's row menu (`.row-menu`) is a `.menu` drawn through a portal at fixed coordinates,
-  under its `⋯` with right edges aligned, above it when the screen ends first, and over the drawer.
+- The sidebar's row menu (`.row-menu`) has no button: a right click, a long press on touch
+  (`500ms`, a finger that moves `10px` scrolls instead) or the menu key (`Shift+F10`) opens it
+  (`src/lib/longPress.ts`). It is a `.menu` drawn through a portal at fixed coordinates, at the
+  press (under the row for the key), above it when the screen ends first, and over the drawer.
+  The row stays lit while its menu is up, and a held finger starts no text selection or callout.
   A one-pane row offers Rename workspace, Rename pane, then Close under a hairline; a workspace
   header Rename workspace and Close workspace; a pane under a header Rename pane and Close. The
   danger item takes `--needs`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
-  `⋯`. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
+  row. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
 - Close follows herdr's `ui.confirm_close`: a close that takes the workspace with it (a one-pane
   row, Close workspace) asks in a confirm first; a pane that leaves its workspace standing closes
   at once. After a confirmed close, focus lands on the header's workspace-list toggle.
 
 ### Badge (`.badge`)
 - Agent states read **Idle**, **Working**, **Needs you**, **Done** (`STATUS_WORD` in
-  `src/lib/status.ts`), on every surface; unknown reads **—**. A Fleet run adds **Failed** and
+  `src/lib/status.ts`), on every surface; a state herdr does not know has no badge, never a
+  **—** one. A Fleet run adds **Failed** and
   reads the word of the section it sits in: a starting or unknown run reads **Working**, and an
   ended run, folded under its own button, has no badge.
-- Idle is elevated/dim; working, blocked and done use their own tint and text. Working carries a small
-  breathing dot before the word; the word itself never fades.
-- The written label and unknown dashed edge keep color from being the only signal.
+- A pill at `--chip-h`: a 7px dot, the word in `--ink` at `--fs-xs`, a 1px edge and a face. The
+  dot and the edge take the state's color (`--idle`, `--working`, `--needs`, `--done`); the face is
+  the state's tint (`--field` for Idle). Only Working's dot breathes; the word never fades.
+- The written word keeps color from being the only signal. The sidebar's rows are the one place
+  that shows the dot alone: Working's dot also breathes, Needs you rows also sit under their
+  worded heading, and every dot's tooltip and accessible name is the word.
 
 ### Pill (`.pill`)
 - Mono metadata at `--chip-h`. The herdr version is a sidebar-footer pill; offline is the one header pill and uses danger tokens.
@@ -313,13 +324,19 @@ One set for both themes: the card is island black wherever it shows.
   remembered per PC and path; opening a pane unfolds its folder, but status updates do not.
 - Folder order follows the first workspace in server order; workspace handles still reorder
   workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
-- A workspace header shows drag handle, number, editable label, roll-up status and its `⋯`.
+- A workspace header shows drag handle, number, editable label and roll-up status dot; its menu
+  opens from the header itself, like a row's.
   Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent.
-- Every pane row is two lines: agent/shell mark, then the editable title alone on line one (full
-  width), and the status chip followed by the pane's place on line two. Mark boxes are neutral;
-  the selected row gets the `--accent` rail and an accent-edged mark box. The row ends in one `⋯`
-  (`.row-menu-toggle`: shown on hover, focus, selection and while its menu is open; always on
-  touch) that opens the row menu. Inline server failures stay beside their row.
+- Every pane row is a `--field` face at `--row-h`, `--radius-md`, `--space-1` apart: a 28px
+  agent/shell mark, the editable title (`--fs-md`, `--ink`) over the pane's place (mono, `--sub`),
+  then the state at the right end as the badge's dot alone (`.badge.is-dot`, 9px; Idle's is a
+  ring, so it differs from Working by shape as well): the word is its tooltip and is read out, not
+  drawn, so the name keeps the width. A pane with no agent has no dot. The selected row is
+  `--tint` with its title in `--ink-strong` semibold, an `--accent` rail along its left edge and an
+  accent-edged mark box: my selection is accent, the state stays with the badge. The rows under
+  **Needs you** are the same rows, under a heading that says the state in words. No row carries a
+  `⋯`: its menu opens from the row (see the row menu above). Inline server failures stay beside
+  their row.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
   in the row's tooltip. Line two names what the group header does not: the folder under a
@@ -504,7 +521,7 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Strategy
 
-**Tonal shift + hairline, with shadow reserved for overlays.** Resting shell surfaces have no shadow.
+**Tonal shift + hairline, with shadow reserved for glass panels and overlays.** Parts inside a panel have no shadow.
 
 | Type | Value | Usage |
 |------|-------|-------|
@@ -513,6 +530,7 @@ One set for both themes: the card is island black wherever it shows.
 | Dashed edge | `var(--hairline) dashed var(--line)` | Unknown/empty states |
 | Tonal lift | `--field` on `--surface` | Selection, chips, tracks |
 | Tinted lift | Named tint over an opaque surface | Primary and agent states |
+| Panel shadow | `--shadow-panel` | The header and sidebar glass: top highlight plus depth |
 | Drawer shadow | `--shadow-drawer` | Mobile drawer |
 | Overlay shadow | `--shadow-pop` | Menus, palette and modal cards |
 | Card shadow | `--shadow-card` | The composer's input box — the one resting card in chat mode |
@@ -535,7 +553,7 @@ the others derive them from their surfaces with `color-mix`.
 - Depth carries meaning: what waits on the person is nearest (largest shadow, a state-colored edge),
   finished work recedes (smaller shadow, lower opacity).
 - `prefers-reduced-transparency: reduce` and browsers without `backdrop-filter` get `--glass-strong`
-  without blur; `prefers-reduced-motion` drops the lift on hover.
+  without blur (the header and the sidebar: `--field`); `prefers-reduced-motion` drops the lift on hover.
 - The terminal and the chat transcript never sit on glass.
 
 ## 8. Accessibility Constraints & Accepted Debt

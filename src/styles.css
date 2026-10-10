@@ -71,6 +71,7 @@
   --shadow-drawer: 0 0 40px rgba(0, 4, 16, 0.7);
   --shadow-pop: 0 16px 48px rgba(0, 4, 16, 0.6), 0 0 0 1px var(--line);
   --shadow-card: 0 4px 16px rgba(0, 4, 16, 0.45);
+  --shadow-panel: inset 0 1px 0 var(--glass-hi), 0 14px 36px var(--glass-shadow);
 
   /* terminal theme: mirrored verbatim in src/lib/settings.ts terminalTheme() */
   --term-bg: #0b1020;
@@ -122,7 +123,7 @@
   --chip-h: 20px;
   --icon-size: 18px;
   --mark-size: 22px;
-  --avatar-size: 32px;
+  --avatar-size: 28px;
   --dot-size: 7px;
   --rail-w: 3px;
   --hairline: 1px;
@@ -223,7 +224,7 @@
   --control-h: 32px;
   --row-h: 44px;
   --chip-h: 18px;
-  --avatar-size: 26px;
+  --avatar-size: 24px;
 }
 
 /* ---------- reset + base ---------- */
@@ -286,11 +287,66 @@ button {
 
 /* ---------- shell ---------- */
 
+/* the ground: bg with three soft glows, which the glass panels above it blur */
 .app {
   display: flex;
   flex-direction: column;
   height: 100%;
   height: var(--app-height, 100dvh);
+  background:
+    radial-gradient(55% 45% at 8% 4%, var(--glow-1), transparent 70%),
+    radial-gradient(45% 50% at 96% 20%, var(--glow-2), transparent 70%),
+    radial-gradient(60% 40% at 40% 105%, var(--glow-3), transparent 70%),
+    var(--bg);
+}
+
+/* one layer of glass over the ground: the header and the sidebar, never stacked */
+.app-header,
+.sidebar {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: var(--hairline) solid var(--edge);
+  box-shadow: var(--shadow-panel);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .app-header,
+  .sidebar {
+    background: var(--field);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .app-header,
+  .sidebar {
+    background: var(--field);
+  }
+}
+
+/* wide screens: the panels float on the ground, and the terminal or chat sits on its own surface */
+@media (min-width: 769px) {
+  .app {
+    gap: var(--space-2);
+    padding: var(--space-2);
+    box-sizing: border-box;
+  }
+
+  .app-header,
+  .sidebar {
+    border-radius: var(--radius-xl);
+  }
+
+  .app-body {
+    gap: var(--space-2);
+  }
+
+  .terminal-host {
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-lg);
+  }
 }
 
 .app-header {
@@ -301,8 +357,6 @@ button {
   height: calc(var(--header-h) + env(safe-area-inset-top, 0px));
   padding: env(safe-area-inset-top, 0px) calc(var(--space-3) + env(safe-area-inset-right, 0px)) 0
     calc(var(--space-3) + env(safe-area-inset-left, 0px));
-  background: var(--surface);
-  border-bottom: var(--hairline) solid var(--line);
   /* Keep the header's painted background at the top of the app. The home-screen
      status-bar layout is controlled by index.html; see docs/ios-home-screen-testing.md. */
   position: sticky;
@@ -321,8 +375,7 @@ button {
   width: var(--sidebar-w);
   flex: 0 0 var(--sidebar-w);
   min-height: 0;
-  background: var(--surface);
-  border-right: var(--hairline) solid var(--line);
+  overflow: hidden;
   padding-left: env(safe-area-inset-left, 0px);
 }
 
@@ -648,59 +701,75 @@ button {
 
 /* status badge: tinted background + text, the state readable as a word */
 .badge {
+  --badge-color: var(--idle);
   display: inline-flex;
   align-items: center;
-  gap: var(--space-1);
+  gap: 6px;
   height: var(--chip-h);
   padding: 0 var(--space-2);
-  border: var(--hairline) solid transparent;
-  border-radius: var(--radius-sm);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
+  border: var(--hairline) solid var(--badge-color);
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--ink);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   white-space: nowrap;
 }
 
-.badge-idle {
-  color: var(--sub);
-  background: var(--field);
+/* the state is told by the word and the dot, edge and face: never by the text color alone */
+.badge::before {
+  content: "";
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-pill);
+  background: var(--badge-color);
 }
 
 .badge-working {
-  color: var(--working);
+  --badge-color: var(--working);
   background: var(--working-tint);
 }
 
-/* RUN is the one state that moves: a dot breathes before the word, the word holds still */
+/* Working is the one state that moves: its dot breathes, the word holds still */
 .badge-working::before {
-  content: "";
-  width: 5px;
-  height: 5px;
-  border-radius: var(--radius-pill);
-  background: currentColor;
   animation: pulse var(--dur-pulse) var(--ease-pulse) infinite;
 }
 
 .badge-blocked {
-  color: var(--needs);
+  --badge-color: var(--needs);
   background: var(--needs-tint);
 }
 
 .badge-done {
-  color: var(--done);
+  --badge-color: var(--done);
   background: var(--done-tint);
+}
+
+/* a sidebar row's badge: the dot alone, a little larger; the word is in its tooltip */
+.badge.is-dot {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.badge.is-dot::before {
+  width: 9px;
+  height: 9px;
+}
+
+/* without its word, Idle differs by shape too: a ring, where the states that ask for a look are
+   filled (Working's blue and Idle's gray are close at this size) */
+.badge-idle.is-dot::before {
+  box-sizing: border-box;
+  background: transparent;
+  border: 1.5px solid var(--idle);
 }
 
 /* a pane herdr could not restore: no status to show, and nothing runs in it */
 .badge-restore-error {
-  color: var(--needs-text);
+  --badge-color: var(--needs);
   background: var(--needs-tint);
-}
-
-/* unknown keeps the dim text color (contrast) and is told apart by the dashed edge */
-.badge-unknown {
-  color: var(--sub);
-  border-color: var(--line);
-  border-style: dashed;
 }
 
 /* segmented control: one selected option, the rest quiet */
@@ -999,6 +1068,15 @@ button {
 
   .app.sidebar-collapsed .sidebar {
     display: flex;
+  }
+
+  /* edge to edge: the glass keeps only the edge that faces the content */
+  .app-header {
+    border-width: 0 0 var(--hairline);
+  }
+
+  .sidebar {
+    border-width: 0 var(--hairline) 0 0;
   }
 
   .sidebar {

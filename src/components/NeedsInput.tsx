@@ -26,11 +26,12 @@ export function NeedsInput({ machines, selectedMachineId, selectedPaneId, emit }
         const selected = machine.id === selectedMachineId && pane.pane_id === selectedPaneId;
         return <li className={`needs-input-item${selected ? " is-selected" : ""}`} key={paneStorageId(machine.id, pane.pane_id)}>
           <button type="button" className="pane-select needs-input-select" aria-current={selected ? "true" : undefined} onClick={() => emit({ type: "select-pane", machineId: machine.id, paneId: pane.pane_id })}>
-            <span className="agent-mark-holder"><AgentMark agent={pane.agent ?? ""} size={22} /></span>
+            <span className="agent-mark-holder"><AgentMark agent={pane.agent ?? ""} size={18} /></span>
             <span className="pane-copy">
               <span className="pane-title">{displayPaneTitle(pane)}</span>
-              <span className="pane-meta"><StatusBadge status={pane.agent_status} /><span className="pane-subtitle">{machine.name} · {workspace.label}</span></span>
+              <span className="pane-subtitle">{machine.name} · {workspace.label}</span>
             </span>
+            <StatusBadge status={pane.agent_status} dot />
           </button>
         </li>;
       })}

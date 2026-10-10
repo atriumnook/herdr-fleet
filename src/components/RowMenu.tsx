@@ -1,10 +1,11 @@
 /**
- * The ⋯ menu of a sidebar row. On a desktop it is a popover under its button, drawn through a
+ * The menu of a sidebar row, opened by a right click, a long press or the menu key. On a desktop
+ * it is a popover at the press (under the row for the key), drawn through a
  * portal at fixed coordinates: the roster scrolls, and a menu inside it would be cut off at the
  * list's edge. At phone width it is the modal primitive, which is already a bottom sheet there.
  * Escape, a press outside, focus leaving it (the palette opening over it, a Tab out) and, on a
- * desktop, a scroll or a resize close it. Focus goes back to the button when the menu goes,
- * unless what an item mounted (a rename field, a confirm) takes it first: the button is focused
+ * desktop, a scroll or a resize close it. Focus goes back to the row when the menu goes,
+ * unless what an item mounted (a rename field, a confirm) takes it first: the row is focused
  * in a layout cleanup, before a new field's autoFocus and a dialog's own focus.
  */
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FocusEvent, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from "react";
@@ -26,7 +27,10 @@ export interface RowMenuItem {
 }
 
 interface Props {
+  /** the row's focusable part: focus returns to it, and the key's menu opens under it */
   anchor: HTMLElement;
+  /** where the press was; null opens under the anchor */
+  at?: { x: number; y: number } | null;
   /** the menu's accessible name, and the sheet's title */
   title: string;
   subtitle?: string;
@@ -41,24 +45,26 @@ const POPOVER_ITEMS = '[role="menuitem"]';
 // the sheet is modal: its Cancel is one of the stops
 const SHEET_ITEMS = '.row-sheet-item, .row-sheet-cancel';
 
-export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
+export function RowMenu({ anchor, at = null, title, subtitle, items, onClose }: Props) {
   const [sheet] = useState(() => window.matchMedia(SHEET_QUERY).matches);
   const surface = useRef<HTMLDivElement>(null);
   const [place, setPlace] = useState<{ top: number; left: number } | null>(null);
 
   useLayoutEffect(() => () => { if (anchor.isConnected) anchor.focus({ preventScroll: true }); }, [anchor]);
 
-  // under the button, right edges aligned; above it when the screen ends first
+  // at the press, opening down and right; under the row, right edges aligned, for the key;
+  // above either when the screen ends first
   useLayoutEffect(() => {
     if (sheet) return;
     const menu = surface.current;
     if (!menu || !anchor.isConnected) { onClose(); return; }
     const rect = anchor.getBoundingClientRect();
-    const left = Math.max(EDGE, Math.min(rect.right - menu.offsetWidth, window.innerWidth - menu.offsetWidth - EDGE));
-    const below = rect.bottom + GAP;
-    const top = below + menu.offsetHeight + EDGE <= window.innerHeight ? below : Math.max(EDGE, rect.top - GAP - menu.offsetHeight);
+    const from = at ? { left: at.x, top: at.y, bottom: at.y } : { left: rect.right - menu.offsetWidth, top: rect.top, bottom: rect.bottom };
+    const left = Math.max(EDGE, Math.min(from.left, window.innerWidth - menu.offsetWidth - EDGE));
+    const below = from.bottom + GAP;
+    const top = below + menu.offsetHeight + EDGE <= window.innerHeight ? below : Math.max(EDGE, from.top - GAP - menu.offsetHeight);
     setPlace({ top, left });
-  }, [anchor, onClose, sheet]);
+  }, [anchor, at, onClose, sheet]);
 
   useEffect(() => {
     const first = surface.current?.querySelector<HTMLElement>(sheet ? SHEET_ITEMS : POPOVER_ITEMS);
@@ -71,7 +77,7 @@ export function RowMenu({ anchor, title, subtitle, items, onClose }: Props) {
       event.stopPropagation();
       onClose();
     };
-    // the button's own click toggles the menu, so a press on it is not "outside"
+    // a press on the row itself is not "outside": it is the press that opened the menu
     const onPointer = (event: PointerEvent): void => {
       const target = event.target as Node;
       if (surface.current?.contains(target) || anchor.contains(target)) return;
