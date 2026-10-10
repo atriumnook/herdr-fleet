@@ -8,8 +8,9 @@ export interface CreateLocationOptions {
   label: string;
   worktree: boolean;
   branch?: string;
+  /** split the caller's pane this way instead of opening a tab */
   direction?: "right" | "down";
-  /** the caller's pane: the agent's pane opens beside it; without one, in a workspace of its own */
+  /** the caller's pane: the agent opens in a new tab of its workspace; without one, in a workspace of its own */
   callerPaneId?: string;
   env: Record<string, string>;
 }
@@ -107,11 +108,21 @@ export class HerdrRuntime implements AgentRuntime {
         leftover.splice(leftover.indexOf(rootPaneId), 1);
         return { paneId, workspaceId: created.workspace?.workspace_id, cwd };
       }
-      if (options.callerPaneId) {
-        const split = await this.rpc<{ pane?: PaneInfo }>("pane.split", { target_pane_id: options.callerPaneId, direction: options.direction ?? "right", cwd: options.cwd, env: options.env, focus: false });
+      if (options.callerPaneId && options.direction) {
+        const split = await this.rpc<{ pane?: PaneInfo }>("pane.split", { target_pane_id: options.callerPaneId, direction: options.direction, cwd: options.cwd, env: options.env, focus: false });
         const paneId = split.pane?.pane_id;
         if (!paneId) throw new Error("herdr pane.split returned no pane.");
         return { paneId, workspaceId: split.pane?.workspace_id, cwd: options.cwd };
+      }
+      if (options.callerPaneId) {
+        // a tab each: splitting the caller's pane again and again leaves every agent a sliver
+        const caller = await this.rpc<{ pane?: PaneInfo }>("pane.get", { pane_id: options.callerPaneId });
+        const workspaceId = caller.pane?.workspace_id;
+        if (!workspaceId) throw new Error(`herdr knows no workspace for pane ${options.callerPaneId}.`);
+        const created = await this.rpc<{ root_pane?: PaneInfo }>("tab.create", { workspace_id: workspaceId, cwd: options.cwd, label: options.label, env: options.env, focus: false });
+        const paneId = created.root_pane?.pane_id;
+        if (!paneId) throw new Error("herdr tab.create returned no pane.");
+        return { paneId, workspaceId, cwd: options.cwd };
       }
       const created = await this.rpc<{ workspace?: { workspace_id?: string }; root_pane?: PaneInfo }>(
         "workspace.create", { cwd: options.cwd, label: options.label, env: options.env, focus: false });
