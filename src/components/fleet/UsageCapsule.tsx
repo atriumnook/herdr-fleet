@@ -36,7 +36,7 @@ export function UsageCapsule({ capsule, now, emit }: { capsule: UsageCapsuleMode
         )}
       </span>
       {capsule.cooldown && capsule.canClear && (
-        <button type="button" className="fleet-cap" disabled={capsule.busy} onClick={() => emit({ type: "clear-cooldown" })}>{t("Clear")}</button>
+        <button type="button" className="btn" disabled={capsule.busy} onClick={() => emit({ type: "clear-cooldown" })}>{t("Clear")}</button>
       )}
     </div>
   );

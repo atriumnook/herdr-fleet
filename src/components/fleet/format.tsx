@@ -22,12 +22,14 @@ export function clock(ms: number, now: number): string {
 
 // the section a run sits in names its state: starting and unknown runs sit under Working
 const WORD: Record<Exclude<RunTone, "ended">, string> = { needs: "Needs you", failed: "Failed", working: "Working", done: "Done" };
+// the app's one badge (StatusBadge's look): its state classes
+const BADGE: Record<Exclude<RunTone, "ended">, string> = { needs: "blocked", failed: "failed", working: "working", done: "done" };
 
 /** A run's state, written as well as colored. An ended run has none: the folded section says it ended. */
 export function StateBadge({ state }: { state: AgentState }) {
   const tone = toneOf(state);
   if (tone === "ended") return null;
-  return <span className={`fleet-badge is-${tone}`}>{t(WORD[tone])}</span>;
+  return <span className={`badge badge-${BADGE[tone]}`} data-status={BADGE[tone]}>{t(WORD[tone])}</span>;
 }
 
 /** A usage window's name as the server gives it: `5h` stays, `weekly` and `monthly` are words. */

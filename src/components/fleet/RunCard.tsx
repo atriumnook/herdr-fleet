@@ -8,15 +8,17 @@ import { StateBadge, elapsed } from "./format.tsx";
 export type RunCardEvent = { type: "open-pane" } | { type: "interrupt" } | { type: "show-detail" };
 
 /**
- * One run as a glass card. A run waiting on the person is drawn prominent: nearest, with its
- * question and the way to answer it; the rest are rows. Passive: it shows `run` and emits.
+ * One run as a card on a field face. A run that needs the person or failed is nearest; one that
+ * needs the person also carries its question and the one way to answer it. Passive: it shows
+ * `run` and emits.
  */
 export function RunCard({ run, now, emit }: { run: RunCardModel; now: number; emit: Emit<RunCardEvent> }) {
   const prominent = run.tone === "needs";
+  const near = prominent || run.tone === "failed";
   return (
-    <article className={`fleet-run tone-${run.tone}${prominent ? " is-prominent" : ""}${run.depth > 1 ? " is-child" : ""}`} style={{ "--fleet-depth": Math.max(0, run.depth - 1) } as React.CSSProperties}>
+    <article className={`fleet-run tone-${run.tone}${near ? " is-near" : ""}${prominent ? " is-prominent" : ""}${run.depth > 1 ? " is-child" : ""}`} style={{ "--fleet-depth": Math.max(0, run.depth - 1) } as React.CSSProperties}>
       <div className="fleet-run-head">
-        <AgentMark agent={run.agent} size={prominent ? 22 : 18} className="fleet-run-mark" />
+        <AgentMark agent={run.agent} size={near ? 22 : 18} className="fleet-run-mark" />
         <button type="button" className="fleet-run-name" onClick={() => emit({ type: "show-detail" })}>
           <b>{run.name}</b>
           <span className="fleet-run-meta">{[run.role, run.agent, run.model, run.thinking].filter(Boolean).join(" · ")}</span>
@@ -25,12 +27,12 @@ export function RunCard({ run, now, emit }: { run: RunCardModel; now: number; em
         <span className="fleet-run-elapsed">{elapsed(now - run.startedAt)}</span>
         <div className="fleet-run-actions">
           {run.canOpenPane && (
-            <button type="button" className={prominent ? "fleet-cap is-primary" : "fleet-cap"} onClick={() => emit({ type: "open-pane" })}>
+            <button type="button" className={prominent ? "btn btn-primary" : "btn"} onClick={() => emit({ type: "open-pane" })}>
               {t(prominent ? "Open pane to answer" : "Open pane")}
             </button>
           )}
           {run.canInterrupt && !prominent && (
-            <button type="button" className="fleet-cap is-quiet" disabled={run.busy} onClick={() => emit({ type: "interrupt" })}>{t("Interrupt")}</button>
+            <button type="button" className="btn btn-ghost" disabled={run.busy} onClick={() => emit({ type: "interrupt" })}>{t("Interrupt")}</button>
           )}
         </div>
       </div>

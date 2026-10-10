@@ -44,8 +44,8 @@ export function RunDetailSheet({ run, now, emit }: { run: RunCardModel; now: num
       )}
       {(run.canOpenPane || run.canInterrupt) && (
         <div className="fleet-sheet-actions">
-          {run.canOpenPane && <button type="button" className={`fleet-cap${run.tone === "needs" ? " is-primary" : ""}`} onClick={() => emit({ type: "open-pane" })}>{t(run.tone === "needs" ? "Open pane to answer" : "Open pane")}</button>}
-          {run.canInterrupt && <button type="button" className="fleet-cap is-quiet" disabled={run.busy} onClick={() => emit({ type: "interrupt" })}>{t("Interrupt")}</button>}
+          {run.canOpenPane && <button type="button" className={`btn${run.tone === "needs" ? " btn-primary" : ""}`} onClick={() => emit({ type: "open-pane" })}>{t(run.tone === "needs" ? "Open pane to answer" : "Open pane")}</button>}
+          {run.canInterrupt && <button type="button" className="btn btn-ghost" disabled={run.busy} onClick={() => emit({ type: "interrupt" })}>{t("Interrupt")}</button>}
         </div>
       )}
 

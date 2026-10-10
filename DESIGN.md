@@ -356,6 +356,21 @@ One set for both themes: the card is island black wherever it shows.
 - Footer holds the contextual **Install app** action, Settings with the plan meters beside it,
   product name and herdr version.
 
+### Fleet run card (`.fleet-run`)
+- A run on the Fleet screen, in the order it needs you: Needs you, Failed, Working, Done; ended
+  runs fold behind a button at the end. Each card is a `--field` face, `--radius-lg`, 1px `--line`.
+- **Needs you and Failed** are nearest (`.is-near`): a `--needs` edge, `--shadow-near`,
+  `--space-5` inside, the name at 16px semibold in `--ink-strong`. Needs you carries the one primary
+  button (`Open pane to answer`) and its reason in a `--needs-tint` notice with `--needs-text`.
+- **Working** sits in the middle: no shadow, `--space-3` `--space-4` inside, a standard `Open pane`
+  and a quiet `Interrupt`. Runs a run started indent `28px` per level under it.
+- **Done** recedes at opacity 0.72; an ended run at 0.6.
+- The badge is the app's `.badge` with the section's word; role, CLI and model are mono `--sub`,
+  joined by `·`; the elapsed time is mono at `--fs-2xs`. Section headings are `--fs-xs` medium
+  `--sub` in the UI face.
+- Usage capsules are `--field` pills with a 1px `--line` (a low one `--meter-low`, a cooldown a
+  dashed `--needs`); `Refresh usage` ends their row. Buttons are the app's `.btn`.
+
 ### Plan meters (`.usage*`)
 - Beside Settings, one button holding up to four chips (three and `+N` past that), one per
   account in the user's order: provider mark, mono `--fs-2xs` percent of the limit closest to
@@ -537,21 +552,21 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Glass layers (Liquid / Spatial)
 
-Screens built on the Passive View architecture (the Fleet screen first) float their chrome over a
-backdrop instead of tiling opaque panels. Every palette has these tokens: aurora sets its own,
-the others derive them from their surfaces with `color-mix`.
+One layer of glass floats over the ground (`--bg` and its glows): the header, the sidebar and the
+Fleet run's detail sheet. Everything inside a panel, and every card on the ground (the Fleet
+screen's run cards and usage capsules), is an opaque `--field` face: glass is never stacked.
 
 | Token | Use |
 |-------|-----|
 | `--glow-1/b/c`, `--backdrop-grid` | The screen's backdrop: three soft glows over `--bg`, plus aurora's dot grid |
-| `--glass`, `--glass-strong` | A floating layer's fill: `--glass` for groups, `--glass-strong` for the item lifted inside one and for sheets |
+| `--glass`, `--glass-strong` | A panel's fill: `--glass` for the header and sidebar, `--glass-strong` for a sheet that lies over cards |
 | `--edge`, `--glass-hi` | Its 1px edge and the inset highlight along its top |
 | `--glass-sheen-a/b` | The faint iridescent sweep across a layer (aurora) |
 | `--glass-blur` | `backdrop-filter` of a layer |
 | `--glass-shadow` | Depth: the nearer a layer, the larger its shadow |
 
-- Depth carries meaning: what waits on the person is nearest (largest shadow, a state-colored edge),
-  finished work recedes (smaller shadow, lower opacity).
+- Depth carries meaning: what waits on the person is nearest (`--shadow-near`, a `--needs` edge),
+  finished work recedes (opacity 0.72).
 - `prefers-reduced-transparency: reduce` and browsers without `backdrop-filter` get `--glass-strong`
   without blur (the header and the sidebar: `--field`); `prefers-reduced-motion` drops the lift on hover.
 - The terminal and the chat transcript never sit on glass.
