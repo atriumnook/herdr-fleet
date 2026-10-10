@@ -70,6 +70,7 @@ interface SetupOptions {
   config?: Partial<FleetConfig> | Record<string, unknown>; agents?: AgentDefinition[]; usage?: UsageTracker;
   gitRoot?: (cwd: string) => Promise<string | null>; runSetup?: (cwd: string, command: string) => Promise<{ ok: boolean; output: string }>;
   excludeWorktrees?: (repo: string) => Promise<void>;
+  standingOrders?: (cwd: string) => string;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -81,7 +82,7 @@ function setup(options: SetupOptions = {}) {
   const fleet = new Orchestrator({
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
-    usage: options.usage, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}),
+    usage: options.usage, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}), standingOrders: options.standingOrders,
   });
   return { fleet, runtime, registry, root };
 }
@@ -132,6 +133,18 @@ describe("spawn", () => {
     expect((await spawn(fleet, { depth: 1, brief, worktree: true })).write).toBeUndefined();
     registry.upsert({ ...registry.get(first.id)!, state: "idle" });
     await spawn(fleet, { depth: 1, brief: { ...brief, write: ["src/retry.ts"] } });
+  });
+
+  it("gives every agent the standing orders of the folder it starts in, and no section without any", async () => {
+    const asked: string[] = [];
+    const { fleet, runtime } = setup({ standingOrders: (cwd) => { asked.push(cwd); return "1. Ask before a push."; } });
+    await spawn(fleet);
+    expect(asked).toEqual(["/work"]);
+    expect(runtime.instructions[0]).toContain("## Standing orders");
+    expect(runtime.instructions[0]).toContain("1. Ask before a push.");
+    const bare = setup({ standingOrders: () => "" });
+    await spawn(bare.fleet);
+    expect(bare.runtime.instructions[0]).not.toContain("Standing orders");
   });
 
   it("records the idle herdr shows right after a prompt as working", async () => {

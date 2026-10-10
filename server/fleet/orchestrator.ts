@@ -81,6 +81,8 @@ export interface OrchestratorDeps {
   config: (cwd: string) => FleetConfig;
   /** the roles that exist in a folder */
   agents: (cwd: string) => AgentDefinition[];
+  /** the standing orders that apply in a folder (config.ts loadStandingOrders) */
+  standingOrders?: (cwd: string) => string;
   /** the repository a folder lies in (thread.ts gitRoot); tests stand in their own */
   gitRoot?: (cwd: string) => Promise<string | null>;
   /** runs a project's setup command in a thread's fresh worktree (thread.ts runSetup) */
@@ -349,7 +351,7 @@ export class Orchestrator {
     const resultDir = join(this.deps.resultsDir, run.id);
     mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
     mkdirSync(resultDir, { mode: 0o700 });
-    const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE));
+    const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE), this.deps.standingOrders?.(request.cwd) ?? "");
     if (adapter.instructionsInPrompt) {
       mkdirSync(this.deps.instructionsDir, { recursive: true, mode: 0o700 });
       writeFileSync(this.undeliveredFile(run), instructions, { mode: 0o600 });
@@ -447,7 +449,7 @@ export class Orchestrator {
     }
   }
 
-  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string): string {
+  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string, standing: string): string {
     const fleet = this.deps.fleetCommand;
     return [
       definition.systemPrompt,
@@ -469,6 +471,7 @@ export class Orchestrator {
       `Your result file is ${resultFile}.`,
       "At the end of each delegated turn, write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section.",
       "The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED, and the evidence for it (what you ran and what it showed). Under ISSUES, list every issue you can prove, not only the first. Then: outcome, changed files, verification, unresolved questions.",
+      ...(standing ? ["", "## Standing orders", "The person who runs this fleet gives these to every agent. Follow them in every turn. Every agent of the fleet gets them, so a task you hand on need not repeat them.", standing] : []),
     ].join("\n");
   }
 

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_CONFIG, loadConfig } from "./config.ts";
+import { DEFAULT_CONFIG, loadConfig, loadStandingOrders } from "./config.ts";
 import { parseThinkingLevel, requireThinkingLevel } from "./types.ts";
 
 const roots: string[] = [];
@@ -81,5 +81,16 @@ describe("project setup commands", () => {
     const config = loadConfig(cwd, [], userDir);
     expect(config.projects).toEqual({ "/repos/app": { setup: "bun install --ignore-scripts" } });
     expect(config.maxConcurrent).toBe(3);
+  });
+});
+
+describe("standing orders", () => {
+  it("are empty without files, then the user's before the nearest project's", () => {
+    const { userDir, cwd } = fixture();
+    expect(loadStandingOrders(cwd, userDir)).toBe("");
+    writeFileSync(join(userDir, "standing.md"), "1. Ask before a push.\n");
+    expect(loadStandingOrders(cwd, userDir)).toBe("1. Ask before a push.");
+    writeFileSync(join(cwd, "..", "..", ".herdr-fleet", "standing.md"), "\n2. bun run e2e costs money.\n");
+    expect(loadStandingOrders(cwd, userDir)).toBe("1. Ask before a push.\n\n2. bun run e2e costs money.");
   });
 });
