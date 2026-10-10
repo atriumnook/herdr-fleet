@@ -22,6 +22,8 @@ interface AttachState {
   rows: number;
   /** the chat lens covers the grid: attaches (a reconnect's too) leave the shared pty's size alone */
   keepSize: boolean;
+  /** this viewport sizes the pane (resize) until it lets go (keepSize): a reconnect takes it again */
+  drives: boolean;
 }
 
 function defaultUrl(): string {
@@ -95,6 +97,7 @@ export class HerdrSocket {
       this.rawSend({ type: "role", mode: this.mode });
       for (const [paneId, state] of this.attached) {
         this.rawSend({ type: "attach", pane_id: paneId, cols: state.cols, rows: state.rows, flow_control: "ack", ...(state.keepSize ? { keep_size: true } : {}) });
+        if (state.drives) this.rawSend({ type: "resize", pane_id: paneId, cols: state.cols, rows: state.rows });
       }
     });
 
@@ -190,7 +193,7 @@ export class HerdrSocket {
   attach(paneId: string, cols: number, rows: number, keepSize = false): void {
     this.outputSeen.delete(paneId);
     this.inputReady.delete(paneId);
-    this.attached.set(paneId, { cols, rows, keepSize });
+    this.attached.set(paneId, { cols, rows, keepSize, drives: false });
     this.send({ type: "attach", pane_id: paneId, cols, rows, flow_control: "ack", ...(keepSize ? { keep_size: true } : {}) });
     if (this.outputStopped) {
       this.outputStopped = false;
@@ -223,18 +226,23 @@ export class HerdrSocket {
     if (state) {
       // skip only redundant resizes of OUR OWN geometry: a force resize re-asserts
       // it after another client resized the shared pty (see PaneTerminal refit)
-      if (!force && state.cols === cols && state.rows === rows) return;
+      if (!force && state.drives && state.cols === cols && state.rows === rows) return;
       state.cols = cols;
       state.rows = rows;
       state.keepSize = false;
+      state.drives = true;
     }
     this.send({ type: "resize", pane_id: paneId, cols, rows });
   }
 
-  /** The chat lens covers the grid again: a reconnect attaches without resizing, until the next resize. */
+  /** The chat lens covers the grid again, or the page left the screen: this viewport lets go of the pane, until the next resize. */
   keepSize(paneId: string): void {
     const state = this.attached.get(paneId);
-    if (state) state.keepSize = true;
+    if (!state) return;
+    state.keepSize = true;
+    if (!state.drives) return;
+    state.drives = false;
+    this.send({ type: "release", pane_id: paneId });
   }
 
   /** Sets the connection's role. Not queued: the role replays before the attaches on reconnect. */

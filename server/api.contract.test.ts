@@ -5,6 +5,7 @@ import { basename, join } from "node:path";
 import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, WorkspaceCreated } from "../shared/protocol.ts";
 import { herdrRpc, ping, workspaceCreate, workspaceClose } from "./herdr/client.ts";
+import { paneGrid } from "./pane-grid.ts";
 import { loopbackPush, startFakePushService, type FakePushService } from "./push.fake.ts";
 
 /**
@@ -639,6 +640,7 @@ describe("WebSocket roles and status push", () => {
 
     try {
       operator.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
+      const own = await operator.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId, "operator geometry", 15_000);
       await operator.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId, "operator pty-data", 15_000);
 
       observer.send({ type: "role", mode: "observe" });
@@ -646,15 +648,10 @@ describe("WebSocket roles and status push", () => {
       expect(ack.mode).toBe("observe");
 
       // an observer attaching a smaller screen must NOT resize the shared pty:
-      // the attach answers with the grid to adopt (the operator's 100x30), not its own
+      // the attach answers with the grid to adopt (the pane's own), not its own
       observer.send({ type: "attach", pane_id: paneId, cols: 40, rows: 20 });
-      const adopted = await observer.waitFor(
-        (m) => m.type === "pane-geometry" && m.pane_id === paneId && m.cols === 100,
-        "observer adopts geometry",
-        5000,
-      );
-      expect(adopted.rows).toBe(30);
-      expect(operator.seen.some((m) => m.type === "pane-geometry")).toBe(false);
+      const adopted = await observer.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId, "observer adopts geometry", 5000);
+      expect(adopted).toMatchObject({ cols: own.cols, rows: own.rows });
 
       observer.send({ type: "resize", pane_id: paneId, cols: 40, rows: 20 });
       const resizeError = await observer.waitFor((m) => m.type === "error", "resize read_only error", 5000);
@@ -667,13 +664,6 @@ describe("WebSocket roles and status push", () => {
       observer.send({ type: "keys", pane_id: paneId, keys: ["Enter"] });
       const keysError = await observer.waitFor((m) => m.type === "error", "keys read_only error", 5000);
       expect(keysError.code).toBe("read_only");
-
-      // the operator keeps driving the shared grid, and everyone attached hears it
-      operator.send({ type: "resize", pane_id: paneId, cols: 120, rows: 40 });
-      const geometry = await operator.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId, "geometry broadcast", 5000);
-      expect(geometry.cols).toBe(120);
-      expect(geometry.rows).toBe(40);
-      await observer.waitFor((m) => m.type === "pane-geometry" && m.cols === 120, "observer hears geometry", 5000);
     } finally {
       operator.close();
       observer.close();
@@ -710,30 +700,92 @@ describe("WebSocket roles and status push", () => {
       await otherChat.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId, "other chat pty-data", 15_000);
       expect(await grid()).toMatchObject({ cols: own.cols, rows: own.rows });
 
-      // a terminal lens still drives it: the same check sees a real resize
+      // a terminal lens leaves it alone too: the grid is the pane's own
       operator.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
       await operator.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId, "operator pty-data", 15_000);
-      expect(await grid()).toMatchObject({ cols: 100, rows: 30 });
+      expect(await grid()).toMatchObject({ cols: own.cols, rows: own.rows });
     } finally {
       for (const socket of [chat, otherChat, observer, operator]) socket.close();
       await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
     }
   }, 60_000);
 
-  it("applies a resize that arrives while a covered attach is still creating the pty", async () => {
-    const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-keep-size-switch" });
+  it("leaves a pane at its own grid on attach, and lets the latest viewport to resize size it until it lets go", async () => {
+    const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-own-grid" });
+    const paneId = created.root_pane.pane_id;
+    const phone = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const tablet = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const desktop = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    // the size the program in the pane sees, read from its terminal
+    const shellSees = async (want: { cols: number; rows: number }, label: string): Promise<void> => {
+      const deadline = Date.now() + 10_000;
+      let grid = await paneGrid(paneId);
+      while ((grid?.cols !== want.cols || grid?.rows !== want.rows) && Date.now() < deadline) {
+        await Bun.sleep(50);
+        grid = await paneGrid(paneId);
+      }
+      expect(grid, label).toEqual(want);
+    };
+    const told = (socket: RecordingSocket, want: { cols: number; rows: number }, label: string) =>
+      socket.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId && m.cols === want.cols && m.rows === want.rows, label, 10_000);
+    try {
+      const own = (await paneGrid(paneId))!;
+      expect(own).not.toBeNull();
+      // a desktop attaches with its viewport's size: the pane keeps its own, and the desktop is told it
+      desktop.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
+      expect(await desktop.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId, "the pane's grid", 15_000)).toEqual({ type: "pane-geometry", pane_id: paneId, ...own });
+      await desktop.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "attach took", 15_000);
+      await shellSees(own, "an attach leaves the pane's grid");
+
+      // a phone's terminal lens attaches and sizes the pane: everyone attached draws its grid
+      phone.send({ type: "attach", pane_id: paneId, cols: 40, rows: 20 });
+      phone.send({ type: "resize", pane_id: paneId, cols: 41, rows: 21 });
+      await told(desktop, { cols: 41, rows: 21 }, "the desktop draws the phone's grid");
+      await shellSees({ cols: 41, rows: 21 }, "the phone sizes the pane");
+      // another device to resize after it wins
+      tablet.send({ type: "attach", pane_id: paneId, cols: 60, rows: 25 });
+      await tablet.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "tablet attach took", 15_000);
+      tablet.send({ type: "resize", pane_id: paneId, cols: 61, rows: 26 });
+      await told(phone, { cols: 61, rows: 26 }, "the phone draws the tablet's grid");
+      await shellSees({ cols: 61, rows: 26 }, "the latest viewport sizes the pane");
+      // a device that no longer sizes it lets go of nothing
+      phone.send({ type: "release", pane_id: paneId });
+      await Bun.sleep(300);
+      await shellSees({ cols: 61, rows: 26 }, "a release from a device that was overtaken changes nothing");
+      // the one sizing it lets go: the pane is back at its own grid
+      tablet.send({ type: "release", pane_id: paneId });
+      await told(desktop, own, "the desktop draws the pane's grid again");
+      await shellSees(own, "a release gives the pane its grid back");
+      // a device that leaves lets go too, as does one that turns to observing
+      phone.send({ type: "resize", pane_id: paneId, cols: 42, rows: 22 });
+      await shellSees({ cols: 42, rows: 22 }, "the phone sizes the pane again");
+      phone.send({ type: "detach", pane_id: paneId });
+      await shellSees(own, "a detach gives the pane its grid back");
+      tablet.send({ type: "resize", pane_id: paneId, cols: 43, rows: 23 });
+      await shellSees({ cols: 43, rows: 23 }, "the tablet sizes the pane again");
+      tablet.send({ type: "role", mode: "observe" });
+      await shellSees(own, "observing gives the pane its grid back");
+      expect([phone, tablet, desktop].flatMap((socket) => socket.seen.filter((m) => m.type === "error"))).toEqual([]);
+    } finally {
+      for (const socket of [phone, tablet, desktop]) socket.close();
+      await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
+    }
+  }, 90_000);
+
+  it("applies a resize that arrives while the attach is still creating the pty", async () => {
+    const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-resize-creating" });
     const paneId = created.root_pane.pane_id;
     const phone = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
     try {
-      // the chat lens attaches, and the user switches to the terminal lens before the terminal
-      // was looked up: both frames are on the server before the pty exists
+      // the phone attaches and sizes the pane before the terminal was looked up: both frames
+      // are on the server before the pty exists
       phone.send({ type: "attach", pane_id: paneId, cols: 40, rows: 20, keep_size: true });
       phone.send({ type: "resize", pane_id: paneId, cols: 91, rows: 27 });
-      // the terminal lens's grid is the pty's, not the pane's own one the covered attach left it at
-      expect(await phone.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId && m.cols === 91, "the resize applied after creation", 15_000)).toMatchObject({ cols: 91, rows: 27 });
+      await phone.waitFor((m) => m.type === "pane-geometry" && m.pane_id === paneId && m.cols === 91 && m.rows === 27, "the resize applied after creation", 15_000);
       await phone.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "attach took", 15_000);
-      phone.send({ type: "input", pane_id: paneId, text: "clear; echo size=$(stty size)\r" });
-      await phone.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId && String(m.data).includes("size=27 91"), "the shell sees the terminal lens's grid", 15_000);
+      // no space in the answer: herdr's screen draws a blank as a cursor move
+      phone.send({ type: "input", pane_id: paneId, text: "clear; echo size=$(stty size | tr ' ' x)\r" });
+      await phone.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId && String(m.data).includes("size=27x91"), "the shell sees the phone's grid", 15_000);
     } finally {
       phone.close();
       await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
@@ -834,7 +886,7 @@ describe("WebSocket observer-first attach", () => {
     if (observeWorkspaceId) await herdrRpc("workspace.close", { workspace_id: observeWorkspaceId }).catch(() => undefined);
   });
 
-  it("sizes a PTY an observe connection creates from the pane, never from the observer's grid", async () => {
+  it("sizes a PTY an observe connection creates from the pane's terminal, never from the observer's grid", async () => {
     // observer-FIRST attach: nobody holds the attachment, so the observer's connect
     // spawns the shared pty. The user's named scenario (a phone opens the pane first)
     // must not seed the pty with the phone's viewport.
@@ -845,6 +897,8 @@ describe("WebSocket observer-first attach", () => {
     };
     const rectBefore = await rectOf();
     expect(rectBefore).not.toBeNull();
+    const own = await paneGrid(paneId);
+    expect(own).not.toBeNull();
 
     const observer = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
     try {
@@ -856,9 +910,9 @@ describe("WebSocket observer-first attach", () => {
         "observer geometry",
         15_000,
       );
-      // the spawned pty carries the pane's grid, not the observer's 40x20
-      expect(geometry.cols).toBe(rectBefore!.width);
-      expect(geometry.rows).toBe(rectBefore!.height);
+      // the spawned pty carries the grid the pane's terminal has (its rect holds herdr's borders
+      // too), not the observer's 40x20
+      expect(geometry).toMatchObject({ cols: own!.cols, rows: own!.rows });
       // herdr's layout is untouched either way
       expect(await rectOf()).toEqual(rectBefore);
     } finally {
@@ -896,11 +950,12 @@ describe("WebSocket concurrent attach", () => {
       await first.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId, "first pty-data", 15_000);
       await second.waitFor((m) => m.type === "pty-data" && m.pane_id === paneId, "second pty-data", 15_000);
 
-      // one attachment means one client set: a resize reaches both. Two attachments
-      // would leave one client on an orphaned record that never hears it.
-      first.send({ type: "resize", pane_id: paneId, cols: 90, rows: 25 });
-      await first.waitFor((m) => m.type === "pane-geometry" && m.cols === 90 && m.rows === 25, "first hears resize", 5000);
-      await second.waitFor((m) => m.type === "pane-geometry" && m.cols === 90 && m.rows === 25, "second hears resize", 5000);
+      // one attachment means one client set: what the pane prints reaches both. Two attachments
+      // would leave one client on an orphaned record whose attach herdr refused.
+      await first.waitFor((m) => m.type === "input-ready" && m.pane_id === paneId, "attach took", 15_000);
+      first.send({ type: "input", pane_id: paneId, text: "echo race-$((6*7))\r" });
+      await first.waitFor((m) => m.type === "pty-data" && String(m.data).includes("race-42"), "first hears the output", 5000);
+      await second.waitFor((m) => m.type === "pty-data" && String(m.data).includes("race-42"), "second hears the output", 5000);
     } finally {
       first.close();
       second.close();

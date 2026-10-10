@@ -162,6 +162,12 @@ export function PaneTerminal({
   // keyboard by itself, only a tap on the message box or the grid does. A desktop has no keyboard
   // to raise, and the pane it picks takes the typing at once.
   const coarseRef = useRef(coarse); coarseRef.current = coarse;
+  // A viewport sizes the pane only while it is in front on a touch screen (a phone's terminal
+  // lens), and lets go when it leaves (keep-size). A desktop draws herdr's own grid: herdr's screen
+  // sits beside it, and a tab left open must not hold the pane at its size, or herdr's screen
+  // shows the top of a taller grid and loses the prompt under its bottom edge.
+  const drives = (): boolean => coarseRef.current && !observeRef.current && !fixedGridRef.current
+    && !chatViewRef.current && document.visibilityState === "visible";
   const { settings, update: updateSettings } = useSettings();
   const shortcutSettings = useRef(settings.shortcutOverrides);
   shortcutSettings.current = settings.shortcutOverrides;
@@ -307,12 +313,12 @@ export function PaneTerminal({
     termRef.current = term;
     fitRef.current = fit;
 
-    // A grid that is not this browser's own (observing, or mirrored from a PC that cannot
-    // attach) may be larger than the mount. The mount then scrolls (PaneTerminal.css) and a
-    // drag pans it. Until the user pans, the view keeps the cursor's row in sight: the top of
-    // the grid while the row fits there, else the bottom rows, where a prompt sits. A mirror
-    // has no cursor; xterm's own rests on the last row with text, which serves the same.
-    const adopted = (): boolean => observeRef.current || fixedGridRef.current;
+    // A grid that is not this browser's own (herdr's, or another device's) may be larger than
+    // the mount. The mount then scrolls (PaneTerminal.css) and a drag pans it. Until the user
+    // pans, the view keeps the cursor's row in sight: the top of the grid while the row fits
+    // there, else the bottom rows, where a prompt sits. A mirror has no cursor; xterm's own
+    // rests on the last row with text, which serves the same.
+    const adopted = (): boolean => !drives();
     let panned = false;
     const followCursor = (): void => {
       host.toggleAttribute("data-adopted-grid", adopted());
@@ -618,11 +624,11 @@ export function PaneTerminal({
         if (message.pane_id === paneRef.current) term.options.disableStdin = true;
       } else if (message.type === "role-ack") {
         // the server is the authority on the role; only after this ack may an
-        // interact client reclaim the shared grid it stopped owning
+        // interact client size the pane again
         const nowObserving = message.mode === "observe";
         observeRef.current = nowObserving;
         term.options.disableStdin = nowObserving || secretRef.current !== null || heldRef.current;
-        if (!nowObserving && !fixedGridRef.current && !chatViewRef.current) {
+        if (drives()) {
           try {
             fit.fit();
           } catch {
@@ -634,15 +640,14 @@ export function PaneTerminal({
         panned = false;
         followCursor();
       } else if (message.type === "pane-geometry") {
-        // observe clients adopt the pty's grid; interact clients drive it and ignore this,
-        // unless the grid is fixed: then nobody here drives it
+        // every client adopts the pty's grid, the one sizing it too: it hears its own size back,
+        // or the size of a device that took the pane after it (the latest wins). A fixed grid is
+        // a mirror's: nobody here sizes it
         if (message.pane_id !== paneRef.current) return;
         if (message.fixed) fixedGridRef.current = true;
-        // kept while the terminal lens ignores it: another device may drive the grid, and the
-        // chat lens entered later must draw its hidden screen for that grid, not this device's
+        // the chat lens entered later draws its hidden screen for this grid: the screen it reads
+        // (a masked prompt) is drawn for it
         sharedGridRef.current = { cols: message.cols, rows: message.rows };
-        // the chat lens adopts the shared grid too: the screen it reads (a masked prompt) is drawn for it
-        if (!observeRef.current && !fixedGridRef.current && !chatViewRef.current) return;
         if (term.cols !== message.cols || term.rows !== message.rows) term.resize(message.cols, message.rows);
         panned = false;
         followCursor();
@@ -782,9 +787,6 @@ export function PaneTerminal({
           followCursor();
           return;
         }
-        // the chat lens covers the grid: a phone's viewport or keyboard must not resize the
-        // shared pty under another device (#361); the switch back to the terminal refits
-        if (chatViewRef.current) return;
         try {
           fit.fit();
         } catch {
@@ -843,14 +845,12 @@ export function PaneTerminal({
     host.addEventListener("touchmove", onTouchMove, { passive: false });
     host.addEventListener("touchend", onTouchEnd, { passive: true });
 
-    // The pty is shared per pane: a client on another device (typically a phone)
-    // resizes it to its own geometry, and this tab's viewport never changed, so
-    // the ResizeObserver above stays silent and the pane is left at the other
-    // device's size. Re-assert our geometry whenever this tab comes back. Observe
-    // connections never do this: they own no geometry to re-assert.
+    // A phone in front sizes the pane: coming back (another device may have taken the pane
+    // meanwhile, and this viewport never changed, so the ResizeObserver above stays silent) it
+    // takes it again, and leaving (another app, the screen locked) it lets go at once.
     const refit = (): void => {
       const current = paneRef.current;
-      if (!current || observeRef.current || fixedGridRef.current || chatViewRef.current) return;
+      if (!current || !drives()) return;
       try {
         fit.fit();
       } catch {
@@ -859,7 +859,9 @@ export function PaneTerminal({
       command({ kind: "resize", paneId: current, cols: term.cols, rows: term.rows, force: true });
     };
     const onVisible = (): void => {
-      if (document.visibilityState === "visible") refit();
+      if (document.visibilityState === "visible") return refit();
+      const current = paneRef.current;
+      if (current && coarseRef.current) command({ kind: "keep-size", paneId: current });
     };
     window.addEventListener("focus", refit);
     document.addEventListener("visibilitychange", onVisible);
@@ -920,7 +922,7 @@ export function PaneTerminal({
       if (term.options.fontSize === terminalFontSize && term.options.fontFamily === fontFamily) return;
       term.options.fontSize = terminalFontSize;
       term.options.fontFamily = fontFamily;
-      if (observeRef.current || fixedGridRef.current || chatViewRef.current) return;
+      if (!drives()) return;
       try {
         fitRef.current?.fit();
       } catch {
@@ -934,19 +936,26 @@ export function PaneTerminal({
     return () => { superseded = true; };
   }, [terminalFontSize, fontFamily]);
 
-  // the grid must re-fit when the lens switches back: the chat lens covered it, and a
-  // resize while covered may have been skipped by a zero-size layout
+  // the chat lens covers the grid: a phone lets go of the pane, and the hidden screen keeps the
+  // pty's grid. The terminal lens on a phone sizes the pane again, fitted anew: a resize while
+  // covered may have been skipped by a zero-size layout
   useEffect(() => {
+    const shared = sharedGridRef.current;
+    const grid = termRef.current;
+    const adopt = (): void => {
+      if (shared && grid && (grid.cols !== shared.cols || grid.rows !== shared.rows)) grid.resize(shared.cols, shared.rows);
+    };
     if (chatView) {
       const pane = paneRef.current;
       if (pane) command({ kind: "keep-size", paneId: pane });
-      // the grid another device left the pty at while this one showed the terminal
-      const shared = sharedGridRef.current;
-      const hidden = termRef.current;
-      if (shared && hidden && !observeRef.current && (hidden.cols !== shared.cols || hidden.rows !== shared.rows)) hidden.resize(shared.cols, shared.rows);
+      adopt();
       return;
     }
-    if (observeRef.current || fixedGridRef.current) return;
+    if (!drives()) {
+      adopt();
+      if (!autoSelected && !coarseRef.current) grid?.focus();
+      return;
+    }
     const term = termRef.current;
     try {
       fitRef.current?.fit();
@@ -983,6 +992,8 @@ export function PaneTerminal({
       /* not laid out yet; the ResizeObserver will follow up */
     }
     command({ kind: "attach", paneId, cols: term.cols, rows: term.rows, keepSize: chatViewRef.current });
+    // the attach leaves the pane at its size: a phone in front takes it
+    if (drives()) command({ kind: "resize", paneId, cols: term.cols, rows: term.rows, force: true });
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
     if (!chatViewRef.current && !autoSelected && !coarseRef.current) term.focus();

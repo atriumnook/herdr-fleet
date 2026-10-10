@@ -48,6 +48,7 @@ import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 import { MirrorSession } from "./mirror.ts";
+import { paneGrid, type Grid } from "./pane-grid.ts";
 import { mirrorInput } from "./mirror-input.ts";
 import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
@@ -111,6 +112,11 @@ const ATTACH_HELD_MESSAGE = "Another web bridge has this pane open. It connects 
  */
 const ATTACH_RELOOKUP_FOR_MS = 5_000;
 const ATTACH_RELOOKUP_MS = 100;
+/** How often the panes attached here are looked up in herdr's layout, for a rect that changed (regrid). */
+const LAYOUT_POLL_MS = 1000;
+/** How long a regrid waits for herdr to apply its layout to the terminal let go of, and how often it looks. */
+const REGRID_SETTLE_MS = 1000;
+const REGRID_POLL_MS = 50;
 /** what a pane lookup answers for a pane that has no terminal to attach any more */
 const PANE_GONE_CODES = new Set(["pane_not_found", "pane_not_restored", "no_terminal"]);
 /** The gap between a composer message's text and its Enter (see submitText). */
@@ -195,9 +201,23 @@ interface PaneAttachment {
   /** set when herdr cannot attach here: `pty` repaints the pane's screen (server/mirror.ts), on the pane's own grid */
   mirror?: MirrorSession;
   clients: Set<Client>;
-  /** the pty's current grid: interact clients set it, observe clients adopt it */
+  /**
+   * the pty's grid, which every client adopts: the pane's own, as herdr lays it out, unless a
+   * viewport sizes it (driver). An attach holds the terminal at its pty's size, so a viewport
+   * that kept it after the user left it (a tab left open) had herdr's own screen show the top
+   * of a taller grid, the prompt under its bottom edge: a viewport sizes the pane only while
+   * it is in front (a phone's terminal lens), and lets go when it leaves.
+   */
   cols: number;
   rows: number;
+  /** the viewport sizing the pane now, the latest to ask (tmux's window-size latest) */
+  driver?: Client;
+  /** the pane's own grid when a viewport took it, given back when that viewport lets go */
+  ownGrid?: Grid;
+  /** the pane's rect in herdr's layout when the grid was read: a change re-reads the grid (regrid) */
+  rect?: { width: number; height: number } | null;
+  /** lets go of the terminal so herdr applies its layout, reads the grid it got and attaches again */
+  regrid?: () => Promise<void>;
   /** bounded tail so a client joining late still sees the current screen */
   replay: ReplayBuffer;
   stalled: Map<Client, number>;
@@ -513,17 +533,28 @@ export function createServer(
     return { cols, rows };
   }
 
-  function resizePty(paneId: string, cols: number, rows: number): void {
-    const attachment = attachments.get(paneId);
-    // a mirrored pane's grid is herdr's own: no browser resizes it
-    if (!attachment || attachment.mirror || (attachment.cols === cols && attachment.rows === rows)) return;
+  function setGrid(paneId: string, attachment: PaneAttachment, cols: number, rows: number): void {
+    if (attachment.cols === cols && attachment.rows === rows) return;
     attachment.cols = cols;
     attachment.rows = rows;
     attachment.pty.resize(cols, rows);
     broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols, rows });
   }
 
-  function ensureAttachment(paneId: string, cols: number, rows: number, forObserver: boolean): Promise<PaneAttachment> {
+  /**
+   * The viewport sizing the pane lets go: the pane is back at the grid it had, herdr's. A layout
+   * that moved meanwhile is seen at the next look (regridMoved), which left its rect as it was.
+   */
+  function release(paneId: string, client: Client): void {
+    const attachment = attachments.get(paneId);
+    if (!attachment || attachment.driver !== client) return;
+    const own = attachment.ownGrid;
+    attachment.driver = undefined;
+    attachment.ownGrid = undefined;
+    if (own) setGrid(paneId, attachment, own.cols, own.rows);
+  }
+
+  function ensureAttachment(paneId: string): Promise<PaneAttachment> {
     const existing = attachments.get(paneId);
     if (existing) return Promise.resolve(existing);
     // a second attach arriving while the first is still resolving the terminal joins
@@ -532,26 +563,27 @@ export function createServer(
     const pending = pendingAttachments.get(paneId);
     if (pending) return pending;
 
-    const created = spawnAttachment(paneId, cols, rows, forObserver).finally(() => pendingAttachments.delete(paneId));
+    const created = spawnAttachment(paneId).finally(() => pendingAttachments.delete(paneId));
     pendingAttachments.set(paneId, created);
     return created;
   }
 
-  async function spawnAttachment(paneId: string, cols: number, rows: number, forObserver: boolean): Promise<PaneAttachment> {
+  async function spawnAttachment(paneId: string): Promise<PaneAttachment> {
     await retiringAttachments.get(paneId);
     const mirrored = !(await terminalAttach());
     const { terminalId, rect } = await terminalInfoFor(paneId);
-    // an observer-first attachment spawns at the pane's own grid (fallback 80x24 when
-    // the layout has no rect for it): the attach must not seed the shared pty with a
-    // watching phone's viewport
-    const spawnCols = forObserver || mirrored ? (rect?.width ?? 80) : cols;
-    const spawnRows = forObserver || mirrored ? (rect?.height ?? 24) : rows;
+    // every attachment spawns at the pane's own grid: read from its tty where that can be
+    // done (the rect is larger by herdr's borders), else the rect, else 80x24
+    const grid = mirrored ? null : await paneGrid(paneId).catch(() => null);
+    const spawnCols = grid?.cols ?? rect?.width ?? 80;
+    const spawnRows = grid?.rows ?? rect?.height ?? 24;
     const attachment: PaneAttachment = {
       ready: mirrored,
       pty: undefined as unknown as PtySession,
       clients: new Set<Client>(),
       cols: spawnCols,
       rows: spawnRows,
+      rect,
       replay: new ReplayBuffer(MAX_REPLAY_BYTES),
       stalled: new Map(),
     };
@@ -607,6 +639,8 @@ export function createServer(
     let refusedSince: number | null = null;
     /** the terminal attached to: a pane keeps its id across a server handoff, its terminal does not */
     let attachedTerminal = terminalId;
+    /** the attach a regrid let go of: what it still prints was drawn for the old grid */
+    let replaced: PtySession | null = null;
     const start = (): PtySession => {
       let output = ""; // this attach's own last words: herdr's refusal is in them
       // its first bytes wait ATTACH_HOLD_MS: a refusal (herdr's setup, teardown and message)
@@ -757,7 +791,7 @@ export function createServer(
         cols: attachment.cols,
         rows: attachment.rows,
         onData: (data) => {
-          if (retired || attachments.get(paneId) !== attachment) return;
+          if (retired || session === replaced || attachments.get(paneId) !== attachment) return;
           output = (output + data).slice(-1024);
           if (held === null) return forward(data);
           held += data;
@@ -781,8 +815,72 @@ export function createServer(
       spawnFailure(paneId, error);
       throw error;
     }
+    // While attached, herdr keeps the terminal at the attach's size and ignores its own layout
+    // (a split dragged, a zoom, its window resized). Let go of it, herdr applies the layout:
+    // the grid is read then, and the attach comes back at it.
+    let regridding = false;
+    attachment.regrid = async () => {
+      if (regridding || attachment.driver || attachment.held || !attachment.ready) return;
+      regridding = true;
+      try {
+        const previous = attachment.pty as PtySession;
+        replaced = previous;
+        attachment.ready = false;
+        broadcast(paneId, { type: "input-ready", pane_id: paneId, ready: false });
+        previous.kill();
+        await previous.exited;
+        let grid: Grid | null = null;
+        for (const deadline = Date.now() + REGRID_SETTLE_MS; ;) {
+          grid = await paneGrid(paneId).catch(() => null);
+          // a pane on no herdr screen (a headless server) keeps its grid: the wait runs out
+          if (!grid || grid.cols !== attachment.cols || grid.rows !== attachment.rows || Date.now() >= deadline) break;
+          await Bun.sleep(REGRID_POLL_MS);
+        }
+        if (attachments.get(paneId) !== attachment) return;
+        if (attachment.clients.size === 0) {
+          closeAttachment(paneId);
+          return;
+        }
+        // a viewport that took the pane meanwhile sizes it: the grid read is its own to give back
+        if (grid && attachment.driver) attachment.ownGrid = grid;
+        else if (grid) {
+          attachment.cols = grid.cols;
+          attachment.rows = grid.rows;
+        }
+        // the tail was drawn for the old grid; the new attach paints the whole screen again
+        attachment.replay = new ReplayBuffer(MAX_REPLAY_BYTES);
+        broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols: attachment.cols, rows: attachment.rows });
+        try {
+          attachment.pty = start();
+        } catch (error) {
+          const message = spawnFailure(paneId, error);
+          broadcast(paneId, { type: "error", code: "command_failed", message });
+          broadcast(paneId, { type: "pty-exit", pane_id: paneId, code: null });
+          closeAttachment(paneId);
+        }
+      } finally {
+        regridding = false;
+      }
+    };
 
     return attachment;
+  }
+
+  /** The panes whose rect in herdr's layout moved since their grid was read: each lets go and reads it again. */
+  async function regridMoved(): Promise<void> {
+    // a pane a viewport sizes is not herdr's to lay out until it lets go
+    const attached = [...attachments].filter(([, attachment]) => attachment.regrid && attachment.ready && !attachment.held && !attachment.driver);
+    if (attached.length === 0) return;
+    const snapshot = await sessionSnapshot();
+    const rects = new Map(snapshot.layouts.flatMap((layout) => layout.panes).map((entry) => [entry.pane_id, entry.rect]));
+    for (const [paneId, attachment] of attached) {
+      const rect = rects.get(paneId);
+      if (!rect) continue;
+      const now = { width: rect.width, height: rect.height };
+      const before = attachment.rect;
+      attachment.rect = now;
+      if (before && (before.width !== now.width || before.height !== now.height)) void attachment.regrid?.();
+    }
   }
 
   /** The attaching client sees the error in-band; the log is the only record the operator gets. */
@@ -793,6 +891,7 @@ export function createServer(
   }
 
   function detach(paneId: string, client: Client): void {
+    release(paneId, client);
     client.data.output.delete(paneId);
     const attachment = attachments.get(paneId);
     if (!attachment) return;
@@ -1437,8 +1536,7 @@ export function createServer(
               client.data.attached.add(message.pane_id);
               let attachment: PaneAttachment;
               try {
-                // a covered grid (keep_size) creates the pty at the pane's own size, as an observer does
-                attachment = await ensureAttachment(message.pane_id, geometry.cols, geometry.rows, client.data.mode === "observe" || message.keep_size === true);
+                attachment = await ensureAttachment(message.pane_id);
               } catch (error) {
                 client.data.attached.delete(message.pane_id);
                 throw error;
@@ -1458,9 +1556,10 @@ export function createServer(
               const alreadyAttached = attachment.clients.has(client);
               attachment.clients.add(client);
               if (!alreadyAttached && message.flow_control === "ack") client.data.output.set(message.pane_id, new OutputWindow());
-              // a mirrored screen is drawn for the pane's own grid: the client takes that size
-              // before the screen, or the rows would wrap in a grid of another width
-              if (attachment.mirror) send(client, { type: "pane-geometry", pane_id: message.pane_id, cols: attachment.cols, rows: attachment.rows, fixed: true });
+              // the screen is drawn for the pty's grid: the client takes that size before the
+              // screen, or the rows would wrap in a grid of another width. A mirror's is fixed:
+              // no viewport sizes it (fixed); any other a viewport in front may (resize)
+              send(client, { type: "pane-geometry", pane_id: message.pane_id, cols: attachment.cols, rows: attachment.rows, ...(attachment.mirror ? { fixed: true } : {}) });
               // hand the newcomer the current screen it would otherwise have missed
               // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
               const replay = attachment.mirror ? attachment.mirror.current ?? "" : attachment.replay.text();
@@ -1470,19 +1569,6 @@ export function createServer(
               reconcileOutput(message.pane_id);
               if (client.data.closing) break;
               if (attachment.ready && !attachment.held) send(client, { type: "input-ready", pane_id: message.pane_id });
-              if (attachment.mirror) break;
-              if (client.data.mode === "interact" && message.keep_size !== true) {
-                // an operator's viewport owns the shared grid
-                resizePty(message.pane_id, geometry.cols, geometry.rows);
-              } else {
-                // an observer, or a grid the chat lens covers, adopts the grid the operators left behind
-                send(client, {
-                  type: "pane-geometry",
-                  pane_id: message.pane_id,
-                  cols: attachment.cols,
-                  rows: attachment.rows,
-                });
-              }
               break;
             }
             case "detach": {
@@ -1569,15 +1655,23 @@ export function createServer(
                 send(client, { type: "error", code: "invalid_geometry", message: "cols and rows must be integers in 1..1000" });
                 break;
               }
-              // the pty is still being created (an attach from the chat lens, then the switch to the
-              // terminal lens before the terminal was looked up): the resize waits for it. Dropped,
-              // it would leave the pty at the pane's own grid under a terminal fitted to another.
+              // the pty is still being created (an attach, then the switch to the terminal lens before
+              // the terminal was looked up): the resize waits for it, or it would be lost
               const creating = attachments.has(message.pane_id) ? undefined : pendingAttachments.get(message.pane_id);
               if (creating && client.data.attached.has(message.pane_id)) {
                 try { await creating; } catch { break; }
-                if (client.data.closing || client.data.mode !== "interact" || !client.data.attached.has(message.pane_id)) break;
+                if (client.data.closing || client.data.mode !== "interact") break;
               }
-              resizePty(message.pane_id, geometry.cols, geometry.rows);
+              const attachment = attachments.get(message.pane_id);
+              // a mirrored pane's grid is herdr's own: no viewport sizes it
+              if (!attachment || attachment.mirror || !attachment.clients.has(client)) break;
+              if (!attachment.driver) attachment.ownGrid = { cols: attachment.cols, rows: attachment.rows };
+              attachment.driver = client;
+              setGrid(message.pane_id, attachment, geometry.cols, geometry.rows);
+              break;
+            }
+            case "release": {
+              if (typeof message.pane_id === "string") release(message.pane_id, client);
               break;
             }
             case "keys": {
@@ -1684,8 +1778,9 @@ export function createServer(
               client.data.mode = message.mode;
               send(client, { type: "role-ack", mode: message.mode });
               if (message.mode === "observe") {
-                // the fresh observer needs the grid it must adopt
+                // the fresh observer needs the grid it must adopt, and sizes no pane any more
                 for (const paneId of client.data.attached) {
+                  release(paneId, client);
                   const attachment = attachments.get(paneId);
                   if (attachment) {
                     send(client, { type: "pane-geometry", pane_id: paneId, cols: attachment.cols, rows: attachment.rows });
@@ -1717,6 +1812,14 @@ export function createServer(
     for (const paneId of attachments.keys()) reconcileOutput(paneId);
   }, 100);
   outputTimer.unref();
+  // herdr's layout moved under an attach (it does not apply it to an attached terminal itself)
+  let layoutPolling = false;
+  const layoutTimer = setInterval(() => {
+    if (layoutPolling) return;
+    layoutPolling = true;
+    regridMoved().catch(() => undefined).finally(() => { layoutPolling = false; });
+  }, LAYOUT_POLL_MS);
+  layoutTimer.unref();
 
   listeningPort = server.port ?? 0;
   // runs from before a restart: read back from herdr, so the finished ones are not counted as working
@@ -1727,6 +1830,7 @@ export function createServer(
     hostname,
     stop: () => {
       clearInterval(outputTimer);
+      clearInterval(layoutTimer);
       collector.stop();
       machines?.stop();
       fleet.stop();

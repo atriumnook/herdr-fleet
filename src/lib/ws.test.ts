@@ -95,6 +95,35 @@ it("attaches a grid the chat lens covers without resizing the shared pty, on a r
   client.close();
 });
 
+it("sizes the pane after a resize until it lets go, and takes it again on a reconnect", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  const sizing = () => socket.sent.filter((m) => m.type === "resize" || m.type === "release");
+  socket.open();
+  client.attach("w1:p1", 40, 20);
+  // letting go of a pane it never sized says nothing
+  client.keepSize("w1:p1");
+  expect(sizing()).toEqual([]);
+  // a phone's terminal lens in front sizes the pane
+  client.resize("w1:p1", 50, 30, true);
+  // the connection drops and comes back: the phone still in front sizes it again, after its attach
+  socket.open();
+  expect(socket.sent.slice(-2).map((m) => m.type)).toEqual(["attach", "resize"]);
+  // the page leaves the screen: it lets go, once
+  client.keepSize("w1:p1");
+  client.keepSize("w1:p1");
+  expect(sizing()).toEqual([
+    { type: "resize", pane_id: "w1:p1", cols: 50, rows: 30 },
+    { type: "resize", pane_id: "w1:p1", cols: 50, rows: 30 },
+    { type: "release", pane_id: "w1:p1" },
+  ]);
+  // and a reconnect after that leaves the pane alone
+  socket.open();
+  expect(socket.sent.at(-1)?.type).toBe("attach");
+  client.close();
+});
+
 it("waits for capabilities when output precedes snapshot, and supports old bridges", () => {
   for (const features of [["input-ready"], []]) {
     const client = new HerdrSocket("ws://test/ws"); client.connect();
