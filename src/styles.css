@@ -58,8 +58,6 @@
   --glass-strong: rgba(24, 32, 54, 0.78);
   --edge: rgba(150, 200, 255, 0.2);
   --glass-hi: rgba(220, 240, 255, 0.28);
-  --glass-sheen-a: rgba(125, 249, 255, 0.12);
-  --glass-sheen-b: rgba(160, 140, 255, 0.08);
   --glass-shadow: rgba(0, 4, 16, 0.6);
   --glass-blur: blur(28px) saturate(180%);
   --glow-1: rgba(80, 220, 255, 0.2);
@@ -142,7 +140,6 @@
   --dur-base: 180ms;
   --dur-pulse: 1600ms;
   --ease-out: cubic-bezier(0.2, 0, 0, 1);
-  --ease-spring: cubic-bezier(0.32, 0.72, 0, 1);
   /* the pulse jumps between its two looks: a smooth one has the browser draw a new frame at
      every display refresh for as long as an agent works (60+ a second), which stutters a
      video playing beside the app; two steps draw about one frame a second */
@@ -205,8 +202,6 @@
   --glass-strong: rgba(255, 255, 255, 0.82);
   --edge: rgba(255, 255, 255, 0.9);
   --glass-hi: rgba(255, 255, 255, 1);
-  --glass-sheen-a: rgba(60, 190, 255, 0.1);
-  --glass-sheen-b: rgba(130, 100, 255, 0.07);
   --glow-1: rgba(60, 190, 255, 0.28);
   --glow-2: rgba(130, 100, 255, 0.22);
   --glow-3: rgba(0, 200, 160, 0.14);
