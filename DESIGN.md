@@ -1,40 +1,43 @@
-# herdr web ui Design System
+# herdr-fleet Design System
 
-Extracted from the shipped client (`src/styles.css`, `src/components/*`), not invented. The machine
-copy of every token is the `:root` block in `src/styles.css`; every table below mirrors it value for
-value. When a component needs a value that is not here, add it to both first.
+The herdr-fleet design system (https://claude.ai/artifact/62aan9GDYEJmEYXYELbwf5) is the source of
+the principles, the state words and the token names. This file is how the code carries it out: the
+machine copy of every token is the `:root` block of `src/styles.css` (the light values in its
+`[data-theme="light"]` block), and every table below mirrors those blocks value for value. A value
+a component needs that is not here goes into both first.
 
 ## 1. Principles
 
-The herdr-fleet design system (https://claude.ai/artifact/62aan9GDYEJmEYXYELbwf5) is the source
-of the principles, the status words and the token names; this file mirrors the tokens as
-`src/styles.css` holds them. Herdr-fleet is used by one engineer who watches many coding agents:
-the screen recedes, and only what needs the person and what the person has selected stand out.
+Herdr-fleet is used by one engineer who watches many coding agents. The agents work on their own;
+the person notices what needs them, answers, and leaves again. The screen recedes, and only what
+needs the person and what the person has selected stand out.
 
-- **Attention leads.** Color and motion only mark an agent that needs the person, and the
-  person's own selection. Everything else is neutral (`--ink`, `--sub`, `--field`); the only
-  decorative color is the backdrop's glow.
-- **Status words and colors are fixed.** `Working` (`--working`), `Needs you` and `Failed`
-  (`--needs`), `Done` (`--done`), `Idle` (`--idle`): the same words and the same badge on every
-  screen.
-- **One layer of glass.** The sidebar, header, dialogs and sheets are one frosted layer
-  (`--glass` + `--glass-blur`) over the backdrop; what sits inside it is an opaque `--field`.
-  Glass never stacks. The terminal and the chat transcript stay on the opaque `--surface`.
-- **One place to switch.** What to look at (Pane / Fleet, Chat / Terminal) switches in the header.
-- **Two faces.** The UI is set in the OS Japanese gothic (`--font-ui`); mono is for machine values
-  only (role, CLI and model names, paths, commands, times). No all-caps or letter-spaced headings.
+- **Attention leads.** Color and motion only mark an agent that needs the person, and the person's
+  own selection. Everything else is neutral (`--ink`, `--sub`, `--field`); the only decorative color
+  is the ground's glow.
+- **State words and colors are fixed.** `Working` (`--working`), `Needs you` and `Failed` (`--needs`),
+  `Done` (`--done`), `Idle` (`--idle`): the same words and the same badge on every screen, except the
+  sidebar's rows, which show the badge's dot alone so the name keeps the width.
+- **One layer of glass.** The header, the sidebar, dialogs and sheets are one frosted layer
+  (`--glass` + `--glass-blur`) over the ground (`--bg` and its glows); what sits inside a panel, and
+  every card on the ground, is an opaque `--field`. Glass never stacks. The terminal and the chat
+  transcript stay on the opaque `--surface`.
+- **One place to switch.** What to look at (Pane / Fleet, Chat / Terminal) switches in the header's
+  segmented controls; nothing switches it from the bottom of the screen.
+- **Two faces.** The UI is set in the OS Japanese gothic (`--font-ui`); mono is for machine values only
+  (role, CLI and model names, paths, commands, times). No all-caps or letter-spaced headings.
 - **Shape by role.** Radius, spacing and height follow a part's role, the same on every screen.
-- **Labels in English, explanations in Japanese.** What is read at a glance (screen and feature
-  names, buttons, items, statuses, headings, counts, progress) is English; what is read word by
-  word (setting descriptions, error and notice bodies, confirmation bodies, guidance) is a
-  Japanese sentence. There is no language switch.
+- **Labels in English, explanations in Japanese.** What is read at a glance (screen and feature names,
+  buttons, items, states, headings, counts, progress) is English; what is read word by word (setting
+  descriptions, error and notice bodies, confirmation bodies, guidance) is a Japanese sentence, kept in
+  `src/lib/i18n.ja.ts`. There is no language switch.
 
 ## 2. Color
 
 ### Palette
 
-One palette, aurora. `:root` holds the dark values (the default and the look before settings
-load); `[data-theme="light"]` overrides them. The table is generated from those two blocks.
+Two themes, dark (the default, and the look before settings load) and light. `:root` holds the dark
+values and `[data-theme="light"]` overrides them; the table is taken from those two blocks.
 
 | Role | Token | Dark | Light |
 |------|-------|------|-------|
@@ -43,61 +46,61 @@ load); `[data-theme="light"]` overrides them. The table is generated from those 
 | Glow | `--glow-2` | `rgba(140, 110, 255, 0.22)` | `rgba(130, 100, 255, 0.22)` |
 | Glow | `--glow-3` | `rgba(40, 255, 200, 0.1)` | `rgba(0, 200, 160, 0.14)` |
 | Glass | `--glass` | `rgba(16, 22, 38, 0.46)` | `rgba(255, 255, 255, 0.52)` |
-| Glass/strong | `--glass-strong` | `rgba(24, 32, 54, 0.78)` | `rgba(255, 255, 255, 0.82)` |
+| Glass over cards | `--glass-strong` | `rgba(24, 32, 54, 0.78)` | `rgba(255, 255, 255, 0.82)` |
 | Glass edge | `--edge` | `rgba(150, 200, 255, 0.2)` | `rgba(255, 255, 255, 0.9)` |
+| Glass top highlight | `--glass-hi` | `rgba(220, 240, 255, 0.28)` | `rgba(255, 255, 255, 1)` |
+| Glass depth | `--glass-shadow` | `rgba(0, 4, 16, 0.6)` | `rgba(20, 40, 90, 0.16)` |
 | Reading surface | `--surface` | `#0b1020` | `#f7faff` |
-| Part surface | `--field` | `#121a2e` | `#edf2fa` |
+| Part face | `--field` | `#121a2e` | `#edf2fa` |
 | Part hover | `--field-hover` | `#18223a` | `#e1e9f5` |
-| Input | `--input` | `#0a0f1c` | `#ffffff` |
+| Input face | `--input` | `#0a0f1c` | `#ffffff` |
 | Line | `--line` | `#1c2742` | `#d3dcea` |
-| Line/strong | `--line-strong` | `#2a3858` | `#b9c6da` |
+| Line, strong | `--line-strong` | `#2a3858` | `#b9c6da` |
 | Control edge | `--control-edge` | `#5d6f96` | `#74839c` |
 | Text | `--ink` | `#d6e2f5` | `#1c2638` |
-| Text/strong | `--ink-strong` | `#f2f7ff` | `#0a1222` |
-| Text/sub | `--sub` | `#93a1bb` | `#4a576e` |
+| Text, strong | `--ink-strong` | `#f2f7ff` | `#0a1222` |
+| Text, sub | `--sub` | `#93a1bb` | `#4a576e` |
 | Accent | `--accent` | `#7df9ff` | `#00609a` |
-| Accent/hover | `--accent-hover` | `#b8fcff` | `#0a7cc0` |
+| Accent, hover | `--accent-hover` | `#b8fcff` | `#0a7cc0` |
 | On accent | `--on-accent` | `#021018` | `#ffffff` |
 | Tint | `--tint` | `rgba(125, 249, 255, 0.13)` | `rgba(0, 96, 154, 0.1)` |
 | Working | `--working` | `#8fa8ff` | `#3049c0` |
 | Needs you | `--needs` | `#ff6b8a` | `#a6183e` |
 | Done | `--done` | `#5cf2b0` | `#0a6443` |
 | Idle | `--idle` | `#93a1bb` | `#4a576e` |
-| Working/tint | `--working-tint` | `rgba(143, 168, 255, 0.14)` | `rgba(48, 73, 192, 0.1)` |
-| Needs/tint | `--needs-tint` | `rgba(255, 107, 138, 0.14)` | `rgba(166, 24, 62, 0.1)` |
-| Done/tint | `--done-tint` | `rgba(92, 242, 176, 0.12)` | `rgba(10, 100, 67, 0.1)` |
-| Needs/text | `--needs-text` | `#ffd3dc` | `#8f1838` |
-| Meter/plenty | `--meter-ok` | `var(--done)` | `—` |
-| Meter/getting low | `--meter-mid` | `#ffd166` | `#8a5a00` |
-| Meter/low | `--meter-low` | `var(--needs)` | `—` |
+| Working tint | `--working-tint` | `rgba(143, 168, 255, 0.14)` | `rgba(48, 73, 192, 0.1)` |
+| Needs tint | `--needs-tint` | `rgba(255, 107, 138, 0.14)` | `rgba(166, 24, 62, 0.1)` |
+| Done tint | `--done-tint` | `rgba(92, 242, 176, 0.12)` | `rgba(10, 100, 67, 0.1)` |
+| Needs text | `--needs-text` | `#ffd3dc` | `#8f1838` |
+| Meter, plenty | `--meter-ok` | `var(--done)` | `—` |
+| Meter, getting low | `--meter-mid` | `#ffd166` | `#8a5a00` |
+| Meter, low | `--meter-low` | `var(--needs)` | `—` |
 | Scrim | `--scrim` | `rgba(2, 4, 10, 0.6)` | `rgba(20, 40, 90, 0.25)` |
 | Terminal bg | `--term-bg` | `#0b1020` | `#f7faff` |
 | Terminal fg | `--term-fg` | `#d6e2f5` | `#1c2638` |
 | Terminal cursor | `--term-cursor` | `#7df9ff` | `#00609a` |
 | Terminal selection | `--term-selection` | `#1d3557` | `#cfe3f7` |
 
+`--glass-blur` is `blur(28px) saturate(180%)` in both themes.
+
 ### Terminal theme
 
-xterm.js reads a JavaScript theme, so `src/lib/settings.ts` `terminalTheme()` mirrors these four
-CSS tokens verbatim for each resolved theme (`settings.test.ts` checks the match).
-
-| Role | Token | Dark | Light | xterm key |
-|------|-------|------|-------|-----------|
-| Background | `--term-bg` | `#0b1020` | `#f7faff` | `background` |
-| Foreground | `--term-fg` | `#d6e2f5` | `#1c2638` | `foreground` |
-| Cursor | `--term-cursor` | `#7df9ff` | `#00609a` | `cursor` |
-| Selection | `--term-selection` | `#1d3557` | `#cfe3f7` | `selectionBackground` |
+xterm.js reads a JavaScript theme, so `terminalTheme()` in `src/lib/settings.ts` mirrors the four
+`--term-*` tokens verbatim for each resolved theme (`settings.test.ts` checks the match); no CSS
+reads them.
 
 ### Rules
 - `--accent` marks only the person's selection and action (the selected row's rail, the chosen
   segment, the primary button, focus, the terminal cursor); agent states never use it.
 - `--needs` marks only what needs the person: `Needs you`, `Failed`, error notices, the nearest
-  layer's edge. Destructive buttons are not red; a confirmation stops them.
-- Agent state is always written as a word as well as colored; the badge text is `--ink`.
-- A control drawn by its edge (field, segmented, toggle) uses `--control-edge` (3:1 on every
-  surface it sits on); `--line` only groups.
+  card's edge. A destructive action is not red: a confirm stops it.
+- Agent state is written as a word as well as colored, and the badge's word is `--ink`. Where a
+  sidebar row shows only the dot, the word is its tooltip and accessible name, Working's dot also
+  breathes, Idle's is a ring, and a Needs you pane also sits under the worded **Needs you** heading.
+- A control drawn by its edge (field, segmented, toggle) uses `--control-edge` (3:1 on every surface
+  it sits on); `--line` only groups.
 - `theme: "system"` follows `prefers-color-scheme`; `src/lib/settings.ts` writes the resolved
-  `data-theme`, `color-scheme`, and matching PWA `<meta name="theme-color">`.
+  `data-theme`, `color-scheme`, and the matching PWA `<meta name="theme-color">`.
 
 ## 3. Typography
 
@@ -105,37 +108,39 @@ CSS tokens verbatim for each resolved theme (`settings.test.ts` checks the match
 
 | Level | Token | Comfortable | Compact | Typical use |
 |-------|-------|-------------|---------|-------------|
-| Micro | `--fs-2xs` | `11px` | `10px` | Badges, hints, kbd |
-| Meta | `--fs-xs` | `12px` | `11px` | Subtitles, field labels |
-| Small | `--fs-sm` | `13px` | `12px` | Controls, row titles |
-| Body | `--fs-md` | `14px` | `13px` | Body and dialog copy |
-| Large | `--fs-lg` | `16px` | `15px` | Header title, modal title |
-| Display | `--fs-xl` | `18px` | `17px` | Markdown h1 |
-| Input | `--fs-input` | `16px` | `16px` | Mobile-safe text input |
+| Micro | `--fs-2xs` | `11px` | `10px` | Keycaps, elapsed times, capsule details |
+| Caption | `--fs-xs` | `12px` | `11px` | Badges, section headings, field labels, mono metadata |
+| Small | `--fs-sm` | `13px` | `12px` | Descriptions, hints, notices, segment options |
+| Body | `--fs-md` | `14px` | `13px` | Body copy, rows, buttons, setting names |
+| Large | `--fs-lg` | `16px` | `15px` | Header title, the nearest card's name, the prompt card's title |
+| Heading | `--fs-xl` | `18px` | `17px` | Dialog titles |
+| Input | `--fs-input` | `16px` | `16px` | Every text field (no zoom on a phone) |
+
+The Fleet screen's title is 30px bold, its one size off the scale.
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--font-ui` | `"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", system-ui, sans-serif` | Chrome and chat prose |
-| `--font-mono` | `"Symbols Nerd Font Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace` | Paths, keys, terminal-adjacent metadata |
+| `--font-ui` | `"Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans CJK JP", "Noto Sans JP", "Yu Gothic UI", system-ui, sans-serif` | Chrome and chat prose; no font is served |
+| `--font-mono` | `"Symbols Nerd Font Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace` | Machine values |
 | `--lh-tight` | `1.2` | Titles |
 | `--lh-base` | `1.5` comfortable / `1.45` compact | Body copy |
 | `--fw-regular` | `400` | Body |
-| `--fw-medium` | `500` | Controls |
-| `--fw-semibold` | `600` | Labels and titles |
-| `--fw-bold` | `700` | Brand |
-| `--tracking-tight` | `-0.01em` | Brand and primary titles |
+| `--fw-medium` | `500` | Controls, badges, section headings |
+| `--fw-semibold` | `600` | Names and titles |
+| `--fw-bold` | `700` | The primary button, screen titles, the brand |
+| `--tracking-tight` | `-0.01em` | The brand and the header title |
 
 ### Settings
-- `theme`: `dark`, `light`, or `system`; default `dark`.
-- `density`: `comfortable` or `compact`; default `comfortable`.
+- `theme`: `dark`, `light` or `system`; default `dark`. `density`: `comfortable` or `compact`;
+  default `comfortable`.
 - Terminal font size is independent: default `13px`, clamped to `10–22px`.
 - Terminal and chat font families are comma-separated lists, default empty. They go in front of the
   terminal's built-in fonts (after the bundled Symbols Nerd Font Mono, which only draws icons) and of
   `--font-ui` in the chat's prose (as `--font-chat`), never in place of them; code in the chat keeps
-  `--font-mono`. At most 200 characters, with `;`, `{`, `}`, `<`,
-  `>`, `\` and control characters stripped and names with spaces quoted.
-- Composer Enter behavior and folded thinking visibility are preferences, not typography tokens.
-- All settings share one sanitized `localStorage["herdr-web-ui:settings"]` record.
+  `--font-mono`. At most 200 characters, with `;`, `{`, `}`, `<`, `>`, `\` and control characters
+  stripped and names with spaces quoted. The terminal's built-in list is Latin mono fonts, then
+  `Noto Sans Mono CJK JP` per glyph, then `monospace`.
+- All settings share one sanitized `localStorage["herdr-fleet:settings"]` record (`src/lib/settings.ts`).
 
 ## 4. Spacing & Layout
 
@@ -145,44 +150,45 @@ All spacing derives from a 4px base.
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--space-1` | `4px` | Tight icon and control gaps |
-| `--space-2` | `8px` | Row and menu gaps |
-| `--space-3` | `12px` | Control padding |
-| `--space-4` | `16px` | Section and modal padding |
-| `--space-5` | `20px` | Wide modal padding |
-| `--space-6` | `24px` | Card breathing room |
+| `--space-1` | `4px` | Icon and control gaps, the gap between sidebar rows |
+| `--space-2` | `8px` | Menu gaps, the gap between cards, the floating panels' inset |
+| `--space-3` | `12px` | A row's inside, control padding |
+| `--space-4` | `16px` | A panel's and a dialog's inside, between cards and settings sections |
+| `--space-5` | `20px` | The nearest card's inside |
+| `--space-6` | `24px` | A screen's outer edge, between sections |
 | `--space-8` | `32px` | Large separation |
 
 ### Radii
 
 | Token | Value | Usage |
 |-------|-------|-------|
-| `--radius-sm` | `6px` | Chips and inner controls |
-| `--radius-md` | `8px` | Buttons, inputs, selected rows |
-| `--radius-lg` | `12px` | Menus and chat surfaces |
+| `--radius-sm` | `6px` | Segment options, keycaps |
+| `--radius-md` | `8px` | Buttons, fields, rows, notices |
+| `--radius-lg` | `12px` | Cards, menus, the composer, the reading surface |
 | `--radius-xl` | `16px` | Glass panels: header, sidebar, dialogs, sheets |
-| `--radius-pill` | `999px` | Pills and dots |
+| `--radius-pill` | `999px` | Badges, capsules, dots |
 
 ### Sizes
 
-Comfortable values are `:root`; the final column is the complete compact override set.
+Comfortable values are `:root`; the compact column is the complete compact override set.
 
 | Token | Comfortable | Compact | Usage |
 |-------|-------------|---------|-------|
-| `--header-h` | `52px` | `46px` | App header |
-| `--sidebar-w` | `320px` | `300px` | Sidebar/drawer |
-| `--control-h` | `34px` | `32px` | Buttons and fields |
+| `--header-h` | `52px` | `46px` | App header (`100px` at `<=768px`: two rows) |
+| `--sidebar-w` | `320px` | `300px` | Sidebar / drawer |
+| `--input-h` | `44px` | — | Text fields |
+| `--control-h` | `34px` | `32px` | Buttons |
 | `--touch-target` | `40px` | — | Coarse-pointer minimum |
 | `--keybar-h` | `48px` | — | Terminal key bar |
-| `--row-h` | `56px` | `44px` | Roster and palette rows |
-| `--chip-h` | `20px` | `18px` | Badge/pill height |
+| `--row-h` | `56px` | `44px` | Sidebar and palette rows |
+| `--chip-h` | `20px` | `18px` | Badge and pill height |
 | `--icon-size` | `18px` | — | Standard icon |
 | `--mark-size` | `22px` | — | Brand mark |
-| `--avatar-size` | `32px` | `26px` | Roster mark box |
-| `--dot-size` | `7px` | — | Connection dot |
+| `--avatar-size` | `28px` | `24px` | A row's agent mark box |
+| `--dot-size` | `7px` | — | Connection and PC dots |
 | `--rail-w` | `3px` | — | Selected-row rail |
 | `--hairline` | `1px` | — | Borders |
-| `--content-w` | `820px` | — | Chat/settings content |
+| `--content-w` | `820px` | — | Chat and settings content |
 | `--palette-w` | `640px` | — | Command palette |
 | `--palette-top` | `12vh` | — | Palette top offset |
 
@@ -193,16 +199,11 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--ring` | `2px solid var(--accent)` | Global `:focus-visible` outline |
 | `--ring-offset` | `2px` | Outline offset |
 | `--z-banner` | `5` | Terminal banners |
-| `--z-popover` | `10` | Composer completions |
+| `--z-popover` | `10` | Composer completions, the prompt card |
 | `--z-scrim` | `15` | Mobile drawer scrim |
 | `--z-drawer` | `20` | Mobile drawer |
 | `--z-modal` | `30` | Dialog and palette scrims |
 | `--z-droplet` | `40` | In-app alert, over dialogs |
-
-### Notice (`.notice`)
-- What went wrong, in words: `--needs-tint` face, `--needs-text`, `--fs-sm`, `--radius-md`, 10px
-  12px inside, `role="alert"`. Used by the confirm, the new session dialog, the folder browser,
-  the prompt card, the composer and the transcript; the body is a Japanese sentence.
 
 ### In-app alert
 
@@ -220,27 +221,27 @@ One set for both themes: the card is island black wherever it shows.
 | `--droplet-shadow` | `rgba(0, 0, 0, 0.35)` | Drop shadow under the liquid |
 
 ### Shell
-- `.app` is a full-viewport column: `.app-header` over `.app-body`; the body is sidebar plus
-  `.terminal-host`. The app's ground is `--bg` with three soft glows; the header and the sidebar
-  are each one glass panel over it (`--glass`, `--edge`, `--glass-blur`, `--shadow-panel`), never
-  stacked. Wider than `768px` they float at `--space-2` with `--radius-xl`, and the terminal or chat
-  sits on its own opaque `--surface` with a hairline and `--radius-lg`; at `<=768px` the header runs
-  edge to edge and the drawer is the same glass. While a phone's soft keyboard is up (`data-keyboard`), `--app-height` follows
-  `visualViewport` so the keyboard does not cover input; otherwise the shell is `100dvh`, because an
-  iPhone home screen app reports a visual viewport shorter than the screen without a keyboard.
-- Header anatomy, left to right: mobile drawer toggle / desktop sidebar toggle; flexible context
-  title plus PC/workspace/cwd subtitle; the segmented Pane/Fleet switch, then the Chat/Terminal
-  switch (Pane only); the connection chip (herdr version in its tooltip) and meta actions for
-  files, palette, notifications and lock. Theme
-  lives in Settings and the palette; the herdr version also sits in the sidebar footer.
-- The sidebar is fixed-width on desktop and a `<=768px` drawer. The desktop collapse removes its
-  column; the drawer uses a scrim and keeps safe-area insets. On touch, a mostly horizontal swipe in
-  from the left `24px` edge opens the drawer and a swipe to the left closes it (`56px` of travel).
-- The terminal stack contains a positioned terminal surface, then composer or key bar. The xterm
-  mount stays alive under the chat lens; changing views never creates a second connection.
-- At `<=480px`, labels shed in priority order: version, brand name, context subtitle, connection
-  text and desktop-only control labels. Icons and selected context remain. At `<=768px` the header
-  takes a second row, where the two switches share the width as halves with their words.
+- `.app` is a full-viewport column: `.app-header` over `.app-body`; the body is the sidebar plus
+  `.terminal-host`. The app's ground is `--bg` with three soft glows; the header and the sidebar are
+  each one glass panel over it (`--glass`, 1px `--edge`, `--glass-blur`, `--shadow-panel`). Wider
+  than `768px` they float `--space-2` off the edges with `--radius-xl`, and the terminal or chat sits
+  on its own opaque `--surface` with a hairline and `--radius-lg`; at `<=768px` the header runs edge
+  to edge and the drawer is the same glass, each keeping only the edge that faces the content.
+- While a phone's soft keyboard is up (`data-keyboard`), `--app-height` follows `visualViewport` so
+  the keyboard does not cover input; otherwise the shell is `100dvh`, because an iPhone home screen
+  app reports a visual viewport shorter than the screen without a keyboard.
+- Header, left to right: the drawer toggle (phone) or the sidebar toggle (desktop); the context (the
+  selected pane's mark and title over PC › workspace › folder, or the brand); the Pane / Fleet
+  switch, then the Chat / Terminal switch while a pane is shown on the Pane screen; the connection
+  chip (herdr version in its tooltip) and the files, palette, alerts and sign-out actions.
+- At `<=768px` the header takes a second row, where the two switches share the width as halves with
+  their words; at `<=480px`, the brand name, the context's subtitle, the connection's word, the
+  offline pill and desktop-only labels shed. Icons and the selected context remain.
+- The sidebar is fixed-width on a desktop and a drawer at `<=768px`. The desktop collapse removes
+  its column; the drawer uses a scrim and keeps safe-area insets. On touch, a mostly horizontal swipe
+  in from the left `24px` edge opens the drawer and a swipe to the left closes it (`56px` of travel).
+- The terminal stack holds a positioned terminal surface, then the composer or the key bar. The xterm
+  mount stays alive under the chat lens; changing views never opens a second connection.
 
 ## 5. Components
 
@@ -248,47 +249,61 @@ One set for both themes: the card is island black wherever it shows.
 - `.btn` is a text control at `--control-h`, `--radius-md`, `--fs-md`: standard (`--field`, 1px
   `--line`, `--ink`), `.btn-primary` (`--accent`, `--on-accent`, bold; one per screen or card) and
   `.btn-ghost` (no face or edge). A destructive action is never red: a confirm stops it, and the
-  confirm's primary button says what happens. Stop in the composer is a standard button.
-- `.icon-button` is a square unlabeled visual control with mandatory `aria-label`; `.is-outlined`
-  adds the border. Both families use `--control-h`, `--radius-md`, focus ring, hover and disabled.
+  confirm's primary button says what happens.
+- `.icon-button` is a square icon control with a mandatory `aria-label`.
 - Coarse pointers grow controls to `--touch-target`.
 
-### Segmented control (`.segmented`)
+### Segmented control (`.segmented`, `Segmented`)
 - The track is `--field` with a 1px `--control-edge` edge, `--radius-md`, `3px` inside. Options are
   `28px` high (`--touch-target` on coarse pointers), `--radius-sm`, `--fs-sm`; the rest read in
   `--sub`. The one `aria-pressed="true"` option reads `--ink-strong` on `--tint`, with a 2px
   `--accent` line along its foot.
 - `Segmented` (`src/components/Segmented.tsx`) draws it as a named `role="group"`; the arrow keys
   move between its options (Home and End to either end), Enter or Space chooses.
-- Used for Pane/Fleet, Chat/Terminal and Settings choices. No other shape switches the same thing:
-  not tabs, a row of buttons, or an ornament along the bottom of the screen.
+- Used for Pane / Fleet, Chat / Terminal and Settings choices. No other shape switches the same
+  thing: not tabs, a row of buttons, or an ornament along the bottom of the screen.
 
-### Keyboard hint (`.kbd`)
-- An inline mono keycap: `18px` high, strong bottom edge, `--radius-sm`, `--fs-2xs`.
-- `Mod` resolves to `⌘` on Apple platforms and `Ctrl` elsewhere.
+### Field (`.field`, `.input`, `.select`)
+- A stacked label (`--fs-xs` medium `--sub`), an optional hint (`--fs-sm` `--sub`) and the field:
+  `--input-h`, the `--input` face, 1px `--control-edge`, `--radius-md`, `--fs-input` on every screen.
+- Focus makes the edge 2px of `--accent`.
+
+### Notice (`.notice`)
+- What went wrong, in words: a `--needs-tint` face, `--needs-text`, `--fs-sm`, `--radius-md`, 10px
+  12px inside, `role="alert"`. The confirm, the new session dialog, the folder browser, the prompt
+  card, the composer and the transcript use it; the body is a Japanese sentence.
+
+### Badge (`.badge`)
+- Agent states read **Idle**, **Working**, **Needs you**, **Done** (`STATUS_WORD` in
+  `src/lib/status.ts`); a state herdr does not know has no badge, never a **—** one. A Fleet run adds
+  **Failed** and reads the word of the section it sits in: a starting or unknown run reads
+  **Working**, and an ended run, folded under its own button, has none.
+- A pill at `--chip-h`: a 7px dot, the word in `--ink` at `--fs-xs` medium, a 1px edge and a face.
+  The dot and the edge take the state's color; the face is its tint (`--field` for Idle). Only
+  Working's dot breathes; the word never fades.
+- `.is-dot` (sidebar rows only): the dot alone at 9px, the word visually hidden and in its tooltip;
+  Idle's dot is a ring.
+
+### Pill (`.pill`)
+- Mono metadata at `--chip-h`: the herdr version in the sidebar footer, a count beside a heading.
+  `herdr offline` is the one header pill, on the needs tint.
 
 ### Modal (`.modal*`)
-- `.modal-scrim` centers an `aria-modal` dialog at `--z-modal`; `.modal` is a capped scrollable
-  column with header, body and footer, and one glass panel (`--glass-strong`, 1px `--edge`,
-  `--glass-blur`, `--radius-xl`, `--shadow-panel`; `--field` without blur where transparency is
-  reduced). Header, body and footer are `--space-4` inside; the title is `--fs-xl` (18px).
-- At `<=640px`, it becomes a bottom sheet with top `--radius-xl` corners and safe-area padding.
-- Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
+- `.modal-scrim` centers an `aria-modal` dialog at `--z-modal`; `.modal` is a capped scrollable column
+  with header, body and footer, and one glass panel (`--glass-strong`, 1px `--edge`, `--glass-blur`,
+  `--radius-xl`, `--shadow-panel`; `--field` without blur where transparency is reduced). Header,
+  body and footer are `--space-4` inside; the title is `--fs-xl`.
+- At `<=640px` it becomes a bottom sheet with top `--radius-xl` corners and safe-area padding.
+- Escape, explicit close and a scrim click close a dialog; its first meaningful control takes focus.
+  Dialogs and their scrims snap open and closed.
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
   Cancel has the focus, Tab stays between the two buttons, the action (primary) sits at the right,
   and a failure shows inside it. A no gives the focus back to what opened it.
 
-### Field (`.field`, `.input`, `.select`)
-- Stacked label (`--fs-xs` medium `--sub`), optional hint (`--fs-sm` `--sub`) and the field:
-  `--input-h` (44px), `--input` face, 1px `--control-edge`, `--radius-md`, `--fs-input` (16px) on
-  every screen.
-- Focus makes the edge 2px of `--accent`; errors use a `--needs-tint` notice in `--needs-text`
-  with `role="alert"`.
-
 ### Menu / popover (`.menu*`)
 - Bordered `--radius-lg` surface with `--shadow-pop`; rows use `--control-h`, `--radius-md`, icon,
   ellipsized main label and optional hint.
-- Hover or `aria-selected` uses `--field-hover`. Headings are dim micro labels.
+- Hover or `aria-selected` uses `--field-hover`. Headings are `--fs-xs` medium `--sub`.
 - The sidebar's row menu (`.row-menu`) has no button: a right click, a long press on touch
   (`500ms`, a finger that moves `10px` scrolls instead) or the menu key (`Shift+F10`) opens it
   (`src/lib/longPress.ts`). It is a `.menu` drawn through a portal at fixed coordinates, at the
@@ -304,27 +319,14 @@ One set for both themes: the card is island black wherever it shows.
   row, Close workspace) asks in a confirm first; a pane that leaves its workspace standing closes
   at once. After a confirmed close, focus lands on the header's workspace-list toggle.
 
-### Badge (`.badge`)
-- Agent states read **Idle**, **Working**, **Needs you**, **Done** (`STATUS_WORD` in
-  `src/lib/status.ts`), on every surface; a state herdr does not know has no badge, never a
-  **—** one. A Fleet run adds **Failed** and
-  reads the word of the section it sits in: a starting or unknown run reads **Working**, and an
-  ended run, folded under its own button, has no badge.
-- A pill at `--chip-h`: a 7px dot, the word in `--ink` at `--fs-xs`, a 1px edge and a face. The
-  dot and the edge take the state's color (`--idle`, `--working`, `--needs`, `--done`); the face is
-  the state's tint (`--field` for Idle). Only Working's dot breathes; the word never fades.
-- The written word keeps color from being the only signal. The sidebar's rows are the one place
-  that shows the dot alone: Working's dot also breathes, Needs you rows also sit under their
-  worded heading, and every dot's tooltip and accessible name is the word.
-
-### Pill (`.pill`)
-- Mono metadata at `--chip-h`. The herdr version is a sidebar-footer pill; offline is the one header pill and uses danger tokens.
-
-### Sidebar roster row and footer
-- No top bar. The sidebar opens with the plan panel (when Settings puts it there), **Needs you**
-  and the PC groups. A session starts from the `+` on its PC's header, or from the **New session**
-  button in the dashed **No workspaces yet** box of an empty PC. **Add PC** lives in Settings →
-  Remote PCs and in the command palette. Search lives in the command palette, not the roster.
+### Sidebar
+- No top bar. The sidebar opens with **Needs you** and the PC groups. A session starts from the `+`
+  on its PC's header, or from the **New session** button in the dashed **No workspaces yet** box of an
+  empty PC. Search lives in the command palette, not the sidebar.
+- A PC group header is caret, monitor, name, **Host** for the local machine, a state dot (done =
+  connected, working pulse = connecting or reconnecting, needs = error), then a `+` that starts a
+  session on that PC (disabled while it is offline). Connected says nothing more; every other state
+  is written under the name, with the server's error clamped to two lines and complete in the tooltip.
 - Appearance's **Sidebar grouping** is **By workspace** by default, with numbered, foldable
   workspace headers and merged single-pane rows. **By folder** opts into the grouping below.
   The choice applies immediately and persists in the browser's existing Settings record. Workspace
@@ -338,18 +340,15 @@ One set for both themes: the card is island black wherever it shows.
 - Folder order follows the first workspace in server order; workspace handles still reorder
   workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
 - A workspace header shows drag handle, number, editable label and roll-up status dot; its menu
-  opens from the header itself, like a row's.
-  Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent.
-- Every pane row is a `--field` face at `--row-h`, `--radius-md`, `--space-1` apart: a 28px
-  agent/shell mark, the editable title (`--fs-md`, `--ink`) over the pane's place (mono, `--sub`),
-  then the state at the right end as the badge's dot alone (`.badge.is-dot`, 9px; Idle's is a
-  ring, so it differs from Working by shape as well): the word is its tooltip and is read out, not
-  drawn, so the name keeps the width. A pane with no agent has no dot. The selected row is
-  `--tint` with its title in `--ink-strong` semibold, an `--accent` rail along its left edge and an
-  accent-edged mark box: my selection is accent, the state stays with the badge. The rows under
-  **Needs you** are the same rows, under a heading that says the state in words. No row carries a
-  `⋯`: its menu opens from the row (see the row menu above). Inline server failures stay beside
-  their row.
+  opens from the header itself, like a row's. Drag and drop reorders; `Alt+↑/↓` on the handle is the
+  keyboard equivalent.
+- Every pane row is a `--field` face at `--row-h`, `--radius-md`, `--space-1` apart: a 28px agent or
+  shell mark, the editable title (`--fs-md`, `--ink`) over the pane's place (mono, `--sub`), then the
+  state at the right end as the badge's dot alone. A pane with no agent has no dot. The selected row
+  is `--tint` with its title in `--ink-strong` semibold, an `--accent` rail along its left edge and an
+  accent-edged mark box: the person's selection is accent, the state stays with the dot. The rows
+  under **Needs you** are the same rows, under a heading that says the state in words. No row carries
+  a `⋯`: its menu opens from the row. Inline server failures stay beside their row.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
   in the row's tooltip. Line two names what the group header does not: the folder under a
@@ -357,17 +356,18 @@ One set for both themes: the card is island black wherever it shows.
   header. A merged single-pane row in the workspace view has no header: it names the workspace
   and the folder, each only when the title or the other does not already say it. The palette,
   which has no header, names the workspace and the folder, once when they are the same.
-- A PC group header is caret, monitor, name, “Host” for the local machine, a state dot
-  (done = connected, working pulse = connecting/reconnecting, blocked = error), then a `+` that
-  starts a session on that PC (disabled while it is offline) and, for an SSH PC, its manage
-  button. Connected says
-  nothing more; every other state is written under the name, with the server's error clamped to
-  two lines and complete in the tooltip.
 - Single-pane workspaces merge their workspace handle into the pane row, in both groupings: one
   row, no header, number or fold. A fold stored for such a workspace is ignored until it has a
   header again.
-- Footer holds the contextual **Install app** action, Settings with the plan meters beside it,
-  product name and herdr version.
+- The footer holds the contextual **Install app** action, **Settings**, and the product name with the
+  herdr version.
+
+### Header switches and connection
+- Both switches live in the header: Pane / Fleet always, Chat / Terminal while a pane is shown on the
+  Pane screen. The Fleet option carries the count of runs that need you (a `--needs` number; read out
+  as `Fleet: 1 need you`). Choosing Fleet again keeps Fleet: they are choices, not a toggle.
+- Connection is one quiet chip: a dot plus the written live / reconnecting / disconnected state;
+  reconnecting pulses the dot. On phones the chip keeps only its dot.
 
 ### Fleet run card (`.fleet-run`)
 - A run on the Fleet screen, in the order it needs you: Needs you, Failed, Working, Done; ended
@@ -384,37 +384,12 @@ One set for both themes: the card is island black wherever it shows.
 - Usage capsules are `--field` pills with a 1px `--line` (a low one `--meter-low`, a cooldown a
   dashed `--needs`); `Refresh usage` ends their row. Buttons are the app's `.btn`.
 
-### Plan meters (`.usage*`)
-- Beside Settings, one button holding up to four chips (three and `+N` past that), one per
-  account in the user's order: provider mark, mono `--fs-2xs` percent of the limit closest to
-  running out (used, or left when Settings says so), and a 2px bar on a `--line-strong` track
-  filled to that percent. From 80% used the percent and bar take `--needs`; the accent stays
-  chrome. A chip whose numbers are stale or missing dims. An account hidden in Settings is
-  left out of the strip and the popover; with every account hidden, neither shows.
-- The button opens a popover above the footer (`--shadow-pop`, `--radius-lg`), as wide as the
-  footer and scrolling when it outgrows the sidebar: per account its mark, name and plan pill with
-  the email or login right-aligned and ellipsized, then one row per limit (label, reset time, right-aligned percent) over a 4px bar. A problem
-  note is dim, red for an expired sign-in or a failed request.
-- At the top of the sidebar (Settings → Where), a panel with one row per account: mark, provider
-  and plan (the account only when two of one provider show), a 5px bar, the limit's window and its
-  reset as `1d 3h (10/4 15:00)` (time left in short units, then the local date and time), and the
-  percent large (`--fs-xl`) as tall as those three lines. The bar is coloured by what is left:
-  `--meter-ok` from half, `--meter-mid` from a fifth, `--meter-low` under it (the percent too).
-
 ### New session dialog
 - Agent select comes from `GET /api/agents`; shell-only is always available. Directory defaults to
   the selected pane cwd and name is an optional workspace label.
 - Submit calls `POST /api/workspace/create`; the server performs `workspace.create` and, when an
   agent was chosen, `agent.start` in its root pane. Pending and partial agent-start failure are
   explicit before the created pane opens.
-
-### Header context and connection
-- A selected pane shows agent mark + title over workspace + cwd. With no selection, the brand fills
-  the context slot.
-- Both switches live in the header: Pane/Fleet always, Chat/Terminal while a pane is shown. The
-  Fleet segment carries the count of runs that need you. Nothing floats along the bottom.
-- Connection is one quiet chip: a dot plus the written live/reconnecting/disconnected state;
-  reconnecting pulses the dot. On phones the chip keeps only its dot.
 
 ### Chat turn (`.chat-turn`)
 - The chat lens is a centered `--content-w` transcript over the still-attached terminal surface.
@@ -434,6 +409,14 @@ One set for both themes: the card is island black wherever it shows.
   one-line rows `▸ [icon] name / summary` in mono, indented under the header; mid-work narration
   sits between rows as dim, one-step-smaller prose. The newest turn opens by default, older ones
   fold. A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane.
+
+### Work block (`.work-block`, `.work-row`)
+- One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
+  timestamp minus this one's; "Working…" in `--working` behind a breathing dot while the agent runs)
+  over one-line rows `▸ [icon] name / summary` in mono, indented under the header; mid-work narration
+  sits between rows as dim, one-step-smaller prose. The newest turn opens by default, older ones fold.
+  A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane. A failed
+  row carries a **Failed** tag on the needs tint.
 
 ### Prompt card (`.prompt-card`)
 - Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp,
@@ -475,33 +458,30 @@ One set for both themes: the card is island black wherever it shows.
   is ignored. While working, Stop sends Escape and Queue stores the next message.
 
 ### Command palette
-- `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes
-  lead an empty query; arrows cycle, Enter activates and Escape closes.
-- Actions cover new session, lens/sidebar/theme, settings, notifications, lock and refresh, with
+- `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes lead
+  an empty query; arrows cycle, Enter activates and Escape closes.
+- Actions: New session, Switch to chat / terminal, Toggle sidebar, Toggle theme, Settings, Enable
+  notifications, Sign out, Browse files and Refresh, the conditional ones only when they apply, with
   `.kbd` hints where a global shortcut exists.
 
 ### Settings dialog
 - The dialog is the modal's glass panel; each section is a `--field` card (`--radius-lg`, 1px
-  `--line`, `--space-4` inside and between). An item's name is English at `--fs-md`, its
-  description a Japanese sentence at `--fs-sm` `--sub` under it. A toggle that is on is an
-  `--accent` track with an `--on-accent` knob at the right; off, a `--field` track with a
-  `--control-edge` edge and a `--sub` knob at the left.
-- Appearance: Dark / Light / System, Comfortable / Compact, terminal font `10–22px`, terminal font
-  family.
-- Composer: Enter sends. Chat: Show thinking, chat font size and family. Shortcuts: the complete
-  platform-resolved table.
-- A font family is a text field saved when it is left, on Enter or when the dialog closes, not
-  per keystroke.
-- Remote PCs follows Devices: an **Add PC** row (label, one-line description, button) opens the PC
-  setup dialog and closes Settings behind it; when that dialog closes, focus lands on the header's
-  workspace-list toggle. Under the row, once the server has answered, the bridge auto-update switch.
-- Install reflects installed, promptable or browser-instructions state; About links the repository.
-- Subscription usage: the on switch with one description, then (when on) Used / Remaining and one
-  hairline card of accounts (`.usage-accounts`, `--radius-md`): a `--field` header
-  with **Nearest limit first** at its right once the user has ordered, then one 38px row per account
-  (mark, name, dim ellipsized email, then 28px move-up, move-down and eye controls in fixed columns;
-  a move that cannot happen keeps its column but is not shown). A hidden account's row fades and
-  its eye closes; it stays listed so it can be shown again.
+  `--line`, `--space-4` inside and between). An item's name is English at `--fs-md`; its description
+  is a Japanese sentence at `--fs-sm` `--sub` under it. A toggle that is on is an `--accent` track
+  with an `--on-accent` knob at the right; off, a `--field` track with a `--control-edge` edge and a
+  `--sub` knob at the left.
+- Sections: **Appearance** (theme, density, sidebar grouping, terminal font size and font, terminal
+  input, wheel scroll speed), **Composer** (Enter sends, suggestion chip), **Chat** (panes open in,
+  show thinking, chat font size and font), **Alerts** (Needs you, Done, In the app, a test
+  notification), **Quick replies**, **Shortcuts** (the complete platform-resolved table), **Phone**
+  (reaching this server from a phone, keep screen on), **Devices** (paired devices and pairing),
+  **Install** and **About**.
+- A font family is a text field saved when it is left, on Enter or when the dialog closes, not per
+  keystroke.
+
+### Keyboard hint (`.kbd`)
+- An inline mono keycap: `18px` high, a strong bottom edge, `--radius-sm`, `--fs-2xs`.
+- `Mod` resolves to `⌘` on Apple platforms and `Ctrl` elsewhere.
 
 ### Terminal host, key bar and drawer
 - xterm has `scrollback: 0`; wheel/touch gestures reach herdr's alternate-screen scrollback. The
@@ -540,78 +520,78 @@ One set for both themes: the card is island black wherever it shows.
 | Type | Token | Value | Usage |
 |------|-------|-------|-------|
 | Micro | `--dur-fast` | `120ms` | Hover, active, toggle and control state |
-| Standard | `--dur-base` | `180ms` | Drawer slide; reserved dialog timing token |
+| Standard | `--dur-base` | `180ms` | Drawer slide, a card's lift |
 | Pulse | `--dur-pulse` | `1600ms` | Working and reconnecting dots (trough opacity 0.35; text never pulses) |
 | Easing | `--ease-out` | `cubic-bezier(0.2, 0, 0, 1)` | Finite transitions |
 | Pulse easing | `--ease-pulse` | `steps(2, jump-none)` | Endless working and reconnecting dots; avoids drawing every display refresh |
-| Spring easing | `--ease-spring` | `cubic-bezier(0.32, 0.72, 0, 1)` | Voice recording pill enter (180ms, scale 0.96->1 + opacity, from the mic button) and exit (120ms) |
 
 ### Rules
-- Only state changes move: hover/press, the drawer, settings switches, working and reconnecting.
-- Dialogs and their scrims snap open and closed; they have no entrance or exit animation. On mobile,
-  their static layout changes to a bottom sheet.
-- The voice recording waveform is the one surface allowed to draw every frame: only while
-  recording, driven by the live microphone level, transform-only (`scaleY` on 7 bars). The pill is
-  a state change, not a dialog, so the snap rule above does not apply to it.
-- `prefers-reduced-motion: reduce` removes pulses, drawer/control transitions, smooth chat scrolling
-  and settings toggle motion. State remains legible without animation.
-- Under reduced motion the voice pill swaps its bars for one level bar updated at 4 Hz and drops
-  the ring and the morph; the **Recording** label and the timer stay.
+- Only state changes move: hover and press, the drawer, settings switches, working and reconnecting
+  dots, a Fleet card lifting under the pointer, and the in-app alert.
+- Dialogs and their scrims snap open and closed; on a phone their static layout is a bottom sheet.
+- `prefers-reduced-motion: reduce` removes pulses, drawer and control transitions, the card lift,
+  smooth chat scrolling and toggle motion. State remains legible without animation.
 
 ## 7. Depth & Surface
 
 ### Strategy
 
-**Tonal shift + hairline, with shadow reserved for glass panels and overlays.** Parts inside a panel have no shadow.
+**Tonal shift and hairlines, with shadow reserved for glass panels, the nearest cards and overlays.**
+Parts inside a panel have no shadow.
 
 | Type | Value | Usage |
 |------|-------|-------|
-| Hairline | `var(--hairline) solid var(--line)` | Shell, fields, controls |
-| Strong edge | `var(--line-strong)` | Hover/focus separation |
-| Dashed edge | `var(--hairline) dashed var(--line)` | Unknown/empty states |
-| Tonal lift | `--field` on `--surface` | Selection, chips, tracks |
-| Tinted lift | Named tint over an opaque surface | Primary and agent states |
-| Panel shadow | `--shadow-panel` | The header and sidebar glass: top highlight plus depth |
+| Hairline | `var(--hairline) solid var(--line)` | Groups, cards, standard buttons |
+| Control edge | `var(--hairline) solid var(--control-edge)` | Fields, segmented tracks, toggles |
+| Strong edge | `var(--line-strong)` | Hover separation |
+| Dashed edge | `var(--hairline) dashed var(--line)` | Empty states |
+| Tonal lift | `--field` on `--surface` or the ground | Rows, cards, tracks |
+| Tinted lift | A state's tint over an opaque face | Badges, notices, selection |
+| Panel shadow | `--shadow-panel` (`inset 0 1px 0 var(--glass-hi), 0 14px 36px var(--glass-shadow)`) | Glass panels |
+| Near shadow | `--shadow-near` (`0 0 24px var(--needs-tint), 0 14px 36px var(--glass-shadow)`) | A card that needs the person: Needs you and Failed runs, the prompt card |
 | Drawer shadow | `--shadow-drawer` | Mobile drawer |
-| Overlay shadow | `--shadow-pop` | Menus, palette and modal cards |
+| Overlay shadow | `--shadow-pop` | Menus, the palette, the new messages pill |
 
-### Glass layers (Liquid / Spatial)
+### Glass layers
 
-One layer of glass floats over the ground (`--bg` and its glows): the header, the sidebar and the
-Fleet run's detail sheet. Everything inside a panel, and every card on the ground (the Fleet
-screen's run cards and usage capsules), is an opaque `--field` face: glass is never stacked.
+One layer of glass floats over the ground (`--bg` and its glows): the header, the sidebar, dialogs,
+the row sheet, the Fleet run's detail sheet and the access gate. Everything inside a panel, and
+every card on the ground (the Fleet screen's run cards and usage capsules), is an opaque `--field`
+face: glass is never stacked.
 
 | Token | Use |
 |-------|-----|
-| `--glow-1/b/c`, `--backdrop-grid` | The screen's backdrop: three soft glows over `--bg`, plus aurora's dot grid |
-| `--glass`, `--glass-strong` | A panel's fill: `--glass` for the header and sidebar, `--glass-strong` for a sheet that lies over cards |
-| `--edge`, `--glass-hi` | Its 1px edge and the inset highlight along its top |
-| `--glass-sheen-a/b` | The faint iridescent sweep across a layer (aurora) |
-| `--glass-blur` | `backdrop-filter` of a layer |
+| `--glow-1/2/3` | The ground: three soft radial glows over `--bg` (never on text or parts) |
+| `--glass`, `--glass-strong` | A panel's fill: `--glass` for the header, the sidebar and the access gate, `--glass-strong` for a dialog or sheet that lies over cards |
+| `--edge`, `--glass-hi` | A panel's 1px edge and the inset highlight along its top |
+| `--glass-blur` | A panel's `backdrop-filter` |
 | `--glass-shadow` | Depth: the nearer a layer, the larger its shadow |
 
-- Depth carries meaning: what waits on the person is nearest (`--shadow-near`, a `--needs` edge),
-  finished work recedes (opacity 0.72).
-- `prefers-reduced-transparency: reduce` and browsers without `backdrop-filter` get `--glass-strong`
-  without blur (the header and the sidebar: `--field`); `prefers-reduced-motion` drops the lift on hover.
+- Depth carries meaning: what needs the person is nearest (`--shadow-near`, a `--needs` edge),
+  working cards sit in the middle (no shadow), finished work recedes (opacity 0.72).
+- `prefers-reduced-transparency: reduce` and browsers without `backdrop-filter` get an opaque
+  `--field` panel without blur.
 - The terminal and the chat transcript never sit on glass.
 
 ## 8. Accessibility Constraints & Accepted Debt
 
 ### Constraints
 - WCAG 2.2 AA is the target; do not document numeric contrast without measuring both shipped themes
-  and every actual backing surface.
-- Global `:focus-visible` uses `--ring`; interactive controls remain keyboard reachable except the
-  touch key bar, which intentionally preserves terminal focus and has hardware-key equivalents.
-- Icon-only controls carry `aria-label`; toggles expose `aria-pressed` or `role="switch"`; selected
-  pane exposes `aria-current`; dialogs expose `role="dialog"` and `aria-modal`.
+  and every actual backing surface. The design system lists the measured pairs.
+- Global `:focus-visible` uses `--ring`; a field shows focus on its own 2px edge. Interactive controls
+  remain keyboard reachable except the touch key bar, which intentionally preserves terminal focus
+  and has hardware-key equivalents. A sidebar row's menu opens from the keyboard with the menu key.
+- Icon-only controls carry `aria-label`; toggles expose `aria-pressed` or `role="switch"`; segmented
+  controls are named groups; the selected pane exposes `aria-current`; dialogs expose `role="dialog"`
+  and `aria-modal`.
 - Status, loading and composer progress use `role="status"`; failures use `role="alert"`. Agent state
-  is text plus color, and unknown adds a dashed edge.
-- Touch targets grow to `--touch-target`; fields stay `--fs-input` where mobile zoom is a risk.
-- `prefers-reduced-motion` is honored. Lucide/inline SVG decoration is hidden from assistive tech.
+  is a word plus color; a dot alone carries the word as its accessible name.
+- Touch targets grow to `--touch-target`; fields stay at `--fs-input` so a phone does not zoom.
+- `prefers-reduced-motion` and `prefers-reduced-transparency` are honored. Lucide and inline SVG
+  decoration is hidden from assistive tech.
 - Global shortcuts use the convention **Mod+Shift+key**: Mod is Command on Apple platforms and Ctrl
   elsewhere. The settings table is the discoverable source of the complete mapping.
-- `document.title` is `<pane title> · herdr` while selected, otherwise `herdr web ui`.
+- `document.title` is `<pane title> · herdr` while a pane is selected, otherwise `herdr fleet`.
 
 ### Accepted debt
 
