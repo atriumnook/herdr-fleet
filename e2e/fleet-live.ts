@@ -21,6 +21,9 @@
  * scenarios whose names hold one of those comma-separated words, since every scenario costs model
  * calls: FLEET_E2E_ONLY=sandbox,"second turn" runs just these two.
  *
+ * One more starts a thread (FLEET_E2E_ONLY=thread): claude leads it on a worktree inside the fixed
+ * folder, which becomes a small repository, and codex reviews the change.
+ *
  * Start the test session clean before a run: it hands its environment to every agent.
  *   herdr --session herdr-fleet-test server stop
  *   env $(env | grep -oE '^(HERDR|CLAUDE|CODEX_COMPANION)[A-Z_]*' | sed 's/^/-u /') AGY_CLI_DISABLE_AUTO_UPDATE=true bun run e2e
@@ -76,7 +79,14 @@ for (const kind of KINDS) {
 if (KINDS.includes("codex")) writeFileSync(join(KINDS_DIR, ".herdr-fleet", "agents", "fleet-codex.md"), `---\nname: fleet-codex\ndescription: E2E fixture\nagent: codex\nmodel: ${KIND_MODELS["codex"]}\nthinking: off\ninteractive: false\n---\nYou are an E2E fixture. Run the fleet command your instructions name with the single argument list, in your shell. Your HANDOFF is exactly what that command prints, or its error if it fails. Write it to your result file with your file-writing tool, then reply with it. Do nothing else.\n`);
 // cursor stays open for a second turn
 if (KINDS.includes("cursor")) writeFileSync(join(KINDS_DIR, ".herdr-fleet", "agents", "chat-cursor.md"), `---\nname: chat-cursor\ndescription: E2E fixture\nagent: cursor\nmodel: ${KIND_MODELS["cursor"]}\nthinking: off\ninteractive: true\n---\n${kindPrompt}\n`);
-writeFileSync(join(KINDS_DIR, ".herdr-fleet", "fleet.json"), JSON.stringify({ maxConcurrent: 4, defaultWaitTimeoutMs: TIMEOUT_MS, recentReadLines: 80 }));
+writeFileSync(join(KINDS_DIR, ".herdr-fleet", "fleet.json"), JSON.stringify({
+  maxConcurrent: 4, defaultWaitTimeoutMs: TIMEOUT_MS, recentReadLines: 80,
+  // a thread's lead and its reviewer on each CLI's cheapest model, with no fallback to pay for
+  roles: {
+    lead: { model: KIND_MODELS["claude"], thinking: "low", fallbackModels: [] },
+    reviewer: { agent: "codex", model: KIND_MODELS["codex"], thinking: "off", fallbackModels: [] },
+  },
+}));
 
 // a recent usage reading from an earlier run would keep this run from reading cursor's screen again
 rmSync(join(STATE_DIR, "fleet-usage.json"), { force: true });
@@ -290,6 +300,59 @@ if (KINDS.includes("cursor")) {
       assert(waited.code === 0, `second turn exited ${waited.code}; ${facts}`);
       assert(run?.state !== "blocked", `the second turn was taken for a question; ${facts}`);
       assert(run?.result?.includes(second), `the result file does not hold ${second} (${JSON.stringify(run?.result)}); ${facts}`);
+    },
+  });
+}
+
+/** a thread's turn is a lead's whole job: it works, hands the review on and waits for it */
+const THREAD_TIMEOUT_MS = Number(process.env["FLEET_E2E_THREAD_TIMEOUT_MS"] ?? 900_000);
+
+/** The fixed folder as a repository with one small task in it, committed once; a run leaves it as it was. */
+function threadRepo(): void {
+  const git = (...args: string[]) => Bun.spawnSync(["git", "-c", "core.fsmonitor=false", "-C", KINDS_DIR, ...args], { stdout: "pipe", stderr: "pipe" });
+  if (git("rev-parse", "--verify", "HEAD").exitCode === 0) return;
+  git("init", "-q", "-b", "main");
+  writeFileSync(join(KINDS_DIR, "greet.mjs"), "export function greet() {\n  return \"hello\";\n}\n");
+  writeFileSync(join(KINDS_DIR, "check.mjs"), "import { greet } from \"./greet.mjs\";\nif (greet() !== \"hello, fleet\") { console.error(`greet() returned ${JSON.stringify(greet())}`); process.exit(1); }\nconsole.log(\"ok\");\n");
+  git("add", "greet.mjs", "check.mjs");
+  const committed = git("-c", "user.email=e2e@example.invalid", "-c", "user.name=fleet e2e", "commit", "-q", "-m", "e2e fixture");
+  assert(committed.exitCode === 0, `could not commit the thread fixture: ${committed.stderr.toString()}`);
+}
+
+if (KINDS.includes("claude") && KINDS.includes("codex")) {
+  scenarios.push({
+    name: "a thread's lead works on its own worktree, has the change reviewed on another CLI, and meets its contract",
+    async run() {
+      threadRepo();
+      await trustFolder("claude");
+      await trustFolder("codex");
+      const started = await fleetIn(KINDS_DIR, "unused", "thread", "--title", "E2E greet", "--json", "--task",
+        "Make greet() in greet.mjs return \"hello, fleet\". Done when `node check.mjs` prints ok. Keep the change to that function. Have the change reviewed by an agent of the reviewer role before you finish.");
+      assert(started.code === 0, `fleet thread exited ${started.code}: ${started.err}${started.out}`);
+      const lead = JSON.parse(started.out) as Run & { group: string; cwd: string; branch?: string; agent: string };
+      try {
+        assert(lead.branch === `fleet/${lead.id}` && lead.cwd === join(KINDS_DIR, ".herdr-fleet", "worktrees", lead.id), `not on a worktree of its own inside the repository: ${lead.cwd} ${lead.branch}`);
+        const waited = await fleetIn(KINDS_DIR, lead.group, "wait", lead.id, "--timeout", String(THREAD_TIMEOUT_MS));
+        const all = await runs(lead.group) as Array<Run & { agent: string }>;
+        const done = all.find((run) => run.id === lead.id);
+        const facts = factsOf(done, waited);
+        assert(waited.code === 0, `the lead's turn exited ${waited.code}; ${facts}`);
+        const check = Bun.spawnSync(["node", "check.mjs"], { cwd: lead.cwd, stdout: "pipe", stderr: "pipe" });
+        assert(check.exitCode === 0, `node check.mjs fails in the worktree: ${check.stderr.toString()}; ${facts}`);
+        assert(Bun.spawnSync(["node", "check.mjs"], { cwd: KINDS_DIR }).exitCode !== 0, "the main checkout changed: the lead did not stay on its worktree");
+        const reviewers = all.filter((run) => run.role === "reviewer");
+        assert(reviewers.length && reviewers.every((run) => run.agent !== done?.agent), `no review on another CLI than the lead's ${done?.agent}: ${JSON.stringify(all.map((run) => [run.role, run.agent]))}`);
+        const contract = Bun.file(join(STATE_DIR, "fleet-results", lead.id, "contract.md"));
+        assert(await contract.exists(), `the lead wrote no contract.md; ${facts}`);
+        const text = await contract.text();
+        assert(/- \[x\]/.test(text) && !/- \[ \]/.test(text) && !/- \[!\]/.test(text), `the contract is not met: ${text}`);
+        assert(/\bPASS\b/.test(done?.result ?? "") && /Contract:/i.test(done?.result ?? ""), `the HANDOFF opens with no PASS line or leaves out the contract: ${JSON.stringify(done?.result)}`);
+        console.log(`thread contract:\n${text.trim()}`);
+      } finally {
+        for (const run of await runs(lead.group).catch(() => [])) await herdrRpc("pane.close", { pane_id: run.paneId }, socket).catch(() => undefined);
+        Bun.spawnSync(["git", "-c", "core.fsmonitor=false", "-C", KINDS_DIR, "worktree", "remove", "--force", lead.cwd]);
+        Bun.spawnSync(["git", "-C", KINDS_DIR, "branch", "-D", `fleet/${lead.id}`]);
+      }
     },
   });
 }
