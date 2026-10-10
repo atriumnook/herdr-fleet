@@ -85,7 +85,7 @@ export function DevicesPanel({ model, emit }: DevicesPanelProps) {
                   </div>
                   <div className="devices-actions">
                     <button type="button" className="icon-button" aria-label={t("Rename {name}", { name: d.label })} onClick={() => emit({ type: "start-rename", id: d.id, label: d.label })}><Pencil /></button>
-                    <button type="button" className={`btn ${confirming === d.id ? "btn-danger" : "btn-ghost"}`} onClick={() => emit({ type: "revoke-device", id: d.id })}>
+                    <button type="button" className={confirming === d.id ? "btn" : "btn btn-ghost"} onClick={() => emit({ type: "revoke-device", id: d.id })}>
                       <Trash2 aria-hidden="true" />{t(confirming === d.id ? "Revoke?" : "Revoke")}
                     </button>
                   </div>

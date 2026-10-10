@@ -313,10 +313,11 @@
   border-color: var(--accent);
 }
 
+/* Stop interrupts the agent: an action of yours, not something that needs you, so not red */
 .composer-stop {
-  background: var(--needs-tint);
-  border-color: var(--needs);
-  color: var(--needs);
+  background: var(--field);
+  border-color: var(--line);
+  color: var(--ink);
 }
 
 .composer-queue-button {

@@ -13,16 +13,6 @@
   color: var(--ink-strong);
 }
 
-.row-menu .menu-item.is-danger,
-.row-sheet-item.is-danger {
-  color: var(--needs);
-}
-
-.row-menu .menu-item.is-danger svg,
-.row-sheet-item.is-danger svg {
-  color: currentColor;
-}
-
 .row-menu-divider {
   height: var(--hairline);
   margin: var(--space-1) 0;

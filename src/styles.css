@@ -589,7 +589,8 @@ button {
   display: none;
 }
 
-/* text buttons: .btn (neutral), .btn-primary, .btn-danger, .btn-ghost */
+/* text buttons: .btn (standard), .btn-primary (one per screen or card), .btn-ghost (quiet). A
+   destructive action is never red: a confirm stops it, and its primary button says what happens. */
 .btn {
   display: inline-flex;
   align-items: center;
@@ -641,12 +642,6 @@ button {
     background: var(--accent-hover);
     border-color: var(--accent-hover);
   }
-}
-
-.btn-danger {
-  background: var(--needs-tint);
-  border-color: var(--needs);
-  color: var(--needs-text);
 }
 
 .btn-ghost {
@@ -1061,11 +1056,11 @@ button {
 .error-retry {
   height: var(--control-h);
   padding: 0 var(--space-3);
-  background: transparent;
-  border: var(--hairline) solid var(--needs);
-  border-radius: var(--radius-sm);
-  color: var(--needs-text);
-  font-size: var(--fs-sm);
+  background: var(--field);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-md);
+  color: var(--ink);
+  font-size: var(--fs-md);
   font-weight: var(--fw-medium);
   cursor: pointer;
   transition: background-color var(--dur-fast) var(--ease-out);

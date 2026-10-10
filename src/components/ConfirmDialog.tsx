@@ -71,7 +71,7 @@ export function ConfirmDialog({ title, body, confirmLabel, pending, error, onCon
         </div>
         <footer className="modal-footer">
           <button ref={cancel} type="button" className="btn" disabled={pending} onClick={onClose}>{t("Cancel")}</button>
-          <button ref={action} type="button" className="btn btn-danger" disabled={pending} onClick={onConfirm}>{confirmLabel}</button>
+          <button ref={action} type="button" className="btn btn-primary" disabled={pending} onClick={onConfirm}>{confirmLabel}</button>
         </footer>
       </div>
     </div>,
