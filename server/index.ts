@@ -57,7 +57,7 @@ import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { MachineManager } from "./machines.ts";
 import { discoverAgents } from "./fleet/agents.ts";
 import { handleFleetRequest } from "./fleet/api.ts";
-import { loadConfig } from "./fleet/config.ts";
+import { loadConfig, loadStandingOrders } from "./fleet/config.ts";
 import { Orchestrator, type OrchestratorDeps } from "./fleet/orchestrator.ts";
 import { agyProbe, claudeProbe, codexProbe, UsageTracker } from "./fleet/usage.ts";
 import { RunRegistry } from "./fleet/registry.ts";
@@ -283,7 +283,7 @@ export function createServer(
     /** whether this runtime can run the PTY sidecar; unset, server/pty/sidecar.ts says. Tests give a runtime without Node or node-pty, while herdr keeps its own answer. */
     sidecar?: boolean;
     /** the fleet's runtime (herdr unless a test stands in one), roles and config; unset, the real ones */
-    fleet?: Partial<Pick<OrchestratorDeps, "runtime" | "agents" | "config">> & { usage?: UsageTracker };
+    fleet?: Partial<Pick<OrchestratorDeps, "runtime" | "agents" | "config" | "standingOrders">> & { usage?: UsageTracker };
   } = {},
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
@@ -474,6 +474,7 @@ export function createServer(
     instructionsDir: join(options.stateDir ?? defaultStateDir(), "fleet-instructions"),
     config: options.fleet?.config ?? ((cwd) => loadConfig(cwd)),
     agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)),
+    standingOrders: options.fleet?.standingOrders ?? ((cwd) => loadStandingOrders(cwd)),
     fleetCommand: FLEET_COMMAND,
     usage,
     onChanged: fleetChanged,

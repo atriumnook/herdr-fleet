@@ -66,7 +66,14 @@ const role = (name: string, extra: Partial<AgentDefinition> = {}): AgentDefiniti
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown>; agents?: AgentDefinition[]; usage?: UsageTracker } = {}) {
+interface SetupOptions {
+  config?: Partial<FleetConfig> | Record<string, unknown>; agents?: AgentDefinition[]; usage?: UsageTracker;
+  gitRoot?: (cwd: string) => Promise<string | null>; runSetup?: (cwd: string, command: string) => Promise<{ ok: boolean; output: string }>;
+  excludeWorktrees?: (repo: string) => Promise<void>;
+  standingOrders?: (cwd: string) => string;
+}
+
+function setup(options: SetupOptions = {}) {
   const root = mkdtempSync(join(tmpdir(), "fleet-orchestrator-"));
   roots.push(root);
   const runtime = new FakeRuntime();
@@ -75,7 +82,7 @@ function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown
   const fleet = new Orchestrator({
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
-    usage: options.usage, usageScreenMs: 300,
+    usage: options.usage, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}), standingOrders: options.standingOrders,
   });
   return { fleet, runtime, registry, root };
 }
@@ -96,9 +103,48 @@ describe("spawn", () => {
     expect(runtime.instructions[0]).toContain("You are worker.");
     expect(runtime.instructions[0]).toContain("fleet send <name-or-id>");
     expect(runtime.instructions[0]).toContain("Do not start other agents.");
+    // a caller reads the status line first, without the whole report
+    expect(runtime.instructions[0]).toContain("The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED");
     expect(runtime.prompts).toEqual([{ name: run.herdrName, text: "do it" }]);
     // the instruction file is gone once the agent has read it at startup
     expect(require("node:fs").readdirSync(root).filter((name: string) => name.startsWith("herdr-fleet-"))).toEqual([]);
+  });
+
+  it("asks an agent caller for a full brief before any pane, and hands its helper the brief as the task", async () => {
+    const { fleet, runtime } = setup();
+    await expect(spawn(fleet, { depth: 1 })).rejects.toMatchObject({ code: "incomplete_brief" });
+    expect(runtime.locations).toEqual([]);
+    const brief = { goal: "Fix the retry.", write: ["src/retry.ts"], context: "none", done: "One notification per retry.", verify: "bun test" };
+    const run = await spawn(fleet, { depth: 1, task: undefined, brief });
+    expect(run.write).toEqual(["/work/src/retry.ts"]);
+    expect(runtime.prompts[0]!.text).toContain("## Goal\n\nFix the retry.");
+  });
+
+  it("refuses a second writer of paths a working agent holds, and lets it in once that agent's turn settles", async () => {
+    const { fleet, runtime, registry } = setup();
+    const brief = { goal: "g", write: ["src"], context: "none", done: "d", verify: "v" };
+    const first = await spawn(fleet, { depth: 1, brief });
+    const error = await spawn(fleet, { depth: 1, brief: { ...brief, write: ["src/retry.ts"] } }).catch((e) => e);
+    expect(error).toMatchObject({ code: "scope_conflict" });
+    expect(error.message).toContain(`worker (${first.id}) is still changing /work/src`);
+    expect(runtime.locations).toHaveLength(1);
+    // a reader holds nothing, and a worktree run writes its own checkout
+    await spawn(fleet, { depth: 1, brief: { ...brief, write: [] } });
+    expect((await spawn(fleet, { depth: 1, brief, worktree: true })).write).toBeUndefined();
+    registry.upsert({ ...registry.get(first.id)!, state: "idle" });
+    await spawn(fleet, { depth: 1, brief: { ...brief, write: ["src/retry.ts"] } });
+  });
+
+  it("gives every agent the standing orders of the folder it starts in, and no section without any", async () => {
+    const asked: string[] = [];
+    const { fleet, runtime } = setup({ standingOrders: (cwd) => { asked.push(cwd); return "1. Ask before a push."; } });
+    await spawn(fleet);
+    expect(asked).toEqual(["/work"]);
+    expect(runtime.instructions[0]).toContain("## Standing orders");
+    expect(runtime.instructions[0]).toContain("1. Ask before a push.");
+    const bare = setup({ standingOrders: () => "" });
+    await spawn(bare.fleet);
+    expect(bare.runtime.instructions[0]).not.toContain("Standing orders");
   });
 
   it("records the idle herdr shows right after a prompt as working", async () => {
@@ -430,6 +476,22 @@ describe("usage routing", () => {
     expect(runtime.locations).toEqual([]);
   });
 
+  it("keeps the CLIs a caller avoids out, onto the next candidate, and says why", async () => {
+    const { fleet, runtime } = setup({ agents: crossRole() });
+    const run = await spawn(fleet, { avoid: ["pi"] });
+    expect(run).toMatchObject({ agent: "codex", model: "gpt-6", fallbackFrom: "p/primary" });
+    expect(run.skipped).toEqual([{ candidate: "p/primary", reason: "the caller keeps pi out" }]);
+    expect(runtime.starts.map((s) => s.kind)).toEqual(["codex"]);
+  });
+
+  it("refuses the spawn, before any pane, when the caller avoids every candidate's CLI", async () => {
+    const { fleet, runtime } = setup({ agents: crossRole() });
+    const error = await spawn(fleet, { avoid: ["pi", "codex", "claude"] }).catch((e) => e);
+    expect(error).toMatchObject({ code: "no_candidates" });
+    expect(error.message).toContain("claude:sonnet: the caller keeps claude out");
+    expect(runtime.locations).toEqual([]);
+  });
+
   it("lets a caller pick another CLI with an <agent>:<model> model", async () => {
     const { fleet, runtime } = setup();
     const run = await spawn(fleet, { model: "agy:gemini-pro" });
@@ -732,5 +794,54 @@ describe("agent kinds", () => {
     const run = await spawn(fleet);
     expect(run).toMatchObject({ model: "gemini-pro", fallbackFrom: "no-such", state: "working" });
     expect(runtime.closed).toEqual(["w1:p1"]);
+  });
+});
+
+describe("threads", () => {
+  const lead = role("lead", { interactive: true, spawning: true });
+
+  it("start a lead in a workspace named by the title, on a worktree of its own after the user's setup command", async () => {
+    const setups: Array<{ cwd: string; command: string }> = [];
+    const excluded: string[] = [];
+    const { fleet, runtime } = setup({
+      agents: [lead], gitRoot: async () => "/repo", config: { projects: { "/repo": { setup: "bun install --ignore-scripts" } } },
+      runSetup: async (cwd, command) => { setups.push({ cwd, command }); return { ok: true, output: "" }; },
+      excludeWorktrees: async (repo) => { excluded.push(repo); },
+    });
+    const run = await fleet.startThread({ title: "Fix the retry", task: "Fix the duplicate notification.", cwd: "/repo/src" });
+    expect(run).toMatchObject({ role: "lead", name: "Fix the retry", interactive: true, worktree: true, branch: `fleet/${run.id}`, depth: 1 });
+    // inside the repository, which the agent CLIs already trust, and out of its git status
+    expect(runtime.locations[0]).toMatchObject({ cwd: "/repo/src", label: "Fix the retry", worktree: true, branch: `fleet/${run.id}`, path: `/repo/.herdr-fleet/worktrees/${run.id}` });
+    expect(excluded).toEqual(["/repo"]);
+    expect(runtime.locations[0]!.callerPaneId).toBeUndefined();
+    expect(setups).toEqual([{ cwd: "/repo/src", command: "bun install --ignore-scripts" }]);
+    expect(runtime.prompts[0]!.text).toBe("Fix the duplicate notification.");
+    // each thread is a fleet of its own
+    const second = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo" });
+    expect(second.group).not.toBe(run.group);
+  });
+
+  it("fail before the lead starts when the setup command fails, and close the pane", async () => {
+    const { fleet, runtime, registry } = setup({
+      agents: [lead], gitRoot: async () => "/repo", config: { projects: { "/repo": { setup: "false" } } },
+      runSetup: async () => ({ ok: false, output: "npm ERR! missing script" }),
+    });
+    const error = await fleet.startThread({ title: "t", task: "t", cwd: "/repo" }).catch((e) => e);
+    expect(error).toMatchObject({ code: "setup_failed" });
+    expect(error.message).toContain("npm ERR! missing script");
+    expect(runtime.starts).toEqual([]);
+    expect(runtime.closed).toEqual(["w1:p1"]);
+    expect(registry.all()[0]).toMatchObject({ state: "failed" });
+  });
+
+  it("work in a plain workspace outside a repository, with no setup and no branch", async () => {
+    let setups = 0;
+    const { fleet, runtime } = setup({ agents: [lead], runSetup: async () => { setups += 1; return { ok: true, output: "" }; }, config: { projects: { "/notes": { setup: "x" } } } });
+    const run = await fleet.startThread({ title: "Notes", task: "t", cwd: "/notes" });
+    expect(run.worktree).toBe(false);
+    expect(run.branch).toBeUndefined();
+    expect(runtime.locations[0]).toMatchObject({ worktree: false, branch: undefined });
+    expect(setups).toBe(0);
+    await expect(fleet.startThread({ title: " ", task: "t" })).rejects.toMatchObject({ code: "invalid_title" });
   });
 });

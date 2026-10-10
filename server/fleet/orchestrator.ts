@@ -4,6 +4,8 @@ import { join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
+import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
+import { excludeWorktrees, gitRoot, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
 import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel } from "./types.ts";
@@ -26,7 +28,27 @@ export const RESULT_MAX_BYTES = 64 * 1024;
 const RESULT_FILE = "handoff.md";
 
 /** A spawn whose configured fallbacks (candidate entries) are still untried: consulted if its first turn fails. */
-interface SpawnPlan { request: SpawnRequest & { group: string }; fallbacks: string[] }
+/** A spawn with its brief turned into the task and the paths it may write, ready to try candidates for. */
+type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[]; thread?: ThreadPlace };
+
+/** Where a thread works: the repository its worktree comes from, or none outside one. */
+interface ThreadPlace { repo: string | null }
+
+/** A thread to start: its lead gets the task, in a workspace (and worktree) of its own named by the title. */
+export interface ThreadRequest {
+  title: string;
+  task?: string;
+  brief?: Partial<Brief>;
+  cwd?: string;
+  /** the caller's depth: 0 for a person, the screen, or a top-level agent */
+  depth?: number;
+}
+
+const THREAD_ROLE = "lead";
+interface SpawnPlan { request: PlannedSpawn; fallbacks: string[] }
+
+/** the states in which a run may still be writing the paths its brief gave it */
+const HOLDS_SCOPE: ReadonlySet<AgentState> = new Set(["starting", "working", "blocked", "unknown"]);
 
 export const isCompleted = (state: AgentState): boolean => state === "idle" || state === "done";
 export const isLive = (run: AgentRun): boolean => run.state !== "stopped" && run.state !== "failed";
@@ -59,6 +81,14 @@ export interface OrchestratorDeps {
   config: (cwd: string) => FleetConfig;
   /** the roles that exist in a folder */
   agents: (cwd: string) => AgentDefinition[];
+  /** the standing orders that apply in a folder (config.ts loadStandingOrders) */
+  standingOrders?: (cwd: string) => string;
+  /** the repository a folder lies in (thread.ts gitRoot); tests stand in their own */
+  gitRoot?: (cwd: string) => Promise<string | null>;
+  /** runs a project's setup command in a thread's fresh worktree (thread.ts runSetup) */
+  runSetup?: (cwd: string, command: string, signal?: AbortSignal) => Promise<SetupOutcome>;
+  /** keeps the threads' worktrees out of the repository's git status (thread.ts excludeWorktrees) */
+  excludeWorktrees?: (repo: string) => Promise<void>;
   /** the shell command an agent runs to reach the fleet (bin/fleet.ts) */
   fleetCommand: string;
   /** set in each agent's pane so its own fleet commands reach this server; read at each spawn */
@@ -177,9 +207,39 @@ export class Orchestrator {
   // ---- spawn -------------------------------------------------------------------------------
 
   async spawn(request: SpawnRequest, signal?: AbortSignal): Promise<AgentRun> {
+    return this.launch(request, signal);
+  }
+
+  /**
+   * A thread: a fleet of its own, whose lead starts in a new workspace named by the title, on a
+   * worktree of its own when the folder is a repository (after the user's setup command for it).
+   * The lead stays when its turn ends, so the thread can be asked again.
+   */
+  async startThread(request: ThreadRequest, signal?: AbortSignal): Promise<AgentRun> {
+    const title = request.title.trim();
+    if (!title || title.length > 120) throw new FleetError("invalid_title", "A thread needs a title of up to 120 characters.");
+    const cwd = resolve(request.cwd ?? process.cwd());
+    const repo = await (this.deps.gitRoot ?? gitRoot)(cwd);
+    if (repo) await (this.deps.excludeWorktrees ?? excludeWorktrees)(repo);
+    return this.launch({
+      role: THREAD_ROLE, name: title, task: request.task, brief: request.brief, cwd, depth: request.depth,
+      group: makeGroupId(), worktree: repo !== null, interactive: true,
+    }, signal, { repo });
+  }
+
+  private async launch(request: SpawnRequest, signal?: AbortSignal, thread?: ThreadPlace): Promise<AgentRun> {
     const group = request.group ?? makeGroupId();
     if (!/^[a-z0-9][a-z0-9_-]{0,47}$/i.test(group)) throw new FleetError("invalid_group", "group must be letters, digits, - and _ (up to 48)");
-    return this.spawnWithFallbacks({ ...request, group }, signal);
+    const depth = request.depth ?? 0;
+    const maxDepth = this.deps.config(resolve(request.cwd ?? process.cwd())).maxDepth;
+    if (depth >= maxDepth) throw new FleetError("depth_limit", `Agent nesting limit reached: depth=${depth}, maxDepth=${maxDepth}`);
+    // a person may say it in a line; an agent handing work on writes the brief its helper cannot ask back
+    const { brief: given, ...rest } = request;
+    const brief = given !== undefined || depth >= 1 ? checkBrief(given) : undefined;
+    const task = brief ? renderBrief(brief, request.task) : request.task ?? "";
+    if (!task.trim()) throw new FleetError("missing_task", "task is required");
+    const write = brief && !request.worktree ? writeScope(resolve(request.cwd ?? process.cwd()), brief.write) : undefined;
+    return this.spawnWithFallbacks({ ...rest, group, task, ...(write ? { write } : {}), ...(thread ? { thread } : {}) }, signal);
   }
 
   /**
@@ -189,11 +249,9 @@ export class Orchestrator {
    * Every other error is the caller's. `fallbacks` replaces the configured list for a re-spawn after
    * a failed first turn, so candidates already tried are not tried again.
    */
-  private async spawnWithFallbacks(request: SpawnRequest & { group: string }, signal?: AbortSignal, fallbacks?: string[], fallbackFrom?: string): Promise<AgentRun> {
+  private async spawnWithFallbacks(request: PlannedSpawn, signal?: AbortSignal, fallbacks?: string[], fallbackFrom?: string): Promise<AgentRun> {
     const cwd = resolve(request.cwd ?? process.cwd());
     const config = this.deps.config(cwd);
-    const depth = request.depth ?? 0;
-    if (depth >= config.maxDepth) throw new FleetError("depth_limit", `Agent nesting limit reached: depth=${depth}, maxDepth=${config.maxDepth}`);
     const agents = this.deps.agents(cwd);
     const definition = findAgent(agents, request.role);
     if (!definition) throw new FleetError("unknown_role", `Unknown agent role: ${request.role}. Available: ${agents.map((a) => a.name).join(", ")}`);
@@ -206,16 +264,19 @@ export class Orchestrator {
     const failures: string[] = [];
     const skipped: SkippedCandidate[] = [];
     let started = false;
+    let outOfUsage = false;
     for (let i = 0; i < candidates.length; i++) {
       const entry = candidates[i];
       const { agent: kind, model } = parseCandidate(entry, roleKind);
       const last = i === candidates.length - 1;
-      const unusable = await this.deps.usage?.unavailable(kind, model, config.maxUsedPercent);
+      const avoided = request.avoid?.includes(kind) ? `the caller keeps ${kind} out` : undefined;
+      const unusable = avoided ?? await this.deps.usage?.unavailable(kind, model, config.maxUsedPercent);
       if (unusable) {
+        if (!avoided) outOfUsage = true;
         failures.push(`${entry ?? "default"}: ${unusable}`);
         skipped.push({ candidate: entry ?? "default", reason: unusable });
         if (!last) continue;
-        throw new FleetError(started ? "fallbacks_exhausted" : "usage_exhausted", `No candidate has usage left: ${failures.join("; ")}`);
+        throw new FleetError(started ? "fallbacks_exhausted" : outOfUsage ? "usage_exhausted" : "no_candidates", `No candidate is usable: ${failures.join("; ")}`);
       }
       // a fallback is bounded by its own allow-list rather than refused: a person listed it
       const thinking = applyModelPolicy(config, model, baseThinking, i === 0 && explicitThinking !== undefined);
@@ -239,7 +300,7 @@ export class Orchestrator {
     throw new FleetError("no_candidates", "No model candidates to spawn.");
   }
 
-  private async spawnAttempt(request: SpawnRequest & { cwd: string; group: string }, config: FleetConfig, definition: AgentDefinition, override: RoleOverride,
+  private async spawnAttempt(request: PlannedSpawn & { cwd: string }, config: FleetConfig, definition: AgentDefinition, override: RoleOverride,
     kind: AgentKind, model: string | undefined, thinking: ThinkingLevel | undefined, fallbacks: string[], fallbackFrom: string | undefined, skipped: SkippedCandidate[], signal?: AbortSignal): Promise<AgentRun> {
     const adapter = adapterFor(kind);
     const depth = (request.depth ?? 0) + 1;
@@ -263,15 +324,23 @@ export class Orchestrator {
       if (signal?.aborted) throw abortError(signal);
       const active = this.deps.registry.all().filter((r) => r.state === "starting" || r.state === "working");
       if (active.length >= config.maxConcurrent) throw new FleetError("concurrency_limit", `Agent concurrency limit reached: ${active.length}/${config.maxConcurrent}`);
+      // one writer per path: two agents changing the same files at once overwrite each other
+      for (const holder of this.deps.registry.all()) {
+        if (!request.write || !holder.write || !HOLDS_SCOPE.has(holder.state)) continue;
+        const clash = overlap(request.write, holder.write);
+        if (clash) throw new FleetError("scope_conflict", `${holder.name} (${holder.id}) is still changing ${clash.theirs}; wait for it, or give this task paths it does not hold.`);
+      }
       const location = await this.deps.runtime.createLocation({
-        cwd: request.cwd, label: displayName, worktree, branch: worktree ? `agents/${definition.name}-${id}` : undefined,
+        cwd: request.cwd, label: displayName, worktree, branch: worktree ? (request.thread ? `fleet/${id}` : `agents/${definition.name}-${id}`) : undefined,
+        ...(worktree && request.thread?.repo ? { path: join(request.thread.repo, THREAD_WORKTREES, id) } : {}),
         direction: request.direction, callerPaneId: request.callerPaneId, env,
       }, signal);
       const now = Date.now();
       run = {
         id, name: displayName, role: definition.name, agent: kind, group: request.group, herdrName, paneId: location.paneId, workspaceId: location.workspaceId,
         cwd: location.cwd, model, thinking, fallbackFrom, state: "starting", depth, interactive, worktree, startedAt: now, updatedAt: now,
-        ...(skipped.length ? { skipped } : {}),
+        ...(worktree && request.thread ? { branch: `fleet/${id}` } : {}),
+        ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
       };
       this.save(run);
     } finally {
@@ -282,7 +351,7 @@ export class Orchestrator {
     const resultDir = join(this.deps.resultsDir, run.id);
     mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
     mkdirSync(resultDir, { mode: 0o700 });
-    const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE));
+    const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE), this.deps.standingOrders?.(request.cwd) ?? "");
     if (adapter.instructionsInPrompt) {
       mkdirSync(this.deps.instructionsDir, { recursive: true, mode: 0o700 });
       writeFileSync(this.undeliveredFile(run), instructions, { mode: 0o600 });
@@ -293,6 +362,8 @@ export class Orchestrator {
     writeFileSync(promptFile, instructions, { mode: 0o600 });
     let notReady = false;
     try {
+      const setup = worktree && request.thread?.repo ? config.projects[request.thread.repo]?.setup : undefined;
+      if (setup) await this.setUp(run, setup, signal);
       try {
         run.state = await this.deps.runtime.start({
           kind, name: herdrName, paneId: run.paneId, signal, startupError: (screen) => adapter.startupError(screen),
@@ -349,6 +420,20 @@ export class Orchestrator {
     }
   }
 
+  /** The user's setup command in the thread's fresh worktree; a failure fails the run before its lead starts. */
+  private async setUp(run: AgentRun, command: string, signal?: AbortSignal): Promise<void> {
+    const outcome = await (this.deps.runSetup ?? runSetup)(run.cwd, command, signal);
+    if (signal?.aborted) throw abortError(signal);
+    if (outcome.ok) return;
+    run.state = "failed";
+    run.lastError = `The setup command \`${command}\` failed in ${run.cwd}:\n${outcome.output}`;
+    run.updatedAt = Date.now();
+    this.dropUndelivered(run);
+    this.save(run);
+    await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
+    throw new FleetError("setup_failed", run.lastError);
+  }
+
   /**
    * The screen right after start. A CLI that draws its input or a question only after herdr called
    * it ready is waited for: a task typed before would land in a question. Neither in time is a start
@@ -364,7 +449,7 @@ export class Orchestrator {
     }
   }
 
-  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string): string {
+  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string, standing: string): string {
     const fleet = this.deps.fleetCommand;
     return [
       definition.systemPrompt,
@@ -376,12 +461,17 @@ export class Orchestrator {
       `- Message one: ${fleet} send <name-or-id> "<message>"`,
       `- Read one's recent output: ${fleet} read <name-or-id>`,
       canSpawn
-        ? `- Start a helper when splitting the work materially improves the result: ${fleet} spawn --role <role> --task "<task>", then ${fleet} wait <id>`
+        ? [
+          `- Start a helper when splitting the work materially improves the result, with a brief it can work from without asking you: ${fleet} spawn --role <role> --goal "<the outcome, one sentence>" --write <path> (repeat; --read-only when it only reads) --context "<files, earlier results and decisions it needs, or none>" --done "<a checkable condition>" --verify "<commands to run, and the evidence to return>", then ${fleet} wait <id>.`,
+          "  Each part has one executor: do not work on a part you handed on, or hand it to two agents. Two agents never write the same paths at once; the fleet refuses a spawn whose paths another working agent holds. Start a review only after the writer has finished, on another CLI than the writer's: add --avoid <cli> (${fleet} list shows each agent's CLI).",
+        ].join("\n")
         : "Do not start other agents.",
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
       "Treat herdr's 'unknown' as uncertainty, not completion.",
       `Your result file is ${resultFile}.`,
-      "At the end of each delegated turn, write a compact HANDOFF section (outcome, changed files, verification, unresolved questions) to your result file, replacing what it holds, and end your reply with the same section.",
+      "At the end of each delegated turn, write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section.",
+      "The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED, and the evidence for it (what you ran and what it showed). Under ISSUES, list every issue you can prove, not only the first. Then: outcome, changed files, verification, unresolved questions.",
+      ...(standing ? ["", "## Standing orders", "The person who runs this fleet gives these to every agent. Follow them in every turn. Every agent of the fleet gets them, so a task you hand on need not repeat them.", standing] : []),
     ].join("\n");
   }
 
