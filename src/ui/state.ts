@@ -1,6 +1,6 @@
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
-import { alertsAllow, shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
+import { shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
 import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
@@ -1713,10 +1713,12 @@ function alertOn(state: UiState, machine: Machine, message: ServerMessage, at: n
     statuses[key] = message.agent_status;
     const worked = trackTurn(started, key, previous, message.agent_status, at);
     if (worked !== null) lasted.set(key, worked);
-    if (pane && shouldNotifyStatus(previous, message.agent_status)) {
+    // a finished turn is told only when it worked a while, unless every one is asked for, in
+    // the page as in the push (a quick answer is read where it was asked)
+    if (pane && shouldNotifyStatus(previous, message.agent_status) && dropletAllows(prefs, message.agent_status, worked)) {
       const alert = message.agent_status === "blocked" ? "blocked" : "done";
-      if (dropsIn && dropletAllows(prefs, message.agent_status, worked)) droplet = dropIn(droplet, { machineId: machine.id, machineName, pane, kind: alert }, at, effects);
-      if (tabTells && alertsAllow(prefs, message.agent_status)) effects.push({ kind: "notify-pane", machineId: machine.id, machineName: machine.name, pane, status: alert });
+      if (dropsIn) droplet = dropIn(droplet, { machineId: machine.id, machineName, pane, kind: alert }, at, effects);
+      if (tabTells) effects.push({ kind: "notify-pane", machineId: machine.id, machineName: machine.name, pane, status: alert });
     }
   } else {
     const worked = endedTurn(started, lasted, key, at);
