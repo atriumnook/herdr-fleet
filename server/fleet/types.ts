@@ -4,6 +4,7 @@
  */
 
 import type { FleetAgentKind, ThinkingLevel } from "../../shared/fleet.ts";
+import type { Brief } from "./brief.ts";
 
 export type { AgentRun, AgentState, SkippedCandidate, ThinkingLevel } from "../../shared/fleet.ts";
 
@@ -90,7 +91,10 @@ export interface FleetConfig {
 export interface SpawnRequest {
   name?: string;
   role: string;
-  task: string;
+  /** what to do; with a brief, notes after it */
+  task?: string;
+  /** required of an agent caller (depth 1 and deeper): what its helper cannot ask back */
+  brief?: Partial<Brief>;
   model?: string;
   thinking?: string;
   cwd?: string;

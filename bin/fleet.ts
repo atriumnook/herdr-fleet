@@ -14,6 +14,9 @@ const USAGE = `usage: fleet <command> [options]
 
   spawn --role <role> --task <text> [--name <name>] [--model <provider/model>] [--thinking <level>]
         [--cwd <dir>] [--worktree] [--interactive] [--direction right|down] [--wait] [--timeout <ms>]
+        an agent handing work on gives a brief instead of --task (--task then adds notes):
+        --goal <one sentence> --write <path>... | --read-only --context <files, earlier results, or none>
+        --done <checkable condition> --verify <commands, and the evidence to return> [--forbid <text>] [--timebox <text>]
   send <agent> <message...>        hand an agent its next task
   wait <agent> [--timeout <ms>]    until its turn settles; follows a re-spawn after a fallback
   read <agent> [--lines <n>]       its recent output
@@ -129,6 +132,8 @@ async function main(argv: string[]): Promise<number> {
       cwd: { type: "string" }, worktree: { type: "boolean" }, interactive: { type: "boolean" }, direction: { type: "string" },
       wait: { type: "boolean" }, timeout: { type: "string" }, lines: { type: "string" }, all: { type: "boolean" }, json: { type: "boolean" },
       refresh: { type: "boolean" },
+      goal: { type: "string" }, write: { type: "string", multiple: true }, "read-only": { type: "boolean" }, context: { type: "string" },
+      done: { type: "string" }, verify: { type: "string" }, forbid: { type: "string" }, timebox: { type: "string" },
     },
   });
   const json = values.json ?? false;
@@ -142,9 +147,16 @@ async function main(argv: string[]): Promise<number> {
 
   switch (command) {
     case "spawn": {
-      if (!values.role || !values.task) throw new CliError("fleet spawn: --role and --task are required", 2);
+      const briefGiven = [values.goal, values.write, values["read-only"], values.context, values.done, values.verify, values.forbid, values.timebox].some((v) => v !== undefined);
+      if (!values.role || (!values.task && !briefGiven)) throw new CliError("fleet spawn: --role and --task (or a brief) are required", 2);
+      if (values.write && values["read-only"]) throw new CliError("fleet spawn: --write and --read-only do not go together", 2);
+      // the server says which brief fields are missing, all at once
+      const brief = briefGiven ? {
+        goal: values.goal, write: values["read-only"] ? [] : values.write, context: values.context, done: values.done, verify: values.verify,
+        forbidden: values.forbid, timebox: values.timebox,
+      } : undefined;
       const { run } = await call<{ run: Run }>("POST", "/spawn", {
-        role: values.role, task: values.task, name: values.name, model: values.model, thinking: values.thinking,
+        role: values.role, task: values.task, brief, name: values.name, model: values.model, thinking: values.thinking,
         cwd: values.cwd ?? process.cwd(), worktree: values.worktree, interactive: values.interactive, direction: values.direction,
         group, depth, caller_pane_id: paneId,
       });

@@ -2,6 +2,7 @@ import { HerdrError } from "../herdr/client.ts";
 import { isJsonObject, jsonResponse } from "../http.ts";
 import { AgentWaitTimeoutError, type Orchestrator } from "./orchestrator.ts";
 import { FleetError } from "./runtime.ts";
+import type { Brief } from "./brief.ts";
 import type { SpawnRequest } from "./types.ts";
 import type { UsageTracker } from "./usage.ts";
 
@@ -119,7 +120,8 @@ function spawnRequest(body: Record<string, unknown>): SpawnRequest {
   const role = text("role");
   const task = text("task");
   if (!role) throw new FleetError("missing_role", "role is required");
-  if (!task || task.trim() === "") throw new FleetError("missing_task", "task is required");
+  const brief = briefOf(body["brief"]);
+  if (!brief && (!task || task.trim() === "")) throw new FleetError("missing_task", "task is required");
   const direction = text("direction");
   if (direction !== undefined && direction !== "right" && direction !== "down") throw new FleetError("invalid_body", "direction must be right or down");
   const depth = body["depth"];
@@ -128,12 +130,32 @@ function spawnRequest(body: Record<string, unknown>): SpawnRequest {
     role, task, name: text("name"), model: text("model"), thinking: text("thinking"), cwd: text("cwd"), group: text("group"),
     callerPaneId: text("caller_pane_id"), worktree: flag("worktree"), interactive: flag("interactive"),
     ...(direction ? { direction } : {}), ...(depth !== undefined ? { depth: depth as number } : {}),
+    ...(brief ? { brief } : {}),
   };
+}
+
+/** The brief's fields as given, each checked for its type; which are missing is the orchestrator's to say. */
+function briefOf(value: unknown): Partial<Brief> | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (!isJsonObject(value)) throw new FleetError("invalid_body", "brief must be an object");
+  const brief: Partial<Brief> = {};
+  for (const key of ["goal", "context", "done", "verify", "forbidden", "timebox"] as const) {
+    const field = value[key];
+    if (field === undefined || field === null) continue;
+    if (typeof field !== "string") throw new FleetError("invalid_body", `brief.${key} must be a string`);
+    brief[key] = field;
+  }
+  const write = value["write"];
+  if (write !== undefined && write !== null) {
+    if (!Array.isArray(write) || !write.every((path) => typeof path === "string" && path.trim() !== "")) throw new FleetError("invalid_body", "brief.write must be a list of paths");
+    brief.write = write;
+  }
+  return brief;
 }
 
 const STATUS: Record<string, number> = {
   run_not_found: 404, unknown_role: 404, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
-  agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429,
+  agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429, scope_conflict: 409,
 };
 
 function fleetError(error: unknown): Response {
