@@ -401,12 +401,16 @@
   white-space: nowrap;
 }
 
-.pane-rename-input {
+.input.pane-rename-input {
   flex: 1 1 auto;
   min-width: 0;
-  height: var(--chip-h);
+  height: var(--space-6);
   padding: 0 var(--space-1);
-  font-size: var(--fs-sm);
+  background: var(--field);
+  border-radius: var(--radius-sm);
+  /* 16px like every field: a smaller one makes iOS zoom the page when it takes the focus */
+  font-size: var(--fs-input);
+  line-height: var(--lh-tight);
 }
 
 .sidebar-inline-error {
