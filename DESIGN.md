@@ -405,13 +405,6 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Work block (`.work-block`, `.work-row`)
 - One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
-  timestamp minus this one's; "Working…" in `--working` behind a breathing dot while the agent runs) over
-  one-line rows `▸ [icon] name / summary` in mono, indented under the header; mid-work narration
-  sits between rows as dim, one-step-smaller prose. The newest turn opens by default, older ones
-  fold. A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane.
-
-### Work block (`.work-block`, `.work-row`)
-- One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
   timestamp minus this one's; "Working…" in `--working` behind a breathing dot while the agent runs)
   over one-line rows `▸ [icon] name / summary` in mono, indented under the header; mid-work narration
   sits between rows as dim, one-step-smaller prose. The newest turn opens by default, older ones fold.
