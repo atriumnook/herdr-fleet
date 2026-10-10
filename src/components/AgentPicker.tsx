@@ -41,16 +41,19 @@ export const AgentPicker = forwardRef<HTMLButtonElement, AgentPickerProps>(funct
     const onPointerDown = (event: PointerEvent): void => {
       if (!rootRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) setOpen(false);
     };
-    const onMove = (event: Event): void => {
-      if (!(event.target instanceof Node && (rootRef.current?.contains(event.target) || menuRef.current?.contains(event.target)))) setOpen(false);
+    // the list is placed under the picker: a scroll that moves the picker leaves it behind, one
+    // elsewhere on the page (a list beside the dialog growing or shrinking) does not
+    const onScroll = (event: Event): void => {
+      if (event.target instanceof Node && rootRef.current && event.target.contains(rootRef.current)) setOpen(false);
     };
+    const onResize = (): void => setOpen(false);
     document.addEventListener("pointerdown", onPointerDown);
-    document.addEventListener("scroll", onMove, true);
-    window.addEventListener("resize", onMove);
+    document.addEventListener("scroll", onScroll, true);
+    window.addEventListener("resize", onResize);
     return () => {
       document.removeEventListener("pointerdown", onPointerDown);
-      document.removeEventListener("scroll", onMove, true);
-      window.removeEventListener("resize", onMove);
+      document.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onResize);
     };
   }, [open]);
 
