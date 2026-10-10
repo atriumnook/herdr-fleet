@@ -19,7 +19,7 @@ export async function checkMobileViewport(browser: Browser, origin: string, pane
       Object.defineProperty(media, "matches", { get: () => touch });
       const matchMedia = window.matchMedia.bind(window);
       window.matchMedia = (value) => value === query ? media as MediaQueryList : matchMedia(value);
-      (window as ViewportQA).viewportQA = {
+      (window as unknown as ViewportQA).viewportQA = {
         resize: (value) => { height = value; viewport.dispatchEvent(new Event("resize")); },
         pointer: (value) => { touch = value; media.dispatchEvent(new MediaQueryListEvent("change", { matches: value, media: query })); },
       };
@@ -33,7 +33,7 @@ export async function checkMobileViewport(browser: Browser, origin: string, pane
     const composer = page.getByRole("textbox", { name: "Message", exact: true });
     await composer.waitFor();
     const blur = () => page.evaluate(() => { (document.activeElement as HTMLElement)?.blur(); });
-    const height = (value: number) => page.evaluate((value) => (window as ViewportQA).viewportQA.resize(value), value);
+    const height = (value: number) => page.evaluate((value) => (window as unknown as ViewportQA).viewportQA.resize(value), value);
     const shell = async (keyboard: boolean, appHeight: string, pixels: number) => {
       try {
         await page.waitForFunction(({ keyboard, appHeight, pixels }) => {
@@ -124,9 +124,9 @@ export async function checkMobileViewport(browser: Browser, origin: string, pane
     await composer.focus();
     await shell(true, "500px", 500);
     // Switching to a hardware pointer must clear sizing even when the text field keeps focus.
-    await page.evaluate(() => (window as ViewportQA).viewportQA.pointer(false));
+    await page.evaluate(() => (window as unknown as ViewportQA).viewportQA.pointer(false));
     await shell(false, "", 844);
-    await page.evaluate(() => (window as ViewportQA).viewportQA.pointer(true));
+    await page.evaluate(() => (window as unknown as ViewportQA).viewportQA.pointer(true));
     await shell(true, "500px", 500);
     await blur();
     await height(795);

@@ -111,7 +111,7 @@ function resolveNames(found: Map<string, Collected>): Map<string, string> {
     byName.set(entry.name, list);
   }
   const names = new Map<string, string>();
-  for (const [name, entries] of byName) {
+  for (const entries of byName.values()) {
     const shapes = new Set(entries.map((e) => JSON.stringify(e.def)));
     const ambiguous = entries.length > 1 && shapes.size > 1;
     for (const entry of entries) {

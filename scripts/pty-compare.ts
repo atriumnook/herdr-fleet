@@ -35,7 +35,7 @@ function spawn(backend: Backend, options: PtySessionOptions): Session {
     if (!closed) options.onExit(code);
   });
   return {
-    write: data => { proc.terminal?.write(data); },
+    write: data => { proc.terminal?.write(data); return true; },
     resize: (cols, rows) => proc.terminal?.resize(cols, rows),
     kill: () => { closed = true; proc.kill(); proc.terminal?.close(); },
   };

@@ -1,6 +1,6 @@
 /** A pi tool result's picture, end to end in Chrome: parsed page -> work row -> <img> bytes. */
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
@@ -31,7 +31,8 @@ const entries = [
     ],
   } },
 ];
-let conversation: ConversationResponse;
+// written by write() below, before the server reads it
+let conversation!: ConversationResponse;
 const bytes = new Map<string, { data: Buffer; type: string }>();
 try {
   const build = await Bun.build({ entrypoints: ["scripts/chat-history-fixture.tsx"], outdir: root, target: "browser", define: { "process.env.NODE_ENV": '"development"' } });
@@ -52,7 +53,7 @@ try {
     const path = join(root, "session.jsonl");
     writeFileSync(path, rows.map((row) => JSON.stringify(row)).join("\n") + "\n");
     const { source, turns, metadata } = transcriptPage("pi-transcript", path);
-    conversation = { source, history_id: "fixture", cursor: null, turns, metadata, version: 1 };
+    conversation = { source, history_id: "fixture", cursor: null, turns, metadata };
   };
   write(entries);
   for (const part of conversation.turns.flatMap((turn) => turn.parts)) {
@@ -83,13 +84,13 @@ try {
   // naturalWidth only settles once Chrome has decoded what came back
   await page.locator(".chat-tool-images img").first().scrollIntoViewIfNeeded();
   for (let attempt = 0; attempt < 100; attempt++) {
-    const loaded = await page.locator(".chat-tool-images img").evaluateAll((imgs) => imgs.every((img) => img.complete && img.naturalWidth > 0));
+    const loaded = await page.locator(".chat-tool-images img").evaluateAll((imgs) => (imgs as HTMLImageElement[]).every((img) => img.complete && img.naturalWidth > 0));
     if (loaded) break;
     await new Promise((done) => setTimeout(done, 50));
   }
   assert.deepEqual(served.sort(), ["pi:call-1:0", "pi:call-1:1"]);
   // the bytes round-tripped: Chrome decoded them, so they are the file and not a broken icon
-  const sizes = await page.locator(".chat-tool-images img").evaluateAll((imgs) => imgs.map((img) => [img.naturalWidth, img.naturalHeight]));
+  const sizes = await page.locator(".chat-tool-images img").evaluateAll((imgs) => (imgs as HTMLImageElement[]).map((img) => [img.naturalWidth, img.naturalHeight]));
   assert.deepEqual(sizes, [[1, 1], [1, 1]], "Chrome decoded both pictures from the served bytes");
   assert.equal(await page.locator(".chat-tool-output pre").textContent(), "read 2 images", "the text answer stays beside the pictures");
   assert.deepEqual(errors, []);
