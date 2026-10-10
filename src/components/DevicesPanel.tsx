@@ -5,6 +5,7 @@ import "./DevicesPanel.css";
 
 import { copyText } from "../lib/clipboard.ts";
 import type { HealthAuth } from "../../shared/protocol.ts";
+import { ConfirmDialog } from "./ConfirmDialog.tsx";
 import { QrCode } from "./QrCode.tsx";
 import { LOCALE, t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
@@ -12,7 +13,7 @@ import type { DevicesPanelModel } from "../ui/devicesView.ts";
 import type { UiEvent } from "../ui/state.ts";
 
 /** What the panel sends up: the Mediator's own events, complete. */
-export type DevicesPanelEvent = Extract<UiEvent, { type: "pair-device" | "end-pairing" | "start-rename" | "edit-rename" | "cancel-rename" | "save-rename" | "revoke-device" }>;
+export type DevicesPanelEvent = Extract<UiEvent, { type: "pair-device" | "end-pairing" | "start-rename" | "edit-rename" | "cancel-rename" | "save-rename" | "revoke-device" | "confirm-revoke" | "cancel-revoke" }>;
 
 export interface DevicesPanelProps {
   model: DevicesPanelModel;
@@ -54,6 +55,7 @@ function useTimeLeft(expiresAt: string | null): string {
 /** Settings → Devices: the paired devices, and a code to pair one more. */
 export function DevicesPanel({ model, emit }: DevicesPanelProps) {
   const { list: devices, pairing, renaming, confirming, justPaired } = model;
+  const confirmingDevice = devices?.find((d) => d.id === confirming) ?? null;
   const left = useTimeLeft(pairing?.expiresAt ?? null);
   // the copy feedback is the button's own: the clipboard needs the link element for its fallback
   const [linkCopied, setLinkCopied] = useState(false);
@@ -85,8 +87,8 @@ export function DevicesPanel({ model, emit }: DevicesPanelProps) {
                   </div>
                   <div className="devices-actions">
                     <button type="button" className="icon-button" aria-label={t("Rename {name}", { name: d.label })} onClick={() => emit({ type: "start-rename", id: d.id, label: d.label })}><Pencil /></button>
-                    <button type="button" className={confirming === d.id ? "btn" : "btn btn-ghost"} onClick={() => emit({ type: "revoke-device", id: d.id })}>
-                      <Trash2 aria-hidden="true" />{t(confirming === d.id ? "Revoke?" : "Revoke")}
+                    <button type="button" className="btn btn-ghost" onClick={() => emit({ type: "revoke-device", id: d.id })}>
+                      <Trash2 aria-hidden="true" />{t("Revoke")}
                     </button>
                   </div>
                 </>
@@ -94,6 +96,17 @@ export function DevicesPanel({ model, emit }: DevicesPanelProps) {
             </li>
           ))}
         </ul>
+      )}
+      {confirmingDevice && (
+        <ConfirmDialog
+          title={t("Revoke {name}?", { name: confirmingDevice.label })}
+          body={t("This device stops getting in, and gets in again only with a new pairing.")}
+          confirmLabel={t("Revoke")}
+          pending={false}
+          error={null}
+          onConfirm={() => emit({ type: "confirm-revoke" })}
+          onClose={() => emit({ type: "cancel-revoke" })}
+        />
       )}
       {justPaired !== null && <p className="settings-hint" role="status">{t("Paired: {name}.", { name: justPaired })}</p>}
       {pairing === null ? (

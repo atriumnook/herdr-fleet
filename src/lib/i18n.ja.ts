@@ -120,6 +120,7 @@ export const JA: Record<string, string> = {
   "You are in with the access token.": "アクセストークンで入っています。",
   "A paired device gets in on its own, from anywhere it can reach this server, until you revoke it here. A code comes from this screen on the PC or on a device already paired.": "ペアリングした Device は、ここで取り消すまで、このサーバーに届く場所ならどこからでも自動で入れます。コードは、PC かペアリング済みの Device のこの画面で出せます。",
   "No devices paired yet.": "ペアリングした Device はまだありません。",
+  "This device stops getting in, and gets in again only with a new pairing.": "この Device は入れなくなります。もう一度入るには、新しくペアリングが要ります。",
   "Paired: {name}.": "{name} をペアリングしました。",
   "Enter this code on the other device.": "もう一方の Device で、このコードを入力してください。",
   "Or scan the QR code: it opens the app with the code filled in.": "QR コードを読み取っても構いません。コードが入った状態でアプリが開きます。",

@@ -340,9 +340,9 @@ describe("paired devices", () => {
     const reopened = play([{ type: "close-settings" }, { type: "open-settings" }], out).state;
     expect(play([{ type: "poll-devices", session, seq: 1 }], reopened).effects).toEqual([]);
     expect(transition(reopened, { type: "devices-loaded", devices: [device("old")], session }).state).toBe(reopened);
+    // a revoke asked about in an earlier opening is not asked about any more
     const confirming = play([{ type: "revoke-device", id: "a" }], listed([device("a")])).state;
-    const again = play([{ type: "close-settings" }, { type: "open-settings" }, { type: "devices-loaded", devices: [device("a")], session: 2 }, { type: "revoke-device", id: "a" }], confirming).state;
-    expect(play([{ type: "unconfirm-revoke", id: "a", session, seq: 1 }], again).state.devices.confirming).toBe("a");
+    expect(play([{ type: "close-settings" }, { type: "open-settings" }], confirming).state.devices.confirming).toBeNull();
   });
 
   it("renames with the name being typed, and reads the list again", () => {
@@ -356,14 +356,18 @@ describe("paired devices", () => {
     expect(play([{ type: "cancel-rename" }], typed).state.devices.renaming).toBeNull();
   });
 
-  it("revokes on the second press only, and forgets the first press after a while", () => {
-    const first = play([{ type: "revoke-device", id: "a" }], listed([device("a")]));
-    expect(first.state.devices.confirming).toBe("a");
-    expect(first.effects).toEqual([{ kind: "later", ms: 4000, event: { type: "unconfirm-revoke", id: "a", session, seq: 1 } }]);
-    expect(play([{ type: "unconfirm-revoke", id: "a", session, seq: 1 }], first.state).state.devices.confirming).toBeNull();
-    const second = play([{ type: "revoke-device", id: "a" }], first.state);
-    expect(second.state.devices.confirming).toBeNull();
-    expect(second.effects).toEqual([{ kind: "revoke-device", id: "a", session }]);
+  it("asks in a confirm before revoking, revokes on its yes only, and forgets it on a no", () => {
+    const asked = play([{ type: "revoke-device", id: "a" }], listed([device("a")]));
+    expect(asked.state.devices.confirming).toBe("a");
+    expect(asked.effects).toEqual([]);
+    const no = play([{ type: "cancel-revoke" }], asked.state);
+    expect(no.state.devices.confirming).toBeNull();
+    expect(no.effects).toEqual([]);
+    const yes = play([{ type: "confirm-revoke" }], asked.state);
+    expect(yes.state.devices.confirming).toBeNull();
+    expect(yes.effects).toEqual([{ kind: "revoke-device", id: "a", session }]);
+    // a yes with nothing asked does nothing
+    expect(play([{ type: "confirm-revoke" }], listed([device("a")])).effects).toEqual([]);
   });
 
   it("keeps a failed change's message beside the list", () => {

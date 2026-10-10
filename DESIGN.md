@@ -478,6 +478,8 @@ One set for both themes: the card is island black wherever it shows.
   **Install** and **About**.
 - A font family is a text field saved when it is left, on Enter or when the dialog closes, not per
   keystroke.
+- Revoking a paired device asks in a confirm (`Revoke <name>?`, a Japanese sentence on what it
+  means, Revoke as the primary); a no keeps the device and Settings open.
 
 ### Keyboard hint (`.kbd`)
 - An inline mono keycap: `18px` high, a strong bottom edge, `--radius-sm`, `--fs-2xs`.

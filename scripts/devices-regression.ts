@@ -52,17 +52,25 @@ export async function checkDevices(browser: Browser, origin: string): Promise<vo
     await panel.getByRole("button", { name: "Save name", exact: true }).click();
     await panel.getByText("Tablet", { exact: true }).waitFor();
 
-    // revoking asks for a second press
+    // revoking asks in a confirm: a no keeps the device and leaves Settings open, a yes revokes it
     const firstRow = panel.locator(".devices-row", { hasText: "First phone" });
+    const confirm = page.getByRole("alertdialog");
     await firstRow.getByRole("button", { name: "Revoke", exact: true }).click();
-    await firstRow.getByRole("button", { name: "Revoke?", exact: true }).click();
+    await confirm.getByText("Revoke First phone?", { exact: true }).waitFor();
+    await confirm.getByText(t("This device stops getting in, and gets in again only with a new pairing."), { exact: true }).waitFor();
+    await page.keyboard.press("Escape");
+    await confirm.waitFor({ state: "detached" });
+    assert.equal(await panel.isVisible(), true, "a no keeps Settings open");
+    assert.equal(await firstRow.count(), 1, "a no keeps the device");
+    await firstRow.getByRole("button", { name: "Revoke", exact: true }).click();
+    await confirm.getByRole("button", { name: "Revoke", exact: true }).click();
     await panel.getByText("First phone", { exact: true }).waitFor({ state: "detached" });
 
     // the list is read again each time Settings opens
     await page.getByRole("button", { name: "Close settings", exact: true }).click();
     await page.getByRole("button", { name: "Settings", exact: true }).click();
     await panel.getByText("Tablet", { exact: true }).waitFor();
-    console.log("PASS Settings devices: pair (the first device named too), the next one named, rename, revoke on the second press, read on open");
+    console.log("PASS Settings devices: pair (the first device named too), the next one named, rename, revoke after a confirm, read on open");
   } finally {
     await context.close();
   }
