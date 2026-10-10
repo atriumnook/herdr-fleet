@@ -943,3 +943,17 @@ describe("projects", () => {
     await expect(fleet.startProject({ task: " " })).rejects.toMatchObject({ code: "missing_task" });
   });
 });
+
+describe("owners", () => {
+  it("reach a thread they started from their own fleet, and no one else's", async () => {
+    const { fleet, runtime } = setup({ agents: [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true })], gitRoot: async () => "/repo" });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const loose = await fleet.startThread({ title: "Other", task: "t", cwd: "/repo" });
+    runtime.getStatus = "idle";
+    await fleet.send(thread.id, "keep the old API", coordinator.group);
+    expect(runtime.prompts.at(-1)).toEqual({ name: thread.herdrName, text: "keep the old API" });
+    expect(() => fleet.get(loose.id, coordinator.group)).toThrow("Unknown fleet agent");
+    expect(() => fleet.get(thread.id, "elsewhere")).toThrow("Unknown fleet agent");
+  });
+});

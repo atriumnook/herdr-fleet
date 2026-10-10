@@ -205,8 +205,10 @@ export class Orchestrator {
     return this.deps.agents(cwd);
   }
 
+  /** A run of `group`, or a thread a run of `group` started: each thread is a fleet of its own, which its owner still reaches. */
   get(target: string, group?: string): AgentRun {
-    const run = this.deps.registry.resolve(target, group);
+    const owned = (run: AgentRun | undefined) => run?.owner && this.deps.registry.get(run.owner)?.group === group ? run : undefined;
+    const run = this.deps.registry.resolve(target, group) ?? (group === undefined ? undefined : owned(this.deps.registry.resolve(target)));
     if (!run) throw new FleetError("run_not_found", `Unknown fleet agent: ${target}`);
     return run;
   }
