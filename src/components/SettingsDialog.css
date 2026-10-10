@@ -101,7 +101,11 @@
 
 .settings-toggle::before {
   position: absolute;
-  inset: var(--space-3) var(--space-1);
+  top: 50%;
+  left: var(--space-1);
+  width: 36px;
+  height: 22px;
+  transform: translateY(-50%);
   content: "";
   background: var(--field);
   border: var(--hairline) solid var(--control-edge);
@@ -111,8 +115,8 @@
 
 .settings-toggle-thumb {
   position: absolute;
-  top: var(--space-3);
-  left: var(--space-1);
+  top: calc(50% - 8px);
+  left: calc(var(--space-1) + 3px);
   width: var(--space-4);
   height: var(--space-4);
   background: var(--sub);
@@ -128,7 +132,7 @@
 
 .settings-toggle[aria-checked="true"] .settings-toggle-thumb {
   background: var(--on-accent);
-  transform: translateX(var(--space-5));
+  transform: translateX(14px);
 }
 
 .settings-shortcuts {
