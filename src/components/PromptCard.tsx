@@ -114,7 +114,7 @@ export function PromptCard({ prompt, typedAnswer = null, card, emit }: PromptCar
               // an IME's Enter commits the candidate; WebKit can send it after compositionend, as key code 229
               if (event.key === "Enter" && !event.nativeEvent.isComposing && event.nativeEvent.keyCode !== 229 && custom.trim().length > 0) answer({ custom_text: custom.trim() });
             }} />
-            <button type="button" className={`btn${custom.trim().length > 0 ? " btn-primary" : ""}`} disabled={pending || custom.trim().length === 0} onClick={() => answer({ custom_text: custom.trim() })}>
+            <button type="button" className={`btn${custom.trim().length > 0 && selected.size === 0 ? " btn-primary" : ""}`} disabled={pending || custom.trim().length === 0} onClick={() => answer({ custom_text: custom.trim() })}>
               <Send aria-hidden="true" /> {t("Send")}
             </button>
           </div>
@@ -127,7 +127,7 @@ export function PromptCard({ prompt, typedAnswer = null, card, emit }: PromptCar
           <button type="button" className="btn" disabled={pending} onClick={() => emit({ type: "chat-pending-answer-done" })}>{t("Cancel")}</button>
         </div>
       )}
-      {error !== null && <p className="prompt-card-error" role="alert">{error}</p>}
+      {error !== null && <p className="notice prompt-card-error" role="alert">{error}</p>}
     </section>
   );
 }

@@ -161,20 +161,19 @@
     "attachments attachments attachments"
     "left text right";
   align-items: end;
-  background: var(--field);
-  border: var(--hairline) solid var(--line);
-  border-radius: var(--radius-xl);
-  box-shadow: var(--shadow-card);
+  background: var(--input);
+  border: var(--hairline) solid var(--control-edge);
+  border-radius: var(--radius-lg);
   transition:
     border-color var(--dur-fast) var(--ease-out),
     box-shadow var(--dur-fast) var(--ease-out);
 }
 
-/* focus is the surface's: the accent border on the rounded box, not a rectangle on the
+/* focus is the surface's: a 2px accent edge on the rounded box, not a rectangle on the
    textarea inside it (the global :focus-visible ring is suppressed below) */
 .composer-surface:focus-within {
   border-color: var(--accent);
-  box-shadow: var(--shadow-card), 0 0 0 var(--hairline) var(--tint);
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .composer-surface.is-dragging {
@@ -286,7 +285,7 @@
 
 .composer-controls .icon-button {
   color: var(--sub);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
 }
 
 .composer-action {
@@ -297,8 +296,15 @@
   height: var(--control-h);
   padding: 0;
   border: var(--hairline) solid transparent;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
   color: var(--on-accent);
+}
+
+@media (pointer: coarse) {
+  .composer-action {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
 }
 
 .composer-action svg,
@@ -313,10 +319,11 @@
   border-color: var(--accent);
 }
 
+/* Stop interrupts the agent: an action of yours, not something that needs you, so not red */
 .composer-stop {
-  background: var(--needs-tint);
-  border-color: var(--needs);
-  color: var(--needs);
+  background: var(--field);
+  border-color: var(--line);
+  color: var(--ink);
 }
 
 .composer-queue-button {
@@ -328,10 +335,10 @@
   padding: 0 var(--space-2);
   background: var(--tint);
   border: var(--hairline) solid var(--accent);
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-md);
   color: var(--ink-strong);
   font: inherit;
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   font-weight: var(--fw-medium);
   cursor: pointer;
 }
@@ -473,9 +480,6 @@
 
 .composer-note {
   margin-top: var(--space-1);
-  padding: 0 var(--space-2);
-  color: var(--needs-text);
-  font-size: var(--fs-xs);
 }
 
 @media (max-width: 480px) {

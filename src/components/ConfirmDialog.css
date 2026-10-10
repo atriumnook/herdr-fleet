@@ -13,8 +13,5 @@
 }
 
 .confirm-error {
-  margin: var(--space-2) 0 0;
-  color: var(--needs);
-  font-size: var(--fs-xs);
-  overflow-wrap: anywhere;
+  margin-top: var(--space-2);
 }

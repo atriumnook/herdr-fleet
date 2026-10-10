@@ -22,7 +22,6 @@ export interface RowMenuItem {
   icon: LucideIcon;
   /** a hairline above this item */
   divider?: boolean;
-  danger?: boolean;
   run: () => void;
 }
 
@@ -138,7 +137,7 @@ export function RowMenu({ anchor, at = null, title, subtitle, items, onClose }: 
             {subtitle && <span className="row-sheet-subtitle">{subtitle}</span>}
           </div>
           {items.map((item) => (
-            <button key={item.id} type="button" className={`row-sheet-item${item.danger ? " is-danger" : ""}${item.divider ? " has-divider" : ""}`} onMouseDown={keepFocus} onClick={() => run(item)}>
+            <button key={item.id} type="button" className={`row-sheet-item${item.divider ? " has-divider" : ""}`} onMouseDown={keepFocus} onClick={() => run(item)}>
               <item.icon aria-hidden="true" />
               {item.label}
             </button>
@@ -155,7 +154,7 @@ export function RowMenu({ anchor, at = null, title, subtitle, items, onClose }: 
       {items.map((item) => (
         <Fragment key={item.id}>
           {item.divider && <span className="row-menu-divider" role="separator" />}
-          <button type="button" role="menuitem" className={`menu-item${item.danger ? " is-danger" : ""}`} onMouseDown={keepFocus} onClick={() => run(item)}>
+          <button type="button" role="menuitem" className="menu-item" onMouseDown={keepFocus} onClick={() => run(item)}>
             <item.icon aria-hidden="true" />
             <span className="menu-item-main">{item.label}</span>
           </button>

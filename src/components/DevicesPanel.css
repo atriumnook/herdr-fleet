@@ -96,9 +96,13 @@
   align-items: center;
   gap: var(--space-1) var(--space-2);
   margin: var(--space-2) 0 0;
+  overflow-wrap: anywhere;
+}
+
+/* the link is a machine value: mono; the sentence before it is not */
+.devices-link a {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
-  overflow-wrap: anywhere;
 }
 
 .devices-link a {

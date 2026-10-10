@@ -11,6 +11,7 @@ import type { Emit } from "../ui/bubble.ts";
 import type { SettingsDialogModel } from "../ui/settingsView.ts";
 import type { UiEvent } from "../ui/state.ts";
 import { PhonePanel } from "./PhonePanel.tsx";
+import { Segmented } from "./Segmented.tsx";
 
 /** What the dialog sends up: its own changes for the Mediator, and the install its parent handles. */
 export type SettingsDialogEvent =
@@ -98,33 +99,33 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
             <h3>{t("Appearance")}</h3>
             <div className="settings-row">
               <div><span className="settings-label">{t("Theme")}</span><span className="settings-description">{t("Choose the app color scheme.")}</span></div>
-              <div className="segmented" aria-label={t("Theme")}>
+              <Segmented label={t("Theme")}>
                 {(["dark", "light", "system"] as const).map((theme, index) => (
                   <button key={theme} ref={index === 0 ? firstControlRef : undefined} type="button" aria-pressed={settings.theme === theme} onClick={() => update({ theme })}>
                     {t(theme === "dark" ? "Dark" : theme === "light" ? "Light" : "System")}
                   </button>
                 ))}
-              </div>
+              </Segmented>
             </div>
             <div className="settings-row">
               <div><span className="settings-label">{t("Density")}</span><span className="settings-description">{t("Adjust spacing throughout the interface.")}</span></div>
-              <div className="segmented" aria-label={t("Density")}>
+              <Segmented label={t("Density")}>
                 {(["comfortable", "compact"] as const).map((density) => (
                   <button key={density} type="button" aria-pressed={settings.density === density} onClick={() => update({ density })}>
                     {t(density === "compact" ? "Compact" : "Comfortable")}
                   </button>
                 ))}
-              </div>
+              </Segmented>
             </div>
             <div className="settings-row">
               <div><span className="settings-label">{t("Sidebar grouping")}</span><span className="settings-description">{t("Group sessions by workspace or by full folder path on each PC.")}</span></div>
-              <div className="segmented" aria-label={t("Sidebar grouping")}>
+              <Segmented label={t("Sidebar grouping")}>
                 {(["workspace", "directory"] as const).map((grouping) => (
                   <button key={grouping} type="button" aria-pressed={settings.sidebarGrouping === grouping} onClick={() => update({ sidebarGrouping: grouping })}>
                     {t(grouping === "workspace" ? "By workspace" : "By folder")}
                   </button>
                 ))}
-              </div>
+              </Segmented>
             </div>
             <div className="settings-row">
               <div><span className="settings-label">{t("Terminal font size")}</span><span className="settings-description">{t("Applied to every terminal pane.")}</span></div>
@@ -169,13 +170,13 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
             <h3>{t("Chat")}</h3>
             <div className="settings-row">
               <div><span className="settings-label">{t("Panes open in")}</span><span className="settings-description">{t("Every pane on this device. Switching a pane's lens keeps it there until this changes. Auto: chat for an agent on a touch screen, else the terminal.")}</span></div>
-              <div className="segmented" aria-label={t("Panes open in")}>
+              <Segmented label={t("Panes open in")}>
                 {(["auto", "chat", "terminal"] as const).map((defaultView) => (
                   <button key={defaultView} type="button" aria-pressed={settings.defaultView === defaultView} onClick={() => emit({ type: "choose-default-view", view: defaultView })}>
                     {t(defaultView === "auto" ? "Auto" : defaultView === "chat" ? "Chat" : "Terminal")}
                   </button>
                 ))}
-              </div>
+              </Segmented>
             </div>
             <div className="settings-row">
               <div><span className="settings-label">{t("Show thinking")}</span><span className="settings-description">{t("Include the agent's reasoning blocks.")}</span></div>
@@ -205,13 +206,13 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
             </div>
             <div className="settings-row">
               <div><span className="settings-label">{t("Done")}</span><span className="settings-description">{t("Long turns tells only of work that took a minute or more.")}</span></div>
-              <div className="segmented" aria-label={t("Done")}>
+              <Segmented label={t("Done")}>
                 {(["off", "long", "always"] as const).map((alertDone) => (
                   <button key={alertDone} type="button" aria-pressed={settings.alertDone === alertDone} onClick={() => update({ alertDone })}>
                     {t(alertDone === "off" ? "Off" : alertDone === "long" ? "Long turns" : "Every turn")}
                   </button>
                 ))}
-              </div>
+              </Segmented>
             </div>
             <div className="settings-row">
               <div><span className="settings-label">{t("In the app")}</span><span className="settings-description">{t("While the app is open, these drop in from the top of the screen at once. Tap one to open its pane.")}</span></div>

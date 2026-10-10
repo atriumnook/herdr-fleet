@@ -16,7 +16,7 @@
   z-index: 1;
   overflow-y: auto;
   padding: var(--space-4) var(--space-4) var(--space-5);
-  background: var(--bg);
+  background: var(--surface);
   --chat-fs-2xs: calc(var(--fs-2xs) * var(--chat-scale, 1));
   --chat-fs-xs: calc(var(--fs-xs) * var(--chat-scale, 1));
   --chat-fs-sm: calc(var(--fs-sm) * var(--chat-scale, 1));
@@ -546,7 +546,13 @@
   font-size: var(--fs-xs);
 }
 
-.chat-inline-error { color: var(--needs); }
+/* the transcript's own failure notice */
+.chat-inline-error {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--needs-tint);
+  color: var(--needs-text);
+}
 
 .chat-endcap {
   width: 100%;
@@ -587,10 +593,10 @@
 
 .chat-new-messages svg { width: var(--icon-size); height: var(--icon-size); }
 
-/* chat mode is ONE surface: the stack, the transcript and the composer region all sit on
-   --bg; the only card is the composer's input box, on the same column as the transcript */
+/* chat mode is ONE reading surface: the stack, the transcript and the composer region all sit
+   on the opaque --surface, never glass; the composer's field is the one box on it */
 .terminal-stack.is-chat {
-  background: var(--bg);
+  background: var(--surface);
 }
 
 .terminal-stack.is-chat .composer {
@@ -729,9 +735,9 @@
   padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
   background: var(--needs-tint);
-  color: var(--needs);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
+  color: var(--needs-text);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
 }
 
 /* a file a tool call names opens in the viewer: a link in look, a button underneath */

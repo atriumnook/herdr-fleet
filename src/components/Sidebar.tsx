@@ -200,15 +200,15 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
     if (state.kind === "workspace") {
       return [
         renameWorkspaceItem,
-        { id: "close", label: t("Close workspace"), icon: X, danger: true, divider: true, run: () => emit({ type: "tree-ask", ...on, action: { kind: "close-workspace", workspaceId: workspace.workspace_id }, title: t("Close workspace {name}?", { name: workspace.label }), body: t("{n} panes close with it, and the agents in them stop.", { n: paneCount }) }) },
+        { id: "close", label: t("Close workspace"), icon: X, divider: true, run: () => emit({ type: "tree-ask", ...on, action: { kind: "close-workspace", workspaceId: workspace.workspace_id }, title: t("Close workspace {name}?", { name: workspace.label }), body: t("{n} panes close with it, and the agents in them stop.", { n: paneCount }) }) },
       ];
     }
     const pane = snapshot?.panes.find((candidate) => candidate.pane_id === state.pane.pane_id) ?? state.pane;
     const renamePaneItem: RowMenuItem = { id: "rename-pane", label: t("Rename pane"), icon: Pencil, run: () => beginPaneRename(pane) };
     // the workspace's last pane takes the workspace with it
     const closeItem: RowMenuItem = paneCount === 1
-      ? { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => emit({ type: "tree-ask", ...on, action: { kind: "close-pane", paneId: pane.pane_id }, title: t("Close {title}?", { title: state.title }), body: t("Its workspace closes with it, and the agent and shell in it stop.") }) }
-      : { id: "close", label: t("Close"), icon: X, danger: true, divider: true, run: () => emit({ type: "tree-close-pane", ...on, paneId: pane.pane_id }) };
+      ? { id: "close", label: t("Close"), icon: X, divider: true, run: () => emit({ type: "tree-ask", ...on, action: { kind: "close-pane", paneId: pane.pane_id }, title: t("Close {title}?", { title: state.title }), body: t("Its workspace closes with it, and the agent and shell in it stop.") }) }
+      : { id: "close", label: t("Close"), icon: X, divider: true, run: () => emit({ type: "tree-close-pane", ...on, paneId: pane.pane_id }) };
     // a one-pane row has no header: it is the only place to rename its workspace
     return paneCount === 1 ? [renameWorkspaceItem, renamePaneItem, closeItem] : [renamePaneItem, closeItem];
   };

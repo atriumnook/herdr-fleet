@@ -67,11 +67,11 @@ export function ConfirmDialog({ title, body, confirmLabel, pending, error, onCon
         <header className="modal-header"><h2 className="modal-title" id={`${id}-title`}>{title}</h2></header>
         <div className="modal-body">
           <p className="confirm-body" id={`${id}-body`}>{body}</p>
-          {error && <p className="confirm-error" role="alert">{error}</p>}
+          {error && <p className="notice confirm-error" role="alert">{error}</p>}
         </div>
         <footer className="modal-footer">
           <button ref={cancel} type="button" className="btn" disabled={pending} onClick={onClose}>{t("Cancel")}</button>
-          <button ref={action} type="button" className="btn btn-danger" disabled={pending} onClick={onConfirm}>{confirmLabel}</button>
+          <button ref={action} type="button" className="btn btn-primary" disabled={pending} onClick={onConfirm}>{confirmLabel}</button>
         </footer>
       </div>
     </div>,

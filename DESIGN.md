@@ -160,7 +160,7 @@ All spacing derives from a 4px base.
 | `--radius-sm` | `6px` | Chips and inner controls |
 | `--radius-md` | `8px` | Buttons, inputs, selected rows |
 | `--radius-lg` | `12px` | Menus and chat surfaces |
-| `--radius-xl` | `16px` | Modals and composer |
+| `--radius-xl` | `16px` | Glass panels: header, sidebar, dialogs, sheets |
 | `--radius-pill` | `999px` | Pills and dots |
 
 ### Sizes
@@ -198,6 +198,11 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--z-drawer` | `20` | Mobile drawer |
 | `--z-modal` | `30` | Dialog and palette scrims |
 | `--z-droplet` | `40` | In-app alert, over dialogs |
+
+### Notice (`.notice`)
+- What went wrong, in words: `--needs-tint` face, `--needs-text`, `--fs-sm`, `--radius-md`, 10px
+  12px inside, `role="alert"`. Used by the confirm, the new session dialog, the folder browser,
+  the prompt card, the composer and the transcript; the body is a Japanese sentence.
 
 ### In-app alert
 
@@ -240,8 +245,10 @@ One set for both themes: the card is island black wherever it shows.
 ## 5. Components
 
 ### Button (`.btn`, `.icon-button`)
-- `.btn` is a medium text control. Variants: neutral, `.btn-primary`, `.btn-danger`, `.btn-ghost`.
-  Primary uses `--accent`; danger uses danger tint plus blocked border; ghost removes fill/edge.
+- `.btn` is a text control at `--control-h`, `--radius-md`, `--fs-md`: standard (`--field`, 1px
+  `--line`, `--ink`), `.btn-primary` (`--accent`, `--on-accent`, bold; one per screen or card) and
+  `.btn-ghost` (no face or edge). A destructive action is never red: a confirm stops it, and the
+  confirm's primary button says what happens. Stop in the composer is a standard button.
 - `.icon-button` is a square unlabeled visual control with mandatory `aria-label`; `.is-outlined`
   adds the border. Both families use `--control-h`, `--radius-md`, focus ring, hover and disabled.
 - Coarse pointers grow controls to `--touch-target`.
@@ -251,6 +258,8 @@ One set for both themes: the card is island black wherever it shows.
   `28px` high (`--touch-target` on coarse pointers), `--radius-sm`, `--fs-sm`; the rest read in
   `--sub`. The one `aria-pressed="true"` option reads `--ink-strong` on `--tint`, with a 2px
   `--accent` line along its foot.
+- `Segmented` (`src/components/Segmented.tsx`) draws it as a named `role="group"`; the arrow keys
+  move between its options (Home and End to either end), Enter or Space chooses.
 - Used for Pane/Fleet, Chat/Terminal and Settings choices. No other shape switches the same thing:
   not tabs, a row of buttons, or an ornament along the bottom of the screen.
 
@@ -260,17 +269,21 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Modal (`.modal*`)
 - `.modal-scrim` centers an `aria-modal` dialog at `--z-modal`; `.modal` is a capped scrollable
-  column with header, body and footer and `--shadow-pop`.
+  column with header, body and footer, and one glass panel (`--glass-strong`, 1px `--edge`,
+  `--glass-blur`, `--radius-xl`, `--shadow-panel`; `--field` without blur where transparency is
+  reduced). Header, body and footer are `--space-4` inside; the title is `--fs-xl` (18px).
 - At `<=640px`, it becomes a bottom sheet with top `--radius-xl` corners and safe-area padding.
 - Escape, explicit close and scrim click close dialogs; first meaningful control receives focus.
 - A confirm (`.confirm-dialog`, `alertdialog`, 420px) asks before something that cannot be undone:
-  Cancel has the focus, Tab stays between the two buttons, the danger action sits at the right,
+  Cancel has the focus, Tab stays between the two buttons, the action (primary) sits at the right,
   and a failure shows inside it. A no gives the focus back to what opened it.
 
 ### Field (`.field`, `.input`, `.select`)
-- Stacked label, optional hint and `--input` field. Desktop fields use `--fs-sm`;
-  small-screen fields retain `--fs-input` to avoid focus zoom.
-- Focus names the edge with accent; errors use blocked/danger tokens and `role="alert"`.
+- Stacked label (`--fs-xs` medium `--sub`), optional hint (`--fs-sm` `--sub`) and the field:
+  `--input-h` (44px), `--input` face, 1px `--control-edge`, `--radius-md`, `--fs-input` (16px) on
+  every screen.
+- Focus makes the edge 2px of `--accent`; errors use a `--needs-tint` notice in `--needs-text`
+  with `role="alert"`.
 
 ### Menu / popover (`.menu*`)
 - Bordered `--radius-lg` surface with `--shadow-pop`; rows use `--control-h`, `--radius-md`, icon,
@@ -282,8 +295,8 @@ One set for both themes: the card is island black wherever it shows.
   press (under the row for the key), above it when the screen ends first, and over the drawer.
   The row stays lit while its menu is up, and a held finger starts no text selection or callout.
   A one-pane row offers Rename workspace, Rename pane, then Close under a hairline; a workspace
-  header Rename workspace and Close workspace; a pane under a header Rename pane and Close. The
-  danger item takes `--needs`. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
+  header Rename workspace and Close workspace; a pane under a header Rename pane and Close. Close
+  is not red. At `<=640px` it is a `.modal` bottom sheet (`.row-sheet`):
   a grip, the row's name and place, 48px rows and a Cancel button; Tab stays among them. Escape, a press outside and
   focus leaving it close it (on a desktop a scroll or a resize too), and focus returns to the
   row. Arrow keys move between items. A row that leaves the roster takes its open menu with it.
@@ -424,20 +437,26 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Prompt card (`.prompt-card`)
 - Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp,
-  pi or codex question, approval or plan menu.
+  pi or codex question, approval or plan menu. It needs you, so it is the nearest card: `--field`,
+  a `--needs` edge, `--shadow-near`, `--radius-lg`; its title at `--fs-lg` semibold. The agent's
+  own text (`.prompt-card-body`) is in the UI face, not mono. One primary at a time: Send is
+  primary only while no option is checked.
 - Single options submit immediately; multi-select exposes checks plus Submit; supported custom input
   has its own labelled field. The prompt content hash rejects a stale answer with `prompt_changed`.
 - Options are full-width rows (`.prompt-card-option`): the menu's number in mono, the label, its
-  description under it in `--sub`. No option is filled as a default; a checked or typed pick
-  gets `--tint` + an `--accent` border. A `(Recommended)` suffix renders as a tag.
+  description under it in `--sub` (`--fs-md` over `--fs-sm`). No option is filled as a default; a
+  checked or typed pick gets `--tint` + an `--accent` border. A `(Recommended)` suffix renders as a
+  pill tag in `--sub`.
 - `POST /api/pane/prompt/answer` translates the chosen answer into the agent's navigation keys and
   sends them through herdr `pane.send_keys` / text input. The card never fabricates a chat reply.
 
 ### Composer (`.composer`)
-- Chat mode is ONE surface: the stack, the transcript and the composer region all sit on `--bg`,
-  and the composer column equals the transcript column (`--content-w`, same `--space-4` gutter).
-  The only card is the input box: `--field`, hairline border, `--radius-xl`, `--shadow-card`;
-  focus turns its border `--accent` (no inner outline). Above it the agent/status line and the
+- Chat mode is ONE reading surface: the stack, the transcript and the composer region all sit on
+  the opaque `--surface`, never glass, and the composer column equals the transcript column
+  (`--content-w`, same `--space-4` gutter). The only box is the input: `--input`, 1px
+  `--control-edge`, `--radius-lg`, no shadow; focus makes its edge 2px of `--accent` (no inner
+  outline). Its buttons are `--radius-md`, `--touch-target` on coarse pointers; Send is the one
+  primary, Stop a standard button. Above it the agent/status line and the
   completion popover; inside, ONE row — attach control | auto-growing textarea | Send / Queue /
   Stop — with the controls bottom-aligned so they stay beside the last line as the box grows;
   the image strip is its own row above that line.
@@ -462,6 +481,11 @@ One set for both themes: the card is island black wherever it shows.
   `.kbd` hints where a global shortcut exists.
 
 ### Settings dialog
+- The dialog is the modal's glass panel; each section is a `--field` card (`--radius-lg`, 1px
+  `--line`, `--space-4` inside and between). An item's name is English at `--fs-md`, its
+  description a Japanese sentence at `--fs-sm` `--sub` under it. A toggle that is on is an
+  `--accent` track with an `--on-accent` knob at the right; off, a `--field` track with a
+  `--control-edge` edge and a `--sub` knob at the left.
 - Appearance: Dark / Light / System, Comfortable / Compact, terminal font `10–22px`, terminal font
   family.
 - Composer: Enter sends. Chat: Show thinking, chat font size and family. Shortcuts: the complete
@@ -497,8 +521,10 @@ One set for both themes: the card is island black wherever it shows.
 - Reduced motion: it fades in and out where it rests, without falling or spreading.
 
 ### Token gate
-- A centered password card replaces the entire shell while authentication is required. It has a real
-  label, autofocused field, primary Unlock button and linked alert text.
+- A centered glass panel on the ground replaces the entire shell while authentication is required
+  (`--glass`, `--radius-xl`, `--shadow-panel`; `--field` where transparency is reduced). It has a
+  real label (`--fs-xs` `--sub`), an autofocused 44px field, the one primary button and a notice
+  for a refusal.
 - Success mounts the shell; Lock unsubscribes push, deletes auth and returns to the gate.
 
 ### Role (no control surface)
@@ -548,7 +574,6 @@ One set for both themes: the card is island black wherever it shows.
 | Panel shadow | `--shadow-panel` | The header and sidebar glass: top highlight plus depth |
 | Drawer shadow | `--shadow-drawer` | Mobile drawer |
 | Overlay shadow | `--shadow-pop` | Menus, palette and modal cards |
-| Card shadow | `--shadow-card` | The composer's input box — the one resting card in chat mode |
 
 ### Glass layers (Liquid / Spatial)
 
