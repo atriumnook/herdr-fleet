@@ -1,8 +1,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 import { isAgentKind } from "./adapters.ts";
-import { isThinkingLevel, type FleetConfig, type ModelPolicy, type RoleOverride } from "./types.ts";
+import { isThinkingLevel, type FleetConfig, type ModelPolicy, type ProjectConfig, type RoleOverride } from "./types.ts";
 
 export const DEFAULT_CONFIG: FleetConfig = {
   maxConcurrent: 6,
@@ -14,6 +14,7 @@ export const DEFAULT_CONFIG: FleetConfig = {
   rateLimitCooldownMinutes: 60,
   roles: {},
   models: {},
+  projects: {},
 };
 
 /** Where the user's fleet config and roles live: $XDG_CONFIG_HOME/herdr-fleet. */
@@ -69,6 +70,11 @@ function parseRole(value: unknown): RoleOverride {
   return role;
 }
 
+function parseProject(value: unknown): ProjectConfig {
+  if (!isObject(value)) return {};
+  return typeof value["setup"] === "string" && value["setup"].trim() ? { setup: value["setup"].trim() } : {};
+}
+
 function parseModelPolicy(value: unknown): ModelPolicy {
   if (!isObject(value)) return {};
   const thinking = Array.isArray(value["thinking"]) ? value["thinking"].filter(isThinkingLevel) : undefined;
@@ -81,6 +87,8 @@ export function mergeConfig(base: FleetConfig, raw: Record<string, unknown>): Fl
   if (isObject(raw["models"])) for (const [name, value] of Object.entries(raw["models"])) models[name] = { ...(models[name] ?? {}), ...parseModelPolicy(value) };
   const roles = { ...base.roles };
   if (isObject(raw["roles"])) for (const [name, value] of Object.entries(raw["roles"])) roles[name] = { ...(roles[name] ?? {}), ...parseRole(value) };
+  const projects = { ...base.projects };
+  if (isObject(raw["projects"])) for (const [path, value] of Object.entries(raw["projects"])) if (isAbsolute(path)) projects[resolve(path)] = { ...(projects[resolve(path)] ?? {}), ...parseProject(value) };
   const count = (key: string, min: number, fallback: number) => typeof raw[key] === "number" ? Math.max(min, Math.floor(raw[key] as number)) : fallback;
   return {
     defaultModel: typeof raw["defaultModel"] === "string" ? raw["defaultModel"] : base.defaultModel,
@@ -94,13 +102,16 @@ export function mergeConfig(base: FleetConfig, raw: Record<string, unknown>): Fl
     rateLimitCooldownMinutes: count("rateLimitCooldownMinutes", 1, base.rateLimitCooldownMinutes),
     roles,
     models,
+    projects,
   };
 }
 
 /** Built-in defaults, then the user's fleet.json, then the project's `.herdr-fleet/fleet.json`. */
 export function loadConfig(cwd: string, warnings?: string[], userDir = userFleetDir()): FleetConfig {
   const project = findProjectPath(cwd, "fleet.json");
-  return mergeConfig(mergeConfig(DEFAULT_CONFIG, readJson(join(userDir, "fleet.json"), warnings)), project ? readJson(project, warnings) : {});
+  // the project's file comes with the repository: it may tune roles, never name a command to run
+  const { projects: _ignored, ...projectRaw } = project ? readJson(project, warnings) : {};
+  return mergeConfig(mergeConfig(DEFAULT_CONFIG, readJson(join(userDir, "fleet.json"), warnings)), projectRaw);
 }
 
 /**

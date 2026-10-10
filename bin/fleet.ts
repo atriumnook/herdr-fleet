@@ -14,6 +14,13 @@ const USAGE = `usage: fleet <command> [options]
 
   spawn --role <role> --task <text> [--name <name>] [--model <provider/model>] [--thinking <level>]
         [--cwd <dir>] [--worktree] [--interactive] [--direction right|down] [--wait] [--timeout <ms>]
+        [--avoid <cli>]...               keep a CLI out (pi, claude, codex, cursor, agy), such as the writer's for a review
+        an agent handing work on gives a brief instead of --task (--task then adds notes):
+        --goal <one sentence> --write <path>... | --read-only --context <files, earlier results, or none>
+        --done <checkable condition> --verify <commands, and the evidence to return> [--forbid <text>] [--timebox <text>]
+  thread --title <title> --task <text> [--cwd <dir>]
+                                   start a thread: a lead in a workspace of its own, on a worktree of its own in a repository
+                                   (an agent gives a brief instead of --task, as for spawn)
   send <agent> <message...>        hand an agent its next task
   wait <agent> [--timeout <ms>]    until its turn settles; follows a re-spawn after a fallback
   read <agent> [--lines <n>]       its recent output
@@ -78,6 +85,18 @@ function describeUsage(entry: UsageEntry): string {
     entry.error ? `             last read failed: ${entry.error}` : "",
   ].filter(Boolean).join("\n");
 }
+interface BriefFlags {
+  goal?: string; write?: string[]; "read-only"?: boolean; context?: string; done?: string; verify?: string; forbid?: string; timebox?: string;
+}
+
+/** The brief the flags give, or none when no brief flag is set; the server says which fields are missing, all at once. */
+function briefOf(values: BriefFlags): Record<string, unknown> | undefined {
+  const { goal, write, context, done, verify, forbid, timebox } = values;
+  if ([goal, write, values["read-only"], context, done, verify, forbid, timebox].every((v) => v === undefined)) return undefined;
+  if (write && values["read-only"]) throw new CliError("--write and --read-only do not go together", 2);
+  return { goal, write: values["read-only"] ? [] : write, context, done, verify, forbidden: forbid, timebox };
+}
+
 const describe = (run: Run): string => `${run.id}  ${run.name} (${run.role}, ${run.agent}${run.model ? `, ${run.model}` : ""})  ${run.state}  pane ${run.paneId}`;
 
 function print(json: boolean, value: unknown, text: () => string): void {
@@ -128,7 +147,9 @@ async function main(argv: string[]): Promise<number> {
       role: { type: "string" }, task: { type: "string" }, name: { type: "string" }, model: { type: "string" }, thinking: { type: "string" },
       cwd: { type: "string" }, worktree: { type: "boolean" }, interactive: { type: "boolean" }, direction: { type: "string" },
       wait: { type: "boolean" }, timeout: { type: "string" }, lines: { type: "string" }, all: { type: "boolean" }, json: { type: "boolean" },
-      refresh: { type: "boolean" },
+      refresh: { type: "boolean" }, avoid: { type: "string", multiple: true },
+      title: { type: "string" }, goal: { type: "string" }, write: { type: "string", multiple: true }, "read-only": { type: "boolean" }, context: { type: "string" },
+      done: { type: "string" }, verify: { type: "string" }, forbid: { type: "string" }, timebox: { type: "string" },
     },
   });
   const json = values.json ?? false;
@@ -142,13 +163,21 @@ async function main(argv: string[]): Promise<number> {
 
   switch (command) {
     case "spawn": {
-      if (!values.role || !values.task) throw new CliError("fleet spawn: --role and --task are required", 2);
+      const brief = briefOf(values);
+      if (!values.role || (!values.task && !brief)) throw new CliError("fleet spawn: --role and --task (or a brief) are required", 2);
       const { run } = await call<{ run: Run }>("POST", "/spawn", {
-        role: values.role, task: values.task, name: values.name, model: values.model, thinking: values.thinking,
+        role: values.role, task: values.task, brief, name: values.name, model: values.model, thinking: values.thinking,
         cwd: values.cwd ?? process.cwd(), worktree: values.worktree, interactive: values.interactive, direction: values.direction,
-        group, depth, caller_pane_id: paneId,
+        group, depth, caller_pane_id: paneId, avoid: values.avoid,
       });
       if (values.wait) return waitFor(run.id, timeout, json);
+      print(json, run, () => [describe(run), run.lastError ? `note: ${run.lastError}` : ""].filter(Boolean).join("\n"));
+      return run.state === "blocked" ? 4 : 0;
+    }
+    case "thread": {
+      const brief = briefOf(values);
+      if (!values.title || (!values.task && !brief)) throw new CliError("fleet thread: --title and --task (or a brief) are required", 2);
+      const { run } = await call<{ run: Run }>("POST", "/threads", { title: values.title, task: values.task, brief, cwd: values.cwd ?? process.cwd(), depth });
       print(json, run, () => [describe(run), run.lastError ? `note: ${run.lastError}` : ""].filter(Boolean).join("\n"));
       return run.state === "blocked" ? 4 : 0;
     }
