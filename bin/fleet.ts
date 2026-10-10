@@ -14,6 +14,7 @@ const USAGE = `usage: fleet <command> [options]
 
   spawn --role <role> --task <text> [--name <name>] [--model <provider/model>] [--thinking <level>]
         [--cwd <dir>] [--worktree] [--interactive] [--direction right|down] [--wait] [--timeout <ms>]
+        [--avoid <cli>]...               keep a CLI out (pi, claude, codex, cursor, agy), such as the writer's for a review
   send <agent> <message...>        hand an agent its next task
   wait <agent> [--timeout <ms>]    until its turn settles; follows a re-spawn after a fallback
   read <agent> [--lines <n>]       its recent output
@@ -128,7 +129,7 @@ async function main(argv: string[]): Promise<number> {
       role: { type: "string" }, task: { type: "string" }, name: { type: "string" }, model: { type: "string" }, thinking: { type: "string" },
       cwd: { type: "string" }, worktree: { type: "boolean" }, interactive: { type: "boolean" }, direction: { type: "string" },
       wait: { type: "boolean" }, timeout: { type: "string" }, lines: { type: "string" }, all: { type: "boolean" }, json: { type: "boolean" },
-      refresh: { type: "boolean" },
+      refresh: { type: "boolean" }, avoid: { type: "string", multiple: true },
     },
   });
   const json = values.json ?? false;
@@ -146,7 +147,7 @@ async function main(argv: string[]): Promise<number> {
       const { run } = await call<{ run: Run }>("POST", "/spawn", {
         role: values.role, task: values.task, name: values.name, model: values.model, thinking: values.thinking,
         cwd: values.cwd ?? process.cwd(), worktree: values.worktree, interactive: values.interactive, direction: values.direction,
-        group, depth, caller_pane_id: paneId,
+        group, depth, caller_pane_id: paneId, avoid: values.avoid,
       });
       if (values.wait) return waitFor(run.id, timeout, json);
       print(json, run, () => [describe(run), run.lastError ? `note: ${run.lastError}` : ""].filter(Boolean).join("\n"));

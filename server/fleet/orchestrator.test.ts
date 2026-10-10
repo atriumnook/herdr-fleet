@@ -430,6 +430,22 @@ describe("usage routing", () => {
     expect(runtime.locations).toEqual([]);
   });
 
+  it("keeps the CLIs a caller avoids out, onto the next candidate, and says why", async () => {
+    const { fleet, runtime } = setup({ agents: crossRole() });
+    const run = await spawn(fleet, { avoid: ["pi"] });
+    expect(run).toMatchObject({ agent: "codex", model: "gpt-6", fallbackFrom: "p/primary" });
+    expect(run.skipped).toEqual([{ candidate: "p/primary", reason: "the caller keeps pi out" }]);
+    expect(runtime.starts.map((s) => s.kind)).toEqual(["codex"]);
+  });
+
+  it("refuses the spawn, before any pane, when the caller avoids every candidate's CLI", async () => {
+    const { fleet, runtime } = setup({ agents: crossRole() });
+    const error = await spawn(fleet, { avoid: ["pi", "codex", "claude"] }).catch((e) => e);
+    expect(error).toMatchObject({ code: "no_candidates" });
+    expect(error.message).toContain("claude:sonnet: the caller keeps claude out");
+    expect(runtime.locations).toEqual([]);
+  });
+
   it("lets a caller pick another CLI with an <agent>:<model> model", async () => {
     const { fleet, runtime } = setup();
     const run = await spawn(fleet, { model: "agy:gemini-pro" });

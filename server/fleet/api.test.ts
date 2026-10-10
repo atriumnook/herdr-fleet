@@ -88,6 +88,9 @@ describe("fleet API", () => {
     expect(await call("POST", "/spawn", { task: "t" })).toMatchObject({ status: 400, body: { error: { code: "missing_role" } } });
     expect(await call("POST", "/spawn", { role: "nobody", task: "t" })).toMatchObject({ status: 404, body: { error: { code: "unknown_role" } } });
     expect(await call("POST", "/spawn", { role: "worker", task: "t", worktree: "yes" })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+    expect(await call("POST", "/spawn", { role: "worker", task: "t", avoid: ["gemini"] })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+    expect(await call("POST", "/spawn", { role: "worker", task: "t", avoid: "codex" })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+    expect(await call("POST", "/spawn", { role: "worker", task: "t", avoid: ["codex"] })).toMatchObject({ status: 201, body: { run: { agent: "pi" } } });
     expect(await call("POST", "/spawn", { role: "worker", task: "t", depth: 5 })).toMatchObject({ status: 409, body: { error: { code: "depth_limit" } } });
     expect(await call("GET", "/runs/ghost")).toMatchObject({ status: 404, body: { error: { code: "run_not_found" } } });
     expect(await call("POST", "/runs/ghost/send", { message: "" })).toMatchObject({ status: 400, body: { error: { code: "missing_message" } } });

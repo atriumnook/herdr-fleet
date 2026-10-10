@@ -206,16 +206,19 @@ export class Orchestrator {
     const failures: string[] = [];
     const skipped: SkippedCandidate[] = [];
     let started = false;
+    let outOfUsage = false;
     for (let i = 0; i < candidates.length; i++) {
       const entry = candidates[i];
       const { agent: kind, model } = parseCandidate(entry, roleKind);
       const last = i === candidates.length - 1;
-      const unusable = await this.deps.usage?.unavailable(kind, model, config.maxUsedPercent);
+      const avoided = request.avoid?.includes(kind) ? `the caller keeps ${kind} out` : undefined;
+      const unusable = avoided ?? await this.deps.usage?.unavailable(kind, model, config.maxUsedPercent);
       if (unusable) {
+        if (!avoided) outOfUsage = true;
         failures.push(`${entry ?? "default"}: ${unusable}`);
         skipped.push({ candidate: entry ?? "default", reason: unusable });
         if (!last) continue;
-        throw new FleetError(started ? "fallbacks_exhausted" : "usage_exhausted", `No candidate has usage left: ${failures.join("; ")}`);
+        throw new FleetError(started ? "fallbacks_exhausted" : outOfUsage ? "usage_exhausted" : "no_candidates", `No candidate is usable: ${failures.join("; ")}`);
       }
       // a fallback is bounded by its own allow-list rather than refused: a person listed it
       const thinking = applyModelPolicy(config, model, baseThinking, i === 0 && explicitThinking !== undefined);
@@ -376,7 +379,7 @@ export class Orchestrator {
       `- Message one: ${fleet} send <name-or-id> "<message>"`,
       `- Read one's recent output: ${fleet} read <name-or-id>`,
       canSpawn
-        ? `- Start a helper when splitting the work materially improves the result: ${fleet} spawn --role <role> --task "<task>", then ${fleet} wait <id>`
+        ? `- Start a helper when splitting the work materially improves the result: ${fleet} spawn --role <role> --task "<task>", then ${fleet} wait <id>. Add --avoid <cli> to keep a CLI out: a review goes to another CLI than the one that wrote the change (${fleet} list shows each agent's CLI)`
         : "Do not start other agents.",
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
       "Treat herdr's 'unknown' as uncertainty, not completion.",
