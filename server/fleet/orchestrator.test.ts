@@ -860,6 +860,29 @@ describe("threads", () => {
     await expect(fleet.startThread({ title: "t", task: "t", callerRun: "nobody" })).rejects.toMatchObject({ code: "run_not_found" });
   });
 
+  it("are listed for their project, with the HANDOFF's status line and the contract's state", async () => {
+    const { fleet, registry, root } = setup({ agents: [lead, role("worker")], gitRoot: async (cwd) => cwd.startsWith("/repo") ? "/repo" : null });
+    const fixed = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    const fresh = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo/docs" });
+    await fleet.startThread({ title: "Elsewhere", task: "t", cwd: "/other" });
+    await spawn(fleet, { cwd: "/repo" });
+    registry.upsert({ ...registry.get(fixed.id)!, state: "idle", result: "## HANDOFF\n**PASS** — bun test: 12 pass\nOutcome: fixed" });
+    writeFileSync(join(root, "results", fixed.id, "contract.md"), "- [x] A1 no duplicate — evidence: test\n- [ ] A2 docs\n- [!] A3 old clients — evidence: none\n");
+    const threads = await fleet.threads({ cwd: "/repo/src" });
+    expect(threads.map((t) => t.run.id)).toEqual([fixed.id, fresh.id]);
+    expect(threads[0]).toMatchObject({ status: "PASS — bun test: 12 pass", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }, { id: "A3", state: "unmet" }] });
+    expect(threads[1]!.status).toBeUndefined();
+    expect(threads[1]!.contract).toBeUndefined();
+  });
+
+  it("are listed for the calling run's project, wherever it asks from", async () => {
+    const { fleet } = setup({ agents: [lead, role("coordinator", { interactive: true, spawning: true })], gitRoot: async (cwd) => cwd.startsWith("/repo") ? "/repo" : null });
+    const coordinator = await fleet.startProject({ task: "hello", cwd: "/repo" });
+    const thread = await fleet.startThread({ title: "t", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    expect((await fleet.threads({ callerRun: coordinator.id, cwd: "/tmp" })).map((t) => t.run.id)).toEqual([thread.id]);
+    await expect(fleet.threads({ callerRun: "nobody" })).rejects.toMatchObject({ code: "run_not_found" });
+  });
+
   it("fail before the lead starts when the setup command fails, and close the pane", async () => {
     const { fleet, runtime, registry } = setup({
       agents: [lead], gitRoot: async () => "/repo", config: { projects: { "/repo": { setup: "false" } } },
@@ -882,5 +905,38 @@ describe("threads", () => {
     expect(runtime.locations[0]).toMatchObject({ worktree: false, branch: undefined });
     expect(setups).toBe(0);
     await expect(fleet.startThread({ title: " ", task: "t" })).rejects.toMatchObject({ code: "invalid_title" });
+  });
+});
+
+describe("projects", () => {
+  const coordinator = role("coordinator", { model: "claude:sonnet", interactive: true, spawning: true, edits: false });
+
+  it("start the coordinator in the repository's main checkout, in a workspace named after it, editing nothing", async () => {
+    const { fleet, runtime } = setup({ agents: [coordinator], gitRoot: async () => "/home/me/app" });
+    const run = await fleet.startProject({ task: "What is left to do?", cwd: "/home/me/app/src" });
+    expect(run).toMatchObject({ role: "coordinator", name: "app · fleet", agent: "claude", project: "/home/me/app", interactive: true, worktree: false, depth: 1 });
+    expect(run.owner).toBeUndefined();
+    expect(runtime.locations[0]).toMatchObject({ cwd: "/home/me/app", label: "app · fleet", worktree: false });
+    expect(runtime.locations[0]!.callerPaneId).toBeUndefined();
+    expect(runtime.starts[0]!.args.join(" ")).toContain("--disallowedTools Edit,Write,NotebookEdit");
+    expect(runtime.prompts[0]!.text).toBe("What is left to do?");
+  });
+
+  it("keep one coordinator per project: a second start hands it the task, even when both come at once", async () => {
+    const { fleet, runtime, registry } = setup({ agents: [coordinator], gitRoot: async (cwd) => cwd.startsWith("/repo") ? "/repo" : null });
+    const [first, again] = await Promise.all([fleet.startProject({ task: "one", cwd: "/repo" }), fleet.startProject({ task: "two", cwd: "/repo/src" })]);
+    expect(again.id).toBe(first.id);
+    expect(runtime.locations).toHaveLength(1);
+    expect(runtime.prompts.map((p) => p.text)).toEqual(["one", "two"]);
+    // another folder is another project; a coordinator that ended is replaced
+    const notes = await fleet.startProject({ task: "three", cwd: "/notes" });
+    expect(notes).toMatchObject({ project: "/notes", name: "notes · fleet" });
+    registry.upsert({ ...registry.get(first.id)!, state: "stopped" });
+    expect((await fleet.startProject({ task: "four", cwd: "/repo" })).id).not.toBe(first.id);
+  });
+
+  it("need a task", async () => {
+    const { fleet } = setup({ agents: [coordinator] });
+    await expect(fleet.startProject({ task: " " })).rejects.toMatchObject({ code: "missing_task" });
   });
 });

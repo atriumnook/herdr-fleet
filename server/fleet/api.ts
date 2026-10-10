@@ -14,6 +14,9 @@ import type { UsageTracker } from "./usage.ts";
  *  GET  /api/fleet/roles[?cwd=]                      -> { roles: [{ name, description, agent, source }] }
  *  GET  /api/fleet/runs[?group=]                     -> { runs: AgentRun[] }
  *  POST /api/fleet/spawn         SpawnRequest        -> 201 { run }
+ *  POST /api/fleet/threads       { title, task|brief, cwd?, depth?, caller_run? } -> 201 { run }
+ *  GET  /api/fleet/threads[?caller_run=&cwd=]        -> { threads: ThreadSummary[] }; the caller's project's
+ *  POST /api/fleet/projects      { task, cwd? }      -> 201 { run }; the project's coordinator, started or told the task
  *  GET  /api/fleet/runs/:target[?group=]             -> { run }
  *  POST /api/fleet/runs/:target/send   { message, group? }     -> { run }
  *  POST /api/fleet/runs/:target/wait   { timeout_ms?, group? } -> { run }; 408 wait_timeout with { run }
@@ -50,6 +53,19 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
     if (parts[0] === "threads" && parts.length === 1 && method === "POST") {
       const body = await readBody();
       const run = await fleet.startThread(threadRequest(body), request.signal);
+      return jsonResponse({ run }, 201);
+    }
+    if (parts[0] === "threads" && parts.length === 1 && method === "GET") {
+      const threads = await fleet.threads({ callerRun: query.get("caller_run") || undefined, cwd: query.get("cwd") || undefined });
+      return jsonResponse({ threads });
+    }
+    if (parts[0] === "projects" && parts.length === 1 && method === "POST") {
+      const body = await readBody();
+      const task = body["task"];
+      const cwd = body["cwd"];
+      if (typeof task !== "string" || !task.trim()) throw new FleetError("missing_task", "task is required");
+      if (cwd !== undefined && typeof cwd !== "string") throw new FleetError("invalid_body", "cwd must be a string");
+      const run = await fleet.startProject({ task, ...(cwd ? { cwd } : {}) }, request.signal);
       return jsonResponse({ run }, 201);
     }
     if (parts[0] === "spawn" && parts.length === 1 && method === "POST") {

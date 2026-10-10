@@ -59,6 +59,20 @@ export interface AgentRun {
 }
 
 /** One limit window: a share of it used, until it resets. */
+/** One assertion of a thread lead's acceptance contract (contract.md), as the lead last marked it. */
+export interface ContractItem {
+  id: string;
+  state: "met" | "open" | "unmet";
+}
+
+/** A thread as its project's coordinator sees it: the lead's run, its HANDOFF status line, and its contract. */
+export interface ThreadSummary {
+  run: AgentRun;
+  /** the HANDOFF's first line: PASS, ISSUES or BLOCKED and the evidence */
+  status?: string;
+  contract?: ContractItem[];
+}
+
 export interface UsageWindow {
   /** "5h", "weekly", "monthly", … */
   name: string;

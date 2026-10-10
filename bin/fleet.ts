@@ -22,6 +22,9 @@ const USAGE = `usage: fleet <command> [options]
   thread --title <title> --task <text> [--cwd <dir>]
                                    start a thread: a lead in a workspace of its own, on a worktree of its own in a repository
                                    (an agent gives a brief instead of --task, as for spawn)
+  threads [--cwd <dir>]            the threads of this project: state, branch, HANDOFF status line and contract
+  project --task <text> [--cwd <dir>]
+                                   talk to the project's coordinator, started at its main checkout if none runs
   send <agent> <message...>        hand an agent its next task
   wait <agent> [--timeout <ms>]    until its turn settles; follows a re-spawn after a fallback
   read <agent> [--lines <n>]       its recent output
@@ -68,6 +71,23 @@ async function call<T>(method: "GET" | "POST", path: string, body?: Record<strin
     throw new CliError(`${code}: ${data.error?.message ?? response.statusText}`, code === "wait_timeout" ? 124 : 1, data);
   }
   return data as T;
+}
+
+interface ThreadSummary {
+  run: Run & { branch?: string };
+  status?: string;
+  contract?: Array<{ id: string; state: "met" | "open" | "unmet" }>;
+}
+
+const CONTRACT_MARKS = { met: "✓", open: "·", unmet: "✗" } as const;
+
+function describeThread(thread: ThreadSummary): string {
+  const contract = thread.contract?.length ? `Contract: ${thread.contract.map((item) => `${item.id} ${CONTRACT_MARKS[item.state]}`).join(" ")}` : "";
+  return [
+    `${thread.run.id}  ${thread.run.name}  ${thread.run.state}${thread.run.branch ? `  ${thread.run.branch}` : ""}`,
+    thread.status ? `    ${thread.status}` : "",
+    contract ? `    ${contract}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 interface UsageEntry {
@@ -180,6 +200,17 @@ async function main(argv: string[]): Promise<number> {
       const brief = briefOf(values);
       if (!values.title || (!values.task && !brief)) throw new CliError("fleet thread: --title and --task (or a brief) are required", 2);
       const { run } = await call<{ run: Run }>("POST", "/threads", { title: values.title, task: values.task, brief, cwd: values.cwd ?? process.cwd(), depth, caller_run: callerRun });
+      print(json, run, () => [describe(run), run.lastError ? `note: ${run.lastError}` : ""].filter(Boolean).join("\n"));
+      return run.state === "blocked" ? 4 : 0;
+    }
+    case "threads": {
+      const { threads } = await call<{ threads: ThreadSummary[] }>("GET", `/threads?cwd=${enc(values.cwd ?? process.cwd())}${callerRun ? `&caller_run=${enc(callerRun)}` : ""}`);
+      print(json, threads, () => threads.length ? threads.map(describeThread).join("\n") : "no threads");
+      return 0;
+    }
+    case "project": {
+      if (!values.task) throw new CliError("fleet project: --task is required", 2);
+      const { run } = await call<{ run: Run }>("POST", "/projects", { task: values.task, cwd: values.cwd ?? process.cwd() });
       print(json, run, () => [describe(run), run.lastError ? `note: ${run.lastError}` : ""].filter(Boolean).join("\n"));
       return run.state === "blocked" ? 4 : 0;
     }

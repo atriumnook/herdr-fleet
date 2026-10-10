@@ -1,6 +1,6 @@
 import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
@@ -8,7 +8,7 @@ import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brie
 import { excludeWorktrees, gitRoot, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
-import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel } from "./types.ts";
+import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type ContractItem, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadSummary } from "./types.ts";
 import { usageKey, type UsageTracker } from "./usage.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -47,6 +47,16 @@ export interface ThreadRequest {
 }
 
 const THREAD_ROLE = "lead";
+
+/** The project's coordinator: started in the repository's main checkout, or the one already there. */
+export interface ProjectRequest {
+  task: string;
+  cwd?: string;
+}
+
+const PROJECT_ROLE = "coordinator";
+/** where a thread lead writes its acceptance contract: beside its result file (agents/lead.md) */
+const CONTRACT_FILE = "contract.md";
 interface SpawnPlan { request: PlannedSpawn; fallbacks: string[] }
 
 /** the states in which a run may still be writing the paths its brief gave it */
@@ -141,6 +151,7 @@ export class Orchestrator {
   private readonly pending = new Map<string, PendingTurn>();
   private readonly generations = new Map<string, number>();
   private readonly reconcileLocks = new Map<string, Promise<void>>();
+  private readonly projectStarts = new Map<string, Promise<AgentRun>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
   /** callers waiting for a run's turn to settle or block */
@@ -229,6 +240,44 @@ export class Orchestrator {
       role: THREAD_ROLE, name: title, task: request.task, brief: request.brief, cwd, depth: request.depth,
       group: makeGroupId(), worktree: repo !== null, interactive: true,
     }, signal, { repo, ...(owner ? { owner: owner.id } : {}) });
+  }
+
+  /**
+   * A project's coordinator: one per repository (or folder outside one), in a workspace of its own
+   * at the main checkout. A second start of the same project hands the task to the live one.
+   */
+  async startProject(request: ProjectRequest, signal?: AbortSignal): Promise<AgentRun> {
+    if (!request.task.trim()) throw new FleetError("missing_task", "task is required");
+    const cwd = resolve(request.cwd ?? process.cwd());
+    const project = await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
+    // two starts of one project at once must not both find none and start two coordinators
+    const previous = this.projectStarts.get(project) ?? Promise.resolve();
+    const started = previous.catch(() => {}).then(async () => {
+      const live = this.deps.registry.all().find((run) => run.role === PROJECT_ROLE && run.project === project && isLive(run));
+      if (live) return this.send(live.id, request.task, undefined, signal);
+      return this.launch({
+        role: PROJECT_ROLE, name: `${basename(project)} · fleet`, task: request.task, cwd: project, depth: 0,
+        group: makeGroupId(), worktree: false, interactive: true,
+      }, signal, { repo: project });
+    });
+    this.projectStarts.set(project, started);
+    try {
+      return await started;
+    } finally {
+      if (this.projectStarts.get(project) === started) this.projectStarts.delete(project);
+    }
+  }
+
+  /** The threads of the caller's project (the calling run's, or the repository `cwd` lies in), oldest first. */
+  async threads(request: { callerRun?: string; cwd?: string }): Promise<ThreadSummary[]> {
+    const caller = request.callerRun ? this.deps.registry.get(request.callerRun) : undefined;
+    if (request.callerRun && !caller) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
+    const cwd = resolve(request.cwd ?? process.cwd());
+    const project = caller?.project ?? await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
+    return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project).map((run) => {
+      const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
+      return { run, ...(run.result ? { status: handoffStatus(run.result) } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
+    });
   }
 
   private async launch(request: SpawnRequest, signal?: AbortSignal, thread?: ThreadPlace): Promise<AgentRun> {
@@ -830,6 +879,18 @@ export class Orchestrator {
  * The handoff a run's agent wrote, up to RESULT_MAX_BYTES. Only a regular file is read, never one
  * reached through a symlink: an agent must not turn the result into a way to read other files.
  */
+/** The HANDOFF's status line: the first that opens with PASS, ISSUES or BLOCKED, without its markdown. */
+export function handoffStatus(result: string): string | undefined {
+  return result.split("\n").map((l) => l.replace(/^[\s#>-]+/, "").replace(/\*\*/g, "").trim()).find((l) => /^(PASS|ISSUES|BLOCKED)\b/.test(l));
+}
+
+/** contract.md's assertions: `- [ ] A1 …` open, `- [x]` met, `- [!]` cannot be met. */
+export function contractItems(text: string): ContractItem[] {
+  return [...text.matchAll(/^\s*[-*]\s*\[([ xX!])\]\s*(A\d+)\b/gm)].map((m) => ({
+    id: m[2]!, state: m[1] === "!" ? "unmet" : m[1] === " " ? "open" : "met",
+  }));
+}
+
 export function readResult(file: string): string | undefined {
   let fd: number;
   try { fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { return undefined; }

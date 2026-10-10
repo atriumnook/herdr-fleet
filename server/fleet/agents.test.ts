@@ -20,10 +20,12 @@ function fixture(project: Record<string, string> = {}, user: Record<string, stri
 }
 
 describe("role discovery", () => {
-  it("loads the bundled scout, planner, worker and reviewer as pi roles, and a thread's lead on claude then codex", () => {
+  it("loads the bundled scout, planner, worker and reviewer as pi roles, a thread's lead on claude then codex, and a project's coordinator on claude, editing nothing", () => {
     const { cwd, dirs } = fixture();
     const agents = discoverAgents(cwd, [], dirs);
-    expect(agents.map((a) => a.name).sort()).toEqual(["lead", "planner", "reviewer", "scout", "worker"]);
+    expect(agents.map((a) => a.name).sort()).toEqual(["coordinator", "lead", "planner", "reviewer", "scout", "worker"]);
+    expect(findAgent(agents, "coordinator")).toMatchObject({ agent: "claude", interactive: true, spawning: true, edits: false });
+    expect(findAgent(agents, "coordinator")!.fallbackModels).toBeUndefined();
     expect(findAgent(agents, "lead")).toMatchObject({ agent: "claude", fallbackModels: ["codex:"], interactive: true, spawning: true });
     expect(findAgent(agents, "Worker")).toMatchObject({ agent: "pi", source: "bundled", interactive: false, thinking: "high" });
     expect(findAgent(agents, "worker")!.tools).toContain("bash");

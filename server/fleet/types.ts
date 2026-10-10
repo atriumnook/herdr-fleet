@@ -6,7 +6,7 @@
 import type { FleetAgentKind, ThinkingLevel } from "../../shared/fleet.ts";
 import type { Brief } from "./brief.ts";
 
-export type { AgentRun, AgentState, SkippedCandidate, ThinkingLevel } from "../../shared/fleet.ts";
+export type { AgentRun, AgentState, ContractItem, SkippedCandidate, ThinkingLevel, ThreadSummary } from "../../shared/fleet.ts";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ThinkingLevel[];
 
