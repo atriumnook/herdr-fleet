@@ -103,7 +103,7 @@ export function NewSessionDialog({ model, browser, emit }: NewSessionDialogProps
             <span className="field-hint">{t("Optional workspace label")}</span>
           </label>
           {pending && <p className="new-session-note" role="status">{pendingLabel}</p>}
-          {error && <p className="field-hint new-session-error" role="alert">{error}</p>}
+          {error && <p className="notice new-session-error" role="alert">{error}</p>}
         </div>
         <footer className="modal-footer">
           <button type="button" className="btn btn-ghost" disabled={pending} onClick={onClose}>{t("Cancel")}</button>

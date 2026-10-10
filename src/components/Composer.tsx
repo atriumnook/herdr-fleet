@@ -781,7 +781,7 @@ export function Composer({ model, emit }: ComposerProps) {
           ) : null}
         </div>
       </div>
-      {note && <div className="composer-note" role="alert">{note}</div>}
+      {note && <div className="notice composer-note" role="alert">{note}</div>}
       {/* said while typing, before the send: after it the browser is already open and the reader is
           already in the state the words describe. Not a block — the text still goes, and pi runs the
           command in the terminal the way its own palette would */}

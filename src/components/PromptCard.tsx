@@ -127,7 +127,7 @@ export function PromptCard({ prompt, typedAnswer = null, card, emit }: PromptCar
           <button type="button" className="btn" disabled={pending} onClick={() => emit({ type: "chat-pending-answer-done" })}>{t("Cancel")}</button>
         </div>
       )}
-      {error !== null && <p className="prompt-card-error" role="alert">{error}</p>}
+      {error !== null && <p className="notice prompt-card-error" role="alert">{error}</p>}
     </section>
   );
 }

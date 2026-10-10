@@ -83,7 +83,11 @@
 }
 
 .dir-browser-error {
-  color: var(--needs);
+  margin: var(--space-2);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--needs-tint);
+  color: var(--needs-text);
 }
 
 .dir-browser-footer {

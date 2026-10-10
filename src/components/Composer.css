@@ -474,9 +474,6 @@
 
 .composer-note {
   margin-top: var(--space-1);
-  padding: 0 var(--space-2);
-  color: var(--needs-text);
-  font-size: var(--fs-xs);
 }
 
 @media (max-width: 480px) {

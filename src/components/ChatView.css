@@ -546,7 +546,13 @@
   font-size: var(--fs-xs);
 }
 
-.chat-inline-error { color: var(--needs); }
+/* the transcript's own failure notice */
+.chat-inline-error {
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--needs-tint);
+  color: var(--needs-text);
+}
 
 .chat-endcap {
   width: 100%;
@@ -729,9 +735,9 @@
   padding: 0 var(--space-1);
   border-radius: var(--radius-sm);
   background: var(--needs-tint);
-  color: var(--needs);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
+  color: var(--needs-text);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
 }
 
 /* a file a tool call names opens in the viewer: a link in look, a button underneath */

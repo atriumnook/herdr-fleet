@@ -228,10 +228,6 @@
   height: var(--icon-size);
 }
 
-.prompt-card-error {
-  color: var(--needs);
-  font-size: var(--fs-xs);
-}
 
 @media (pointer: coarse) {
   .prompt-card-option {

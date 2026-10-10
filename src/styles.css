@@ -1036,6 +1036,17 @@ button {
   color: var(--sub);
 }
 
+/* a notice: what went wrong, in words, on the needs tint (an error's body is a Japanese sentence) */
+.notice {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
+  background: var(--needs-tint);
+  color: var(--needs-text);
+  font-size: var(--fs-sm);
+  overflow-wrap: anywhere;
+}
+
 /* ---------- sidebar error state (App-owned) ---------- */
 
 .error-state {

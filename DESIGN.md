@@ -199,6 +199,11 @@ Comfortable values are `:root`; the final column is the complete compact overrid
 | `--z-modal` | `30` | Dialog and palette scrims |
 | `--z-droplet` | `40` | In-app alert, over dialogs |
 
+### Notice (`.notice`)
+- What went wrong, in words: `--needs-tint` face, `--needs-text`, `--fs-sm`, `--radius-md`, 10px
+  12px inside, `role="alert"`. Used by the confirm, the new session dialog, the folder browser,
+  the prompt card, the composer and the transcript; the body is a Japanese sentence.
+
 ### In-app alert
 
 One set for both themes: the card is island black wherever it shows.

@@ -16,10 +16,6 @@
   font-size: var(--fs-sm);
 }
 
-.new-session-error {
-  color: var(--needs);
-  overflow-wrap: anywhere;
-}
 
 /* the directory field: the path, and a Browse button beside it */
 .new-session-cwd {
