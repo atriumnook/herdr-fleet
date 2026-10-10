@@ -24,7 +24,7 @@
  * One more starts a thread (FLEET_E2E_ONLY=thread): claude leads it on a worktree inside the fixed
  * folder, which becomes a small repository, and codex reviews the change. Another
  * (FLEET_E2E_ONLY=coordinator) has the project's coordinator start that thread itself, edit nothing,
- * and report it from `fleet threads` when asked again.
+ * and report the thread's result, which the fleet hands it once the thread's turn is over.
  *
  * Start the test session clean before a run: it hands its environment to every agent.
  *   herdr --session herdr-fleet-test server stop
@@ -362,7 +362,7 @@ if (KINDS.includes("claude") && KINDS.includes("codex")) {
 
 if (KINDS.includes("claude") && KINDS.includes("codex")) {
   scenarios.push({
-    name: "a project's coordinator starts a thread for a change, edits nothing itself, and reports the thread when asked",
+    name: "a project's coordinator starts a thread for a change, edits nothing itself, and reports the thread's news it is given",
     async run() {
       threadRepo();
       await trustFolder("claude");
@@ -389,14 +389,17 @@ if (KINDS.includes("claude") && KINDS.includes("codex")) {
         const waited = await fleetIn(KINDS_DIR, lead.group, "wait", lead.id, "--timeout", String(THREAD_TIMEOUT_MS));
         assert(waited.code === 0, `the thread's turn exited ${waited.code}; ${factsOf((await runs(lead.group)).find((run) => run.id === lead!.id), waited)}`);
         assert(Bun.spawnSync(["node", "check.mjs"], { cwd: lead.cwd }).exitCode === 0, "node check.mjs fails in the thread's worktree");
-        const again = await fleetIn(KINDS_DIR, "unused", "project", "--json", "--task", "How does the greet thread stand? Answer from the fleet threads command.");
-        assert(again.code === 0 && (JSON.parse(again.out) as Run).id === coordinator.id, `a second fleet project did not reach the same coordinator: ${again.err}${again.out}`);
+        // the thread's news goes to the coordinator by itself, which takes a turn on it
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline && (await runs(coordinator.group)).find((run) => run.id === coordinator.id)?.state !== "working") await Bun.sleep(500);
         const second = await fleetIn(KINDS_DIR, coordinator.group, "wait", coordinator.id, "--timeout", String(TIMEOUT_MS));
         const answered = (await runs(coordinator.group)).find((run) => run.id === coordinator.id);
         const facts = factsOf(answered, second);
         assert(second.code === 0, `the coordinator's second turn exited ${second.code}; ${facts}`);
-        // the coordinator writes no handoff: the person reads its reply
-        assert(/\bPASS\b/.test(answered?.lastOutput ?? ""), `the coordinator did not report the thread's PASS; ${facts}`);
+        // its screen holds the [fleet] message too, so what it said of it is left for a person to read below
+        assert(/\[fleet\] Thread updates/.test(answered?.lastOutput ?? ""), `the coordinator was not given the thread's news; ${facts}`);
+        const after = JSON.parse((await fleetIn(KINDS_DIR, coordinator.group, "threads", "--json")).out) as Array<{ run: Run & { notice?: string } }>;
+        assert(after.every((thread) => !thread.run.notice), `news is still waiting: ${JSON.stringify(after.map((thread) => thread.run.notice))}`);
         assert(git("diff", "--quiet").exitCode === 0, "the main checkout changed during the run");
         console.log(`coordinator's reply:\n${(answered?.lastOutput ?? "").trim()}`);
       } finally {
