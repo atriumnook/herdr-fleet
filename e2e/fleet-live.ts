@@ -22,7 +22,9 @@
  * calls: FLEET_E2E_ONLY=sandbox,"second turn" runs just these two.
  *
  * One more starts a thread (FLEET_E2E_ONLY=thread): claude leads it on a worktree inside the fixed
- * folder, which becomes a small repository, and codex reviews the change.
+ * folder, which becomes a small repository, and codex reviews the change. Another
+ * (FLEET_E2E_ONLY=coordinator) has the project's coordinator start that thread itself, edit nothing,
+ * and report it from `fleet threads` when asked again.
  *
  * Start the test session clean before a run: it hands its environment to every agent.
  *   herdr --session herdr-fleet-test server stop
@@ -83,6 +85,7 @@ writeFileSync(join(KINDS_DIR, ".herdr-fleet", "fleet.json"), JSON.stringify({
   maxConcurrent: 4, defaultWaitTimeoutMs: TIMEOUT_MS, recentReadLines: 80,
   // a thread's lead and its reviewer on each CLI's cheapest model, with no fallback to pay for
   roles: {
+    coordinator: { model: KIND_MODELS["claude"], thinking: "low" },
     lead: { model: KIND_MODELS["claude"], thinking: "low", fallbackModels: [] },
     reviewer: { agent: "codex", model: KIND_MODELS["codex"], thinking: "off", fallbackModels: [] },
   },
@@ -352,6 +355,57 @@ if (KINDS.includes("claude") && KINDS.includes("codex")) {
         for (const run of await runs(lead.group).catch(() => [])) await herdrRpc("pane.close", { pane_id: run.paneId }, socket).catch(() => undefined);
         Bun.spawnSync(["git", "-c", "core.fsmonitor=false", "-C", KINDS_DIR, "worktree", "remove", "--force", lead.cwd]);
         Bun.spawnSync(["git", "-C", KINDS_DIR, "branch", "-D", `fleet/${lead.id}`]);
+      }
+    },
+  });
+}
+
+if (KINDS.includes("claude") && KINDS.includes("codex")) {
+  scenarios.push({
+    name: "a project's coordinator starts a thread for a change, edits nothing itself, and reports the thread when asked",
+    async run() {
+      threadRepo();
+      await trustFolder("claude");
+      await trustFolder("codex");
+      const git = (...args: string[]) => Bun.spawnSync(["git", "-c", "core.fsmonitor=false", "-C", KINDS_DIR, ...args], { stdout: "pipe", stderr: "pipe" });
+      const started = await fleetIn(KINDS_DIR, "unused", "project", "--json", "--task",
+        "Make greet() in greet.mjs return \"hello, fleet\". Done when `node check.mjs` prints ok. Keep the change to that function, and have it reviewed by an agent of the reviewer role.");
+      assert(started.code === 0, `fleet project exited ${started.code}: ${started.err}${started.out}`);
+      const coordinator = JSON.parse(started.out) as Run & { group: string; cwd: string; agent: string; project?: string };
+      const threadGroups = new Set<string>();
+      let lead: (Run & { group: string; cwd: string; owner?: string }) | undefined;
+      try {
+        assert(coordinator.role === "coordinator" && coordinator.agent === "claude" && coordinator.cwd === KINDS_DIR && coordinator.project === KINDS_DIR,
+          `not a claude coordinator on the main checkout: ${JSON.stringify(coordinator)}`);
+        const first = await fleetIn(KINDS_DIR, coordinator.group, "wait", coordinator.id, "--timeout", String(TIMEOUT_MS));
+        const firstFacts = factsOf((await runs(coordinator.group)).find((run) => run.id === coordinator.id), first);
+        assert(first.code === 0, `the coordinator's first turn exited ${first.code}; ${firstFacts}`);
+        const listed = await fleetIn(KINDS_DIR, coordinator.group, "threads", "--json");
+        const threads = JSON.parse(listed.out) as Array<{ run: Run & { group: string; cwd: string; owner?: string } }>;
+        for (const thread of threads) threadGroups.add(thread.run.group);
+        lead = threads.find((thread) => thread.run.owner === coordinator.id)?.run;
+        assert(lead, `the coordinator started no thread of its own: ${listed.out}; ${firstFacts}`);
+        assert(git("diff", "--quiet").exitCode === 0, `the coordinator changed the main checkout: ${git("diff", "--stat").stdout.toString()}`);
+        const waited = await fleetIn(KINDS_DIR, lead.group, "wait", lead.id, "--timeout", String(THREAD_TIMEOUT_MS));
+        assert(waited.code === 0, `the thread's turn exited ${waited.code}; ${factsOf((await runs(lead.group)).find((run) => run.id === lead!.id), waited)}`);
+        assert(Bun.spawnSync(["node", "check.mjs"], { cwd: lead.cwd }).exitCode === 0, "node check.mjs fails in the thread's worktree");
+        const again = await fleetIn(KINDS_DIR, "unused", "project", "--json", "--task", "How does the greet thread stand? Answer from the fleet threads command.");
+        assert(again.code === 0 && (JSON.parse(again.out) as Run).id === coordinator.id, `a second fleet project did not reach the same coordinator: ${again.err}${again.out}`);
+        const second = await fleetIn(KINDS_DIR, coordinator.group, "wait", coordinator.id, "--timeout", String(TIMEOUT_MS));
+        const answered = (await runs(coordinator.group)).find((run) => run.id === coordinator.id);
+        const facts = factsOf(answered, second);
+        assert(second.code === 0, `the coordinator's second turn exited ${second.code}; ${facts}`);
+        assert(/\bPASS\b/.test(`${answered?.result ?? ""}${answered?.lastOutput ?? ""}`), `the coordinator did not report the thread's PASS; ${facts}`);
+        assert(git("diff", "--quiet").exitCode === 0, "the main checkout changed during the run");
+        console.log(`coordinator's report:\n${(answered?.result ?? "").trim()}`);
+      } finally {
+        for (const group of [coordinator.group, ...threadGroups]) {
+          for (const run of await runs(group).catch(() => [])) await herdrRpc("pane.close", { pane_id: run.paneId }, socket).catch(() => undefined);
+        }
+        if (lead) {
+          git("worktree", "remove", "--force", lead.cwd);
+          git("branch", "-D", `fleet/${lead.id}`);
+        }
       }
     },
   });
