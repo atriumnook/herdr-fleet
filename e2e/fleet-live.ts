@@ -362,14 +362,28 @@ if (KINDS.includes("claude") && KINDS.includes("codex")) {
 
 if (KINDS.includes("claude") && KINDS.includes("codex")) {
   scenarios.push({
-    name: "a project's coordinator starts a thread for a change, edits nothing itself, and reports the thread's news it is given",
+    name: "a project's coordinator starts a thread, edits nothing itself, is given the thread's question for the person, and passes the person's answer on",
     async run() {
       threadRepo();
       await trustFolder("claude");
       await trustFolder("codex");
       const git = (...args: string[]) => Bun.spawnSync(["git", "-c", "core.fsmonitor=false", "-C", KINDS_DIR, ...args], { stdout: "pipe", stderr: "pipe" });
+      const coordinatorRun = async () => (await runs(coordinator.group)).find((run) => run.id === coordinator.id);
+      /** the coordinator's next turn, which the fleet or the person started: until it settles */
+      const nextTurn = async () => {
+        const deadline = Date.now() + 30_000;
+        while (Date.now() < deadline && (await coordinatorRun())?.state !== "working") await Bun.sleep(500);
+        const waited = await fleetIn(KINDS_DIR, coordinator.group, "wait", coordinator.id, "--timeout", String(TIMEOUT_MS));
+        const run = await coordinatorRun();
+        assert(waited.code === 0, `the coordinator's turn exited ${waited.code}; ${factsOf(run, waited)}`);
+        return run;
+      };
+      const thread = async () => {
+        const listed = JSON.parse((await fleetIn(KINDS_DIR, coordinator.group, "threads", "--json")).out) as Array<{ run: Run & { group: string; cwd: string; owner?: string; notice?: string }; state: string; status?: string }>;
+        return listed.find((summary) => summary.run.owner === coordinator.id);
+      };
       const started = await fleetIn(KINDS_DIR, "unused", "project", "--json", "--task",
-        "Make greet() in greet.mjs return \"hello, fleet\". Done when `node check.mjs` prints ok. Keep the change to that function, and have it reviewed by an agent of the reviewer role.");
+        "Start a thread that changes what greet() in greet.mjs returns. Which greeting it returns is mine to decide, and I have not decided yet: \"hello, fleet\" or \"hi, fleet\". The thread's lead must ask me through you before it changes anything, not pick one. Once decided, it is done when `node check.mjs` prints ok, the change is kept to that function, and an agent of the reviewer role reviewed it.");
       assert(started.code === 0, `fleet project exited ${started.code}: ${started.err}${started.out}`);
       const coordinator = JSON.parse(started.out) as Run & { group: string; cwd: string; agent: string; project?: string };
       const threadGroups = new Set<string>();
@@ -378,30 +392,37 @@ if (KINDS.includes("claude") && KINDS.includes("codex")) {
         assert(coordinator.role === "coordinator" && coordinator.agent === "claude" && coordinator.cwd === KINDS_DIR && coordinator.project === KINDS_DIR,
           `not a claude coordinator on the main checkout: ${JSON.stringify(coordinator)}`);
         const first = await fleetIn(KINDS_DIR, coordinator.group, "wait", coordinator.id, "--timeout", String(TIMEOUT_MS));
-        const firstFacts = factsOf((await runs(coordinator.group)).find((run) => run.id === coordinator.id), first);
+        const firstFacts = factsOf(await coordinatorRun(), first);
         assert(first.code === 0, `the coordinator's first turn exited ${first.code}; ${firstFacts}`);
-        const listed = await fleetIn(KINDS_DIR, coordinator.group, "threads", "--json");
-        const threads = JSON.parse(listed.out) as Array<{ run: Run & { group: string; cwd: string; owner?: string } }>;
-        for (const thread of threads) threadGroups.add(thread.run.group);
-        lead = threads.find((thread) => thread.run.owner === coordinator.id)?.run;
-        assert(lead, `the coordinator started no thread of its own: ${listed.out}; ${firstFacts}`);
+        lead = (await thread())?.run;
+        assert(lead, `the coordinator started no thread of its own; ${firstFacts}`);
+        threadGroups.add(lead.group);
         assert(git("diff", "--quiet").exitCode === 0, `the coordinator changed the main checkout: ${git("diff", "--stat").stdout.toString()}`);
-        const waited = await fleetIn(KINDS_DIR, lead.group, "wait", lead.id, "--timeout", String(THREAD_TIMEOUT_MS));
-        assert(waited.code === 0, `the thread's turn exited ${waited.code}; ${factsOf((await runs(lead.group)).find((run) => run.id === lead!.id), waited)}`);
+        const asked = await fleetIn(KINDS_DIR, lead.group, "wait", lead.id, "--timeout", String(THREAD_TIMEOUT_MS));
+        assert(asked.code === 0, `the thread's first turn exited ${asked.code}; ${factsOf((await runs(lead.group)).find((run) => run.id === lead!.id), asked)}`);
+        const waiting = await thread();
+        assert(waiting?.state === "waiting" && waiting.status?.startsWith("BLOCKED"), `the thread does not wait on the person with a BLOCKED HANDOFF: ${JSON.stringify(waiting)}`);
+        // the question goes to the coordinator by itself, which takes a turn on it
+        const told = await nextTurn();
+        const facts = factsOf(told, { out: "", err: "" });
+        assert(/\[fleet\] Threads ask the person/.test(told?.lastOutput ?? ""), `the coordinator was not given the thread's question; ${facts}`);
+        assert(!(await thread())?.run.notice, "the question is still waiting for the coordinator");
+        console.log(`coordinator's question:\n${(told?.lastOutput ?? "").trim()}`);
+        // the person answers the coordinator, which passes it on to the thread
+        const answered = await fleetIn(KINDS_DIR, "unused", "project", "--task", "\"hello, fleet\".");
+        assert(answered.code === 0, `fleet project exited ${answered.code}: ${answered.err}${answered.out}`);
+        await nextTurn();
+        const deadline = Date.now() + 60_000;
+        while (Date.now() < deadline && (await runs(lead.group)).find((run) => run.id === lead!.id)?.state !== "working") await Bun.sleep(1000);
+        const done = await fleetIn(KINDS_DIR, lead.group, "wait", lead.id, "--timeout", String(THREAD_TIMEOUT_MS));
+        assert(done.code === 0, `the thread's second turn exited ${done.code}; ${factsOf((await runs(lead.group)).find((run) => run.id === lead!.id), done)}`);
         assert(Bun.spawnSync(["node", "check.mjs"], { cwd: lead.cwd }).exitCode === 0, "node check.mjs fails in the thread's worktree");
-        // the thread's news goes to the coordinator by itself, which takes a turn on it
-        const deadline = Date.now() + 30_000;
-        while (Date.now() < deadline && (await runs(coordinator.group)).find((run) => run.id === coordinator.id)?.state !== "working") await Bun.sleep(500);
-        const second = await fleetIn(KINDS_DIR, coordinator.group, "wait", coordinator.id, "--timeout", String(TIMEOUT_MS));
-        const answered = (await runs(coordinator.group)).find((run) => run.id === coordinator.id);
-        const facts = factsOf(answered, second);
-        assert(second.code === 0, `the coordinator's second turn exited ${second.code}; ${facts}`);
-        // its screen holds the [fleet] message too, so what it said of it is left for a person to read below
-        assert(/\[fleet\] Thread updates/.test(answered?.lastOutput ?? ""), `the coordinator was not given the thread's news; ${facts}`);
-        const after = JSON.parse((await fleetIn(KINDS_DIR, coordinator.group, "threads", "--json")).out) as Array<{ run: Run & { notice?: string } }>;
-        assert(after.every((thread) => !thread.run.notice), `news is still waiting: ${JSON.stringify(after.map((thread) => thread.run.notice))}`);
+        const review = await thread();
+        assert(review?.state === "review", `the thread is not ready for review: ${JSON.stringify(review)}`);
+        // a PASS reaches the person on the thread list, and does not wake the coordinator
+        await Bun.sleep(15_000);
+        assert((await coordinatorRun())?.state !== "working" && !review.run.notice, "the coordinator was woken for a PASS");
         assert(git("diff", "--quiet").exitCode === 0, "the main checkout changed during the run");
-        console.log(`coordinator's reply:\n${(answered?.lastOutput ?? "").trim()}`);
       } finally {
         for (const group of [coordinator.group, ...threadGroups]) {
           for (const run of await runs(group).catch(() => [])) await herdrRpc("pane.close", { pane_id: run.paneId }, socket).catch(() => undefined);
