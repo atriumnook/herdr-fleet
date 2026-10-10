@@ -96,6 +96,8 @@ describe("spawn", () => {
     expect(runtime.instructions[0]).toContain("You are worker.");
     expect(runtime.instructions[0]).toContain("fleet send <name-or-id>");
     expect(runtime.instructions[0]).toContain("Do not start other agents.");
+    // a caller reads the status line first, without the whole report
+    expect(runtime.instructions[0]).toContain("The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED");
     expect(runtime.prompts).toEqual([{ name: run.herdrName, text: "do it" }]);
     // the instruction file is gone once the agent has read it at startup
     expect(require("node:fs").readdirSync(root).filter((name: string) => name.startsWith("herdr-fleet-"))).toEqual([]);
