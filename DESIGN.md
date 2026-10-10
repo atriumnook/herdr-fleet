@@ -470,6 +470,11 @@ One set for both themes: the card is island black wherever it shows.
   `.kbd` hints where a global shortcut exists.
 
 ### Settings dialog
+- The dialog is the modal's glass panel; each section is a `--field` card (`--radius-lg`, 1px
+  `--line`, `--space-4` inside and between). An item's name is English at `--fs-md`, its
+  description a Japanese sentence at `--fs-sm` `--sub` under it. A toggle that is on is an
+  `--accent` track with an `--on-accent` knob at the right; off, a `--field` track with a
+  `--control-edge` edge and a `--sub` knob at the left.
 - Appearance: Dark / Light / System, Comfortable / Compact, terminal font `10–22px`, terminal font
   family.
 - Composer: Enter sends. Chat: Show thinking, chat font size and family. Shortcuts: the complete
