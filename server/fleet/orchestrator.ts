@@ -59,6 +59,8 @@ export interface OrchestratorDeps {
   config: (cwd: string) => FleetConfig;
   /** the roles that exist in a folder */
   agents: (cwd: string) => AgentDefinition[];
+  /** the standing orders that apply in a folder (config.ts loadStandingOrders) */
+  standingOrders?: (cwd: string) => string;
   /** the shell command an agent runs to reach the fleet (bin/fleet.ts) */
   fleetCommand: string;
   /** set in each agent's pane so its own fleet commands reach this server; read at each spawn */
@@ -282,7 +284,7 @@ export class Orchestrator {
     const resultDir = join(this.deps.resultsDir, run.id);
     mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
     mkdirSync(resultDir, { mode: 0o700 });
-    const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE));
+    const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE), this.deps.standingOrders?.(request.cwd) ?? "");
     if (adapter.instructionsInPrompt) {
       mkdirSync(this.deps.instructionsDir, { recursive: true, mode: 0o700 });
       writeFileSync(this.undeliveredFile(run), instructions, { mode: 0o600 });
@@ -364,7 +366,7 @@ export class Orchestrator {
     }
   }
 
-  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string): string {
+  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string, standing: string): string {
     const fleet = this.deps.fleetCommand;
     return [
       definition.systemPrompt,
@@ -382,6 +384,7 @@ export class Orchestrator {
       "Treat herdr's 'unknown' as uncertainty, not completion.",
       `Your result file is ${resultFile}.`,
       "At the end of each delegated turn, write a compact HANDOFF section (outcome, changed files, verification, unresolved questions) to your result file, replacing what it holds, and end your reply with the same section.",
+      ...(standing ? ["", "## Standing orders", "The person who runs this fleet gives these to every agent. Follow them in every turn. Every agent of the fleet gets them, so a task you hand on need not repeat them.", standing] : []),
     ].join("\n");
   }
 

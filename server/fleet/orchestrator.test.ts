@@ -66,7 +66,7 @@ const role = (name: string, extra: Partial<AgentDefinition> = {}): AgentDefiniti
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
 
-function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown>; agents?: AgentDefinition[]; usage?: UsageTracker } = {}) {
+function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown>; agents?: AgentDefinition[]; usage?: UsageTracker; standingOrders?: (cwd: string) => string } = {}) {
   const root = mkdtempSync(join(tmpdir(), "fleet-orchestrator-"));
   roots.push(root);
   const runtime = new FakeRuntime();
@@ -75,7 +75,7 @@ function setup(options: { config?: Partial<FleetConfig> | Record<string, unknown
   const fleet = new Orchestrator({
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
-    usage: options.usage, usageScreenMs: 300,
+    usage: options.usage, usageScreenMs: 300, standingOrders: options.standingOrders,
   });
   return { fleet, runtime, registry, root };
 }
@@ -99,6 +99,18 @@ describe("spawn", () => {
     expect(runtime.prompts).toEqual([{ name: run.herdrName, text: "do it" }]);
     // the instruction file is gone once the agent has read it at startup
     expect(require("node:fs").readdirSync(root).filter((name: string) => name.startsWith("herdr-fleet-"))).toEqual([]);
+  });
+
+  it("gives every agent the standing orders of the folder it starts in, and no section without any", async () => {
+    const asked: string[] = [];
+    const { fleet, runtime } = setup({ standingOrders: (cwd) => { asked.push(cwd); return "1. Ask before a push."; } });
+    await spawn(fleet);
+    expect(asked).toEqual(["/work"]);
+    expect(runtime.instructions[0]).toContain("## Standing orders");
+    expect(runtime.instructions[0]).toContain("1. Ask before a push.");
+    const bare = setup({ standingOrders: () => "" });
+    await spawn(bare.fleet);
+    expect(bare.runtime.instructions[0]).not.toContain("Standing orders");
   });
 
   it("records the idle herdr shows right after a prompt as working", async () => {

@@ -102,3 +102,15 @@ export function loadConfig(cwd: string, warnings?: string[], userDir = userFleet
   const project = findProjectPath(cwd, "fleet.json");
   return mergeConfig(mergeConfig(DEFAULT_CONFIG, readJson(join(userDir, "fleet.json"), warnings)), project ? readJson(project, warnings) : {});
 }
+
+/**
+ * Orders every agent gets with its role, whatever it is asked: the user's `standing.md`, then the
+ * project's `.herdr-fleet/standing.md`. A rule given once at spawn fades as work is handed on.
+ */
+export function loadStandingOrders(cwd: string, userDir = userFleetDir()): string {
+  const project = findProjectPath(cwd, "standing.md");
+  return [join(userDir, "standing.md"), project].flatMap((file) => {
+    if (!file) return [];
+    try { return [readFileSync(file, "utf8").trim()].filter(Boolean); } catch { return []; }
+  }).join("\n\n");
+}
