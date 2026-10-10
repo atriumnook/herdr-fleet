@@ -56,6 +56,8 @@ export interface AgentRun {
   owner?: string;
   /** the paths its brief lets it change, absolute; another run may not write them while it works */
   write?: string[];
+  /** a thread's news its project's coordinator has not been given yet: a settled turn, a question on its screen, an end */
+  notice?: string;
 }
 
 /** One limit window: a share of it used, until it resets. */

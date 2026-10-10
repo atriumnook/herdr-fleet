@@ -152,6 +152,7 @@ export class Orchestrator {
   private readonly generations = new Map<string, number>();
   private readonly reconcileLocks = new Map<string, Promise<void>>();
   private readonly projectStarts = new Map<string, Promise<AgentRun>>();
+  private readonly delivering = new Set<string>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
   /** callers waiting for a run's turn to settle or block */
@@ -652,6 +653,50 @@ export class Orchestrator {
     }
   }
 
+  // ---- the threads' news, for their project's coordinator -----------------------------------
+
+  /** Who hears a thread's news: the run that started it while it lives, else the project's live coordinator. */
+  private coordinatorOf(thread: AgentRun): AgentRun | undefined {
+    const owner = thread.owner ? this.deps.registry.get(thread.owner) : undefined;
+    if (owner && isLive(owner)) return owner;
+    return this.deps.registry.all().find((run) => run.role === PROJECT_ROLE && run.project === thread.project && isLive(run));
+  }
+
+  private async tellCoordinator(thread: AgentRun): Promise<void> {
+    const coordinator = this.coordinatorOf(thread);
+    if (coordinator) await this.deliverNotices(coordinator);
+  }
+
+  /**
+   * Every thread's news waiting for `coordinator`, in one message, once it is free: no turn of the
+   * fleet's in flight, and herdr calls it settled (a person's turn shows as working). A coordinator
+   * that is not free hears them when it settles; one that ended leaves them to the next.
+   */
+  private async deliverNotices(coordinator: AgentRun): Promise<void> {
+    if (this.delivering.has(coordinator.id)) return;
+    this.delivering.add(coordinator.id);
+    try {
+      const threads = this.deps.registry.all().filter((run) => run.notice && this.coordinatorOf(run)?.id === coordinator.id);
+      if (!threads.length || this.pending.has(coordinator.id) || !isLive(coordinator)) return;
+      await this.reconcileLocks.get(coordinator.id);
+      const live = await this.liveState(coordinator);
+      if (!live || !isCompleted(live) || this.pending.has(coordinator.id)) return;
+      const told = threads.map((run) => ({ id: run.id, notice: run.notice }));
+      const message = ["[fleet] Thread updates. These come from the fleet, not from the person.", ...told.map((news) => `- ${news.notice}`)].join("\n");
+      const sent = await this.submit(coordinator, message);
+      if (sent.state !== "working") return;
+      for (const news of told) {
+        const run = this.deps.registry.get(news.id);
+        // news that came while this went out waits for the next message
+        if (!run || run.notice !== news.notice) continue;
+        run.notice = undefined;
+        this.save(run);
+      }
+    } finally {
+      this.delivering.delete(coordinator.id);
+    }
+  }
+
   // ---- herdr events (from the server's status collector) -----------------------------------
 
   /** A pane's agent status changed: a wake-up to read the run's state back from herdr. */
@@ -665,10 +710,12 @@ export class Orchestrator {
     const run = this.deps.registry.byPane(paneId);
     if (!run || !isLive(run)) return;
     run.state = "stopped";
+    if (isThread(run)) run.notice = `${threadLabel(run)} ended: its pane closed.`;
     run.updatedAt = Date.now();
     this.dropPending(run.id);
     this.save(run);
     this.settleWaiters(run);
+    if (run.notice) void this.tellCoordinator(run);
   }
 
   /** Events may have been lost (a reconnect, a restart): every live run is read back. */
@@ -695,6 +742,8 @@ export class Orchestrator {
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
+        // free again, after the fleet's turn or the person's: the news of the threads it hears for
+        if (!this.pending.has(run.id) && isCompleted(run.state)) void this.deliverNotices(run);
       } catch (error) {
         if (error instanceof HerdrError && (error.code === "agent_not_found" || error.code === "not_found" || error.code === "pane_not_found")) {
           if (run.state === "starting" && Date.now() - run.startedAt < START_GRACE_MS) return;
@@ -725,6 +774,7 @@ export class Orchestrator {
       // a rate limit sits the account out: the re-spawn below and later spawns pass it over
       this.deps.usage?.noteFailure(run.agent, run.model, turnError, config.rateLimitCooldownMinutes);
     }
+    if (isThread(run)) run.notice = turnNotice(run, readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE)));
     run.updatedAt = Date.now();
     this.save(run);
     if (isCompleted(run.state)) await this.readUsageScreen(run, config);
@@ -733,6 +783,7 @@ export class Orchestrator {
     if (run.state === "failed" && plan && pending.generation === 1) await this.respawn(run, plan);
     this.settleWaiters(run);
     await this.closeOnSettle(run, config);
+    if (run.notice) void this.tellCoordinator(run);
   }
 
   /**
@@ -787,9 +838,11 @@ export class Orchestrator {
     if (pending.blockedReported) return;
     pending.blockedReported = true;
     run.lastOutput = await this.deps.runtime.read(run.herdrName, this.deps.config(run.cwd).recentReadLines).catch(() => undefined);
+    if (isThread(run)) run.notice = `${threadLabel(run)} waits for the person on its screen${run.lastError ? `: ${run.lastError}` : ", at a question or an approval"}. Only the person answers it.`;
     run.updatedAt = Date.now();
     this.save(run);
     this.settleWaiters(run);
+    if (run.notice) void this.tellCoordinator(run);
   }
 
   private async closeOnSettle(run: AgentRun, config: FleetConfig): Promise<void> {
@@ -885,6 +938,25 @@ export class Orchestrator {
  * The handoff a run's agent wrote, up to RESULT_MAX_BYTES. Only a regular file is read, never one
  * reached through a symlink: an agent must not turn the result into a way to read other files.
  */
+const isThread = (run: AgentRun): boolean => run.role === THREAD_ROLE && run.project !== undefined;
+
+const CONTRACT_MARKS: Record<ContractItem["state"], string> = { met: "✓", open: "·", unmet: "✗" };
+
+function threadLabel(run: AgentRun): string {
+  return `"${run.name}" (${run.id}${run.branch ? `, ${run.branch}` : ""})`;
+}
+
+/** A thread's settled turn, as its coordinator hears it: the HANDOFF's status line and the contract, or why it failed. */
+export function turnNotice(run: AgentRun, contract: string | undefined): string {
+  if (run.state === "failed") return `${threadLabel(run)} failed: ${run.lastError ?? "no reason given"}.`;
+  const status = run.result ? handoffStatus(run.result) : undefined;
+  const items = contract ? contractItems(contract) : [];
+  return [
+    `${threadLabel(run)} finished its turn: ${status ?? "it wrote no HANDOFF status line"}.`,
+    items.length ? `Contract: ${items.map((item) => `${item.id} ${CONTRACT_MARKS[item.state]}`).join(" ")}` : "",
+  ].filter(Boolean).join(" ");
+}
+
 /** The HANDOFF's status line: the first that opens with PASS, ISSUES or BLOCKED, without its markdown. */
 export function handoffStatus(result: string): string | undefined {
   return result.split("\n").map((l) => l.replace(/^[\s#>-]+/, "").replace(/\*\*/g, "").trim()).find((l) => /^(PASS|ISSUES|BLOCKED)\b/.test(l));

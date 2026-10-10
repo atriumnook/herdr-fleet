@@ -7,7 +7,7 @@ import { DEFAULT_CONFIG, mergeConfig } from "./config.ts";
 import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES } from "./orchestrator.ts";
 import { RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, type AgentMetadata, type AgentRuntime, type CreateLocationOptions, type RuntimeLocation, type StartOptions } from "./runtime.ts";
-import type { AgentDefinition, AgentState, FleetConfig } from "./types.ts";
+import type { AgentDefinition, AgentRun, AgentState, FleetConfig } from "./types.ts";
 import { UsageTracker } from "./usage.ts";
 
 const GRACE = 60;
@@ -941,6 +941,108 @@ describe("projects", () => {
   it("need a task", async () => {
     const { fleet } = setup({ agents: [coordinator] });
     await expect(fleet.startProject({ task: " " })).rejects.toMatchObject({ code: "missing_task" });
+  });
+});
+
+describe("thread news", () => {
+  const agents = [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true })];
+
+  function project() {
+    const states = new Map<string, AgentState>();
+    const harness = setup({ agents, gitRoot: async () => "/repo" });
+    harness.runtime.getImpl = async (name) => states.get(name) ?? "working";
+    /** herdr says `state` for the run's pane, and sends the event */
+    const turn = async (run: AgentRun, state: AgentState) => {
+      states.set(run.herdrName, state);
+      await Bun.sleep(GRACE + 5);
+      harness.fleet.onPaneStatus(run.paneId);
+      await Bun.sleep(20);
+    };
+    const toCoordinator = (coordinator: AgentRun) => harness.runtime.prompts.filter((p) => p.name === coordinator.herdrName).map((p) => p.text);
+    const handoff = (run: AgentRun, text: string, contract?: string) => {
+      writeFileSync(join(harness.root, "results", run.id, "handoff.md"), text);
+      if (contract) writeFileSync(join(harness.root, "results", run.id, "contract.md"), contract);
+    };
+    return { ...harness, states, turn, toCoordinator, handoff };
+  }
+
+  it("reach the coordinator once it is free, with the HANDOFF's status line and the contract", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "fix the retry", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(thread, "## HANDOFF\nPASS — bun test: 12 pass\nOutcome: fixed", "- [x] A1 no duplicate — evidence: test\n- [ ] A2 docs\n");
+    await turn(thread, "idle");
+    expect(toCoordinator(coordinator)).toEqual(["fix the retry", [
+      "[fleet] Thread updates. These come from the fleet, not from the person.",
+      `- "Fix" (${thread.id}, fleet/${thread.id}) finished its turn: PASS — bun test: 12 pass. Contract: A1 ✓ A2 ·`,
+    ].join("\n")]);
+    expect(registry.get(thread.id)!.notice).toBeUndefined();
+  });
+
+  it("wait while the coordinator works, its own turn or the person's, and then go out together", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "two things", cwd: "/repo" });
+    const first = await fleet.startThread({ title: "One", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const second = await fleet.startThread({ title: "Two", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(first, "ISSUES — 2 tests fail");
+    await turn(first, "idle");
+    await turn(second, "idle");
+    // the fleet's own turn is still running
+    expect(toCoordinator(coordinator)).toEqual(["two things"]);
+    expect(registry.get(first.id)!.notice).toContain("ISSUES — 2 tests fail");
+    await turn(coordinator, "idle");
+    expect(toCoordinator(coordinator)[1]).toBe([
+      "[fleet] Thread updates. These come from the fleet, not from the person.",
+      `- "One" (${first.id}, fleet/${first.id}) finished its turn: ISSUES — 2 tests fail.`,
+      `- "Two" (${second.id}, fleet/${second.id}) finished its turn: it wrote no HANDOFF status line.`,
+    ].join("\n"));
+    await turn(coordinator, "idle");
+    // the person typed in its pane: herdr says working, with no turn of the fleet's
+    await turn(coordinator, "working");
+    await fleet.send(first.id, "and the docs");
+    await turn(first, "idle");
+    expect(toCoordinator(coordinator)).toHaveLength(2);
+    await turn(coordinator, "idle");
+    expect(toCoordinator(coordinator)).toHaveLength(3);
+    expect(toCoordinator(coordinator)[2]).toContain(`- "One" (${first.id}, fleet/${first.id}) finished its turn`);
+  });
+
+  it("say a thread waits for the person on its screen, and never answer for it", async () => {
+    const { fleet, turn, toCoordinator, runtime } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Setup", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(thread, "blocked");
+    expect(toCoordinator(coordinator)[1]).toContain(`- "Setup" (${thread.id}, fleet/${thread.id}) waits for the person on its screen, at a question or an approval. Only the person answers it.`);
+    expect(runtime.prompts.filter((p) => p.name === thread.herdrName)).toHaveLength(1);
+  });
+
+  it("are kept while no coordinator lives, for the project's next one", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    fleet.onPaneEnded(coordinator.paneId);
+    handoff(thread, "PASS — done");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.notice).toContain("PASS — done");
+    const next = await fleet.startProject({ task: "and now?", cwd: "/repo" });
+    expect(toCoordinator(next)).toEqual(["and now?"]);
+    await turn(next, "idle");
+    expect(toCoordinator(next)[1]).toContain(`- "Fix" (${thread.id}, fleet/${thread.id}) finished its turn: PASS — done.`);
+    expect(registry.get(thread.id)!.notice).toBeUndefined();
+  });
+
+  it("are kept across a restart", async () => {
+    const { fleet, registry, turn, root } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(thread, "idle");
+    fleet.stop();
+    const reloaded = new RunRegistry(join(root, "runs.json"));
+    expect(reloaded.get(thread.id)!.notice).toBe(registry.get(thread.id)!.notice);
+    expect(reloaded.get(thread.id)!.notice).toContain("finished its turn");
   });
 });
 
