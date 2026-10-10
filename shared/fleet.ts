@@ -56,23 +56,32 @@ export interface AgentRun {
   owner?: string;
   /** the paths its brief lets it change, absolute; another run may not write them while it works */
   write?: string[];
+  /** a thread's question for the person that its project's coordinator has not been given yet */
+  notice?: string;
 }
 
-/** One limit window: a share of it used, until it resets. */
 /** One assertion of a thread lead's acceptance contract (contract.md), as the lead last marked it. */
 export interface ContractItem {
   id: string;
   state: "met" | "open" | "unmet";
 }
 
-/** A thread as its project's coordinator sees it: the lead's run, its HANDOFF status line, and its contract. */
+/**
+ * Where a thread stands for the person: its lead at work, waiting on the person (a question in its
+ * HANDOFF or on its screen), done with a PASS, settled otherwise, failed, or its pane gone.
+ */
+export type ThreadState = "working" | "waiting" | "review" | "idle" | "failed" | "ended";
+
+/** A thread as its project's coordinator sees it: the lead's run, where it stands, its HANDOFF status line, and its contract. */
 export interface ThreadSummary {
   run: AgentRun;
+  state: ThreadState;
   /** the HANDOFF's first line: PASS, ISSUES or BLOCKED and the evidence */
   status?: string;
   contract?: ContractItem[];
 }
 
+/** One limit window: a share of it used, until it resets. */
 export interface UsageWindow {
   /** "5h", "weekly", "monthly", … */
   name: string;

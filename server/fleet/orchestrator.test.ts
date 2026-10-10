@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { DEFAULT_CONFIG, mergeConfig } from "./config.ts";
-import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES } from "./orchestrator.ts";
+import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES, threadState } from "./orchestrator.ts";
 import { RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, type AgentMetadata, type AgentRuntime, type CreateLocationOptions, type RuntimeLocation, type StartOptions } from "./runtime.ts";
-import type { AgentDefinition, AgentState, FleetConfig } from "./types.ts";
+import type { AgentDefinition, AgentRun, AgentState, FleetConfig } from "./types.ts";
 import { UsageTracker } from "./usage.ts";
 
 const GRACE = 60;
@@ -52,6 +52,8 @@ class FakeRuntime implements AgentRuntime {
   }
   async get(name: string): Promise<AgentState> { return this.getImpl ? this.getImpl(name) : this.getStatus; }
   async read(): Promise<string> { return this.output; }
+  screens = new Map<string, string>();
+  async screen(name: string): Promise<string> { return this.screens.get(name) ?? ""; }
   interrupts = 0;
   interruptImpl?: () => void;
   async interrupt(): Promise<void> { this.interrupts += 1; this.interruptImpl?.(); }
@@ -71,6 +73,7 @@ interface SetupOptions {
   gitRoot?: (cwd: string) => Promise<string | null>; runSetup?: (cwd: string, command: string) => Promise<{ ok: boolean; output: string }>;
   excludeWorktrees?: (repo: string) => Promise<void>;
   standingOrders?: (cwd: string) => string;
+  draftRetryMs?: number;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -83,6 +86,7 @@ function setup(options: SetupOptions = {}) {
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
     usage: options.usage, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}), standingOrders: options.standingOrders,
+    draftRetryMs: options.draftRetryMs,
   });
   return { fleet, runtime, registry, root };
 }
@@ -870,9 +874,22 @@ describe("threads", () => {
     writeFileSync(join(root, "results", fixed.id, "contract.md"), "- [x] A1 no duplicate — evidence: test\n- [ ] A2 docs\n- [!] A3 old clients — evidence: none\n");
     const threads = await fleet.threads({ cwd: "/repo/src" });
     expect(threads.map((t) => t.run.id)).toEqual([fixed.id, fresh.id]);
-    expect(threads[0]).toMatchObject({ status: "PASS — bun test: 12 pass", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }, { id: "A3", state: "unmet" }] });
+    expect(threads[0]).toMatchObject({ state: "review", status: "PASS — bun test: 12 pass", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }, { id: "A3", state: "unmet" }] });
     expect(threads[1]!.status).toBeUndefined();
     expect(threads[1]!.contract).toBeUndefined();
+  });
+
+  it("stand where their lead and its HANDOFF put them", () => {
+    const run = (state: AgentState) => ({ state }) as AgentRun;
+    expect(threadState(run("starting"), undefined)).toBe("working");
+    expect(threadState(run("working"), "BLOCKED — an earlier turn's")).toBe("working");
+    expect(threadState(run("blocked"), undefined)).toBe("waiting");
+    expect(threadState(run("idle"), "BLOCKED — which one?")).toBe("waiting");
+    expect(threadState(run("idle"), "PASS — 12 pass")).toBe("review");
+    expect(threadState(run("done"), "ISSUES — 2 fail")).toBe("idle");
+    expect(threadState(run("idle"), undefined)).toBe("idle");
+    expect(threadState(run("failed"), "PASS — 12 pass")).toBe("failed");
+    expect(threadState(run("stopped"), "PASS — 12 pass")).toBe("ended");
   });
 
   it("are listed for the calling run's project, wherever it asks from", async () => {
@@ -941,5 +958,170 @@ describe("projects", () => {
   it("need a task", async () => {
     const { fleet } = setup({ agents: [coordinator] });
     await expect(fleet.startProject({ task: " " })).rejects.toMatchObject({ code: "missing_task" });
+  });
+});
+
+describe("thread questions", () => {
+  const agents = [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true })];
+
+  function project() {
+    const states = new Map<string, AgentState>();
+    const harness = setup({ agents, gitRoot: async () => "/repo" });
+    harness.runtime.getImpl = async (name) => states.get(name) ?? "working";
+    /** herdr says `state` for the run's pane, and sends the event */
+    const turn = async (run: AgentRun, state: AgentState) => {
+      states.set(run.herdrName, state);
+      await Bun.sleep(GRACE + 5);
+      harness.fleet.onPaneStatus(run.paneId);
+      await Bun.sleep(20);
+    };
+    const toCoordinator = (coordinator: AgentRun) => harness.runtime.prompts.filter((p) => p.name === coordinator.herdrName).map((p) => p.text);
+    const handoff = (run: AgentRun, text: string, contract?: string) => {
+      writeFileSync(join(harness.root, "results", run.id, "handoff.md"), text);
+      if (contract) writeFileSync(join(harness.root, "results", run.id, "contract.md"), contract);
+    };
+    return { ...harness, states, turn, toCoordinator, handoff };
+  }
+
+  const asks = (run: AgentRun, handoff: string) => `- "${run.name}" (${run.id}, fleet/${run.id}) asks the person:\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}`;
+  const HEADER = "[fleet] Threads ask the person. These come from the fleet, not from the person.";
+
+  it("reach the coordinator once it is free, with the whole HANDOFF", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "fix the retry", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const text = "## HANDOFF\nBLOCKED — keep the old retry API?\nOptions: A keep it (recommended), B drop it\nArchitect: callers in two packages use it";
+    handoff(thread, text);
+    await turn(thread, "idle");
+    expect(toCoordinator(coordinator)).toEqual(["fix the retry", [HEADER, asks(thread, text)].join("\n")]);
+    expect(registry.get(thread.id)!.notice).toBeUndefined();
+  });
+
+  it("are only questions: a PASS, an ISSUES, a failure and a wait on the screen go to the thread list and push notifications", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff, states } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const done = await fleet.startThread({ title: "Done", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const issues = await fleet.startThread({ title: "Issues", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const silent = await fleet.startThread({ title: "Silent", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const screen = await fleet.startThread({ title: "Screen", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const ended = await fleet.startThread({ title: "Ended", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(done, "PASS — bun test: 12 pass");
+    handoff(issues, "ISSUES — 2 tests fail");
+    await turn(done, "idle");
+    await turn(issues, "idle");
+    await turn(silent, "idle");
+    await turn(screen, "blocked");
+    fleet.onPaneEnded(ended.paneId);
+    states.set(coordinator.herdrName, "idle");
+    await turn(coordinator, "idle");
+    expect(toCoordinator(coordinator)).toEqual(["go"]);
+    for (const run of [done, issues, silent, screen, ended]) expect(registry.get(run.id)!.notice).toBeUndefined();
+  });
+
+  it("wait while the coordinator works, its own turn or the person's, and then go out together", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "two things", cwd: "/repo" });
+    const first = await fleet.startThread({ title: "One", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const second = await fleet.startThread({ title: "Two", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(first, "BLOCKED — which log format?");
+    handoff(second, "BLOCKED — may the old flag go?");
+    await turn(first, "idle");
+    await turn(second, "idle");
+    // the fleet's own turn is still running
+    expect(toCoordinator(coordinator)).toEqual(["two things"]);
+    expect(registry.get(first.id)!.notice).toContain("BLOCKED — which log format?");
+    await turn(coordinator, "idle");
+    expect(toCoordinator(coordinator)[1]).toBe([HEADER, asks(first, "BLOCKED — which log format?"), asks(second, "BLOCKED — may the old flag go?")].join("\n"));
+    await turn(coordinator, "idle");
+    // the person typed in its pane: herdr says working, with no turn of the fleet's
+    await turn(coordinator, "working");
+    await fleet.send(first.id, "JSON");
+    handoff(first, "BLOCKED — one file or one per day?");
+    await turn(first, "idle");
+    expect(toCoordinator(coordinator)).toHaveLength(2);
+    await turn(coordinator, "idle");
+    expect(toCoordinator(coordinator)).toEqual([expect.anything(), expect.anything(), [HEADER, asks(first, "BLOCKED — one file or one per day?")].join("\n")]);
+  });
+
+  it("wait while the person has a draft in the coordinator's input, and go out once it is gone", async () => {
+    const states = new Map<string, AgentState>();
+    const { fleet, runtime, root } = setup({
+      agents: [role("coordinator", { agent: "claude", interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true })],
+      gitRoot: async () => "/repo", draftRetryMs: 30,
+    });
+    runtime.getImpl = async (name) => states.get(name) ?? "working";
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    states.set(coordinator.herdrName, "idle");
+    runtime.screens.set(coordinator.herdrName, "❯\u00a0and also the do");
+    await Bun.sleep(GRACE + 5);
+    fleet.onPaneStatus(coordinator.paneId);
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "BLOCKED — which one?");
+    states.set(thread.herdrName, "idle");
+    await Bun.sleep(GRACE + 5);
+    fleet.onPaneStatus(thread.paneId);
+    await Bun.sleep(80);
+    const toCoordinator = () => runtime.prompts.filter((p) => p.name === coordinator.herdrName).map((p) => p.text);
+    expect(toCoordinator()).toEqual(["go"]);
+    runtime.screens.set(coordinator.herdrName, "❯\u00a0\x1b[2mTry \"fix lint errors\"\x1b[0m");
+    await Bun.sleep(80);
+    expect(toCoordinator()).toHaveLength(2);
+    expect(toCoordinator()[1]).toContain("BLOCKED — which one?");
+    fleet.stop();
+  });
+
+  it("carry a long HANDOFF cut, the rest left in the result file", async () => {
+    const { fleet, registry, turn, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(thread, `BLOCKED — which one?\n${"x".repeat(5000)}`);
+    await turn(thread, "idle");
+    const notice = registry.get(thread.id)!.notice!;
+    expect(notice).toEndWith("[cut at 4000 characters]");
+    expect(notice.length).toBeLessThan(4200);
+  });
+
+  it("are kept while no coordinator lives, for the project's next one", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    fleet.onPaneEnded(coordinator.paneId);
+    handoff(thread, "BLOCKED — which one?");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.notice).toContain("BLOCKED — which one?");
+    const next = await fleet.startProject({ task: "and now?", cwd: "/repo" });
+    expect(toCoordinator(next)).toEqual(["and now?"]);
+    await turn(next, "idle");
+    expect(toCoordinator(next)[1]).toBe([HEADER, asks(thread, "BLOCKED — which one?")].join("\n"));
+    expect(registry.get(thread.id)!.notice).toBeUndefined();
+  });
+
+  it("are kept across a restart", async () => {
+    const { fleet, registry, turn, root, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(thread, "BLOCKED — which one?");
+    await turn(thread, "idle");
+    fleet.stop();
+    const reloaded = new RunRegistry(join(root, "runs.json"));
+    expect(reloaded.get(thread.id)!.notice).toBe(registry.get(thread.id)!.notice);
+    expect(reloaded.get(thread.id)!.notice).toContain("asks the person");
+  });
+});
+
+describe("owners", () => {
+  it("reach a thread they started from their own fleet, and no one else's", async () => {
+    const { fleet, runtime } = setup({ agents: [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true })], gitRoot: async () => "/repo" });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const loose = await fleet.startThread({ title: "Other", task: "t", cwd: "/repo" });
+    runtime.getStatus = "idle";
+    await fleet.send(thread.id, "keep the old API", coordinator.group);
+    expect(runtime.prompts.at(-1)).toEqual({ name: thread.herdrName, text: "keep the old API" });
+    expect(() => fleet.get(loose.id, coordinator.group)).toThrow("Unknown fleet agent");
+    expect(() => fleet.get(thread.id, "elsewhere")).toThrow("Unknown fleet agent");
   });
 });

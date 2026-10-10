@@ -8,7 +8,7 @@ import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brie
 import { excludeWorktrees, gitRoot, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
-import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type ContractItem, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadSummary } from "./types.ts";
+import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type ContractItem, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadState, type ThreadSummary } from "./types.ts";
 import { usageKey, type UsageTracker } from "./usage.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -76,6 +76,8 @@ export const READY_SCREEN_MS = 15_000;
 const READY_SCREEN_POLL_MS = 250;
 /** how long a CLI's usage screen (cursor's `/usage`) may take to show */
 export const USAGE_SCREEN_MS = 10_000;
+/** how soon the threads' questions are tried again while the person has a draft in the coordinator's input */
+export const DRAFT_RETRY_MS = 5_000;
 /** a run still `starting` may be inside a 30 s agent start: not-found is not its end yet */
 const START_GRACE_MS = 30_000;
 
@@ -120,6 +122,8 @@ export interface OrchestratorDeps {
   readyScreenMs?: number;
   /** USAGE_SCREEN_MS; tests shorten it */
   usageScreenMs?: number;
+  /** DRAFT_RETRY_MS; tests shorten it */
+  draftRetryMs?: number;
   /** what each account has used: candidates without usage left are skipped, rate limits start cooldowns */
   usage?: Pick<UsageTracker, "unavailable" | "noteFailure" | "claimScreen" | "record">;
   onChanged?: (run: AgentRun) => void;
@@ -152,6 +156,8 @@ export class Orchestrator {
   private readonly generations = new Map<string, number>();
   private readonly reconcileLocks = new Map<string, Promise<void>>();
   private readonly projectStarts = new Map<string, Promise<AgentRun>>();
+  private readonly delivering = new Set<string>();
+  private readonly draftRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
   /** callers waiting for a run's turn to settle or block */
@@ -205,8 +211,10 @@ export class Orchestrator {
     return this.deps.agents(cwd);
   }
 
+  /** A run of `group`, or a thread a run of `group` started: each thread is a fleet of its own, which its owner still reaches. */
   get(target: string, group?: string): AgentRun {
-    const run = this.deps.registry.resolve(target, group);
+    const owned = (run: AgentRun | undefined) => run?.owner && this.deps.registry.get(run.owner)?.group === group ? run : undefined;
+    const run = this.deps.registry.resolve(target, group) ?? (group === undefined ? undefined : owned(this.deps.registry.resolve(target)));
     if (!run) throw new FleetError("run_not_found", `Unknown fleet agent: ${target}`);
     return run;
   }
@@ -215,6 +223,8 @@ export class Orchestrator {
     this.stopped = true;
     for (const timer of this.settleChecks.values()) clearTimeout(timer);
     this.settleChecks.clear();
+    for (const timer of this.draftRetries.values()) clearTimeout(timer);
+    this.draftRetries.clear();
   }
 
   // ---- spawn -------------------------------------------------------------------------------
@@ -276,7 +286,8 @@ export class Orchestrator {
     const project = caller?.project ?? await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
     return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project).map((run) => {
       const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
-      return { run, ...(run.result ? { status: handoffStatus(run.result) } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
+      const status = run.result ? handoffStatus(run.result) : undefined;
+      return { run, state: threadState(run, status), ...(status ? { status } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
     });
   }
 
@@ -650,6 +661,66 @@ export class Orchestrator {
     }
   }
 
+  // ---- the threads' questions, for their project's coordinator -------------------------------
+
+  /** Who hears a thread's questions: the run that started it while it lives, else the project's live coordinator. */
+  private coordinatorOf(thread: AgentRun): AgentRun | undefined {
+    const owner = thread.owner ? this.deps.registry.get(thread.owner) : undefined;
+    if (owner && isLive(owner)) return owner;
+    return this.deps.registry.all().find((run) => run.role === PROJECT_ROLE && run.project === thread.project && isLive(run));
+  }
+
+  private async tellCoordinator(thread: AgentRun): Promise<void> {
+    const coordinator = this.coordinatorOf(thread);
+    if (coordinator) await this.deliverNotices(coordinator);
+  }
+
+  /**
+   * Every thread's question waiting for `coordinator`, in one message, once it is free: no turn of the
+   * fleet's in flight, herdr calls it settled (a person's turn shows as working), and no draft of the
+   * person's in its input. A coordinator that is not free hears them when it settles, or a little
+   * later when the person left a draft; one that ended leaves them to the next.
+   */
+  private async deliverNotices(coordinator: AgentRun): Promise<void> {
+    if (this.delivering.has(coordinator.id)) return;
+    this.delivering.add(coordinator.id);
+    try {
+      const threads = this.deps.registry.all().filter((run) => run.notice && this.coordinatorOf(run)?.id === coordinator.id);
+      if (!threads.length || this.pending.has(coordinator.id) || !isLive(coordinator)) return;
+      await this.reconcileLocks.get(coordinator.id);
+      const live = await this.liveState(coordinator);
+      if (!live || !isCompleted(live) || this.pending.has(coordinator.id)) return;
+      if (await this.hasDraft(coordinator)) return this.retryNotices(coordinator);
+      const told = threads.map((run) => ({ id: run.id, notice: run.notice }));
+      const message = ["[fleet] Threads ask the person. These come from the fleet, not from the person.", ...told.map((news) => `- ${news.notice}`)].join("\n");
+      const sent = await this.submit(coordinator, message);
+      if (sent.state !== "working") return;
+      for (const news of told) {
+        const run = this.deps.registry.get(news.id);
+        // a question that came while this went out waits for the next message
+        if (!run || run.notice !== news.notice) continue;
+        run.notice = undefined;
+        this.save(run);
+      }
+    } finally {
+      this.delivering.delete(coordinator.id);
+    }
+  }
+
+  /** the person is writing in the run's input: what the fleet typed would join their draft */
+  private async hasDraft(run: AgentRun): Promise<boolean> {
+    const draft = adapterFor(run.agent).draft;
+    return draft ? draft(await this.deps.runtime.screen(run.herdrName).catch(() => "")) : false;
+  }
+
+  private retryNotices(coordinator: AgentRun): void {
+    if (this.draftRetries.has(coordinator.id)) return;
+    this.draftRetries.set(coordinator.id, setTimeout(() => {
+      this.draftRetries.delete(coordinator.id);
+      if (!this.stopped) void this.deliverNotices(coordinator);
+    }, this.deps.draftRetryMs ?? DRAFT_RETRY_MS));
+  }
+
   // ---- herdr events (from the server's status collector) -----------------------------------
 
   /** A pane's agent status changed: a wake-up to read the run's state back from herdr. */
@@ -693,6 +764,8 @@ export class Orchestrator {
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
+        // free again, after the fleet's turn or the person's: the questions of the threads it hears for
+        if (!this.pending.has(run.id) && isCompleted(run.state)) void this.deliverNotices(run);
       } catch (error) {
         if (error instanceof HerdrError && (error.code === "agent_not_found" || error.code === "not_found" || error.code === "pane_not_found")) {
           if (run.state === "starting" && Date.now() - run.startedAt < START_GRACE_MS) return;
@@ -723,6 +796,7 @@ export class Orchestrator {
       // a rate limit sits the account out: the re-spawn below and later spawns pass it over
       this.deps.usage?.noteFailure(run.agent, run.model, turnError, config.rateLimitCooldownMinutes);
     }
+    if (isThread(run)) run.notice = threadQuestion(run);
     run.updatedAt = Date.now();
     this.save(run);
     if (isCompleted(run.state)) await this.readUsageScreen(run, config);
@@ -731,6 +805,7 @@ export class Orchestrator {
     if (run.state === "failed" && plan && pending.generation === 1) await this.respawn(run, plan);
     this.settleWaiters(run);
     await this.closeOnSettle(run, config);
+    if (run.notice) void this.tellCoordinator(run);
   }
 
   /**
@@ -879,10 +954,35 @@ export class Orchestrator {
   }
 }
 
+const isThread = (run: AgentRun): boolean => run.role === THREAD_ROLE && run.project !== undefined;
+
+function threadLabel(run: AgentRun): string {
+  return `"${run.name}" (${run.id}${run.branch ? `, ${run.branch}` : ""})`;
+}
+
+/** The longest HANDOFF a question carries to the coordinator; the rest stays in the result file. */
+const QUESTION_MAX_CHARS = 4000;
+
 /**
- * The handoff a run's agent wrote, up to RESULT_MAX_BYTES. Only a regular file is read, never one
- * reached through a symlink: an agent must not turn the result into a way to read other files.
+ * A thread's settled turn that asks the person something, as its coordinator hears it: the whole
+ * HANDOFF, which holds the question, the options and what the lead and the architect make of it.
+ * Every other outcome reaches the person on the thread list and in push notifications.
  */
+export function threadQuestion(run: AgentRun): string | undefined {
+  if (run.state === "failed" || !run.result || !/^BLOCKED\b/.test(handoffStatus(run.result) ?? "")) return undefined;
+  const handoff = run.result.length > QUESTION_MAX_CHARS ? `${run.result.slice(0, QUESTION_MAX_CHARS)}\n[cut at ${QUESTION_MAX_CHARS} characters]` : run.result;
+  return `${threadLabel(run)} asks the person:\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}`;
+}
+
+/** Where a thread stands: herdr's state of its lead, and once a turn settled, the HANDOFF's verdict. */
+export function threadState(run: AgentRun, status: string | undefined): ThreadState {
+  if (run.state === "failed") return "failed";
+  if (run.state === "stopped") return "ended";
+  if (run.state === "blocked") return "waiting";
+  if (!isCompleted(run.state)) return "working";
+  return status?.startsWith("BLOCKED") ? "waiting" : status?.startsWith("PASS") ? "review" : "idle";
+}
+
 /** The HANDOFF's status line: the first that opens with PASS, ISSUES or BLOCKED, without its markdown. */
 export function handoffStatus(result: string): string | undefined {
   return result.split("\n").map((l) => l.replace(/^[\s#>-]+/, "").replace(/\*\*/g, "").trim()).find((l) => /^(PASS|ISSUES|BLOCKED)\b/.test(l));
@@ -895,6 +995,10 @@ export function contractItems(text: string): ContractItem[] {
   }));
 }
 
+/**
+ * The handoff a run's agent wrote, up to RESULT_MAX_BYTES. Only a regular file is read, never one
+ * reached through a symlink: an agent must not turn the result into a way to read other files.
+ */
 export function readResult(file: string): string | undefined {
   let fd: number;
   try { fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { return undefined; }

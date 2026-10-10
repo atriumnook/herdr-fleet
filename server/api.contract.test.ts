@@ -1677,7 +1677,7 @@ describe("fleet change push", () => {
       fleet: {
         runtime: {
           createLocation: async (options) => ({ paneId: `w9:p${++panes}`, cwd: options.cwd }),
-          start: async () => "idle", prompt: async () => "working", get: async () => "working", read: async () => "",
+          start: async () => "idle", prompt: async () => "working", get: async () => "working", read: async () => "", screen: async () => "",
           closePane: async () => {}, interrupt: async () => {}, focus: async () => {}, reportMetadata: async () => {},
         },
         agents: () => [{ name: "worker", description: "w", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" }],
