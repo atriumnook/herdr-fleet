@@ -8,3 +8,8 @@ Base commit: 6bcb9bca4980b5a21b563dafac805a6a6c39ed61 (v0.3.45)
 
 The upstream history was not imported. Upstream changes are not merged
 automatically; they are reviewed and ported by hand.
+
+agents/architect.md adapts ideas from pstack's architect skill (grounding first,
+designing twice, the design red flags), by Lauren Tan, licensed under the MIT License.
+
+Source:      https://github.com/cursor/plugins/tree/main/pstack/skills/architect
