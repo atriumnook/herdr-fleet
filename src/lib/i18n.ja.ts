@@ -19,6 +19,7 @@ export const JA: Record<string, string> = {
   "Pair this device with a code from the PC: Settings → Devices there.": "PC の Settings → Devices で出したコードで、この Device をペアリングしてください。",
   "That code is wrong, used up or expired. Start a new pairing on the PC.": "コードが違うか、使用済みか、期限切れです。PC で新しくペアリングを始めてください。",
   "Token does not match.": "トークンが一致しません。",
+  "This server asks for the access token or a pairing code again.": "このサーバーが、アクセストークンかペアリングコードをもう一度求めています。",
   "Tailscale says this device belongs to someone other than this PC's owner. The owner can still let it in with a pairing code.": "Tailscale によると、この Device は PC の持ち主以外のものです。持ち主はペアリングコードで入れられます。",
   // ---- sidebar ----
   "The computer this app runs on.": "このアプリが動いているコンピューターです。",
