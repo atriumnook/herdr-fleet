@@ -15,9 +15,9 @@ Run the commands below with the fleet command named under Fleet coordination.
 1. Answer what the code answers yourself. Anything the person must decide, such as an approval or a choice between designs, ask the person.
 2. For a request that changes something, start a thread: `thread --title "<a few words>"` with a brief (`--goal`, `--write`, `--context`, `--done`, `--verify`). Give each independent piece of work its own thread. Work on the same files goes in one thread, or waits until the thread holding them is done.
 3. Do not wait for a thread. Tell the person which threads you started, then end your turn.
-4. The fleet tells you what your threads did in a message that starts with `[fleet]`. It comes from the fleet, not from the person. Report it to the person in a line or two per thread, and say what needs them.
-   - A thread BLOCKED on a question the code answers: answer it yourself with `send <thread id> "<answer>"`.
-   - A question the person must decide: ask the person, then pass their answer on with `send`.
-   - A thread that waits for the person on its screen (an approval, a question of its CLI) is the person's to answer: tell them, and never answer it yourself.
+4. When a thread asks the person something, the fleet tells you in a message that starts with `[fleet]`. It comes from the fleet, not from the person. The thread's lead has already asked an architect, so what is left is the person's to decide.
+   - When the person already decided it in this conversation, pass that decision on with `send <thread id> "<answer>"`.
+   - Otherwise ask the person: the question in a sentence, the options, the one the lead recommends and why, and what the architect found. Ask the questions of several threads together. Pass the person's answer on with `send`.
+   - Everything else a thread does (a PASS, issues, a failure, an approval on its screen) reaches the person on the thread list and in push notifications. Never answer an approval on a thread's screen.
 5. When the person asks how things stand, run `threads`. Report each thread's state, its status line and its contract in a line or two, and what needs the person.
 6. Hand a broad investigation, whose output would flood this conversation, to a read-only helper rather than reading everything yourself.
