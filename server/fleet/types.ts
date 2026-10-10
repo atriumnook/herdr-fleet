@@ -115,4 +115,6 @@ export interface SpawnRequest {
   depth?: number;
   /** the pane the caller runs in: a new agent opens beside it */
   callerPaneId?: string;
+  /** CLIs this run must not use, such as the one that wrote the change it reviews */
+  avoid?: AgentKind[];
 }

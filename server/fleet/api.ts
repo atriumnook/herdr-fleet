@@ -1,5 +1,6 @@
 import { HerdrError } from "../herdr/client.ts";
 import { isJsonObject, jsonResponse } from "../http.ts";
+import { isAgentKind } from "./adapters.ts";
 import { AgentWaitTimeoutError, type Orchestrator, type ThreadRequest } from "./orchestrator.ts";
 import { FleetError } from "./runtime.ts";
 import type { Brief } from "./brief.ts";
@@ -129,6 +130,8 @@ function spawnRequest(body: Record<string, unknown>): SpawnRequest {
   if (!brief && (!task || task.trim() === "")) throw new FleetError("missing_task", "task is required");
   const direction = text("direction");
   if (direction !== undefined && direction !== "right" && direction !== "down") throw new FleetError("invalid_body", "direction must be right or down");
+  const avoid = body["avoid"];
+  if (avoid !== undefined && avoid !== null && !(Array.isArray(avoid) && avoid.every(isAgentKind))) throw new FleetError("invalid_body", "avoid must be a list of agent CLIs");
   const depth = body["depth"];
   if (depth !== undefined && (typeof depth !== "number" || !Number.isInteger(depth) || depth < 0)) throw new FleetError("invalid_body", "depth must be a whole number");
   return {
@@ -136,6 +139,7 @@ function spawnRequest(body: Record<string, unknown>): SpawnRequest {
     callerPaneId: text("caller_pane_id"), worktree: flag("worktree"), interactive: flag("interactive"),
     ...(direction ? { direction } : {}), ...(depth !== undefined ? { depth: depth as number } : {}),
     ...(brief ? { brief } : {}),
+    ...(Array.isArray(avoid) && avoid.length ? { avoid } : {}),
   };
 }
 
