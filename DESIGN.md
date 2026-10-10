@@ -492,6 +492,8 @@ One set for both themes: the card is island black wherever it shows.
 ### Terminal host, key bar and drawer
 - xterm has `scrollback: 0`; wheel/touch gestures reach herdr's alternate-screen scrollback. The
   mount clips its own gutter and hides the unused xterm scrollbar.
+- The terminal's cursor holds still (`cursorBlink: false`): a blinking one draws the eye on every
+  pane that waits for input. An app in the pane can still ask for a blinking cursor itself.
 - Terminal banners stack top-right for ended, reconnecting, observe and held-draft review states.
 - The mobile key bar is Esc, Tab, one-shot Ctrl, arrows and `^C`; it never steals xterm focus.
 - The mobile drawer slides over a scrim. Closed visibility removes its controls from the tab order.
