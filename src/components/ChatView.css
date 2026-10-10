@@ -376,14 +376,13 @@
   color: var(--working);
 }
 
-/* the dot breathes, the words hold still (same rule as the RUN badge) */
+/* A steady dot indicates live work without drawing attention on every frame. */
 .work-block.is-live .work-block-title::before {
   content: "";
   width: 6px;
   height: 6px;
   border-radius: var(--radius-pill);
   background: currentColor;
-  animation: pulse var(--dur-pulse) var(--ease-pulse) infinite;
 }
 
 .work-block-summary {
@@ -626,7 +625,6 @@
 
 @media (prefers-reduced-motion: reduce) {
   .chat-turn-meta { transition: none; }
-  .work-block.is-live .work-block-title::before { animation: none; }
 }
 
 .todo-list ul {
