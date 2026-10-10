@@ -1,5 +1,5 @@
 /*
- * Token gate for AccessGate.tsx: one card centered on the base surface, shown
+ * Token gate for AccessGate.tsx: one glass panel centered on the ground (bg and its glows), shown
  * instead of the shell while the server wants a pairing code or a token. Only tokens from the
  * styles.css :root block. The card's content column is exactly one sidebar wide
  * (--sidebar-w) so the input and button sit at a width the rest of the UI already
@@ -16,7 +16,11 @@
   min-height: var(--app-height, 100dvh);
   padding: calc(var(--space-4) + env(safe-area-inset-top, 0px)) calc(var(--space-4) + env(safe-area-inset-right, 0px))
     calc(var(--space-4) + env(safe-area-inset-bottom, 0px)) calc(var(--space-4) + env(safe-area-inset-left, 0px));
-  background: var(--bg);
+  background:
+    radial-gradient(55% 45% at 8% 4%, var(--glow-1), transparent 70%),
+    radial-gradient(45% 50% at 96% 20%, var(--glow-2), transparent 70%),
+    radial-gradient(60% 40% at 40% 105%, var(--glow-3), transparent 70%),
+    var(--bg);
 }
 
 .access-gate {
@@ -26,9 +30,26 @@
   width: min(100%, calc(var(--sidebar-w) + 2 * var(--space-6)));
   margin: 0;
   padding: var(--space-6);
-  background: var(--surface);
-  border: var(--hairline) solid var(--line);
-  border-radius: var(--radius-md);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  border: var(--hairline) solid var(--edge);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-panel);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .access-gate {
+    background: var(--field);
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .access-gate {
+    background: var(--field);
+  }
 }
 
 .access-gate-mark {
@@ -40,9 +61,8 @@
 
 .access-gate-title {
   margin: 0 0 var(--space-1);
-  font-size: var(--fs-lg);
+  font-size: var(--fs-xl);
   font-weight: var(--fw-bold);
-  letter-spacing: var(--tracking-tight);
   line-height: var(--lh-tight);
   color: var(--ink-strong);
 }
@@ -55,20 +75,20 @@
 
 .access-gate-label {
   margin-bottom: var(--space-1);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
   font-weight: var(--fw-medium);
-  color: var(--ink);
+  color: var(--sub);
 }
 
-/* focus is the global --ring rule; the border only changes to name an invalid value */
+/* the app's field (styles.css .input): 44px, the input face, a 3:1 edge; focus is the global --ring rule */
 .access-gate-input {
   appearance: none;
   width: 100%;
-  height: var(--control-h);
+  height: var(--input-h);
   padding: 0 var(--space-3);
-  background: var(--field);
-  border: var(--hairline) solid var(--line);
-  border-radius: var(--radius-sm);
+  background: var(--input);
+  border: var(--hairline) solid var(--control-edge);
+  border-radius: var(--radius-md);
   color: var(--ink-strong);
   font: inherit;
   font-size: var(--fs-input);
@@ -79,20 +99,17 @@
   border-color: var(--needs);
 }
 
-/*
- * The system's one filled control. Hover and press are the accent mixed with the
- * bright and base surface tokens: no new colors, the hue stays the accent's.
- */
+/* the screen's one primary button (styles.css .btn-primary) */
 .access-gate-submit {
   margin-top: var(--space-3);
   height: var(--control-h);
   padding: 0 var(--space-4);
   background: var(--accent);
   border: var(--hairline) solid var(--accent);
-  border-radius: var(--radius-sm);
-  color: var(--bg);
+  border-radius: var(--radius-md);
+  color: var(--on-accent);
   font-size: var(--fs-md);
-  font-weight: var(--fw-semibold);
+  font-weight: var(--fw-bold);
   cursor: pointer;
   transition:
     background-color var(--dur-fast) var(--ease-out),
@@ -100,14 +117,9 @@
     opacity var(--dur-fast) var(--ease-out);
 }
 
-.access-gate-submit:hover {
-  background: color-mix(in srgb, var(--accent) 88%, var(--ink-strong));
-  border-color: color-mix(in srgb, var(--accent) 88%, var(--ink-strong));
-}
-
-.access-gate-submit:active {
-  background: color-mix(in srgb, var(--accent) 80%, var(--bg));
-  border-color: color-mix(in srgb, var(--accent) 80%, var(--bg));
+.access-gate-submit:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
 }
 
 .access-gate-submit:disabled {
@@ -117,18 +129,16 @@
 
 .access-gate-error {
   margin: var(--space-3) 0 0;
-  padding: var(--space-2) var(--space-3);
-  border: var(--hairline) solid var(--needs);
-  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  border-radius: var(--radius-md);
   background: var(--needs-tint);
   font-size: var(--fs-sm);
   color: var(--needs-text);
   overflow-wrap: anywhere;
 }
 
-/* fingers: the two controls grow to the touch target */
+/* fingers: the button grows to the touch target (the field is already taller) */
 @media (pointer: coarse) {
-  .access-gate-input,
   .access-gate-submit {
     height: var(--touch-target);
   }

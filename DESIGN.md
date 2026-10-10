@@ -521,8 +521,10 @@ One set for both themes: the card is island black wherever it shows.
 - Reduced motion: it fades in and out where it rests, without falling or spreading.
 
 ### Token gate
-- A centered password card replaces the entire shell while authentication is required. It has a real
-  label, autofocused field, primary Unlock button and linked alert text.
+- A centered glass panel on the ground replaces the entire shell while authentication is required
+  (`--glass`, `--radius-xl`, `--shadow-panel`; `--field` where transparency is reduced). It has a
+  real label (`--fs-xs` `--sub`), an autofocused 44px field, the one primary button and a notice
+  for a refusal.
 - Success mounts the shell; Lock unsubscribes push, deletes auth and returns to the gate.
 
 ### Role (no control surface)
