@@ -6,7 +6,8 @@ import { isThinkingLevel, type FleetConfig, type ModelPolicy, type ProjectConfig
 
 export const DEFAULT_CONFIG: FleetConfig = {
   maxConcurrent: 6,
-  maxDepth: 2,
+  // you, a project's coordinator, a thread's lead, the helpers it hands parts to
+  maxDepth: 3,
   recentReadLines: 160,
   defaultWaitTimeoutMs: 120_000,
   closeOnSettle: true,

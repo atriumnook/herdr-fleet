@@ -29,7 +29,10 @@ function fleet() {
   };
   const orchestrator = new Orchestrator({
     runtime, registry: new RunRegistry(null), config: () => DEFAULT_CONFIG, fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(resultsRoot, "results"), instructionsDir: join(resultsRoot, "instructions"), promptDir: resultsRoot,
-    agents: () => [{ name: "worker", description: "implements", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" }],
+    agents: () => [
+      { name: "worker", description: "implements", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" },
+      { name: "coordinator", description: "coordinates", agent: "claude", interactive: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" },
+    ],
   });
   let probes = 0;
   const usage = new UsageTracker({ file: null, probes: { codex: async () => { probes += 1; return { codex: { readAt: 1, windows: [{ name: "5h", usedPercent: 20 }] } }; } } });
@@ -62,7 +65,7 @@ describe("fleet API", () => {
     expect(timedOut.body).toMatchObject({ error: { code: "wait_timeout" }, run: { id, state: "working" } });
     state.get = "working";
     expect((await call("POST", `/runs/${id}/send`, { group: "g1", message: "and test it" })).body["run"].state).toBe("working");
-    expect((await call("GET", "/roles")).body["roles"]).toEqual([{ name: "worker", description: "implements", agent: "pi", source: "bundled" }]);
+    expect((await call("GET", "/roles")).body["roles"]).toContainEqual({ name: "worker", description: "implements", agent: "pi", source: "bundled" });
   });
 
   it("lists usage without running a CLI, refreshes stale probes (all with all: true) only on a POST, and clears cooldowns", async () => {
@@ -81,6 +84,20 @@ describe("fleet API", () => {
     expect((await call("POST", "/usage/clear", { key: "cursor" }, {})).status).toBe(403);
     expect((await call("POST", "/usage/clear", { key: "cursor" })).body).toEqual({ cleared: ["cursor"] });
     expect(await call("POST", "/usage/clear", { key: 3 })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+  });
+
+  it("starts a project's coordinator once, and lists the project's threads", async () => {
+    const { call } = fleet();
+    // outside a repository, the folder is the project
+    const started = await call("POST", "/projects", { task: "hello", cwd: resultsRoot });
+    expect(started).toMatchObject({ status: 201, body: { run: { role: "coordinator", project: resultsRoot } } });
+    const again = await call("POST", "/projects", { task: "and again", cwd: resultsRoot });
+    expect(again.body["run"].id).toBe(started.body["run"].id);
+    expect((await call("GET", `/threads?cwd=${encodeURIComponent(resultsRoot)}`)).body).toEqual({ threads: [] });
+    expect((await call("GET", `/threads?caller_run=${started.body["run"].id}`)).body).toEqual({ threads: [] });
+    expect(await call("GET", "/threads?caller_run=ghost")).toMatchObject({ status: 404, body: { error: { code: "run_not_found" } } });
+    expect(await call("POST", "/projects", { cwd: resultsRoot })).toMatchObject({ status: 400, body: { error: { code: "missing_task" } } });
+    expect(await call("POST", "/projects", { task: "t", cwd: 1 })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
   });
 
   it("answers bad requests with the reason", async () => {

@@ -44,6 +44,7 @@ function loadDir(dir: string, source: AgentDefinition["source"], warnings?: stri
         worktree: typeof fm["worktree"] === "boolean" ? fm["worktree"] : undefined,
         interactive: typeof fm["interactive"] === "boolean" ? fm["interactive"] : undefined,
         spawning: typeof fm["spawning"] === "boolean" ? fm["spawning"] : undefined,
+        edits: typeof fm["edits"] === "boolean" ? fm["edits"] : undefined,
         systemPrompt: body.trim(),
         source,
         filePath,

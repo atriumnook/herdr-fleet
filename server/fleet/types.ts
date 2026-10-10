@@ -6,7 +6,7 @@
 import type { FleetAgentKind, ThinkingLevel } from "../../shared/fleet.ts";
 import type { Brief } from "./brief.ts";
 
-export type { AgentRun, AgentState, SkippedCandidate, ThinkingLevel } from "../../shared/fleet.ts";
+export type { AgentRun, AgentState, ContractItem, SkippedCandidate, ThinkingLevel, ThreadSummary } from "../../shared/fleet.ts";
 
 export const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"] as const satisfies readonly ThinkingLevel[];
 
@@ -44,6 +44,8 @@ export interface AgentDefinition {
   worktree?: boolean;
   interactive?: boolean;
   spawning?: boolean;
+  /** false: the role edits no file, and only a CLI that can be held to that plays it */
+  edits?: boolean;
   source: "project" | "user" | "bundled";
   filePath: string;
 }

@@ -1,6 +1,6 @@
 import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
@@ -8,7 +8,7 @@ import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brie
 import { excludeWorktrees, gitRoot, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
-import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel } from "./types.ts";
+import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type ContractItem, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadSummary } from "./types.ts";
 import { usageKey, type UsageTracker } from "./usage.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -31,8 +31,8 @@ const RESULT_FILE = "handoff.md";
 /** A spawn with its brief turned into the task and the paths it may write, ready to try candidates for. */
 type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[]; thread?: ThreadPlace };
 
-/** Where a thread works: the repository its worktree comes from, or none outside one. */
-interface ThreadPlace { repo: string | null }
+/** Where a thread works (the repository its worktree comes from, or none outside one), and the run that owns it. */
+interface ThreadPlace { repo: string | null; owner?: string }
 
 /** A thread to start: its lead gets the task, in a workspace (and worktree) of its own named by the title. */
 export interface ThreadRequest {
@@ -42,9 +42,21 @@ export interface ThreadRequest {
   cwd?: string;
   /** the caller's depth: 0 for a person, the screen, or a top-level agent */
   depth?: number;
+  /** the run that starts the thread (HERDR_FLEET_RUN), which then owns it: its results and questions go there */
+  callerRun?: string;
 }
 
 const THREAD_ROLE = "lead";
+
+/** The project's coordinator: started in the repository's main checkout, or the one already there. */
+export interface ProjectRequest {
+  task: string;
+  cwd?: string;
+}
+
+const PROJECT_ROLE = "coordinator";
+/** where a thread lead writes its acceptance contract: beside its result file (agents/lead.md) */
+const CONTRACT_FILE = "contract.md";
 interface SpawnPlan { request: PlannedSpawn; fallbacks: string[] }
 
 /** the states in which a run may still be writing the paths its brief gave it */
@@ -139,6 +151,7 @@ export class Orchestrator {
   private readonly pending = new Map<string, PendingTurn>();
   private readonly generations = new Map<string, number>();
   private readonly reconcileLocks = new Map<string, Promise<void>>();
+  private readonly projectStarts = new Map<string, Promise<AgentRun>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
   /** callers waiting for a run's turn to settle or block */
@@ -219,12 +232,52 @@ export class Orchestrator {
     const title = request.title.trim();
     if (!title || title.length > 120) throw new FleetError("invalid_title", "A thread needs a title of up to 120 characters.");
     const cwd = resolve(request.cwd ?? process.cwd());
+    const owner = request.callerRun ? this.deps.registry.get(request.callerRun) : undefined;
+    if (request.callerRun && !owner) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
     const repo = await (this.deps.gitRoot ?? gitRoot)(cwd);
     if (repo) await (this.deps.excludeWorktrees ?? excludeWorktrees)(repo);
     return this.launch({
       role: THREAD_ROLE, name: title, task: request.task, brief: request.brief, cwd, depth: request.depth,
       group: makeGroupId(), worktree: repo !== null, interactive: true,
-    }, signal, { repo });
+    }, signal, { repo, ...(owner ? { owner: owner.id } : {}) });
+  }
+
+  /**
+   * A project's coordinator: one per repository (or folder outside one), in a workspace of its own
+   * at the main checkout. A second start of the same project hands the task to the live one.
+   */
+  async startProject(request: ProjectRequest, signal?: AbortSignal): Promise<AgentRun> {
+    if (!request.task.trim()) throw new FleetError("missing_task", "task is required");
+    const cwd = resolve(request.cwd ?? process.cwd());
+    const project = await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
+    // two starts of one project at once must not both find none and start two coordinators
+    const previous = this.projectStarts.get(project) ?? Promise.resolve();
+    const started = previous.catch(() => {}).then(async () => {
+      const live = this.deps.registry.all().find((run) => run.role === PROJECT_ROLE && run.project === project && isLive(run));
+      if (live) return this.send(live.id, request.task, undefined, signal);
+      return this.launch({
+        role: PROJECT_ROLE, name: `${basename(project)} · fleet`, task: request.task, cwd: project, depth: 0,
+        group: makeGroupId(), worktree: false, interactive: true,
+      }, signal, { repo: project });
+    });
+    this.projectStarts.set(project, started);
+    try {
+      return await started;
+    } finally {
+      if (this.projectStarts.get(project) === started) this.projectStarts.delete(project);
+    }
+  }
+
+  /** The threads of the caller's project (the calling run's, or the repository `cwd` lies in), oldest first. */
+  async threads(request: { callerRun?: string; cwd?: string }): Promise<ThreadSummary[]> {
+    const caller = request.callerRun ? this.deps.registry.get(request.callerRun) : undefined;
+    if (request.callerRun && !caller) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
+    const cwd = resolve(request.cwd ?? process.cwd());
+    const project = caller?.project ?? await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
+    return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project).map((run) => {
+      const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
+      return { run, ...(run.result ? { status: handoffStatus(run.result) } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
+    });
   }
 
   private async launch(request: SpawnRequest, signal?: AbortSignal, thread?: ThreadPlace): Promise<AgentRun> {
@@ -269,7 +322,8 @@ export class Orchestrator {
       const entry = candidates[i];
       const { agent: kind, model } = parseCandidate(entry, roleKind);
       const last = i === candidates.length - 1;
-      const avoided = request.avoid?.includes(kind) ? `the caller keeps ${kind} out` : undefined;
+      const avoided = request.avoid?.includes(kind) ? `the caller keeps ${kind} out`
+        : definition.edits === false && !adapterFor(kind).readOnlyArgs ? `${kind} cannot be kept from editing files` : undefined;
       const unusable = avoided ?? await this.deps.usage?.unavailable(kind, model, config.maxUsedPercent);
       if (unusable) {
         if (!avoided) outOfUsage = true;
@@ -311,7 +365,7 @@ export class Orchestrator {
     const id = makeId();
     const herdrName = makeHerdrName(request.group, definition.name, id);
     const displayName = request.name?.trim() || definition.name;
-    const env = { ...this.deps.agentEnv(), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth) };
+    const env = { ...this.deps.agentEnv(), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
 
     // the budget counts runs across fleets: the check and the first save must not interleave
     const previousGate = this.spawnGate;
@@ -340,6 +394,7 @@ export class Orchestrator {
         id, name: displayName, role: definition.name, agent: kind, group: request.group, herdrName, paneId: location.paneId, workspaceId: location.workspaceId,
         cwd: location.cwd, model, thinking, fallbackFrom, state: "starting", depth, interactive, worktree, startedAt: now, updatedAt: now,
         ...(worktree && request.thread ? { branch: `fleet/${id}` } : {}),
+        ...(request.thread?.repo ? { project: request.thread.repo } : {}), ...(request.thread?.owner ? { owner: request.thread.owner } : {}),
         ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
       };
       this.save(run);
@@ -351,7 +406,9 @@ export class Orchestrator {
     const resultDir = join(this.deps.resultsDir, run.id);
     mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
     mkdirSync(resultDir, { mode: 0o700 });
-    const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE), this.deps.standingOrders?.(request.cwd) ?? "");
+    // a project's coordinator talks with the person, who reads its reply: no agent reads a handoff of it
+    const resultFile = definition.name === PROJECT_ROLE ? undefined : join(resultDir, RESULT_FILE);
+    const instructions = this.instructions(definition, displayName, request.group, canSpawn, resultFile, this.deps.standingOrders?.(request.cwd) ?? "");
     if (adapter.instructionsInPrompt) {
       mkdirSync(this.deps.instructionsDir, { recursive: true, mode: 0o700 });
       writeFileSync(this.undeliveredFile(run), instructions, { mode: 0o600 });
@@ -367,7 +424,10 @@ export class Orchestrator {
       try {
         run.state = await this.deps.runtime.start({
           kind, name: herdrName, paneId: run.paneId, signal, startupError: (screen) => adapter.startupError(screen),
-          args: adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
+          args: [
+            ...adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
+            ...(definition.edits === false ? adapter.readOnlyArgs ?? [] : []),
+          ],
         });
         if (run.state === "blocked") run.lastError = "Agent stopped at a question before its first prompt; the task has not been sent.";
         else if (adapter.question || adapter.readyError) {
@@ -449,7 +509,7 @@ export class Orchestrator {
     }
   }
 
-  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string, standing: string): string {
+  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string | undefined, standing: string): string {
     const fleet = this.deps.fleetCommand;
     return [
       definition.systemPrompt,
@@ -463,14 +523,17 @@ export class Orchestrator {
       canSpawn
         ? [
           `- Start a helper when splitting the work materially improves the result, with a brief it can work from without asking you: ${fleet} spawn --role <role> --goal "<the outcome, one sentence>" --write <path> (repeat; --read-only when it only reads) --context "<files, earlier results and decisions it needs, or none>" --done "<a checkable condition>" --verify "<commands to run, and the evidence to return>", then ${fleet} wait <id>.`,
-          "  Each part has one executor: do not work on a part you handed on, or hand it to two agents. Two agents never write the same paths at once; the fleet refuses a spawn whose paths another working agent holds. Start a review only after the writer has finished, on another CLI than the writer's: add --avoid <cli> (${fleet} list shows each agent's CLI).",
+          `  Each part has one executor: do not work on a part you handed on, or hand it to two agents. Two agents never write the same paths at once; the fleet refuses a spawn whose paths another working agent holds. Start a review only after the writer has finished, on another CLI than the writer's: add --avoid <cli> (${fleet} list shows each agent's CLI).`,
         ].join("\n")
         : "Do not start other agents.",
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
       "Treat herdr's 'unknown' as uncertainty, not completion.",
-      `Your result file is ${resultFile}.`,
-      "At the end of each delegated turn, write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section.",
-      "The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED, and the evidence for it (what you ran and what it showed). Under ISSUES, list every issue you can prove, not only the first. Then: outcome, changed files, verification, unresolved questions.",
+      ...(resultFile ? [
+        `Your result file is ${resultFile}.`,
+        ...(definition.edits === false ? ["You edit no file, and your file-editing tools are off: write your result file with a shell command."] : []),
+        "At the end of each delegated turn, write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section.",
+        "The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED, and the evidence for it (what you ran and what it showed). Under ISSUES, list every issue you can prove, not only the first. Then: outcome, changed files, verification, unresolved questions.",
+      ] : []),
       ...(standing ? ["", "## Standing orders", "The person who runs this fleet gives these to every agent. Follow them in every turn. Every agent of the fleet gets them, so a task you hand on need not repeat them.", standing] : []),
     ].join("\n");
   }
@@ -820,6 +883,18 @@ export class Orchestrator {
  * The handoff a run's agent wrote, up to RESULT_MAX_BYTES. Only a regular file is read, never one
  * reached through a symlink: an agent must not turn the result into a way to read other files.
  */
+/** The HANDOFF's status line: the first that opens with PASS, ISSUES or BLOCKED, without its markdown. */
+export function handoffStatus(result: string): string | undefined {
+  return result.split("\n").map((l) => l.replace(/^[\s#>-]+/, "").replace(/\*\*/g, "").trim()).find((l) => /^(PASS|ISSUES|BLOCKED)\b/.test(l));
+}
+
+/** contract.md's assertions: `- [ ] A1 …` open, `- [x]` met, `- [!]` cannot be met. */
+export function contractItems(text: string): ContractItem[] {
+  return [...text.matchAll(/^\s*[-*]\s*\[([ xX!])\]\s*(A\d+)\b/gm)].map((m) => ({
+    id: m[2]!, state: m[1] === "!" ? "unmet" : m[1] === " " ? "open" : "met",
+  }));
+}
+
 export function readResult(file: string): string | undefined {
   let fd: number;
   try { fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { return undefined; }

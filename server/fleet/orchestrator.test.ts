@@ -98,7 +98,7 @@ describe("spawn", () => {
     const { fleet, runtime, root } = setup();
     const run = await spawn(fleet, { callerPaneId: "w0:p1", name: "impl" });
     expect(run).toMatchObject({ name: "impl", role: "worker", agent: "pi", group: "g1", depth: 1, state: "working" });
-    expect(runtime.locations[0]).toMatchObject({ cwd: "/work", callerPaneId: "w0:p1", env: { HERDR_FLEET_URL: "http://127.0.0.1:1", HERDR_FLEET_GROUP: "g1", HERDR_FLEET_DEPTH: "1" } });
+    expect(runtime.locations[0]).toMatchObject({ cwd: "/work", callerPaneId: "w0:p1", env: { HERDR_FLEET_URL: "http://127.0.0.1:1", HERDR_FLEET_GROUP: "g1", HERDR_FLEET_DEPTH: "1", HERDR_FLEET_RUN: run.id } });
     expect(runtime.starts[0]!.args).toContain("--append-system-prompt");
     expect(runtime.instructions[0]).toContain("You are worker.");
     expect(runtime.instructions[0]).toContain("fleet send <name-or-id>");
@@ -147,6 +147,13 @@ describe("spawn", () => {
     expect(bare.runtime.instructions[0]).not.toContain("Standing orders");
   });
 
+  it("names the fleet command in every spawning instruction", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { spawning: true })] });
+    await spawn(fleet);
+    expect(runtime.instructions[0]).toContain("(fleet list shows each agent's CLI)");
+    expect(runtime.instructions[0]).not.toContain("${");
+  });
+
   it("records the idle herdr shows right after a prompt as working", async () => {
     const { fleet, runtime } = setup();
     runtime.promptStatus = "idle";
@@ -157,7 +164,7 @@ describe("spawn", () => {
     const { fleet, runtime } = setup();
     await expect(spawn(fleet, { role: "nobody" })).rejects.toThrow("Unknown agent role");
     await expect(spawn(fleet, { thinking: "turbo" })).rejects.toThrow("Invalid thinking level");
-    await expect(spawn(fleet, { depth: 2 })).rejects.toMatchObject({ code: "depth_limit" });
+    await expect(spawn(fleet, { depth: 3 })).rejects.toMatchObject({ code: "depth_limit" });
     await expect(spawn(fleet, { group: "bad group" })).rejects.toMatchObject({ code: "invalid_group" });
     expect(runtime.locations).toEqual([]);
   });
@@ -492,6 +499,29 @@ describe("usage routing", () => {
     expect(runtime.locations).toEqual([]);
   });
 
+  it("plays a role that edits nothing only on a CLI that can be held to that, with its editing tools off", async () => {
+    const { fleet, runtime } = setup({ agents: [role("auditor", { model: "codex:gpt-6", fallbackModels: ["claude:sonnet"], edits: false })] });
+    const run = await spawn(fleet, { role: "auditor" });
+    expect(run).toMatchObject({ agent: "claude", model: "sonnet" });
+    expect(run.skipped).toEqual([{ candidate: "codex:gpt-6", reason: "codex cannot be kept from editing files" }]);
+    expect(runtime.starts[0]!.args.join(" ")).toContain("--disallowedTools Edit,Write,NotebookEdit");
+    expect(runtime.instructions[0]).toContain("your file-editing tools are off: write your result file with a shell command");
+  });
+
+  it("refuses a role that edits nothing when no candidate CLI can be held to that", async () => {
+    const { fleet, runtime } = setup({ agents: [role("auditor", { model: "codex:gpt-6", fallbackModels: ["cursor:auto"], edits: false })] });
+    const error = await spawn(fleet, { role: "auditor" }).catch((e) => e);
+    expect(error).toMatchObject({ code: "no_candidates" });
+    expect(error.message).toContain("cursor:auto: cursor cannot be kept from editing files");
+    expect(runtime.locations).toEqual([]);
+  });
+
+  it("leaves a role's editing tools as they are unless it says it edits nothing", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { model: "claude:sonnet" })] });
+    await spawn(fleet);
+    expect(runtime.starts[0]!.args).not.toContain("--disallowedTools");
+  });
+
   it("lets a caller pick another CLI with an <agent>:<model> model", async () => {
     const { fleet, runtime } = setup();
     const run = await spawn(fleet, { model: "agy:gemini-pro" });
@@ -821,6 +851,38 @@ describe("threads", () => {
     expect(second.group).not.toBe(run.group);
   });
 
+  it("belong to the run that starts them, and to the repository they work in", async () => {
+    const { fleet } = setup({ agents: [lead, role("coordinator", { interactive: true, spawning: true })], gitRoot: async () => "/repo" });
+    const coordinator = await fleet.spawn({ role: "coordinator", task: "coordinate", cwd: "/repo", group: "p1" });
+    const thread = await fleet.startThread({ title: "t", cwd: "/repo", depth: 1, callerRun: coordinator.id,
+      brief: { goal: "g", write: ["src"], context: "none", done: "d", verify: "v" } });
+    expect(thread).toMatchObject({ owner: coordinator.id, project: "/repo", depth: 2 });
+    await expect(fleet.startThread({ title: "t", task: "t", callerRun: "nobody" })).rejects.toMatchObject({ code: "run_not_found" });
+  });
+
+  it("are listed for their project, with the HANDOFF's status line and the contract's state", async () => {
+    const { fleet, registry, root } = setup({ agents: [lead, role("worker")], gitRoot: async (cwd) => cwd.startsWith("/repo") ? "/repo" : null });
+    const fixed = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    const fresh = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo/docs" });
+    await fleet.startThread({ title: "Elsewhere", task: "t", cwd: "/other" });
+    await spawn(fleet, { cwd: "/repo" });
+    registry.upsert({ ...registry.get(fixed.id)!, state: "idle", result: "## HANDOFF\n**PASS** — bun test: 12 pass\nOutcome: fixed" });
+    writeFileSync(join(root, "results", fixed.id, "contract.md"), "- [x] A1 no duplicate — evidence: test\n- [ ] A2 docs\n- [!] A3 old clients — evidence: none\n");
+    const threads = await fleet.threads({ cwd: "/repo/src" });
+    expect(threads.map((t) => t.run.id)).toEqual([fixed.id, fresh.id]);
+    expect(threads[0]).toMatchObject({ status: "PASS — bun test: 12 pass", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }, { id: "A3", state: "unmet" }] });
+    expect(threads[1]!.status).toBeUndefined();
+    expect(threads[1]!.contract).toBeUndefined();
+  });
+
+  it("are listed for the calling run's project, wherever it asks from", async () => {
+    const { fleet } = setup({ agents: [lead, role("coordinator", { interactive: true, spawning: true })], gitRoot: async (cwd) => cwd.startsWith("/repo") ? "/repo" : null });
+    const coordinator = await fleet.startProject({ task: "hello", cwd: "/repo" });
+    const thread = await fleet.startThread({ title: "t", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    expect((await fleet.threads({ callerRun: coordinator.id, cwd: "/tmp" })).map((t) => t.run.id)).toEqual([thread.id]);
+    await expect(fleet.threads({ callerRun: "nobody" })).rejects.toMatchObject({ code: "run_not_found" });
+  });
+
   it("fail before the lead starts when the setup command fails, and close the pane", async () => {
     const { fleet, runtime, registry } = setup({
       agents: [lead], gitRoot: async () => "/repo", config: { projects: { "/repo": { setup: "false" } } },
@@ -843,5 +905,41 @@ describe("threads", () => {
     expect(runtime.locations[0]).toMatchObject({ worktree: false, branch: undefined });
     expect(setups).toBe(0);
     await expect(fleet.startThread({ title: " ", task: "t" })).rejects.toMatchObject({ code: "invalid_title" });
+  });
+});
+
+describe("projects", () => {
+  const coordinator = role("coordinator", { model: "claude:sonnet", interactive: true, spawning: true, edits: false });
+
+  it("start the coordinator in the repository's main checkout, in a workspace named after it, editing nothing", async () => {
+    const { fleet, runtime } = setup({ agents: [coordinator], gitRoot: async () => "/home/me/app" });
+    const run = await fleet.startProject({ task: "What is left to do?", cwd: "/home/me/app/src" });
+    expect(run).toMatchObject({ role: "coordinator", name: "app · fleet", agent: "claude", project: "/home/me/app", interactive: true, worktree: false, depth: 1 });
+    expect(run.owner).toBeUndefined();
+    expect(runtime.locations[0]).toMatchObject({ cwd: "/home/me/app", label: "app · fleet", worktree: false });
+    expect(runtime.locations[0]!.callerPaneId).toBeUndefined();
+    expect(runtime.starts[0]!.args.join(" ")).toContain("--disallowedTools Edit,Write,NotebookEdit");
+    expect(runtime.prompts[0]!.text).toBe("What is left to do?");
+    // the person reads its reply: it writes no handoff
+    expect(runtime.instructions[0]).not.toContain("result file");
+    expect(runtime.instructions[0]).not.toContain("HANDOFF");
+  });
+
+  it("keep one coordinator per project: a second start hands it the task, even when both come at once", async () => {
+    const { fleet, runtime, registry } = setup({ agents: [coordinator], gitRoot: async (cwd) => cwd.startsWith("/repo") ? "/repo" : null });
+    const [first, again] = await Promise.all([fleet.startProject({ task: "one", cwd: "/repo" }), fleet.startProject({ task: "two", cwd: "/repo/src" })]);
+    expect(again.id).toBe(first.id);
+    expect(runtime.locations).toHaveLength(1);
+    expect(runtime.prompts.map((p) => p.text)).toEqual(["one", "two"]);
+    // another folder is another project; a coordinator that ended is replaced
+    const notes = await fleet.startProject({ task: "three", cwd: "/notes" });
+    expect(notes).toMatchObject({ project: "/notes", name: "notes · fleet" });
+    registry.upsert({ ...registry.get(first.id)!, state: "stopped" });
+    expect((await fleet.startProject({ task: "four", cwd: "/repo" })).id).not.toBe(first.id);
+  });
+
+  it("need a task", async () => {
+    const { fleet } = setup({ agents: [coordinator] });
+    await expect(fleet.startProject({ task: " " })).rejects.toMatchObject({ code: "missing_task" });
   });
 });

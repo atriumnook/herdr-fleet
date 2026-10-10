@@ -50,11 +50,29 @@ export interface AgentRun {
   skipped?: SkippedCandidate[];
   /** a thread lead's branch, when its thread works on a worktree */
   branch?: string;
+  /** the repository a thread or a project's coordinator works for */
+  project?: string;
+  /** the run that started this thread, a project's coordinator: its results and questions go there */
+  owner?: string;
   /** the paths its brief lets it change, absolute; another run may not write them while it works */
   write?: string[];
 }
 
 /** One limit window: a share of it used, until it resets. */
+/** One assertion of a thread lead's acceptance contract (contract.md), as the lead last marked it. */
+export interface ContractItem {
+  id: string;
+  state: "met" | "open" | "unmet";
+}
+
+/** A thread as its project's coordinator sees it: the lead's run, its HANDOFF status line, and its contract. */
+export interface ThreadSummary {
+  run: AgentRun;
+  /** the HANDOFF's first line: PASS, ISSUES or BLOCKED and the evidence */
+  status?: string;
+  contract?: ContractItem[];
+}
+
 export interface UsageWindow {
   /** "5h", "weekly", "monthly", … */
   name: string;

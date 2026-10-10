@@ -20,10 +20,12 @@ function fixture(project: Record<string, string> = {}, user: Record<string, stri
 }
 
 describe("role discovery", () => {
-  it("loads the bundled scout, planner, worker and reviewer as pi roles, and a thread's lead on claude then codex", () => {
+  it("loads the bundled scout, planner, worker and reviewer as pi roles, a thread's lead on claude then codex, and a project's coordinator on claude, editing nothing", () => {
     const { cwd, dirs } = fixture();
     const agents = discoverAgents(cwd, [], dirs);
-    expect(agents.map((a) => a.name).sort()).toEqual(["lead", "planner", "reviewer", "scout", "worker"]);
+    expect(agents.map((a) => a.name).sort()).toEqual(["coordinator", "lead", "planner", "reviewer", "scout", "worker"]);
+    expect(findAgent(agents, "coordinator")).toMatchObject({ agent: "claude", interactive: true, spawning: true, edits: false });
+    expect(findAgent(agents, "coordinator")!.fallbackModels).toBeUndefined();
     expect(findAgent(agents, "lead")).toMatchObject({ agent: "claude", fallbackModels: ["codex:"], interactive: true, spawning: true });
     expect(findAgent(agents, "Worker")).toMatchObject({ agent: "pi", source: "bundled", interactive: false, thinking: "high" });
     expect(findAgent(agents, "worker")!.tools).toContain("bash");
@@ -49,6 +51,13 @@ describe("role discovery", () => {
     expect(findAgent(agents, "helper")).toMatchObject({ fallbackModels: ["p/a", "p/b"], systemPrompt: "You are a helper." });
     expect(findAgent(agents, "odd")).toBeUndefined();
     expect(warnings.filter((w) => w.startsWith("fleet: skipping invalid role file")).map((w) => w.includes("scout.md") || w.includes("odd.md"))).toEqual([true, true]);
+  });
+
+  it("reads whether a role edits files", () => {
+    const { cwd, dirs } = fixture({ "watcher.md": "---\nname: watcher\nagent: claude\nedits: false\n---\nYou read." });
+    const agents = discoverAgents(cwd, [], dirs);
+    expect(findAgent(agents, "watcher")!.edits).toBe(false);
+    expect(findAgent(agents, "worker")!.edits).toBeUndefined();
   });
 
   it("reads a file without frontmatter as all body", () => {
