@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { DEFAULT_CONFIG, mergeConfig } from "./config.ts";
-import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES } from "./orchestrator.ts";
+import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES, threadState } from "./orchestrator.ts";
 import { RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, type AgentMetadata, type AgentRuntime, type CreateLocationOptions, type RuntimeLocation, type StartOptions } from "./runtime.ts";
 import type { AgentDefinition, AgentRun, AgentState, FleetConfig } from "./types.ts";
@@ -870,9 +870,22 @@ describe("threads", () => {
     writeFileSync(join(root, "results", fixed.id, "contract.md"), "- [x] A1 no duplicate — evidence: test\n- [ ] A2 docs\n- [!] A3 old clients — evidence: none\n");
     const threads = await fleet.threads({ cwd: "/repo/src" });
     expect(threads.map((t) => t.run.id)).toEqual([fixed.id, fresh.id]);
-    expect(threads[0]).toMatchObject({ status: "PASS — bun test: 12 pass", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }, { id: "A3", state: "unmet" }] });
+    expect(threads[0]).toMatchObject({ state: "review", status: "PASS — bun test: 12 pass", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }, { id: "A3", state: "unmet" }] });
     expect(threads[1]!.status).toBeUndefined();
     expect(threads[1]!.contract).toBeUndefined();
+  });
+
+  it("stand where their lead and its HANDOFF put them", () => {
+    const run = (state: AgentState) => ({ state }) as AgentRun;
+    expect(threadState(run("starting"), undefined)).toBe("working");
+    expect(threadState(run("working"), "BLOCKED — an earlier turn's")).toBe("working");
+    expect(threadState(run("blocked"), undefined)).toBe("waiting");
+    expect(threadState(run("idle"), "BLOCKED — which one?")).toBe("waiting");
+    expect(threadState(run("idle"), "PASS — 12 pass")).toBe("review");
+    expect(threadState(run("done"), "ISSUES — 2 fail")).toBe("idle");
+    expect(threadState(run("idle"), undefined)).toBe("idle");
+    expect(threadState(run("failed"), "PASS — 12 pass")).toBe("failed");
+    expect(threadState(run("stopped"), "PASS — 12 pass")).toBe("ended");
   });
 
   it("are listed for the calling run's project, wherever it asks from", async () => {

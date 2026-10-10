@@ -8,7 +8,7 @@ import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brie
 import { excludeWorktrees, gitRoot, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
-import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type ContractItem, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadSummary } from "./types.ts";
+import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type ContractItem, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadState, type ThreadSummary } from "./types.ts";
 import { usageKey, type UsageTracker } from "./usage.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -279,7 +279,8 @@ export class Orchestrator {
     const project = caller?.project ?? await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
     return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project).map((run) => {
       const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
-      return { run, ...(run.result ? { status: handoffStatus(run.result) } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
+      const status = run.result ? handoffStatus(run.result) : undefined;
+      return { run, state: threadState(run, status), ...(status ? { status } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
     });
   }
 
@@ -948,6 +949,15 @@ export function threadQuestion(run: AgentRun): string | undefined {
   if (run.state === "failed" || !run.result || !/^BLOCKED\b/.test(handoffStatus(run.result) ?? "")) return undefined;
   const handoff = run.result.length > QUESTION_MAX_CHARS ? `${run.result.slice(0, QUESTION_MAX_CHARS)}\n[cut at ${QUESTION_MAX_CHARS} characters]` : run.result;
   return `${threadLabel(run)} asks the person:\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}`;
+}
+
+/** Where a thread stands: herdr's state of its lead, and once a turn settled, the HANDOFF's verdict. */
+export function threadState(run: AgentRun, status: string | undefined): ThreadState {
+  if (run.state === "failed") return "failed";
+  if (run.state === "stopped") return "ended";
+  if (run.state === "blocked") return "waiting";
+  if (!isCompleted(run.state)) return "working";
+  return status?.startsWith("BLOCKED") ? "waiting" : status?.startsWith("PASS") ? "review" : "idle";
 }
 
 /** The HANDOFF's status line: the first that opens with PASS, ISSUES or BLOCKED, without its markdown. */

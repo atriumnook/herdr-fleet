@@ -75,16 +75,18 @@ async function call<T>(method: "GET" | "POST", path: string, body?: Record<strin
 
 interface ThreadSummary {
   run: Run & { branch?: string };
+  state: keyof typeof THREAD_STATES;
   status?: string;
   contract?: Array<{ id: string; state: "met" | "open" | "unmet" }>;
 }
 
 const CONTRACT_MARKS = { met: "✓", open: "·", unmet: "✗" } as const;
+const THREAD_STATES = { working: "Working", waiting: "Waiting on you", review: "Ready for review", idle: "Idle", failed: "Failed", ended: "Ended" } as const;
 
 function describeThread(thread: ThreadSummary): string {
   const contract = thread.contract?.length ? `Contract: ${thread.contract.map((item) => `${item.id} ${CONTRACT_MARKS[item.state]}`).join(" ")}` : "";
   return [
-    `${thread.run.id}  ${thread.run.name}  ${thread.run.state}${thread.run.branch ? `  ${thread.run.branch}` : ""}`,
+    `${thread.run.id}  ${thread.run.name}  ${THREAD_STATES[thread.state]}${thread.run.branch ? `  ${thread.run.branch}` : ""}`,
     thread.status ? `    ${thread.status}` : "",
     contract ? `    ${contract}` : "",
   ].filter(Boolean).join("\n");
