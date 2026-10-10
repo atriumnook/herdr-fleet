@@ -315,10 +315,15 @@ setInterval(() => {}, 1000);
     assert.equal(await filled(), edgeText, "Ctrl+C copies the whole scrolled range");
     assert.deepEqual(inputs.slice(beforeKey), [], "Ctrl+C over a selection sends no ^C");
 
-    // the next wheel outside a drag drops the stale highlight
+    // the next wheel outside a drag drops the stale highlight, and goes to herdr as mouse reports:
+    // a desktop draws the pane's grid without sizing it, and still scrolls it
+    const beforePlainWheel = inputs.length;
+    const screenBox = (await page.locator(".pane-terminal .xterm-screen").boundingBox())!;
+    await page.mouse.move(screenBox.x + screenBox.width / 2, screenBox.y + screenBox.height / 2);
     await page.mouse.wheel(0, lineHeight * 3);
     await page.waitForTimeout(200);
     assert.equal(await page.evaluate(() => document.querySelector(".pane-terminal .xterm-selection div") !== null), false, "a wheel after a copy clears the highlight");
+    assert.ok(inputs.slice(beforePlainWheel).some((text) => /\x1b\[<65;\d+;\d+M/.test(text)), "a wheel outside a drag scrolls herdr with mouse reports");
     await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
 
     console.log("PASS plain drag copies terminal text; Ctrl+C copies a selection (also without the async clipboard)");

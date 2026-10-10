@@ -294,8 +294,8 @@ export function PaneTerminal({
         dragWheel(event);
         return false;
       }
-      // an adopted grid sends herdr nothing: the wheel is the browser's, and pans the mount
-      if (adopted()) return false;
+      // a terminal that reports nothing to herdr leaves the wheel to the browser, to pan the mount
+      if (reportsNothing()) return false;
       if (term.hasSelection()) term.clearSelection();
       const reporting = term.modes.mouseTrackingMode !== "none";
       // a trackpad pinch arrives as a wheel with Ctrl down: it is not scrolling, and goes once as before
@@ -319,6 +319,10 @@ export function PaneTerminal({
     // there, else the bottom rows, where a prompt sits. A mirror has no cursor; xterm's own
     // rests on the last row with text, which serves the same.
     const adopted = (): boolean => !drives();
+    // A grid this view does not size still takes its wheel and drags to herdr, which scrolls the
+    // pane's history; only an observer (its reports are dropped) and a mirror (it reports nothing)
+    // have none to send them to.
+    const reportsNothing = (): boolean => observeRef.current || fixedGridRef.current;
     let panned = false;
     const followCursor = (): void => {
       host.toggleAttribute("data-adopted-grid", adopted());
@@ -805,8 +809,8 @@ export function PaneTerminal({
     // The text follows the finger, as everywhere on a phone: dragging down brings
     // older lines in. Each event carries the finger's position, since xterm reports
     // a wheel at the cell under it (without one, every report said row 1, column 1).
-    // An adopted grid has no history to send a wheel to (an observer's reports are dropped, a
-    // mirror reports nothing): there the drag pans the mount, both ways, to the cells past its edge.
+    // A terminal that reports nothing has no history to send a wheel to (an observer's reports are
+    // dropped, a mirror reports nothing): there the drag pans the mount, both ways, to the cells past its edge.
     let touchX = 0;
     let touchY = 0;
     let tracking = false;
@@ -828,7 +832,7 @@ export function PaneTerminal({
       const across = touchX - first.clientX;
       touchX = first.clientX;
       touchY = first.clientY;
-      if (adopted()) {
+      if (reportsNothing()) {
         panned = true;
         host.scrollBy(across, delta);
         return;
