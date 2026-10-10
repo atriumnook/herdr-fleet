@@ -70,7 +70,6 @@
   --scrim: rgba(2, 4, 10, 0.6);
   --shadow-drawer: 0 0 40px rgba(0, 4, 16, 0.7);
   --shadow-pop: 0 16px 48px rgba(0, 4, 16, 0.6), 0 0 0 1px var(--line);
-  --shadow-card: 0 4px 16px rgba(0, 4, 16, 0.45);
   --shadow-panel: inset 0 1px 0 var(--glass-hi), 0 14px 36px var(--glass-shadow);
   /* the nearest card: what needs you, lit faintly by its own state color */
   --shadow-near: 0 0 24px var(--needs-tint), 0 14px 36px var(--glass-shadow);
@@ -198,7 +197,6 @@
   --scrim: rgba(20, 40, 90, 0.25);
   --shadow-drawer: 0 0 40px rgba(20, 40, 90, 0.2);
   --shadow-pop: 0 16px 48px rgba(20, 40, 90, 0.14), 0 0 0 1px var(--line);
-  --shadow-card: 0 4px 16px rgba(20, 40, 90, 0.07);
   --term-bg: #f7faff;
   --term-fg: #1c2638;
   --term-cursor: #00609a;

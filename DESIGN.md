@@ -160,7 +160,7 @@ All spacing derives from a 4px base.
 | `--radius-sm` | `6px` | Chips and inner controls |
 | `--radius-md` | `8px` | Buttons, inputs, selected rows |
 | `--radius-lg` | `12px` | Menus and chat surfaces |
-| `--radius-xl` | `16px` | Modals and composer |
+| `--radius-xl` | `16px` | Glass panels: header, sidebar, dialogs, sheets |
 | `--radius-pill` | `999px` | Pills and dots |
 
 ### Sizes
@@ -437,20 +437,26 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Prompt card (`.prompt-card`)
 - Appears in chat while the agent is blocked and the visible pane contains a supported Claude, omp,
-  pi or codex question, approval or plan menu.
+  pi or codex question, approval or plan menu. It needs you, so it is the nearest card: `--field`,
+  a `--needs` edge, `--shadow-near`, `--radius-lg`; its title at `--fs-lg` semibold. The agent's
+  own text (`.prompt-card-body`) is in the UI face, not mono. One primary at a time: Send is
+  primary only while no option is checked.
 - Single options submit immediately; multi-select exposes checks plus Submit; supported custom input
   has its own labelled field. The prompt content hash rejects a stale answer with `prompt_changed`.
 - Options are full-width rows (`.prompt-card-option`): the menu's number in mono, the label, its
-  description under it in `--sub`. No option is filled as a default; a checked or typed pick
-  gets `--tint` + an `--accent` border. A `(Recommended)` suffix renders as a tag.
+  description under it in `--sub` (`--fs-md` over `--fs-sm`). No option is filled as a default; a
+  checked or typed pick gets `--tint` + an `--accent` border. A `(Recommended)` suffix renders as a
+  pill tag in `--sub`.
 - `POST /api/pane/prompt/answer` translates the chosen answer into the agent's navigation keys and
   sends them through herdr `pane.send_keys` / text input. The card never fabricates a chat reply.
 
 ### Composer (`.composer`)
-- Chat mode is ONE surface: the stack, the transcript and the composer region all sit on `--bg`,
-  and the composer column equals the transcript column (`--content-w`, same `--space-4` gutter).
-  The only card is the input box: `--field`, hairline border, `--radius-xl`, `--shadow-card`;
-  focus turns its border `--accent` (no inner outline). Above it the agent/status line and the
+- Chat mode is ONE reading surface: the stack, the transcript and the composer region all sit on
+  the opaque `--surface`, never glass, and the composer column equals the transcript column
+  (`--content-w`, same `--space-4` gutter). The only box is the input: `--input`, 1px
+  `--control-edge`, `--radius-lg`, no shadow; focus makes its edge 2px of `--accent` (no inner
+  outline). Its buttons are `--radius-md`, `--touch-target` on coarse pointers; Send is the one
+  primary, Stop a standard button. Above it the agent/status line and the
   completion popover; inside, ONE row — attach control | auto-growing textarea | Send / Queue /
   Stop — with the controls bottom-aligned so they stay beside the last line as the box grows;
   the image strip is its own row above that line.
@@ -566,7 +572,6 @@ One set for both themes: the card is island black wherever it shows.
 | Panel shadow | `--shadow-panel` | The header and sidebar glass: top highlight plus depth |
 | Drawer shadow | `--shadow-drawer` | Mobile drawer |
 | Overlay shadow | `--shadow-pop` | Menus, palette and modal cards |
-| Card shadow | `--shadow-card` | The composer's input box — the one resting card in chat mode |
 
 ### Glass layers (Liquid / Spatial)
 

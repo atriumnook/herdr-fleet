@@ -8,10 +8,11 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  /* it needs you: the nearest card, as a Fleet run that needs you is */
   border: var(--hairline) solid var(--needs);
-  border-radius: var(--radius-xl);
-  background: var(--surface);
-  box-shadow: var(--shadow-pop);
+  border-radius: var(--radius-lg);
+  background: var(--field);
+  box-shadow: var(--shadow-near);
 }
 
 .prompt-card-header {
@@ -29,7 +30,7 @@
 
 .prompt-card-header h2 {
   color: var(--ink-strong);
-  font-size: var(--fs-md);
+  font-size: var(--fs-lg);
   font-weight: var(--fw-semibold);
 }
 
@@ -44,7 +45,7 @@
 /* a question in Codex's queue: the agent is not waiting on it, so the card says who answers what */
 .prompt-card-hint {
   color: var(--sub);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   line-height: var(--lh-base);
 }
 
@@ -55,10 +56,10 @@
   overflow: auto;
   border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
-  background: var(--bg);
+  background: var(--input);
   color: var(--ink);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
+  /* the agent's own words (a plan, the question's detail): the UI face, not mono */
+  font-size: var(--fs-sm);
   line-height: var(--lh-base);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
@@ -84,7 +85,7 @@
   border: var(--hairline) solid var(--line);
   border-radius: var(--radius-md);
   color: var(--ink-strong);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-md);
   line-height: var(--lh-base);
   text-align: left;
   /* an option can name a long path: it wraps inside the card instead of running past it */
@@ -161,19 +162,20 @@
 
 .prompt-card-option-description {
   color: var(--sub);
-  font-size: var(--fs-xs);
+  font-size: var(--fs-sm);
   font-weight: var(--fw-regular);
 }
 
 /* the menu's own recommendation, told by a tag instead of a "(Recommended)" suffix */
 .prompt-card-tag {
   display: inline-block;
-  padding: 1px var(--space-1);
-  border-radius: var(--radius-sm);
-  background: var(--tint);
-  color: var(--accent);
-  font-size: var(--fs-2xs);
-  font-weight: var(--fw-semibold);
+  padding: 1px var(--space-2);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--input);
+  color: var(--sub);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   /* no taller than the label's line, so the number beside it stays level */
   line-height: var(--lh-tight);
 }
