@@ -8,6 +8,8 @@ export interface CreateLocationOptions {
   label: string;
   worktree: boolean;
   branch?: string;
+  /** where the worktree goes, absolute; herdr's worktrees.directory when absent */
+  path?: string;
   /** split the caller's pane this way instead of opening a tab */
   direction?: "right" | "down";
   /** the caller's pane: the agent opens in a new tab of its workspace; without one, in a workspace of its own */
@@ -94,7 +96,7 @@ export class HerdrRuntime implements AgentRuntime {
       if (options.worktree) {
         if (!options.branch) throw new Error("A worktree run needs a branch name.");
         const created = await this.rpc<{ workspace?: { workspace_id?: string }; root_pane?: { pane_id?: string }; worktree?: { path?: string } }>(
-          "worktree.create", { cwd: options.cwd, branch: options.branch, label: options.label, focus: false });
+          "worktree.create", { cwd: options.cwd, branch: options.branch, label: options.label, focus: false, ...(options.path ? { path: options.path } : {}) });
         const rootPaneId = created.root_pane?.pane_id;
         if (!rootPaneId) throw new Error("herdr worktree.create returned no root pane.");
         leftover.push(rootPaneId);

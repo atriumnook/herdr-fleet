@@ -3,6 +3,9 @@
  * own worktree on a branch, worked by a lead agent that hands parts on as tabs of that workspace.
  */
 
+import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+
 const SETUP_TIMEOUT_MS = 10 * 60_000;
 const SETUP_TAIL_LINES = 20;
 
@@ -21,6 +24,27 @@ export async function gitRoot(cwd: string): Promise<string | null> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Where a thread's worktree goes: inside the repository, which the agent CLIs already trust (claude, codex and cursor ask nothing there). */
+export const THREAD_WORKTREES = ".herdr-fleet/worktrees";
+
+/**
+ * Keeps the threads' worktrees out of the repository's own `git status`, through its local
+ * `info/exclude`: the repository's .gitignore stays as it is, and nothing of this is committed.
+ */
+export async function excludeWorktrees(repo: string): Promise<void> {
+  const proc = Bun.spawn(["git", "-c", "core.fsmonitor=false", "-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    stdout: "pipe", stderr: "ignore", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" },
+  });
+  const [output, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  if (exitCode !== 0 || !output.trim()) return;
+  const file = join(output.trim(), "info", "exclude");
+  const line = `/${THREAD_WORKTREES}/`;
+  const current = existsSync(file) ? readFileSync(file, "utf8") : "";
+  if (current.split("\n").some((entry) => entry.trim() === line)) return;
+  mkdirSync(dirname(file), { recursive: true });
+  appendFileSync(file, `${current && !current.endsWith("\n") ? "\n" : ""}${line}\n`);
 }
 
 export interface SetupOutcome { ok: boolean; output: string }

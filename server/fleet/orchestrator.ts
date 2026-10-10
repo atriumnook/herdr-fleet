@@ -5,7 +5,7 @@ import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
 import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
-import { gitRoot, runSetup, type SetupOutcome } from "./thread.ts";
+import { excludeWorktrees, gitRoot, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
 import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel } from "./types.ts";
@@ -85,6 +85,8 @@ export interface OrchestratorDeps {
   gitRoot?: (cwd: string) => Promise<string | null>;
   /** runs a project's setup command in a thread's fresh worktree (thread.ts runSetup) */
   runSetup?: (cwd: string, command: string, signal?: AbortSignal) => Promise<SetupOutcome>;
+  /** keeps the threads' worktrees out of the repository's git status (thread.ts excludeWorktrees) */
+  excludeWorktrees?: (repo: string) => Promise<void>;
   /** the shell command an agent runs to reach the fleet (bin/fleet.ts) */
   fleetCommand: string;
   /** set in each agent's pane so its own fleet commands reach this server; read at each spawn */
@@ -216,6 +218,7 @@ export class Orchestrator {
     if (!title || title.length > 120) throw new FleetError("invalid_title", "A thread needs a title of up to 120 characters.");
     const cwd = resolve(request.cwd ?? process.cwd());
     const repo = await (this.deps.gitRoot ?? gitRoot)(cwd);
+    if (repo) await (this.deps.excludeWorktrees ?? excludeWorktrees)(repo);
     return this.launch({
       role: THREAD_ROLE, name: title, task: request.task, brief: request.brief, cwd, depth: request.depth,
       group: makeGroupId(), worktree: repo !== null, interactive: true,
@@ -324,6 +327,7 @@ export class Orchestrator {
       }
       const location = await this.deps.runtime.createLocation({
         cwd: request.cwd, label: displayName, worktree, branch: worktree ? (request.thread ? `fleet/${id}` : `agents/${definition.name}-${id}`) : undefined,
+        ...(worktree && request.thread?.repo ? { path: join(request.thread.repo, THREAD_WORKTREES, id) } : {}),
         direction: request.direction, callerPaneId: request.callerPaneId, env,
       }, signal);
       const now = Date.now();

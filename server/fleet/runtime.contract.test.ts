@@ -1,10 +1,17 @@
 import { afterAll, describe, expect, it } from "bun:test";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../herdr/client.ts";
 import { HerdrRuntime } from "./runtime.ts";
 
 /** Against the isolated test session: where an agent opens is herdr's to do, so a fake would prove nothing. */
 const opened: string[] = [];
-afterAll(async () => { for (const id of opened) await workspaceClose(id).catch(() => undefined); });
+const folders: string[] = [];
+afterAll(async () => {
+  for (const id of opened) await workspaceClose(id).catch(() => undefined);
+  for (const folder of folders) rmSync(folder, { recursive: true, force: true });
+});
 
 interface Pane { pane_id: string; workspace_id: string; tab_id: string }
 
@@ -24,5 +31,17 @@ describe("HerdrRuntime locations", () => {
 
     const split = await runtime.createLocation({ cwd: "/tmp", label: "beside", worktree: false, callerPaneId: caller, direction: "down", env: {} });
     expect((await herdrRpc<{ pane: Pane }>("pane.get", { pane_id: split.paneId })).pane.tab_id).toBe(created.root_pane.tab_id);
+  });
+
+  it("puts a thread's worktree where it is told: inside the repository", async () => {
+    const repo = realpathSync(mkdtempSync(join(tmpdir(), "fleet-contract-repo-")));
+    folders.push(repo);
+    Bun.spawnSync(["git", "init", "-q", repo]);
+    Bun.spawnSync(["git", "-C", repo, "-c", "user.email=e2e@example.invalid", "-c", "user.name=e2e", "commit", "-q", "--allow-empty", "-m", "init"]);
+    const path = join(repo, ".herdr-fleet", "worktrees", "t1");
+    const location = await new HerdrRuntime().createLocation({ cwd: repo, label: "thread", worktree: true, branch: "fleet/t1", path, env: {} });
+    if (location.workspaceId) opened.push(location.workspaceId);
+    expect(location.cwd).toBe(path);
+    expect(existsSync(join(path, ".git"))).toBe(true);
   });
 });
