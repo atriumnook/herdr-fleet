@@ -300,7 +300,9 @@ One set for both themes: the card is island black wherever it shows.
 - A pill at `--chip-h`: a 7px dot, the word in `--ink` at `--fs-xs`, a 1px edge and a face. The
   dot and the edge take the state's color (`--idle`, `--working`, `--needs`, `--done`); the face is
   the state's tint (`--field` for Idle). Only Working's dot breathes; the word never fades.
-- The written word keeps color from being the only signal.
+- The written word keeps color from being the only signal. The sidebar's rows are the one place
+  that shows the dot alone: Working's dot also breathes, Needs you rows also sit under their
+  worded heading, and every dot's tooltip and accessible name is the word.
 
 ### Pill (`.pill`)
 - Mono metadata at `--chip-h`. The herdr version is a sidebar-footer pill; offline is the one header pill and uses danger tokens.
@@ -322,12 +324,14 @@ One set for both themes: the card is island black wherever it shows.
   remembered per PC and path; opening a pane unfolds its folder, but status updates do not.
 - Folder order follows the first workspace in server order; workspace handles still reorder
   workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
-- A workspace header shows drag handle, number, editable label and roll-up status; its menu
+- A workspace header shows drag handle, number, editable label and roll-up status dot; its menu
   opens from the header itself, like a row's.
   Drag/drop reorders; `Alt+↑/↓` on the handle is the keyboard equivalent.
 - Every pane row is a `--field` face at `--row-h`, `--radius-md`, `--space-1` apart: a 28px
   agent/shell mark, the editable title (`--fs-md`, `--ink`) over the pane's place (mono, `--sub`),
-  then the state badge at the right end. A pane with no agent has no badge. The selected row is
+  then the state at the right end as the badge's dot alone (`.badge.is-dot`, 9px; Idle's is a
+  ring, so it differs from Working by shape as well): the word is its tooltip and is read out, not
+  drawn, so the name keeps the width. A pane with no agent has no dot. The selected row is
   `--tint` with its title in `--ink-strong` semibold, an `--accent` rail along its left edge and an
   accent-edged mark box: my selection is accent, the state stays with the badge. The rows under
   **Needs you** are the same rows, under a heading that says the state in words. No row carries a

@@ -29,11 +29,12 @@ describe("Session tree view", () => {
     expect(render({ paneRename: { paneId: "w1:p1", label: "deploy" } })).toContain('value="deploy"');
   });
 
-  it("puts an agent's state word at the end of its row, and none on a pane without an agent", () => {
+  it("puts an agent's state dot at the end of its row, and none on a pane without an agent", () => {
     const withAgent = { ...snapshot, panes: [{ ...pane("w1:p1", "w1", "build"), agent: "claude", agent_status: "working" }, pane("w2:p1", "w2")] } as unknown as SessionSnapshot;
     const rows = render({}, { snapshot: withAgent }).split('<li class="pane-item').slice(1);
     expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatch(/class="pane-copy">.*<\/span><span class="badge badge-working"[^>]*>Working<\/span><\/div>/);
+    // the dot alone at the row's end: the word is its tooltip and is read out, not drawn
+    expect(rows[0]).toMatch(/class="pane-copy">.*<\/span><span class="badge badge-working is-dot"[^>]*title="Agent Working"><span class="visually-hidden">Working<\/span><\/span><\/div>/);
     expect(rows[1]).not.toContain('class="badge');
     // a state herdr does not know reads nothing: no "—" badge, on a workspace either
     const unknown = { ...withAgent, workspaces: [{ ...snapshot.workspaces[0]!, agent_status: "unknown" }, snapshot.workspaces[1]!] } as unknown as SessionSnapshot;

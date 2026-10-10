@@ -56,13 +56,18 @@ export function RestoreErrorBadge({ reason }: { reason: string }) {
   return <span className="badge badge-restore-error" title={reason}>{t("Not restored")}</span>;
 }
 
-/** An agent's state word. A state herdr does not know has no badge at all, not a "—" one. */
-export function StatusBadge({ status }: { status?: AgentStatus }) {
+/**
+ * An agent's state word. A state herdr does not know has no badge at all, not a "—" one. In a
+ * sidebar row (`dot`) only the dot shows: the word stays in its tooltip and for screen readers,
+ * and the row's name gets the width.
+ */
+export function StatusBadge({ status, dot = false }: { status?: AgentStatus; dot?: boolean }) {
   const value = knownStatus(status);
   if (value === "unknown") return null;
+  const word = t(STATUS_WORD[value]);
   return (
-    <span className={`badge badge-${value}`} data-status={value} title={t("Agent {status}", { status: t(STATUS_WORD[value]) })}>
-      {t(STATUS_WORD[value])}
+    <span className={`badge badge-${value}${dot ? " is-dot" : ""}`} data-status={value} title={t("Agent {status}", { status: word })}>
+      {dot ? <span className="visually-hidden">{word}</span> : word}
     </span>
   );
 }
@@ -319,7 +324,7 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
                 {workspace.label}
               </span>
             )}
-            <StatusBadge status={workspace.agent_status} />
+            <StatusBadge status={workspace.agent_status} dot />
           </header>
         )}
 
@@ -403,7 +408,7 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
                       )}
                     </span>
                     {/* a pane with no agent has no state to tell: no badge, not a "—" one */}
-                    {pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : pane.agent && <StatusBadge status={pane.agent_status} />}
+                    {pane.restore_error ? <RestoreErrorBadge reason={pane.restore_error} /> : pane.agent && <StatusBadge status={pane.agent_status} dot />}
                   </div>
                 </div>
                 {inlineError?.paneId === pane.pane_id && <p className="sidebar-inline-error" role="alert">{inlineError.message}</p>}

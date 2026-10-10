@@ -746,6 +746,26 @@ button {
   background: var(--done-tint);
 }
 
+/* a sidebar row's badge: the dot alone, a little larger; the word is in its tooltip */
+.badge.is-dot {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+
+.badge.is-dot::before {
+  width: 9px;
+  height: 9px;
+}
+
+/* without its word, Idle differs by shape too: a ring, where the states that ask for a look are
+   filled (Working's blue and Idle's gray are close at this size) */
+.badge-idle.is-dot::before {
+  box-sizing: border-box;
+  background: transparent;
+  border: 1.5px solid var(--idle);
+}
+
 /* a pane herdr could not restore: no status to show, and nothing runs in it */
 .badge-restore-error {
   --badge-color: var(--needs);

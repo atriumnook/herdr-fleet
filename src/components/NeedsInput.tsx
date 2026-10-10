@@ -31,7 +31,7 @@ export function NeedsInput({ machines, selectedMachineId, selectedPaneId, emit }
               <span className="pane-title">{displayPaneTitle(pane)}</span>
               <span className="pane-subtitle">{machine.name} · {workspace.label}</span>
             </span>
-            <StatusBadge status={pane.agent_status} />
+            <StatusBadge status={pane.agent_status} dot />
           </button>
         </li>;
       })}
