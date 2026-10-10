@@ -38,6 +38,8 @@ export interface AgentRuntime {
   prompt(name: string, text: string, signal?: AbortSignal): Promise<AgentState>;
   get(name: string): Promise<AgentState>;
   read(name: string, lines: number): Promise<string>;
+  /** what the pane shows now, with its colors */
+  screen(name: string): Promise<string>;
   interrupt(name: string): Promise<void>;
   focus(name: string): Promise<void>;
   reportMetadata(metadata: AgentMetadata): Promise<void>;
@@ -210,6 +212,11 @@ export class HerdrRuntime implements AgentRuntime {
 
   async read(name: string, lines: number): Promise<string> {
     const result = await this.rpc<{ read?: { text?: string } }>("agent.read", { target: name, source: "recent_unwrapped", lines });
+    return result.read?.text ?? "";
+  }
+
+  async screen(name: string): Promise<string> {
+    const result = await this.rpc<{ read?: { text?: string } }>("agent.read", { target: name, source: "visible", format: "ansi", strip_ansi: false });
     return result.read?.text ?? "";
   }
 

@@ -39,7 +39,7 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
       start: async (options) => (options.name.includes("review") ? "blocked" : "idle"),
       prompt: async (name) => stateOf(name),
       get: async (name) => stateOf(name),
-      read: async () => "",
+      read: async () => "", screen: async () => "",
       closePane: async () => {}, interrupt: async () => {}, focus: async () => {}, reportMetadata: async () => {},
     };
     const now = Date.now();

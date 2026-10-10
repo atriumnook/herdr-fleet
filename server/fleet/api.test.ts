@@ -22,6 +22,7 @@ function fleet() {
     prompt: async () => "working",
     get: async () => state.get,
     read: async () => "recent output",
+    screen: async () => "",
     closePane: async () => {},
     interrupt: async () => {},
     focus: async () => {},

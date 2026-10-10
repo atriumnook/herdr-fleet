@@ -50,6 +50,17 @@ describe("claude adapter", () => {
     expect(claude.turnError("❯ do it\n  ⎿  API Error: 404 model: no-such-model\n")).toBe("404 model: no-such-model");
     expect(claude.turnError("● Done.\n")).toBeUndefined();
   });
+
+  it("sees a draft in its input, but not the dim placeholder there (Claude Code 2.1, read with colors)", () => {
+    const rule = "\x1b[0m\x1b[38;2;136;136;136m────────\n";
+    const screen = (input: string) => `\x1b[0m❯ claude --permission-mode auto\n${rule}❯\u00a0${input}\r\n${rule}  \x1b[0m\x1b[38;2;255;193;7m⏵⏵ auto mode on\x1b[0m\n`;
+    expect(claude.draft!(screen("draft text here"))).toBe(true);
+    expect(claude.draft!(screen("あいう"))).toBe(true);
+    expect(claude.draft!(screen('\x1b[0m\x1b[2mTry "fix lint errors"\x1b[0m'))).toBe(false);
+    expect(claude.draft!(screen(""))).toBe(false);
+    // a shell prompt's ❯ is followed by a plain space
+    expect(claude.draft!("❯ claude\n")).toBe(false);
+  });
 });
 
 describe("codex adapter", () => {

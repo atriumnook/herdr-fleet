@@ -1,4 +1,5 @@
 import { dirname } from "node:path";
+import { stripVTControlCharacters } from "node:util";
 import type { AgentKind, ThinkingLevel } from "./types.ts";
 import type { UsageReading } from "./usage.ts";
 
@@ -37,6 +38,11 @@ export interface AgentAdapter {
   readyError?(screen: string): string | undefined;
   /** herdr calls the CLI ready before it draws its input or its questions: the screen once it has */
   inputReady?(screen: string): boolean;
+  /**
+   * A draft the person left in the CLI's input, on its screen read with colors: what the fleet
+   * types into a settled CLI would join it, so the fleet types nothing then.
+   */
+  draft?(screen: string): boolean;
   /** a turn that settled without doing the work (an API error after the CLI's own retries) */
   turnError(output: string | undefined): string | undefined;
   /** what to type into a settled CLI to show its usage, for a CLI that tells it no other way (cursor) */
@@ -145,6 +151,13 @@ export const claudeAdapter: AgentAdapter = {
   readOnlyArgs: ["--disallowedTools", "Edit,Write,NotebookEdit"],
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
+  },
+  // the input line opens with ❯ and a no-break space; the placeholder there is dim, a draft is not
+  draft(screen) {
+    const line = [...screen.matchAll(/^(?:\x1b\[[0-9;]*m)*❯\u00a0(.*)$/gm)].at(-1)?.[1];
+    if (line === undefined) return false;
+    const text = line.replace(/^(?:\x1b\[0m)+/, "");
+    return !text.startsWith("\x1b[2m") && stripVTControlCharacters(text).trim() !== "";
   },
   turnError(output) {
     return lastMatch(output, /API Error: ?(.+)$/gm);

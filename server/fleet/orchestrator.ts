@@ -76,6 +76,8 @@ export const READY_SCREEN_MS = 15_000;
 const READY_SCREEN_POLL_MS = 250;
 /** how long a CLI's usage screen (cursor's `/usage`) may take to show */
 export const USAGE_SCREEN_MS = 10_000;
+/** how soon the threads' questions are tried again while the person has a draft in the coordinator's input */
+export const DRAFT_RETRY_MS = 5_000;
 /** a run still `starting` may be inside a 30 s agent start: not-found is not its end yet */
 const START_GRACE_MS = 30_000;
 
@@ -120,6 +122,8 @@ export interface OrchestratorDeps {
   readyScreenMs?: number;
   /** USAGE_SCREEN_MS; tests shorten it */
   usageScreenMs?: number;
+  /** DRAFT_RETRY_MS; tests shorten it */
+  draftRetryMs?: number;
   /** what each account has used: candidates without usage left are skipped, rate limits start cooldowns */
   usage?: Pick<UsageTracker, "unavailable" | "noteFailure" | "claimScreen" | "record">;
   onChanged?: (run: AgentRun) => void;
@@ -153,6 +157,7 @@ export class Orchestrator {
   private readonly reconcileLocks = new Map<string, Promise<void>>();
   private readonly projectStarts = new Map<string, Promise<AgentRun>>();
   private readonly delivering = new Set<string>();
+  private readonly draftRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
   /** callers waiting for a run's turn to settle or block */
@@ -218,6 +223,8 @@ export class Orchestrator {
     this.stopped = true;
     for (const timer of this.settleChecks.values()) clearTimeout(timer);
     this.settleChecks.clear();
+    for (const timer of this.draftRetries.values()) clearTimeout(timer);
+    this.draftRetries.clear();
   }
 
   // ---- spawn -------------------------------------------------------------------------------
@@ -670,8 +677,9 @@ export class Orchestrator {
 
   /**
    * Every thread's question waiting for `coordinator`, in one message, once it is free: no turn of the
-   * fleet's in flight, and herdr calls it settled (a person's turn shows as working). A coordinator
-   * that is not free hears them when it settles; one that ended leaves them to the next.
+   * fleet's in flight, herdr calls it settled (a person's turn shows as working), and no draft of the
+   * person's in its input. A coordinator that is not free hears them when it settles, or a little
+   * later when the person left a draft; one that ended leaves them to the next.
    */
   private async deliverNotices(coordinator: AgentRun): Promise<void> {
     if (this.delivering.has(coordinator.id)) return;
@@ -682,6 +690,7 @@ export class Orchestrator {
       await this.reconcileLocks.get(coordinator.id);
       const live = await this.liveState(coordinator);
       if (!live || !isCompleted(live) || this.pending.has(coordinator.id)) return;
+      if (await this.hasDraft(coordinator)) return this.retryNotices(coordinator);
       const told = threads.map((run) => ({ id: run.id, notice: run.notice }));
       const message = ["[fleet] Threads ask the person. These come from the fleet, not from the person.", ...told.map((news) => `- ${news.notice}`)].join("\n");
       const sent = await this.submit(coordinator, message);
@@ -696,6 +705,20 @@ export class Orchestrator {
     } finally {
       this.delivering.delete(coordinator.id);
     }
+  }
+
+  /** the person is writing in the run's input: what the fleet typed would join their draft */
+  private async hasDraft(run: AgentRun): Promise<boolean> {
+    const draft = adapterFor(run.agent).draft;
+    return draft ? draft(await this.deps.runtime.screen(run.herdrName).catch(() => "")) : false;
+  }
+
+  private retryNotices(coordinator: AgentRun): void {
+    if (this.draftRetries.has(coordinator.id)) return;
+    this.draftRetries.set(coordinator.id, setTimeout(() => {
+      this.draftRetries.delete(coordinator.id);
+      if (!this.stopped) void this.deliverNotices(coordinator);
+    }, this.deps.draftRetryMs ?? DRAFT_RETRY_MS));
   }
 
   // ---- herdr events (from the server's status collector) -----------------------------------

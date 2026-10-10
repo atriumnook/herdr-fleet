@@ -52,6 +52,8 @@ class FakeRuntime implements AgentRuntime {
   }
   async get(name: string): Promise<AgentState> { return this.getImpl ? this.getImpl(name) : this.getStatus; }
   async read(): Promise<string> { return this.output; }
+  screens = new Map<string, string>();
+  async screen(name: string): Promise<string> { return this.screens.get(name) ?? ""; }
   interrupts = 0;
   interruptImpl?: () => void;
   async interrupt(): Promise<void> { this.interrupts += 1; this.interruptImpl?.(); }
@@ -71,6 +73,7 @@ interface SetupOptions {
   gitRoot?: (cwd: string) => Promise<string | null>; runSetup?: (cwd: string, command: string) => Promise<{ ok: boolean; output: string }>;
   excludeWorktrees?: (repo: string) => Promise<void>;
   standingOrders?: (cwd: string) => string;
+  draftRetryMs?: number;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -83,6 +86,7 @@ function setup(options: SetupOptions = {}) {
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
     usage: options.usage, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}), standingOrders: options.standingOrders,
+    draftRetryMs: options.draftRetryMs,
   });
   return { fleet, runtime, registry, root };
 }
@@ -1039,6 +1043,33 @@ describe("thread questions", () => {
     expect(toCoordinator(coordinator)).toHaveLength(2);
     await turn(coordinator, "idle");
     expect(toCoordinator(coordinator)).toEqual([expect.anything(), expect.anything(), [HEADER, asks(first, "BLOCKED — one file or one per day?")].join("\n")]);
+  });
+
+  it("wait while the person has a draft in the coordinator's input, and go out once it is gone", async () => {
+    const states = new Map<string, AgentState>();
+    const { fleet, runtime, root } = setup({
+      agents: [role("coordinator", { agent: "claude", interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true })],
+      gitRoot: async () => "/repo", draftRetryMs: 30,
+    });
+    runtime.getImpl = async (name) => states.get(name) ?? "working";
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    states.set(coordinator.herdrName, "idle");
+    runtime.screens.set(coordinator.herdrName, "❯\u00a0and also the do");
+    await Bun.sleep(GRACE + 5);
+    fleet.onPaneStatus(coordinator.paneId);
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "BLOCKED — which one?");
+    states.set(thread.herdrName, "idle");
+    await Bun.sleep(GRACE + 5);
+    fleet.onPaneStatus(thread.paneId);
+    await Bun.sleep(80);
+    const toCoordinator = () => runtime.prompts.filter((p) => p.name === coordinator.herdrName).map((p) => p.text);
+    expect(toCoordinator()).toEqual(["go"]);
+    runtime.screens.set(coordinator.herdrName, "❯\u00a0\x1b[2mTry \"fix lint errors\"\x1b[0m");
+    await Bun.sleep(80);
+    expect(toCoordinator()).toHaveLength(2);
+    expect(toCoordinator()[1]).toContain("BLOCKED — which one?");
+    fleet.stop();
   });
 
   it("carry a long HANDOFF cut, the rest left in the result file", async () => {
