@@ -1,4 +1,5 @@
 import { forwardRef, useEffect, useId, useRef, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { createPortal } from "react-dom";
 import { ChevronDown, Terminal } from "lucide-react";
 
 import type { AgentKind } from "../../shared/protocol.ts";
@@ -27,6 +28,7 @@ function OptionMark({ kind }: { kind: string }) {
 export const AgentPicker = forwardRef<HTMLButtonElement, AgentPickerProps>(function AgentPicker({ agents, value, disabled, labelledBy, onChange }, ref) {
   const listId = useId();
   const rootRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
   const [place, setPlace] = useState<CSSProperties>({});
@@ -37,10 +39,10 @@ export const AgentPicker = forwardRef<HTMLButtonElement, AgentPickerProps>(funct
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (event: PointerEvent): void => {
-      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!rootRef.current?.contains(event.target as Node) && !menuRef.current?.contains(event.target as Node)) setOpen(false);
     };
     const onMove = (event: Event): void => {
-      if (!(event.target instanceof Node && rootRef.current?.contains(event.target))) setOpen(false);
+      if (!(event.target instanceof Node && (rootRef.current?.contains(event.target) || menuRef.current?.contains(event.target)))) setOpen(false);
     };
     document.addEventListener("pointerdown", onPointerDown);
     document.addEventListener("scroll", onMove, true);
@@ -57,7 +59,15 @@ export const AgentPicker = forwardRef<HTMLButtonElement, AgentPickerProps>(funct
   }, [disabled]);
 
   useEffect(() => {
-    if (open) document.getElementById(`${listId}-${active}`)?.scrollIntoView({ block: "nearest" });
+    if (!open) return;
+    // Scroll only the list: scrollIntoView also moves the modal body, which closes it.
+    const menu = menuRef.current;
+    const row = document.getElementById(`${listId}-${active}`);
+    if (!menu || !row) return;
+    const top = row.offsetTop;
+    const bottom = top + row.offsetHeight;
+    if (top < menu.scrollTop) menu.scrollTop = top;
+    else if (bottom > menu.scrollTop + menu.clientHeight) menu.scrollTop = bottom - menu.clientHeight;
   }, [open, active, listId]);
 
   const show = (): void => {
@@ -133,8 +143,8 @@ export const AgentPicker = forwardRef<HTMLButtonElement, AgentPickerProps>(funct
         <span className="agent-picker-label">{selected.label}</span>
         <ChevronDown className="agent-picker-chevron" aria-hidden="true" />
       </button>
-      {open && (
-        <div id={listId} className="menu agent-picker-menu" role="listbox" aria-labelledby={labelledBy} style={place}>
+      {open && createPortal(
+        <div ref={menuRef} id={listId} className="menu agent-picker-menu" role="listbox" aria-labelledby={labelledBy} style={place}>
           {options.map((option, index) => (
             <div
               id={`${listId}-${index}`}
@@ -151,7 +161,8 @@ export const AgentPicker = forwardRef<HTMLButtonElement, AgentPickerProps>(funct
               <span className="menu-item-main">{option.label}</span>
             </div>
           ))}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

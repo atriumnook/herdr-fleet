@@ -88,7 +88,7 @@
 
 .agent-picker-menu {
   position: fixed;
-  z-index: 10;
+  z-index: calc(var(--z-modal) + 1);
   overflow-y: auto;
 }
 
