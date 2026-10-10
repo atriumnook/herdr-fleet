@@ -500,17 +500,17 @@ describe("usage routing", () => {
   });
 
   it("plays a role that edits nothing only on a CLI that can be held to that, with its editing tools off", async () => {
-    const { fleet, runtime } = setup({ agents: [role("coordinator", { model: "codex:gpt-6", fallbackModels: ["claude:sonnet"], edits: false })] });
-    const run = await spawn(fleet, { role: "coordinator" });
+    const { fleet, runtime } = setup({ agents: [role("auditor", { model: "codex:gpt-6", fallbackModels: ["claude:sonnet"], edits: false })] });
+    const run = await spawn(fleet, { role: "auditor" });
     expect(run).toMatchObject({ agent: "claude", model: "sonnet" });
     expect(run.skipped).toEqual([{ candidate: "codex:gpt-6", reason: "codex cannot be kept from editing files" }]);
     expect(runtime.starts[0]!.args.join(" ")).toContain("--disallowedTools Edit,Write,NotebookEdit");
-    expect(runtime.instructions[0]).toContain("your file-editing tools are off");
+    expect(runtime.instructions[0]).toContain("your file-editing tools are off: write your result file with a shell command");
   });
 
   it("refuses a role that edits nothing when no candidate CLI can be held to that", async () => {
-    const { fleet, runtime } = setup({ agents: [role("coordinator", { model: "codex:gpt-6", fallbackModels: ["cursor:auto"], edits: false })] });
-    const error = await spawn(fleet, { role: "coordinator" }).catch((e) => e);
+    const { fleet, runtime } = setup({ agents: [role("auditor", { model: "codex:gpt-6", fallbackModels: ["cursor:auto"], edits: false })] });
+    const error = await spawn(fleet, { role: "auditor" }).catch((e) => e);
     expect(error).toMatchObject({ code: "no_candidates" });
     expect(error.message).toContain("cursor:auto: cursor cannot be kept from editing files");
     expect(runtime.locations).toEqual([]);
@@ -920,6 +920,9 @@ describe("projects", () => {
     expect(runtime.locations[0]!.callerPaneId).toBeUndefined();
     expect(runtime.starts[0]!.args.join(" ")).toContain("--disallowedTools Edit,Write,NotebookEdit");
     expect(runtime.prompts[0]!.text).toBe("What is left to do?");
+    // the person reads its reply: it writes no handoff
+    expect(runtime.instructions[0]).not.toContain("result file");
+    expect(runtime.instructions[0]).not.toContain("HANDOFF");
   });
 
   it("keep one coordinator per project: a second start hands it the task, even when both come at once", async () => {

@@ -406,7 +406,9 @@ export class Orchestrator {
     const resultDir = join(this.deps.resultsDir, run.id);
     mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
     mkdirSync(resultDir, { mode: 0o700 });
-    const instructions = this.instructions(definition, displayName, request.group, canSpawn, join(resultDir, RESULT_FILE), this.deps.standingOrders?.(request.cwd) ?? "");
+    // a project's coordinator talks with the person, who reads its reply: no agent reads a handoff of it
+    const resultFile = definition.name === PROJECT_ROLE ? undefined : join(resultDir, RESULT_FILE);
+    const instructions = this.instructions(definition, displayName, request.group, canSpawn, resultFile, this.deps.standingOrders?.(request.cwd) ?? "");
     if (adapter.instructionsInPrompt) {
       mkdirSync(this.deps.instructionsDir, { recursive: true, mode: 0o700 });
       writeFileSync(this.undeliveredFile(run), instructions, { mode: 0o600 });
@@ -507,7 +509,7 @@ export class Orchestrator {
     }
   }
 
-  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string, standing: string): string {
+  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string | undefined, standing: string): string {
     const fleet = this.deps.fleetCommand;
     return [
       definition.systemPrompt,
@@ -526,10 +528,12 @@ export class Orchestrator {
         : "Do not start other agents.",
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
       "Treat herdr's 'unknown' as uncertainty, not completion.",
-      `Your result file is ${resultFile}.`,
-      ...(definition.edits === false ? ["You edit no file, and your file-editing tools are off: write your result file with a shell command."] : []),
-      "At the end of each delegated turn, write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section.",
-      "The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED, and the evidence for it (what you ran and what it showed). Under ISSUES, list every issue you can prove, not only the first. Then: outcome, changed files, verification, unresolved questions.",
+      ...(resultFile ? [
+        `Your result file is ${resultFile}.`,
+        ...(definition.edits === false ? ["You edit no file, and your file-editing tools are off: write your result file with a shell command."] : []),
+        "At the end of each delegated turn, write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section.",
+        "The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED, and the evidence for it (what you ran and what it showed). Under ISSUES, list every issue you can prove, not only the first. Then: outcome, changed files, verification, unresolved questions.",
+      ] : []),
       ...(standing ? ["", "## Standing orders", "The person who runs this fleet gives these to every agent. Follow them in every turn. Every agent of the fleet gets them, so a task you hand on need not repeat them.", standing] : []),
     ].join("\n");
   }

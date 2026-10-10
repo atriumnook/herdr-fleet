@@ -395,9 +395,10 @@ if (KINDS.includes("claude") && KINDS.includes("codex")) {
         const answered = (await runs(coordinator.group)).find((run) => run.id === coordinator.id);
         const facts = factsOf(answered, second);
         assert(second.code === 0, `the coordinator's second turn exited ${second.code}; ${facts}`);
-        assert(/\bPASS\b/.test(`${answered?.result ?? ""}${answered?.lastOutput ?? ""}`), `the coordinator did not report the thread's PASS; ${facts}`);
+        // the coordinator writes no handoff: the person reads its reply
+        assert(/\bPASS\b/.test(answered?.lastOutput ?? ""), `the coordinator did not report the thread's PASS; ${facts}`);
         assert(git("diff", "--quiet").exitCode === 0, "the main checkout changed during the run");
-        console.log(`coordinator's report:\n${(answered?.result ?? "").trim()}`);
+        console.log(`coordinator's reply:\n${(answered?.lastOutput ?? "").trim()}`);
       } finally {
         for (const group of [coordinator.group, ...threadGroups]) {
           for (const run of await runs(group).catch(() => [])) await herdrRpc("pane.close", { pane_id: run.paneId }, socket).catch(() => undefined);
