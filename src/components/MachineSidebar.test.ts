@@ -10,7 +10,7 @@ import { MachineSidebar, type MachineSidebarModel } from "./MachineSidebar.tsx";
 
 const pc = (extra: Partial<Machine> = {}): Machine => ({ id: "local", name: "omarchy", kind: "local", enabled: true, state: "connected", error: null, snapshot: null, ...extra });
 const model = (extra: Partial<MachineSidebarModel> = {}): MachineSidebarModel => ({
-  machines: [pc()], selectedMachineId: "local", selectedPaneId: null, version: "0.9.1", install: { installed: false, canInstall: true, help: "" }, ...extra,
+  machines: [pc()], selectedMachineId: "local", selectedPaneId: null, version: "0.9.1", install: { installed: false, canInstall: true }, ...extra,
 });
 
 /** English, as under the app's own provider with an English browser */
@@ -40,8 +40,9 @@ describe("Machine sidebar view", () => {
     expect(html).not.toContain("TREE-local");
   });
 
-  it("offers the install only where the app is not installed", () => {
+  it("offers install only when the browser can prompt and the app is not installed", () => {
     expect(render(model())).toContain("Install app");
-    expect(render(model({ install: { installed: true, canInstall: false, help: "" } }))).not.toContain("Install app");
+    expect(render(model({ install: { installed: false, canInstall: false } }))).not.toContain("Install app");
+    expect(render(model({ install: { installed: true, canInstall: false } }))).not.toContain("Install app");
   });
 });

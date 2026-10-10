@@ -95,8 +95,8 @@ reads them.
 - `--needs` marks only what needs the person: `Needs you`, `Failed`, error notices, the nearest
   card's edge. A destructive action is not red: a confirm stops it.
 - Agent state is written as a word as well as colored, and the badge's word is `--ink`. Where a
-  sidebar row shows only the dot, the word is its tooltip and accessible name, Working's dot also
-  breathes, Idle's is a ring, and a Needs you pane also sits under the worded **Needs you** heading.
+  sidebar row shows only the dot, the word is its tooltip and accessible name, Idle's is a ring, and a
+  Needs you pane also sits under the worded **Needs you** heading.
 - A control drawn by its edge (field, segmented, toggle) uses `--control-edge` (3:1 on every surface
   it sits on); `--line` only groups.
 - `theme: "system"` follows `prefers-color-scheme`; `src/lib/settings.ts` writes the resolved
@@ -279,8 +279,8 @@ One set for both themes: the card is island black wherever it shows.
   **Failed** and reads the word of the section it sits in: a starting or unknown run reads
   **Working**, and an ended run, folded under its own button, has none.
 - A pill at `--chip-h`: a 7px dot, the word in `--ink` at `--fs-xs` medium, a 1px edge and a face.
-  The dot and the edge take the state's color; the face is its tint (`--field` for Idle). Only
-  Working's dot breathes; the word never fades.
+  The dot and the edge take the state's color; the face is its tint (`--field` for Idle). No state
+  dot moves: a steady dot says Working, and a pulse on every working agent was noise.
 - `.is-dot` (sidebar rows only): the dot alone at 9px, the word visually hidden and in its tooltip;
   Idle's dot is a ring.
 
@@ -324,7 +324,7 @@ One set for both themes: the card is island black wherever it shows.
   on its PC's header, or from the **New session** button in the dashed **No workspaces yet** box of an
   empty PC. Search lives in the command palette, not the sidebar.
 - A PC group header is caret, monitor, name, **Host** for the local machine, a state dot (done =
-  connected, working pulse = connecting or reconnecting, needs = error), then a `+` that starts a
+  connected, a pulsing working dot = connecting or reconnecting, needs = error), then a `+` that starts a
   session on that PC (disabled while it is offline). Connected says nothing more; every other state
   is written under the name, with the server's error clamped to two lines and complete in the tooltip.
 - Appearance's **Sidebar grouping** is **By workspace** by default, with numbered, foldable
@@ -405,14 +405,7 @@ One set for both themes: the card is island black wherever it shows.
 
 ### Work block (`.work-block`, `.work-row`)
 - One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
-  timestamp minus this one's; "Working…" in `--working` behind a breathing dot while the agent runs) over
-  one-line rows `▸ [icon] name / summary` in mono, indented under the header; mid-work narration
-  sits between rows as dim, one-step-smaller prose. The newest turn opens by default, older ones
-  fold. A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane.
-
-### Work block (`.work-block`, `.work-row`)
-- One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
-  timestamp minus this one's; "Working…" in `--working` behind a breathing dot while the agent runs)
+  timestamp minus this one's; "Working…" in `--working` behind a steady dot while the agent runs)
   over one-line rows `▸ [icon] name / summary` in mono, indented under the header; mid-work narration
   sits between rows as dim, one-step-smaller prose. The newest turn opens by default, older ones fold.
   A row expands to the typed input (command, diff, file, checklist, raw) and an Output pane. A failed
@@ -527,13 +520,13 @@ One set for both themes: the card is island black wherever it shows.
 |------|-------|-------|-------|
 | Micro | `--dur-fast` | `120ms` | Hover, active, toggle and control state |
 | Standard | `--dur-base` | `180ms` | Drawer slide, a card's lift |
-| Pulse | `--dur-pulse` | `1600ms` | Working and reconnecting dots (trough opacity 0.35; text never pulses) |
+| Pulse | `--dur-pulse` | `1600ms` | Connection and PC dots while connecting or reconnecting (trough opacity 0.35; text never pulses) |
 | Easing | `--ease-out` | `cubic-bezier(0.2, 0, 0, 1)` | Finite transitions |
-| Pulse easing | `--ease-pulse` | `steps(2, jump-none)` | Endless working and reconnecting dots; avoids drawing every display refresh |
+| Pulse easing | `--ease-pulse` | `steps(2, jump-none)` | Those dots; avoids drawing every display refresh |
 
 ### Rules
-- Only state changes move: hover and press, the drawer, settings switches, working and reconnecting
-  dots, a Fleet card lifting under the pointer, and the in-app alert.
+- Only state changes move: hover and press, the drawer, settings switches, connecting and
+  reconnecting dots, a Fleet card lifting under the pointer, and the in-app alert.
 - Dialogs and their scrims snap open and closed; on a phone their static layout is a bottom sheet.
 - `prefers-reduced-motion: reduce` removes pulses, drawer and control transitions, the card lift,
   smooth chat scrolling and toggle motion. State remains legible without animation.

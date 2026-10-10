@@ -17,8 +17,8 @@ export interface MachineSidebarPresenterProps {
 export function MachineSidebarPresenter({ machines, version, install, tree, emit }: MachineSidebarPresenterProps) {
   const selection = useSelected((state) => state.selection);
   const model = useMemo<MachineSidebarModel>(() => ({
-    machines, version, install: { installed: install.installed, canInstall: install.canInstall, help: install.help },
+    machines, version, install: { installed: install.installed, canInstall: install.canInstall },
     selectedMachineId: selection.machineId, selectedPaneId: selection.paneId,
-  }), [machines, version, install.installed, install.canInstall, install.help, selection]);
+  }), [machines, version, install.installed, install.canInstall, selection]);
   return <MachineSidebar model={model} tree={tree} emit={emit} />;
 }

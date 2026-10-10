@@ -135,7 +135,7 @@
   --ring: 2px solid var(--accent);
   --ring-offset: 2px;
 
-  /* motion: only real state changes move (drawer, dialogs, working/reconnecting pulse) */
+  /* motion: only real state changes move (drawer, dialogs, reconnecting pulse) */
   --dur-fast: 120ms;
   --dur-base: 180ms;
   --dur-pulse: 1600ms;
@@ -256,8 +256,7 @@ button {
   outline-offset: var(--ring-offset);
 }
 
-/* only dots pulse (connection, RUN, "Working…"): state words stay at full contrast, so the
-   trough can go deep enough to read as motion */
+/* Only connection dots pulse while connecting or reconnecting. */
 @keyframes pulse {
   0%,
   100% {
@@ -721,11 +720,6 @@ button {
 .badge-working {
   --badge-color: var(--working);
   background: var(--working-tint);
-}
-
-/* Working is the one state that moves: its dot breathes, the word holds still */
-.badge-working::before {
-  animation: pulse var(--dur-pulse) var(--ease-pulse) infinite;
 }
 
 .badge-blocked {
@@ -1211,7 +1205,6 @@ button {
     transition: none;
   }
 
-  .badge-working::before,
   .conn-reconnecting .conn-dot {
     animation: none;
   }

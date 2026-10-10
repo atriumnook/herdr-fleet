@@ -564,6 +564,25 @@ try {
   const dialog = page.getByRole("dialog", { name: /^New session/ });
   await dialog.getByLabel(/^Directory/).fill(root);
   await dialog.getByLabel(/^Name/).fill("herdr-fleet-test-browser-created");
+  // the agent list is drawn on the page, over the dialog, so the dialog's scroll box cannot clip
+  // it; moving through it scrolls only the list (the dialog stays open, its body stays put), and
+  // Escape closes the list, not the dialog
+  await dialog.getByRole("combobox").focus();
+  await page.keyboard.press("ArrowDown");
+  const agentList = page.getByRole("listbox");
+  await agentList.waitFor();
+  assert.equal(await agentList.evaluate((el) => el.parentElement === document.body), true, "the agent list is drawn outside the dialog");
+  assert.equal(await agentList.evaluate((el) => {
+    const box = el.getBoundingClientRect();
+    return el.contains(document.elementFromPoint(box.left + box.width / 2, box.top + 8));
+  }), true, "nothing covers the agent list");
+  const dialogScroll = () => dialog.locator(".modal-body").evaluate((el) => el.scrollTop);
+  const scrollBefore = await dialogScroll();
+  for (let i = 0; i < 8; i++) await page.keyboard.press("ArrowDown");
+  assert.equal(await dialogScroll(), scrollBefore, "moving through the list leaves the dialog's body where it was");
+  await page.keyboard.press("Escape");
+  await agentList.waitFor({ state: "detached" });
+  assert.equal(await dialog.isVisible(), true, "Escape closes the list only");
   await dialog.getByRole("button", { name: "Start session", exact: true }).click();
   await until(() => createRequests === 1, "creation started");
   await page.keyboard.press("Escape");
