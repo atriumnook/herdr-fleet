@@ -251,6 +251,8 @@ One set for both themes: the card is island black wherever it shows.
   `28px` high (`--touch-target` on coarse pointers), `--radius-sm`, `--fs-sm`; the rest read in
   `--sub`. The one `aria-pressed="true"` option reads `--ink-strong` on `--tint`, with a 2px
   `--accent` line along its foot.
+- `Segmented` (`src/components/Segmented.tsx`) draws it as a named `role="group"`; the arrow keys
+  move between its options (Home and End to either end), Enter or Space chooses.
 - Used for Pane/Fleet, Chat/Terminal and Settings choices. No other shape switches the same thing:
   not tabs, a row of buttons, or an ornament along the bottom of the screen.
 

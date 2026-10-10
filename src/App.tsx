@@ -9,6 +9,7 @@ import { useInstallPrompt } from "./lib/install.ts";
 import type { CommandPaletteEvent, PaletteActionId } from "./components/CommandPalette.tsx";
 import { MachineContext } from "./lib/machineContext.tsx";
 import type { MachineSidebarEvent } from "./components/MachineSidebar.tsx";
+import { Segmented } from "./components/Segmented.tsx";
 import { paneStorageId, type Machine } from "../shared/machines.ts";
 import { useSettings, type DefaultView } from "./lib/settings.ts";
 import { useShortcuts } from "./lib/shortcuts.ts";
@@ -351,7 +352,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         ) : (
           <><Brand /><span className="machine-context-name">{selectedMachine?.name ?? selectedMachineId}</span></>
         )}
-        <div className="segmented screen-switch" role="group" aria-label={t("Screen")}>
+        <Segmented label={t("Screen")} className="screen-switch">
           <button type="button" aria-pressed={screen === "pane"} title={t("Pane")} onClick={() => emit({ type: "show-screen", screen: "pane" })}>
             <AppWindow />
             <span className="header-desktop-only">{t("Pane")}</span>
@@ -368,9 +369,9 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
             <span className="header-desktop-only">{t("Fleet")}</span>
             {needs > 0 && <span className="fleet-button-count" aria-hidden="true">{needs}</span>}
           </button>
-        </div>
+        </Segmented>
         {selectedPane && screen === "pane" && (
-          <div className="segmented view-switch" role="group" aria-label={t("Pane view")}>
+          <Segmented label={t("Pane view")} className="view-switch">
             <button type="button" aria-pressed={view === "chat"} onClick={() => setView("chat")} title={t("Chat transcript (⌘⇧J)")}>
               <MessageSquare />
               <span className="header-desktop-only">{t("Chat")}</span>
@@ -380,7 +381,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
               <span className="header-desktop-only">{t("Terminal")}</span>
               {!terminalAttach && <span className="pill pill-soon">{t("soon")}</span>}
             </button>
-          </div>
+          </Segmented>
         )}
         <div className="header-meta">
           <span
