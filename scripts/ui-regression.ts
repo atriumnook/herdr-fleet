@@ -21,7 +21,7 @@ import { checkTerminalInput } from "./terminal-input-regression.ts";
 import { checkDefaultView } from "./default-view-regression.ts";
 import { checkComposerReconnect } from "./composer-reconnect-regression.ts";
 import { checkDroplet } from "./droplet-regression.ts";
-import { checkChatKeepsTerminalSize } from "./chat-size-regression.ts";
+import { checkPhoneSizesPaneInFront } from "./chat-size-regression.ts";
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
 import { checkFleetScreen } from "./fleet-screen-regression.ts";
 import { checkDirectoryBrowser } from "./directory-browser-regression.ts";
@@ -358,7 +358,7 @@ try {
   await checkComposerCompletion(browser, origin);
   await checkComposerAttachment(browser, origin);
   await checkFleetScreen(browser);
-  await checkChatKeepsTerminalSize(browser, origin);
+  await checkPhoneSizesPaneInFront(browser, origin);
 
   const report = (state: string) => herdrRpc("pane.report_agent", {
     pane_id: paneA, source: "manual", agent: "claude", state,
@@ -577,6 +577,10 @@ try {
   const agentList = page.getByRole("listbox");
   await agentList.waitFor();
   assert.equal(await agentList.evaluate((el) => el.parentElement === document.body), true, "the agent list is drawn outside the dialog");
+  // a list beside the dialog scrolls (the sidebar's, as a pane comes or goes): the picker stays where it was
+  await page.locator(".machine-list").evaluate((el) => el.dispatchEvent(new Event("scroll")));
+  await Bun.sleep(100);
+  assert.equal(await page.getByRole("listbox").count(), 1, "a scroll that leaves the picker in place keeps the agent list open");
   assert.equal(await agentList.evaluate((el) => {
     const box = el.getBoundingClientRect();
     return el.contains(document.elementFromPoint(box.left + box.width / 2, box.top + 8));

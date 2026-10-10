@@ -394,7 +394,11 @@ export type ClientMessage =
   /** Masked input: revalidate the visible prompt, type literal bytes + Enter immediately.
    * Never queued, retried, sent through agent.prompt, or echoed in a result. */
   | { type: "secret"; id: number; pane_id: string; prompt: string; secret: string }
+  /** this viewport sizes the pane until it lets go (release, detach, observe, closing): the latest one to send it wins.
+   * Otherwise a pane keeps the size herdr lays it out at, which every attach adopts */
   | { type: "resize"; pane_id: string; cols: number; rows: number }
+  /** the viewport that sized the pane lets go: the pane returns to herdr's size */
+  | { type: "release"; pane_id: string }
   /** Cumulative UTF-8 payload bytes processed by xterm, only for this subscription. */
   | { type: "pty-ack"; pane_id: string; stream_id: string; offset: number }
   | { type: "role"; mode: ClientRole };
@@ -411,7 +415,7 @@ export type ServerMessage =
   | { type: "attach-resumed"; pane_id: string }
   /** Attachment readiness (omitted ready means true); false revokes it during retry. Never a typed-text acknowledgement. */
   | { type: "input-ready"; pane_id: string; ready?: boolean }
-  /** the shared pty's grid changed: observe clients adopt it, interact clients drive it. `fixed`: the grid is the pane's own in herdr (a mirrored pane), so every client adopts it and none resizes */
+  /** the shared pty's grid: every client adopts it but a viewport sizing the pane (resize). `fixed`: the grid is the pane's own in herdr (a mirrored pane), so none resizes */
   | { type: "pane-geometry"; pane_id: string; cols: number; rows: number; fixed?: boolean }
   | { type: "role-ack"; mode: ClientRole }
   /** how a submit ended: ok once its Enter was sent; otherwise nothing, or only the text, reached the pane */

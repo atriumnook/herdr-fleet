@@ -58,10 +58,27 @@ export async function checkComposerCompletion(browser: Browser, origin: string):
     await commands.waitFor({ state: "detached" });
     await composer.fill("/rel");
     await commands.getByRole("option", { name: /release/ }).waitFor();
+    // the frames after the completion are held back, as on a busy page
+    await page.evaluate(() => {
+      const held: FrameRequestCallback[] = [];
+      const own = window.requestAnimationFrame;
+      Object.assign(window, { heldFrames: { held, own } });
+      window.requestAnimationFrame = (callback) => { held.push(callback); return 0; };
+    });
     await composer.press("Enter");
     await commands.waitFor({ state: "detached" });
     assert.equal(await composer.inputValue(), "/release ", "Enter completes the command");
     assert.equal(submits, 0, "a completion sends nothing");
+    // everything is selected and typed over, and the held frames run in between: the caret the
+    // completion placed is not put back into the edit that came after it
+    await composer.evaluate((element: HTMLTextAreaElement) => {
+      const { held, own } = (window as unknown as { heldFrames: { held: FrameRequestCallback[]; own: typeof window.requestAnimationFrame } }).heldFrames;
+      window.requestAnimationFrame = own;
+      element.select();
+      for (const callback of held) callback(performance.now());
+      document.execCommand("insertText", false, "typed over");
+    });
+    assert.equal(await composer.inputValue(), "typed over", "a completion's caret stays out of the next edit");
     console.log("PASS slash commands complete from the keyboard, and Escape puts the menu away");
 
     const files = page.getByRole("listbox", { name: "Files", exact: true });
