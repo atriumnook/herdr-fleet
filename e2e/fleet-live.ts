@@ -15,6 +15,12 @@
  * server keeps its state beside it (state/), so the result folders' root cursor is given stays the
  * same, and its trust question too is answered once.
  *
+ * Two more check what is unverified: codex runs the fleet CLI from inside its sandbox (the CLI
+ * talks to this server over localhost HTTP), and an interactive cursor agent takes a second turn
+ * (its question detection reads the empty input's placeholder). FLEET_E2E_ONLY=<words> runs only the
+ * scenarios whose names hold one of those comma-separated words, since every scenario costs model
+ * calls: FLEET_E2E_ONLY=sandbox,"second turn" runs just these two.
+ *
  * Start the test session clean before a run: it hands its environment to every agent.
  *   herdr --session herdr-fleet-test server stop
  *   env $(env | grep -oE '^(HERDR|CLAUDE|CODEX_COMPANION)[A-Z_]*' | sed 's/^/-u /') AGY_CLI_DISABLE_AUTO_UPDATE=true bun run e2e
@@ -66,6 +72,10 @@ const kindPrompt = "You are an E2E fixture. Your HANDOFF is exactly the text the
 for (const kind of KINDS) {
   writeFileSync(join(KINDS_DIR, ".herdr-fleet", "agents", `echo-${kind}.md`), `---\nname: echo-${kind}\ndescription: E2E fixture\nagent: ${kind}\nmodel: ${KIND_MODELS[kind]}\nthinking: off\ninteractive: false\n---\n${kindPrompt}\n`);
 }
+// codex runs the fleet CLI: the list it prints names the run itself, which only the server knows
+if (KINDS.includes("codex")) writeFileSync(join(KINDS_DIR, ".herdr-fleet", "agents", "fleet-codex.md"), `---\nname: fleet-codex\ndescription: E2E fixture\nagent: codex\nmodel: ${KIND_MODELS["codex"]}\nthinking: off\ninteractive: false\n---\nYou are an E2E fixture. Run the fleet command your instructions name with the single argument list, in your shell. Your HANDOFF is exactly what that command prints, or its error if it fails. Write it to your result file with your file-writing tool, then reply with it. Do nothing else.\n`);
+// cursor stays open for a second turn
+if (KINDS.includes("cursor")) writeFileSync(join(KINDS_DIR, ".herdr-fleet", "agents", "chat-cursor.md"), `---\nname: chat-cursor\ndescription: E2E fixture\nagent: cursor\nmodel: ${KIND_MODELS["cursor"]}\nthinking: off\ninteractive: true\n---\n${kindPrompt}\n`);
 writeFileSync(join(KINDS_DIR, ".herdr-fleet", "fleet.json"), JSON.stringify({ maxConcurrent: 4, defaultWaitTimeoutMs: TIMEOUT_MS, recentReadLines: 80 }));
 
 // a recent usage reading from an earlier run would keep this run from reading cursor's screen again
@@ -233,9 +243,64 @@ for (const kind of KINDS) {
   });
 }
 
+/** Spawns `role` in the fixed folder, answering cursor's trust question for the result folders if it asks. */
+async function spawnKind(kind: string, group: string, role: string, task: string): Promise<{ waited: { code: number; out: string; err: string }; run: Run | undefined }> {
+  let waited = await fleetIn(KINDS_DIR, group, "spawn", "--role", role, "--task", task, "--wait", "--timeout", String(TIMEOUT_MS));
+  let [run] = await runs(group);
+  if (run?.state === "blocked" && /trust this folder/.test(run.lastError ?? "")) {
+    assert(await answerTrust(run.paneId, `${kind} for the result folders`), `blocked with no trust question on screen: ${run.lastError}`);
+    await fleetIn(KINDS_DIR, group, "send", run.id, task);
+    waited = await fleetIn(KINDS_DIR, group, "wait", run.id, "--timeout", String(TIMEOUT_MS));
+    [run] = await runs(group);
+  }
+  return { waited, run };
+}
+
+const factsOf = (run: Run | undefined, waited: { out: string; err: string }) =>
+  `state ${run?.state}, error ${run?.lastError ?? "none"}\n${waited.err}${waited.out}\n--- screen\n${run?.lastOutput ?? "(none)"}`;
+
+if (KINDS.includes("codex")) {
+  scenarios.push({
+    name: "codex reaches the fleet CLI from inside its sandbox",
+    async run(group) {
+      await trustFolder("codex");
+      const { waited, run } = await spawnKind("codex", group, "fleet-codex", "Do what your role says.");
+      const facts = factsOf(run, waited);
+      assert(waited.code === 0, `exited ${waited.code}; ${facts}`);
+      assert(run?.result?.includes(run.name), `the list codex printed does not name its own run ${run?.name} (${JSON.stringify(run?.result)}); ${facts}`);
+    },
+  });
+}
+
+if (KINDS.includes("cursor")) {
+  scenarios.push({
+    name: "an interactive cursor agent takes a second turn and is not taken for a question",
+    async run(group) {
+      await trustFolder("cursor");
+      const first = `E2E-CURSOR-1-${Date.now().toString(36)}`;
+      const firstTurn = await spawnKind("cursor", group, "chat-cursor", `The text is: ${first}`);
+      assert(firstTurn.waited.code === 0 && firstTurn.run?.result?.includes(first), `first turn; ${factsOf(firstTurn.run, firstTurn.waited)}`);
+      const second = `E2E-CURSOR-2-${Date.now().toString(36)}`;
+      const sent = await fleetIn(KINDS_DIR, group, "send", firstTurn.run!.id, `The text is now: ${second}`);
+      assert(sent.code === 0, `send: ${sent.err}`);
+      const waited = await fleetIn(KINDS_DIR, group, "wait", firstTurn.run!.id, "--timeout", String(TIMEOUT_MS));
+      const [run] = await runs(group);
+      const facts = factsOf(run, waited);
+      // exit 4 is "blocked on a question": the second turn's empty input must read as done, not as one
+      assert(waited.code === 0, `second turn exited ${waited.code}; ${facts}`);
+      assert(run?.state !== "blocked", `the second turn was taken for a question; ${facts}`);
+      assert(run?.result?.includes(second), `the result file does not hold ${second} (${JSON.stringify(run?.result)}); ${facts}`);
+    },
+  });
+}
+
+// every scenario costs model calls: FLEET_E2E_ONLY (words, comma-separated) runs the ones whose names hold one
+const ONLY = (process.env["FLEET_E2E_ONLY"] ?? "").toLowerCase().split(",").map((word) => word.trim()).filter(Boolean);
+const picked = ONLY.length ? scenarios.filter((scenario) => ONLY.some((word) => scenario.name.toLowerCase().includes(word))) : scenarios;
+
 let failures = 0;
 try {
-  for (const [index, scenario] of scenarios.entries()) {
+  for (const [index, scenario] of picked.entries()) {
     const group = `fleet-e2e-${index}-${Date.now().toString(36)}`;
     const started = Date.now();
     try {
@@ -254,5 +319,5 @@ try {
   server.stop();
   rmSync(root, { recursive: true, force: true });
 }
-console.log(failures ? `${failures} of ${scenarios.length} scenarios failed` : `all ${scenarios.length} scenarios passed`);
+console.log(failures ? `${failures} of ${picked.length} scenarios failed` : `all ${picked.length} scenarios passed`);
 process.exit(failures ? 1 : 0);

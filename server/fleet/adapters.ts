@@ -147,6 +147,13 @@ export const claudeAdapter: AgentAdapter = {
   },
 };
 
+/**
+ * The workspace-write sandbox blocks the network, the loopback the fleet server listens on too.
+ * Codex is told to ask for that one command outside the sandbox, which its automatic review then
+ * judges, rather than the network being opened for every command.
+ */
+const CODEX_FLEET_NOTE = "If a fleet command fails because it cannot reach the fleet server, your sandbox is blocking the local network: request to run that same command outside the sandbox, giving as the reason that it reaches the fleet server on this machine.";
+
 /** Codex: instructions go in as `developer_instructions`, added to its own rather than replacing them. */
 export const codexAdapter: AgentAdapter = {
   kind: "codex",
@@ -158,7 +165,7 @@ export const codexAdapter: AgentAdapter = {
     return [
       ...(model ? ["--model", model] : []),
       ...(effort ? ["-c", `model_reasoning_effort=${tomlString(effort)}`] : []),
-      "-c", `developer_instructions=${tomlString(options.systemPrompt)}`,
+      "-c", `developer_instructions=${tomlString(`${options.systemPrompt}\n\n${CODEX_FLEET_NOTE}`)}`,
       // approvals go to codex's automatic review; commands stay in the workspace-write sandbox
       "--approve-for-me",
       "--add-dir", options.resultDir,

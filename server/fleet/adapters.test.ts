@@ -58,9 +58,16 @@ describe("codex adapter", () => {
   it("passes the instructions as developer_instructions on one argv line, and the level as reasoning effort", () => {
     const args = codex.launchArgs({ ...base, model: "gpt-5.5", thinking: "max" });
     expect(args).toEqual([
-      "--model", "gpt-5.5", "-c", 'model_reasoning_effort="max"', "-c", 'developer_instructions="Be brief.\\nSay \\"done\\"."', "--approve-for-me", "--add-dir", "/state/results/r1",
+      "--model", "gpt-5.5", "-c", 'model_reasoning_effort="max"', "-c", expect.stringMatching(/^developer_instructions="Be brief\.\\nSay \\"done\\"\.\\n\\n/), "--approve-for-me", "--add-dir", "/state/results/r1",
     ]);
     expect(args.some((arg) => arg.includes("\n"))).toBe(false);
+  });
+
+  it("tells codex to ask for a fleet command outside its sandbox when the sandbox keeps it from the fleet server", () => {
+    const instructions = codex.launchArgs(base).find((arg) => arg.startsWith("developer_instructions="))!;
+    expect(instructions).toContain("request to run that same command outside the sandbox");
+    // the network stays shut for every other command: no config opens it
+    expect(codex.launchArgs(base).join(" ")).not.toContain("network_access");
   });
 
   it("runs the lowest level as low, the lowest effort codex's models take", () => {
