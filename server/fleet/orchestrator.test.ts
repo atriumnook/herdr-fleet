@@ -147,6 +147,13 @@ describe("spawn", () => {
     expect(bare.runtime.instructions[0]).not.toContain("Standing orders");
   });
 
+  it("names the fleet command in every spawning instruction", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { spawning: true })] });
+    await spawn(fleet);
+    expect(runtime.instructions[0]).toContain("(fleet list shows each agent's CLI)");
+    expect(runtime.instructions[0]).not.toContain("${");
+  });
+
   it("records the idle herdr shows right after a prompt as working", async () => {
     const { fleet, runtime } = setup();
     runtime.promptStatus = "idle";

@@ -472,7 +472,7 @@ export class Orchestrator {
       canSpawn
         ? [
           `- Start a helper when splitting the work materially improves the result, with a brief it can work from without asking you: ${fleet} spawn --role <role> --goal "<the outcome, one sentence>" --write <path> (repeat; --read-only when it only reads) --context "<files, earlier results and decisions it needs, or none>" --done "<a checkable condition>" --verify "<commands to run, and the evidence to return>", then ${fleet} wait <id>.`,
-          "  Each part has one executor: do not work on a part you handed on, or hand it to two agents. Two agents never write the same paths at once; the fleet refuses a spawn whose paths another working agent holds. Start a review only after the writer has finished, on another CLI than the writer's: add --avoid <cli> (${fleet} list shows each agent's CLI).",
+          `  Each part has one executor: do not work on a part you handed on, or hand it to two agents. Two agents never write the same paths at once; the fleet refuses a spawn whose paths another working agent holds. Start a review only after the writer has finished, on another CLI than the writer's: add --avoid <cli> (${fleet} list shows each agent's CLI).`,
         ].join("\n")
         : "Do not start other agents.",
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
