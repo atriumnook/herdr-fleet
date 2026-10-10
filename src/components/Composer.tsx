@@ -349,6 +349,7 @@ export function Composer({ model, emit }: ComposerProps) {
   }, [choices.length, selectedIndex]);
 
 
+  const placeCaret = useRef<{ text: string; caret: number } | null>(null);
   const setTextAndCaret = useCallback((nextText: string, nextCaret: number) => {
     const limitedText = nextText.slice(0, MAX_COMPOSER_CHARS);
     const clampedCaret = Math.min(nextCaret, MAX_COMPOSER_CHARS);
@@ -357,13 +358,19 @@ export function Composer({ model, emit }: ComposerProps) {
     setText(limitedText);
     setCaret(clampedCaret);
     setMenuDismissed(false);
-    requestAnimationFrame(() => {
-      const element = textareaRef.current;
-      if (!element) return;
-      element.selectionStart = element.selectionEnd = clampedCaret;
-      element.focus();
-    });
+    placeCaret.current = { text: limitedText, caret: clampedCaret };
   }, []);
+
+  // the caret goes where a completion put it as soon as the box shows the completed text, in the
+  // same task: placed on a later frame, it moved whatever was typed or selected meanwhile
+  useLayoutEffect(() => {
+    const element = textareaRef.current;
+    const place = placeCaret.current;
+    if (!element || !place || element.value !== place.text) return;
+    placeCaret.current = null;
+    element.selectionStart = element.selectionEnd = place.caret;
+    element.focus();
+  });
 
   const insertMentionAtCursor = useCallback(
     (mention: string) => {
@@ -712,6 +719,7 @@ export function Composer({ model, emit }: ComposerProps) {
           }}
           onKeyUp={(event) => setCaret(event.currentTarget.selectionStart)}
           onChange={(event) => {
+            placeCaret.current = null;
             setText(event.target.value);
             setCaret(event.target.selectionStart);
             setMenuDismissed(false);
