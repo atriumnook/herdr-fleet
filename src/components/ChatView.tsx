@@ -552,7 +552,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
           ? <details className="chat-terminal-fallback"><summary>{t("Conversation unavailable — show terminal output")}</summary><pre>{view.messages.map((message) => message.text).join("\n\n")}</pre></details>
           : view.messages.map((message, index) => <FallbackTurn key={index} paneId={paneId} message={message} />)}
       {!ended && !connected && <p className="chat-inline-state">{t("reconnecting…")}</p>}
-      {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{error.status === 401 ? "locked — the token gate is asking again" : error.message}</p>}
+      {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{error.status === 401 ? t("This server asks for the access token or a pairing code again.") : error.message}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
       {loaded && empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
       {prompt !== null && <PromptCard prompt={prompt} typedAnswer={pendingAnswer !== null && pendingAnswer.promptId === prompt.id ? pendingAnswer.answer : null} card={card} emit={emit} />}

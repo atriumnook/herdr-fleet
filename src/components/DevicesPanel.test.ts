@@ -26,8 +26,10 @@ describe("Devices panel view", () => {
     expect(html).toContain(t("You are on the PC itself."));
   });
 
-  it("asks for the second press on Revoke, and keeps the name being typed", () => {
-    expect(render({ list: [device], confirming: "a" })).toContain(">Revoke?</button>");
+  it("offers Revoke as a quiet button (its confirm is a dialog: devices-regression), and keeps the name being typed", () => {
+    const html = render({ list: [device] });
+    expect(html).toContain('class="btn btn-ghost"');
+    expect(html).not.toContain("Revoke?");
     expect(render({ list: [device], renaming: { id: "a", label: "Desk" } })).toContain('value="Desk"');
   });
 

@@ -19,6 +19,7 @@ export const JA: Record<string, string> = {
   "Pair this device with a code from the PC: Settings → Devices there.": "PC の Settings → Devices で出したコードで、この Device をペアリングしてください。",
   "That code is wrong, used up or expired. Start a new pairing on the PC.": "コードが違うか、使用済みか、期限切れです。PC で新しくペアリングを始めてください。",
   "Token does not match.": "トークンが一致しません。",
+  "This server asks for the access token or a pairing code again.": "このサーバーが、アクセストークンかペアリングコードをもう一度求めています。",
   "Tailscale says this device belongs to someone other than this PC's owner. The owner can still let it in with a pairing code.": "Tailscale によると、この Device は PC の持ち主以外のものです。持ち主はペアリングコードで入れられます。",
   // ---- sidebar ----
   "The computer this app runs on.": "このアプリが動いているコンピューターです。",
@@ -119,6 +120,7 @@ export const JA: Record<string, string> = {
   "You are in with the access token.": "アクセストークンで入っています。",
   "A paired device gets in on its own, from anywhere it can reach this server, until you revoke it here. A code comes from this screen on the PC or on a device already paired.": "ペアリングした Device は、ここで取り消すまで、このサーバーに届く場所ならどこからでも自動で入れます。コードは、PC かペアリング済みの Device のこの画面で出せます。",
   "No devices paired yet.": "ペアリングした Device はまだありません。",
+  "This device stops getting in, and gets in again only with a new pairing.": "この Device は入れなくなります。もう一度入るには、新しくペアリングが要ります。",
   "Paired: {name}.": "{name} をペアリングしました。",
   "Enter this code on the other device.": "もう一方の Device で、このコードを入力してください。",
   "Or scan the QR code: it opens the app with the code filled in.": "QR コードを読み取っても構いません。コードが入った状態でアプリが開きます。",

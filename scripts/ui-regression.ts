@@ -283,6 +283,30 @@ try {
   await page.locator(`.pane-select[title^="${paneA} —"]`).click();
   await until(async () => (await selectedTitle())?.startsWith(`${paneA} —`) === true, "back on the first pane after the palette");
   console.log("PASS the command palette opens a pane found by search and runs an action, closing either way");
+
+  // the selected pane's Rename and Close are in the palette too: Rename opens its name field in
+  // the sidebar and gives it the focus; Close on a workspace's last pane asks first. Both are let go.
+  const runPalette = async (action: string): Promise<void> => {
+    await page.getByRole("button", { name: "Command palette", exact: true }).click();
+    await palette.waitFor();
+    await palette.getByRole("searchbox", { name: "Search panes and actions", exact: true }).fill(action);
+    await page.keyboard.press("Enter");
+    await palette.waitFor({ state: "hidden" });
+  };
+  await runPalette("Rename pane");
+  const renameField = page.locator(`.pane-item:has(.pane-select[title^="${paneA} —"]) .pane-rename-input`);
+  await renameField.waitFor();
+  await until(async () => await renameField.evaluate((el) => el === document.activeElement), "the palette's Rename gives the name field the focus");
+  await page.keyboard.press("Escape");
+  await renameField.waitFor({ state: "detached" });
+  await runPalette("Close pane");
+  const closeConfirm = page.getByRole("alertdialog");
+  await closeConfirm.waitFor();
+  assert.match(await closeConfirm.textContent() ?? "", /Close .*\?/);
+  await page.keyboard.press("Escape");
+  await closeConfirm.waitFor({ state: "detached" });
+  assert.equal(await page.locator(`.pane-select[title^="${paneA} —"]`).count(), 1, "a no keeps the pane");
+  console.log("PASS the palette renames the selected pane in its row, and closing its workspace's last pane asks first");
   await page.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
   await composer.waitFor();
   console.log("PASS terminal clipboard paste sends text once and preserves Ctrl+C");

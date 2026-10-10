@@ -59,8 +59,6 @@ export type SettingsDialogState =
 
 /** how often the devices are read while a pairing code is out, to see the device it lets in */
 export const DEVICE_POLL_MS = 3000;
-/** how long a first press on Revoke waits for the second */
-export const REVOKE_CONFIRM_MS = 4000;
 
 /** Settings → Devices: the paired devices, and a code out to pair one more. Read anew each time Settings opens. */
 export interface DevicesState {
@@ -75,15 +73,13 @@ export interface DevicesState {
   justPaired: string | null;
   /** the name being typed for a device */
   renaming: { id: string; label: string } | null;
-  /** the device whose Revoke was pressed once */
+  /** the device a confirm asks about revoking */
   confirming: string | null;
   /** the poll chain running for the code out: one at a time, a later one ends the one before */
   pollSeq: number;
-  /** the press on Revoke whose timeout counts: pressing again re-arms it */
-  confirmSeq: number;
 }
 
-export const NO_DEVICES: DevicesState = { list: null, known: null, unavailable: false, failure: null, code: null, justPaired: null, renaming: null, confirming: null, pollSeq: 0, confirmSeq: 0 };
+export const NO_DEVICES: DevicesState = { list: null, known: null, unavailable: false, failure: null, code: null, justPaired: null, renaming: null, confirming: null, pollSeq: 0 };
 
 /** Settings → Alerts' test push: what came of the last one, on this device. */
 export type PushTest = "idle" | "sending" | "sent" | "unsupported" | "permission" | "missing" | "failed";
@@ -648,7 +644,8 @@ export type UiEvent =
   | { type: "cancel-rename" }
   | { type: "save-rename" }
   | { type: "revoke-device"; id: string }
-  | { type: "unconfirm-revoke"; id: string; session: number; seq: number }
+  | { type: "confirm-revoke" }
+  | { type: "cancel-revoke" }
   | { type: "device-renamed"; session: number }
   /** a revoke the server took */
   | { type: "device-changed"; session: number }
@@ -1327,7 +1324,8 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "cancel-rename":
     case "save-rename":
     case "revoke-device":
-    case "unconfirm-revoke":
+    case "confirm-revoke":
+    case "cancel-revoke":
     case "device-renamed":
     case "device-changed":
     case "device-change-failed": {
@@ -1452,16 +1450,15 @@ function devicesTransition(devices: DevicesState, event: UiEvent, session: numbe
       if (!devices.renaming) return devices;
       effects.push({ kind: "rename-device", id: devices.renaming.id, label: devices.renaming.label, session });
       return devices;
+    // a revoke cannot be undone (the device must pair again): a confirm asks first
     case "revoke-device":
-      if (devices.confirming !== event.id) {
-        const confirmSeq = devices.confirmSeq + 1;
-        effects.push({ kind: "later", ms: REVOKE_CONFIRM_MS, event: { type: "unconfirm-revoke", id: event.id, session, seq: confirmSeq } });
-        return { ...devices, confirming: event.id, confirmSeq };
-      }
-      effects.push({ kind: "revoke-device", id: event.id, session });
+      return { ...devices, confirming: event.id };
+    case "confirm-revoke":
+      if (devices.confirming === null) return devices;
+      effects.push({ kind: "revoke-device", id: devices.confirming, session });
       return { ...devices, confirming: null };
-    case "unconfirm-revoke":
-      return devices.confirming === event.id && devices.confirmSeq === event.seq ? { ...devices, confirming: null } : devices;
+    case "cancel-revoke":
+      return devices.confirming === null ? devices : { ...devices, confirming: null };
     case "device-renamed":
       effects.push({ kind: "load-devices", session });
       return { ...devices, renaming: null };

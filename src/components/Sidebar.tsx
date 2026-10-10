@@ -81,6 +81,17 @@ type MenuState =
   | { kind: "pane"; anchor: HTMLElement; at: PressPoint | null; pane: PaneInfo; workspace: WorkspaceInfo; scope: string; title: string; place: string }
   | { kind: "workspace"; anchor: HTMLElement; at: PressPoint | null; workspace: WorkspaceInfo; scope: string };
 
+/**
+ * Closing a pane, as herdr's `ui.confirm_close` has it: the workspace's last pane takes the
+ * workspace with it, so a confirm asks first; any other pane closes at once. The row menu and the
+ * command palette both close a pane this way.
+ */
+export function closePaneEvent(machineId: string, paneId: string, title: string, paneCount: number): Extract<SidebarEvent, { type: "tree-ask" | "tree-close-pane" }> {
+  return paneCount === 1
+    ? { type: "tree-ask", machineId, action: { kind: "close-pane", paneId }, title: t("Close {title}?", { title }), body: t("Its workspace closes with it, and the agent and shell in it stop.") }
+    : { type: "tree-close-pane", machineId, paneId };
+}
+
 /** The row's part the focus goes back to: what has it now, else its first control. */
 function rowFocus(row: HTMLElement, own: string): HTMLElement {
   const active = document.activeElement;
@@ -205,10 +216,7 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
     }
     const pane = snapshot?.panes.find((candidate) => candidate.pane_id === state.pane.pane_id) ?? state.pane;
     const renamePaneItem: RowMenuItem = { id: "rename-pane", label: t("Rename pane"), icon: Pencil, run: () => beginPaneRename(pane) };
-    // the workspace's last pane takes the workspace with it
-    const closeItem: RowMenuItem = paneCount === 1
-      ? { id: "close", label: t("Close"), icon: X, divider: true, run: () => emit({ type: "tree-ask", ...on, action: { kind: "close-pane", paneId: pane.pane_id }, title: t("Close {title}?", { title: state.title }), body: t("Its workspace closes with it, and the agent and shell in it stop.") }) }
-      : { id: "close", label: t("Close"), icon: X, divider: true, run: () => emit({ type: "tree-close-pane", ...on, paneId: pane.pane_id }) };
+    const closeItem: RowMenuItem = { id: "close", label: t("Close"), icon: X, divider: true, run: () => emit(closePaneEvent(machineId, pane.pane_id, state.title, paneCount)) };
     // a one-pane row has no header: it is the only place to rename its workspace
     return paneCount === 1 ? [renameWorkspaceItem, renamePaneItem, closeItem] : [renamePaneItem, closeItem];
   };

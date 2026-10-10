@@ -5,6 +5,7 @@ import type { ConversationTurn, InteractivePrompt } from "../../shared/protocol.
 import { DEFAULT_SETTINGS, SettingsProvider } from "../lib/settings.ts";
 import { EMPTY_VIEW } from "../ui/state.ts";
 import { ChatView, type ChatViewModel } from "./ChatView.tsx";
+import { t } from "../lib/i18n.ts";
 
 const user = (text: string): ConversationTurn => ({ role: "user", ts: text, parts: [{ kind: "text", text }] });
 const model = (extra: Partial<ChatViewModel> = {}): ChatViewModel => ({
@@ -33,7 +34,7 @@ describe("Chat view", () => {
 
   it("says why the conversation was not read, and a locked server in words", () => {
     expect(render(model({ error: { message: "502 bad gateway", status: 502 } }))).toContain("502 bad gateway");
-    expect(render(model({ error: { message: "unauthorized", status: 401 } }))).toContain("locked — the token gate is asking again");
+    expect(render(model({ error: { message: "unauthorized", status: 401 } }))).toContain(t("This server asks for the access token or a pairing code again."));
   });
 
   it("shows the scrollback folded for an agent, as messages without one", () => {

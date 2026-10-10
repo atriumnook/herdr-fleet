@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { Bell, FolderOpen, LockKeyhole, MessageSquarePlus, PanelLeft, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
+import { Bell, FolderOpen, LockKeyhole, MessageSquarePlus, PanelLeft, Pencil, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
 
 import "./CommandPalette.css";
 
@@ -15,7 +15,7 @@ import { placeLine } from "../lib/paneName.ts";
 import { t } from "../lib/i18n.ts";
 
 /** The actions the palette lists; the shell runs them. */
-export type PaletteActionId = "new" | "view" | "sidebar" | "theme" | "settings" | "notifications" | "lock" | "files" | "refresh";
+export type PaletteActionId = "new" | "view" | "rename-pane" | "close-pane" | "sidebar" | "theme" | "settings" | "notifications" | "lock" | "files" | "refresh";
 
 /** What the palette draws. */
 export interface CommandPaletteModel {
@@ -26,7 +26,7 @@ export interface CommandPaletteModel {
   /** the panes opened last on this PC, newest first */
   recent: string[];
   /** the actions this device has now (no bell once alerts are on, no sign-out without a token or pairing) */
-  offers: { notifications: boolean; lock: boolean; files: boolean };
+  offers: { notifications: boolean; lock: boolean; files: boolean; pane: boolean };
 }
 
 export type CommandPaletteEvent =
@@ -82,6 +82,8 @@ export function CommandPalette({ model, emit }: { model: CommandPaletteModel; em
   const paletteActions = useMemo<PaletteAction[]>(() => [
     { id: "new", label: t("New session"), icon: MessageSquarePlus, shortcut: "new-session" },
     { id: "view", label: t(view === "chat" ? "Switch to terminal" : "Switch to chat"), icon: SwitchCamera, shortcut: "toggle-view" },
+    // the selected pane's own: the same as its row's menu, for the keyboard and a closed drawer
+    ...(offers.pane ? [{ id: "rename-pane" as const, label: t("Rename pane"), icon: Pencil }, { id: "close-pane" as const, label: t("Close pane"), icon: X }] : []),
     { id: "sidebar", label: t("Toggle sidebar"), icon: PanelLeft, shortcut: "toggle-sidebar" },
     { id: "theme", label: t("Toggle theme"), icon: SunMoon },
     { id: "settings", label: t("Settings"), icon: Settings, shortcut: "settings" },
@@ -89,7 +91,7 @@ export function CommandPalette({ model, emit }: { model: CommandPaletteModel; em
     ...(offers.lock ? [{ id: "lock" as const, label: t("Sign out"), icon: LockKeyhole }] : []),
     ...(offers.files ? [{ id: "files" as const, label: t("Browse files"), icon: FolderOpen }] : []),
     { id: "refresh", label: t("Refresh"), icon: RefreshCw },
-  ], [offers.notifications, offers.lock, offers.files, view, t]);
+  ], [offers.notifications, offers.lock, offers.files, offers.pane, view, t]);
 
   const panes = useMemo(() => {
     const allPanes = snapshot?.panes ?? [];
