@@ -460,9 +460,13 @@ One set for both themes: the card is island black wherever it shows.
 ### Command palette
 - `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes lead
   an empty query; arrows cycle, Enter activates and Escape closes.
-- Actions: New session, Switch to chat / terminal, Toggle sidebar, Toggle theme, Settings, Enable
-  notifications, Sign out, Browse files and Refresh, the conditional ones only when they apply, with
-  `.kbd` hints where a global shortcut exists.
+- Actions: New session, Switch to chat / terminal, Rename pane, Close pane, Toggle sidebar, Toggle
+  theme, Settings, Enable notifications, Sign out, Browse files and Refresh, the conditional ones
+  only when they apply, with `.kbd` hints where a global shortcut exists.
+- Rename pane and Close pane act on the selected pane, as its row's menu does: Rename brings the row
+  into view (the drawer on a phone, the sidebar on a desktop) and opens its name field; Close asks
+  first when the pane is its workspace's last (`closePaneEvent` in `Sidebar.tsx`, shared with the
+  row menu).
 
 ### Settings dialog
 - The dialog is the modal's glass panel; each section is a `--field` card (`--radius-lg`, 1px

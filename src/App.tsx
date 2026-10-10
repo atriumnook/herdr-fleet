@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppWindow, Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
 
-import { displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
+import { closePaneEvent, displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
 import { AgentMark } from "./components/AgentMark.tsx";
 import type { SettingsDialogEvent } from "./components/SettingsDialog.tsx";
@@ -257,14 +257,33 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   ), [selectedMachineId, selectedPaneId, treeEmit]);
 
   // the palette's actions are this shell's: run, and the palette closes
-  const paletteOffers = useMemo(() => ({ notifications: actions.enableNotifications !== null, lock: actions.lock !== null, files: actions.openFiles !== null }), [actions]);
+  const paletteOffers = useMemo(() => ({ notifications: actions.enableNotifications !== null, lock: actions.lock !== null, files: actions.openFiles !== null, pane: selectedPane !== null }), [actions, selectedPane]);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
+  const selectedRef = useRef({ machineId: selectedMachineId, pane: selectedPane });
+  selectedRef.current = { machineId: selectedMachineId, pane: selectedPane };
+  // the selected pane's rename happens in its sidebar row: the row comes into view first (the
+  // drawer opens on a phone, a collapsed sidebar shows on a desktop), then its name field opens
+  const renameSelectedPane = useCallback(() => {
+    const { machineId, pane } = selectedRef.current;
+    if (!pane) return;
+    if (window.matchMedia("(max-width: 768px)").matches) emitRef.current({ type: "drawer", open: true });
+    else setSidebarCollapsed(false);
+    emitRef.current({ type: "tree-start-pane-rename", machineId, paneId: pane.pane_id, label: pane.label ?? "" });
+  }, []);
+  const closeSelectedPane = useCallback(() => {
+    const { machineId, pane } = selectedRef.current;
+    if (!pane) return;
+    const paneCount = snapshotRef.current?.panes.filter((other) => other.workspace_id === pane.workspace_id).length ?? 1;
+    emitRef.current(closePaneEvent(machineId, pane.pane_id, displayPaneTitle(pane), paneCount));
+  }, []);
   const paletteEmit = useMemo(() => relay<CommandPaletteEvent, UiEvent>(emit, (event, pass) => {
     if (event.type !== "palette-run") { pass(event); return; }
     const run: Record<PaletteActionId, (() => void) | null> = {
       new: actionsRef.current.openNewSession,
       view: actionsRef.current.toggleView,
+      "rename-pane": renameSelectedPane,
+      "close-pane": closeSelectedPane,
       sidebar: actionsRef.current.toggleSidebar,
       theme: actionsRef.current.toggleTheme,
       settings: actionsRef.current.openSettings,
@@ -275,7 +294,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     };
     run[event.id]?.();
     pass({ type: "close-palette" });
-  }), [emit]);
+  }), [emit, renameSelectedPane, closeSelectedPane]);
 
   useShortcuts(actions, locked === false);
 
