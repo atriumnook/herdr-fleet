@@ -150,6 +150,11 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await open.locator(".fleet-overview .fleet-chat, .fleet-chat").first().waitFor();
     // the chat beside reads its pane's conversation, as the pane's own chat does
     await open.locator(".fleet-chat .chat-terminal-fallback, .fleet-chat .chat-empty").first().waitFor();
+    // a click in it gives it the focus, so the prompt steps (Mod+Shift+[ and ]) go to it
+    await open.locator(".fleet-chat .chat-view").first().click({ position: { x: 4, y: 4 } });
+    assert.equal(await page.evaluate(() => document.activeElement?.closest('[data-chat-lens="side"]') != null), true, "a click in the chat beside gives it the focus");
+    await screen.locator(".fleet-main .fleet-chat .chat-view").click({ position: { x: 4, y: 4 } });
+    assert.equal(await page.evaluate(() => document.activeElement?.closest('[data-chat-lens="main"]') != null), true, "a click in the conversation gives it the focus");
     await open.locator(".fleet-member", { hasText: "review · cursor" }).click();
     await open.locator(".fleet-member.is-selected", { hasText: "review" }).waitFor();
     await open.locator(".fleet-chat .chat-terminal-fallback, .fleet-chat .chat-empty").first().waitFor();

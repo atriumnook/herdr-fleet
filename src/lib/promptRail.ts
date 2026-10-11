@@ -15,8 +15,10 @@ const FLEET_MESSAGE = "[fleet] ";
 
 /** One prompt on the rail. */
 export interface RailEntry {
-  /** the prompt's turn time: the turn's key in the chat (`data-turn-ts`) */
+  /** the prompt's turn time, as its row in the chat carries it (`data-turn-ts`) */
   ts: string;
+  /** the prompt's own key: its time, and which of the prompts with that time it is (two sent within one tick of a coarse clock share it) */
+  key: string;
   /** where the prompt sits among the turns read, 0 at the first and 1 at the last */
   at: number;
   /** what the person typed; empty for a message of images alone */
@@ -39,14 +41,28 @@ export function isPrompt(turn: ConversationTurn): boolean {
   return text.trim().length > 0 || turn.parts.some((part) => part.kind === "image");
 }
 
+/**
+ * Each time's key, in order: the time and how many before it had the same one (`t#0`, `t#1`). The
+ * rail keys its prompts so, and the chat its prompt rows, both in the order they read.
+ */
+export function occurrenceKeys(times: readonly string[]): string[] {
+  const seen = new Map<string, number>();
+  return times.map((ts) => {
+    const n = seen.get(ts) ?? 0;
+    seen.set(ts, n + 1);
+    return `${ts}#${n}`;
+  });
+}
+
 /** The prompts among the turns read, in order, each with the turn it started summed up. */
 export function railEntries(turns: readonly ConversationTurn[]): RailEntry[] {
   const starts = turns.flatMap((turn, index) => (isPrompt(turn) ? [index] : []));
+  const keys = occurrenceKeys(starts.map((start) => turns[start]!.ts!));
   const last = Math.max(1, turns.length - 1);
   return starts.map((start, n) => {
     const turn = turns[start]!;
     const answer = turns.slice(start + 1, starts[n + 1] ?? turns.length).filter((reply) => reply.role === "assistant");
-    return { ts: turn.ts!, at: turns.length === 1 ? 0 : start / last, text: userText(turn), line: turnLine(turn, answer) };
+    return { ts: turn.ts!, key: keys[n]!, at: turns.length === 1 ? 0 : start / last, text: userText(turn), line: turnLine(turn, answer) };
   });
 }
 

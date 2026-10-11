@@ -96,7 +96,7 @@ export function PromptRail({ model, emit }: { model: PromptRailModel; emit: Emit
 
   return <nav className="prompt-rail" aria-label={t("Prompts")} style={{ "--rail-gutter": `${gutter}px` } as CSSProperties}>
     {earlier !== "none" && (
-      <button type="button" className="prompt-rail-earlier" disabled={earlier === "loading"} onClick={() => emit({ type: "rail-earlier" })}
+      <button type="button" className={`prompt-rail-earlier${earlier === "failed" ? " is-failed" : ""}`} disabled={earlier === "loading"} onClick={() => emit({ type: "rail-earlier" })}
         title={t(earlier === "loading" ? "Loading earlier messages…" : earlier === "failed" ? "Couldn't load earlier messages — retry" : "Earlier messages")}
         aria-label={t(earlier === "loading" ? "Loading earlier messages…" : earlier === "failed" ? "Couldn't load earlier messages — retry" : "Earlier messages")} />
     )}
@@ -106,7 +106,7 @@ export function PromptRail({ model, emit }: { model: PromptRailModel; emit: Emit
       onClick={(event) => { if (event.target === event.currentTarget) { const index = nearest(event as unknown as ReactPointerEvent); if (index !== null) jump(index); } }}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPeek(null); }}>
       {entries.map((entry, index) => (
-        <button key={entry.ts} type="button" data-rail-index={index}
+        <button key={entry.key} type="button" data-rail-index={index}
           className={`prompt-rail-tick${index === reading ? " is-reading" : ""}${index === shown ? " is-peek" : ""}`}
           style={{ top: `calc(${PAD_PX}px + ${entry.at} * (100% - ${2 * PAD_PX}px))` }}
           tabIndex={index === tabStop ? 0 : -1}
@@ -164,7 +164,7 @@ function PromptSheet({ model, onJump, onEarlier, onClose }: { model: PromptRailM
             </button>
           )}
           {entries.map((entry, index) => (
-            <button key={entry.ts} type="button" className={`prompt-sheet-row${index === reading ? " is-reading" : ""}`} aria-current={index === reading ? "location" : undefined} onClick={() => onJump(index)}>
+            <button key={entry.key} type="button" className={`prompt-sheet-row${index === reading ? " is-reading" : ""}`} aria-current={index === reading ? "location" : undefined} onClick={() => onJump(index)}>
               <span className="prompt-sheet-number">{index + 1}</span>
               <span className="prompt-sheet-main">
                 <span className="prompt-sheet-text">{promptTitle(entry)}</span>

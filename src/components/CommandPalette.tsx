@@ -27,7 +27,8 @@ export interface CommandPaletteModel {
   /** the panes opened last on this PC, newest first */
   recent: string[];
   /** the actions this device has now (no bell once alerts are on, no sign-out without a token or pairing) */
-  offers: { notifications: boolean; lock: boolean; files: boolean; pane: boolean };
+  /** `prompts`: a chat shows, so its prompts can be searched */
+  offers: { notifications: boolean; lock: boolean; files: boolean; pane: boolean; prompts: boolean };
   /** the open chat's prompts that hold the words searched for, newest first */
   prompts: RailEntry[];
 }
@@ -36,7 +37,7 @@ export type CommandPaletteEvent =
   | { type: "close-palette" }
   | { type: "palette-query"; text: string }
   | { type: "palette-pick"; paneId: string }
-  | { type: "palette-pick-prompt"; ts: string }
+  | { type: "palette-pick-prompt"; key: string }
   | { type: "palette-run"; id: PaletteActionId };
 
 interface PaletteAction {
@@ -119,7 +120,7 @@ export function CommandPalette({ model, emit }: { model: CommandPaletteModel; em
 
   const runPane = (pane: PaneInfo): void => emit({ type: "palette-pick", paneId: pane.pane_id });
   const runAction = (action: PaletteAction): void => emit({ type: "palette-run", id: action.id });
-  const runPrompt = (entry: RailEntry): void => emit({ type: "palette-pick-prompt", ts: entry.ts });
+  const runPrompt = (entry: RailEntry): void => emit({ type: "palette-pick-prompt", key: entry.key });
   const activate = (index: number): void => {
     if (index < panes.length) {
       const pane = panes[index];
@@ -170,7 +171,7 @@ export function CommandPalette({ model, emit }: { model: CommandPaletteModel; em
           {prompts.length > 0 && <div className="menu-heading">{t("Prompts")}</div>}
           {prompts.map((entry, promptIndex) => {
             const index = panes.length + promptIndex;
-            return <button key={entry.ts} id={`palette-item-${index}`} type="button" role="option" className="menu-item palette-prompt" aria-selected={activeIndex === index} onMouseEnter={() => setActiveIndex(index)} onClick={() => runPrompt(entry)}>
+            return <button key={entry.key} id={`palette-item-${index}`} type="button" role="option" className="menu-item palette-prompt" aria-selected={activeIndex === index} onMouseEnter={() => setActiveIndex(index)} onClick={() => runPrompt(entry)}>
               <MessageSquareText /><span className="menu-item-main"><span className="palette-row-title">{promptTitle(entry)}</span>{entry.line.length > 0 && <span className="palette-row-subtitle">{entry.line}</span>}</span>
             </button>;
           })}

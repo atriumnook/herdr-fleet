@@ -92,12 +92,17 @@ export function keepsArrowsForText(target: KeyTargetLike | EventTarget | null): 
   return type === "text" || type === "search" || type === "url" || type === "email" || type === "password" || type === "tel" || type === "number" || type === "";
 }
 
+/** the shortcuts that step through a chat's prompts: they are the app's only while a chat shows */
+const PROMPT_STEPS: ReadonlySet<ShortcutId> = new Set(["previous-prompt", "next-prompt"]);
+
 /**
  * The capture listener below only prevents the browser's default, so xterm would still encode an
- * app shortcut for the pane: its key handler asks this first.
+ * app shortcut for the pane: its key handler asks this first. A terminal holding the keyboard
+ * shows no chat, so the prompt steps stay its keys.
  */
 export function isAppShortcut(event: ShortcutEventLike, overrides: ShortcutOverrides = {}): boolean {
-  return matchShortcut(event, isMacPlatform(), overrides) !== null;
+  const shortcut = matchShortcut(event, isMacPlatform(), overrides);
+  return shortcut !== null && !PROMPT_STEPS.has(shortcut);
 }
 
 export function isMacPlatform(): boolean {
@@ -124,6 +129,8 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
       const shortcut = matchShortcut(event, platformIsMac, settings.shortcutOverrides);
       if (shortcut === null) return;
       if (event.key.startsWith("Arrow") && keepsArrowsForText(event.target)) return;
+      // with no chat showing there is no prompt to step to: the keys go on to whatever has the focus
+      if (PROMPT_STEPS.has(shortcut) && actions.stepPrompt === null) return;
       event.preventDefault();
       switch (shortcut) {
         case "palette":
@@ -145,10 +152,10 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
           actions.selectAdjacentPane(1);
           break;
         case "previous-prompt":
-          actions.stepPrompt(-1);
+          actions.stepPrompt?.(-1);
           break;
         case "next-prompt":
-          actions.stepPrompt(1);
+          actions.stepPrompt?.(1);
           break;
         case "settings":
           actions.openSettings();

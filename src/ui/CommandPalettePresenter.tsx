@@ -29,7 +29,8 @@ const PROMPT_LIMIT = 5;
 export function CommandPalettePresenter({ snapshot, selectedPaneId, view, offers, emit }: CommandPalettePresenterProps) {
   const palette = useSelected((state) => state.palette);
   const query = palette.open ? palette.query : "";
-  const searching = query.trim().length > 0;
+  // the open chat's prompts, while it shows: a pick scrolls it
+  const searching = offers.prompts && query.trim().length > 0;
   const older = useSelected((state) => (searching && state.conversation.open !== null ? state.conversation.older.turns : NO_TURNS));
   const newest = useSelected((state) => (searching && state.conversation.open !== null && state.conversation.view.source === "conversation" ? state.conversation.view.turns : NO_TURNS));
   const prompts = useMemo(() => (searching ? findPrompts(railEntries([...older, ...newest]), query).slice(0, PROMPT_LIMIT) : NO_PROMPTS), [older, newest, query, searching]);
