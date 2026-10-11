@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { adapterFor, cursorUsage, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
+import { adapterFor, cursorUsage, isAgentKind, opencodePermission, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
 
 const base = { name: "impl", systemPromptFile: "/tmp/i.md", systemPrompt: "Be brief.\nSay \"done\".", resultDir: "/state/results/r1" };
 
@@ -196,6 +196,65 @@ describe("agy adapter", () => {
   });
 });
 
+describe("opencode adapter", () => {
+  const opencode = adapterFor("opencode");
+  const pane = { resultsDir: "/state/fleet-results", fleetCommand: "/usr/bin/bun /opt/fleet/bin/fleet.ts" };
+
+  it("takes the model as provider/model, no thinking level, no approve-everything flag, and instructions in the first prompt", () => {
+    expect(opencode.launchArgs({ ...base, model: "anthropic/claude-sonnet-5-5", thinking: "high" })).toEqual(["--model", "anthropic/claude-sonnet-5-5"]);
+    expect(opencode.launchArgs({ ...base, model: "p/m:low" })).toEqual(["--model", "p/m"]);
+    expect(opencode.launchArgs(base)).toEqual([]);
+    expect(opencode.instructionsInPrompt).toBe(true);
+    expect(opencode.readOnlyArgs).toEqual(["--agent", "fleet-readonly"]);
+  });
+
+  it("turns off its self-update, session sharing and language-server downloads in the pane", () => {
+    expect(opencode.env?.(pane)).toMatchObject({ OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_SHARE: "true", OPENCODE_DISABLE_LSP_DOWNLOAD: "true" });
+  });
+
+  it("asks before any shell command that is not on its short read-only list, and never allows everything", () => {
+    const permission = opencodePermission(pane) as { bash: Record<string, string>; edit: Record<string, string>; external_directory: Record<string, string> };
+    expect(Object.entries(permission.bash)[0]).toEqual(["*", "ask"]);
+    expect(Object.keys(permission.bash).slice(1).every((pattern) => permission.bash[pattern] === "allow")).toBe(true);
+    expect(permission.bash["/usr/bin/bun /opt/fleet/bin/fleet.ts *"]).toBe("allow");
+    expect(permission.bash["git status *"]).toBe("allow");
+    expect(permission.bash["git push *"]).toBeUndefined();
+    expect(permission.bash["rm *"]).toBeUndefined();
+    // only the results folder is opened to edits and to paths outside the workspace
+    expect(permission.edit).toEqual({ "*fleet-results/*": "allow" });
+    expect(permission.external_directory).toEqual({ "/state/fleet-results/*": "allow" });
+    const sent = JSON.parse(opencode.env!(pane)["OPENCODE_PERMISSION"]!);
+    expect(sent).toEqual(permission);
+    expect(Object.values(sent).includes("allow")).toBe(false);
+  });
+
+  it("defines the read-only agent with a deny that its allowance for the result file follows", () => {
+    const config = JSON.parse(opencode.env!(pane)["OPENCODE_CONFIG_CONTENT"]!);
+    const edit = config.agent["fleet-readonly"].permission.edit;
+    expect(Object.entries(edit)).toEqual([["*", "deny"], ["*fleet-results/*", "allow"]]);
+    expect(config.agent["fleet-readonly"].mode).toBe("primary");
+  });
+
+  it("blocks on a permission request and not once it is answered", () => {
+    const asked = "  △ Permission required\n    # Shell command\n    $ rm -rf build\n\n  Allow once   Allow always   Reject";
+    expect(opencode.question?.(asked)).toContain("permission");
+    expect(opencode.question?.("\x1b[1m△ Permission required\x1b[0m\n Allow\x1b[2m once\x1b[0m")).toContain("permission");
+    expect(opencode.question?.("Ask anything… \"Fix broken tests\"\n  Build · Big Pickle")).toBeUndefined();
+    expect(opencode.question?.("The docs call it a Permission required screen.")).toBeUndefined();
+  });
+
+  it("reads a failed request from its retry line", () => {
+    expect(opencode.turnError("working\nRate limit exceeded [retrying in 12s attempt #3]\n")).toBe("Rate limit exceeded");
+    expect(opencode.turnError("Provider overloaded [retrying attempt #2]")).toBe("Provider overloaded");
+    expect(opencode.turnError("HANDOFF\nPASS")).toBeUndefined();
+  });
+
+  it("reads the error line of a CLI that quit while starting", () => {
+    expect(opencode.startupError("Error: Unexpected error")).toBe("Unexpected error");
+    expect(opencode.startupError("Ask anything…")).toBeUndefined();
+  });
+});
+
 describe("kinds", () => {
   it("splits a :level suffix off a model for the CLIs that take the level apart", () => {
     expect(splitThinking("m:low", "high")).toEqual({ model: "m", thinking: "low" });
@@ -204,7 +263,7 @@ describe("kinds", () => {
   });
 
   it("knows only the kinds it has an adapter for", () => {
-    for (const kind of ["pi", "claude", "codex", "cursor", "agy"]) expect(isAgentKind(kind)).toBe(true);
+    for (const kind of ["pi", "claude", "codex", "cursor", "agy", "opencode"]) expect(isAgentKind(kind)).toBe(true);
     expect(isAgentKind("gemini")).toBe(false);
     expect(isAgentKind("toString")).toBe(false);
   });

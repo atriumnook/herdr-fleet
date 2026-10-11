@@ -423,7 +423,7 @@ export class Orchestrator {
     const id = makeId();
     const herdrName = makeHerdrName(request.group, definition.name, id);
     const displayName = request.name?.trim() || definition.name;
-    const env = { ...this.deps.agentEnv(), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
+    const env = { ...this.deps.agentEnv(), ...adapter.env?.({ resultsDir: this.deps.resultsDir, fleetCommand: this.deps.fleetCommand }), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
 
     // the budget counts runs across fleets: the check and the first save must not interleave
     const previousGate = this.spawnGate;
@@ -468,7 +468,7 @@ export class Orchestrator {
     mkdirSync(resultDir, { mode: 0o700 });
     // a project's coordinator talks with the person, who reads its reply: no agent reads a handoff of it
     const resultFile = definition.name === PROJECT_ROLE ? undefined : join(resultDir, RESULT_FILE);
-    const instructions = this.instructions(definition, displayName, request.group, canSpawn, resultFile, this.deps.standingOrders?.(request.cwd) ?? "");
+    const instructions = this.instructions(definition, displayName, request.group, canSpawn, resultFile, adapter, this.deps.standingOrders?.(request.cwd) ?? "");
     if (adapter.instructionsInPrompt) {
       mkdirSync(this.deps.instructionsDir, { recursive: true, mode: 0o700 });
       writeFileSync(this.undeliveredFile(run), instructions, { mode: 0o600 });
@@ -569,7 +569,7 @@ export class Orchestrator {
     }
   }
 
-  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string | undefined, standing: string): string {
+  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string | undefined, adapter: AgentAdapter, standing: string): string {
     const fleet = this.deps.fleetCommand;
     return [
       definition.systemPrompt,
@@ -590,7 +590,11 @@ export class Orchestrator {
       "Treat herdr's 'unknown' as uncertainty, not completion.",
       ...(resultFile ? [
         `Your result file is ${resultFile}.`,
-        ...(definition.edits === false ? ["You edit no file, and your file-editing tools are off: write your result file with a shell command."] : []),
+        ...(definition.edits === false
+          ? [adapter.readOnlyEditsResult
+            ? "You edit no file but your result file: write that with your file-editing tool, which is limited to it."
+            : "You edit no file, and your file-editing tools are off: write your result file with a shell command."]
+          : []),
         "At the end of each delegated turn, write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section.",
         "The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED, and the evidence for it (what you ran and what it showed). Under ISSUES, list every issue you can prove, not only the first. Then: outcome, changed files, verification, unresolved questions.",
       ] : []),

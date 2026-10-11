@@ -15,13 +15,13 @@ export type { Cooldown, UsageEntry, UsageReading, UsageWindow } from "../../shar
 
 /**
  * The account a candidate draws on. agy keeps separate limits for its Gemini models and for the
- * others it hosts; pi has none of its own, so each of its providers cools down apart.
+ * others it hosts; pi and opencode have none of their own, so each of their providers cools down apart.
  */
 export function usageKey(kind: AgentKind, model?: string): string {
   if (kind === "agy") return !model || /gemini/i.test(model) ? "agy:gemini" : "agy:3p";
-  if (kind === "pi") {
+  if (kind === "pi" || kind === "opencode") {
     const slash = model?.indexOf("/") ?? -1;
-    return slash > 0 ? `pi:${model!.slice(0, slash)}` : "pi";
+    return slash > 0 ? `${kind}:${model!.slice(0, slash)}` : kind;
   }
   return kind;
 }

@@ -11,7 +11,7 @@ export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhi
 export type AgentState = "starting" | "working" | "idle" | "done" | "blocked" | "unknown" | "failed" | "stopped";
 
 /** The agent CLIs the fleet can start: herdr's `agent start --kind` values it has an adapter for (server/fleet/adapters.ts). */
-export type FleetAgentKind = "pi" | "claude" | "codex" | "cursor" | "agy";
+export type FleetAgentKind = "pi" | "claude" | "codex" | "cursor" | "agy" | "opencode";
 
 /** A spawn candidate passed over before the one a run started on, and why. */
 export interface SkippedCandidate {
@@ -175,7 +175,7 @@ export interface Cooldown {
   since: number;
 }
 
-/** One account the fleet tracks: a CLI, or a part of one with its own limits (agy's model groups, pi's providers). */
+/** One account the fleet tracks: a CLI, or a part of one with its own limits (agy's model groups, the providers of pi and opencode). */
 export interface UsageEntry {
   key: string;
   reading?: UsageReading;
