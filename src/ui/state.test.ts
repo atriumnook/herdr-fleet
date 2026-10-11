@@ -4,7 +4,7 @@ import type { Machine } from "../../shared/machines.ts";
 import type { ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, HealthAuth, InteractivePrompt, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
-import { CARD_CHANGED_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, FILE_SEARCH_DELAY_MS, INITIAL_STATE, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type Transition, type UiEvent, type UiState } from "./state.ts";
+import { CARD_CHANGED_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, FILE_SEARCH_DELAY_MS, INITIAL_STATE, MAX_EXPLANATIONS, explanationId, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type Transition, type UiEvent, type UiState } from "./state.ts";
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, name: id, role: "worker", agent: "pi", group: "g1", herdrName: `h-${id}`, paneId: `w1:${id}`, cwd: "/w",
@@ -2309,6 +2309,68 @@ describe("answering the waiting prompt in its card", () => {
     expect(sending.chat.pendingAnswer).not.toBeNull();
     const failed = play([{ type: "answer-result", id: sending.sends.seq, outcome: { kind: "failed", status: 500, code: null, message: "boom" } }], sending);
     expect(failed.state.chat.pendingAnswer).toBeNull();
+  });
+});
+
+describe("explaining an agent's question", () => {
+  const key = "plain:t:Which store?";
+  const request = { kind: "plain" as const, question: "Which store?", options: [{ label: "Redis", description: null }] };
+  const ask = (paneId = "w1:p1", lens?: "side", machineId = "local"): UiEvent => ({ type: "explain-question", machineId, paneId, key, request, ...(lens ? { lens } : {}) });
+  const response = { text: "### 推奨\n→ 1. Redis", model: "haiku", tokens: { input: 900, output: 120 } };
+  const answer = (paneId = "w1:p1", machineId = "local", lens?: "side"): UiEvent => ({ type: "explain-result", machineId, paneId, key, outcome: { kind: "ok", response }, ...(lens ? { lens } : {}) });
+  const id = (paneId = "w1:p1", machineId = "local") => explanationId(machineId, paneId, key);
+  const opened = play([{ type: "chat-open", machineId: "local", paneId: "w1:p1" }]).state;
+
+  it("asks once per question, and keeps what came back for it", () => {
+    const asked = play([ask(), ask()], opened);
+    expect(asked.effects).toEqual([{ kind: "explain-question", machineId: "local", paneId: "w1:p1", key, request }]);
+    expect(asked.state.explanations[id()]).toEqual({ status: "loading" });
+    const done = play([answer(), ask()], asked.state);
+    expect(done.state.explanations[id()]).toEqual({ status: "done", ...response });
+    expect(done.effects).toEqual([]);
+  });
+
+  it("says why it was not written, and may be asked again", () => {
+    const asked = play([ask(), { type: "explain-result", machineId: "local", paneId: "w1:p1", key, outcome: { kind: "failed", message: "claude has used 95% of its 5h limit", limited: true } }], opened);
+    expect(asked.state.explanations[id()]).toEqual({ status: "failed", message: "claude has used 95% of its 5h limit", limited: true });
+    expect(play([ask()], asked.state).effects).toHaveLength(1);
+  });
+
+  it("keeps an answer that comes after the chat moved to another pane or closed, so the question is never asked twice", () => {
+    const asked = play([ask()], opened).state;
+    const moved = play([{ type: "chat-open", machineId: "local", paneId: "w1:p2" }, answer()], asked).state;
+    expect(moved.explanations[id()]).toEqual({ status: "done", ...response });
+    const back = play([{ type: "chat-close", machineId: "local", paneId: "w1:p2" }, { type: "chat-open", machineId: "local", paneId: "w1:p1" }, ask()], moved);
+    expect(back.effects.filter((effect) => effect.kind === "explain-question")).toEqual([]);
+    expect(back.state.explanations[id()]).toEqual({ status: "done", ...response });
+  });
+
+  it("takes an answer only for the PC and pane it was asked on", () => {
+    const asked = play([ask()], opened).state;
+    const elsewhere = play([answer("w1:p1", "pc-2"), answer("w1:p9")], asked).state;
+    expect(elsewhere.explanations[id()]).toEqual({ status: "loading" });
+    expect(elsewhere.explanations[id("w1:p1", "pc-2")]).toBeUndefined();
+    expect(elsewhere.explanations[id("w1:p9")]).toBeUndefined();
+  });
+
+  it("shares the explanations between the two chats: the same pane beside asks nothing again", () => {
+    const asked = play([ask()], opened).state;
+    const side = play([{ type: "chat-open", machineId: "local", paneId: "w1:p1", lens: "side" }, ask("w1:p1", "side")], asked);
+    expect(side.effects.filter((effect) => effect.kind === "explain-question")).toEqual([]);
+    // an answer that comes back through the chat beside lands in the same place
+    const done = play([answer("w1:p1", "local", "side")], side.state).state;
+    expect(done.explanations[id()]).toEqual({ status: "done", ...response });
+    expect(play([ask("w1:p2", "side")], done).effects).toEqual([{ kind: "explain-question", machineId: "local", paneId: "w1:p2", key, request, lens: "side" }]);
+  });
+
+  it("keeps the newest explanations, letting the oldest settled ones go", () => {
+    let state = opened;
+    for (let index = 0; index < MAX_EXPLANATIONS + 5; index += 1) {
+      state = play([{ type: "explain-question", machineId: "local", paneId: `w1:p${index}`, key, request }, answer(`w1:p${index}`)], state).state;
+    }
+    expect(Object.keys(state.explanations)).toHaveLength(MAX_EXPLANATIONS);
+    expect(state.explanations[id("w1:p0")]).toBeUndefined();
+    expect(state.explanations[id(`w1:p${MAX_EXPLANATIONS + 4}`)]).toEqual({ status: "done", ...response });
   });
 });
 

@@ -7,7 +7,8 @@ import type { InteractivePrompt } from "../../shared/protocol.ts";
 import type { TypedAnswer } from "../lib/promptAnswer.ts";
 import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
-import type { ChatState, UiEvent } from "../ui/state.ts";
+import type { ChatState, Explanation, UiEvent } from "../ui/state.ts";
+import { ExplainBlock, LastInstruction } from "./QuestionGuide.tsx";
 
 export interface PromptCardProps {
   prompt: InteractivePrompt;
@@ -15,13 +16,17 @@ export interface PromptCardProps {
   typedAnswer?: TypedAnswer | null;
   /** the card's answer: on its way, refused, or none */
   card: ChatState["card"];
+  /** the person's newest message in the conversation, if it has one */
+  instruction?: string | null;
+  /** what Claude Haiku said of this question, when asked */
+  explanation?: Explanation;
   emit: Emit<PromptCardEvent>;
 }
 
-/** an answer picked in the card (`typed`: the Confirm of a pick typed in the composer), and a typed pick let go */
-export type PromptCardEvent = { type: "card-answer"; answer: TypedAnswer; typed: boolean } | Extract<UiEvent, { type: "chat-pending-answer-done" }>;
+/** an answer picked in the card (`typed`: the Confirm of a pick typed in the composer), a typed pick let go, and the Explain button */
+export type PromptCardEvent = { type: "card-answer"; answer: TypedAnswer; typed: boolean } | { type: "card-explain" } | Extract<UiEvent, { type: "chat-pending-answer-done" }>;
 
-export function PromptCard({ prompt, typedAnswer = null, card, emit }: PromptCardProps) {
+export function PromptCard({ prompt, typedAnswer = null, card, instruction = null, explanation, emit }: PromptCardProps) {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [custom, setCustom] = useState("");
   const answering = card !== null && card.promptId === prompt.id ? card : null;
@@ -63,6 +68,7 @@ export function PromptCard({ prompt, typedAnswer = null, card, emit }: PromptCar
         <span className="badge badge-blocked">{t("Needs you")}</span>
         <h2>{prompt.title}</h2>
       </header>
+      {instruction !== null && <LastInstruction text={instruction} />}
       {/* a Claude approval's heading is its question too: said once */}
       {prompt.question !== prompt.title && <p className="prompt-card-question">{prompt.question}</p>}
       {prompt.queued && (
@@ -128,6 +134,7 @@ export function PromptCard({ prompt, typedAnswer = null, card, emit }: PromptCar
         </div>
       )}
       {error !== null && <p className="notice prompt-card-error" role="alert">{error}</p>}
+      <ExplainBlock explanation={explanation} onExplain={() => emit({ type: "card-explain" })} />
     </section>
   );
 }

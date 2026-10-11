@@ -1,4 +1,4 @@
-import { useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createContext, useContext, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, Copy } from "lucide-react";
 import katex from "katex";
 
@@ -23,9 +23,14 @@ function FilePath({ path, code, open }: { path: string; code: boolean; open: (pa
   return <button type="button" className={`markdown-file${code ? " is-code" : ""}`} title={t("Open {path}", { path })} onClick={() => open(path)}>{label}</button>;
 }
 
+/** Text written for the person by a model (a question's explanation): its links and paths show as text, never to click. */
+const PlainContext = createContext(false);
+
 /** `interactive` is false inside a link or file label: nothing clickable nests in another. */
-function Inline({ nodes, interactive = true }: { nodes: InlineNode[]; interactive?: boolean }) {
+function Inline({ nodes, interactive: nested = true }: { nodes: InlineNode[]; interactive?: boolean }) {
   const context = useContext(OpenFileContext);
+  const plain = useContext(PlainContext);
+  const interactive = nested && !plain;
   const open = interactive ? context : null;
   return <>{nodes.map((node, index) => {
     const key = `${node.type}-${index}`;
@@ -44,7 +49,9 @@ function Inline({ nodes, interactive = true }: { nodes: InlineNode[]; interactiv
       case "strong": return <strong key={key}><Inline nodes={node.children} interactive={interactive} /></strong>;
       case "em": return <em key={key}><Inline nodes={node.children} interactive={interactive} /></em>;
       case "del": return <del key={key}><Inline nodes={node.children} interactive={interactive} /></del>;
-      case "link": return <a key={key} href={node.href} target="_blank" rel="noopener noreferrer"><Inline nodes={node.children} interactive={false} /></a>;
+      case "link": return plain
+        ? <span key={key}><Inline nodes={node.children} interactive={false} /></span>
+        : <a key={key} href={node.href} target="_blank" rel="noopener noreferrer"><Inline nodes={node.children} interactive={false} /></a>;
       // the label opens the file; where nothing can open one, the path shows after it, as Codex's terminal does
       case "file": {
         const label = <Inline nodes={node.children} interactive={false} />;
@@ -139,7 +146,9 @@ function Blocks({ blocks }: { blocks: MarkdownBlock[] }) {
   })}</>;
 }
 
-export function Markdown({ children, className }: { children: string; className?: string }) {
+/** `plain`: links, addresses and file paths show as text, none to click (text a model wrote for the person). */
+export function Markdown({ children, className, plain = false }: { children: string; className?: string; plain?: boolean }) {
   const blocks = useMemo(() => parseMarkdown(children), [children]);
-  return <div className={className === undefined ? "markdown" : `markdown ${className}`}><Blocks blocks={blocks} /></div>;
+  const drawn = <div className={className === undefined ? "markdown" : `markdown ${className}`}><Blocks blocks={blocks} /></div>;
+  return plain ? <PlainContext.Provider value>{drawn}</PlainContext.Provider> : drawn;
 }

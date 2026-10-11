@@ -201,6 +201,24 @@ export type ConversationPart =
   /** a message the agent's runtime put in the user's seat: it starts a turn, nobody typed it */
   | { kind: "notice"; text: string };
 
+/**
+ * POST /api/pane/explain: a question the pane's agent asked, on a question screen (`screen`) or at
+ * the end of its reply (`plain`). The server reads the pane's conversation for the rest.
+ */
+export interface ExplainRequest {
+  pane_id: string;
+  kind: "screen" | "plain";
+  question: string;
+  options: { label: string; description: string | null }[];
+}
+
+/** The explanation, as Markdown, with the model that wrote it and the tokens it measured. */
+export interface ExplainResponse {
+  text: string;
+  model: string;
+  tokens: { input: number; output: number };
+}
+
 /** Latest model settings actually recorded by this agent. */
 export interface ConversationMetadata {
   model: string | null;

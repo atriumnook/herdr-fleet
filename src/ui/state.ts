@@ -2,7 +2,7 @@ import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSetti
 import { planOpen, type Plan, type PlanAnswer } from "../../shared/plan.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
+import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, ExplainRequest, ExplainResponse, FileInfo, InteractivePrompt, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
 import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
@@ -468,6 +468,16 @@ export interface ChatState {
   seek: { to: -1 | 1 | { key: string }; seq: number } | null;
 }
 
+/** An explanation of an agent's question, asked of Claude Haiku from the question's card. */
+export type Explanation =
+  | { status: "loading" }
+  | { status: "done"; text: string; model: string; tokens: { input: number; output: number } }
+  /** `limited`: Claude was not asked, its account being at its limit or cooling down */
+  | { status: "failed"; message: string; limited: boolean };
+
+/** What explaining a question answered. */
+export type ExplainOutcome = { kind: "ok"; response: ExplainResponse } | { kind: "failed"; message: string; limited: boolean };
+
 /** how often the chat reads its conversation's newest page */
 export const CONVERSATION_POLL_MS = 2000;
 /** the scrollback read for an agent with no transcript */
@@ -522,6 +532,12 @@ export interface ConversationState {
 }
 
 export const NO_CHAT: ChatState = { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0, card: null, seek: null };
+
+/** explanations kept, settled ones beyond it going oldest first */
+export const MAX_EXPLANATIONS = 50;
+
+/** An explanation's place among them: the PC, the pane and the question's own key. */
+export const explanationId = (machineId: string, paneId: string, key: string): string => `${machineId}\u0000${paneId}\u0000${key}`;
 
 const NO_OLDER: ConversationState["older"] = { turns: [], cursor: undefined, status: "idle", heldFrom: null };
 export const NO_CONVERSATION: ConversationState = {
@@ -686,6 +702,8 @@ export interface UiState {
   conversation: ConversationState;
   /** the chat beside the pane's, with its conversation: the same steps run on it (`lens: "side"`) */
   side: { chat: ChatState; conversation: ConversationState };
+  /** explanations of agents' questions, for both chats, by explanationId */
+  explanations: Readonly<Record<string, Explanation>>;
   queue: QueueState;
   drafts: DraftsState;
   sends: SendsState;
@@ -888,6 +906,9 @@ type BareEvent =
   | { type: "chat-prompt-failed"; seq: number }
   | { type: "chat-pending-answer"; promptId: string; answer: TypedAnswer }
   | { type: "chat-pending-answer-done" }
+  /** the Explain button on a question's card: `key` names the question among the pane's */
+  | { type: "explain-question"; machineId: string; paneId: string; key: string; request: Omit<ExplainRequest, "pane_id"> }
+  | { type: "explain-result"; machineId: string; paneId: string; key: string; outcome: ExplainOutcome }
   /** the prompt before or after the one being read, by the keyboard */
   | { type: "prompt-rail-step"; direction: -1 | 1 }
   /** files attached to a composer's message (picked, pasted or dropped) */
@@ -1116,6 +1137,7 @@ type BareEffect =
   /** `text`: the message as written; `payload`: the same shaped for the pane's paste mode */
   | { kind: "submit"; id: number; paneId: string; text: string; payload: string; typed: boolean }
   | { kind: "answer-prompt"; id: number; machineId: string; paneId: string; promptId: string; answer: TypedAnswer }
+  | { kind: "explain-question"; machineId: string; paneId: string; key: string; request: Omit<ExplainRequest, "pane_id"> }
   | { kind: "line-draft-change"; owner: string; change: LineDraftChange }
   /** the newest page, from the held start when earlier pages show */
   | { kind: "read-conversation"; machineId: string; paneId: string; from: string | null; seq: number; olderSeq: number }
@@ -1174,6 +1196,7 @@ export const INITIAL_STATE: UiState = {
   chat: NO_CHAT,
   conversation: NO_CONVERSATION,
   side: { chat: NO_CHAT, conversation: NO_CONVERSATION },
+  explanations: {},
   queue: { lists: {}, unsaved: {}, sending: null, error: null },
   drafts: { composer: {}, settled: {}, line: {} },
   sends: { seq: 0, pending: {}, outcomes: {}, started: 0 },
@@ -1402,6 +1425,9 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       const chat = chatTransition(state, event, effects);
       return next(chat === state.chat ? {} : { chat });
     }
+    case "explain-question":
+    case "explain-result":
+      return next({ explanations: explainTransition(state.explanations, event, effects) });
     case "attach-files":
     case "upload-done":
     case "upload-failed":
@@ -2519,6 +2545,35 @@ function cardAnswering(state: UiState, machineId: string, paneId: string): ChatS
 }
 
 type ChatEvent = Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "poll-chat-prompt" | "chat-prompt-read" | "chat-prompt-failed" | "chat-pending-answer" | "chat-pending-answer-done" }>;
+
+type ExplainEvent = Extract<UiEvent, { type: "explain-question" | "explain-result" }>;
+
+/**
+ * Explanations, kept by PC, pane and question whichever chat shows them: a chat closed or moved to
+ * another pane, an answer still on its way, or the same pane in the other chat never asks Claude a
+ * second time for the same question. The oldest settled ones go past MAX_EXPLANATIONS.
+ */
+function explainTransition(explanations: UiState["explanations"], event: ExplainEvent, effects: Effect[]): UiState["explanations"] {
+  const id = explanationId(event.machineId, event.paneId, event.key);
+  const before = explanations[id];
+  if (event.type === "explain-question") {
+    // one call per question: asked again, it is still on its way or already said
+    if (before?.status === "loading" || before?.status === "done") return explanations;
+    effects.push({ kind: "explain-question", machineId: event.machineId, paneId: event.paneId, key: event.key, request: event.request });
+    const { [id]: _replaced, ...rest } = explanations;
+    const kept = Object.entries(rest);
+    const settled = kept.filter(([, value]) => value.status !== "loading");
+    const dropped = new Set(settled.slice(0, Math.max(0, kept.length + 1 - MAX_EXPLANATIONS)).map(([key]) => key));
+    return { ...Object.fromEntries(kept.filter(([key]) => !dropped.has(key))), [id]: { status: "loading" } };
+  }
+  // only the answer to a question asked on this PC and pane, while it waits
+  if (before?.status !== "loading") return explanations;
+  const { outcome } = event;
+  const explanation: Explanation = outcome.kind === "ok"
+    ? { status: "done", text: outcome.response.text, model: outcome.response.model, tokens: outcome.response.tokens }
+    : { status: "failed", message: outcome.message, limited: outcome.limited };
+  return { ...explanations, [id]: explanation };
+}
 
 function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): ChatState {
   const { chat } = state;

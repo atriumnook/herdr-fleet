@@ -30,3 +30,10 @@ each decision on the claim it changes, and one response sent back. No code of it
 plan is JSON the Web UI draws.
 
 Source:      https://github.com/anthropics/claude-plugins-community/tree/main/html-plan
+
+src/lib/plainQuestion.ts (the plain-text question test) and server/explain.ts (the
+explanation's four sections, the quoted-data instruction and the bounds on what is
+sent) adapt qa-guide from claude_qamods, Copyright (c) 2026 aieo-product, licensed
+under the MIT License.
+
+Source:      https://github.com/aieo-product/claude_qamods/tree/main/plugins/qa-guide

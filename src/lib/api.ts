@@ -4,6 +4,8 @@ import type {
   DirectoryListing,
   FileInfo,
   ConversationResponse,
+  ExplainRequest,
+  ExplainResponse,
   HealthAuth,
   InteractivePrompt,
   PairedDevice,
@@ -34,12 +36,15 @@ export function fetchRemoteAccess(): Promise<RemoteAccess> {
 export class ApiError extends Error {
   readonly status: number;
   readonly code: string | null;
+  /** what the server said, without the request around it */
+  readonly detail: string;
 
   constructor(url: string, status: number, detail: string, code: string | null) {
     super(`${url} failed (${status}): ${detail}`);
     this.name = "ApiError";
     this.status = status;
     this.code = code;
+    this.detail = detail;
   }
 }
 
@@ -357,6 +362,12 @@ export async function fetchPanePromptState(paneId: string, machineId = "local"):
 /** POST /api/pane/prompt/answer: ApiError 409 `prompt_changed` when the menu moved on. */
 export async function answerPanePrompt(answer: PromptAnswer, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "pane/prompt/answer"), "POST", answer);
+}
+
+/** POST /api/pane/explain: Claude Haiku explains a question the pane's agent asked (one model call). */
+export async function explainPaneQuestion(request: ExplainRequest, machineId = "local"): Promise<ExplainResponse> {
+  const response = await sendJson(machinePath(machineId, "pane/explain"), "POST", request);
+  return (await response.json()) as ExplainResponse;
 }
 
 /** GET /api/push: the server's VAPID key, the `applicationServerKey` this device subscribes with. */

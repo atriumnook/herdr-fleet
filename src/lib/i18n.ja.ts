@@ -61,6 +61,12 @@ export const JA: Record<string, string> = {
   "Codex keeps working meanwhile. Answer here; the message box still talks to Codex.": "その間も Codex は作業を続けます。ここで答えてください。メッセージ欄はこれまでどおり Codex に届きます。",
   "Choose with the option numbers above, e.g. 1 3.": "上の選択肢の番号で選んでください(例: 1 3)。",
   "Choose one of the options above: type {range}.": "上の選択肢から 1 つ選んでください。{range} を入力します。",
+  // ---- question explanations ----
+  "Sends part of this conversation (your recent messages, a summary of the tool calls and the agent's text, at most 12 KB) to Claude Haiku once, on your Claude plan.": "この会話の一部(あなたの直近のメッセージ、ツール呼び出しの要約、エージェントの文章。最大 12 KB)を Claude Haiku に 1 回送ります。あなたの Claude の利用枠を使います。",
+  "Claude was not asked. {reason}": "Claude には尋ねませんでした。{reason}",
+  "Could not explain. {reason}": "説明を作れませんでした。{reason}",
+  "Puts this choice in the message box. Send it from there.": "この選択肢をメッセージ欄に入れます。送信はメッセージ欄から行ってください。",
+  "The message box has text. Send or clear it to pick a choice here.": "メッセージ欄に入力中の文があります。ここで選択肢を選ぶには、その文を送信するか消してください。",
   // ---- composer ----
   "Reconnecting. The message stays here and is not queued.": "再接続しています。メッセージはここに残り、Queue には入りません。",
   "Sent as it was. Your changes made while it was sending stayed here and were not sent.": "変更前の内容で送りました。送信中に加えた変更はここに残っていて、送っていません。",

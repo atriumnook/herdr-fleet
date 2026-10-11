@@ -1,16 +1,26 @@
 import { useEffect, useMemo, useRef } from "react";
-import type { AgentStatus, ConversationTurn } from "../../shared/protocol.ts";
+import type { AgentStatus, ConversationTurn, ExplainRequest, InteractivePrompt } from "../../shared/protocol.ts";
+import { paneStorageId } from "../../shared/machines.ts";
+import { askedKey, isEmptyDraft, endingQuestion, lastInstruction } from "../lib/plainQuestion.ts";
 import { ChatView, type ChatViewEvent, type ChatViewModel } from "../components/ChatView.tsx";
 import { useMachineId } from "../lib/machineContext.tsx";
 import { useSettings } from "../lib/settings.ts";
 import { relay, type Emit } from "./bubble.ts";
-import { EMPTY_VIEW, type Lens, type UiEvent, type UiState } from "./state.ts";
+import { EMPTY_VIEW, explanationId, type Lens, type UiEvent, type UiState } from "./state.ts";
 import { threadCards, type ThreadRowModel } from "./fleetView.ts";
 import { fromPane } from "../../shared/fleet.ts";
 import { displayPaneTitle } from "../components/Sidebar.tsx";
 import { useSelected } from "./presenter.ts";
 
-export type ChatUpEvent = Exclude<ChatViewEvent, { type: "card-answer" }> | Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "prompt-card-answer" }>;
+export type ChatUpEvent = Exclude<ChatViewEvent, { type: "card-answer" | "card-explain" | "asked-explain" | "asked-pick" }>
+  | Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "prompt-card-answer" | "explain-question" | "composer-draft" }>;
+
+
+/** The question screen's question as one text: its heading, its question and the detail under them. */
+function screenRequest(prompt: InteractivePrompt): Omit<ExplainRequest, "pane_id"> {
+  const question = [...new Set([prompt.title, prompt.question])].join("\n") + (prompt.body ? `\n\n${prompt.body}` : "");
+  return { kind: "screen", question, options: prompt.options.filter((_, index) => index !== prompt.custom_option_index).map(({ label, description }) => ({ label, description })) };
+}
 
 /** no threads: the same empty list each render */
 const NO_THREADS: ThreadRowModel[] = [];
@@ -93,6 +103,22 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
   const seek = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.seek : null));
   const { settings: { showThinking } } = useSettings();
   const cards = useMemo(() => (threads.length === 0 ? undefined : threadCards([...older, ...view.turns], threads)), [threads, older, view.turns]);
+  const working = agentStatus === "working" || agentStatus === "blocked";
+  // a question written at the end of a reply, found by a guess: offered here only, never counted as the pane needing the person
+  const asked = useMemo(() => (view.source === "conversation" ? endingQuestion(view.turns, working) : null), [view, working]);
+  const lastTurn = view.turns[view.turns.length - 1];
+  // where the newest page starts and how long it is: the last turn's place, for a transcript that keeps no time
+  const pageStart = useSelected((state) => (here(state) ? lensOf(state).conversation.answer?.cursor : undefined));
+  const pageLength = useSelected((state) => (here(state) ? lensOf(state).conversation.answer?.turns.length ?? 0 : 0));
+  const askedId = asked === null ? null : askedKey(asked, { historyId, ts: lastTurn?.ts ?? null, pageStart, index: pageLength - 1 });
+  // a choice goes into the message box only while it is empty
+  const owner = paneStorageId(machineId, paneId);
+  // only whether the box is empty: what is typed in it re-renders nothing here
+  const boxEmpty = useSelected((state) => isEmptyDraft(state.drafts.composer[owner]?.text ?? ""));
+  const promptKey = prompt === null ? null : `screen:${prompt.id}`;
+  const instruction = useMemo(() => (prompt === null ? null : lastInstruction([...older, ...view.turns])), [prompt, older, view.turns]);
+  const promptExplanation = useSelected((state) => (promptKey === null ? undefined : state.explanations[explanationId(machineId, paneId, promptKey)]));
+  const askedExplanation = useSelected((state) => (askedId === null ? undefined : state.explanations[explanationId(machineId, paneId, askedId)]));
   // a pane's name read only for the panes the turns name: other panes' changes re-render nothing.
   // The turns are read inside the selector: one read from outside it would be a render late, while
   // the selector keeps its answer for the state it saw. Turns that did not change keep their ids.
@@ -106,13 +132,30 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
   }, sameNames);
   const model = useMemo<ChatViewModel>(() => ({
     paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, seek,
+    instruction, asked, promptExplanation, askedExplanation, askedCanPick: boxEmpty,
     ...(askedFrom.size ? { askedFrom } : {}),
-  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, seek, askedFrom]);
+  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, seek, instruction, asked, promptExplanation, askedExplanation, boxEmpty, askedFrom]);
   // an answer in the prompt's card is for this pane's prompt on this PC
-  const promptId = prompt?.id ?? null;
   const relayed = useMemo(() => relay<ChatViewEvent, ChatUpEvent>(emit, (event, pass) => {
-    if (event.type !== "card-answer") pass(event);
-    else if (promptId !== null) pass({ type: "prompt-card-answer", machineId, paneId, promptId, answer: event.answer, typed: event.typed });
-  }), [emit, machineId, paneId, promptId]);
+    switch (event.type) {
+      case "card-answer":
+        if (prompt !== null) pass({ type: "prompt-card-answer", machineId, paneId, promptId: prompt.id, answer: event.answer, typed: event.typed });
+        return;
+      case "card-explain":
+        if (prompt !== null && promptKey !== null) pass({ type: "explain-question", machineId, paneId, key: promptKey, request: screenRequest(prompt) });
+        return;
+      case "asked-explain":
+        if (asked !== null && askedId !== null) pass({ type: "explain-question", machineId, paneId, key: askedId, request: { kind: "plain", question: asked.question, options: asked.options } });
+        return;
+      case "asked-pick": {
+        // the choice goes into this pane's empty message box; the person sends it. Text they are writing stays
+        const option = asked?.options[event.index];
+        if (option !== undefined && boxEmpty) pass({ type: "composer-draft", owner, change: { kind: "set", text: `${event.index + 1}. ${option.label}` } });
+        return;
+      }
+      default:
+        pass(event);
+    }
+  }), [emit, machineId, paneId, prompt, promptKey, asked, askedId, owner, boxEmpty]);
   return <ChatView model={model} emit={relayed} />;
 }
