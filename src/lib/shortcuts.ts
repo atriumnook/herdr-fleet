@@ -13,6 +13,8 @@ export const SHORTCUTS = [
   { id: "new-session", label: "New session", keys: ["Mod", "Shift", "O"] },
   { id: "previous-pane", label: "Previous pane", keys: ["Mod", "Shift", "ArrowUp"] },
   { id: "next-pane", label: "Next pane", keys: ["Mod", "Shift", "ArrowDown"] },
+  { id: "previous-prompt", label: "Previous prompt", keys: ["Mod", "Shift", "["] },
+  { id: "next-prompt", label: "Next prompt", keys: ["Mod", "Shift", "]"] },
   { id: "settings", label: "Settings", keys: ["Mod", "Shift", ","] },
 ] as const;
 
@@ -37,8 +39,13 @@ const KEY_TO_ID: Readonly<Record<string, ShortcutId>> = {
   o: "new-session",
   ArrowUp: "previous-pane",
   ArrowDown: "next-pane",
+  "[": "previous-prompt",
+  "]": "next-prompt",
   ",": "settings",
 };
+
+/** Shift turns the bracket keys into braces on common layouts (US and Japanese alike) */
+const SHIFTED: Readonly<Record<string, string>> = { "{": "[", "}": "]" };
 
 export function shortcutKeys(id: ShortcutId, overrides: ShortcutOverrides): string[] {
   if (Object.hasOwn(overrides, id)) return overrides[id] ? [overrides[id]!] : [];
@@ -53,7 +60,7 @@ export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean, 
   const hasMod = platformIsMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
   if (!hasMod || !event.shiftKey || event.altKey) return null;
   // Shift+Comma produces "<" on common keyboard layouts.
-  const key = event.code === "Comma" ? "," : /^Digit[0-9]$/.test(event.code ?? "") ? event.code!.slice(-1) : event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const key = event.code === "Comma" ? "," : /^Digit[0-9]$/.test(event.code ?? "") ? event.code!.slice(-1) : event.key.length === 1 ? SHIFTED[event.key] ?? event.key.toLowerCase() : event.key;
   for (const shortcut of SHORTCUTS) {
     if (Object.hasOwn(overrides, shortcut.id) && overrides[shortcut.id] === key) return shortcut.id;
   }
@@ -136,6 +143,12 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
           break;
         case "next-pane":
           actions.selectAdjacentPane(1);
+          break;
+        case "previous-prompt":
+          actions.stepPrompt(-1);
+          break;
+        case "next-prompt":
+          actions.stepPrompt(1);
           break;
         case "settings":
           actions.openSettings();

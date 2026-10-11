@@ -29,6 +29,7 @@ import { checkTerminalSession } from "./terminal-session-regression.ts";
 import { checkTerminalDraft } from "./terminal-draft-regression.ts";
 import { checkChatPrompt, checkChatQuestionGuide } from "./chat-prompt-regression.ts";
 import { checkChatConversation } from "./chat-conversation-regression.ts";
+import { checkPromptRail } from "./prompt-rail-regression.ts";
 import { checkChatQueue } from "./chat-queue-regression.ts";
 import { checkComposerSend } from "./composer-send-regression.ts";
 import { checkComposerCompletion } from "./composer-completion-regression.ts";
@@ -354,6 +355,7 @@ try {
   await checkChatPrompt(browser, origin);
   await checkChatQuestionGuide(browser, origin);
   await checkChatConversation(browser, origin);
+  await checkPromptRail(browser, origin);
   await checkChatQueue(browser, origin);
   await checkComposerSend(browser, origin);
   await checkComposerCompletion(browser, origin);

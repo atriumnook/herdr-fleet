@@ -1,0 +1,234 @@
+/* The prompt rail (PromptRail.tsx): ticks over the chat's right edge, left of its scrollbar. It
+   lies over the reading surface without a panel of its own: the transcript never sits on glass,
+   and the only box is the card of the prompt pointed at. */
+.prompt-rail {
+  position: absolute;
+  z-index: 2;
+  top: var(--space-4);
+  bottom: var(--space-8);
+  right: calc(var(--rail-gutter, 0px) + 2px);
+  width: 14px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* the transcript keeps clear of the ticks */
+@media (pointer: fine) {
+  .chat-view.has-rail { padding-right: calc(var(--space-4) + 16px); }
+}
+
+.prompt-rail-track {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  cursor: pointer;
+}
+
+/* one prompt: a hairline across the rail, its hit area taller than the line */
+.prompt-rail-tick {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 9px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+
+.prompt-rail-tick::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 3px;
+  right: 3px;
+  height: 1px;
+  background: var(--line-strong);
+  transform: translateY(-50%);
+  transition: background-color var(--dur-fast) var(--ease-out);
+}
+
+/* the prompt being read is thick, as prompt-rail draws it */
+.prompt-rail-tick.is-reading::before {
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+}
+
+.prompt-rail-tick.is-peek::before { background: var(--ink-strong); }
+.prompt-rail-tick.is-reading.is-peek::before { background: var(--accent); }
+
+.prompt-rail-tick:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: var(--radius-sm); }
+
+/* the pages before the first prompt: a dotted stub at the top, which loads the next one */
+.prompt-rail-earlier {
+  flex: 0 0 auto;
+  height: 12px;
+  margin: 0 3px;
+  padding: 0;
+  border: 0;
+  border-top: 2px dotted var(--line-strong);
+  background: transparent;
+  cursor: pointer;
+}
+
+.prompt-rail-earlier:hover { border-top-color: var(--ink); }
+.prompt-rail-earlier:disabled { cursor: progress; opacity: 0.5; }
+.prompt-rail-earlier:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* the prompt pointed at, left of the rail */
+.prompt-rail-card {
+  position: absolute;
+  right: calc(100% + var(--space-2));
+  width: min(360px, 60vw);
+  padding: var(--space-2) var(--space-3);
+  transform: translateY(-50%);
+  pointer-events: none;
+}
+
+.prompt-rail-card-text {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow: hidden;
+  color: var(--ink-strong);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.prompt-rail-card-meta {
+  margin: var(--space-1) 0 0;
+  color: var(--sub);
+  font-size: var(--fs-xs);
+}
+
+.prompt-rail-card-count { font-family: var(--font-mono); }
+
+/* a touch screen points at nothing: a button opens the prompts as a list instead */
+.prompt-rail-open { display: none; }
+
+@media (pointer: coarse) {
+  .prompt-rail {
+    top: auto;
+    bottom: var(--space-2);
+    right: calc(var(--rail-gutter, 0px) + var(--space-3));
+    width: auto;
+  }
+
+  .prompt-rail-track,
+  .prompt-rail-earlier,
+  .prompt-rail-card { display: none; }
+
+  .prompt-rail-open {
+    display: inline-flex;
+    width: var(--touch-target);
+    min-height: var(--touch-target);
+    padding: 0;
+    justify-content: center;
+    border-radius: 999px;
+    box-shadow: var(--shadow-pop);
+  }
+
+  .prompt-rail-open svg { width: var(--icon-size); height: var(--icon-size); }
+}
+
+/* the list sheet */
+.prompt-sheet {
+  padding: var(--space-2) var(--space-3) calc(var(--space-5) + env(safe-area-inset-bottom, 0px));
+}
+
+.prompt-sheet-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-3);
+}
+
+.prompt-sheet-title {
+  color: var(--ink-strong);
+  font-size: var(--fs-md);
+  font-weight: var(--fw-semibold);
+}
+
+.prompt-sheet-count {
+  color: var(--sub);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.prompt-sheet-list {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.prompt-sheet-earlier { align-self: center; margin-bottom: var(--space-2); }
+
+.prompt-sheet-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  min-height: 48px;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.prompt-sheet-row:hover { background: var(--field-hover); }
+.prompt-sheet-row.is-reading { background: var(--tint); }
+
+.prompt-sheet-number {
+  flex: 0 0 2.5em;
+  color: var(--sub);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  text-align: right;
+}
+
+.prompt-sheet-main {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.prompt-sheet-text {
+  overflow: hidden;
+  color: var(--ink-strong);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-sheet-meta {
+  color: var(--sub);
+  font-size: var(--fs-xs);
+}
+
+/* a prompt jumped to: its bubble is ringed for a moment, so the eye finds it */
+.chat-turn-user[data-landed] .chat-bubble {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  animation: prompt-landed 1.6s var(--ease-out) forwards;
+}
+
+@keyframes prompt-landed {
+  0%, 60% { outline-color: var(--accent); }
+  100% { outline-color: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-rail-tick::before { transition: none; }
+  .chat-turn-user[data-landed] .chat-bubble { animation: none; }
+}

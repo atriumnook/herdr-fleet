@@ -76,6 +76,7 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
   const prompt = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.prompt : null));
   const pendingAnswer = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.pendingAnswer : null));
   const card = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.card : null));
+  const seek = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.seek : null));
   const explanations = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.explanations : NO_EXPLANATIONS));
   const { settings: { showThinking } } = useSettings();
   const cards = useMemo(() => (threads.length === 0 ? undefined : threadCards([...older, ...view.turns], threads)), [threads, older, view.turns]);
@@ -89,9 +90,9 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
   const promptExplanation = promptKey === null ? undefined : explanations[promptKey];
   const askedExplanation = askedKey === null ? undefined : explanations[askedKey];
   const model = useMemo<ChatViewModel>(() => ({
-    paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards,
+    paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, seek,
     instruction, asked, promptExplanation, askedExplanation,
-  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, instruction, asked, promptExplanation, askedExplanation]);
+  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, seek, instruction, asked, promptExplanation, askedExplanation]);
   // an answer in the prompt's card is for this pane's prompt on this PC
   const relayed = useMemo(() => relay<ChatViewEvent, ChatUpEvent>(emit, (event, pass) => {
     switch (event.type) {

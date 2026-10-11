@@ -425,6 +425,8 @@ export interface ChatState {
   promptSeq: number;
   /** an answer from the prompt's card: on its way, refused (`changed`: the prompt moved on under it), or none */
   card: { promptId: string; status: "pending" } | { promptId: string; status: "changed"; seq: number } | { promptId: string; status: "failed"; message: string } | null;
+  /** a prompt of the conversation asked for (a step back or on, or the one picked in the palette): the chat scrolls to it once per `seq` */
+  seek: { to: -1 | 1 | { ts: string }; seq: number } | null;
   /** explanations asked for on this pane, by the question they explain (ExplainKey) */
   explanations: Readonly<Record<string, Explanation>>;
 }
@@ -494,7 +496,7 @@ export interface ConversationState {
 
 const NO_EXPLANATIONS: Readonly<Record<string, Explanation>> = {};
 
-export const NO_CHAT: ChatState = { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0, card: null, explanations: NO_EXPLANATIONS };
+export const NO_CHAT: ChatState = { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0, card: null, seek: null, explanations: NO_EXPLANATIONS };
 
 const NO_OLDER: ConversationState["older"] = { turns: [], cursor: undefined, status: "idle", heldFrom: null };
 export const NO_CONVERSATION: ConversationState = {
@@ -806,6 +808,8 @@ type BareEvent =
   | { type: "palette-recent"; machineId: string; recent: string[] }
   /** a pane picked in the palette: it opens, and the palette closes */
   | { type: "palette-pick"; paneId: string }
+  /** a prompt of the open chat picked in the palette: the chat scrolls to it, and the palette closes */
+  | { type: "palette-pick-prompt"; ts: string }
   /** the in-app alert held by a finger, and let go of without a flick */
   | { type: "droplet-press" }
   | { type: "droplet-release" }
@@ -839,6 +843,8 @@ type BareEvent =
   /** the Explain button on a question's card: `key` names the question among the pane's */
   | { type: "explain-question"; machineId: string; paneId: string; key: string; request: Omit<ExplainRequest, "pane_id"> }
   | { type: "explain-result"; paneId: string; key: string; outcome: ExplainOutcome }
+  /** the prompt before or after the one being read, by the keyboard */
+  | { type: "prompt-rail-step"; direction: -1 | 1 }
   /** files attached to a composer's message (picked, pasted or dropped) */
   | { type: "attach-files"; owner: string; machineId: string; paneId: string; files: File[] }
   | { type: "upload-done"; owner: string; id: number; path: string }
@@ -1287,6 +1293,11 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "palette-pick":
       if (!state.palette.open) return next({});
       return next({ screen: "pane", palette: { open: false }, ...pick(state, state.palette.machineId, event.paneId, effects) });
+    case "palette-pick-prompt":
+      if (!state.palette.open) return next({});
+      return next({ palette: { open: false }, chat: seekPrompt(state.chat, { ts: event.ts }) });
+    case "prompt-rail-step":
+      return next({ chat: seekPrompt(state.chat, event.direction) });
     case "droplet-press":
     case "droplet-release":
     case "droplet-dismiss":
@@ -2395,6 +2406,11 @@ function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): Ch
   // a read begun before the latest send answers for the turn before it: its suggestion is dropped
   if (event.sent !== chat.sent || shown.suggestion === event.suggestion) return shown;
   return { ...shown, suggestion: event.suggestion };
+}
+
+/** A prompt asked for in the open chat; with no chat open there is nothing to scroll. */
+function seekPrompt(chat: ChatState, to: -1 | 1 | { ts: string }): ChatState {
+  return chat.open === null ? chat : { ...chat, seek: { to, seq: (chat.seek?.seq ?? 0) + 1 } };
 }
 
 /** The settings a read reported for the pane; the same settings keep the same object, as every poll would otherwise re-render the composer. */

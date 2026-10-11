@@ -403,6 +403,26 @@ One set for both themes: the card is island black wherever it shows.
   Thinking renders as a folded block only when **Show thinking** is enabled.
 - Auto-follow stops when the reader scrolls up; later output raises a **New messages** pill.
 
+### Prompt rail (`.prompt-rail`)
+- Over the chat's right edge, left of its scrollbar, from two prompts on (or one with earlier pages
+  left): one hairline tick per prompt the person typed among the turns read, placed where its turn
+  sits. `[fleet]` messages, compactions and runtime notices are no prompts. The prompt being read
+  (the last whose row starts at or above the top of the view) is a 3px `--accent` bar. A dotted stub
+  at the top loads the page before. No panel: the transcript never sits on glass.
+- Pointing at the rail shows the nearest prompt's card (`.menu`, left of the rail): its first three
+  lines, then `2 / 5 · time · 1m 30s · 1 edit · app.ts` in `--sub`. A click jumps there: the row
+  lands `8px` under the top at once (no smooth scroll) and its bubble is ringed in `--accent`, fading
+  out over `1.6s` (no fade under reduced motion).
+- **Previous prompt** / **Next prompt** (`Mod+Shift+[` / `Mod+Shift+]`) step through the chat that
+  holds the focus, else the pane's; back from inside a turn goes to its own prompt first, back past the
+  first loads the page before and lands on the prompt there, on past the last goes to the end. The
+  ticks take the keyboard too: ↑ ↓ Home End move, Enter jumps, Escape leaves.
+- The command palette lists up to five prompts holding every word typed, newest first.
+- On coarse pointers there is nothing to point at: a round button at the chat's lower right opens
+  the prompts as a bottom sheet (number, first line, time and turn line; the one being read tinted),
+  and a tap jumps there. The terminal lens has no rail: herdr's scrollback says nothing of prompts.
+- Adapted from oikon48's prompt-rail (MIT, see NOTICE).
+
 ### Work block (`.work-block`, `.work-row`)
 - One per assistant turn: a `▸ Worked for 7s · 1 edit · 2 commands` header (duration = next turn's
   timestamp minus this one's; "Working…" in `--working` behind a steady dot while the agent runs)
@@ -451,8 +471,9 @@ One set for both themes: the card is island black wherever it shows.
   is ignored. While working, Stop sends Escape and Queue stores the next message.
 
 ### Command palette
-- `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions. Recent panes lead
-  an empty query; arrows cycle, Enter activates and Escape closes.
+- `Mod+Shift+K` opens a top-offset `--palette-w` dialog searching panes and actions, and with a query
+  the open chat's prompts (between them, see Prompt rail). Recent panes lead an empty query; arrows
+  cycle, Enter activates and Escape closes.
 - Actions: New session, Switch to chat / terminal, Rename pane, Close pane, Toggle sidebar, Toggle
   theme, Settings, Enable notifications, Sign out, Browse files and Refresh, the conditional ones
   only when they apply, with `.kbd` hints where a global shortcut exists.

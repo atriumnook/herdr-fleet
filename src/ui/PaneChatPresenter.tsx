@@ -66,7 +66,7 @@ export function PaneChatPresenter({ runId, paneId, agent, ended, lens, threads, 
   const chatEmit = useMemo<Emit<ChatUpEvent>>(() => (event) => emit(event), [emit]);
   return (
     <MachineContext.Provider value={FLEET_MACHINE}>
-      <div className="fleet-chat">
+      <div className="fleet-chat" data-chat-lens={lens}>
         {/* the transcript lies over this box, as it lies over the terminal in the pane */}
         <div className="fleet-chat-surface">
         <RenderBoundary resetKey={paneId} fallback={(retry) => (

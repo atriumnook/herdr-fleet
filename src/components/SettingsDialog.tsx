@@ -265,7 +265,7 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
                 }}>
                   <option value="default" title={t("Default")} disabled={shortcutConflict(shortcut.id, shortcutKeys(shortcut.id, {}), settings.shortcutOverrides)}>{compactKeys(shortcut.keys)}</option>
                   <option value="off" title={t("Send keys to terminal")}>{t("Off")}</option>
-                  {[..."abcdefghijklmnopqrstuvwxyz0123456789,", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].map((key) => {
+                  {[..."abcdefghijklmnopqrstuvwxyz0123456789,[]", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].map((key) => {
                     const conflict = shortcutConflict(shortcut.id, [key], settings.shortcutOverrides);
                     return <option key={key} value={key} disabled={conflict}>{compactKeys(["Mod", "Shift", key])}{conflict ? " — " + t("Already assigned") : ""}</option>;
                   })}

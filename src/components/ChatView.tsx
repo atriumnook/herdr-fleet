@@ -11,6 +11,8 @@ import { Markdown } from "./Markdown.tsx";
 import { PromptCard, type PromptCardEvent } from "./PromptCard.tsx";
 import { AskedCard, type AskedCardEvent } from "./AskedCard.tsx";
 import type { PlainQuestion } from "../lib/plainQuestion.ts";
+import { PromptRail, type PromptRailEvent, type PromptRailModel } from "./PromptRail.tsx";
+import { railEntries, stepFrom, type RailEntry } from "../lib/promptRail.ts";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { ThreadCard, type ThreadCardEvent } from "./fleet/ThreadCard.tsx";
 import type { ThreadRowModel } from "../ui/fleetView.ts";
@@ -42,6 +44,14 @@ import { LOCALE, t } from "../lib/i18n.ts";
 
 /** Scrolling this close to the top asks for the page before it. */
 const LOAD_OLDER_PX = 400;
+/** a prompt this close under the top of the view is the one being read; this far above it, the view is inside its turn */
+const READ_SLACK_PX = 24;
+/** a prompt jumped to lands this far under the top of the view */
+const LAND_GAP_PX = 8;
+/** how long a prompt jumped to stays ringed */
+const LANDED_MS = 1600;
+/** no prompts: the same empty list each render */
+const NO_ENTRIES: RailEntry[] = [];
 
 /** What the chat draws: the pane's conversation as read, its waiting prompt, and the pane's state. */
 export interface ChatViewModel {
@@ -69,6 +79,8 @@ export interface ChatViewModel {
   showThinking: boolean;
   /** a project conversation's thread cards, by the time of the coordinator's turn that started them */
   cards?: ReadonlyMap<string, ThreadRowModel[]>;
+  /** a prompt asked for by the keyboard or the palette: scrolled to once per `seq` */
+  seek: ChatState["seek"];
   /** the person's newest message, shown on the question screen's card */
   instruction?: string | null;
   /** a question the agent wrote at the end of its reply, with no question screen up */
@@ -420,7 +432,7 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
         <pre className="chat-compact-text chat-notice-text">{text}</pre>
       </details>;
     }
-    return <article className="chat-turn chat-turn-user">
+    return <article className="chat-turn chat-turn-user" data-turn-ts={turn.ts ?? undefined}>
       <UserImages paneId={paneId} parts={turn.parts} text={text} />
       {text.length > 0 && <div className="chat-bubble"><Markdown>{text}</Markdown></div>}
       {/* the skill this message invoked (omp, pi): the runtime recorded its instructions with it */}
@@ -457,7 +469,7 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
  * an unchanged model sits those out (memo).
  */
 export const ChatView = memo(function ChatView({ model, emit }: { model: ChatViewModel; emit: Emit<ChatViewEvent> }) {
-  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, instruction = null, asked = null, promptExplanation, askedExplanation } = model;
+  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, seek, instruction = null, asked = null, promptExplanation, askedExplanation } = model;
   const [newMessages, setNewMessages] = useState(false);
   /** scrolled up from the end: the way back is offered even when nothing new came */
   const [away, setAway] = useState(false);
@@ -466,6 +478,15 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
   /** where the reader was, for earlier turns going in above them */
   const place = useRef<{ top: number; height: number } | null>(null);
   const firstOlder = useRef<ConversationTurn | undefined>(undefined);
+  /** the prompt being read, for the rail: its index among the prompts, -1 above the first */
+  const [reading, setReading] = useState(-1);
+  const [gutter, setGutter] = useState(0);
+  const readFrame = useRef<number | null>(null);
+  /** the prompt ringed after a jump, and the timer that lets it go */
+  const landed = useRef<{ row: HTMLElement; timer: number } | null>(null);
+  /** a step back went past the first prompt: the prompt it was on, until the earlier page is in */
+  const stepPast = useRef<string | null>(null);
+  const seenSeek = useRef(seek?.seq ?? 0);
 
   // a pane, or a replaced transcript, opens at its end
   useLayoutEffect(() => {
@@ -493,10 +514,12 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
     if (node !== null && stickToBottom.current) node.scrollTop = node.scrollHeight;
   }, [view, prompt]);
 
-  // where the reader is after each layout, for the next page above
+  // where the reader is after each layout, for the next page above; and the scrollbar the prompt rail keeps clear of
   useLayoutEffect(() => {
     const node = scroller.current;
-    if (node !== null) place.current = { top: node.scrollTop, height: node.scrollHeight };
+    if (node === null) return;
+    place.current = { top: node.scrollTop, height: node.scrollHeight };
+    setGutter(node.offsetWidth - node.clientWidth);
   });
 
   // A resized composer, a raised keyboard or a narrower window shrinks the view
@@ -523,6 +546,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
     stickToBottom.current = node.scrollTop + node.clientHeight >= node.scrollHeight - 48;
     setAway(!stickToBottom.current);
     if (stickToBottom.current) setNewMessages(false);
+    readSoon();
     if (node.scrollTop < LOAD_OLDER_PX && olderState === "idle" && typeof olderCursor === "string") emit({ type: "load-older-conversation" });
   };
   /** the earlier page asked for by the button: where the reader is now (a fold opened since moves nothing that rendered) */
@@ -541,7 +565,103 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
   const finishedBeforeSend = sentOver !== null && sentOver.page === view.turns ? sentOver.turn : null;
   const empty = view.source === "conversation" ? turns.length === 0 : view.messages.length === 0;
 
-  return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><div className="chat-view" ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
+  // The prompt rail: the person's prompts among the turns read. Where the reader is, and the
+  // scroll to a prompt, are the view's own, as all scrolling here is; a step asked for by the
+  // keyboard or the palette comes in as `seek`.
+  const entries = useMemo(() => (view.source === "conversation" ? railEntries(turns) : NO_ENTRIES), [view.source, turns]);
+  const entriesRef = useRef(entries);
+  entriesRef.current = entries;
+  const earlier: PromptRailModel["earlier"] = view.source === "conversation" && typeof olderCursor === "string" ? olderState : "none";
+  const railShown = entries.length >= 2 || (entries.length === 1 && earlier !== "none");
+
+  /** each prompt's row, by its turn time, with how far under the top of the view it starts */
+  const promptRows = (node: HTMLDivElement): Map<string, { row: HTMLElement; y: number }> => {
+    const top = node.getBoundingClientRect().top;
+    return new Map([...node.querySelectorAll<HTMLElement>(".chat-turn-user[data-turn-ts]")].map((row) => [row.dataset.turnTs!, { row, y: row.getBoundingClientRect().top - top }]));
+  };
+  /** the prompt being read: the last whose row starts at or above the top of the view; and whether the view is inside its turn */
+  const readPlace = (): { index: number; midTurn: boolean } => {
+    const node = scroller.current;
+    if (node === null) return { index: -1, midTurn: false };
+    const rows = promptRows(node);
+    let index = -1;
+    let y = 0;
+    entriesRef.current.forEach((entry, at) => {
+      const row = rows.get(entry.ts);
+      if (row !== undefined && row.y <= READ_SLACK_PX) { index = at; y = row.y; }
+    });
+    return { index, midTurn: index >= 0 && y < -READ_SLACK_PX };
+  };
+  function readSoon(): void {
+    if (readFrame.current !== null) return;
+    readFrame.current = window.requestAnimationFrame(() => { readFrame.current = null; setReading(readPlace().index); });
+  }
+  useLayoutEffect(() => { setReading(readPlace().index); }, [entries]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => () => {
+    if (readFrame.current !== null) window.cancelAnimationFrame(readFrame.current);
+    if (landed.current !== null) window.clearTimeout(landed.current.timer);
+  }, []);
+
+  /** The prompt at `index` brought to the top of the view at once, and ringed for a moment. */
+  const jumpTo = (index: number): void => {
+    const node = scroller.current;
+    const entry = entriesRef.current[index];
+    const target = node === null || entry === undefined ? undefined : promptRows(node).get(entry.ts);
+    if (node === null || target === undefined) return;
+    stickToBottom.current = false;
+    node.scrollTo({ top: node.scrollTop + target.y - LAND_GAP_PX, behavior: "instant" });
+    if (landed.current !== null) {
+      window.clearTimeout(landed.current.timer);
+      delete landed.current.row.dataset.landed;
+    }
+    target.row.dataset.landed = "";
+    const timer = window.setTimeout(() => { delete target.row.dataset.landed; landed.current = null; }, LANDED_MS);
+    landed.current = { row: target.row, timer };
+    setReading(index);
+  };
+  /** A step back or on from the prompt being read. */
+  const step = (direction: -1 | 1): void => {
+    const node = scroller.current;
+    const list = entriesRef.current;
+    if (node === null) return;
+    // at the end of the chat the newest prompt is often in view below the top: back goes to it first
+    const newest = list.at(-1);
+    const newestRow = newest === undefined ? undefined : promptRows(node).get(newest.ts);
+    if (direction === -1 && stickToBottom.current && newestRow !== undefined && newestRow.y > READ_SLACK_PX) { jumpTo(list.length - 1); return; }
+    const { index, midTurn } = readPlace();
+    const target = stepFrom(index, list.length, direction, midTurn, earlier !== "none");
+    if (target.kind === "prompt") jumpTo(target.index);
+    else if (target.kind === "end") scrollToBottom();
+    else if (target.kind === "earlier") {
+      // the page before may be on its way already (a scroll near the top asks for it): the step waits for it
+      stepPast.current = list[0]?.ts ?? null;
+      if (earlier !== "loading") loadOlder();
+    }
+  };
+  // a step back past the first prompt asked for the earlier page: once it is in, on to the prompt before
+  useLayoutEffect(() => {
+    const from = stepPast.current;
+    if (from === null || olderState === "loading") return;
+    stepPast.current = null;
+    const at = entries.findIndex((entry) => entry.ts === from);
+    if (at > 0) jumpTo(at - 1);
+  }, [entries, olderState]); // eslint-disable-line react-hooks/exhaustive-deps
+  // a step from the keyboard, or a prompt picked in the palette
+  useEffect(() => {
+    if (seek === null || seek.seq === seenSeek.current) return;
+    seenSeek.current = seek.seq;
+    const to = seek.to;
+    if (typeof to === "object") {
+      const at = entriesRef.current.findIndex((entry) => entry.ts === to.ts);
+      if (at >= 0) jumpTo(at);
+    } else step(to);
+  }, [seek]); // eslint-disable-line react-hooks/exhaustive-deps
+  const railEmit: Emit<PromptRailEvent> = (event) => {
+    if (event.type === "rail-jump") jumpTo(event.index);
+    else loadOlder();
+  };
+
+  return <ChatPaneContext.Provider value={paneId}><ChatHistoryContext.Provider value={historyId ?? ""}><div className={`chat-view${railShown ? " has-rail" : ""}`} ref={scroller} onScroll={onScroll} role="log" aria-live="polite" aria-label={t("conversation of {pane}", { pane: paneId })}>
     <div className="chat-transcript">
       {/* the conversation below is not all the file holds: a /tree left these behind, and pi moved
           its leaf without writing anything, so nothing here could say they were ever there. First
@@ -587,5 +707,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
     {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>
       : away && <button type="button" className="btn chat-new-messages is-icon" aria-label={t("Jump to latest")} title={t("Jump to latest")} onClick={scrollToBottom}><ArrowDown aria-hidden="true" /></button>}
   </div>
+  {/* over the chat, not in it: the rail stays put while the transcript scrolls */}
+  {railShown && <PromptRail model={{ entries, reading, earlier, gutter }} emit={railEmit} />}
   </ChatHistoryContext.Provider></ChatPaneContext.Provider>;
 });
