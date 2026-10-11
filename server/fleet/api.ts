@@ -147,9 +147,11 @@ function lineComments(value: unknown): LineComment[] | undefined {
   if (value === undefined || value === null) return undefined;
   const valid = Array.isArray(value) && value.length <= COMMENTS_MAX && value.every((comment) => isJsonObject(comment)
     && typeof comment["file"] === "string" && comment["file"] !== "" && Number.isInteger(comment["line"]) && (comment["line"] as number) > 0
-    && typeof comment["text"] === "string" && comment["text"].trim() !== "");
-  if (!valid) throw new FleetError("invalid_body", `comments must be up to ${COMMENTS_MAX} of { file, line, text }`);
-  return (value as Array<Record<string, unknown>>).map((comment) => ({ file: comment["file"] as string, line: comment["line"] as number, text: comment["text"] as string }));
+    && (comment["removed"] === undefined || typeof comment["removed"] === "boolean") && typeof comment["text"] === "string" && comment["text"].trim() !== "");
+  if (!valid) throw new FleetError("invalid_body", `comments must be up to ${COMMENTS_MAX} of { file, line, removed?, text }`);
+  return (value as Array<Record<string, unknown>>).map((comment) => ({
+    file: comment["file"] as string, line: comment["line"] as number, ...(comment["removed"] === true ? { removed: true } : {}), text: comment["text"] as string,
+  }));
 }
 
 function notFound(): Response {

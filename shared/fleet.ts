@@ -101,10 +101,11 @@ export interface PullRequest {
   failing?: string[];
 }
 
-/** One comment of the person's on a thread's change, sent to its lead with the others. */
+/** One comment of the person's on a thread's change, sent to its lead with the others: on a line of the new file, or one it removed. */
 export interface LineComment {
   file: string;
   line: number;
+  removed?: boolean;
   text: string;
 }
 

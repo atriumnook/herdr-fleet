@@ -1246,7 +1246,7 @@ export function leadStep(run: AgentRun & { branch: string }, action: LandAction,
     case "comments":
       return [
         "[fleet] The person reviewed this thread's change on the Fleet screen and left these comments:",
-        ...comments.map((comment) => `- ${comment.file}:${comment.line} — ${comment.text.replace(/\s+/g, " ").trim()}`),
+        ...comments.map((comment) => `- ${comment.file}:${comment.line}${comment.removed ? " (a removed line)" : ""} — ${comment.text.replace(/\s+/g, " ").trim()}`),
         `Address each one and commit${pushAgain}. Where you disagree, say why in your HANDOFF instead of changing the code.`,
       ].join("\n");
     default:

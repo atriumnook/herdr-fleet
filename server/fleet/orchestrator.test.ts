@@ -1244,11 +1244,11 @@ describe("landing", () => {
   it("send the person's comments together, and Fix CI with the failing checks, each asking to push to the open pull request", async () => {
     const { fleet, registry, turn, to, ready, git } = project();
     const { thread } = await ready();
-    await fleet.land(thread.id, "comments", { comments: [{ file: "src/retry.ts", line: 12, text: "Keep the\nold name." }, { file: "README.md", line: 3, text: "Typo" }] });
+    await fleet.land(thread.id, "comments", { comments: [{ file: "src/retry.ts", line: 12, text: "Keep the\nold name." }, { file: "README.md", line: 3, removed: true, text: "Typo" }] });
     expect(to(thread).at(-1)).toBe([
       "[fleet] The person reviewed this thread's change on the Fleet screen and left these comments:",
       "- src/retry.ts:12 — Keep the old name.",
-      "- README.md:3 — Typo",
+      "- README.md:3 (a removed line) — Typo",
       "Address each one and commit. Where you disagree, say why in your HANDOFF instead of changing the code.",
     ].join("\n"));
     await turn(thread, "idle");
