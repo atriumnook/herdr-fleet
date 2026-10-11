@@ -300,8 +300,13 @@ export function PaneTerminal({
         dragWheel(event);
         return false;
       }
-      // an adopted grid sends herdr nothing: the wheel is the browser's, and pans the mount
-      if (adopted()) return false;
+      // a grid larger than the mount: the wheel first brings its hidden rows and columns into view
+      if (adopted() && pansMount(event)) {
+        panMount(event);
+        return false;
+      }
+      // a terminal that reports nothing to herdr has no history there to scroll
+      if (reportsNothing()) return false;
       if (term.hasSelection()) term.clearSelection();
       const reporting = term.modes.mouseTrackingMode !== "none";
       // a trackpad pinch arrives as a wheel with Ctrl down: it is not scrolling, and goes once as before
@@ -325,6 +330,32 @@ export function PaneTerminal({
     // there, else the bottom rows, where a prompt sits. A mirror has no cursor; xterm's own
     // rests on the last row with text, which serves the same.
     const adopted = (): boolean => !drives();
+    // A grid this view does not size still takes its wheel and drags to herdr, which scrolls the
+    // pane's history; only an observer (its reports are dropped) and a mirror (it reports nothing)
+    // have none to send them to.
+    const reportsNothing = (): boolean => observeRef.current || fixedGridRef.current;
+    // Whether a wheel scrolls the mount rather than herdr, on a grid larger than the mount.
+    // Sideways (a trackpad's swipe, or Shift with the wheel) always does while columns are
+    // hidden. Up and down do until the mount's edge in that direction; past it, herdr scrolls
+    // the pane's history. Its rows above the cursor are newer than that history, so going up
+    // shows them first.
+    const pansMount = (event: WheelEvent): boolean => {
+      if (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return host.scrollWidth - host.clientWidth > 1;
+      if (event.deltaY > 0) return host.scrollHeight - host.clientHeight - host.scrollTop > 1;
+      if (event.deltaY < 0) return host.scrollTop > 1;
+      return false;
+    };
+    // The mount is scrolled here: left to the browser, a wheel up scrolled xterm's own viewport
+    // inside it instead, which holds rows herdr already drew and moves nothing in sight.
+    const panMount = (event: WheelEvent): void => {
+      event.preventDefault();
+      panned = true;
+      const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
+      const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? (screen ? screen.offsetHeight / term.rows : 16)
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? host.clientHeight : 1;
+      const sideways = event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY);
+      host.scrollBy(sideways ? { left: (event.deltaX || event.deltaY) * unit } : { top: event.deltaY * unit });
+    };
     let panned = false;
     const followCursor = (): void => {
       host.toggleAttribute("data-adopted-grid", adopted());
@@ -786,7 +817,7 @@ export function PaneTerminal({
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
         resizeTimer = null;
-        // the grid belongs to the pty while observing, and to herdr when fixed: only the view moves
+        // a grid this view does not size (herdr's, another device's, or a mirror's) stays: only the view moves
         // (a soft keyboard opening must not leave the prompt under it)
         if (adopted()) {
           panned = false;
@@ -811,8 +842,8 @@ export function PaneTerminal({
     // The text follows the finger, as everywhere on a phone: dragging down brings
     // older lines in. Each event carries the finger's position, since xterm reports
     // a wheel at the cell under it (without one, every report said row 1, column 1).
-    // An adopted grid has no history to send a wheel to (an observer's reports are dropped, a
-    // mirror reports nothing): there the drag pans the mount, both ways, to the cells past its edge.
+    // A terminal that reports nothing has no history to send a wheel to (an observer's reports are
+    // dropped, a mirror reports nothing): there the drag pans the mount, both ways, to the cells past its edge.
     let touchX = 0;
     let touchY = 0;
     let tracking = false;
@@ -834,7 +865,7 @@ export function PaneTerminal({
       const across = touchX - first.clientX;
       touchX = first.clientX;
       touchY = first.clientY;
-      if (adopted()) {
+      if (reportsNothing()) {
         panned = true;
         host.scrollBy(across, delta);
         return;

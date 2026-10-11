@@ -23,6 +23,15 @@ setInterval(() => {}, 1000);
   try {
     await context.addInitScript((id) => {
       localStorage.setItem(`herdr-fleet:view:${id}`, "terminal");
+      // the page's sockets, to demote the connection to a watcher's, as a watch-only device's is
+      const sockets: WebSocket[] = [];
+      (window as any).sockets = sockets;
+      window.WebSocket = class extends WebSocket {
+        constructor(...args: ConstructorParameters<typeof WebSocket>) {
+          super(...args);
+          sockets.push(this);
+        }
+      };
       // WebKit requires the write to start in the gesture, even when its text is
       // fetched later. Record this boundary without granting Chromium a free pass
       // through its persistent clipboard-write permission.
@@ -46,10 +55,18 @@ setInterval(() => {}, 1000);
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
     const inputs: string[] = [];
-    page.on("websocket", (socket) => socket.on("framesent", ({ payload }) => {
-      const message = JSON.parse(String(payload));
-      if (message.type === "input") inputs.push(message.text);
-    }));
+    const roles: string[] = [];
+    page.on("websocket", (socket) => {
+      socket.on("framesent", ({ payload }) => {
+        const message = JSON.parse(String(payload));
+        if (message.type === "input") inputs.push(message.text);
+      });
+      socket.on("framereceived", ({ payload }) => {
+        if (typeof payload !== "string" || !payload.startsWith("{")) return;
+        const message = JSON.parse(payload);
+        if (message.type === "role-ack") roles.push(message.mode);
+      });
+    });
     await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}`);
     await page.locator(".pane-terminal .xterm-rows").waitFor();
     await paneSendText(pane, `clear; node ${script}\r`);
@@ -315,14 +332,90 @@ setInterval(() => {}, 1000);
     assert.equal(await filled(), edgeText, "Ctrl+C copies the whole scrolled range");
     assert.deepEqual(inputs.slice(beforeKey), [], "Ctrl+C over a selection sends no ^C");
 
-    // the next wheel outside a drag drops the stale highlight
+    // the next wheel outside a drag drops the stale highlight, and goes to herdr as mouse reports:
+    // a desktop draws the pane's grid without sizing it, and still scrolls it
+    const beforePlainWheel = inputs.length;
+    const screenBox = (await page.locator(".pane-terminal .xterm-screen").boundingBox())!;
+    await page.mouse.move(screenBox.x + screenBox.width / 2, screenBox.y + screenBox.height / 2);
     await page.mouse.wheel(0, lineHeight * 3);
     await page.waitForTimeout(200);
     assert.equal(await page.evaluate(() => document.querySelector(".pane-terminal .xterm-selection div") !== null), false, "a wheel after a copy clears the highlight");
+    assert.ok(inputs.slice(beforePlainWheel).some((text) => /\x1b\[<65;\d+;\d+M/.test(text)), "a wheel outside a drag scrolls herdr with mouse reports");
     await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
+
+    // a window smaller than herdr's grid: the wheel first brings the hidden rows and columns into
+    // view, and only at the mount's edge scrolls herdr's history
+    await page.setViewportSize({ width: 420, height: 300 });
+    const mount = page.locator(".pane-terminal");
+    await page.waitForFunction(() => {
+      const host = document.querySelector<HTMLElement>(".pane-terminal");
+      return !!host && host.hasAttribute("data-adopted-grid") && host.scrollHeight > host.clientHeight + 1 && host.scrollWidth > host.clientWidth + 1;
+    });
+    const offsets = () => mount.evaluate((host) => ({ top: host.scrollTop, left: host.scrollLeft, maxTop: host.scrollHeight - host.clientHeight }));
+    const reportsSince = (from: number, button: 64 | 65) => inputs.slice(from).filter((text) => new RegExp(`\\x1b\\[<${button};\\d+;\\d+M`).test(text)).length;
+    const mountBox = (await mount.boundingBox())!;
+    await page.mouse.move(mountBox.x + mountBox.width / 2, mountBox.y + mountBox.height / 2);
+    await mount.evaluate((host) => { host.scrollTop = 0; host.scrollLeft = 0; });
+    let from = inputs.length;
+    await page.mouse.wheel(0, lineHeight * 2);
+    await page.waitForTimeout(200);
+    assert.ok((await offsets()).top > 0, "a wheel down shows the rows below the mount's edge");
+    assert.equal(reportsSince(from, 65), 0, "while rows are hidden below, a wheel down does not scroll herdr");
+    await mount.evaluate((host) => { host.scrollTop = host.scrollHeight; });
+    from = inputs.length;
+    await page.mouse.wheel(0, lineHeight * 2);
+    await page.waitForTimeout(200);
+    assert.ok(reportsSince(from, 65) > 0, "at the mount's bottom, a wheel down scrolls herdr");
+    from = inputs.length;
+    await page.mouse.wheel(0, -lineHeight * 2);
+    await page.waitForTimeout(200);
+    const raised = await offsets();
+    assert.ok(raised.top < raised.maxTop, "a wheel up shows the rows above first");
+    assert.equal(reportsSince(from, 64), 0, "while rows are hidden above, a wheel up does not scroll herdr");
+    await mount.evaluate((host) => { host.scrollTop = 0; });
+    from = inputs.length;
+    await page.mouse.wheel(0, -lineHeight * 2);
+    await page.waitForTimeout(200);
+    assert.ok(reportsSince(from, 64) > 0, "at the mount's top, a wheel up scrolls herdr's history");
+    from = inputs.length;
+    await page.mouse.wheel(lineHeight * 4, 0);
+    await page.waitForTimeout(200);
+    assert.ok((await offsets()).left > 0, "a sideways wheel shows the columns past the mount's edge");
+    assert.equal(inputs.slice(from).filter((text) => /\x1b\[<6[4-7];/.test(text)).length, 0, "a sideways wheel does not scroll herdr");
+    await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
+
+    // a watcher sends herdr nothing: its wheel only brings the hidden rows into view, both ways
+    const setRole = async (mode: "observe" | "interact"): Promise<void> => {
+      roles.length = 0;
+      await page.evaluate((role) => {
+        for (const socket of (window as any).sockets as WebSocket[]) {
+          if (socket.readyState === WebSocket.OPEN && new URL(socket.url).pathname === "/ws") socket.send(JSON.stringify({ type: "role", mode: role }));
+        }
+      }, mode);
+      for (let waited = 0; !roles.includes(mode); waited += 50) {
+        assert.ok(waited < 5_000, `the server acknowledges the ${mode} role`);
+        await page.waitForTimeout(50);
+      }
+    };
+    await setRole("observe");
+    await mount.evaluate((host) => { host.scrollTop = 0; });
+    from = inputs.length;
+    await page.mouse.move(mountBox.x + mountBox.width / 2, mountBox.y + mountBox.height / 2);
+    await page.mouse.wheel(0, lineHeight * 2);
+    await page.waitForTimeout(200);
+    assert.ok((await offsets()).top > 0, "a watcher's wheel down shows the rows below the mount's edge");
+    await mount.evaluate((host) => { host.scrollTop = host.scrollHeight; });
+    await page.mouse.wheel(0, -lineHeight * 2);
+    await page.waitForTimeout(200);
+    const watched = await offsets();
+    assert.ok(watched.top < watched.maxTop, "a watcher's wheel up shows the rows above");
+    assert.equal(inputs.length, from, "a watcher's wheel sends herdr nothing");
+    await setRole("interact");
+    await page.setViewportSize({ width: 1280, height: 800 });
 
     console.log("PASS plain drag copies terminal text; Ctrl+C copies a selection (also without the async clipboard)");
     console.log("PASS a selecting drag scrolls herdr by wheel and edge, and copies herdr's text for the whole range");
+    console.log("PASS on a grid larger than the window, the wheel shows the hidden rows and columns first, then scrolls herdr at the edge; a watcher's wheel only shows them");
     console.log("PASS drag copy starts in the gesture, survives denied clipboard permission, and ignores stale or empty selection responses");
   } finally {
     await context.close();
