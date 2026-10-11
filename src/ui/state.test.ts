@@ -1647,6 +1647,72 @@ describe("the chat's conversation", () => {
   });
 });
 
+describe("the chat beside the pane's", () => {
+  const user = (text: string): ConversationTurn => ({ role: "user", ts: text, parts: [{ kind: "text", text }] });
+  const page = (turns: ConversationTurn[]): ConversationResponse => ({ source: "claude-transcript", history_id: "h1", cursor: null, turns });
+  const side = <T extends UiEvent>(event: T): T => ({ ...event, lens: "side" });
+  const prompt = (id: string): InteractivePrompt => ({ id, agent: "claude", kind: "approval", title: "Allow?", question: "Run?", body: null, options: [{ label: "Yes", description: null }], multi_select: false, custom_option_index: null });
+  /** the pane's chat open on w1:p1, and the one beside on w1:p2 */
+  const both = () => play([
+    { type: "pane-attached", paneId: "w1:p1" }, { type: "pane-connection", connected: true },
+    { type: "chat-open", machineId: "local", paneId: "w1:p1" }, { type: "chat-agent", paneId: "w1:p1", agent: true },
+    side({ type: "chat-open", machineId: "local", paneId: "w1:p2" }), side({ type: "chat-agent", paneId: "w1:p2", agent: true }),
+  ]);
+
+  it("opens and reads apart from the pane's, and what it asks for answers it alone", () => {
+    const { state, effects } = both();
+    expect(state.chat.open).toEqual({ machineId: "local", paneId: "w1:p1" });
+    expect(state.side.chat.open).toEqual({ machineId: "local", paneId: "w1:p2" });
+    expect(effects).toContainEqual({ kind: "read-conversation", machineId: "local", paneId: "w1:p2", from: null, seq: state.side.conversation.seq, olderSeq: state.side.conversation.olderSeq, lens: "side" });
+    expect(effects).toContainEqual({ kind: "load-chat-prompt", machineId: "local", paneId: "w1:p2", seq: state.side.chat.promptSeq, sent: 0, lens: "side" });
+    const read = play([side({ type: "conversation-read", seq: state.side.conversation.seq, olderSeq: state.side.conversation.olderSeq, outcome: { kind: "ok", conversation: page([user("thread")]) } })], state);
+    expect(read.state.side.conversation.view.turns).toEqual([user("thread")]);
+    expect(read.state.conversation).toBe(state.conversation);
+    // its poll comes back to it
+    expect(read.effects).toEqual([{ kind: "later", ms: CONVERSATION_POLL_MS, lens: "side", event: { type: "poll-conversation", seq: state.side.conversation.seq, lens: "side" } }]);
+    // the pane's answer leaves it alone
+    const main = play([{ type: "conversation-read", seq: state.conversation.seq, olderSeq: state.conversation.olderSeq, outcome: { kind: "ok", conversation: page([user("coordinator")]) } }], read.state).state;
+    expect(main.conversation.view.turns).toEqual([user("coordinator")]);
+    expect(main.side).toBe(read.state.side);
+  });
+
+  it("is read again on its own pane's status edge, and stops reading once the page is away", () => {
+    const { state } = both();
+    const panes = (status: string) => [{ pane_id: "w1:p1", workspace_id: "w1", tab_id: "w1:t1", focused: false, agent_status: "idle" }, { pane_id: "w1:p2", workspace_id: "w1", tab_id: "w1:t1", focused: false, agent_status: status }];
+    const pc = { id: "local", name: "omarchy", kind: "local", enabled: true, state: "connected", error: null, snapshot: { version: "0.9.1", protocol: 22, focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: null, workspaces: [], tabs: [], agents: [], panes: panes("working") } } as unknown as Machine;
+    const working = { ...state, machines: { ...state.machines, list: [pc] } };
+    const settled = play([{ type: "machine-message", machineId: "local", message: { type: "pane-status", pane_id: "w1:p2", agent_status: "idle" } }], working);
+    expect(settled.effects).toContainEqual(expect.objectContaining({ kind: "read-conversation", paneId: "w1:p2", lens: "side" }));
+    expect(settled.effects).not.toContainEqual(expect.objectContaining({ kind: "read-conversation", paneId: "w1:p1" }));
+    const away = play([{ type: "visibility", visible: false }], state).state;
+    expect(away.side.conversation.seq).toBe(state.side.conversation.seq + 1);
+  });
+
+  it("answers its own pane's prompt from its composer, and counts the send on itself", () => {
+    const { state } = both();
+    const asked = play([side({ type: "chat-prompt-read", seq: state.side.chat.promptSeq, sent: 0, prompt: prompt("p"), suggestion: null })], state).state;
+    expect(asked.side.chat.prompt).toEqual(prompt("p"));
+    expect(asked.chat.prompt).toBeNull();
+    const answered = play([side({ type: "composer-send", owner: "local:w1:p2", machineId: "local", paneId: "w1:p2", text: "Yes", via: "box", bracketedPaste: false, working: false })], asked);
+    // an approval is confirmed first: the pick waits on the chat beside, not the pane's
+    expect(answered.state.side.chat.pendingAnswer).toMatchObject({ promptId: "p" });
+    expect(answered.state.chat.pendingAnswer).toBeNull();
+    const sent = play([side({ type: "composer-send", owner: "local:w1:p2", machineId: "local", paneId: "w1:p2", text: "go on", via: "box", bracketedPaste: false, working: false })], state);
+    expect(sent.effects).toContainEqual(expect.objectContaining({ kind: "submit", paneId: "w1:p2", text: "go on", lens: "side" }));
+    const started = play([side({ type: "submit-started", id: sent.state.sends.seq })], sent.state).state;
+    expect(started.side.chat.sent).toBe(1);
+    expect(started.chat.sent).toBe(0);
+  });
+
+  it("closes apart from the pane's, keeping the same state object when nothing changes", () => {
+    const { state } = both();
+    const closed = play([side({ type: "chat-close", machineId: "local", paneId: "w1:p2" })], state).state;
+    expect(closed.side.chat.open).toBeNull();
+    expect(closed.chat.open).toEqual({ machineId: "local", paneId: "w1:p1" });
+    expect(transition(closed, side({ type: "chat-close", machineId: "local", paneId: "w1:p2" })).state).toBe(closed);
+  });
+});
+
 describe("messages held while the agent works", () => {
   const owner = "w1:p1";
   const loaded = (messages: Array<{ id: string; text: string }>, unsaved = false) => play([{ type: "queue-loaded", owner, messages, unsaved }]).state;

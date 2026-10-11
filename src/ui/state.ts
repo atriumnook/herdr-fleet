@@ -423,6 +423,8 @@ export interface ConversationState {
   sentOver: { turn: ConversationTurn; page: ConversationTurn[] } | null;
 }
 
+export const NO_CHAT: ChatState = { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0, card: null };
+
 const NO_OLDER: ConversationState["older"] = { turns: [], cursor: undefined, status: "idle", heldFrom: null };
 export const NO_CONVERSATION: ConversationState = {
   open: null, seq: 0, olderSeq: 0, historyId: undefined, answer: null, signature: "", view: EMPTY_VIEW, fresh: true, older: NO_OLDER,
@@ -581,6 +583,8 @@ export interface UiState {
   folders: FoldersState;
   chat: ChatState;
   conversation: ConversationState;
+  /** the chat beside the pane's, with its conversation: the same steps run on it (`lens: "side"`) */
+  side: { chat: ChatState; conversation: ConversationState };
   queue: QueueState;
   drafts: DraftsState;
   sends: SendsState;
@@ -593,7 +597,7 @@ export interface UiState {
   drawerOpen: boolean;
 }
 
-export type UiEvent =
+type BareEvent =
   | { type: "show-screen"; screen: Screen }
   /** the person picked a pane (sidebar, palette, notification, a new session) */
   | { type: "select-pane"; machineId: string; paneId: string | null }
@@ -854,6 +858,15 @@ export type ConnectionEvent =
   | { type: "pane-session-read"; machineId: string; paneId: string; session: SessionSnapshot }
   | { type: "pane-session-failed"; machineId: string; paneId: string };
 
+/**
+ * The chats the state keeps: the pane's (the Pane screen's chat lens, or the Fleet screen's project
+ * conversation) and the one beside it (a thread or an agent opened in the Fleet screen's Overview).
+ */
+export type Lens = "main" | "side";
+
+/** `lens: "side"`: the event is for the chat beside, and runs the same chat, conversation and send steps on it. */
+export type UiEvent = BareEvent & { lens?: Lens };
+
 /** What a PC's session tree sends up; every one names its PC. */
 export type TreeEvent = { machineId: string } & (
   | { type: "tree-start-pane-rename"; paneId: string; label: string }
@@ -877,7 +890,7 @@ export type TreeEvent = { machineId: string } & (
   | { type: "tree-clear-failure"; seq: number }
 );
 
-export type Effect =
+type BareEffect =
   | { kind: "load-runs" }
   | { kind: "load-usage" }
   | { kind: "refresh-usage" }
@@ -958,6 +971,9 @@ export type Effect =
   /** the tab's own alert */
   | { kind: "notify-pane"; machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" };
 
+/** `lens: "side"`: an effect of the chat beside; what it answers goes back to that chat. */
+export type Effect = BareEffect & { lens?: Lens };
+
 export interface Transition { state: UiState; effects: Effect[] }
 
 export const INITIAL_STATE: UiState = {
@@ -985,8 +1001,9 @@ export const INITIAL_STATE: UiState = {
   files: { dialog: false, viewer: null, seq: 0 },
   droplet: { shown: null, phase: "in", next: null, lastShown: {}, count: 0, timerSeq: 0, reducedMotion: false },
   folders: { open: {}, seq: 0 },
-  chat: { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0, card: null },
+  chat: NO_CHAT,
   conversation: NO_CONVERSATION,
+  side: { chat: NO_CHAT, conversation: NO_CONVERSATION },
   queue: { lists: {}, unsaved: {}, sending: null, error: null },
   drafts: { composer: {}, settled: {}, line: {} },
   sends: { seq: 0, pending: {}, outcomes: {}, started: 0 },
@@ -1016,7 +1033,41 @@ function settle<T extends Loadable<unknown>>(region: T, outcome: Partial<T>, eff
 }
 
 export function transition(state: UiState, event: UiEvent): Transition {
-  return followUp(state, transitionOnly(state, event));
+  if (event.lens === "side") {
+    // the steps of the pane's chat, run on the one beside: only the two chats trade places
+    const step = followUp(asSide(state), transitionOnly(asSide(state), event));
+    return { state: step.state === asSide(state) ? state : fromSide(state, step.state), effects: step.effects.map(onSide) };
+  }
+  return followSide(state, followUp(state, transitionOnly(state, event)));
+}
+
+/** The state with the chat beside in the pane's place. */
+function asSide(state: UiState): UiState {
+  return sideViews.get(state) ?? (() => {
+    const view = { ...state, chat: state.side.chat, conversation: state.side.conversation, side: { chat: state.chat, conversation: state.conversation } };
+    sideViews.set(state, view);
+    return view;
+  })();
+}
+const sideViews = new WeakMap<UiState, UiState>();
+
+/** A step run on asSide(before), put back: the chats return to their places, all else as the step left it. */
+function fromSide(before: UiState, after: UiState): UiState {
+  return { ...after, chat: before.chat, conversation: before.conversation, side: { chat: after.chat, conversation: after.conversation } };
+}
+
+/** An effect of the chat beside: what it answers is for that chat (a timer's event too). */
+function onSide(effect: Effect): Effect {
+  return effect.kind === "later" ? { ...effect, lens: "side", event: { ...effect.event, lens: "side" } } : { ...effect, lens: "side" };
+}
+
+/** What a step on the rest of the state means for the chat beside: a status edge, the page back, a pane gone. */
+function followSide(before: UiState, step: Transition): Transition {
+  if (step.state.side === before.side && step.state.connection === before.connection && step.state.machines === before.machines && step.state.pane === before.pane && step.state.sends === before.sends) return step;
+  const effects: Effect[] = [];
+  const lensed = followLens(asSide(before), asSide(step.state), effects);
+  if (lensed === asSide(step.state) && effects.length === 0) return step;
+  return { state: fromSide(step.state, lensed), effects: [...step.effects, ...effects.map(onSide)] };
 }
 
 function transitionOnly(state: UiState, event: UiEvent): Transition {
@@ -1795,26 +1846,9 @@ function subscriptionKey(state: UiState): string | null {
   return JSON.stringify(alertPrefs(settings));
 }
 
-/**
- * What follows from any step: the event stream runs while this browser is in, and a selected
- * pane the roster no longer lists is looked into (or, with none selected, herdr's focused one taken).
- */
-function followUp(before: UiState, step: Transition): Transition {
-  let { state } = step;
-  const effects = [...step.effects];
-  if (before.connection.locked !== false && state.connection.locked === false) {
-    effects.push({ kind: "open-stream" });
-    // a file restored from history, or shown while locked out, is read as this browser now may
-    state = readFile(state, effects);
-  }
-  if (before.connection.locked === false && state.connection.locked !== false) effects.push({ kind: "close-stream" });
-  // a scanned QR code brings its code along: the gate sends it at once, no typing on the phone
-  if (state.connection.locked === true && before.connection.locked !== true && !state.gate.scannedSent && state.gate.submitting === null) {
-    effects.push({ kind: "gate-pair", code: state.gate.code });
-    state = { ...state, gate: { ...state.gate, scannedSent: true, submitting: "code" } };
-  }
-  // the palette lists the selected PC's panes: another PC's selection takes it down
-  if (state.palette.open && state.selection.machineId !== before.selection.machineId) state = { ...state, palette: { open: false } };
+/** What a step means for the pane's chat and its conversation (and, run on asSide, for the chat beside). */
+function followLens(before: UiState, after: UiState, effects: Effect[]): UiState {
+  let state = after;
   // the conversation follows the chat open on a pane: another pane starts over, a closed chat reads nothing
   if (state.chat.open !== before.chat.open) {
     const opened = state.chat.open;
@@ -1848,6 +1882,30 @@ function followUp(before: UiState, step: Transition): Transition {
   if (!chatAsks(state) && (state.chat.prompt !== null || state.chat.suggestion !== null)) state = { ...state, chat: { ...showPrompt(state.chat, null), suggestion: null } };
   // away from the page, the prompt is not read: it can be answered in the terminal and asked again unseen
   if (!state.connection.visible && state.chat.pendingAnswer !== null) state = { ...state, chat: { ...state.chat, pendingAnswer: null } };
+  return state;
+}
+
+/**
+ * What follows from any step: the event stream runs while this browser is in, and a selected
+ * pane the roster no longer lists is looked into (or, with none selected, herdr's focused one taken).
+ */
+function followUp(before: UiState, step: Transition): Transition {
+  let { state } = step;
+  const effects = [...step.effects];
+  if (before.connection.locked !== false && state.connection.locked === false) {
+    effects.push({ kind: "open-stream" });
+    // a file restored from history, or shown while locked out, is read as this browser now may
+    state = readFile(state, effects);
+  }
+  if (before.connection.locked === false && state.connection.locked !== false) effects.push({ kind: "close-stream" });
+  // a scanned QR code brings its code along: the gate sends it at once, no typing on the phone
+  if (state.connection.locked === true && before.connection.locked !== true && !state.gate.scannedSent && state.gate.submitting === null) {
+    effects.push({ kind: "gate-pair", code: state.gate.code });
+    state = { ...state, gate: { ...state.gate, scannedSent: true, submitting: "code" } };
+  }
+  // the palette lists the selected PC's panes: another PC's selection takes it down
+  if (state.palette.open && state.selection.machineId !== before.selection.machineId) state = { ...state, palette: { open: false } };
+  state = followLens(before, state, effects);
   // Files lists the pane it was opened on, and would open its paths on another
   if (state.files.dialog && (state.selection.machineId !== before.selection.machineId || state.selection.paneId !== before.selection.paneId)) {
     state = { ...state, files: { ...state.files, dialog: false } };

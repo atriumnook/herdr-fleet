@@ -93,6 +93,23 @@ describe("Mediator", () => {
     expect(notified).toBeGreaterThanOrEqual(3);
   });
 
+  it("brings what the chat beside asked for back to it, and what the pane's asked for to the pane's", async () => {
+    const read: string[] = [];
+    const { ports: p } = ports({
+      readConversation: async (_machineId, paneId) => {
+        read.push(paneId);
+        return { kind: "ok", conversation: { source: "claude-transcript", history_id: paneId, cursor: null, turns: [{ role: "user", ts: "1", parts: [{ kind: "text", text: paneId }] }] } };
+      },
+    });
+    const mediator = new Mediator(p);
+    mediator.dispatch({ type: "chat-open", machineId: "local", paneId: "w1:p1" });
+    mediator.dispatch({ type: "chat-open", machineId: "local", paneId: "w1:p2", lens: "side" });
+    await until(() => mediator.getState().side.conversation.loaded && mediator.getState().conversation.loaded);
+    expect(mediator.getState().conversation.view.turns[0]!.parts).toEqual([{ kind: "text", text: "w1:p1" }]);
+    expect(mediator.getState().side.conversation.view.turns[0]!.parts).toEqual([{ kind: "text", text: "w1:p2" }]);
+    expect(read.sort()).toEqual(["w1:p1", "w1:p2"]);
+  });
+
   it("turns a failed effect into a failure event with its message", async () => {
     const { ports: p } = ports({ loadRuns: async () => { throw new Error("/api/fleet/runs failed (401): unauthorized"); } });
     const mediator = new Mediator(p);
