@@ -216,6 +216,8 @@ export const treeOf = (state: UiState, machineId: string): TreeState => state.tr
 
 /** how often health and the PCs are read while the page is on screen */
 export const POLL_MS = 5000;
+/** how often the Fleet screen asks the server to refresh usage; the server decides whether anything is old enough (AUTO_REFRESH_MS) */
+export const AUTO_USAGE_TICK_MS = 60_000;
 /** pushes that change a PC's sessions come in bursts: one read after them */
 export const REFETCH_DEBOUNCE_MS = 500;
 
@@ -664,7 +666,7 @@ export interface AttachmentsState {
 export interface UiState {
   screen: Screen;
   runs: Loadable<AgentRun[]>;
-  usage: Loadable<UsageEntry[]> & { refreshing: boolean };
+  usage: Loadable<UsageEntry[]> & { refreshing: boolean; autoSeq?: number };
   request: RequestState;
   fleetView: FleetViewState;
   landing: LandingState;
@@ -733,6 +735,9 @@ type BareEvent =
   | { type: "usage-refresh-failed"; message: string }
   /** ask the CLIs again (runs codex, agy and claude probes on the server) */
   | { type: "refresh-usage" }
+  /** the Fleet screen's own refresh, once a minute while it shows: the server asks only the CLIs whose last try is old, and never cursor */
+  | { type: "auto-usage-tick"; seq: number }
+  | { type: "usage-auto-refreshed"; entries: UsageEntry[] }
   | { type: "fleet-project"; project: string }
   | { type: "fleet-overview"; open: boolean }
   /** a thread or an agent opens in the Overview (or, expanded, in the middle) */
@@ -1068,6 +1073,7 @@ type BareEffect =
   | { kind: "load-runs" }
   | { kind: "load-usage" }
   | { kind: "refresh-usage" }
+  | { kind: "auto-refresh-usage" }
   | { kind: "request"; action: RequestAction }
   | { kind: "load-landing-diff"; runId: string }
   | { kind: "load-landing-checks"; runId: string }
@@ -1315,14 +1321,30 @@ function followSide(before: UiState, step: Transition): Transition {
   return { state: fromSide(step.state, lensed), effects: [...step.effects, ...effects.map(onSide)] };
 }
 
+/** the Fleet screen's own refresh: not while the page is hidden, a button refresh is running, or this device may not act */
+function autoUsage(state: UiState): Effect[] {
+  return state.connection.visible && state.canAct && !state.usage.refreshing ? [{ kind: "auto-refresh-usage" }] : [];
+}
+
 function transitionOnly(state: UiState, event: UiEvent): Transition {
   const effects: Effect[] = [];
   // an event that changes nothing keeps the state object itself, so nobody re-renders for it
   const next = (patch: Partial<UiState>): Transition =>
     ({ state: (Object.keys(patch) as Array<keyof UiState>).every((key) => patch[key] === state[key]) ? state : { ...state, ...patch }, effects });
   switch (event.type) {
-    case "show-screen":
-      return next({ screen: event.screen });
+    case "show-screen": {
+      if (event.screen !== "fleet" || state.screen === "fleet") return next({ screen: event.screen });
+      // the tick chain of an earlier visit ends at its next tick: its seq is no longer the current one
+      const autoSeq = (state.usage.autoSeq ?? 0) + 1;
+      effects.push(...autoUsage(state), { kind: "later", ms: AUTO_USAGE_TICK_MS, event: { type: "auto-usage-tick", seq: autoSeq } });
+      return next({ screen: "fleet", usage: { ...state.usage, autoSeq } });
+    }
+    case "auto-usage-tick":
+      if (event.seq !== state.usage.autoSeq || state.screen !== "fleet") return next({});
+      effects.push(...autoUsage(state), { kind: "later", ms: AUTO_USAGE_TICK_MS, event: { type: "auto-usage-tick", seq: event.seq } });
+      return next({});
+    case "usage-auto-refreshed":
+      return next({ usage: { ...state.usage, data: event.entries } });
     case "select-pane":
       return next({ screen: "pane", ...pick(state, event.machineId, event.paneId, effects) });
     case "pane-connection": {

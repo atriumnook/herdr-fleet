@@ -60,7 +60,8 @@ const SOCKET_POLL_MS = 1000;
 export interface EffectPorts {
   loadRuns(): Promise<AgentRun[]>;
   loadUsage(): Promise<UsageEntry[]>;
-  refreshUsage(): Promise<UsageEntry[]>;
+  /** `all`: every CLI now; otherwise only those last tried long ago */
+  refreshUsage(all: boolean): Promise<UsageEntry[]>;
   runRequest(action: RequestAction): Promise<void>;
   loadLandingDiff(runId: string): Promise<{ diff: string; truncated: boolean }>;
   loadLandingChecks(runId: string): Promise<LandingChecks>;
@@ -279,7 +280,11 @@ export class Mediator {
         try { dispatch({ type: "usage-loaded", entries: await this.ports.loadUsage() }); } catch (error) { dispatch({ type: "usage-failed", message: message(error) }); }
         return;
       case "refresh-usage":
-        try { dispatch({ type: "usage-refreshed", entries: await this.ports.refreshUsage() }); } catch (error) { dispatch({ type: "usage-refresh-failed", message: message(error) }); }
+        try { dispatch({ type: "usage-refreshed", entries: await this.ports.refreshUsage(true) }); } catch (error) { dispatch({ type: "usage-refresh-failed", message: message(error) }); }
+        return;
+      case "auto-refresh-usage":
+        // nobody asked: a failure shows in the capsules (the server records it), not as an error
+        try { dispatch({ type: "usage-auto-refreshed", entries: await this.ports.refreshUsage(false) }); } catch { /* the next tick asks again */ }
         return;
       case "request":
         try { await this.ports.runRequest(effect.action); dispatch({ type: "request-done" }); } catch (error) { dispatch({ type: "request-failed", message: message(error) }); }

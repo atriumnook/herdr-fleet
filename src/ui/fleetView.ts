@@ -302,7 +302,7 @@ export interface FleetScreenModel {
   ended: RunCardModel[];
   /** groups with finished non-interactive runs whose panes can be closed */
   closableGroups: string[];
-  usage: { capsules: UsageCapsuleModel[]; refreshing: boolean; error?: string };
+  usage: { capsules: UsageCapsuleModel[]; refreshing: boolean; error?: string; readAt?: number };
   /** the last action failed: what to tell the person */
   requestError?: string;
   busy: boolean;
@@ -324,6 +324,12 @@ export function toneOf(state: AgentState): RunTone {
 }
 
 /** Plenty while half is left, getting low under half, low under a fifth (DESIGN.md meters). */
+/** when the newest reading was taken */
+function lastRead(entries: UsageEntry[]): number | undefined {
+  const times = entries.flatMap((entry) => (entry.reading ? [entry.reading.readAt] : []));
+  return times.length ? Math.max(...times) : undefined;
+}
+
 export function meterLevel(usedPercent: number): UsageCapsuleModel["level"] {
   return usedPercent < 50 ? "ok" : usedPercent < 80 ? "mid" : "low";
 }
@@ -412,6 +418,7 @@ export function fleetScreenModel(state: FleetState, now: number): FleetScreenMod
       capsules: [...state.usage.data].sort((a, b) => a.key.localeCompare(b.key)).map((entry) => capsule(entry, state, now)),
       refreshing: state.usage.refreshing,
       error: state.usage.error,
+      readAt: lastRead(state.usage.data),
     },
     requestError: state.request.status === "failed" ? state.request.message : undefined,
     busy: state.request.status === "pending",

@@ -415,9 +415,9 @@ export async function fetchFleetUsage(): Promise<UsageEntry[]> {
   return (await getJson<{ usage: UsageEntry[] }>("/api/fleet/usage")).usage;
 }
 
-/** Asks every CLI the fleet can ask for its usage again, then answers with what is known. */
-export async function refreshFleetUsage(): Promise<UsageEntry[]> {
-  return (await sendFleet<{ usage: UsageEntry[] }>("/usage/refresh", { all: true })).usage;
+/** Asks the CLIs the fleet can ask for their usage again (all of them with `all`, else those last tried long ago), then answers with what is known. */
+export async function refreshFleetUsage(all: boolean): Promise<UsageEntry[]> {
+  return (await sendFleet<{ usage: UsageEntry[] }>("/usage/refresh", { all })).usage;
 }
 
 /** Esc in the run's pane. */

@@ -145,6 +145,21 @@ describe("Mediator", () => {
     expect(mediator.getState().usage.data).toEqual([{ key: "codex" }]);
   });
 
+  it("refreshes usage when the Fleet screen opens, asking only the stale CLIs, and shows nothing when that fails", async () => {
+    const { ports: p } = ports();
+    const asked: boolean[] = [];
+    let fail = false;
+    const mediator = new Mediator({ ...p, refreshUsage: async (all: boolean) => { asked.push(all); if (fail) throw new Error("offline"); return [{ key: "codex" }]; } });
+    mediator.dispatch({ type: "show-screen", screen: "fleet" });
+    await until(() => mediator.getState().usage.data.length === 1);
+    expect(asked).toEqual([false]);
+    fail = true;
+    mediator.dispatch({ type: "show-screen", screen: "pane" });
+    mediator.dispatch({ type: "show-screen", screen: "fleet" });
+    await until(() => asked.length === 2);
+    expect(mediator.getState().usage.error).toBeUndefined();
+  });
+
   it("does not notify listeners when an event changes nothing", () => {
     const { ports: p } = ports();
     const mediator = new Mediator(p);

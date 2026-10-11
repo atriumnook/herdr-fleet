@@ -4,7 +4,7 @@ import type { Machine } from "../../shared/machines.ts";
 import type { ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, HealthAuth, InteractivePrompt, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
-import { CARD_CHANGED_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, FILE_SEARCH_DELAY_MS, INITIAL_STATE, MAX_EXPLANATIONS, explanationId, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type Transition, type UiEvent, type UiState } from "./state.ts";
+import { AUTO_USAGE_TICK_MS, CARD_CHANGED_MS, CHAT_POLL_MS, CONVERSATION_POLL_MS, FILE_SEARCH_DELAY_MS, INITIAL_STATE, MAX_EXPLANATIONS, explanationId, TRANSCRIPT_LINES, transition, treeOf, type ConversationOutcome, type Effect, type Transition, type UiEvent, type UiState } from "./state.ts";
 
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
   id, name: id, role: "worker", agent: "pi", group: "g1", herdrName: `h-${id}`, paneId: `w1:${id}`, cwd: "/w",
@@ -30,6 +30,41 @@ function play(events: UiEvent[], from: UiState = INITIAL_STATE) {
   }
   return { state, effects };
 }
+
+describe("usage refreshing by itself", () => {
+  const tick = (seq: number): UiEvent => ({ type: "auto-usage-tick", seq });
+  const later = (seq: number): Effect => ({ kind: "later", ms: AUTO_USAGE_TICK_MS, event: tick(seq) });
+
+  it("asks once on opening the Fleet screen and then once a tick while it stays, and stops after it is left", () => {
+    const opened = transition(INITIAL_STATE, { type: "show-screen", screen: "fleet" });
+    expect(opened.effects).toEqual([{ kind: "auto-refresh-usage" }, later(1)]);
+    const ticked = transition(opened.state, tick(1));
+    expect(ticked.effects).toEqual([{ kind: "auto-refresh-usage" }, later(1)]);
+    const left = transition(ticked.state, { type: "show-screen", screen: "pane" }).state;
+    expect(transition(left, tick(1)).effects).toEqual([]);
+  });
+
+  it("runs one chain: coming back before the old tick ends the old chain", () => {
+    const away = play([{ type: "show-screen", screen: "fleet" }, { type: "show-screen", screen: "pane" }]).state;
+    const back = transition(away, { type: "show-screen", screen: "fleet" });
+    expect(back.effects).toEqual([{ kind: "auto-refresh-usage" }, later(2)]);
+    expect(transition(back.state, tick(1)).effects).toEqual([]);
+    expect(transition(back.state, tick(2)).effects).toEqual([{ kind: "auto-refresh-usage" }, later(2)]);
+  });
+
+  it("does not ask while the page is hidden, a button refresh runs, or this device may only watch, but keeps ticking", () => {
+    const shown = play([{ type: "show-screen", screen: "fleet" }]).state;
+    const hidden = { ...shown, connection: { ...shown.connection, visible: false } };
+    expect(transition(hidden, tick(1)).effects).toEqual([later(1)]);
+    expect(transition({ ...shown, usage: { ...shown.usage, refreshing: true } }, tick(1)).effects).toEqual([later(1)]);
+    expect(transition({ ...shown, canAct: false }, tick(1)).effects).toEqual([later(1)]);
+  });
+
+  it("takes the answer without touching a button refresh's own state", () => {
+    const refreshing = play([{ type: "show-screen", screen: "fleet" }, { type: "refresh-usage" }]).state;
+    expect(transition(refreshing, { type: "usage-auto-refreshed", entries: usage }).state.usage).toMatchObject({ data: usage, refreshing: true });
+  });
+});
 
 describe("loading runs and usage", () => {
   it("fetches both on the first fleet-changed (the event stream opening), and settles each with what came back", () => {
@@ -287,7 +322,8 @@ describe("screens and the Fleet screen's view", () => {
   it("selects a live run's pane on this PC, again when asked again, and not an ended run's", () => {
     const first = play([{ type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "a" }], withRuns);
     expect(first.state).toMatchObject({ screen: "pane", selection: { machineId: "local", paneId: "w1:a", auto: false } });
-    expect(first.effects).toEqual([{ kind: "store-selection", machineId: "local", paneId: "w1:a" }, { kind: "remember-pane", machineId: "local", paneId: "w1:a" }]);
+    // opening the Fleet screen also starts its usage refresh (auto-refresh-usage and its tick); the rest is the selection
+    expect(first.effects.filter((effect) => effect.kind !== "auto-refresh-usage" && effect.kind !== "later")).toEqual([{ kind: "store-selection", machineId: "local", paneId: "w1:a" }, { kind: "remember-pane", machineId: "local", paneId: "w1:a" }]);
     const elsewhere = play([{ type: "select-pane", machineId: "local", paneId: "w1:b" }, { type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "a" }], first.state).state;
     expect(elsewhere.selection.paneId).toBe("w1:a");
     expect(play([{ type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "gone" }], withRuns).state).toMatchObject({ screen: "fleet", selection: INITIAL_STATE.selection });
