@@ -18,7 +18,7 @@ import "./Fleet.css";
 export type FleetScreenEvent = Extract<UiEvent, {
   type: "fleet-overview" | "fleet-open" | "fleet-member" | "fleet-close" | "fleet-expand" | "fleet-start-project" | "fleet-resolve"
     | "fleet-tab" | "fleet-land" | "landing-comment" | "landing-uncomment" | "landing-clear-comments" | "landing-confirm" | "landing-cancel"
-    | "plan-choose" | "plan-comment" | "plan-note" | "plan-respond" | "plan-confirm" | "plan-cancel"
+    | "plan-choose" | "plan-comment" | "plan-note" | "plan-respond" | "plan-confirm" | "plan-cancel" | "plan-dropped-seen"
     | "fleet-settings" | "fleet-settings-change"
     | "open-pane" | "interrupt-run" | "dismiss-error";
 }>;

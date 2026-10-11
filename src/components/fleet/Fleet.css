@@ -770,6 +770,8 @@
 
 .fleet-plan-body { flex: 1; min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4) var(--space-4); }
 .fleet-plan-body > * { max-width: 860px; }
+.fleet-plan-dropped { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); overflow-wrap: anywhere; }
+.fleet-plan-dropped .btn { flex: none; height: 28px; font-size: var(--fs-sm); }
 .fleet-plan-head { display: flex; align-items: baseline; gap: var(--space-2); }
 .fleet-plan-head h3 { margin: 0; color: var(--ink-strong); font-size: var(--fs-md); font-weight: var(--fw-semibold); overflow-wrap: anywhere; }
 .fleet-plan-version { color: var(--sub); font-size: var(--fs-xs); }

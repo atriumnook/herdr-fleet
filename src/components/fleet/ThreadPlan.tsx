@@ -8,7 +8,7 @@ import { t } from "../../lib/i18n.ts";
 import { ConfirmDialog } from "../ConfirmDialog.tsx";
 
 /** What the Plan tab hands up: the Mediator's own events, complete. */
-export type PlanEvent = Extract<UiEvent, { type: "plan-choose" | "plan-comment" | "plan-note" | "plan-respond" | "plan-confirm" | "plan-cancel" }>;
+export type PlanEvent = Extract<UiEvent, { type: "plan-choose" | "plan-comment" | "plan-note" | "plan-respond" | "plan-confirm" | "plan-cancel" | "plan-dropped-seen" }>;
 
 /** A count's label, one or many: labels stay English (src/lib/i18n.ts). */
 function count(n: number, one: string, many: string): string {
@@ -47,6 +47,12 @@ export function ThreadPlan({ plan, emit }: { plan: PlanModel; emit: Emit<PlanEve
   return (
     <div className="fleet-plan" ref={root}>
       <div className="fleet-plan-body">
+        {plan.dropped !== undefined && (
+          <div className="notice fleet-plan-dropped" role="status">
+            <span>{t("The lead handed over version {version} of the plan, so your answers to version {old} were dropped.", { version: plan.version, old: plan.dropped })}</span>
+            <button type="button" className="btn btn-ghost" onClick={() => emit({ type: "plan-dropped-seen" })}>{t("Dismiss")}</button>
+          </div>
+        )}
         <header className="fleet-plan-head">
           <h3>{plan.title}</h3>
           <span className="fleet-plan-version mono">v{plan.version}</span>

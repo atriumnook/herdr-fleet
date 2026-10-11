@@ -122,6 +122,8 @@ export interface PlanState {
   reading: Reading<Plan>;
   drafts: Record<string, PlanDraft>;
   confirm: { runId: string; status: "asking" | "running"; error?: string } | null;
+  /** answers to an older version, dropped when the lead handed over a newer one: the person is told */
+  dropped: { runId: string; version: number } | null;
 }
 
 export type RequestState =
@@ -740,6 +742,8 @@ type BareEvent =
   | { type: "plan-respond"; runId: string }
   | { type: "plan-confirm" }
   | { type: "plan-cancel" }
+  /** the person read that their answers to an older version were dropped */
+  | { type: "plan-dropped-seen" }
   | { type: "open-pane"; runId: string }
   | { type: "interrupt-run"; runId: string }
   | { type: "close-done"; group: string }
@@ -1109,7 +1113,7 @@ export interface Transition { state: UiState; effects: Effect[] }
 const NO_LANDING: LandingState = { runId: null, diff: { status: "idle", data: null }, checks: { status: "idle", data: null }, comments: {}, confirm: null };
 
 /** No plan read, no answer written, nothing asked. */
-const NO_PLAN: PlanState = { runId: null, reading: { status: "idle", data: null }, drafts: {}, confirm: null };
+const NO_PLAN: PlanState = { runId: null, reading: { status: "idle", data: null }, drafts: {}, confirm: null, dropped: null };
 
 export const INITIAL_STATE: UiState = {
   screen: "pane",
@@ -1172,7 +1176,7 @@ function readLanding(landing: LandingState, view: FleetViewState, effects: Effec
 /** The open thread's plan, read again when its tab shows it. */
 function readPlan(plan: PlanState, view: FleetViewState, effects: Effect[]): PlanState {
   const runId = view.open?.kind === "thread" ? view.open.runId : null;
-  const fresh = plan.runId === runId ? plan : { ...plan, runId, reading: NO_PLAN.reading };
+  const fresh = plan.runId === runId ? plan : { ...plan, runId, reading: NO_PLAN.reading, dropped: null };
   if (runId === null || view.tab !== "plan") return fresh;
   effects.push({ kind: "load-plan", runId });
   return { ...fresh, reading: { ...fresh.reading, status: "loading" } };
@@ -1551,8 +1555,10 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       // answers to a version the lead has since replaced are dropped
       const draft = state.plan.drafts[event.runId];
       const { [event.runId]: _old, ...others } = state.plan.drafts;
-      const drafts = draft && draft.version !== event.plan.version ? others : state.plan.drafts;
-      return next({ plan: { ...state.plan, drafts, reading: { status: "ready", data: event.plan } } });
+      const stale = draft !== undefined && draft.version !== event.plan.version;
+      const dropped = stale && (Object.keys(draft.choices).length > 0 || Object.values(draft.comments).some((text) => text.trim()) || draft.note.trim() !== "")
+        ? { runId: event.runId, version: draft.version } : state.plan.dropped;
+      return next({ plan: { ...state.plan, drafts: stale ? others : state.plan.drafts, dropped, reading: { status: "ready", data: event.plan } } });
     }
     case "plan-choose":
     case "plan-comment":
@@ -1565,7 +1571,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
         ? { ...draft, choices: { ...draft.choices, [event.ask]: event.value }, seen: draft.seen.includes(event.ask) ? draft.seen : [...draft.seen, event.ask] }
         : event.type === "plan-comment" ? { ...draft, comments: event.text ? { ...draft.comments, [event.claim]: event.text } : Object.fromEntries(Object.entries(draft.comments).filter(([claim]) => claim !== event.claim)) }
         : { ...draft, note: event.text };
-      return next({ plan: { ...state.plan, drafts: { ...state.plan.drafts, [event.runId]: changed } } });
+      return next({ plan: { ...state.plan, drafts: { ...state.plan.drafts, [event.runId]: changed }, dropped: null } });
     }
     case "plan-respond": {
       const plan = state.plan.reading.data;
@@ -1580,6 +1586,8 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       if (asked.state === state) return asked;
       return { state: { ...asked.state, plan: { ...state.plan, confirm: { runId: confirm.runId, status: "running" } } }, effects: asked.effects };
     }
+    case "plan-dropped-seen":
+      return next(state.plan.dropped ? { plan: { ...state.plan, dropped: null } } : {});
     case "plan-cancel":
       return next(state.plan.confirm?.status === "asking" ? { plan: { ...state.plan, confirm: null } } : {});
     case "landing-diff-loaded":

@@ -42,7 +42,7 @@ describe("Fleet screen views", () => {
     const thread = lead("t", { result: "BLOCKED — the plan waits", plan: { version: 1, asks: 1 } });
     const html = screen(state([coordinator, thread], {
       fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null }, tab: "plan" },
-      plan: { runId: "t", reading: { status: "ready", data }, drafts: {}, confirm: null },
+      plan: { runId: "t", reading: { status: "ready", data }, drafts: {}, confirm: null, dropped: null },
     }));
     expect(html).toContain('<button type="button" aria-pressed="true">Plan<span class="fleet-tab-alert" aria-label="Needs you">1</span></button>');
     expect(html).toContain('<span class="fleet-plan-left">1 to answer</span>');
@@ -54,6 +54,13 @@ describe("Fleet screen views", () => {
     expect(html).toMatch(/<button type="button" class="btn btn-primary">Respond<\/button>/);
     // the chat stays mounted behind the plan
     expect(html).toMatch(/class="fleet-open-chat" hidden=""/);
+    expect(html).not.toContain("fleet-plan-dropped");
+    // answers to an older version were dropped: the plan says so
+    const replaced = screen(state([coordinator, thread], {
+      fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null }, tab: "plan" },
+      plan: { runId: "t", reading: { status: "ready", data }, drafts: {}, confirm: null, dropped: { runId: "t", version: 0 } },
+    }));
+    expect(replaced).toContain("lead が計画の版 1 を出したので、版 0 への回答は破棄しました。");
   });
 
   it("draws the project conversation beside the Overview, its threads by what the person has to do", () => {

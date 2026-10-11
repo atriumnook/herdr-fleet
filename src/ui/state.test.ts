@@ -193,7 +193,16 @@ describe("screens and the Fleet screen's view", () => {
     // the lead hands over version 2: it is read again, and answers to version 1 are dropped
     const replanned = play([{ type: "runs-loaded", runs: [run("a", { state: "idle", plan: { version: 2, asks: 1 } })] }], answered);
     expect(replanned.effects).toEqual([{ kind: "load-plan", runId: "a" }]);
-    expect(play([{ type: "plan-loaded", runId: "a", plan: plan(2) }], replanned.state).state.plan.drafts).toEqual({});
+    const dropped = play([{ type: "plan-loaded", runId: "a", plan: plan(2) }], replanned.state).state;
+    expect(dropped.plan.drafts).toEqual({});
+    // the person is told, until they dismiss it, answer again, or open another thread
+    expect(dropped.plan.dropped).toEqual({ runId: "a", version: 1 });
+    expect(play([{ type: "plan-dropped-seen" }], dropped).state.plan.dropped).toBeNull();
+    expect(play([{ type: "plan-choose", runId: "a", ask: "limit", value: "three" }], dropped).state.plan.dropped).toBeNull();
+    expect(play([{ type: "fleet-open", kind: "thread", runId: "gone" }], dropped).state.plan.dropped).toBeNull();
+    // with nothing written to the older version, nothing was lost: no word of it
+    const untouched = play([{ type: "runs-loaded", runs: [run("a", { state: "idle", plan: { version: 2, asks: 1 } })] }, { type: "plan-loaded", runId: "a", plan: plan(2) }], ready).state;
+    expect(untouched.plan.dropped).toBeNull();
     // a watch-only device sends nothing
     expect(play([{ type: "plan-respond", runId: "a" }], { ...answered, canAct: false }).state.plan.confirm).toBeNull();
   });

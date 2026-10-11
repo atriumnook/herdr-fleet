@@ -168,6 +168,8 @@ export interface PlanModel {
   answeredAt?: number;
   /** the lead went on to another turn without the answers: the plan takes none now */
   closedAt?: number;
+  /** the version whose answers were dropped when the lead handed over this one */
+  dropped?: number;
   title?: string;
   why: string[];
   claims: PlanClaimModel[];
@@ -525,6 +527,7 @@ function planModel(run: AgentRun, fleet: FleetState): PlanModel {
   const confirm = fleet.plan.confirm?.runId === run.id ? fleet.plan.confirm : null;
   return {
     runId: run.id, status: reading.status, ...(reading.error ? { error: reading.error } : {}), version, ...(answered !== undefined ? { answeredAt: answered } : {}), ...(closed !== undefined ? { closedAt: closed } : {}),
+    ...(fleet.plan.dropped?.runId === run.id ? { dropped: fleet.plan.dropped.version } : {}),
     ...(plan ? { title: plan.title } : {}), why: plan?.why ?? [], claims,
     ...(plan?.shared ? { shared: { id: "shared", level: 1, text: plan.shared.text, ...(plan.shared.exhibit ? { exhibit: plan.shared.exhibit } : {}), comment: draft.comments["shared"] ?? "", children: [] } } : {}),
     scope: plan?.scope ?? [], toAnswer: open ? toAnswer : [], note: draft.note, comments,
