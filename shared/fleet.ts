@@ -66,6 +66,59 @@ export interface AgentRun {
   diff?: DiffStat;
   /** when the person marked the thread done (epoch ms); its lead working again takes it back */
   resolvedAt?: number;
+  /** the branch the repository's main checkout was on when the thread started: the thread lands there */
+  baseBranch?: string;
+  /** the thread's pull request, as the fleet last read it from GitHub */
+  pr?: PullRequest;
+  /** the landing step the person asked for last, until it went as asked */
+  landing?: LandingStep;
+  /** how the thread ended: merged into its base branch, or thrown away */
+  landed?: "merged" | "discarded";
+}
+
+/**
+ * The steps that land a thread, each pressed by the person on the Fleet screen. The lead takes
+ * those on its branch (update, pr, fix-ci, comments), the coordinator the merges, which happen in
+ * the main checkout it sits on, and the fleet throws a thread away itself (discard).
+ */
+export type LandAction = "update" | "pr" | "fix-ci" | "comments" | "merge" | "merge-pr" | "discard";
+
+/** One landing step the person asked for: handed to its agent (`sent`), and what the fleet found once that agent's turn ended. */
+export interface LandingStep {
+  action: LandAction;
+  at: number;
+  sent?: boolean;
+  /** the step did not go as asked: what the fleet found */
+  error?: string;
+}
+
+/** A thread's pull request on GitHub, and its checks: failing ones by name. */
+export interface PullRequest {
+  number: number;
+  url: string;
+  state: "OPEN" | "MERGED" | "CLOSED";
+  checks: "pending" | "pass" | "fail" | "none";
+  failing?: string[];
+}
+
+/** One comment of the person's on a thread's change, sent to its lead with the others. */
+export interface LineComment {
+  file: string;
+  line: number;
+  text: string;
+}
+
+/** What stands between a thread and landing, read when asked: its worktree, its branch beside the base, its pull request. */
+export interface LandingChecks {
+  baseBranch: string;
+  /** files changed or new in the worktree that no commit holds (git status), the first 20 */
+  uncommitted: string[];
+  /** commits the branch has that the base branch does not, and the other way round */
+  ahead: number;
+  behind: number;
+  pr?: PullRequest;
+  /** GitHub could not be asked (gh missing, signed out, offline) */
+  prError?: string;
 }
 
 /** Lines a change adds and removes, in the files git tracks. */
@@ -83,9 +136,10 @@ export interface ContractItem {
 
 /**
  * Where a thread stands for the person: its lead at work, waiting on the person (a question in its
- * HANDOFF or on its screen), done with a PASS, settled otherwise, failed, its pane gone, or marked done.
+ * HANDOFF or on its screen, a landing step that went wrong, failing checks), done with a PASS, its
+ * pull request open, settled otherwise, failed, its pane gone, or marked done.
  */
-export type ThreadState = "working" | "waiting" | "review" | "idle" | "failed" | "ended" | "resolved";
+export type ThreadState = "working" | "waiting" | "review" | "landing" | "idle" | "failed" | "ended" | "resolved";
 
 /** A thread as its project's coordinator sees it: the lead's run, where it stands, its HANDOFF status line, and its contract. */
 export interface ThreadSummary {
@@ -146,5 +200,7 @@ export function threadState(run: AgentRun): ThreadState {
   if (run.state === "blocked") return "waiting";
   if (working) return "working";
   const status = run.result ? handoffStatus(run.result) : undefined;
-  return status?.startsWith("BLOCKED") ? "waiting" : status?.startsWith("PASS") ? "review" : "idle";
+  if (status?.startsWith("BLOCKED") || run.landing?.error || (run.pr?.state === "OPEN" && run.pr.checks === "fail")) return "waiting";
+  if (run.pr?.state === "OPEN") return "landing";
+  return status?.startsWith("PASS") ? "review" : "idle";
 }

@@ -275,7 +275,7 @@ const GROUPS: ReadonlyArray<[ThreadGroupKey, string]> = [["needs", "Needs you"],
 
 /** A thread state's badge word and look: waiting reads Needs you, as every waiting state does. */
 const THREAD_BADGE: Record<ThreadState, { label: string; badge: Badge }> = {
-  waiting: { label: "Needs you", badge: "blocked" }, failed: { label: "Failed", badge: "failed" }, review: { label: "Ready for review", badge: "done" },
+  waiting: { label: "Needs you", badge: "blocked" }, failed: { label: "Failed", badge: "failed" }, review: { label: "Ready for review", badge: "done" }, landing: { label: "Landing", badge: "done" },
   working: { label: "Working", badge: "working" }, idle: { label: "Idle", badge: "idle" }, ended: { label: "Ended", badge: "idle" }, resolved: { label: "Resolved", badge: "idle" },
 };
 

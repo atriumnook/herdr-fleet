@@ -29,7 +29,7 @@ function fleet() {
     reportMetadata: async () => {},
   };
   const orchestrator = new Orchestrator({
-    runtime, registry: new RunRegistry(null), config: () => DEFAULT_CONFIG, fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(resultsRoot, "results"), instructionsDir: join(resultsRoot, "instructions"), promptDir: resultsRoot,
+    runtime, registry: new RunRegistry(null), config: () => DEFAULT_CONFIG, fleetCommand: "fleet", landing: { readPullRequest: async () => null }, agentEnv: () => ({}), resultsDir: join(resultsRoot, "results"), instructionsDir: join(resultsRoot, "instructions"), promptDir: resultsRoot,
     agents: () => [
       { name: "worker", description: "implements", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" },
       { name: "coordinator", description: "coordinates", agent: "claude", interactive: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" },
@@ -112,6 +112,27 @@ describe("fleet API", () => {
     expect(await call("POST", `/runs/${thread.id}/resolve`, { resolved: "yes", group: thread.group })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
     const worker = (await call("POST", "/spawn", { role: "worker", task: "t", group: "g9" })).body["run"];
     expect(await call("POST", `/runs/${worker.id}/resolve`, { group: "g9" })).toMatchObject({ status: 409, body: { error: { code: "not_a_thread" } } });
+  });
+
+  it("shows a thread's change and checks, and takes the landing steps the person presses", async () => {
+    const { call, state } = fleet();
+    const repo = join(resultsRoot, "landing");
+    const git = (...args: string[]) => Bun.spawnSync(["git", "-C", repo, "-c", "user.email=t@example.invalid", "-c", "user.name=t", ...args]);
+    Bun.spawnSync(["git", "init", "-q", "-b", "main", repo]);
+    git("commit", "-q", "--allow-empty", "-m", "base");
+    const thread = (await call("POST", "/threads", { title: "Fix", task: "t", cwd: repo })).body["run"];
+    expect(thread.baseBranch).toBe("main");
+    expect((await call("GET", `/runs/${thread.id}/landing?group=${thread.group}`)).body["checks"]).toMatchObject({ baseBranch: "main", behind: 0 });
+    expect(await call("GET", `/runs/${thread.id}/diff?group=${thread.group}`)).toMatchObject({ status: 200 });
+    // the lead is still at work on its task
+    expect(await call("POST", `/runs/${thread.id}/land`, { action: "pr", group: thread.group })).toMatchObject({ status: 409, body: { error: { code: "run_busy" } } });
+    expect(await call("POST", `/runs/${thread.id}/land`, { action: "push", group: thread.group })).toMatchObject({ status: 400, body: { error: { code: "invalid_action" } } });
+    expect(await call("POST", `/runs/${thread.id}/land`, { action: "comments", comments: [{ file: "a", line: 0, text: "x" }], group: thread.group })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+    expect(await call("POST", `/runs/${thread.id}/land`, { action: "merge-pr", group: thread.group })).toMatchObject({ status: 409, body: { error: { code: "no_pull_request" } } });
+    state.get = "idle";
+    expect((await call("POST", `/runs/${thread.id}/land`, { action: "discard", group: thread.group })).body["run"]).toMatchObject({ landed: "discarded" });
+    expect(Bun.spawnSync(["git", "-C", repo, "branch", "--list", thread.branch]).stdout.toString()).toBe("");
+    expect(await call("POST", `/runs/${thread.id}/land`, { action: "merge", group: thread.group })).toMatchObject({ status: 409, body: { error: { code: "thread_landed" } } });
   });
 
   it("answers bad requests with the reason", async () => {

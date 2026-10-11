@@ -4,11 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { DEFAULT_CONFIG, mergeConfig } from "./config.ts";
-import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES } from "./orchestrator.ts";
+import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES, type LandingTools } from "./orchestrator.ts";
 import { RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, type AgentMetadata, type AgentRuntime, type CreateLocationOptions, type RuntimeLocation, type StartOptions } from "./runtime.ts";
 import type { AgentDefinition, AgentRun, AgentState, FleetConfig } from "./types.ts";
 import { UsageTracker } from "./usage.ts";
+import { threadState } from "../../shared/fleet.ts";
 
 const GRACE = 60;
 
@@ -76,6 +77,7 @@ interface SetupOptions {
   draftRetryMs?: number;
   gitHead?: (cwd: string) => Promise<string | null>;
   diffStat?: (cwd: string, base: string) => Promise<{ added: number; removed: number; files: number } | null>;
+  landing?: Partial<LandingTools>;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -89,6 +91,7 @@ function setup(options: SetupOptions = {}) {
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
     usage: options.usage, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}), standingOrders: options.standingOrders,
     draftRetryMs: options.draftRetryMs, gitHead: options.gitHead ?? (async () => null), diffStat: options.diffStat,
+    landing: { gitBranch: async () => null, readPullRequest: async () => null, ...options.landing },
   });
   return { fleet, runtime, registry, root };
 }
@@ -1148,5 +1151,220 @@ describe("owners", () => {
     expect(runtime.prompts.at(-1)).toEqual({ name: thread.herdrName, text: "keep the old API" });
     expect(() => fleet.get(loose.id, coordinator.group)).toThrow("Unknown fleet agent");
     expect(() => fleet.get(thread.id, "elsewhere")).toThrow("Unknown fleet agent");
+  });
+});
+
+describe("landing", () => {
+  const agents = [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true }), role("reviewer")];
+  const PR = { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "pending", head: "c0ffee" } as const;
+
+  function project() {
+    const states = new Map<string, AgentState>();
+    const removed: Array<{ repo: string; worktree: string; branch: string; options: unknown }> = [];
+    const git = { pr: null as typeof PR | null | { state: string; [key: string]: unknown }, prError: undefined as string | undefined, merged: false, behind: 0, head: "c0ffee" as string | null, kept: undefined as string | undefined };
+    const harness = setup({
+      agents, gitRoot: async () => "/repo",
+      landing: {
+        gitBranch: async () => "main",
+        readPullRequest: async () => { if (git.prError) throw new Error(git.prError); return git.pr as never; },
+        isMerged: async () => git.merged,
+        branchState: async () => ({ uncommitted: [], ahead: 2, behind: git.behind }),
+        branchHead: async () => git.head,
+        diffText: async () => ({ diff: "diff --git a/x b/x", truncated: false }),
+        removeThread: async (repo, worktree, branch, options) => { removed.push({ repo, worktree, branch, options }); return git.kept; },
+      },
+    });
+    harness.runtime.getImpl = async (name) => states.get(name) ?? "working";
+    const turn = async (run: AgentRun, state: AgentState) => {
+      states.set(run.herdrName, state);
+      await Bun.sleep(GRACE + 5);
+      harness.fleet.onPaneStatus(run.paneId);
+      await Bun.sleep(30);
+    };
+    const to = (run: AgentRun) => harness.runtime.prompts.filter((p) => p.name === run.herdrName).map((p) => p.text);
+    /** a coordinator, and a thread of its that ended a turn with a PASS */
+    const ready = async () => {
+      const coordinator = await harness.fleet.startProject({ task: "fix the retry", cwd: "/repo" });
+      await turn(coordinator, "idle");
+      const thread = await harness.fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+      writeFileSync(join(harness.root, "results", thread.id, "handoff.md"), "PASS — bun test: 12 pass");
+      await turn(thread, "idle");
+      return { coordinator, thread };
+    };
+    return { ...harness, states, turn, to, ready, git, removed };
+  }
+
+  it("start a thread on the branch the main checkout is on, and measure its change from there", async () => {
+    const bases: string[] = [];
+    const { fleet, runtime, registry } = setup({ agents, gitRoot: async () => "/repo", gitHead: async () => "abc1234", landing: { gitBranch: async () => "main" },
+      diffStat: async (_cwd, base) => { bases.push(base); return { added: 1, removed: 0, files: 1 }; } });
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    expect(thread).toMatchObject({ base: "abc1234", baseBranch: "main" });
+    runtime.getStatus = "idle";
+    await Bun.sleep(GRACE + 5);
+    fleet.onPaneStatus(thread.paneId);
+    await Bun.sleep(30);
+    expect(bases).toEqual(["main"]);
+    expect(registry.get(thread.id)!.diff).toEqual({ added: 1, removed: 0, files: 1 });
+  });
+
+  it("hand Create PR to the lead as the person's approval to push and open it, and keep the pull request it opened", async () => {
+    const { fleet, registry, turn, to, ready, git } = project();
+    const { thread } = await ready();
+    await fleet.land(thread.id, "pr");
+    const message = to(thread).at(-1)!;
+    expect(message).toStartWith("[fleet] The person pressed Create PR on the Fleet screen: they approve pushing fleet/");
+    expect(message).toContain(`pushing ${thread.branch} to origin and opening a pull request from it against main`);
+    expect(message).toContain("never force");
+    expect(message).toContain("Do not merge it.");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ action: "pr", sent: true });
+    // a second step waits for the lead's turn to end
+    await expect(fleet.land(thread.id, "update")).rejects.toMatchObject({ code: "landing_busy" });
+    git.pr = PR;
+    await turn(thread, "idle");
+    const landed = registry.get(thread.id)!;
+    expect(landed.pr).toEqual({ number: 70, url: PR.url, state: "OPEN", checks: "pending" });
+    expect(landed.landing).toBeUndefined();
+    expect(threadState(landed)).toBe("landing");
+  });
+
+  it("say on the thread when the step did not happen, and let the person press it again", async () => {
+    const { fleet, registry, turn, ready, git } = project();
+    const { thread } = await ready();
+    await fleet.land(thread.id, "pr");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ action: "pr", error: `The lead's turn ended without an open pull request for ${thread.branch}.` });
+    expect(threadState(registry.get(thread.id)!)).toBe("waiting");
+    git.behind = 3;
+    await fleet.land(thread.id, "update");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.landing?.error).toBe(`${thread.branch} is still 3 commits behind main.`);
+  });
+
+  it("send the person's comments together, and Fix CI with the failing checks, each asking to push to the open pull request", async () => {
+    const { fleet, registry, turn, to, ready, git } = project();
+    const { thread } = await ready();
+    await fleet.land(thread.id, "comments", { comments: [{ file: "src/retry.ts", line: 12, text: "Keep the\nold name." }, { file: "README.md", line: 3, text: "Typo" }] });
+    expect(to(thread).at(-1)).toBe([
+      "[fleet] The person reviewed this thread's change on the Fleet screen and left these comments:",
+      "- src/retry.ts:12 — Keep the old name.",
+      "- README.md:3 — Typo",
+      "Address each one and commit. Where you disagree, say why in your HANDOFF instead of changing the code.",
+    ].join("\n"));
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.landing).toBeUndefined();
+    await expect(fleet.land(thread.id, "fix-ci")).rejects.toMatchObject({ code: "no_pull_request" });
+    await expect(fleet.land(thread.id, "comments", { comments: [] })).rejects.toMatchObject({ code: "missing_comments" });
+    registry.upsert({ ...registry.get(thread.id)!, pr: { number: 70, url: PR.url, state: "OPEN", checks: "fail", failing: ["test", "lint"] } });
+    git.pr = { ...PR, checks: "fail", failing: ["test", "lint"] };
+    expect(threadState(registry.get(thread.id)!)).toBe("waiting");
+    await fleet.land(thread.id, "fix-ci");
+    expect(to(thread).at(-1)).toBe(`[fleet] The person pressed Fix CI on the Fleet screen: checks failed on pull request #70 (test, lint). Read their logs (gh pr checks 70, gh run view --log-failed), fix the cause, commit, and push ${thread.branch} to its pull request #70.`);
+    // the lead is at work: nothing more goes to it until its turn ends
+    await expect(fleet.land(thread.id, "comments", { comments: [{ file: "a", line: 1, text: "b" }] })).rejects.toMatchObject({ code: "landing_busy" });
+  });
+
+  it("hand Merge into main to the coordinator once it is free, then close the merged thread: its panes, worktree and branch", async () => {
+    const { fleet, registry, runtime, turn, to, ready, git, removed } = project();
+    const { coordinator, thread } = await ready();
+    const helper = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: "/repo" });
+    // the person talks with the coordinator: the merge waits for its turn to end
+    await turn(coordinator, "working");
+    await fleet.land(thread.id, "merge");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ action: "merge", sent: false });
+    expect(to(coordinator)).toEqual(["fix the retry"]);
+    await turn(coordinator, "idle");
+    expect(to(coordinator).at(-1)).toBe([
+      "[fleet] The person pressed these on the Fleet screen. Each is the person's approval for that step only.",
+      `- Merge into main for thread "Fix" (${thread.id}, ${thread.branch}): when this checkout is clean and on main, git merge --no-ff ${thread.branch}. On a conflict, git merge --abort and tell the person.`,
+    ].join("\n"));
+    expect(registry.get(thread.id)!.landing).toMatchObject({ action: "merge", sent: true });
+    git.merged = true;
+    await turn(coordinator, "idle");
+    expect(runtime.closed).toEqual(expect.arrayContaining([thread.paneId, helper.paneId]));
+    expect(removed).toEqual([{ repo: "/repo", worktree: `/repo/.herdr-fleet/worktrees/${thread.id}`, branch: thread.branch!, options: { force: false, branchMerged: false } }]);
+    const closed = registry.get(thread.id)!;
+    expect(closed).toMatchObject({ landed: "merged", state: "stopped" });
+    expect(closed.landing).toBeUndefined();
+    expect(threadState(closed)).toBe("resolved");
+    expect(registry.get(helper.id)!.state).toBe("stopped");
+    await expect(fleet.land(thread.id, "merge")).rejects.toMatchObject({ code: "thread_landed" });
+  });
+
+  it("say what git kept, and that a merge did not happen", async () => {
+    const { fleet, registry, turn, ready, git } = project();
+    const { coordinator, thread } = await ready();
+    await fleet.land(thread.id, "merge");
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!.landing?.error).toBe(`${thread.branch} is not in main after the coordinator's turn; its reply says why.`);
+    expect(registry.get(thread.id)!.landed).toBeUndefined();
+    git.merged = true;
+    git.kept = "The worktree /repo/.herdr-fleet/worktrees/x was kept: contains modified or untracked files";
+    await fleet.land(thread.id, "merge");
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!).toMatchObject({ landed: "merged", landing: { error: git.kept } });
+  });
+
+  it("start a coordinator for a merge when none lives", async () => {
+    const { fleet, registry, runtime, ready, to } = project();
+    const { coordinator, thread } = await ready();
+    registry.upsert({ ...registry.get(coordinator.id)!, state: "stopped" });
+    await fleet.land(thread.id, "merge");
+    const started = registry.all().find((run) => run.role === "coordinator" && run.id !== coordinator.id)!;
+    expect(to(started)[0]).toContain(`Merge into main for thread "Fix"`);
+    expect(registry.get(thread.id)!.landing).toMatchObject({ sent: true });
+    expect(runtime.locations.at(-1)).toMatchObject({ cwd: "/repo" });
+  });
+
+  it("hand Merge PR to the coordinator, and delete the branch once GitHub merged the commit it is at here", async () => {
+    const { fleet, registry, turn, to, ready, git, removed } = project();
+    const { coordinator, thread } = await ready();
+    await expect(fleet.land(thread.id, "merge-pr")).rejects.toMatchObject({ code: "no_pull_request" });
+    registry.upsert({ ...registry.get(thread.id)!, pr: { number: 70, url: PR.url, state: "OPEN", checks: "pass" } });
+    await fleet.land(thread.id, "merge-pr");
+    expect(to(coordinator).at(-1)).toContain("Merge PR for thread \"Fix\"");
+    expect(to(coordinator).at(-1)).toContain("gh pr merge 70 --merge");
+    git.pr = { ...PR, state: "MERGED", checks: "none" };
+    await turn(coordinator, "idle");
+    expect(removed.at(-1)!.options).toEqual({ force: false, branchMerged: true });
+    expect(registry.get(thread.id)!).toMatchObject({ landed: "merged", pr: { state: "MERGED" } });
+  });
+
+  it("throw a thread away at once: its panes, worktree and branch whatever they hold", async () => {
+    const { fleet, registry, runtime, ready, removed } = project();
+    const { thread } = await ready();
+    await fleet.land(thread.id, "discard");
+    expect(runtime.closed).toContain(thread.paneId);
+    expect(removed).toEqual([{ repo: "/repo", worktree: `/repo/.herdr-fleet/worktrees/${thread.id}`, branch: thread.branch!, options: { force: true, branchMerged: false } }]);
+    expect(registry.get(thread.id)!).toMatchObject({ landed: "discarded", state: "stopped" });
+    expect(threadState(registry.get(thread.id)!)).toBe("resolved");
+  });
+
+  it("read the open pull requests again, and close a thread the person merged on GitHub", async () => {
+    const { fleet, registry, ready, git, removed } = project();
+    const { thread } = await ready();
+    registry.upsert({ ...registry.get(thread.id)!, pr: { number: 70, url: PR.url, state: "OPEN", checks: "pending" } });
+    git.pr = { ...PR, checks: "pass" };
+    await fleet.refreshPullRequests();
+    expect(registry.get(thread.id)!.pr?.checks).toBe("pass");
+    git.pr = { ...PR, state: "MERGED", head: "older" };
+    await fleet.refreshPullRequests();
+    // GitHub merged another commit than the branch is at here: the branch stays
+    expect(removed.at(-1)!.options).toEqual({ force: false, branchMerged: false });
+    expect(registry.get(thread.id)!.landed).toBe("merged");
+  });
+
+  it("answer the checks: the worktree, the branch beside its base, and the pull request, or why GitHub could not say", async () => {
+    const { fleet, registry, ready, git } = project();
+    const { thread } = await ready();
+    git.behind = 2;
+    git.pr = PR;
+    expect(await fleet.checks(thread.id)).toEqual({ baseBranch: "main", uncommitted: [], ahead: 2, behind: 2, pr: { number: 70, url: PR.url, state: "OPEN", checks: "pending" } });
+    expect(registry.get(thread.id)!.pr?.number).toBe(70);
+    git.prError = "gh: To get started with GitHub CLI, please run: gh auth login";
+    expect(await fleet.checks(thread.id)).toMatchObject({ prError: git.prError, pr: { number: 70 } });
+    expect(await fleet.diff(thread.id)).toEqual({ diff: "diff --git a/x b/x", truncated: false });
+    const helper = await spawn(fleet, { role: "reviewer" });
+    await expect(fleet.checks(helper.id, helper.group)).rejects.toMatchObject({ code: "not_a_thread" });
   });
 });

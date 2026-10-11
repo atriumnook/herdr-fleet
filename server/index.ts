@@ -114,6 +114,8 @@ const ATTACH_RELOOKUP_FOR_MS = 5_000;
 const ATTACH_RELOOKUP_MS = 100;
 /** How often the panes attached here are looked up in herdr's layout, for a rect that changed (regrid). */
 const LAYOUT_POLL_MS = 1000;
+/** How often the threads' open pull requests are read again from GitHub, for their checks and a merge made there. */
+const PULL_REQUEST_POLL_MS = 60_000;
 /** How long a regrid waits for herdr to apply its layout to the terminal let go of, and how often it looks. */
 const REGRID_SETTLE_MS = 1000;
 const REGRID_POLL_MS = 50;
@@ -1821,6 +1823,14 @@ export function createServer(
     regridMoved().catch(() => undefined).finally(() => { layoutPolling = false; });
   }, LAYOUT_POLL_MS);
   layoutTimer.unref();
+  // the threads' open pull requests: their checks, and a merge the person made on GitHub
+  let pullRequestsPolling = false;
+  const pullRequestTimer = setInterval(() => {
+    if (pullRequestsPolling) return;
+    pullRequestsPolling = true;
+    fleet.refreshPullRequests().catch(() => undefined).finally(() => { pullRequestsPolling = false; });
+  }, PULL_REQUEST_POLL_MS);
+  pullRequestTimer.unref();
 
   listeningPort = server.port ?? 0;
   // runs from before a restart: read back from herdr, so the finished ones are not counted as working
@@ -1832,6 +1842,7 @@ export function createServer(
     stop: () => {
       clearInterval(outputTimer);
       clearInterval(layoutTimer);
+      clearInterval(pullRequestTimer);
       collector.stop();
       machines?.stop();
       fleet.stop();
