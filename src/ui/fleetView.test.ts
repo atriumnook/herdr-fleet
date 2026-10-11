@@ -198,12 +198,14 @@ describe("the projects, their threads and the run open in the Overview", () => {
     const model = fleetScreenModel(withRuns([coordinator(), lead("t")], {
       usage, fleetView: { ...INITIAL_STATE.fleetView, settings: true, open: { kind: "thread", runId: "t", member: null } },
       fleetSettings: { status: "ready", data: settings, cwd: "/repo", saving: 1, seq: 1 },
+      fleetEntrances: { status: "ready", data: { entrances: [{ id: "agents", file: "/h/.agents/skills/herdr-fleet/SKILL.md", readers: ["pi", "codex", "cursor"], state: "outdated" }], tokenRequired: true }, busy: "agents" },
     }), NOW);
     expect(model.open).toBeNull();
     expect(model.settings).toMatchObject({ status: "ready", saving: true, canAct: true, settings });
     expect(model.settings!.projects).toEqual([{ path: "/repo", name: "repo", setup: "bun install" }, { path: "/kept", name: "kept", setup: "make" }]);
     // a window that reset no longer counts
     expect(model.settings!.accounts).toEqual([{ key: "claude", usedPercent: 30, skipped: false }, { key: "codex", usedPercent: 85, skipped: true }]);
+    expect(model.settings!.entrances).toEqual({ status: "ready", list: [{ id: "agents", file: "/h/.agents/skills/herdr-fleet/SKILL.md", readers: ["pi", "codex", "cursor"], state: "outdated" }], tokenRequired: true, busy: "agents" });
     expect(fleetScreenModel(withRuns([coordinator()]), NOW).settings).toBeNull();
   });
 

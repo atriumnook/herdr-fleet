@@ -8,6 +8,7 @@ import type { FleetSettingsPatch, LandAction, LineComment } from "../../shared/f
 import type { SpawnRequest } from "./types.ts";
 import type { UsageTracker } from "./usage.ts";
 import type { FleetSettingsStore } from "./settings.ts";
+import type { EntranceStore } from "./entrances.ts";
 
 /**
  * Fleet HTTP API, behind the same gate as the rest of /api. Changes need X-Herdr-Fleet: 1: a page
@@ -18,7 +19,8 @@ import type { FleetSettingsStore } from "./settings.ts";
  *  POST /api/fleet/spawn         SpawnRequest        -> 201 { run }
  *  POST /api/fleet/threads       { title, task|brief, cwd?, depth?, caller_run? } -> 201 { run }
  *  GET  /api/fleet/threads[?caller_run=&cwd=]        -> { threads: ThreadSummary[] }; the caller's project's
- *  POST /api/fleet/projects      { task, cwd? }      -> 201 { run }; the project's coordinator, started or told the task
+ *  POST /api/fleet/projects      { task, cwd?, from_pane? } -> 201 { run }; the project's coordinator, started or told the task
+ *                                                       (from_pane: the herdr pane whose conversation sent it)
  *  GET  /api/fleet/runs/:target[?group=]             -> { run }
  *  POST /api/fleet/runs/:target/send   { message, group? }     -> { run }
  *  POST /api/fleet/runs/:target/wait   { timeout_ms?, group? } -> { run }; 408 wait_timeout with { run }
@@ -36,8 +38,10 @@ import type { FleetSettingsStore } from "./settings.ts";
  *  POST /api/fleet/usage/clear            { key? }   -> { cleared: string[] }; ends cooldowns: one account, a CLI's, or all
  *  GET  /api/fleet/settings[?cwd=]                  -> { settings: FleetSettings }; the person's fleet.json, as the project in cwd uses it
  *  POST /api/fleet/settings      { patch, cwd? }    -> { settings }; the patch written into the person's fleet.json
+ *  GET  /api/fleet/entrances                        -> FleetEntrances; the skill folders and whether the fleet skill is in each
+ *  POST /api/fleet/entrances     { id, action: "install" | "remove" } -> FleetEntrances
  */
-export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator, usage?: Pick<UsageTracker, "list" | "refresh" | "clearCooldown">, settings?: Pick<FleetSettingsStore, "read" | "update">): Promise<Response> {
+export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator, usage?: Pick<UsageTracker, "list" | "refresh" | "clearCooldown">, settings?: Pick<FleetSettingsStore, "read" | "update">, entrances?: Pick<EntranceStore, "list" | "install" | "remove">): Promise<Response> {
   const parts = url.pathname.slice("/api/fleet".length).split("/").filter(Boolean).map(decodeURIComponent);
   const method = request.method;
   try {
@@ -72,8 +76,11 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
       const task = body["task"];
       const cwd = body["cwd"];
       if (typeof task !== "string" || !task.trim()) throw new FleetError("missing_task", "task is required");
+      const fromPane = body["from_pane"];
       if (cwd !== undefined && typeof cwd !== "string") throw new FleetError("invalid_body", "cwd must be a string");
-      const run = await fleet.startProject({ task, ...(cwd ? { cwd } : {}) }, request.signal);
+      // the pane id goes into the coordinator's input as written: nothing but an id's characters
+      if (fromPane !== undefined && (typeof fromPane !== "string" || !/^[\w:.-]{1,64}$/.test(fromPane))) throw new FleetError("invalid_body", "from_pane must be a herdr pane id");
+      const run = await fleet.startProject({ task, ...(cwd ? { cwd } : {}), ...(fromPane ? { fromPane } : {}) }, request.signal);
       return jsonResponse({ run }, 201);
     }
     if (parts[0] === "spawn" && parts.length === 1 && method === "POST") {
@@ -103,6 +110,17 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
         if (cwd !== undefined && typeof cwd !== "string") throw new FleetError("invalid_body", "cwd must be a string");
         if (!isJsonObject(body["patch"])) throw new FleetError("invalid_body", "patch must be an object");
         return jsonResponse({ settings: await settings.update(cwd || process.cwd(), body["patch"] as FleetSettingsPatch) });
+      }
+    }
+    if (parts[0] === "entrances" && parts.length === 1 && entrances) {
+      if (method === "GET") return jsonResponse(entrances.list());
+      if (method === "POST") {
+        const body = await readBody();
+        const id = body["id"];
+        if (typeof id !== "string") throw new FleetError("invalid_body", "id must be a string");
+        if (body["action"] === "install") return jsonResponse(entrances.install(id));
+        if (body["action"] === "remove") return jsonResponse(entrances.remove(id));
+        throw new FleetError("invalid_body", "action must be install or remove");
       }
     }
     if (parts[0] === "close-done" && parts.length === 1 && method === "POST") {
@@ -242,7 +260,7 @@ function briefOf(value: unknown): Partial<Brief> | undefined {
 }
 
 const STATUS: Record<string, number> = {
-  run_not_found: 404, unknown_role: 404, not_a_thread: 409, thread_landed: 409, landing_busy: 409, run_busy: 409, no_pull_request: 409, diff_unavailable: 409, settings_unreadable: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
+  run_not_found: 404, unknown_role: 404, not_a_thread: 409, thread_landed: 409, landing_busy: 409, run_busy: 409, no_pull_request: 409, diff_unavailable: 409, settings_unreadable: 409, unknown_entrance: 404, entrance_taken: 409, entrance_unreadable: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
   agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429, scope_conflict: 409, setup_failed: 502,
 };
 
