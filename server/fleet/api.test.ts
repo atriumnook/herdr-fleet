@@ -187,7 +187,7 @@ describe("fleet API", () => {
     expect(read.body["settings"].roles.map((each: { name: string }) => each.name)).toEqual(["worker", "coordinator", "lead"]);
     expect((await call("POST", "/settings", { patch: { maxConcurrent: 3 } }, {})).status).toBe(403);
     expect((await call("POST", "/settings", { patch: { maxConcurrent: 3 } })).body["settings"].maxConcurrent).toBe(3);
-    expect(await call("POST", "/settings", { patch: { roles: { coordinator: { candidates: [{ agent: "pi" }] } } } })).toMatchObject({ status: 400, body: { error: { code: "invalid_settings" } } });
+    expect(await call("POST", "/settings", { patch: { roles: { coordinator: { candidates: [{ agent: "cursor" }] } } } })).toMatchObject({ status: 400, body: { error: { code: "invalid_settings" } } });
     expect(await call("POST", "/settings", { patch: 3 })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
   });
 

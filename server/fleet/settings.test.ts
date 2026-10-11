@@ -39,7 +39,7 @@ describe("fleet settings", () => {
   it("draw each role's candidates in the order the fleet tries them, with why one would be passed over now", () => {
     const { store, repo, file } = setup();
     const settings = store.read(repo);
-    expect(settings).toMatchObject({ file, maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [], readOnlyAgents: ["claude", "opencode"] });
+    expect(settings).toMatchObject({ file, maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [], readOnlyAgents: ["claude", "opencode", "pi"] });
     expect(settings.roles.map((each) => [each.name, each.candidates, each.thinking, each.readOnly, each.changed])).toEqual([
       ["coordinator", [{ agent: "claude" }], "high", true, false],
       ["lead", [{ agent: "claude" }, { agent: "codex", skip: "codex has used 92% of its 5h limit" }], "high", false, false],
@@ -108,6 +108,14 @@ describe("fleet settings", () => {
     const settings = store.read(join(repo, "src"));
     expect(settings.roles[2]).toMatchObject({ candidates: [{ agent: "pi" }], project: { candidates: [{ agent: "cursor" }], thinking: "high" } });
     expect(settings.roles[1]!.project).toBeUndefined();
+  });
+
+  it("accept pi for a role that edits no file, since pi can be kept from editing", async () => {
+    const { store, repo, written } = setup();
+    const settings = await store.update(repo, { roles: { coordinator: { candidates: [{ agent: "pi", model: "opencode-go/space-bunny-free" }, { agent: "claude" }] } } });
+    expect(written()).toMatchObject({ roles: { coordinator: { agent: "pi", model: "pi:opencode-go/space-bunny-free", fallbackModels: ["claude:"] } } });
+    expect(settings.roles[0]!.candidates).toMatchObject([{ agent: "pi" }, { agent: "claude" }]);
+    expect(settings.roles[0]!.candidates.some((candidate) => candidate.skip)).toBe(false);
   });
 
   it("refuse what the fleet could not use, and leave a fleet.json it cannot read as it is", async () => {

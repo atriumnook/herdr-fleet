@@ -134,6 +134,16 @@ export const piAdapter: AgentAdapter = {
     args.push("--name", `fleet:${name}`, "--append-system-prompt", systemPromptFile);
     return args;
   },
+  // pi's own denylist: it wins over a --tools list, so a role's tools cannot bring edit or write back
+  // codemode (off unless enabled) runs scripts that call other tools, so it goes too
+  readOnlyArgs: ["--exclude-tools", "edit,write,codemode"],
+  // the input sits between the last two horizontal rules, with no prompt mark: empty, it holds only the cursor (a reverse-video space)
+  draft(screen) {
+    const lines = stripVTControlCharacters(screen).split(/\r?\n/);
+    const rules = lines.flatMap((line, at) => /^─{3,}/.test(line.trim()) ? [at] : []);
+    if (rules.length < 2) return false;
+    return lines.slice(rules.at(-2)! + 1, rules.at(-1)).join("").trim() !== "";
+  },
   startupError(screen) {
     return lastMatch(screen, /^\s*Error: (.+)$/gm);
   },
@@ -367,6 +377,18 @@ export const opencodeAdapter: AgentAdapter = {
   },
   readOnlyArgs: ["--agent", OPENCODE_READ_ONLY_AGENT],
   readOnlyEditsResult: true,
+  // the input is a box of `┃` rows that ends above a `╹▀▀▀` line: padding, the text, padding, and last the agent and model; empty, it shows a "Ask anything…" placeholder (opencode 1.19, new session)
+  draft(screen) {
+    const lines = stripVTControlCharacters(screen).split(/\r?\n/).map((line) => line.trim());
+    const bottom = lines.map((line, at) => (/^╹▀+/.test(line) ? at : -1)).reduce((last, at) => Math.max(last, at), -1);
+    if (bottom < 0) return false;
+    let top = bottom;
+    while (top > 0 && lines[top - 1]!.startsWith("┃")) top--;
+    return lines.slice(top, bottom - 1).some((line) => {
+      const text = line.slice(1).trim();
+      return text !== "" && !text.startsWith("Ask anything…");
+    });
+  },
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },
