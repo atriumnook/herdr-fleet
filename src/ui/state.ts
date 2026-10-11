@@ -426,7 +426,7 @@ export interface ChatState {
   /** an answer from the prompt's card: on its way, refused (`changed`: the prompt moved on under it), or none */
   card: { promptId: string; status: "pending" } | { promptId: string; status: "changed"; seq: number } | { promptId: string; status: "failed"; message: string } | null;
   /** a prompt of the conversation asked for (a step back or on, or the one picked in the palette): the chat scrolls to it once per `seq` */
-  seek: { to: -1 | 1 | { ts: string }; seq: number } | null;
+  seek: { to: -1 | 1 | { key: string }; seq: number } | null;
 }
 
 /** how often the chat reads its conversation's newest page */
@@ -794,8 +794,8 @@ type BareEvent =
   | { type: "palette-recent"; machineId: string; recent: string[] }
   /** a pane picked in the palette: it opens, and the palette closes */
   | { type: "palette-pick"; paneId: string }
-  /** a prompt of the open chat picked in the palette: the chat scrolls to it, and the palette closes */
-  | { type: "palette-pick-prompt"; ts: string }
+  /** a prompt of the open chat picked in the palette (its rail key): the chat scrolls to it, and the palette closes */
+  | { type: "palette-pick-prompt"; key: string }
   /** the in-app alert held by a finger, and let go of without a flick */
   | { type: "droplet-press" }
   | { type: "droplet-release" }
@@ -1277,7 +1277,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return next({ screen: "pane", palette: { open: false }, ...pick(state, state.palette.machineId, event.paneId, effects) });
     case "palette-pick-prompt":
       if (!state.palette.open) return next({});
-      return next({ palette: { open: false }, chat: seekPrompt(state.chat, { ts: event.ts }) });
+      return next({ palette: { open: false }, chat: seekPrompt(state.chat, { key: event.key }) });
     case "prompt-rail-step":
       return next({ chat: seekPrompt(state.chat, event.direction) });
     case "droplet-press":
@@ -2373,7 +2373,7 @@ function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): Ch
 }
 
 /** A prompt asked for in the open chat; with no chat open there is nothing to scroll. */
-function seekPrompt(chat: ChatState, to: -1 | 1 | { ts: string }): ChatState {
+function seekPrompt(chat: ChatState, to: -1 | 1 | { key: string }): ChatState {
   return chat.open === null ? chat : { ...chat, seek: { to, seq: (chat.seek?.seq ?? 0) + 1 } };
 }
 

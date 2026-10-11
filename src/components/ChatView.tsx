@@ -10,7 +10,7 @@ import { AgentMark } from "./AgentMark.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { PromptCard, type PromptCardEvent } from "./PromptCard.tsx";
 import { PromptRail, type PromptRailEvent, type PromptRailModel } from "./PromptRail.tsx";
-import { railEntries, stepFrom, type RailEntry } from "../lib/promptRail.ts";
+import { isPrompt, occurrenceKeys, railEntries, stepFrom, type RailEntry } from "../lib/promptRail.ts";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { ThreadCard, type ThreadCardEvent } from "./fleet/ThreadCard.tsx";
 import type { ThreadRowModel } from "../ui/fleetView.ts";
@@ -423,7 +423,7 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
         <pre className="chat-compact-text chat-notice-text">{text}</pre>
       </details>;
     }
-    return <article className="chat-turn chat-turn-user" data-turn-ts={turn.ts ?? undefined}>
+    return <article className="chat-turn chat-turn-user" data-turn-ts={isPrompt(turn) ? turn.ts! : undefined}>
       <UserImages paneId={paneId} parts={turn.parts} text={text} />
       {text.length > 0 && <div className="chat-bubble"><Markdown>{text}</Markdown></div>}
       {/* the skill this message invoked (omp, pi): the runtime recorded its instructions with it */}
@@ -568,10 +568,12 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
   const earlier: PromptRailModel["earlier"] = view.source === "conversation" && typeof olderCursor === "string" ? olderState : "none";
   const railShown = entries.length >= 2 || (entries.length === 1 && earlier !== "none");
 
-  /** each prompt's row, by its turn time, with how far under the top of the view it starts */
+  /** each prompt's row, by its key (time and occurrence, as the rail keys it), with how far under the top of the view it starts */
   const promptRows = (node: HTMLDivElement): Map<string, { row: HTMLElement; y: number }> => {
     const top = node.getBoundingClientRect().top;
-    return new Map([...node.querySelectorAll<HTMLElement>(".chat-turn-user[data-turn-ts]")].map((row) => [row.dataset.turnTs!, { row, y: row.getBoundingClientRect().top - top }]));
+    const rows = [...node.querySelectorAll<HTMLElement>(".chat-turn-user[data-turn-ts]")];
+    const keys = occurrenceKeys(rows.map((row) => row.dataset.turnTs!));
+    return new Map(rows.map((row, at) => [keys[at]!, { row, y: row.getBoundingClientRect().top - top }]));
   };
   /** the prompt being read: the last whose row starts at or above the top of the view; and whether the view is inside its turn */
   const readPlace = (): { index: number; midTurn: boolean } => {
@@ -581,7 +583,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
     let index = -1;
     let y = 0;
     entriesRef.current.forEach((entry, at) => {
-      const row = rows.get(entry.ts);
+      const row = rows.get(entry.key);
       if (row !== undefined && row.y <= READ_SLACK_PX) { index = at; y = row.y; }
     });
     return { index, midTurn: index >= 0 && y < -READ_SLACK_PX };
@@ -600,7 +602,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
   const jumpTo = (index: number): void => {
     const node = scroller.current;
     const entry = entriesRef.current[index];
-    const target = node === null || entry === undefined ? undefined : promptRows(node).get(entry.ts);
+    const target = node === null || entry === undefined ? undefined : promptRows(node).get(entry.key);
     if (node === null || target === undefined) return;
     stickToBottom.current = false;
     node.scrollTo({ top: node.scrollTop + target.y - LAND_GAP_PX, behavior: "instant" });
@@ -620,7 +622,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
     if (node === null) return;
     // at the end of the chat the newest prompt is often in view below the top: back goes to it first
     const newest = list.at(-1);
-    const newestRow = newest === undefined ? undefined : promptRows(node).get(newest.ts);
+    const newestRow = newest === undefined ? undefined : promptRows(node).get(newest.key);
     if (direction === -1 && stickToBottom.current && newestRow !== undefined && newestRow.y > READ_SLACK_PX) { jumpTo(list.length - 1); return; }
     const { index, midTurn } = readPlace();
     const target = stepFrom(index, list.length, direction, midTurn, earlier !== "none");
@@ -628,7 +630,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
     else if (target.kind === "end") scrollToBottom();
     else if (target.kind === "earlier") {
       // the page before may be on its way already (a scroll near the top asks for it): the step waits for it
-      stepPast.current = { before: list[0]?.ts ?? null };
+      stepPast.current = { before: list[0]?.key ?? null };
       if (earlier !== "loading") loadOlder();
     }
   };
@@ -639,7 +641,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
   useLayoutEffect(() => {
     const past = stepPast.current;
     if (past === null || olderState === "loading") return;
-    const at = past.before === null ? entries.length : entries.findIndex((entry) => entry.ts === past.before);
+    const at = past.before === null ? entries.length : entries.findIndex((entry) => entry.key === past.before);
     if (at > 0) { stepPast.current = null; jumpTo(at - 1); return; }
     if (at === 0 && olderState === "idle" && typeof olderCursor === "string") { loadOlder(); return; }
     stepPast.current = null;
@@ -651,7 +653,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
     seenSeek.current = seek.seq;
     const to = seek.to;
     if (typeof to === "object") {
-      const at = entriesRef.current.findIndex((entry) => entry.ts === to.ts);
+      const at = entriesRef.current.findIndex((entry) => entry.key === to.key);
       if (at >= 0) jumpTo(at);
     } else step(to);
   }, [seek]); // eslint-disable-line react-hooks/exhaustive-deps

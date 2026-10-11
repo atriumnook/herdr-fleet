@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ConversationPart, ConversationTurn } from "../../shared/protocol.ts";
-import { fileNames, findPrompts, isPrompt, promptTitle, railEntries, stepFrom, turnLine } from "./promptRail.ts";
+import { fileNames, findPrompts, isPrompt, occurrenceKeys, promptTitle, railEntries, stepFrom, turnLine } from "./promptRail.ts";
 
 const user = (ts: string, text: string, extra: ConversationPart[] = []): ConversationTurn => ({ role: "user", ts, parts: [{ kind: "text", text }, ...extra] });
 const tool = (name: string, input: unknown): ConversationPart => ({ kind: "tool", name, summary: "", input: typeof input === "string" ? input : JSON.stringify(input), output: "" });
@@ -41,6 +41,11 @@ describe("railEntries", () => {
     expect(entries[1]!.line).toBe("");
   });
 
+  it("keys each prompt by its time and which of the prompts with that time it is", () => {
+    const entries = railEntries([user("t1", "a"), user("t1", "b"), user("t2", "c"), user("t1", "d")]);
+    expect(entries.map((entry) => entry.key)).toEqual(["t1#0", "t1#1", "t2#0", "t1#2"]);
+  });
+
   it("is empty with no prompt, and puts a lone prompt at the top", () => {
     expect(railEntries([])).toEqual([]);
     expect(railEntries([user("t1", "only")])[0]!.at).toBe(0);
@@ -68,6 +73,13 @@ describe("turnLine", () => {
 describe("fileNames", () => {
   it("uses the base name unless another path shares it", () => {
     expect(fileNames(["/a/x.ts", "/b/x.ts", "/c/y.ts"])).toEqual(["a/x.ts", "b/x.ts", "y.ts"]);
+  });
+});
+
+describe("occurrenceKeys", () => {
+  it("counts each time apart, in order, so rows read in the same order get the same keys", () => {
+    expect(occurrenceKeys(["a", "b", "a", "a", "b"])).toEqual(["a#0", "b#0", "a#1", "a#2", "b#1"]);
+    expect(occurrenceKeys([])).toEqual([]);
   });
 });
 

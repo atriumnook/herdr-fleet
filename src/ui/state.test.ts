@@ -2229,12 +2229,12 @@ describe("the prompt rail", () => {
   });
 
   it("scrolls the pane's chat to the prompt picked in the palette, and closes the palette", () => {
-    const { state } = play([{ type: "open-palette" }, { type: "palette-pick-prompt", ts: "t7" }], open());
+    const { state } = play([{ type: "open-palette" }, { type: "palette-pick-prompt", key: "t7#0" }], open());
     expect(state.palette).toEqual({ open: false });
-    expect(state.chat.seek).toEqual({ to: { ts: "t7" }, seq: 1 });
+    expect(state.chat.seek).toEqual({ to: { key: "t7#0" }, seq: 1 });
     expect(state.screen).toBe(open().screen);
     // a pick that comes after the palette closed asks nothing
-    expect(play([{ type: "palette-pick-prompt", ts: "t8" }], state).state.chat.seek).toEqual({ to: { ts: "t7" }, seq: 1 });
+    expect(play([{ type: "palette-pick-prompt", key: "t8#0" }], state).state.chat.seek).toEqual({ to: { key: "t7#0" }, seq: 1 });
   });
 
   it("asks nothing of a chat opened on another pane", () => {
