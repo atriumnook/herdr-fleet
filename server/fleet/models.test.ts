@@ -109,6 +109,18 @@ describe("a CLI that fails or hangs", () => {
     expect(await models.unknown("codex", "anything")).toBeUndefined();
     expect(Date.now() - started).toBeLessThan(1000);
   });
+
+  it("is asked anew by a fresh lookup, not answered by an older one still under way", async () => {
+    const answers: Array<(models: Array<{ id: string }>) => void> = [];
+    const models = catalog({ complete: true, list: () => new Promise((resolve) => answers.push(resolve)) });
+    const older = models.list("codex");
+    const fresh = models.list("codex", true);
+    expect(answers).toHaveLength(2);
+    answers[1]!([{ id: "new" }]);
+    expect((await fresh).models).toEqual([{ id: "new" }]);
+    answers[0]!([{ id: "old" }]);
+    await older;
+  });
 });
 
 describe("codex app-server's model/list", () => {

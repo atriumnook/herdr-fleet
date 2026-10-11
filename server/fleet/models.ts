@@ -24,12 +24,12 @@ export class ModelCatalog {
     return (this.options.now ?? Date.now)();
   }
 
-  /** A CLI that cannot be asked gives an empty listing with the reason, kept for a minute. `fresh` asks anew whatever is kept. */
+  /** A CLI that cannot be asked gives an empty listing with the reason, kept for a minute. `fresh` asks anew whatever is kept or under way. */
   list(agent: AgentKind, fresh = false): Promise<ModelListing> {
     const kept = this.kept.get(agent);
     if (kept && !fresh && this.now() - kept.at < (kept.listing.error ? FAILURE_TTL_MS : TTL_MS)) return Promise.resolve(kept.listing);
     const asking = this.asking.get(agent);
-    if (asking) return asking;
+    if (asking && !fresh) return asking;
     const source = this.adapter(agent).models;
     const ask: Promise<ModelListing> = (async (): Promise<ModelListing> => {
       if (!source) return { agent, models: [], complete: false };
@@ -42,8 +42,10 @@ export class ModelCatalog {
       }
       this.kept.set(agent, { at: this.now(), listing });
       return listing;
-    })().finally(() => this.asking.delete(agent));
+    })();
     this.asking.set(agent, ask);
+    // a later fresh ask may have taken the place: only one's own entry is removed
+    void ask.finally(() => { if (this.asking.get(agent) === ask) this.asking.delete(agent); });
     return ask;
   }
 
