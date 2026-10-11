@@ -6,14 +6,16 @@ import type { Browser, BrowserContext, Page } from "playwright-core";
 import { herdrRpc, paneRead, paneSendKeys, paneSendText, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 
 /**
- * A pane keeps the size herdr lays it out at, but while a phone's terminal lens is in front: a
- * browser left open must not hold it at another size, or herdr's own screen shows the top of a
- * taller grid and loses the prompt under its bottom edge. A desktop's terminal lens and a phone's
- * chat lens leave the pane at its size; the phone's terminal lens sizes it to the phone, and gives
- * it back when the chat lens covers it, when the page leaves the screen, and when it closes. The
- * size is the one the pane's own shell reports (`stty size`), not what either browser thinks.
+ * The screen the person looks at sizes the pane: a browser's terminal lens while its window has
+ * the focus and the page is in front. It gives the pane back to herdr's layout when the focus
+ * leaves (herdr's own terminal window), when the chat lens covers it, when the page leaves the
+ * screen, and when it closes: a browser left open must not hold it at another size, or herdr's
+ * own screen shows the top left of a larger grid and loses the prompt under its bottom edge. A
+ * grid a browser does not size is drawn as large as its space holds it, never in a font smaller
+ * than its settings' one. The size is the one the pane's own shell reports (`stty size`), not
+ * what either browser thinks.
  */
-export async function checkPhoneSizesPaneInFront(browser: Browser, origin: string): Promise<void> {
+export async function checkFocusedViewSizesPane(browser: Browser, origin: string): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-fleet-chat-size-"));
   const cwd = join(root, "pane");
   mkdirSync(cwd);
@@ -72,13 +74,78 @@ export async function checkPhoneSizesPaneInFront(browser: Browser, origin: strin
       assert.equal(await drawnRows(page), rows, label);
     };
 
+    // a window losing the focus to another (herdr's terminal), or getting it back
+    const focus = (page: Page, focused: boolean) => page.evaluate((focused) => {
+      Object.defineProperty(document, "hasFocus", { configurable: true, value: () => focused });
+      window.dispatchEvent(new Event(focused ? "focus" : "blur"));
+    }, focused);
+    const sizeBecomes = async (accept: (size: string) => boolean, label: string): Promise<string> => {
+      const deadline = Date.now() + 15_000;
+      // a question typed while the grid changes can be lost as the shell redraws its prompt: ask again
+      const ask = () => size().catch(() => "");
+      let now = await ask();
+      while (!accept(now) && Date.now() < deadline) now = await ask();
+      assert.ok(accept(now), `${label} (the shell sees ${now})`);
+      return now;
+    };
+    // how the grid sits in the terminal's space: the font it is drawn at, and how much of the space it takes
+    const fitted = (page: Page) => page.evaluate(() => {
+      const host = document.querySelector<HTMLElement>(".pane-terminal")!;
+      const xterm = host.querySelector<HTMLElement>(".xterm")!;
+      const screen = host.querySelector<HTMLElement>(".xterm-screen")!;
+      const style = getComputedStyle(xterm);
+      const width = host.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+      const height = host.clientHeight - parseFloat(style.paddingTop) - parseFloat(style.paddingBottom);
+      return {
+        font: parseFloat(getComputedStyle(host.querySelector(".xterm-rows")!).fontSize),
+        fill: Math.max(screen.offsetWidth / width, screen.offsetHeight / height),
+        overflows: host.scrollWidth > host.clientWidth + 1 || host.scrollHeight > host.clientHeight + 1,
+      };
+    });
+    const fitsWhen = async (page: Page, accept: (now: Awaited<ReturnType<typeof fitted>>) => boolean, label: string) => {
+      const deadline = Date.now() + 5000;
+      let now = await fitted(page);
+      while (!accept(now) && Date.now() < deadline) {
+        await Bun.sleep(100);
+        now = await fitted(page);
+      }
+      assert.ok(accept(now), `${label} (${JSON.stringify(now)})`);
+      return now;
+    };
+
     const own = await size();
     const ownRows = Number(own.split(" ")[0]);
+    const ownCols = Number(own.split(" ")[1]);
     const desktop = await open({ viewport: { width: 1280, height: 800 } }, { defaultView: "terminal" });
     await attached(desktop);
-    assert.equal(await size(), own, "the desktop's terminal lens leaves the pane's grid");
-    await drawsGrid(desktop, ownRows, "the desktop's terminal lens draws the pane's grid");
-    console.log(`PASS a desktop's terminal lens leaves the pane at its own ${own}`);
+    // the window has the focus: its terminal lens sizes the pane to itself, at the settings' 13px
+    const desktopSize = await sizeBecomes((now) => now !== own, "the focused desktop sizes the pane to itself");
+    await drawsGrid(desktop, Number(desktopSize.split(" ")[0]), "the desktop draws its own grid");
+    await fitsWhen(desktop, (now) => now.font === 13 && !now.overflows, "the desktop's own grid is drawn at the settings' font");
+    console.log(`PASS the focused desktop sizes the pane to itself: ${desktopSize}`);
+
+    // herdr's terminal takes the focus: the pane is herdr's again, and the desktop fits herdr's
+    // grid to its space; herdr lays a lone pane out at 120x40, which a 1280x800 window holds only
+    // in a font smaller than 13px, so it scrolls
+    await focus(desktop, false);
+    await sizeBecomes((now) => now === own, "a desktop that loses the focus gives the pane back");
+    await drawsGrid(desktop, ownRows, "the unfocused desktop draws herdr's grid");
+    await fitsWhen(desktop, (now) => now.font === 13 && now.overflows, "a space too small for herdr's grid at 13px scrolls");
+    // a larger window holds it larger, a narrower one smaller: the pane keeps herdr's grid
+    await desktop.setViewportSize({ width: 1920, height: 1200 });
+    const roomy = await fitsWhen(desktop, (now) => now.fill >= 0.9 && now.fill <= 1.001 && !now.overflows && now.font > 13, "a larger window draws herdr's grid as large as it holds it");
+    await desktop.setViewportSize({ width: 1600, height: 1000 });
+    const narrow = await fitsWhen(desktop, (now) => now.fill >= 0.9 && now.fill <= 1.001 && !now.overflows && now.font < roomy.font, "a narrower window draws it smaller");
+    assert.equal(await size(), own, "resizing an unfocused window leaves herdr's grid");
+    console.log(`PASS an unfocused desktop leaves the pane at its own ${own} and fits it: ${roomy.font}px, ${narrow.font}px narrower, 13px and scrolling when too small`);
+
+    // the desktop gets the focus back: it sizes the pane again, at its new size
+    await focus(desktop, true);
+    await sizeBecomes((now) => now !== own && now !== desktopSize, "a desktop that gets the focus back sizes the pane again");
+    await fitsWhen(desktop, (now) => now.font === 13 && !now.overflows, "the desktop draws its own grid at the settings' font again");
+    await focus(desktop, false);
+    await sizeBecomes((now) => now === own, "the desktop gives the pane back again");
+    console.log("PASS a desktop that gets the focus back sizes the pane again");
 
     const phone = await open({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, { defaultView: "chat" });
     await phone.locator(".terminal-stack.is-chat").waitFor({ state: "attached" });
@@ -91,18 +158,10 @@ export async function checkPhoneSizesPaneInFront(browser: Browser, origin: strin
 
     // the phone's terminal lens sizes the pane to the phone, and the desktop draws the phone's grid:
     // on a phone the lens switch shows no label, the button is known by its title
-    const sizeBecomes = async (accept: (size: string) => boolean, label: string): Promise<string> => {
-      const deadline = Date.now() + 10_000;
-      let now = await size();
-      while (!accept(now) && Date.now() < deadline) now = await size();
-      assert.ok(accept(now), `${label} (the shell sees ${now})`);
-      return now;
-    };
     const terminalLens = async (): Promise<void> => {
       await phone.locator('button[title^="Live terminal"]').tap();
       await phone.locator(".terminal-stack.is-chat").waitFor({ state: "detached" });
     };
-    const ownCols = Number(own.split(" ")[1]);
     await terminalLens();
     const phoneSize = await sizeBecomes((now) => Number(now.split(" ")[1]) < ownCols, "the phone's terminal lens sizes the pane to the phone");
     const phoneRows = Number(phoneSize.split(" ")[0]);
@@ -137,12 +196,22 @@ export async function checkPhoneSizesPaneInFront(browser: Browser, origin: strin
     await sizeBecomes((now) => now === own, "a phone that closes gives the pane its size back");
     console.log("PASS a phone that closes gives the pane back");
 
-    // the desktop's chat lens resizes nothing, and its hidden screen keeps the pane's grid
+    // the focused desktop sizes the pane again; a phone that takes it meanwhile has it, and when the
+    // phone lets go the desktop, still in front with the focus, takes it back
+    await focus(desktop, true);
+    const focusedSize = await sizeBecomes((now) => now !== own, "the focused desktop sizes the pane again");
+    const another = await open({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true }, { defaultView: "terminal" });
+    await sizeBecomes((now) => Number(now.split(" ")[1]) < ownCols, "a phone's terminal lens takes the pane from the focused desktop");
+    await another.context().close();
+    await sizeBecomes((now) => now === focusedSize, "the focused desktop takes the pane back when the phone lets go");
+    console.log(`PASS the focused desktop takes the pane back (${focusedSize}) when a phone that took it lets go`);
+
+    // the desktop's chat lens, focus and all, gives the pane back, and its hidden screen keeps the pane's grid
     await desktop.getByTitle("Chat transcript (⌘⇧J)", { exact: true }).click();
     await desktop.locator(".terminal-stack.is-chat").waitFor({ state: "attached" });
+    await sizeBecomes((now) => now === own, "the desktop's chat lens gives the pane back");
     await drawsGrid(desktop, ownRows, "the desktop's chat lens draws its hidden screen for the pane's grid");
-    assert.equal(await size(), own, "entering the chat lens resizes nothing");
-    console.log(`PASS the desktop's chat lens keeps the pane's own ${own}`);
+    console.log(`PASS the desktop's chat lens gives the pane back its own ${own}`);
   } finally {
     for (const context of contexts) await context.close();
     await workspaceClose(created.workspace.workspace_id).catch(() => undefined);

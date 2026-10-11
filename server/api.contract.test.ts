@@ -740,7 +740,7 @@ describe("WebSocket roles and status push", () => {
       // a phone's terminal lens attaches and sizes the pane: everyone attached draws its grid
       phone.send({ type: "attach", pane_id: paneId, cols: 40, rows: 20 });
       phone.send({ type: "resize", pane_id: paneId, cols: 41, rows: 21 });
-      await told(desktop, { cols: 41, rows: 21 }, "the desktop draws the phone's grid");
+      expect(await told(desktop, { cols: 41, rows: 21 }, "the desktop draws the phone's grid")).not.toHaveProperty("free");
       await shellSees({ cols: 41, rows: 21 }, "the phone sizes the pane");
       // another device to resize after it wins
       tablet.send({ type: "attach", pane_id: paneId, cols: 60, rows: 25 });
@@ -752,9 +752,10 @@ describe("WebSocket roles and status push", () => {
       phone.send({ type: "release", pane_id: paneId });
       await Bun.sleep(300);
       await shellSees({ cols: 61, rows: 26 }, "a release from a device that was overtaken changes nothing");
-      // the one sizing it lets go: the pane is back at its own grid
+      // the one sizing it lets go: the pane is back at its own grid, and free for the one in front to take
+      desktop.seen.length = 0;
       tablet.send({ type: "release", pane_id: paneId });
-      await told(desktop, own, "the desktop draws the pane's grid again");
+      expect(await told(desktop, own, "the desktop draws the pane's grid again")).toMatchObject({ free: true });
       await shellSees(own, "a release gives the pane its grid back");
       // a device that leaves lets go too, as does one that turns to observing
       phone.send({ type: "resize", pane_id: paneId, cols: 42, rows: 22 });

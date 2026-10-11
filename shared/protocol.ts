@@ -433,8 +433,8 @@ export type ServerMessage =
   | { type: "attach-resumed"; pane_id: string }
   /** Attachment readiness (omitted ready means true); false revokes it during retry. Never a typed-text acknowledgement. */
   | { type: "input-ready"; pane_id: string; ready?: boolean }
-  /** the shared pty's grid: every client adopts it but a viewport sizing the pane (resize). `fixed`: the grid is the pane's own in herdr (a mirrored pane), so none resizes */
-  | { type: "pane-geometry"; pane_id: string; cols: number; rows: number; fixed?: boolean }
+  /** the shared pty's grid: every client adopts it but a viewport sizing the pane (resize). `fixed`: the grid is the pane's own in herdr (a mirrored pane), so none resizes. `free`: the viewport sizing it let go, so the one in front with the focus may take it again */
+  | { type: "pane-geometry"; pane_id: string; cols: number; rows: number; fixed?: boolean; free?: boolean }
   | { type: "role-ack"; mode: ClientRole }
   /** how a submit ended: ok once its Enter was sent; otherwise nothing, or only the text, reached the pane */
   | { type: "submit-result"; id: number; pane_id: string; ok: boolean; code?: string; message?: string }
