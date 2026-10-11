@@ -44,6 +44,23 @@ describe("a plan's code", () => {
     expect(() => preparePlan(input({ kind: "code", path: "../secret.txt", start: 1 }), tree, 1)).toThrow("../secret.txt is not a file in the thread's worktree");
   });
 
+  it("never shows an environment file, a key or credentials, by the name written or the one a symlink leads to", () => {
+    const { tree } = worktree();
+    const secrets = [".env", ".env.local", "deploy.pem", "tls/server.key", "id_ed25519", "id_rsa.pub", "aws-credentials.json", "secrets.yaml", ".netrc"];
+    for (const name of secrets) {
+      mkdirSync(join(tree, name, ".."), { recursive: true });
+      writeFileSync(join(tree, name), "TOKEN=abc\n");
+      expect(() => readCodeLines(tree, name, 1, 1)).toThrow(`${name} looks like a secret`);
+    }
+    symlinkSync(join(tree, ".env"), join(tree, "src", "settings.txt"));
+    expect(() => readCodeLines(tree, "src/settings.txt", 1, 1)).toThrow("src/settings.txt looks like a secret");
+    // ordinary source whose name only starts like one is shown
+    for (const name of ["src/environment.ts", "src/id_token.ts", "src/keyboard.ts"]) {
+      writeFileSync(join(tree, name), "export {};\n");
+      expect(readCodeLines(tree, name, 1, 1)).toEqual(["export {};"]);
+    }
+  });
+
   it("names lines that are there, in a text file", () => {
     const { tree } = worktree();
     expect(() => readCodeLines(tree, "src/retry.ts", 40, 41)).toThrow("src/retry.ts has 6 lines; line 40 is past its end");

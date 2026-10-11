@@ -1,6 +1,5 @@
 import { closeSync, constants, fstatSync, openSync, readFileSync, readSync, realpathSync, renameSync, writeFileSync } from "node:fs";
-import { isAbsolute, join, resolve } from "node:path";
-import { withinRoots } from "../file-view.ts";
+import { basename, isAbsolute, join, resolve, sep } from "node:path";
 import { numberClaims, parsePlan, planAsks, PLAN_LIMITS, type Plan, type PlanAnswer, type PlanClaim, type PlanExhibit } from "../../shared/plan.ts";
 import { FleetError } from "./runtime.ts";
 
@@ -12,14 +11,34 @@ const CODE_FILE_MAX_BYTES = 2 * 1024 * 1024;
 export const PLAN_MAX_BYTES = 64 * 1024;
 
 /**
- * The lines a code exhibit names, read from the thread's worktree. Only a regular file inside the
- * worktree, symlinks resolved, is read: a plan must not become a way to read other files.
+ * Files a plan never shows, by name: environment files, keys and credentials. A worktree may hold
+ * them, and the Fleet screen may be open on a phone.
+ */
+const SECRET_NAMES = /^(?:\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx|keystore|jks)|id_[a-z0-9_]+(?:\.pub)?|\.netrc|\.npmrc|\.pypirc|.*credentials.*|.*secrets?(?:\..*)?)$/i;
+
+/** Whether a file's name says it holds a secret. */
+export function looksSecret(path: string): boolean {
+  return SECRET_NAMES.test(basename(path));
+}
+
+/**
+ * The lines a code exhibit names, read from the thread's worktree. The path is resolved once,
+ * symlinks and all, and that one path is both checked and opened: only a regular file inside the
+ * worktree is read, so a plan cannot become a way to read other files. A file whose name says it
+ * holds a secret is refused, as written and as resolved.
  */
 export function readCodeLines(root: string, path: string, start: number, end: number): string[] {
-  const file = isAbsolute(path) ? resolve(path) : resolve(root, path);
-  if (!withinRoots(file, [root])) throw new FleetError("invalid_plan", `${path} is not a file in the thread's worktree`);
+  const outside = () => new FleetError("invalid_plan", `${path} is not a file in the thread's worktree`);
+  let real: string;
+  let base: string;
+  try {
+    real = realpathSync(isAbsolute(path) ? resolve(path) : resolve(root, path));
+    base = realpathSync(root);
+  } catch { throw outside(); }
+  if (real !== base && !real.startsWith(base.endsWith(sep) ? base : base + sep)) throw outside();
+  if (looksSecret(path) || looksSecret(real)) throw new FleetError("invalid_plan", `${path} looks like a secret (an environment file, a key or credentials); a plan does not show it`);
   let fd: number;
-  try { fd = openSync(realpathSync(file), constants.O_RDONLY | constants.O_NONBLOCK); } catch { throw new FleetError("invalid_plan", `${path} cannot be read`); }
+  try { fd = openSync(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { throw new FleetError("invalid_plan", `${path} cannot be read`); }
   try {
     const stat = fstatSync(fd);
     if (!stat.isFile()) throw new FleetError("invalid_plan", `${path} is not a file`);
