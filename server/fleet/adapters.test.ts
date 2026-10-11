@@ -63,6 +63,26 @@ describe("claude adapter", () => {
   });
 });
 
+describe("pi adapter", () => {
+  const pi = adapterFor("pi");
+
+  it("takes edit, write and codemode away from a role that edits no file", () => {
+    expect(pi.readOnlyArgs).toEqual(["--exclude-tools", "edit,write,codemode"]);
+  });
+
+  it("sees a draft in the box between its last two rules, not the empty box with only its cursor (pi 1.1, read with colors)", () => {
+    const rule = "\x1b[38;2;254;84;98m" + "─".repeat(60) + "\x1b[39m\x1b[0m\x1b]8;;\x07";
+    const screen = (input: string) => `\x1b[2K${rule}\r\n\x1b[2K${input}\x1b[0m\x1b]8;;\x07\r\n\x1b[2K${rule}\r\n\x1b[2K\x1b[38;2;126;136;142m~/app (main)\x1b[39m\r\n`;
+    expect(pi.draft!(screen("hello draft\x1b[7m \x1b[0m   "))).toBe(true);
+    expect(pi.draft!(screen("あいう\x1b[7m \x1b[0m"))).toBe(true);
+    expect(pi.draft!(screen("first line\x1b[0m\r\nsecond"))).toBe(true);
+    expect(pi.draft!(screen("\x1b[7m \x1b[0m" + " ".repeat(90)))).toBe(false);
+    // output with its own rule above the box does not make the box a draft
+    expect(pi.draft!(`${rule}\r\nanswer\r\n${screen("\x1b[7m \x1b[0m")}`)).toBe(false);
+    expect(pi.draft!("$ pi\n")).toBe(false);
+  });
+});
+
 describe("codex adapter", () => {
   const codex = adapterFor("codex");
 

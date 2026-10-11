@@ -135,7 +135,15 @@ export const piAdapter: AgentAdapter = {
     return args;
   },
   // pi's own denylist: it wins over a --tools list, so a role's tools cannot bring edit or write back
-  readOnlyArgs: ["--exclude-tools", "edit,write"],
+  // codemode (off unless enabled) runs scripts that call other tools, so it goes too
+  readOnlyArgs: ["--exclude-tools", "edit,write,codemode"],
+  // the input sits between the last two horizontal rules, with no prompt mark: empty, it holds only the cursor (a reverse-video space)
+  draft(screen) {
+    const lines = stripVTControlCharacters(screen).split(/\r?\n/);
+    const rules = lines.flatMap((line, at) => /^─{3,}/.test(line.trim()) ? [at] : []);
+    if (rules.length < 2) return false;
+    return lines.slice(rules.at(-2)! + 1, rules.at(-1)).join("").trim() !== "";
+  },
   startupError(screen) {
     return lastMatch(screen, /^\s*Error: (.+)$/gm);
   },
