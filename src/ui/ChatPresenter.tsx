@@ -92,10 +92,17 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
   const card = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.card : null));
   const { settings: { showThinking } } = useSettings();
   const cards = useMemo(() => (threads.length === 0 ? undefined : threadCards([...older, ...view.turns], threads)), [threads, older, view.turns]);
-  const asking = useMemo(() => askingPaneIds([...older, ...view.turns]), [older, view.turns]);
-  // a pane's name read only for the panes these turns name: other panes' changes re-render nothing.
-  // The turns are state too, so a new asking pane comes with a new state, which reads the names again
-  const askedFrom = useSelected((state) => paneNames(state, asking), sameNames);
+  // a pane's name read only for the panes the turns name: other panes' changes re-render nothing.
+  // The turns are read inside the selector: one read from outside it would be a render late, while
+  // the selector keeps its answer for the state it saw. Turns that did not change keep their ids.
+  const asking = useRef<{ older: ConversationTurn[]; turns: ConversationTurn[]; ids: string[] } | null>(null);
+  const askedFrom = useSelected((state) => {
+    const conversation = lensOf(state).conversation;
+    const older = here(state) ? conversation.older.turns : NO_TURNS;
+    const turns = here(state) ? conversation.view.turns : NO_TURNS;
+    if (asking.current?.older !== older || asking.current.turns !== turns) asking.current = { older, turns, ids: askingPaneIds([...older, ...turns]) };
+    return paneNames(state, asking.current.ids);
+  }, sameNames);
   const model = useMemo<ChatViewModel>(() => ({
     paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards,
     ...(askedFrom.size ? { askedFrom } : {}),

@@ -121,7 +121,7 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     writeFileSync(join(stateDir, "fleet-results", readme.id, "contract.md"), "- [x] A1 steps run — evidence: started\n- [x] A2 reviewed — evidence: no findings\n");
     await thread("Weekly usage window");
     await post("/spawn", { role: "reviewer", name: "review", task: "t", cwd: repo, group: readme.group });
-    await post("/spawn", { role: "worker", name: "bench", task: "t", cwd: root, group: "fleet-bench" });
+    const bench = await post("/spawn", { role: "worker", name: "bench", task: "t", cwd: root, group: "fleet-bench" });
 
     const desktop = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "en-US" });
     await desktop.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({})));
@@ -246,6 +246,31 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await screen.waitFor({ state: "detached" });
     assert.equal(await page.locator(".screen-switch button[aria-pressed='true']").getAttribute("title"), "Pane");
     await page.locator(".view-switch").waitFor();
+
+    // a request sent from a pane's conversation names that pane, and Open pane opens it while it is there
+    // (the README lead's pane is real; bench's is a stand-in id, as a pane that closed)
+    await page.route(`**/api/pane/conversation?pane_id=${encodeURIComponent(coordinator.paneId)}*`, (route) => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ history_id: "asked", source: "claude-transcript", cursor: null, turns: [
+        { role: "user", ts: "2026-10-11T09:00:00.000Z", parts: [{ kind: "text", text: `[from pane ${bench.paneId}]\n\nTidy the bench script.` }] },
+        { role: "assistant", ts: "2026-10-11T09:00:05.000Z", parts: [{ kind: "text", text: "Started a thread." }] },
+        { role: "user", ts: "2026-10-11T09:01:00.000Z", parts: [{ kind: "text", text: `[from pane ${readme.paneId}]\n\nFix the doubled login error.` }] },
+      ] }),
+    }));
+    await page.locator(".fleet-button").click();
+    await screen.locator(".fleet-main .chat-asked-from").first().waitFor();
+    const closedPane = screen.locator(".fleet-main .chat-turn-user", { hasText: "Tidy the bench script." }).locator(".chat-asked-from");
+    assert.match(await closedPane.textContent() ?? "", /From a pane\s*Closed pane/);
+    assert.equal(await closedPane.getByRole("button").count(), 0, "a pane that closed is not offered");
+    const asked = screen.locator(".fleet-main .chat-turn-user", { hasText: "Fix the doubled login error." }).locator(".chat-asked-from");
+    assert.match(await asked.textContent() ?? "", /From a pane\s*herdr-fleet-test-Update-the-README/);
+    assert.equal(await screen.locator(".fleet-main .chat-bubble", { hasText: "Fix the doubled login error." }).count(), 1);
+    assert.equal(await screen.locator(".fleet-main .chat-bubble", { hasText: "[from pane" }).count(), 0, "the opening line is not shown as the message");
+    await save(page, shots, "fleet-asked-from-pane-dark");
+    await asked.getByRole("button", { name: "Open pane" }).click();
+    await screen.waitFor({ state: "detached" });
+    assert.equal(await page.locator(".screen-switch button[aria-pressed='true']").getAttribute("title"), "Pane");
+    assert.equal(JSON.parse(await page.evaluate(() => sessionStorage.getItem("herdr-fleet:selection") ?? "{}")).pane_id, readme.paneId);
     assert.deepEqual(errors, []);
     await desktop.close();
 
