@@ -1,7 +1,6 @@
 import { createHash } from "node:crypto";
-import { chmodSync, lstatSync, mkdirSync, readdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import type { ConversationTurn, ExplainRequest, ExplainResponse } from "../shared/protocol.ts";
+import { childEnv, emptyWorkDir as emptyFolder } from "./cli-child.ts";
 
 /**
  * An explanation of a question an agent asked: why it asks, what each choice leads to, and which
@@ -240,12 +239,7 @@ export interface ExplainDeps {
   unavailable?(): Promise<string | undefined>;
   /** the call failed: a rate limit puts Claude in cooldown */
   failed?(message: string): void;
-  /**
-   * The folder every call runs in: the server's own, in its state folder (only the person may enter
-   * it), emptied before each call. Never the shared temp folder, where another user could leave a
-   * `.claude/settings.json` or a `CLAUDE.md` for the call to read. One fixed folder, so Claude Code
-   * keeps one entry for it under ~/.claude/projects, not one per call; one call at a time shares it.
-   */
+  /** the folder every call runs in, emptied before each one (emptyWorkDir): one call at a time shares it */
   workDir: string;
   /** the calls of the whole server */
   calls: ExplainCalls;
@@ -259,31 +253,22 @@ export interface ExplainDeps {
   killAfterMs?: number;
 }
 
-/** what the call keeps of the server's environment: what claude needs to start and to find its sign-in */
-const KEPT_ENV = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TZ", "TMPDIR", "CLAUDE_CONFIG_DIR",
-  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]);
-
 /**
- * The call's whole environment. Nothing else passes: an ANTHROPIC_API_KEY would bill the API instead
- * of the person's plan, ANTHROPIC_* and CLAUDE_CODE_* could send the call elsewhere, and HERDR_*
- * points at the person's session. The CLI does not update itself during the call.
+ * The call's whole environment: what claude needs to start and to find its sign-in (childEnv), and
+ * nothing else; ANTHROPIC_* and CLAUDE_CODE_* could send the call elsewhere. The CLI does not update
+ * itself during the call.
  */
 export function explainEnv(source: Record<string, string | undefined>): Record<string, string> {
-  const env: Record<string, string> = {};
-  for (const [name, value] of Object.entries(source)) {
-    if (value !== undefined && (KEPT_ENV.has(name) || name.startsWith("LC_") || name.startsWith("XDG_"))) env[name] = value;
-  }
-  env["DISABLE_AUTOUPDATER"] = "1";
-  return env;
+  return { ...childEnv(source, ["CLAUDE_CONFIG_DIR"]), DISABLE_AUTOUPDATER: "1" };
 }
 
-/** Makes the work folder (0700) or empties it: what a call before left behind is not read by the next. */
+/** Makes the work folder (0700) or empties it (cli-child's emptyWorkDir); a link in its place fails the call. */
 export function emptyWorkDir(dir: string): void {
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
-  // a link in its place would send the call elsewhere: only a real folder is used
-  if (!lstatSync(dir).isDirectory()) throw new ExplainError("failed", `${dir} is not a folder`);
-  chmodSync(dir, 0o700);
-  for (const entry of readdirSync(dir)) rmSync(join(dir, entry), { recursive: true, force: true });
+  try {
+    emptyFolder(dir);
+  } catch (error) {
+    throw new ExplainError("failed", error instanceof Error ? error.message : String(error));
+  }
 }
 
 /**
