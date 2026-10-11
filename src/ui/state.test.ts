@@ -156,6 +156,45 @@ describe("screens and the Fleet screen's view", () => {
     expect(play([{ type: "fleet-land", runId: "a", action: "merge" }], { ...withRuns, canAct: false }).state.landing.confirm).toBeNull();
   });
 
+  it("reads the open thread's plan when its tab shows, again when the lead hands over another, and keeps the answers until they go out after a yes", () => {
+    const ask = { id: "limit", question: "How many?", options: [{ value: "three", label: "3" }, { value: "five", label: "5" }], recommended: "three" };
+    const plan = (version: number, extra = {}) => ({ version, writtenAt: 1, title: "Retry limit", why: [], scope: [], claims: [{ text: "Tried three times.", ask, children: [] }], ...extra });
+    const opened = play([{ type: "runs-loaded", runs: [run("a", { state: "idle", plan: { version: 1, asks: 1 } })] }, { type: "fleet-open", kind: "thread", runId: "a" }], withRuns).state;
+    const shown = play([{ type: "fleet-tab", tab: "plan" }], opened);
+    expect(shown.effects).toEqual([{ kind: "load-plan", runId: "a" }]);
+    const ready = play([{ type: "plan-loaded", runId: "a", plan: plan(1) }, { type: "plan-loaded", runId: "other", plan: plan(9) }], shown.state).state;
+    expect(ready.plan.reading).toEqual({ status: "ready", data: plan(1) });
+    const answered = play([
+      { type: "plan-choose", runId: "a", ask: "limit", value: "five" },
+      { type: "plan-comment", runId: "a", claim: "1", text: "keep the log quiet" },
+      { type: "plan-comment", runId: "a", claim: "1.1", text: "x" },
+      { type: "plan-comment", runId: "a", claim: "1.1", text: "" },
+      { type: "plan-note", runId: "a", text: " ship it " },
+    ], ready).state;
+    expect(answered.plan.drafts["a"]).toEqual({ version: 1, choices: { limit: "five" }, seen: ["limit"], comments: { "1": "keep the log quiet" }, note: " ship it " });
+    // Respond asks first; the yes sends the answers as the server takes them
+    const asking = play([{ type: "plan-respond", runId: "a" }], answered);
+    expect(asking.effects).toEqual([]);
+    expect(play([{ type: "plan-cancel" }], asking.state).state.plan.confirm).toBeNull();
+    const sending = play([{ type: "plan-confirm" }], asking.state);
+    expect(sending.effects).toEqual([{ kind: "request", action: { kind: "answer-plan", runId: "a", answer: { version: 1, choices: { limit: "five" }, seen: ["limit"], comments: [{ claim: "1", text: "keep the log quiet" }], note: "ship it" } } }]);
+    const failed = play([{ type: "request-failed", message: "The lead of a is working." }], sending.state).state;
+    expect(failed.plan.confirm).toEqual({ runId: "a", status: "asking", error: "The lead of a is working." });
+    expect(failed.plan.drafts["a"]).toBeDefined();
+    const sent = play([{ type: "plan-confirm" }, { type: "request-done" }], failed);
+    expect(sent.effects.at(-1)).toEqual({ kind: "load-plan", runId: "a" });
+    expect(sent.state.plan).toMatchObject({ drafts: {}, confirm: null });
+    // an answered plan takes no more answers
+    const closed = play([{ type: "plan-loaded", runId: "a", plan: plan(1, { answeredAt: 5 }) }, { type: "plan-choose", runId: "a", ask: "limit", value: "three" }, { type: "plan-respond", runId: "a" }], sent.state).state;
+    expect(closed.plan).toMatchObject({ drafts: {}, confirm: null });
+    // the lead hands over version 2: it is read again, and answers to version 1 are dropped
+    const replanned = play([{ type: "runs-loaded", runs: [run("a", { state: "idle", plan: { version: 2, asks: 1 } })] }], answered);
+    expect(replanned.effects).toEqual([{ kind: "load-plan", runId: "a" }]);
+    expect(play([{ type: "plan-loaded", runId: "a", plan: plan(2) }], replanned.state).state.plan.drafts).toEqual({});
+    // a watch-only device sends nothing
+    expect(play([{ type: "plan-respond", runId: "a" }], { ...answered, canAct: false }).state.plan.confirm).toBeNull();
+  });
+
   it("opens the Settings page for the project, saves each change, and keeps only the latest save's answer", () => {
     const settings = (maxConcurrent: number) => ({ file: "/c/fleet.json", roles: [], maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent, closeOnSettle: true, projects: [], readOnlyAgents: ["claude" as const] });
     const opened = play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-settings", open: true, cwd: "/repo" }], withRuns);

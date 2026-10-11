@@ -1,4 +1,5 @@
 import type { AgentRun, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
+import type { Plan, PlanAnswer } from "../../shared/plan.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
 import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
@@ -43,7 +44,9 @@ export type RequestAction =
   | { kind: "start-project"; task: string; cwd: string }
   | { kind: "resolve"; runId: string; resolved: boolean }
   /** a landing step the person pressed (a comments step carries the comments it sends) */
-  | { kind: "land"; runId: string; action: LandAction; comments?: LineComment[] };
+  | { kind: "land"; runId: string; action: LandAction; comments?: LineComment[] }
+  /** the person's answers to a thread's plan, sent to its lead */
+  | { kind: "answer-plan"; runId: string; answer: PlanAnswer };
 
 /**
  * What the Fleet screen shows: the project (a repository's path, as the runs name it, or a folder
@@ -72,7 +75,7 @@ export interface FleetSettingsState extends Reading<FleetSettings> {
   saveError?: string;
 }
 
-export type ThreadTab = "chat" | "changes" | "checks";
+export type ThreadTab = "chat" | "plan" | "changes" | "checks";
 
 /** The landing steps that wait for the person's yes in a dialog: each changes the base branch, or cannot be undone. */
 export type ConfirmedStep = "merge" | "merge-pr" | "discard";
@@ -95,6 +98,30 @@ export interface LandingState {
   checks: Reading<LandingChecks>;
   comments: Record<string, LineComment[]>;
   confirm: { runId: string; action: ConfirmedStep; status: "asking" | "running"; error?: string } | null;
+}
+
+/** The person's answers to one version of a thread's plan, kept until they are sent. */
+export interface PlanDraft {
+  version: number;
+  /** the option picked for each decision */
+  choices: Record<string, string>;
+  /** the decisions the person looked at: a pick, the recommended one too */
+  seen: string[];
+  /** comments by claim number */
+  comments: Record<string, string>;
+  note: string;
+}
+
+/**
+ * The open thread's plan as last read, the person's answers to each thread's plan not sent yet,
+ * and the yes that sending them waits for.
+ */
+export interface PlanState {
+  /** the thread `reading` was read for */
+  runId: string | null;
+  reading: Reading<Plan>;
+  drafts: Record<string, PlanDraft>;
+  confirm: { runId: string; status: "asking" | "running"; error?: string } | null;
 }
 
 export type RequestState =
@@ -611,6 +638,7 @@ export interface UiState {
   request: RequestState;
   fleetView: FleetViewState;
   landing: LandingState;
+  plan: PlanState;
   fleetSettings: FleetSettingsState;
   /** this device may change things (a paired watch-only device may not: the server answers read_only) */
   canAct: boolean;
@@ -701,6 +729,17 @@ type BareEvent =
   | { type: "fleet-land"; runId: string; action: LandAction }
   | { type: "landing-confirm" }
   | { type: "landing-cancel" }
+  | { type: "plan-loaded"; runId: string; plan: Plan }
+  | { type: "plan-failed"; runId: string; message: string }
+  /** an option of a decision picked, the recommended one too: the decision counts as seen */
+  | { type: "plan-choose"; runId: string; ask: string; value: string }
+  /** a comment on a claim, by its number; an empty one is taken back */
+  | { type: "plan-comment"; runId: string; claim: string; text: string }
+  | { type: "plan-note"; runId: string; text: string }
+  /** Respond pressed: the answers wait for the person's yes */
+  | { type: "plan-respond"; runId: string }
+  | { type: "plan-confirm" }
+  | { type: "plan-cancel" }
   | { type: "open-pane"; runId: string }
   | { type: "interrupt-run"; runId: string }
   | { type: "close-done"; group: string }
@@ -982,6 +1021,7 @@ type BareEffect =
   | { kind: "request"; action: RequestAction }
   | { kind: "load-landing-diff"; runId: string }
   | { kind: "load-landing-checks"; runId: string }
+  | { kind: "load-plan"; runId: string }
   | { kind: "load-fleet-settings"; cwd: string | null }
   | { kind: "save-fleet-settings"; cwd: string | null; patch: FleetSettingsPatch; seq: number }
   | { kind: "save-settings"; settings: Settings }
@@ -1068,6 +1108,9 @@ export interface Transition { state: UiState; effects: Effect[] }
 /** No thread's change or checks read, no comment, nothing asked. */
 const NO_LANDING: LandingState = { runId: null, diff: { status: "idle", data: null }, checks: { status: "idle", data: null }, comments: {}, confirm: null };
 
+/** No plan read, no answer written, nothing asked. */
+const NO_PLAN: PlanState = { runId: null, reading: { status: "idle", data: null }, drafts: {}, confirm: null };
+
 export const INITIAL_STATE: UiState = {
   screen: "pane",
   runs: { status: "idle", data: [], again: false },
@@ -1075,6 +1118,7 @@ export const INITIAL_STATE: UiState = {
   request: { status: "none" },
   fleetView: { project: null, overview: true, open: null, expanded: false, tab: "chat", settings: false },
   landing: NO_LANDING,
+  plan: NO_PLAN,
   fleetSettings: { status: "idle", data: null, cwd: null, saving: 0, seq: 0 },
   selection: { machineId: "local", paneId: null, auto: false },
   canAct: true,
@@ -1123,6 +1167,30 @@ function readLanding(landing: LandingState, view: FleetViewState, effects: Effec
     return { ...fresh, checks: { ...fresh.checks, status: "loading" } };
   }
   return fresh;
+}
+
+/** The open thread's plan, read again when its tab shows it. */
+function readPlan(plan: PlanState, view: FleetViewState, effects: Effect[]): PlanState {
+  const runId = view.open?.kind === "thread" ? view.open.runId : null;
+  const fresh = plan.runId === runId ? plan : { ...plan, runId, reading: NO_PLAN.reading };
+  if (runId === null || view.tab !== "plan") return fresh;
+  effects.push({ kind: "load-plan", runId });
+  return { ...fresh, reading: { ...fresh.reading, status: "loading" } };
+}
+
+/** A thread's answers so far to its plan's version `version`: answers to an older version are dropped. */
+export function planDraft(plan: PlanState, runId: string, version: number): PlanDraft {
+  const draft = plan.drafts[runId];
+  return draft?.version === version ? draft : { version, choices: {}, seen: [], comments: {}, note: "" };
+}
+
+/** The person's answers as the server takes them. */
+export function planAnswer(draft: PlanDraft): PlanAnswer {
+  return {
+    version: draft.version, choices: draft.choices, seen: draft.seen,
+    comments: Object.entries(draft.comments).filter(([, text]) => text.trim()).map(([claim, text]) => ({ claim, text: text.trim() })),
+    ...(draft.note.trim() ? { note: draft.note.trim() } : {}),
+  };
 }
 
 /** What of a thread's run its change and checks follow: a turn of its lead ending, a pull request, a step. */
@@ -1404,10 +1472,14 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       // a thread or agent open in the Fleet screen whose run is gone closes
       const open = state.fleetView.open;
       const gone = open !== null && !event.runs.some((run) => run.id === open.runId);
-      if (gone) return next({ runs, fleetView: { ...state.fleetView, open: null, expanded: false, tab: "chat" }, landing: readLanding(state.landing, { ...state.fleetView, open: null }, effects) });
+      if (gone) return next({ runs, fleetView: { ...state.fleetView, open: null, expanded: false, tab: "chat" }, landing: readLanding(state.landing, { ...state.fleetView, open: null }, effects), plan: readPlan(state.plan, { ...state.fleetView, open: null }, effects) });
       // the open thread moved on (its lead's turn ended, a pull request, a step): its change and checks are read again
-      const moved = open?.kind === "thread" && landingMark(state.runs.data.find((run) => run.id === open.runId)) !== landingMark(event.runs.find((run) => run.id === open.runId));
-      return next({ runs, landing: moved ? readLanding(state.landing, state.fleetView, effects) : state.landing });
+      const before = open?.kind === "thread" ? state.runs.data.find((run) => run.id === open.runId) : undefined;
+      const after = open?.kind === "thread" ? event.runs.find((run) => run.id === open.runId) : undefined;
+      const moved = open?.kind === "thread" && landingMark(before) !== landingMark(after);
+      // a new plan, or the one answered: it is read again
+      const replanned = open?.kind === "thread" && JSON.stringify(before?.plan) !== JSON.stringify(after?.plan);
+      return next({ runs, landing: moved ? readLanding(state.landing, state.fleetView, effects) : state.landing, plan: replanned ? readPlan(state.plan, state.fleetView, effects) : state.plan });
     }
     case "runs-failed":
       // the runs shown last stay, marked stale by the error
@@ -1461,7 +1533,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return next(state.fleetView.overview === event.open ? {} : { fleetView: { ...state.fleetView, overview: event.open } });
     case "fleet-open": {
       const fleetView: FleetViewState = { ...state.fleetView, overview: true, open: { kind: event.kind, runId: event.runId, member: null }, tab: "chat", settings: false };
-      return next({ fleetView, landing: readLanding(state.landing, fleetView, effects) });
+      return next({ fleetView, landing: readLanding(state.landing, fleetView, effects), plan: readPlan(state.plan, fleetView, effects) });
     }
     case "fleet-member":
       return next(state.fleetView.open?.kind !== "thread" ? {} : { fleetView: { ...state.fleetView, open: { ...state.fleetView.open, member: event.runId } } });
@@ -1470,8 +1542,46 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "fleet-tab": {
       if (state.fleetView.open?.kind !== "thread") return next({});
       const fleetView = { ...state.fleetView, tab: event.tab };
-      return next({ fleetView, landing: readLanding(state.landing, fleetView, effects) });
+      return next({ fleetView, landing: readLanding(state.landing, fleetView, effects), plan: readPlan(state.plan, fleetView, effects) });
     }
+    case "plan-loaded":
+    case "plan-failed": {
+      if (event.runId !== state.plan.runId) return next({});
+      if (event.type === "plan-failed") return next({ plan: { ...state.plan, reading: { ...state.plan.reading, status: "error", error: event.message } } });
+      // answers to a version the lead has since replaced are dropped
+      const draft = state.plan.drafts[event.runId];
+      const { [event.runId]: _old, ...others } = state.plan.drafts;
+      const drafts = draft && draft.version !== event.plan.version ? others : state.plan.drafts;
+      return next({ plan: { ...state.plan, drafts, reading: { status: "ready", data: event.plan } } });
+    }
+    case "plan-choose":
+    case "plan-comment":
+    case "plan-note": {
+      const plan = state.plan.reading.data;
+      // answers are written only to the plan shown, while it waits for them
+      if (state.plan.runId !== event.runId || !plan || plan.answeredAt !== undefined) return next({});
+      const draft = planDraft(state.plan, event.runId, plan.version);
+      const changed: PlanDraft = event.type === "plan-choose"
+        ? { ...draft, choices: { ...draft.choices, [event.ask]: event.value }, seen: draft.seen.includes(event.ask) ? draft.seen : [...draft.seen, event.ask] }
+        : event.type === "plan-comment" ? { ...draft, comments: event.text ? { ...draft.comments, [event.claim]: event.text } : Object.fromEntries(Object.entries(draft.comments).filter(([claim]) => claim !== event.claim)) }
+        : { ...draft, note: event.text };
+      return next({ plan: { ...state.plan, drafts: { ...state.plan.drafts, [event.runId]: changed } } });
+    }
+    case "plan-respond": {
+      const plan = state.plan.reading.data;
+      if (!state.canAct || state.plan.runId !== event.runId || !plan || plan.answeredAt !== undefined || state.plan.confirm?.status === "running") return next({});
+      return next({ plan: { ...state.plan, confirm: { runId: event.runId, status: "asking" } } });
+    }
+    case "plan-confirm": {
+      const confirm = state.plan.confirm;
+      const plan = state.plan.reading.data;
+      if (confirm?.status !== "asking" || !plan || state.plan.runId !== confirm.runId) return next({});
+      const asked = request(state, { kind: "answer-plan", runId: confirm.runId, answer: planAnswer(planDraft(state.plan, confirm.runId, plan.version)) });
+      if (asked.state === state) return asked;
+      return { state: { ...asked.state, plan: { ...state.plan, confirm: { runId: confirm.runId, status: "running" } } }, effects: asked.effects };
+    }
+    case "plan-cancel":
+      return next(state.plan.confirm?.status === "asking" ? { plan: { ...state.plan, confirm: null } } : {});
     case "landing-diff-loaded":
     case "landing-diff-failed":
       if (event.runId !== state.landing.runId) return next({});
@@ -1533,6 +1643,13 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       const action = state.request.action;
       // a cleared cooldown changes no run, so no fleet-changed follows: the usage is read here
       const usage = action.kind === "clear-cooldown" ? load(state.usage, { kind: "load-usage" }, effects) : state.usage;
+      if (action.kind === "answer-plan") {
+        // sent: the answers are the lead's now, and the plan, marked answered, is read again
+        const { [action.runId]: _sent, ...drafts } = state.plan.drafts;
+        const shown = state.plan.runId === action.runId && state.fleetView.tab === "plan";
+        if (shown) effects.push({ kind: "load-plan", runId: action.runId });
+        return next({ request: { status: "none" }, plan: { ...state.plan, drafts, confirm: null, ...(shown ? { reading: { ...state.plan.reading, status: "loading" as const } } : {}) } });
+      }
       if (action.kind !== "land") return next({ request: { status: "none" }, usage });
       // the comments went out: the ones written meanwhile stay
       const left = (state.landing.comments[action.runId] ?? []).slice(action.comments?.length ?? 0);
@@ -1543,6 +1660,9 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "request-failed":
       if (state.request.status !== "pending") return next({});
       // a step asked in a dialog tells its failure there
+      if (state.request.action.kind === "answer-plan" && state.plan.confirm?.status === "running") {
+        return next({ request: { status: "none" }, plan: { ...state.plan, confirm: { ...state.plan.confirm, status: "asking", error: event.message } } });
+      }
       if (state.request.action.kind === "land" && state.landing.confirm?.status === "running") {
         return next({ request: { status: "none" }, landing: { ...state.landing, confirm: { ...state.landing.confirm, status: "asking", error: event.message } } });
       }

@@ -160,6 +160,9 @@ export const JA: Record<string, string> = {
   "Deletes the branch {branch} and its commits.": "ブランチ {branch} を、そのコミットごと消します。",
   "Closes the panes of the lead and its helpers.": "担当と手伝いのペインを閉じます。",
   "Pull request #{n} stays open on GitHub.": "GitHub の pull request #{n} は開いたまま残ります。",
+  // ---- a thread's plan ----
+  "Could not read the plan. {error}": "計画を読み込めませんでした。{error}",
+  "The lead gets your decisions and comments as its next task, and builds the change to them. A decision you did not open keeps the lead's recommendation.": "lead は、あなたの決定とコメントを次の作業として受け取り、それに沿って変更を作ります。開かなかった決定は、lead の推奨のままになります。",
   // ---- fleet settings ----
   "Each role tries its candidates from the top and starts on the first one whose account has usage left.": "役割ごとに、上の候補から順に試します。使用量が残っているアカウントの候補のうち、最初のもので起動します。",
   "This project's .herdr-fleet/fleet.json sets this role. In this project the fleet starts it on {candidates}.": "このプロジェクトの .herdr-fleet/fleet.json がこの役割を設定しています。このプロジェクトでは、fleet は {candidates} の順に試して起動します。",

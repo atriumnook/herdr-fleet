@@ -33,6 +33,29 @@ describe("Fleet screen views", () => {
     side: createElement("div", { className: "slot-side" }, slots.side ?? "side"), emit: noop,
   }));
 
+  it("draws a lead's plan in its own tab: the claims closed to their first level, the decisions, the code, and Respond", () => {
+    const ask = { id: "limit", question: "How many retries?", options: [{ value: "three", label: "3 retries" }, { value: "five", label: "5 retries", note: "claim 1.1 goes" }], recommended: "three" };
+    const data = {
+      version: 1, writtenAt: 1, title: "Retry limit", why: ["retries spam the log"], scope: ["Drafts"],
+      claims: [{ text: "A failed send is tried three times.", ask, children: [{ text: "retry.ts:3 · shouldRetry()", exhibit: { kind: "code" as const, path: "src/retry.ts", start: 3, end: 4, lines: ["function shouldRetry() {", "  return attempt < RETRIES;"] }, children: [] }] }],
+    };
+    const thread = lead("t", { result: "BLOCKED — the plan waits", plan: { version: 1, asks: 1 } });
+    const html = screen(state([coordinator, thread], {
+      fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null }, tab: "plan" },
+      plan: { runId: "t", reading: { status: "ready", data }, drafts: {}, confirm: null },
+    }));
+    expect(html).toContain('<button type="button" aria-pressed="true">Plan<span class="fleet-tab-alert" aria-label="Needs you">1</span></button>');
+    expect(html).toContain('<span class="fleet-plan-left">1 to answer</span>');
+    expect(html).toContain("A failed send is tried three times.");
+    expect(html).toContain('role="radio" aria-checked="true"');
+    expect(html).toContain("src/retry.ts:3–4");
+    expect(html).toContain("return attempt &lt; RETRIES;");
+    expect(html).toContain("Not changing");
+    expect(html).toMatch(/<button type="button" class="btn btn-primary">Respond<\/button>/);
+    // the chat stays mounted behind the plan
+    expect(html).toMatch(/class="fleet-open-chat" hidden=""/);
+  });
+
   it("draws the project conversation beside the Overview, its threads by what the person has to do", () => {
     const html = screen(state([coordinator, lead("ask", { result: "BLOCKED — keep the old API?" }), lead("done", { result: "PASS", diff: { added: 24, removed: 9, files: 2 } }), lead("busy", { state: "working" })]));
     expect(html).toContain("slot-conversation");
