@@ -66,7 +66,8 @@ export function PaneChatPresenter({ runId, paneId, agent, ended, lens, threads, 
   const chatEmit = useMemo<Emit<ChatUpEvent>>(() => (event) => emit(event), [emit]);
   return (
     <MachineContext.Provider value={FLEET_MACHINE}>
-      <div className="fleet-chat">
+      {/* a click anywhere in it gives it the focus (not the keyboard's tab order): the prompt steps go to the chat with the focus */}
+      <div className="fleet-chat" data-chat-lens={lens} tabIndex={-1}>
         {/* the transcript lies over this box, as it lies over the terminal in the pane */}
         <div className="fleet-chat-surface">
         <RenderBoundary resetKey={paneId} fallback={(retry) => (

@@ -35,7 +35,7 @@ import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
 import { useSelected } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
-import type { UiEvent } from "./ui/state.ts";
+import type { Lens, UiEvent } from "./ui/state.ts";
 
 const APP_TITLE = "herdr fleet";
 /**
@@ -60,6 +60,11 @@ function storedView(paneId: string, machineId: string, hasAgent: boolean | null,
   if (defaultView === "chat") return hasAgent !== false ? "chat" : "terminal";
   if (defaultView === "terminal") return "terminal";
   return hasAgent !== false && window.matchMedia?.("(pointer: coarse)").matches === true ? "chat" : "terminal";
+}
+
+/** The chat that holds the focus: the one beside on the Fleet screen, else the pane's (the keys and the palette's prompts go to it). */
+function focusedChat(): Lens {
+  return document.activeElement?.closest('[data-chat-lens="side"]') != null ? "side" : "main";
 }
 
 function Brand() {
@@ -223,6 +228,10 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     document.title = selectedTitle ? `${selectedTitle} · herdr` : APP_TITLE;
   }, [selectedTitle]);
 
+  // a chat shows and has its conversation open: the Pane screen's chat lens, the Fleet screen's
+  // project conversation or the thread beside it (a chat opens itself while it is mounted). The
+  // Fleet screen with no conversation open has no prompt to step to.
+  const chatShows = useSelected((state) => state.chat.open !== null || state.side.chat.open !== null);
   const actions = useMemo<AppActions>(
     () => ({
       selectPane,
@@ -233,10 +242,13 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         const next = panes[(index + direction + panes.length) % panes.length];
         if (next) selectPane(next.pane_id);
       },
+      stepPrompt: chatShows ? (direction) => {
+        emitRef.current({ type: "prompt-rail-step", direction, ...(focusedChat() === "side" ? { lens: "side" as const } : {}) });
+      } : null,
       setView,
       toggleView: () => setView(view === "chat" ? "terminal" : "chat"),
       openNewSession: () => openNewSession(selectedMachineId),
-      openPalette: () => emitRef.current({ type: "open-palette" }),
+      openPalette: () => emitRef.current({ type: "open-palette", chat: focusedChat() }),
       openSettings: () => {
         setDrawerOpen(false);
         emitRef.current({ type: "open-settings" });
@@ -251,7 +263,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       refresh: () => emitRef.current({ type: "reload-machines" }),
       openFiles: selectedPaneId !== null ? () => emitRef.current({ type: "open-files" }) : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, chatShows, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications],
   );
   // a connected PC's sessions: a new session is this shell's; the rest goes up as it is
   const treeEmit = useMemo(() => relay<SidebarEvent, UiEvent>(emit, (event, pass) => {
@@ -263,7 +275,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   ), [selectedMachineId, selectedPaneId, treeEmit]);
 
   // the palette's actions are this shell's: run, and the palette closes
-  const paletteOffers = useMemo(() => ({ notifications: actions.enableNotifications !== null, lock: actions.lock !== null, files: actions.openFiles !== null, pane: selectedPane !== null }), [actions, selectedPane]);
+  const paletteOffers = useMemo(() => ({ notifications: actions.enableNotifications !== null, lock: actions.lock !== null, files: actions.openFiles !== null, pane: selectedPane !== null, prompts: actions.stepPrompt !== null }), [actions, selectedPane]);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
   const selectedRef = useRef({ machineId: selectedMachineId, pane: selectedPane });

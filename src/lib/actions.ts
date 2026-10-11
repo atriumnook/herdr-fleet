@@ -10,6 +10,8 @@ export interface AppActions {
   selectPane: (paneId: string) => void;
   /** the previous/next pane in sidebar order; wraps around */
   selectAdjacentPane: (direction: -1 | 1) => void;
+  /** the prompt before or after the one being read, in the chat that has the focus (else the pane's); null while no chat shows */
+  stepPrompt: ((direction: -1 | 1) => void) | null;
   setView: (view: PaneView) => void;
   toggleView: () => void;
   openNewSession: () => void;

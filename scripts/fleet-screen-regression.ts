@@ -171,6 +171,11 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await open.locator(".fleet-overview .fleet-chat, .fleet-chat").first().waitFor();
     // the chat beside reads its pane's conversation, as the pane's own chat does
     await open.locator(".fleet-chat .chat-terminal-fallback, .fleet-chat .chat-empty").first().waitFor();
+    // a click in it gives it the focus, so the prompt steps (Mod+Shift+[ and ]) go to it
+    await open.locator(".fleet-chat .chat-view").first().click({ position: { x: 4, y: 4 } });
+    assert.equal(await page.evaluate(() => document.activeElement?.closest('[data-chat-lens="side"]') != null), true, "a click in the chat beside gives it the focus");
+    await screen.locator(".fleet-main .fleet-chat .chat-view").click({ position: { x: 4, y: 4 } });
+    assert.equal(await page.evaluate(() => document.activeElement?.closest('[data-chat-lens="main"]') != null), true, "a click in the conversation gives it the focus");
     await open.locator(".fleet-member", { hasText: "review · cursor" }).click();
     await open.locator(".fleet-member.is-selected", { hasText: "review" }).waitFor();
     await open.locator(".fleet-chat .chat-terminal-fallback, .fleet-chat .chat-empty").first().waitFor();
@@ -266,6 +271,15 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     assert.deepEqual(JSON.parse(readFileSync(settingsFile, "utf8")).roles.lead, { agent: "claude", model: "claude:", fallbackModels: ["codex:"] });
     assert.match(await settingsPage.locator(".fleet-role.is-open .fleet-role-now").textContent() ?? "", /Now: claude/);
     await save(page, shots, "fleet-settings-dark");
+    // no conversation is open on the Settings page: the prompt steps' keys are left alone
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      const seen = { prevented: null as boolean | null };
+      (window as unknown as { stepKey: typeof seen }).stepKey = seen;
+      window.addEventListener("keydown", (event) => { if (event.code === "BracketLeft") seen.prevented = event.defaultPrevented; });
+    });
+    await page.keyboard.press("Control+Shift+BracketLeft");
+    assert.equal(await page.evaluate(() => (window as unknown as { stepKey: { prevented: boolean | null } }).stepKey.prevented), false, "no prompt to step to with no conversation open");
     await settingsPage.getByRole("button", { name: "Projects", exact: true }).click();
     const setup = settingsPage.getByRole("textbox", { name: "Setup command for repo" });
     await setup.fill("bun install --ignore-scripts");

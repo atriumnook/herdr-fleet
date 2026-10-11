@@ -13,6 +13,8 @@ export const SHORTCUTS = [
   { id: "new-session", label: "New session", keys: ["Mod", "Shift", "O"] },
   { id: "previous-pane", label: "Previous pane", keys: ["Mod", "Shift", "ArrowUp"] },
   { id: "next-pane", label: "Next pane", keys: ["Mod", "Shift", "ArrowDown"] },
+  { id: "previous-prompt", label: "Previous prompt", keys: ["Mod", "Shift", "["] },
+  { id: "next-prompt", label: "Next prompt", keys: ["Mod", "Shift", "]"] },
   { id: "settings", label: "Settings", keys: ["Mod", "Shift", ","] },
 ] as const;
 
@@ -37,8 +39,13 @@ const KEY_TO_ID: Readonly<Record<string, ShortcutId>> = {
   o: "new-session",
   ArrowUp: "previous-pane",
   ArrowDown: "next-pane",
+  "[": "previous-prompt",
+  "]": "next-prompt",
   ",": "settings",
 };
+
+/** Shift turns the bracket keys into braces on common layouts (US and Japanese alike) */
+const SHIFTED: Readonly<Record<string, string>> = { "{": "[", "}": "]" };
 
 export function shortcutKeys(id: ShortcutId, overrides: ShortcutOverrides): string[] {
   if (Object.hasOwn(overrides, id)) return overrides[id] ? [overrides[id]!] : [];
@@ -53,7 +60,7 @@ export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean, 
   const hasMod = platformIsMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
   if (!hasMod || !event.shiftKey || event.altKey) return null;
   // Shift+Comma produces "<" on common keyboard layouts.
-  const key = event.code === "Comma" ? "," : /^Digit[0-9]$/.test(event.code ?? "") ? event.code!.slice(-1) : event.key.length === 1 ? event.key.toLowerCase() : event.key;
+  const key = event.code === "Comma" ? "," : /^Digit[0-9]$/.test(event.code ?? "") ? event.code!.slice(-1) : event.key.length === 1 ? SHIFTED[event.key] ?? event.key.toLowerCase() : event.key;
   for (const shortcut of SHORTCUTS) {
     if (Object.hasOwn(overrides, shortcut.id) && overrides[shortcut.id] === key) return shortcut.id;
   }
@@ -85,12 +92,17 @@ export function keepsArrowsForText(target: KeyTargetLike | EventTarget | null): 
   return type === "text" || type === "search" || type === "url" || type === "email" || type === "password" || type === "tel" || type === "number" || type === "";
 }
 
+/** the shortcuts that step through a chat's prompts: they are the app's only while a chat shows */
+const PROMPT_STEPS: ReadonlySet<ShortcutId> = new Set(["previous-prompt", "next-prompt"]);
+
 /**
  * The capture listener below only prevents the browser's default, so xterm would still encode an
- * app shortcut for the pane: its key handler asks this first.
+ * app shortcut for the pane: its key handler asks this first. A terminal holding the keyboard
+ * shows no chat, so the prompt steps stay its keys.
  */
 export function isAppShortcut(event: ShortcutEventLike, overrides: ShortcutOverrides = {}): boolean {
-  return matchShortcut(event, isMacPlatform(), overrides) !== null;
+  const shortcut = matchShortcut(event, isMacPlatform(), overrides);
+  return shortcut !== null && !PROMPT_STEPS.has(shortcut);
 }
 
 export function isMacPlatform(): boolean {
@@ -117,6 +129,8 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
       const shortcut = matchShortcut(event, platformIsMac, settings.shortcutOverrides);
       if (shortcut === null) return;
       if (event.key.startsWith("Arrow") && keepsArrowsForText(event.target)) return;
+      // with no chat showing there is no prompt to step to: the keys go on to whatever has the focus
+      if (PROMPT_STEPS.has(shortcut) && actions.stepPrompt === null) return;
       event.preventDefault();
       switch (shortcut) {
         case "palette":
@@ -136,6 +150,12 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
           break;
         case "next-pane":
           actions.selectAdjacentPane(1);
+          break;
+        case "previous-prompt":
+          actions.stepPrompt?.(-1);
+          break;
+        case "next-prompt":
+          actions.stepPrompt?.(1);
           break;
         case "settings":
           actions.openSettings();
