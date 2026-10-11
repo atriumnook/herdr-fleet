@@ -22,6 +22,41 @@ describe("plain-text questions", () => {
     expect(detectPlainQuestion("Done.\n\n**Should I push it?**")?.question).toBe("Should I push it?");
   });
 
+  it("reads the last English sentence after a full stop, and leaves trailing quotes and backticks out", () => {
+    expect(detectPlainQuestion("I updated the parser. Should I push?")?.question).toBe("Should I push?");
+    expect(detectPlainQuestion("I updated the parser. Should I push? I will wait.")).toBeNull();
+    expect(detectPlainQuestion("Should I use \"fast\"?")?.question).toBe("Should I use \"fast\"?");
+    expect(detectPlainQuestion("Ready. Should I push it?\"")?.question).toBe("Should I push it?");
+  });
+
+  it("does not read a question mark in a quoted phrase, inline code or an address as the agent asking", () => {
+    expect(detectPlainQuestion("The prompt now says \"Continue?\"")).toBeNull();
+    expect(detectPlainQuestion("The installer asks 「続けますか？」")).toBeNull();
+    expect(detectPlainQuestion("It runs `read -p Continue?`")).toBeNull();
+    expect(detectPlainQuestion("The docs are at https://example.com/search?q=cache")).toBeNull();
+  });
+
+  it("leaves out courtesies that ask nothing to decide", () => {
+    expect(detectPlainQuestion("Fixed the parser. Does that make sense?")).toBeNull();
+    expect(detectPlainQuestion("以上です。ご不明な点はございませんか？")).toBeNull();
+    expect(detectPlainQuestion("修正案を書きました。いかがでしょうか。")).toBeNull();
+  });
+
+  it("reads a long last line from its end", () => {
+    const found = detectPlainQuestion(`${"word ".repeat(2_000)}and so on. Should I push the branch now?`);
+    expect(found?.question).toBe("Should I push the branch now?");
+    const long = detectPlainQuestion(`Should I ${"really ".repeat(100)}push?`);
+    expect(long?.question.endsWith("really push?")).toBe(true);
+    expect(long!.question.length).toBeLessThanOrEqual(300);
+  });
+
+  it("stays fast on a reply of many blank lines with a fence", () => {
+    const reply = `${"\n".repeat(40_000)}\`\`\`\n${" \n".repeat(20_000)}Should I push?`;
+    const started = performance.now();
+    detectPlainQuestion(reply);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+
   it("leaves code blocks out: a question mark in code is not the agent asking", () => {
     expect(detectPlainQuestion("Updated the check:\n\n```ts\nconst ok = ready ? run() : wait();\nwhich?\n```")).toBeNull();
     expect(detectPlainQuestion("Which version should I pin?\n\n```json\n{ \"v\": 1 }\n```")?.question).toBe("Which version should I pin?");

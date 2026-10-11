@@ -17,12 +17,19 @@ export interface PlainQuestion {
 
 const MAX_OPTIONS = 6;
 /** closing courtesies: "anything else?" asks nothing to decide */
-const COURTESY = /(他に|ほかに|何か(あれば|ありましたら|気になる)|お気軽に|いつでも|anything else|let me know if|feel free|any (other )?questions|need anything|happy to help)/i;
+const COURTESY = /(他に|ほかに|何か(あれば|ありましたら|気になる)|お気軽に|いつでも|ご不明な点|いかがでしょうか|お役に立て|anything else|let me know if|feel free|any (other )?questions|need anything|happy to help|does (that|this) (make sense|help|work for you)|makes sense\?|sounds? good\?)/i;
 /** a Japanese sentence that asks, by how it ends; an English one asks with a question mark */
 const ASKING_END = /(ますか|ですか|でしょうか|ましょうか|ませんか)[。．.]?$/;
 const LIST_ITEM = /^\s*(?:\d+[.)]|[-*•]|[A-Z][.)])\s+(.+)$/;
-/** a fenced code block, or one left open at the end: code is never the question */
-const CODE_BLOCK = /^\s*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^\s*\1\s*$|(?![\s\S]))/gm;
+/** a fenced code block, or one left open at the end: code is never the question. Only spaces and tabs before a fence: `\s` would reach over blank lines, and a reply of many of them took time growing with its square */
+const CODE_BLOCK = /^[ \t]*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^[ \t]*\1[ \t]*$|(?![\s\S]))/gm;
+/** where a sentence ends: a Japanese stop, or an English one before a space (a `?` inside an address does not end one) */
+const SENTENCE_END = /(?<=[。？！])(?![」』”"’'）)])\s*|(?<=[?!.])\s+/;
+/** what in a sentence is not the agent asking: a quoted phrase, inline code, an address */
+const NOT_ASKING = /"[^"\n]*"|“[^”\n]*”|「[^」\n]*」|『[^』\n]*』|`[^`\n]*`|https?:\/\/\S+/g;
+/** a long last line is read from its end: the question is there */
+const LINE_TAIL = 600;
+const QUESTION_CHARS = 300;
 
 /** A list item, or a line indented under one. */
 const inList = (line: string): boolean => LIST_ITEM.test(line) || /^\s+\S/.test(line);
@@ -43,10 +50,14 @@ export function detectPlainQuestion(answer: string): PlainQuestion | null {
   if (end === 0) return null;
   const at = end - 1;
   // markup alone after the last stop ("**" closing a bold question) is no sentence
-  const sentences = lines[at]!.split(/(?<=[。？！?!])\s*/).map((sentence) => sentence.trim()).filter((sentence) => /[\p{L}\p{N}]/u.test(sentence));
-  // markdown around the sentence (**, `, a heading's #) is not part of how it ends
-  const last = (sentences[sentences.length - 1] ?? "").replace(/^[#>*\s]+/, "").replace(/[*_`\s]+$/, "");
-  if (!(/[?？]$/.test(last) || ASKING_END.test(last)) || COURTESY.test(last)) return null;
+  const sentences = lines[at]!.slice(-LINE_TAIL).split(SENTENCE_END).map((sentence) => sentence.trim()).filter((sentence) => /[\p{L}\p{N}]/u.test(sentence));
+  const sentence = sentences[sentences.length - 1] ?? "";
+  // markdown, quotes and backticks around the sentence (**, a heading's #) are not part of how it ends
+  const trim = (text: string): string => text.replace(/^[#>*\s]+/, "").replace(/[*_`"'”’」』\s]+$/, "");
+  const last = trim(sentence);
+  // a question mark inside a quoted phrase, code or an address is not the agent asking ("The prompt says "Continue?"")
+  const asking = trim(sentence.replace(NOT_ASKING, " "));
+  if (!(/[?？]$/.test(asking) || ASKING_END.test(asking)) || COURTESY.test(last)) return null;
   const leading: string[] = [];
   if (trailing.length === 0) {
     for (let index = at - 1; index >= 0 && inList(lines[index]!); index -= 1) leading.unshift(lines[index]!);
@@ -61,7 +72,7 @@ export function detectPlainQuestion(answer: string): PlainQuestion | null {
       const description = rest.join(" ").trim().slice(0, 200);
       return { label: label.replace(/\*\*/g, "").trim().slice(0, 80), description: description.length > 0 ? description : null };
     });
-  return { question: last.slice(0, 300), options };
+  return { question: last.length > QUESTION_CHARS ? `…${last.slice(-(QUESTION_CHARS - 1))}` : last, options };
 }
 
 /** What the agent said at the end of its turn: the text after its last action. */
