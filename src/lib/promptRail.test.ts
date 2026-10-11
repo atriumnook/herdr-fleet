@@ -99,6 +99,12 @@ describe("stepFrom", () => {
     expect(stepFrom(0, 3, -1, false, true)).toEqual({ kind: "earlier" });
     expect(stepFrom(0, 3, -1, false, false)).toEqual({ kind: "prompt", index: 0 });
     expect(stepFrom(-1, 3, -1, false, true)).toEqual({ kind: "earlier" });
+  });
+
+  it("with no prompt read, goes on to the end, and back to the earlier page or nowhere", () => {
+    expect(stepFrom(-1, 0, 1, false, false)).toEqual({ kind: "end" });
+    expect(stepFrom(-1, 0, 1, false, true)).toEqual({ kind: "end" });
+    expect(stepFrom(-1, 0, -1, false, true)).toEqual({ kind: "earlier" });
     expect(stepFrom(-1, 0, -1, false, false)).toEqual({ kind: "none" });
   });
 });
