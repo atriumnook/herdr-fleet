@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeProbe, parseAgyUsage, parseClaudeUsage, parseCodexRateLimits, rateLimitUntil, usageKey, UsageTracker, type UsageReading } from "./usage.ts";
+import { agyProbe, claudeProbe, codexProbe, parseAgyUsage, parseClaudeUsage, parseCodexRateLimits, rateLimitUntil, usageKey, UsageTracker, type UsageReading } from "./usage.ts";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -95,10 +95,88 @@ describe("readings", () => {
       return file;
     };
     const ok = fake("claude-ok", { is_error: false, num_turns: 0, result: CLAUDE_USAGE });
-    const readings = await claudeProbe(ok)();
+    const workDir = join(dir, "probe");
+    const readings = await claudeProbe({ workDir, command: ok })();
     expect(readings["claude"]!.windows.map((w) => [w.name, w.usedPercent])).toEqual([["5h", 7], ["weekly", 27]]);
     expect(readFileSync(`${ok}.args`, "utf8").trim()).toBe("-p /usage --no-session-persistence --setting-sources project --output-format json");
-    await expect(claudeProbe(fake("claude-error", { is_error: true, result: "Not logged in" }))()).rejects.toThrow("/usage gave no answer");
+    await expect(claudeProbe({ workDir, command: fake("claude-error", { is_error: true, result: "Not logged in" }) })()).rejects.toThrow("/usage gave no answer");
+  });
+});
+
+describe("what a probe's CLI gets", () => {
+  // the server's environment as a probe sees it: API keys and the person's herdr session among the rest
+  const SERVER_ENV = {
+    PATH: process.env["PATH"], HOME: "/home/u", LANG: "ja_JP.UTF-8", CODEX_HOME: "/home/u/.codex-alt", CLAUDE_CONFIG_DIR: "/home/u/.claude-alt",
+    ANTHROPIC_API_KEY: "sk-ant", OPENAI_API_KEY: "sk-openai", GEMINI_API_KEY: "g-key", HERDR_SOCKET: "/run/herdr.sock", HERDR_FLEET_TOKEN: "t",
+  };
+  const FORBIDDEN = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "HERDR_SOCKET", "HERDR_FLEET_TOKEN"];
+  /** a CLI that notes its environment, its folder and what it found there, then answers */
+  const recorder = (dir: string, name: string, answer: string) => {
+    const file = join(dir, name);
+    writeFileSync(file, `#!/bin/sh\n/usr/bin/env > "${file}.env"\npwd > "${file}.cwd"\nls -A > "${file}.ls"\n${answer}\n`, { mode: 0o755 });
+    return file;
+  };
+  const envNames = (file: string) => readFileSync(`${file}.env`, "utf8").split("\n").filter(Boolean).map((line) => line.split("=")[0]!);
+  /** what another run, or another user, could leave in the folder for the next CLI to read */
+  const plant = (workDir: string) => {
+    mkdirSync(join(workDir, ".claude"), { recursive: true });
+    writeFileSync(join(workDir, ".claude", "settings.json"), '{"hooks":{}}');
+    writeFileSync(join(workDir, "CLAUDE.md"), "planted");
+  };
+  const expectOwnEmptyFolder = (file: string, workDir: string) => {
+    expect(readFileSync(`${file}.cwd`, "utf8").trim()).toBe(realpathSync(workDir));
+    expect(readFileSync(`${file}.ls`, "utf8")).toBe("");
+    expect(statSync(workDir).mode & 0o777).toBe(0o700);
+  };
+
+  it("claude runs in its own emptied folder, with its own folder's setting, no API key or herdr session, and no self-update", async () => {
+    const dir = tempDir();
+    const workDir = join(dir, "usage-probe", "claude");
+    plant(workDir);
+    const claude = recorder(dir, "claude", `cat <<'JSON'\n${JSON.stringify({ is_error: false, result: "Current session: 7% used" })}\nJSON`);
+    await claudeProbe({ workDir, command: claude, env: SERVER_ENV })();
+    expectOwnEmptyFolder(claude, workDir);
+    const names = envNames(claude);
+    for (const name of FORBIDDEN) expect(names).not.toContain(name);
+    expect(names).toEqual(expect.arrayContaining(["PATH", "HOME", "LANG", "CLAUDE_CONFIG_DIR", "DISABLE_AUTOUPDATER"]));
+    expect(names).not.toContain("CODEX_HOME");
+  });
+
+  it("codex app-server runs in its own emptied folder, with CODEX_HOME and no API key or herdr session", async () => {
+    const dir = tempDir();
+    const workDir = join(dir, "usage-probe", "codex");
+    plant(workDir);
+    const limits = { rateLimits: { primary: { usedPercent: 12, windowDurationMins: 300 }, secondary: { usedPercent: 40, windowDurationMins: 10080 } } };
+    const codex = recorder(dir, "codex", `read a\necho '{"id":1,"result":{}}'\nread b\nread c\necho '${JSON.stringify({ id: 2, result: limits })}'`);
+    const readings = await codexProbe({ workDir, command: codex, env: SERVER_ENV })();
+    expect(readings["codex"]!.windows.map((w) => w.usedPercent)).toEqual([12, 40]);
+    expectOwnEmptyFolder(codex, workDir);
+    const names = envNames(codex);
+    for (const name of FORBIDDEN) expect(names).not.toContain(name);
+    expect(names).toEqual(expect.arrayContaining(["PATH", "HOME", "CODEX_HOME"]));
+    expect(names).not.toContain("CLAUDE_CONFIG_DIR");
+  });
+
+  it("agy runs in its own emptied folder, without an API key or herdr session, and with its self-update held off", async () => {
+    const dir = tempDir();
+    const workDir = join(dir, "usage-probe", "agy");
+    plant(workDir);
+    const agy = recorder(dir, "agy", `echo '${JSON.stringify({ status: "SUCCESS", command: { data: { groups: [] } } })}'`);
+    await agyProbe({ workDir, command: agy, env: SERVER_ENV })();
+    expectOwnEmptyFolder(agy, workDir);
+    const env = readFileSync(`${agy}.env`, "utf8");
+    for (const name of FORBIDDEN) expect(envNames(agy)).not.toContain(name);
+    expect(env).toContain("AGY_CLI_DISABLE_AUTO_UPDATE=true\n");
+  });
+
+  it("refuses a link in place of the folder, and leaves what it points at alone", async () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, "elsewhere"));
+    writeFileSync(join(dir, "elsewhere", "keep.txt"), "x");
+    symlinkSync(join(dir, "elsewhere"), join(dir, "claude"));
+    const claude = recorder(dir, "claude-cli", "echo '{}'");
+    await expect(claudeProbe({ workDir: join(dir, "claude"), command: claude, env: SERVER_ENV })()).rejects.toThrow("is not a folder");
+    expect(readdirSync(join(dir, "elsewhere"))).toEqual(["keep.txt"]);
   });
 });
 
