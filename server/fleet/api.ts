@@ -4,6 +4,7 @@ import { isAgentKind } from "./adapters.ts";
 import { AgentWaitTimeoutError, type Orchestrator, type ThreadRequest } from "./orchestrator.ts";
 import { FleetError } from "./runtime.ts";
 import type { Brief } from "./brief.ts";
+import type { LandAction, LineComment } from "../../shared/fleet.ts";
 import type { SpawnRequest } from "./types.ts";
 import type { UsageTracker } from "./usage.ts";
 
@@ -24,6 +25,9 @@ import type { UsageTracker } from "./usage.ts";
  *  POST /api/fleet/runs/:target/interrupt { group? } -> { run }
  *  POST /api/fleet/runs/:target/focus     { group? } -> { run }
  *  POST /api/fleet/runs/:target/resolve   { resolved?, group? } -> { run }; a thread marked done (resolved: false opens it again)
+ *  GET  /api/fleet/runs/:target/diff[?group=]     -> { diff, truncated }; a thread's change since it left its base branch
+ *  GET  /api/fleet/runs/:target/landing[?group=]  -> { checks: LandingChecks }; asks git and GitHub (gh) now
+ *  POST /api/fleet/runs/:target/land      { action, comments?, group? } -> { run }; a landing step the person pressed
  *  POST /api/fleet/close-done             { group? } -> { runs }
  *  GET  /api/fleet/usage                            -> { usage: UsageEntry[] }; what is known, asking no CLI
  *  POST /api/fleet/usage/refresh          { all? }   -> { usage }; asks the CLIs whose reading is stale (all with all: true).
@@ -96,6 +100,8 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
       const target = parts[1];
       if (!target) return notFound();
       if (parts.length === 2 && method === "GET") return jsonResponse({ run: fleet.get(target, group()) });
+      if (parts.length === 3 && parts[2] === "diff" && method === "GET") return jsonResponse(await fleet.diff(target, group()));
+      if (parts.length === 3 && parts[2] === "landing" && method === "GET") return jsonResponse({ checks: await fleet.checks(target, group()) });
       if (parts.length === 3 && parts[2] === "read" && method === "GET") {
         const lines = query.get("lines");
         return jsonResponse({ text: await fleet.read(target, lines ? Math.max(1, Math.min(10_000, Number(lines) || 0)) : undefined, group()) });
@@ -119,6 +125,12 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
             if (resolved !== undefined && typeof resolved !== "boolean") throw new FleetError("invalid_body", "resolved must be true or false");
             return jsonResponse({ run: fleet.resolve(target, resolved !== false, group(body)) });
           }
+          case "land": {
+            const action = body["action"];
+            if (typeof action !== "string" || !LAND_ACTIONS.includes(action as LandAction)) throw new FleetError("invalid_action", `action must be one of ${LAND_ACTIONS.join(", ")}`);
+            const comments = lineComments(body["comments"]);
+            return jsonResponse({ run: await fleet.land(target, action as LandAction, comments ? { comments } : {}, group(body), request.signal) });
+          }
         }
       }
     }
@@ -126,6 +138,20 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
   } catch (error) {
     return fleetError(error);
   }
+}
+
+const LAND_ACTIONS: readonly LandAction[] = ["update", "pr", "fix-ci", "comments", "merge", "merge-pr", "discard"];
+const COMMENTS_MAX = 200;
+
+function lineComments(value: unknown): LineComment[] | undefined {
+  if (value === undefined || value === null) return undefined;
+  const valid = Array.isArray(value) && value.length <= COMMENTS_MAX && value.every((comment) => isJsonObject(comment)
+    && typeof comment["file"] === "string" && comment["file"] !== "" && Number.isInteger(comment["line"]) && (comment["line"] as number) > 0
+    && (comment["removed"] === undefined || typeof comment["removed"] === "boolean") && typeof comment["text"] === "string" && comment["text"].trim() !== "");
+  if (!valid) throw new FleetError("invalid_body", `comments must be up to ${COMMENTS_MAX} of { file, line, removed?, text }`);
+  return (value as Array<Record<string, unknown>>).map((comment) => ({
+    file: comment["file"] as string, line: comment["line"] as number, ...(comment["removed"] === true ? { removed: true } : {}), text: comment["text"] as string,
+  }));
 }
 
 function notFound(): Response {
@@ -203,7 +229,7 @@ function briefOf(value: unknown): Partial<Brief> | undefined {
 }
 
 const STATUS: Record<string, number> = {
-  run_not_found: 404, unknown_role: 404, not_a_thread: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
+  run_not_found: 404, unknown_role: 404, not_a_thread: 409, thread_landed: 409, landing_busy: 409, run_busy: 409, no_pull_request: 409, diff_unavailable: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
   agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429, scope_conflict: 409, setup_failed: 502,
 };
 

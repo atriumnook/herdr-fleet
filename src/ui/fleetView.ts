@@ -1,9 +1,10 @@
-import { handoffStatus, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
+import { handoffStatus, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type LandAction, type LineComment, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
-import { isEnded, type UiState } from "./state.ts";
+import { parseDiff, type DiffLine } from "./diff.ts";
+import { isEnded, type ConfirmedStep, type ThreadTab, type UiState } from "./state.ts";
 
 /** The regions the Fleet screen draws: its Presenter re-renders when one of them changes. */
-export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView"] as const;
+export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView", "landing"] as const;
 export type FleetState = Pick<UiState, (typeof FLEET_REGIONS)[number]>;
 
 /**
@@ -65,8 +66,8 @@ export interface ProjectModel {
   selected: boolean;
 }
 
-/** The Overview's groups, by what the person has to do: answer, review, wait, nothing. */
-export type ThreadGroupKey = "needs" | "review" | "working" | "idle";
+/** The Overview's groups, by what the person has to do: answer, review, merge, wait, nothing. */
+export type ThreadGroupKey = "needs" | "review" | "landing" | "working" | "idle";
 
 export interface ThreadRowModel {
   id: string;
@@ -80,7 +81,8 @@ export interface ThreadRowModel {
   branch?: string;
   diff?: DiffStat;
   contract: ContractItem[];
-  /** what it waits on the person for: its question, the prompt on its screen, or why it failed */
+  pr?: PullRequest;
+  /** what it waits on the person for: its question, the prompt on its screen, why it failed, or a landing step that went wrong */
   question?: string;
   startedAt: number;
   updatedAt: number;
@@ -117,7 +119,76 @@ export interface OpenRunModel {
   /** the candidates passed over before the shown run started, and why */
   skipped: SkippedCandidate[];
   canResolve: boolean;
+  /** resolved, and can be opened again */
   resolved: boolean;
+  /** a thread on a branch of its own: landing it */
+  landing: LandingModel | null;
+}
+
+/** One line of a thread's change, with the person's comments on it (`index`: where each is kept, to take it back). */
+export interface DiffLineModel extends DiffLine {
+  comments: Array<{ index: number; text: string }>;
+}
+
+export interface DiffFileModel {
+  path: string;
+  from?: string;
+  added: number;
+  removed: number;
+  binary: boolean;
+  /** the person's comments on it not sent yet */
+  comments: number;
+  lines: DiffLineModel[];
+}
+
+/** How a check reads: met, worth a look, in the way, under way, or not there yet. */
+export type CheckTone = "ok" | "warn" | "bad" | "run" | "none";
+
+/** One check before a thread lands: what it is about, how it reads, and the step that settles it, if any. */
+export type CheckModel = { tone: CheckTone } & (
+  | { kind: "committed"; uncommitted: string[]; ahead: number }
+  | { kind: "base"; baseBranch: string; behind: number; action?: "update" }
+  | { kind: "contract"; items: ContractItem[] }
+  | { kind: "review"; reviewers: Array<{ agent: FleetAgentKind; status?: string }> }
+  | { kind: "comments"; count: number; action?: "comments" }
+  | { kind: "pr"; pr?: PullRequest; error?: string }
+  | { kind: "ci"; pr: PullRequest; action?: "fix-ci" }
+);
+
+/**
+ * Landing a thread, as the open thread draws it: where it stands, the step under way or the one
+ * that went wrong, the buttons it offers, its change with the person's comments, its checks, and
+ * the step that waits for the person's yes.
+ */
+export interface LandingModel {
+  runId: string;
+  branch: string;
+  baseBranch: string;
+  /** the main checkout the thread lands in */
+  repo: string;
+  tab: ThreadTab;
+  stage: "review" | "landing" | "landed";
+  landed?: "merged" | "discarded";
+  /** the step under way, until it went as asked */
+  pending?: LandAction;
+  /** what the fleet found when the last step did not go as asked */
+  error?: string;
+  pr?: PullRequest;
+  /** the steps it offers */
+  offers: { createPr: boolean; mergeLocal: boolean; discard: boolean; fixCi: boolean; mergePr: boolean };
+  /**
+   * What can be pressed now, on a device that may act with no action in flight and no step under
+   * way: the lead's steps once its turn ended, a merge while it does not work, a discard always.
+   */
+  can: { lead: boolean; merge: boolean; discard: boolean };
+  /** Merge PR waits for the checks to pass */
+  mergePrReady: boolean;
+  comments: LineComment[];
+  changes: { status: "idle" | "loading" | "ready" | "error"; error?: string; truncated: boolean; files: DiffFileModel[] };
+  checks: { status: "idle" | "loading" | "ready" | "error"; error?: string; branch: CheckModel[]; thread: CheckModel[]; pr: CheckModel[] };
+  /** the Checks tab asks for a look: comments not sent, failing checks, a step that went wrong */
+  attention: boolean;
+  confirm: { action: ConfirmedStep; running: boolean; error?: string; worktree: string; ahead?: number } | null;
 }
 
 /** The app's one badge look, by its state class. */
@@ -242,7 +313,7 @@ export function fleetScreenModel(state: FleetState, now: number): FleetScreenMod
     resolved: rows.filter((row) => row.group === "resolved").sort(byRecent),
     threads: [...rows].sort((a, b) => a.startedAt - b.startedAt),
     agents: outside,
-    open: openRun(runs, view),
+    open: openRun(runs, view, state),
     overview: view.overview,
     expanded: view.expanded && view.open !== null,
     status: state.runs.status === "error" ? "error" : state.runs.status === "ready" ? "ready" : "loading",
@@ -271,11 +342,11 @@ export function needsCount(state: Pick<UiState, "runs">): number {
 const THREAD_ROLE = "lead";
 const PROJECT_ROLE = "coordinator";
 
-const GROUPS: ReadonlyArray<[ThreadGroupKey, string]> = [["needs", "Needs you"], ["review", "Ready for review"], ["working", "Working"], ["idle", "Idle"]];
+const GROUPS: ReadonlyArray<[ThreadGroupKey, string]> = [["needs", "Needs you"], ["review", "Ready for review"], ["landing", "Landing"], ["working", "Working"], ["idle", "Idle"]];
 
 /** A thread state's badge word and look: waiting reads Needs you, as every waiting state does. */
 const THREAD_BADGE: Record<ThreadState, { label: string; badge: Badge }> = {
-  waiting: { label: "Needs you", badge: "blocked" }, failed: { label: "Failed", badge: "failed" }, review: { label: "Ready for review", badge: "done" },
+  waiting: { label: "Needs you", badge: "blocked" }, failed: { label: "Failed", badge: "failed" }, review: { label: "Ready for review", badge: "done" }, landing: { label: "Landing", badge: "working" },
   working: { label: "Working", badge: "working" }, idle: { label: "Idle", badge: "idle" }, ended: { label: "Ended", badge: "idle" }, resolved: { label: "Resolved", badge: "idle" },
 };
 
@@ -311,15 +382,17 @@ export function projectsOf(state: Pick<UiState, "runs" | "fleetView">): { list: 
 function threadRow(run: AgentRun, selected: boolean): ThreadRowModel {
   const state = threadState(run);
   const status = run.result ? handoffStatus(run.result) : undefined;
-  const group: ThreadRowModel["group"] = state === "waiting" || state === "failed" ? "needs" : state === "review" ? "review" : state === "working" ? "working" : state === "resolved" ? "resolved" : "idle";
-  const question = state === "failed" ? run.lastError : state === "waiting" ? (run.state === "blocked" ? run.lastError : status) : undefined;
+  const group: ThreadRowModel["group"] = state === "waiting" || state === "failed" ? "needs" : state === "review" || state === "landing" || state === "working" || state === "resolved" ? state : "idle";
+  const failing = run.pr?.state === "OPEN" && run.pr.checks === "fail" ? `PR #${run.pr.number}: ${(run.pr.failing ?? []).join(", ")}` : undefined;
+  const question = state === "failed" ? run.lastError : state !== "waiting" ? undefined
+    : run.state === "blocked" ? run.lastError : status?.startsWith("BLOCKED") ? status : run.landing?.error ?? failing ?? status;
   return {
-    id: run.id, title: run.name, state, group, ...THREAD_BADGE[state], agent: run.agent, branch: run.branch, diff: run.diff, contract: run.contract ?? [],
+    id: run.id, title: run.name, state, group, ...THREAD_BADGE[state], agent: run.agent, branch: run.branch, diff: run.diff, contract: run.contract ?? [], ...(run.pr ? { pr: run.pr } : {}),
     ...(question ? { question } : {}), startedAt: run.startedAt, updatedAt: run.updatedAt, selected,
   };
 }
 
-function openRun(runs: AgentRun[], view: UiState["fleetView"]): OpenRunModel | null {
+function openRun(runs: AgentRun[], view: UiState["fleetView"], fleet: FleetState): OpenRunModel | null {
   const open = view.open;
   const run = open ? runs.find((candidate) => candidate.id === open.runId) : undefined;
   if (!open || !run) return null;
@@ -336,10 +409,75 @@ function openRun(runs: AgentRun[], view: UiState["fleetView"]): OpenRunModel | n
       ...RUN_BADGE[toneOf(each.state)], selected: each.id === shown.id,
     })) : [],
     skipped: shown.skipped ?? [],
-    canResolve: open.kind === "thread" && state !== "working" && state !== "resolved",
-    resolved: state === "resolved",
+    canResolve: open.kind === "thread" && state !== "working" && state !== "resolved" && !run.landed,
+    // a thread that landed has no worktree left to open again
+    resolved: state === "resolved" && !run.landed,
+    landing: open.kind === "thread" && run.branch && run.project ? landingModel(run as AgentRun & { branch: string; project: string }, helpers, view.tab, fleet) : null,
   };
 }
+
+/** What landing the open thread looks like now. */
+function landingModel(run: AgentRun & { branch: string; project: string }, helpers: AgentRun[], tab: ThreadTab, fleet: FleetState): LandingModel {
+  const landing = fleet.landing;
+  const read = landing.runId === run.id;
+  const checks = read ? landing.checks.data : null;
+  const baseBranch = checks?.baseBranch ?? run.baseBranch ?? "main";
+  const comments = landing.comments[run.id] ?? [];
+  const prOpen = run.pr?.state === "OPEN";
+  const stage = run.landed ? "landed" : prOpen ? "landing" : "review";
+  const pending = run.landing && !run.landing.error ? run.landing.action : undefined;
+  const free = fleet.canAct && fleet.request.status !== "pending" && !run.landed;
+  const settled = free && pending === undefined;
+  const changed = (run.diff?.files ?? 0) > 0 || (checks?.ahead ?? 0) > 0;
+  const files = read && landing.diff.data ? parseDiff(landing.diff.data.diff).map((file) => {
+    const on = comments.map((comment, index) => ({ ...comment, index })).filter((comment) => comment.file === file.path);
+    return {
+      ...file,
+      comments: on.length,
+      lines: file.lines.map((line) => ({
+        ...line,
+        comments: on.filter((comment) => (comment.removed ? line.kind === "del" && line.old === comment.line : line.kind !== "del" && line.new === comment.line)).map((comment) => ({ index: comment.index, text: comment.text })),
+      })),
+    };
+  }) : [];
+  const reviewers = helpers.filter((helper) => helper.role === "reviewer" && helper.agent !== run.agent);
+  const contractOpen = (run.contract ?? []).some((item) => item.state !== "met");
+  const branchChecks: CheckModel[] = checks ? [
+    { kind: "committed", tone: checks.uncommitted.length ? "warn" : "ok", uncommitted: checks.uncommitted, ahead: checks.ahead },
+    { kind: "base", tone: checks.behind ? "warn" : "ok", baseBranch, behind: checks.behind, ...(checks.behind ? { action: "update" as const } : {}) },
+  ] : [];
+  const threadChecks: CheckModel[] = [
+    { kind: "contract", tone: !run.contract?.length ? "none" : contractOpen ? "warn" : "ok", items: run.contract ?? [] },
+    { kind: "review", tone: reviewers.length ? "ok" : "warn", reviewers: reviewers.map((helper) => ({ agent: helper.agent, ...(helper.result && handoffStatus(helper.result) ? { status: handoffStatus(helper.result) } : {}) })) },
+    { kind: "comments", tone: comments.length ? "warn" : "ok", count: comments.length, ...(comments.length ? { action: "comments" as const } : {}) },
+  ];
+  const pr = checks?.pr ?? run.pr;
+  const prChecks: CheckModel[] = [
+    { kind: "pr", tone: pr?.state === "OPEN" || pr?.state === "MERGED" ? "ok" : checks?.prError ? "warn" : "none", ...(pr ? { pr } : {}), ...(checks?.prError ? { error: checks.prError } : {}) },
+    ...(pr?.state === "OPEN" ? [{ kind: "ci" as const, pr, tone: CI_TONE[pr.checks], ...(pr.checks === "fail" ? { action: "fix-ci" as const } : {}) }] : []),
+  ];
+  const confirm = landing.confirm?.runId === run.id ? landing.confirm : null;
+  return {
+    runId: run.id, branch: run.branch, baseBranch, repo: run.project, tab, stage, ...(run.landed ? { landed: run.landed } : {}),
+    ...(pending ? { pending } : {}), ...(run.landing?.error ? { error: run.landing.error } : {}), ...(run.pr ? { pr: run.pr } : {}),
+    offers: {
+      createPr: stage === "review" && changed, mergeLocal: stage === "review" && changed, discard: stage === "review",
+      fixCi: prOpen && run.pr?.checks === "fail", mergePr: prOpen,
+    },
+    can: { lead: settled && (run.state === "idle" || run.state === "done"), merge: settled && run.state !== "working" && run.state !== "starting", discard: free },
+    mergePrReady: prOpen && (run.pr?.checks === "pass" || run.pr?.checks === "none"),
+    comments,
+    changes: { status: read ? landing.diff.status : "idle", ...(read && landing.diff.error ? { error: landing.diff.error } : {}), truncated: read && landing.diff.data?.truncated === true, files },
+    checks: { status: read ? landing.checks.status : "idle", ...(read && landing.checks.error ? { error: landing.checks.error } : {}), branch: branchChecks, thread: threadChecks, pr: prChecks },
+    attention: comments.length > 0 || (prOpen && run.pr?.checks === "fail") || run.landing?.error !== undefined,
+    confirm: confirm ? {
+      action: confirm.action, running: confirm.status === "running", ...(confirm.error ? { error: confirm.error } : {}),
+      worktree: `${run.project}/.herdr-fleet/worktrees/${run.id}`, ...(checks ? { ahead: checks.ahead } : {}),
+    } : null,
+  };
+}
+
+const CI_TONE: Record<PullRequest["checks"], CheckTone> = { pending: "run", pass: "ok", fail: "bad", none: "none" };
 
 /**
  * Where a thread's card goes in the project conversation: under the coordinator's turn it was

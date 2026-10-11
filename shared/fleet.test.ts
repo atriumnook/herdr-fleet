@@ -21,6 +21,16 @@ describe("a thread's state", () => {
     expect(threadState(run("stopped", undefined, { resolvedAt: 1 }))).toBe("resolved");
     expect(threadState(run("working", undefined, { resolvedAt: 1 }))).toBe("working");
   });
+
+  it("is landing while its pull request is open, and needs the person when its checks fail or a landing step went wrong", () => {
+    const pr = { number: 7, url: "https://github.com/o/r/pull/7", state: "OPEN", checks: "pending" } as const;
+    expect(threadState(run("idle", "PASS", { pr }))).toBe("landing");
+    expect(threadState(run("idle", "PASS", { pr: { ...pr, checks: "fail", failing: ["test"] } }))).toBe("waiting");
+    expect(threadState(run("idle", "PASS", { pr: { ...pr, state: "CLOSED" } }))).toBe("review");
+    expect(threadState(run("idle", "PASS", { landing: { action: "merge", at: 1, sent: true, error: "not merged" } }))).toBe("waiting");
+    expect(threadState(run("working", "PASS", { pr: { ...pr, checks: "fail" } }))).toBe("working");
+    expect(threadState(run("stopped", "PASS", { pr: { ...pr, state: "MERGED" }, landed: "merged", resolvedAt: 1 }))).toBe("resolved");
+  });
 });
 
 describe("a HANDOFF's status line and a contract", () => {

@@ -5,8 +5,9 @@ import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
 import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
-import { contractItems, handoffStatus, threadState } from "../../shared/fleet.ts";
-import { diffStat, excludeWorktrees, gitHead, gitRoot, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
+import { contractItems, handoffStatus, threadState, type LandAction, type LandingChecks, type LineComment, type PullRequest } from "../../shared/fleet.ts";
+import { readPullRequest, type PullRequestReading } from "./github.ts";
+import { branchHead, branchState, diffStat, diffText, excludeWorktrees, gitBranch, gitHead, gitRoot, isMerged, removeThread, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
 import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadSummary } from "./types.ts";
@@ -33,7 +34,7 @@ const RESULT_FILE = "handoff.md";
 type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[]; thread?: ThreadPlace };
 
 /** Where a thread works (the repository its worktree comes from, or none outside one), and the run that owns it. */
-interface ThreadPlace { repo: string | null; owner?: string; base?: string }
+interface ThreadPlace { repo: string | null; owner?: string; base?: string; baseBranch?: string }
 
 /** A thread to start: its lead gets the task, in a workspace (and worktree) of its own named by the title. */
 export interface ThreadRequest {
@@ -107,6 +108,8 @@ export interface OrchestratorDeps {
   /** gitHead and diffStat; tests stand in for git */
   gitHead?: (cwd: string) => Promise<string | null>;
   diffStat?: typeof diffStat;
+  /** the git and GitHub reads and changes that land a thread (thread.ts, github.ts); tests stand in for them */
+  landing?: Partial<LandingTools>;
   /** the shell command an agent runs to reach the fleet (bin/fleet.ts) */
   fleetCommand: string;
   /** set in each agent's pane so its own fleet commands reach this server; read at each spawn */
@@ -132,6 +135,23 @@ export interface OrchestratorDeps {
   usage?: Pick<UsageTracker, "unavailable" | "noteFailure" | "claimScreen" | "record">;
   onChanged?: (run: AgentRun) => void;
 }
+
+/** What landing a thread reads and changes in git and on GitHub. */
+export interface LandingTools {
+  gitBranch: typeof gitBranch;
+  branchState: typeof branchState;
+  diffText: typeof diffText;
+  branchHead: typeof branchHead;
+  isMerged: typeof isMerged;
+  removeThread: typeof removeThread;
+  readPullRequest: typeof readPullRequest;
+}
+
+const LANDING_TOOLS: LandingTools = { gitBranch, branchState, diffText, branchHead, isMerged, removeThread, readPullRequest };
+
+/** the landing steps a thread's lead takes on its branch; the coordinator takes the merges, and the fleet a discard */
+const LEAD_STEPS: ReadonlySet<LandAction> = new Set(["update", "pr", "fix-ci", "comments"]);
+const COORDINATOR_STEPS: ReadonlySet<LandAction> = new Set(["merge", "merge-pr"]);
 
 /**
  * A candidate entry: `<agent>:<model>` names another CLI, anything else is a model of the role's
@@ -172,10 +192,12 @@ export class Orchestrator {
 
   private readonly grace: number;
   private readonly readyScreenMs: number;
+  private readonly tools: LandingTools;
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.grace = deps.preVisualGraceMs ?? PRE_VISUAL_GRACE_MS;
     this.readyScreenMs = deps.readyScreenMs ?? READY_SCREEN_MS;
+    this.tools = { ...LANDING_TOOLS, ...deps.landing };
     this.pruneResults();
     // a restart read the runs back without their results: the result files hold them
     for (const run of deps.registry.all()) run.result ??= readResult(this.resultFile(run));
@@ -251,10 +273,11 @@ export class Orchestrator {
     const repo = await (this.deps.gitRoot ?? gitRoot)(cwd);
     if (repo) await (this.deps.excludeWorktrees ?? excludeWorktrees)(repo);
     const base = repo ? await (this.deps.gitHead ?? gitHead)(repo) : null;
+    const baseBranch = repo ? await this.tools.gitBranch(repo) : null;
     return this.launch({
       role: THREAD_ROLE, name: title, task: request.task, brief: request.brief, cwd, depth: request.depth,
       group: makeGroupId(), worktree: repo !== null, interactive: true,
-    }, signal, { repo, ...(owner ? { owner: owner.id } : {}), ...(base ? { base } : {}) });
+    }, signal, { repo, ...(owner ? { owner: owner.id } : {}), ...(base ? { base } : {}), ...(baseBranch ? { baseBranch } : {}) });
   }
 
   /**
@@ -412,6 +435,7 @@ export class Orchestrator {
         ...(worktree && request.thread ? { branch: `fleet/${id}` } : {}),
         ...(request.thread?.repo ? { project: request.thread.repo } : {}), ...(request.thread?.owner ? { owner: request.thread.owner } : {}),
         ...(worktree && request.thread?.base ? { base: request.thread.base } : {}),
+        ...(worktree && request.thread?.baseBranch ? { baseBranch: request.thread.baseBranch } : {}),
         ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
       };
       this.save(run);
@@ -576,6 +600,203 @@ export class Orchestrator {
     return { ...run };
   }
 
+  // ---- landing a thread ----------------------------------------------------------------------
+
+  /** A thread on a branch of its own, still there to land: the landing steps' target. */
+  private landable(target: string, group?: string): AgentRun & { project: string; branch: string } {
+    const run = this.get(target, group);
+    if (!isThread(run) || !run.branch) throw new FleetError("not_a_thread", `${run.name} is not a thread on a branch of its own.`);
+    return run as AgentRun & { project: string; branch: string };
+  }
+
+  private baseBranchOf(run: AgentRun & { project: string }): Promise<string> {
+    return run.baseBranch ? Promise.resolve(run.baseBranch) : this.tools.gitBranch(run.project).then((branch) => branch ?? "main");
+  }
+
+  /** What stands between a thread and landing: its uncommitted work, its branch beside the base, its pull request, read now. */
+  async checks(target: string, group?: string): Promise<LandingChecks> {
+    const run = this.landable(target, group);
+    const baseBranch = await this.baseBranchOf(run);
+    const branch = run.landed ? null : await this.tools.branchState(run.cwd, baseBranch);
+    const checks: LandingChecks = { baseBranch, uncommitted: branch?.uncommitted ?? [], ahead: branch?.ahead ?? 0, behind: branch?.behind ?? 0 };
+    try {
+      const reading = await this.readPullRequest(run);
+      if (reading) checks.pr = pullRequest(reading);
+    } catch (error) {
+      checks.prError = error instanceof Error ? error.message : String(error);
+      if (run.pr) checks.pr = run.pr;
+    }
+    return checks;
+  }
+
+  /** A thread's change since it left its base branch, as a unified diff. */
+  async diff(target: string, group?: string): Promise<{ diff: string; truncated: boolean }> {
+    const run = this.landable(target, group);
+    const diff = run.landed ? null : await this.tools.diffText(run.cwd, await this.baseBranchOf(run));
+    if (!diff) throw new FleetError("diff_unavailable", `git could not show the change of ${run.name}.`);
+    return diff;
+  }
+
+  /**
+   * A landing step the person pressed. The lead takes the steps on its branch at once (it must be
+   * free), the project's coordinator the merges once it is free (a new one starts when none lives),
+   * and a discard happens here. Each message names the step the person approved, and only that one.
+   * When the agent's turn ends, the fleet reads git and GitHub for whether the step happened.
+   */
+  async land(target: string, action: LandAction, options: { comments?: LineComment[] } = {}, group?: string, signal?: AbortSignal): Promise<AgentRun> {
+    const run = this.landable(target, group);
+    if (run.landed) throw new FleetError("thread_landed", `${run.name} was already ${run.landed}.`);
+    if (action === "discard") {
+      await this.closeThread(run, "discarded");
+      return { ...run };
+    }
+    const handler = LEAD_STEPS.has(action) ? run : this.projectCoordinator(run);
+    if (run.landing && !run.landing.error && run.landing.sent && handler && isLive(handler) && this.pending.has(handler.id)) {
+      throw new FleetError("landing_busy", `${run.name} is still on ${run.landing.action}; wait for it to end.`);
+    }
+    const baseBranch = await this.baseBranchOf(run);
+    if (action === "merge-pr" && run.pr?.state !== "OPEN") throw new FleetError("no_pull_request", `${run.name} has no open pull request.`);
+    if (action === "fix-ci" && !run.pr) throw new FleetError("no_pull_request", `${run.name} has no pull request.`);
+    if (action === "comments" && !options.comments?.length) throw new FleetError("missing_comments", "comments are required");
+    if (LEAD_STEPS.has(action)) {
+      if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
+      await this.reconcileLocks.get(run.id);
+      if (this.pending.has(run.id)) throw new FleetError("run_busy", `The lead of ${run.name} is working; wait for its turn to end.`);
+      run.landing = { action, at: Date.now(), sent: true };
+      this.save(run);
+      return this.submit(run, leadStep(run, action, baseBranch, options.comments ?? []), signal);
+    }
+    run.landing = { action, at: Date.now(), sent: false };
+    this.save(run);
+    const coordinator = this.projectCoordinator(run);
+    if (coordinator) await this.deliverNotices(coordinator);
+    else {
+      // no coordinator lives: a new one starts with the step as its first task
+      run.landing.sent = true;
+      this.save(run);
+      try {
+        await this.startProject({ task: [STEPS_HEADER, `- ${coordinatorStep(run, baseBranch)}`].join("\n"), cwd: run.project }, signal);
+      } catch (error) {
+        run.landing = { ...run.landing, error: `No coordinator could start for the merge: ${error instanceof Error ? error.message : String(error)}` };
+        this.save(run);
+        throw error;
+      }
+    }
+    return { ...this.get(run.id) };
+  }
+
+  /** The project's live coordinator: the merges happen in the main checkout it sits on. */
+  private projectCoordinator(thread: AgentRun): AgentRun | undefined {
+    return this.deps.registry.all().find((run) => run.role === PROJECT_ROLE && run.project === thread.project && isLive(run));
+  }
+
+  /** The thread's pull request on GitHub now, kept on its run; null when its branch has none. */
+  private async readPullRequest(run: AgentRun & { project?: string; branch?: string }): Promise<PullRequestReading | null> {
+    if (!run.project || !run.branch) return null;
+    const reading = await this.tools.readPullRequest(run.project, run.branch);
+    const pr = reading ? pullRequest(reading) : undefined;
+    if (JSON.stringify(pr) !== JSON.stringify(run.pr)) {
+      run.pr = pr;
+      run.updatedAt = Date.now();
+      this.save(run);
+    }
+    return reading;
+  }
+
+  /** The lead's turn after a landing step ended: whether the step happened, as git and GitHub say. */
+  private async settleLeadStep(run: AgentRun): Promise<void> {
+    const step = run.landing!;
+    const thread = run as AgentRun & { project: string; branch: string };
+    let error: string | undefined;
+    try {
+      if (step.action === "pr") {
+        const pr = await this.readPullRequest(thread);
+        if (pr?.state !== "OPEN") error = `The lead's turn ended without an open pull request for ${thread.branch}.`;
+      } else {
+        if (run.pr?.state === "OPEN") await this.readPullRequest(thread);
+        if (step.action === "update") {
+          const baseBranch = await this.baseBranchOf(thread);
+          const state = await this.tools.branchState(run.cwd, baseBranch);
+          if (state && state.behind > 0) error = `${thread.branch} is still ${state.behind} commit${state.behind === 1 ? "" : "s"} behind ${baseBranch}.`;
+        }
+      }
+    } catch (failure) {
+      error = failure instanceof Error ? failure.message : String(failure);
+    }
+    if (error) run.landing = { ...step, error };
+    else delete run.landing;
+  }
+
+  /** The coordinator's turn ended: the merges it was handed, checked in git and on GitHub, and the threads that landed closed. */
+  private async settleMerges(coordinator: AgentRun): Promise<void> {
+    const handed = this.deps.registry.all().filter((run) => run.landing?.sent && !run.landing.error && COORDINATOR_STEPS.has(run.landing.action)
+      && this.projectCoordinator(run)?.id === coordinator.id);
+    for (const run of handed) {
+      const thread = run as AgentRun & { project: string; branch: string };
+      const step = run.landing!;
+      try {
+        if (step.action === "merge") {
+          const baseBranch = await this.baseBranchOf(thread);
+          if (await this.tools.isMerged(thread.project, thread.branch, baseBranch)) await this.closeThread(thread, "merged");
+          else run.landing = { ...step, error: `${thread.branch} is not in ${baseBranch} after the coordinator's turn; its reply says why.` };
+        } else {
+          const reading = await this.readPullRequest(thread);
+          if (reading?.state === "MERGED") await this.mergedOnGitHub(thread, reading);
+          else run.landing = { ...step, error: `Pull request #${run.pr?.number ?? "?"} is not merged after the coordinator's turn; its reply says why.` };
+        }
+      } catch (failure) {
+        run.landing = { ...step, error: failure instanceof Error ? failure.message : String(failure) };
+      }
+      run.updatedAt = Date.now();
+      this.save(run);
+    }
+  }
+
+  /** A thread whose pull request GitHub merged: closed, its branch deleted when GitHub merged the commit it is at here. */
+  private async mergedOnGitHub(thread: AgentRun & { project: string; branch: string }, reading: PullRequestReading): Promise<void> {
+    const local = await this.tools.branchHead(thread.project, thread.branch);
+    await this.closeThread(thread, "merged", local !== null && reading.head === local);
+  }
+
+  /**
+   * The open pull requests, read again: their checks, and whether the person merged or closed one
+   * on GitHub. A merged one closes its thread once its lead is not at work. The server calls this
+   * from time to time; it asks GitHub nothing while no thread has an open pull request.
+   */
+  async refreshPullRequests(): Promise<void> {
+    for (const run of this.list().filter((each) => isThread(each) && each.pr?.state === "OPEN" && !each.landed)) {
+      const thread = run as AgentRun & { project: string; branch: string };
+      try {
+        const reading = await this.readPullRequest(thread);
+        if (reading?.state === "MERGED" && !this.pending.has(run.id) && run.state !== "working") await this.mergedOnGitHub(thread, reading);
+      } catch {
+        // GitHub could not be asked: the reading kept stands until the next try
+      }
+    }
+  }
+
+  /**
+   * A thread that landed or was thrown away: its agents' panes close, its worktree and branch go
+   * (a discard forces both), and it is resolved. What git kept is said on the thread.
+   */
+  private async closeThread(thread: AgentRun & { project: string; branch: string }, how: "merged" | "discarded", branchMerged = false): Promise<void> {
+    for (const member of this.list().filter((run) => run.group === thread.group && isLive(run))) {
+      await this.deps.runtime.closePane(member.paneId).catch(() => undefined);
+      member.state = "stopped";
+      member.updatedAt = Date.now();
+      this.dropPending(member.id);
+      this.save(member);
+      this.settleWaiters(member);
+    }
+    const kept = await this.tools.removeThread(thread.project, join(thread.project, THREAD_WORKTREES, thread.id), thread.branch, { force: how === "discarded", branchMerged });
+    thread.landed = how;
+    thread.resolvedAt = Date.now();
+    if (kept) thread.landing = { action: how === "discarded" ? "discard" : thread.landing?.action ?? "merge", at: Date.now(), sent: true, error: kept };
+    else delete thread.landing;
+    thread.updatedAt = Date.now();
+    this.save(thread);
+  }
+
   /**
    * Until the run's turn settles, blocks or fails, or `timeoutMs` passes. A run with no turn in
    * flight answers at once, with its state read back from herdr.
@@ -703,15 +924,29 @@ export class Orchestrator {
     this.delivering.add(coordinator.id);
     try {
       const threads = this.deps.registry.all().filter((run) => run.notice && this.coordinatorOf(run)?.id === coordinator.id);
-      if (!threads.length || this.pending.has(coordinator.id) || !isLive(coordinator)) return;
+      const landing = this.deps.registry.all().filter((run) => run.landing && !run.landing.sent && COORDINATOR_STEPS.has(run.landing.action) && this.projectCoordinator(run)?.id === coordinator.id);
+      if ((!threads.length && !landing.length) || this.pending.has(coordinator.id) || !isLive(coordinator)) return;
       await this.reconcileLocks.get(coordinator.id);
       const live = await this.liveState(coordinator);
       if (!live || !isCompleted(live) || this.pending.has(coordinator.id)) return;
       if (await this.hasDraft(coordinator)) return this.retryNotices(coordinator);
       const told = threads.map((run) => ({ id: run.id, notice: run.notice }));
-      const message = ["[fleet] Threads ask the person. These come from the fleet, not from the person.", ...told.map((news) => `- ${news.notice}`)].join("\n");
+      const steps = await Promise.all(landing.map(async (run) => {
+        const thread = run as AgentRun & { project: string; branch: string };
+        return { id: run.id, at: run.landing!.at, text: coordinatorStep(thread, await this.baseBranchOf(thread)) };
+      }));
+      const message = [
+        ...(told.length ? ["[fleet] Threads ask the person. These come from the fleet, not from the person.", ...told.map((news) => `- ${news.notice}`)] : []),
+        ...(steps.length ? [STEPS_HEADER, ...steps.map((step) => `- ${step.text}`)] : []),
+      ].join("\n");
       const sent = await this.submit(coordinator, message);
       if (sent.state !== "working") return;
+      for (const step of steps) {
+        const run = this.deps.registry.get(step.id);
+        if (!run?.landing || run.landing.at !== step.at) continue;
+        run.landing.sent = true;
+        this.save(run);
+      }
       for (const news of told) {
         const run = this.deps.registry.get(news.id);
         // a question that came while this went out waits for the next message
@@ -817,11 +1052,15 @@ export class Orchestrator {
       run.notice = threadQuestion(run);
       const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
       run.contract = contract ? contractItems(contract) : undefined;
-      const diff = run.base ? await (this.deps.diffStat ?? diffStat)(run.cwd, run.base) : null;
+      const base = run.baseBranch ?? run.base;
+      const diff = base ? await (this.deps.diffStat ?? diffStat)(run.cwd, base) : null;
       run.diff = diff ?? undefined;
+      if (run.landing?.sent && !run.landing.error && LEAD_STEPS.has(run.landing.action)) await this.settleLeadStep(run);
+      else if (run.pr?.state === "OPEN") await this.readPullRequest(run).catch(() => undefined);
     }
     run.updatedAt = Date.now();
     this.save(run);
+    if (run.role === PROJECT_ROLE) await this.settleMerges(run);
     if (isCompleted(run.state)) await this.readUsageScreen(run, config);
     const plan = this.spawnPlans.get(run.id);
     this.spawnPlans.delete(run.id);
@@ -983,6 +1222,44 @@ const isThread = (run: AgentRun): boolean => run.role === THREAD_ROLE && run.pro
 
 function threadLabel(run: AgentRun): string {
   return `"${run.name}" (${run.id}${run.branch ? `, ${run.branch}` : ""})`;
+}
+
+/** How the coordinator hears the landing steps the person pressed. */
+const STEPS_HEADER = "[fleet] The person pressed these on the Fleet screen. Each is the person's approval for that step only.";
+
+/** A pull request as a run keeps it: without the commit its branch is at. */
+function pullRequest(reading: PullRequestReading): PullRequest {
+  const { head: _head, ...pr } = reading;
+  return pr;
+}
+
+/** A landing step for a thread's lead: what the person approved, and only that (agents/lead.md). */
+export function leadStep(run: AgentRun & { branch: string }, action: LandAction, baseBranch: string, comments: LineComment[]): string {
+  const pushAgain = run.pr?.state === "OPEN" ? `, and push ${run.branch} to its pull request #${run.pr.number}` : "";
+  switch (action) {
+    case "pr":
+      return `[fleet] The person pressed Create PR on the Fleet screen: they approve pushing ${run.branch} to origin and opening a pull request from it against ${baseBranch}. Commit what is left, push the branch (never force), and open the pull request with gh pr create, its title and body written from this thread's work in the repository's style. Do not merge it. Put the pull request's URL in your HANDOFF.`;
+    case "update":
+      return `[fleet] The person pressed Update branch on the Fleet screen: ${baseBranch} has commits ${run.branch} does not. Merge ${baseBranch} into ${run.branch}, resolve any conflicts, run the verification again and commit${pushAgain}.`;
+    case "fix-ci":
+      return `[fleet] The person pressed Fix CI on the Fleet screen: checks failed on pull request #${run.pr?.number}${run.pr?.failing?.length ? ` (${run.pr.failing.join(", ")})` : ""}. Read their logs (gh pr checks ${run.pr?.number}, gh run view --log-failed), fix the cause, commit${pushAgain || `, and push ${run.branch} to its pull request`}.`;
+    case "comments":
+      return [
+        "[fleet] The person reviewed this thread's change on the Fleet screen and left these comments:",
+        ...comments.map((comment) => `- ${comment.file}:${comment.line}${comment.removed ? " (a removed line)" : ""} — ${comment.text.replace(/\s+/g, " ").trim()}`),
+        `Address each one and commit${pushAgain}. Where you disagree, say why in your HANDOFF instead of changing the code.`,
+      ].join("\n");
+    default:
+      throw new FleetError("invalid_action", `${action} is not a step for a thread's lead.`);
+  }
+}
+
+/** A merge for the project's coordinator, on the main checkout it sits on (agents/coordinator.md). */
+export function coordinatorStep(run: AgentRun & { branch: string }, baseBranch: string): string {
+  const thread = threadLabel(run);
+  return run.landing?.action === "merge-pr"
+    ? `Merge PR for thread ${thread}: gh pr merge ${run.pr?.number} --merge. Then, when this checkout is clean and on ${baseBranch}, bring it up to date with git pull --ff-only.`
+    : `Merge into ${baseBranch} for thread ${thread}: when this checkout is clean and on ${baseBranch}, git merge --no-ff ${run.branch}. On a conflict, git merge --abort and tell the person.`;
 }
 
 /** The longest HANDOFF a question carries to the coordinator; the rest stays in the result file. */

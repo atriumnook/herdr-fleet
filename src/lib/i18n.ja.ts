@@ -141,4 +141,23 @@ export const JA: Record<string, string> = {
   // ---- fleet ----
   "Could not load the fleet. {error}": "Fleet を読み込めませんでした。{error}",
   "The last read failed. {error}": "前回の読み取りに失敗しました。{error}",
+  // ---- landing a thread ----
+  "Could not read the change. {error}": "変更を読み込めませんでした。{error}",
+  "Could not read the checks. {error}": "チェックを読み込めませんでした。{error}",
+  "The change is too large to show in full; the rest is cut.": "変更が大きすぎるため、途中までだけ出しています。",
+  "The lead merges {base} into its branch and checks again.": "担当が {base} を自分のブランチに取り込み、もう一度確かめます。",
+  "They go to the lead in one message.": "1 通のメッセージにまとめて担当に送ります。",
+  "Create PR has the lead push {branch} and open a pull request into {base}.": "Create PR を押すと、担当が {branch} を push し、{base} への pull request を作ります。",
+  "The coordinator merges it into {base} in {repo} with a merge commit, and pushes nothing.": "まとめ役が、{repo} の {base} に merge commit で取り込みます。push はしません。",
+  "Once it is merged, the fleet removes the worktree and the branch {branch}.": "取り込まれたら、fleet が worktree とブランチ {branch} を消します。",
+  "To undo it, revert the merge commit on {base}.": "取り消すには、{base} で merge commit を revert します。",
+  "If {repo} has changes of its own or is on another branch, the coordinator stops and tells you.": "{repo} に未コミットの変更があるか、別のブランチにいるときは、まとめ役は手を止めて知らせます。",
+  "The coordinator merges pull request #{n} on GitHub with a merge commit.": "まとめ役が、GitHub で pull request #{n} を merge commit でマージします。",
+  "Then the coordinator brings {base} in {repo} up to date.": "そのあと、まとめ役が {repo} の {base} を最新にします。",
+  "This throws the thread's change away. It cannot be undone.": "このスレッドの変更を捨てます。取り消せません。",
+  "Removes the worktree {path}.": "worktree {path} を消します。",
+  "Deletes the branch {branch} and its {n} commits.": "ブランチ {branch} を、その {n} 個のコミットごと消します。",
+  "Deletes the branch {branch} and its commits.": "ブランチ {branch} を、そのコミットごと消します。",
+  "Closes the panes of the lead and its helpers.": "担当と手伝いのペインを閉じます。",
+  "Pull request #{n} stays open on GitHub.": "GitHub の pull request #{n} は開いたまま残ります。",
 };

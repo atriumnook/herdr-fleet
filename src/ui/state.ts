@@ -1,4 +1,4 @@
-import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
 import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
@@ -41,7 +41,9 @@ export type RequestAction =
   | { kind: "clear-cooldown"; key: string }
   /** a project's coordinator started (or told the task) in `cwd` */
   | { kind: "start-project"; task: string; cwd: string }
-  | { kind: "resolve"; runId: string; resolved: boolean };
+  | { kind: "resolve"; runId: string; resolved: boolean }
+  /** a landing step the person pressed (a comments step carries the comments it sends) */
+  | { kind: "land"; runId: string; action: LandAction; comments?: LineComment[] };
 
 /**
  * What the Fleet screen shows: the project (a repository's path, as the runs name it, or a folder
@@ -53,6 +55,33 @@ export interface FleetViewState {
   overview: boolean;
   open: { kind: "thread" | "agent"; runId: string; member: string | null } | null;
   expanded: boolean;
+  /** what the open thread shows: its chat, its change, or what stands before it lands */
+  tab: ThreadTab;
+}
+
+export type ThreadTab = "chat" | "changes" | "checks";
+
+/** The landing steps that wait for the person's yes in a dialog: each changes the base branch, or cannot be undone. */
+export type ConfirmedStep = "merge" | "merge-pr" | "discard";
+
+/** One read of the server's for the open thread: answers for another thread are dropped. */
+export interface Reading<T> {
+  status: "idle" | "loading" | "ready" | "error";
+  data: T | null;
+  error?: string;
+}
+
+/**
+ * Landing the open thread: its change and its checks as last read, the person's comments on each
+ * thread's change that are not sent yet, and the step that waits for their yes.
+ */
+export interface LandingState {
+  /** the thread `diff` and `checks` were read for */
+  runId: string | null;
+  diff: Reading<{ diff: string; truncated: boolean }>;
+  checks: Reading<LandingChecks>;
+  comments: Record<string, LineComment[]>;
+  confirm: { runId: string; action: ConfirmedStep; status: "asking" | "running"; error?: string } | null;
 }
 
 export type RequestState =
@@ -568,6 +597,7 @@ export interface UiState {
   usage: Loadable<UsageEntry[]> & { refreshing: boolean };
   request: RequestState;
   fleetView: FleetViewState;
+  landing: LandingState;
   /** this device may change things (a paired watch-only device may not: the server answers read_only) */
   canAct: boolean;
   /** the pane shown: on which PC, and whether the shell picked it itself (the one selected closed) */
@@ -638,6 +668,18 @@ type BareEvent =
   | { type: "fleet-expand"; expanded: boolean }
   | { type: "fleet-start-project"; task: string; cwd: string }
   | { type: "fleet-resolve"; runId: string; resolved: boolean }
+  | { type: "fleet-tab"; tab: ThreadTab }
+  | { type: "landing-diff-loaded"; runId: string; diff: { diff: string; truncated: boolean } }
+  | { type: "landing-diff-failed"; runId: string; message: string }
+  | { type: "landing-checks-loaded"; runId: string; checks: LandingChecks }
+  | { type: "landing-checks-failed"; runId: string; message: string }
+  | { type: "landing-comment"; runId: string; comment: LineComment }
+  | { type: "landing-uncomment"; runId: string; index: number }
+  | { type: "landing-clear-comments"; runId: string }
+  /** a landing step pressed: a merge or a discard asks first */
+  | { type: "fleet-land"; runId: string; action: LandAction }
+  | { type: "landing-confirm" }
+  | { type: "landing-cancel" }
   | { type: "open-pane"; runId: string }
   | { type: "interrupt-run"; runId: string }
   | { type: "close-done"; group: string }
@@ -917,6 +959,8 @@ type BareEffect =
   | { kind: "load-usage" }
   | { kind: "refresh-usage" }
   | { kind: "request"; action: RequestAction }
+  | { kind: "load-landing-diff"; runId: string }
+  | { kind: "load-landing-checks"; runId: string }
   | { kind: "save-settings"; settings: Settings }
   /** every pane's own lens on this device is forgotten */
   | { kind: "forget-pane-views" }
@@ -998,12 +1042,16 @@ export type Effect = BareEffect & { lens?: Lens };
 
 export interface Transition { state: UiState; effects: Effect[] }
 
+/** No thread's change or checks read, no comment, nothing asked. */
+const NO_LANDING: LandingState = { runId: null, diff: { status: "idle", data: null }, checks: { status: "idle", data: null }, comments: {}, confirm: null };
+
 export const INITIAL_STATE: UiState = {
   screen: "pane",
   runs: { status: "idle", data: [], again: false },
   usage: { status: "idle", data: [], again: false, refreshing: false },
   request: { status: "none" },
-  fleetView: { project: null, overview: true, open: null, expanded: false },
+  fleetView: { project: null, overview: true, open: null, expanded: false, tab: "chat" },
+  landing: NO_LANDING,
   selection: { machineId: "local", paneId: null, auto: false },
   canAct: true,
   settings: DEFAULT_SETTINGS,
@@ -1034,6 +1082,27 @@ export const INITIAL_STATE: UiState = {
   gate: { code: "", token: "", submitting: null, error: null, scannedSent: true },
   newSessionSeq: 0,
 };
+
+const CONFIRMED_STEPS: readonly LandAction[] = ["merge", "merge-pr", "discard"];
+
+/** The open thread's change or checks, read again when its tab shows them; the open thread changes nothing else. */
+function readLanding(landing: LandingState, view: FleetViewState, effects: Effect[]): LandingState {
+  const runId = view.open?.kind === "thread" ? view.open.runId : null;
+  const fresh = landing.runId === runId ? landing : { ...landing, runId, diff: NO_LANDING.diff, checks: NO_LANDING.checks };
+  if (runId === null) return fresh;
+  if (view.tab === "changes") {
+    effects.push({ kind: "load-landing-diff", runId });
+    return { ...fresh, diff: { ...fresh.diff, status: "loading" } };
+  }
+  if (view.tab === "checks") {
+    effects.push({ kind: "load-landing-checks", runId });
+    return { ...fresh, checks: { ...fresh.checks, status: "loading" } };
+  }
+  return fresh;
+}
+
+/** What of a thread's run its change and checks follow: a turn of its lead ending, a pull request, a step. */
+const landingMark = (run: AgentRun | undefined): string => JSON.stringify(run ? [run.state, run.diff, run.pr, run.landing, run.landed] : null);
 
 /** A run whose pane is gone: nothing to open or stop in it. */
 export const isEnded = (run: AgentRun): boolean => run.state === "stopped";
@@ -1311,7 +1380,10 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       // a thread or agent open in the Fleet screen whose run is gone closes
       const open = state.fleetView.open;
       const gone = open !== null && !event.runs.some((run) => run.id === open.runId);
-      return next({ runs, fleetView: gone ? { ...state.fleetView, open: null, expanded: false } : state.fleetView });
+      if (gone) return next({ runs, fleetView: { ...state.fleetView, open: null, expanded: false, tab: "chat" }, landing: readLanding(state.landing, { ...state.fleetView, open: null }, effects) });
+      // the open thread moved on (its lead's turn ended, a pull request, a step): its change and checks are read again
+      const moved = open?.kind === "thread" && landingMark(state.runs.data.find((run) => run.id === open.runId)) !== landingMark(event.runs.find((run) => run.id === open.runId));
+      return next({ runs, landing: moved ? readLanding(state.landing, state.fleetView, effects) : state.landing });
     }
     case "runs-failed":
       // the runs shown last stay, marked stale by the error
@@ -1332,15 +1404,57 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       effects.push({ kind: "refresh-usage" });
       return next({ usage: { ...state.usage, refreshing: true } });
     case "fleet-project":
-      return next({ fleetView: { ...state.fleetView, project: event.project, open: null, expanded: false } });
+      return next({ fleetView: { ...state.fleetView, project: event.project, open: null, expanded: false, tab: "chat" } });
     case "fleet-overview":
       return next(state.fleetView.overview === event.open ? {} : { fleetView: { ...state.fleetView, overview: event.open } });
-    case "fleet-open":
-      return next({ fleetView: { ...state.fleetView, overview: true, open: { kind: event.kind, runId: event.runId, member: null } } });
+    case "fleet-open": {
+      const fleetView: FleetViewState = { ...state.fleetView, overview: true, open: { kind: event.kind, runId: event.runId, member: null }, tab: "chat" };
+      return next({ fleetView, landing: readLanding(state.landing, fleetView, effects) });
+    }
     case "fleet-member":
       return next(state.fleetView.open?.kind !== "thread" ? {} : { fleetView: { ...state.fleetView, open: { ...state.fleetView.open, member: event.runId } } });
     case "fleet-close":
-      return next({ fleetView: { ...state.fleetView, open: null, expanded: false } });
+      return next({ fleetView: { ...state.fleetView, open: null, expanded: false, tab: "chat" } });
+    case "fleet-tab": {
+      if (state.fleetView.open?.kind !== "thread") return next({});
+      const fleetView = { ...state.fleetView, tab: event.tab };
+      return next({ fleetView, landing: readLanding(state.landing, fleetView, effects) });
+    }
+    case "landing-diff-loaded":
+    case "landing-diff-failed":
+      if (event.runId !== state.landing.runId) return next({});
+      return next({ landing: { ...state.landing, diff: event.type === "landing-diff-loaded" ? { status: "ready", data: event.diff } : { ...state.landing.diff, status: "error", error: event.message } } });
+    case "landing-checks-loaded":
+    case "landing-checks-failed":
+      if (event.runId !== state.landing.runId) return next({});
+      return next({ landing: { ...state.landing, checks: event.type === "landing-checks-loaded" ? { status: "ready", data: event.checks } : { ...state.landing.checks, status: "error", error: event.message } } });
+    case "landing-comment":
+      return next({ landing: { ...state.landing, comments: { ...state.landing.comments, [event.runId]: [...(state.landing.comments[event.runId] ?? []), event.comment] } } });
+    case "landing-uncomment":
+      return next({ landing: { ...state.landing, comments: { ...state.landing.comments, [event.runId]: (state.landing.comments[event.runId] ?? []).filter((_, index) => index !== event.index) } } });
+    case "landing-clear-comments": {
+      const { [event.runId]: _cleared, ...comments } = state.landing.comments;
+      return next({ landing: { ...state.landing, comments } });
+    }
+    case "fleet-land": {
+      if (!state.canAct) return next({});
+      if (CONFIRMED_STEPS.includes(event.action)) {
+        if (state.landing.confirm?.status === "running") return next({});
+        return next({ landing: { ...state.landing, confirm: { runId: event.runId, action: event.action as ConfirmedStep, status: "asking" } } });
+      }
+      const comments = state.landing.comments[event.runId] ?? [];
+      if (event.action === "comments" && comments.length === 0) return next({});
+      return request(state, { kind: "land", runId: event.runId, action: event.action, ...(event.action === "comments" ? { comments } : {}) });
+    }
+    case "landing-confirm": {
+      const confirm = state.landing.confirm;
+      if (confirm?.status !== "asking") return next({});
+      const asked = request(state, { kind: "land", runId: confirm.runId, action: confirm.action });
+      if (asked.state === state) return asked;
+      return { state: { ...asked.state, landing: { ...state.landing, confirm: { runId: confirm.runId, action: confirm.action, status: "running" } } }, effects: asked.effects };
+    }
+    case "landing-cancel":
+      return next(state.landing.confirm?.status === "asking" ? { landing: { ...state.landing, confirm: null } } : {});
     case "fleet-expand":
       return next({ fleetView: { ...state.fleetView, expanded: event.expanded && state.fleetView.open !== null } });
     case "fleet-start-project": {
@@ -1364,12 +1478,22 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return request(state, { kind: "clear-cooldown", key: event.key });
     case "request-done": {
       if (state.request.status !== "pending") return next({});
+      const action = state.request.action;
       // a cleared cooldown changes no run, so no fleet-changed follows: the usage is read here
-      const usage = state.request.action.kind === "clear-cooldown" ? load(state.usage, { kind: "load-usage" }, effects) : state.usage;
-      return next({ request: { status: "none" }, usage });
+      const usage = action.kind === "clear-cooldown" ? load(state.usage, { kind: "load-usage" }, effects) : state.usage;
+      if (action.kind !== "land") return next({ request: { status: "none" }, usage });
+      // the comments went out: the ones written meanwhile stay
+      const left = (state.landing.comments[action.runId] ?? []).slice(action.comments?.length ?? 0);
+      const { [action.runId]: _sent, ...others } = state.landing.comments;
+      const comments = action.action === "comments" ? (left.length ? { ...others, [action.runId]: left } : others) : state.landing.comments;
+      return next({ request: { status: "none" }, usage, landing: { ...state.landing, comments, confirm: state.landing.confirm?.status === "running" ? null : state.landing.confirm } });
     }
     case "request-failed":
       if (state.request.status !== "pending") return next({});
+      // a step asked in a dialog tells its failure there
+      if (state.request.action.kind === "land" && state.landing.confirm?.status === "running") {
+        return next({ request: { status: "none" }, landing: { ...state.landing, confirm: { ...state.landing.confirm, status: "asking", error: event.message } } });
+      }
       return next({ request: { status: "failed", action: state.request.action, message: event.message } });
     case "dismiss-error":
       return next({ request: state.request.status === "failed" ? { status: "none" } : state.request });

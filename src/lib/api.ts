@@ -16,7 +16,7 @@ import type {
   SlashCommand,
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
-import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 
@@ -425,6 +425,21 @@ export async function clearFleetCooldown(key: string): Promise<void> {
 /** Starts the coordinator of the project `cwd` lies in, or hands the task to the one there. */
 export async function startFleetProject(task: string, cwd: string): Promise<void> {
   await sendFleet("/projects", { task, cwd });
+}
+
+/** A thread's change since it left its base branch, as a unified diff. */
+export function fetchFleetDiff(runId: string): Promise<{ diff: string; truncated: boolean }> {
+  return getJson(`/api/fleet/runs/${encodeURIComponent(runId)}/diff`);
+}
+
+/** What stands between a thread and landing; the server asks git and GitHub for it now. */
+export async function fetchFleetLanding(runId: string): Promise<LandingChecks> {
+  return (await getJson<{ checks: LandingChecks }>(`/api/fleet/runs/${encodeURIComponent(runId)}/landing`)).checks;
+}
+
+/** A landing step the person pressed, with the comments a comments step sends. */
+export async function landFleetRun(runId: string, action: LandAction, comments?: LineComment[]): Promise<void> {
+  await sendFleet(`/runs/${encodeURIComponent(runId)}/land`, { action, ...(comments ? { comments } : {}) });
 }
 
 /** Marks a thread done for the person, or open again. */

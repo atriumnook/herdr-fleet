@@ -15,6 +15,8 @@ import { t } from "../lib/i18n.ts";
 interface Props {
   title: string;
   body: string;
+  /** what the deed does, one point each */
+  items?: string[];
   confirmLabel: string;
   /** the deed runs: the owner takes the dialog down once it is done */
   pending: boolean;
@@ -24,7 +26,7 @@ interface Props {
   onClose: () => void;
 }
 
-export function ConfirmDialog({ title, body, confirmLabel, pending, error, onConfirm, onClose }: Props) {
+export function ConfirmDialog({ title, body, items, confirmLabel, pending, error, onConfirm, onClose }: Props) {
   const id = useId();
   const surface = useRef<HTMLDivElement>(null);
   const cancel = useRef<HTMLButtonElement>(null);
@@ -67,6 +69,7 @@ export function ConfirmDialog({ title, body, confirmLabel, pending, error, onCon
         <header className="modal-header"><h2 className="modal-title" id={`${id}-title`}>{title}</h2></header>
         <div className="modal-body">
           <p className="confirm-body" id={`${id}-body`}>{body}</p>
+          {items && items.length > 0 && <ul className="confirm-items">{items.map((item) => <li key={item}>{item}</li>)}</ul>}
           {error && <p className="notice confirm-error" role="alert">{error}</p>}
         </div>
         <footer className="modal-footer">

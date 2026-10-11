@@ -82,7 +82,7 @@ describe("screens and the Fleet screen's view", () => {
 
   it("opens a thread or an agent in the Overview, one of its agents, large, and closes it when its run disappears", () => {
     const opened = play([{ type: "show-screen", screen: "fleet" }, { type: "fleet-overview", open: false }, { type: "fleet-open", kind: "thread", runId: "a" }], withRuns).state;
-    expect(opened.fleetView).toEqual({ project: null, overview: true, open: { kind: "thread", runId: "a", member: null }, expanded: false });
+    expect(opened.fleetView).toEqual({ project: null, overview: true, open: { kind: "thread", runId: "a", member: null }, expanded: false, tab: "chat" });
     const helper = play([{ type: "fleet-member", runId: "h" }, { type: "fleet-expand", expanded: true }], opened).state;
     expect(helper.fleetView).toMatchObject({ open: { member: "h" }, expanded: true });
     expect(play([{ type: "runs-loaded", runs: [run("gone", { state: "stopped" })] }], helper).state.fleetView).toMatchObject({ open: null, expanded: false });
@@ -101,6 +101,59 @@ describe("screens and the Fleet screen's view", () => {
     const watching = { ...withRuns, canAct: false };
     expect(play([{ type: "fleet-start-project", task: "t", cwd: "/repo" }], watching).effects).toEqual([]);
     expect(play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-project", project: "/other" }], withRuns).state.fleetView).toMatchObject({ project: "/other", open: null });
+  });
+
+  it("reads the open thread's change and checks when their tab shows, again when the thread moves on, and drops answers for another thread", () => {
+    const opened = play([{ type: "fleet-open", kind: "thread", runId: "a" }], withRuns).state;
+    const changes = play([{ type: "fleet-tab", tab: "changes" }], opened);
+    expect(changes.effects).toEqual([{ kind: "load-landing-diff", runId: "a" }]);
+    expect(changes.state.landing.diff.status).toBe("loading");
+    const diff = { diff: "diff --git a/x b/x", truncated: false };
+    const loaded = play([{ type: "landing-diff-loaded", runId: "a", diff }, { type: "landing-diff-loaded", runId: "other", diff: { diff: "no", truncated: false } }], changes.state).state;
+    expect(loaded.landing.diff).toEqual({ status: "ready", data: diff });
+    // the lead's turn ended: its change is read again; a run that changed nothing of it reads nothing
+    expect(play([{ type: "runs-loaded", runs: [run("a", { state: "idle" }), run("gone", { state: "stopped" })] }], loaded).effects).toEqual([{ kind: "load-landing-diff", runId: "a" }]);
+    expect(play([{ type: "runs-loaded", runs: [run("a", { updatedAt: 5 }), run("gone", { state: "stopped" })] }], loaded).effects).toEqual([]);
+    const checks = play([{ type: "fleet-tab", tab: "checks" }, { type: "landing-checks-failed", runId: "a", message: "gh: offline" }], loaded).state;
+    expect(checks.landing.checks).toMatchObject({ status: "error", error: "gh: offline" });
+    // another thread opens on its chat, with nothing read for the one before
+    const other = play([{ type: "fleet-open", kind: "thread", runId: "gone" }], checks);
+    expect(other.effects).toEqual([]);
+    expect(other.state.fleetView.tab).toBe("chat");
+    expect(other.state.landing).toMatchObject({ runId: "gone", diff: { status: "idle", data: null }, checks: { status: "idle", data: null } });
+    // an agent has no change to show
+    expect(play([{ type: "fleet-open", kind: "agent", runId: "a" }, { type: "fleet-tab", tab: "changes" }], withRuns).effects).toEqual([]);
+  });
+
+  it("keeps the person's comments until they go out together, those written meanwhile staying", () => {
+    const comment = (line: number) => ({ type: "landing-comment", runId: "a", comment: { file: "README.md", line, text: `c${line}` } }) as const;
+    const written = play([comment(1), comment(2), comment(3), { type: "landing-uncomment", runId: "a", index: 1 }], withRuns).state;
+    expect(written.landing.comments["a"]!.map((c) => c.line)).toEqual([1, 3]);
+    const sent = play([{ type: "fleet-land", runId: "a", action: "comments" }], written);
+    expect(sent.effects).toEqual([{ kind: "request", action: { kind: "land", runId: "a", action: "comments", comments: written.landing.comments["a"] } }]);
+    const done = play([comment(4), { type: "request-done" }], sent.state).state;
+    expect(done.landing.comments["a"]!.map((c) => c.line)).toEqual([4]);
+    expect(play([{ type: "landing-clear-comments", runId: "a" }], done).state.landing.comments).toEqual({});
+    // nothing to send, nothing goes out
+    expect(play([{ type: "fleet-land", runId: "b", action: "comments" }], withRuns).effects).toEqual([]);
+    expect(play([{ type: "fleet-land", runId: "a", action: "pr" }], withRuns).effects).toEqual([{ kind: "request", action: { kind: "land", runId: "a", action: "pr" } }]);
+  });
+
+  it("asks before a merge or a discard, says a failure in the dialog, and closes it once the step went out", () => {
+    const asking = play([{ type: "fleet-land", runId: "a", action: "discard" }], withRuns);
+    expect(asking.effects).toEqual([]);
+    expect(asking.state.landing.confirm).toEqual({ runId: "a", action: "discard", status: "asking" });
+    expect(play([{ type: "landing-cancel" }], asking.state).state.landing.confirm).toBeNull();
+    const running = play([{ type: "landing-confirm" }], asking.state);
+    expect(running.effects).toEqual([{ kind: "request", action: { kind: "land", runId: "a", action: "discard" } }]);
+    expect(running.state.landing.confirm?.status).toBe("running");
+    // it cannot be cancelled while it runs
+    expect(play([{ type: "landing-cancel" }], running.state).state.landing.confirm?.status).toBe("running");
+    const failed = play([{ type: "request-failed", message: "The lead of Fix is working." }], running.state).state;
+    expect(failed.landing.confirm).toEqual({ runId: "a", action: "discard", status: "asking", error: "The lead of Fix is working." });
+    expect(failed.request).toEqual({ status: "none" });
+    expect(play([{ type: "landing-confirm" }, { type: "request-done" }], failed).state.landing.confirm).toBeNull();
+    expect(play([{ type: "fleet-land", runId: "a", action: "merge" }], { ...withRuns, canAct: false }).state.landing.confirm).toBeNull();
   });
 
   it("selects a live run's pane on this PC, again when asked again, and not an ended run's", () => {

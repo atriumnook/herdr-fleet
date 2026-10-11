@@ -74,14 +74,14 @@ async function call<T>(method: "GET" | "POST", path: string, body?: Record<strin
 }
 
 interface ThreadSummary {
-  run: Run & { branch?: string };
+  run: Run & { branch?: string; pr?: { number: number; url: string; state: string; checks: string } };
   state: keyof typeof THREAD_STATES;
   status?: string;
   contract?: Array<{ id: string; state: "met" | "open" | "unmet" }>;
 }
 
 const CONTRACT_MARKS = { met: "✓", open: "·", unmet: "✗" } as const;
-const THREAD_STATES = { working: "Working", waiting: "Needs you", review: "Ready for review", idle: "Idle", failed: "Failed", ended: "Ended", resolved: "Resolved" } as const;
+const THREAD_STATES = { working: "Working", waiting: "Needs you", review: "Ready for review", landing: "Landing", idle: "Idle", failed: "Failed", ended: "Ended", resolved: "Resolved" } as const;
 
 function describeThread(thread: ThreadSummary): string {
   const contract = thread.contract?.length ? `Contract: ${thread.contract.map((item) => `${item.id} ${CONTRACT_MARKS[item.state]}`).join(" ")}` : "";
@@ -89,6 +89,7 @@ function describeThread(thread: ThreadSummary): string {
     `${thread.run.id}  ${thread.run.name}  ${THREAD_STATES[thread.state]}${thread.run.branch ? `  ${thread.run.branch}` : ""}`,
     thread.status ? `    ${thread.status}` : "",
     contract ? `    ${contract}` : "",
+    thread.run.pr ? `    PR #${thread.run.pr.number} ${thread.run.pr.state.toLowerCase()}, checks ${thread.run.pr.checks}: ${thread.run.pr.url}` : "",
   ].filter(Boolean).join("\n");
 }
 

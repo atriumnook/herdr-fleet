@@ -11,6 +11,12 @@ import type { AgentRuntime } from "../server/fleet/runtime.ts";
 import type { AgentRun, AgentState } from "../server/fleet/types.ts";
 import { UsageTracker } from "../server/fleet/usage.ts";
 
+/** what each thread's lead has committed on its branch, by the thread's title */
+const CHANGES: Record<string, { file: string; text: string }> = {
+  "Update the README": { file: "README.md", text: "# repo\n\nInstall the dependencies without their lifecycle scripts:\n\n    bun install --ignore-scripts\n\nThen start the server: bun run start\n" },
+  "Fix the retry": { file: "src/retry.ts", text: "export const RETRIES = 3;\n\nexport function shouldRetry(attempt: number): boolean {\n  return attempt < RETRIES;\n}\n" },
+};
+
 /** what each agent of the stand-in fleet does, by the name it was started with */
 const BEHAVIOUR: Record<string, AgentState> = {
   "repo · fleet": "idle", "Fix the retry": "blocked", "Update the README": "idle", "Weekly usage window": "working", review: "idle", bench: "working",
@@ -20,7 +26,8 @@ const BEHAVIOUR: Record<string, AgentState> = {
  * The Fleet screen in a real browser, over a server whose fleet runs on a stand-in runtime (no
  * agent CLI starts) in real herdr panes: the project list, the project conversation, the Overview
  * with the threads by what they ask of the person, a thread opened beside it and large, one of its
- * helpers, a thread marked done, and on a phone the Overview as a sheet and a thread on the whole
+ * helpers, its change with a comment waiting, its checks and the yes a discard asks for, a thread
+ * marked done, and on a phone the Overview as a sheet and a thread with its change on the whole
  * screen. With FLEET_SCREENSHOTS set to a folder, it saves what it saw there.
  */
 export async function checkFleetScreen(browser: Browser): Promise<void> {
@@ -53,7 +60,17 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
         const paneId = options.label === "bench" ? `w99:p${++fakes}` : await realPane(options.label);
         labelOf.set(paneId, options.label);
         paneFor.set(options.label, paneId);
-        return { paneId, cwd: options.cwd };
+        // a thread's worktree on its branch, as herdr makes it, with what its lead committed there
+        if (!options.worktree || !options.path || !options.branch) return { paneId, cwd: options.cwd };
+        git("worktree", "add", "-q", "-b", options.branch, options.path);
+        const change = CHANGES[options.label];
+        if (change) {
+          mkdirSync(join(options.path, change.file, ".."), { recursive: true });
+          writeFileSync(join(options.path, change.file), change.text);
+          Bun.spawnSync(["git", "-c", "core.fsmonitor=false", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "-C", options.path, "add", "."]);
+          Bun.spawnSync(["git", "-c", "core.fsmonitor=false", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "-C", options.path, "commit", "-q", "-m", options.label]);
+        }
+        return { paneId, cwd: options.path };
       },
       start: async (options) => {
         const state = BEHAVIOUR[labelOf.get(options.paneId) ?? ""] ?? "working";
@@ -142,6 +159,34 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await screen.locator(".fleet-main .fleet-open.is-large").waitFor();
     await screen.locator(".fleet-row.is-selected", { hasText: "Update the README" }).waitFor();
     await save(page, shots, "fleet-expanded-dark");
+
+    // its change: a line takes a comment, which waits until it goes to the lead with the others
+    const large = screen.locator(".fleet-main .fleet-open.is-large");
+    for (const step of ["Discard", "Merge into main", "Create PR"]) await large.getByRole("button", { name: step, exact: true }).waitFor();
+    await large.getByRole("button", { name: "Changes", exact: true }).click();
+    await large.locator(".fleet-file.is-on", { hasText: "README.md" }).waitFor();
+    await large.locator(".fleet-line.is-add").nth(2).click();
+    await large.getByRole("textbox", { name: "Comment for the lead" }).fill("Keep bun dev for working on the UI");
+    await large.getByRole("button", { name: "Add comment" }).click();
+    await large.locator(".fleet-line-comment", { hasText: "Keep bun dev" }).waitFor();
+    assert.match(await large.locator(".fleet-comment-queue").textContent() ?? "", /1 comment for the lead/);
+    await save(page, shots, "fleet-changes-dark");
+    // its checks: committed, up to date, the contract and the review; no GitHub remote to ask
+    await large.getByRole("button", { name: /^Checks/ }).click();
+    await large.locator(".fleet-check", { hasText: "All work committed" }).waitFor();
+    await large.locator(".fleet-check", { hasText: "Up to date with main" }).waitFor();
+    await large.locator(".fleet-check", { hasText: "Reviewed on another CLI" }).waitFor();
+    await large.locator(".fleet-check", { hasText: "1 comment not sent" }).waitFor();
+    await save(page, shots, "fleet-checks-dark");
+    // a discard asks first, and says what goes
+    await large.getByRole("button", { name: "Discard", exact: true }).click();
+    const dialog = page.getByRole("alertdialog", { name: "Discard this thread?" });
+    await dialog.waitFor();
+    assert.match(await dialog.textContent() ?? "", /ブランチ fleet\/\w+ を、その 1 個のコミットごと消します/);
+    await save(page, shots, "fleet-discard-dark");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await dialog.waitFor({ state: "detached" });
+    await large.getByRole("button", { name: "Chat", exact: true }).click();
     await screen.locator(".fleet-main").getByRole("button", { name: "Collapse" }).click();
     await screen.locator(".fleet-overview .fleet-open").waitFor();
 
@@ -204,6 +249,11 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     assert.ok(covers, "an open thread takes the whole screen on a phone");
     assert.equal(await sideways(), 0);
     await save(mobile, shots, "fleet-phone-thread-dark");
+    // its change, the files over the diff
+    await phoneScreen.getByRole("button", { name: "Changes", exact: true }).click();
+    await phoneScreen.locator(".fleet-file.is-on", { hasText: "src/retry.ts" }).waitFor();
+    assert.equal(await sideways(), 0, "a change does not push the screen sideways on a phone");
+    await save(mobile, shots, "fleet-phone-changes-dark");
     assert.deepEqual(mobileErrors, []);
     await phone.close();
   } finally {
