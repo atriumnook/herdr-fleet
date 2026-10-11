@@ -25,6 +25,8 @@ export async function checkPromptRail(browser: Browser, origin: string): Promise
   const pane = created.root_pane.pane_id;
   const contexts: BrowserContext[] = [];
   const shots = process.env["PROMPT_RAIL_SCREENSHOTS"];
+  /** the stand-in server fails every read of a page before */
+  let failEarlier = false;
   try {
     await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "claude", state: "idle" });
     const open = async (options: Parameters<Browser["newContext"]>[0]): Promise<{ page: Page; errors: string[] }> => {
@@ -38,7 +40,12 @@ export async function checkPromptRail(browser: Browser, origin: string): Promise
       page.setDefaultTimeout(10_000);
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
-      await page.route("**/api/**/conversation?*", (route) => route.fulfill({ json: answer(new URL(route.request().url())) }));
+      await page.route("**/api/**/conversation?*", (route) => {
+        const url = new URL(route.request().url());
+        return failEarlier && url.searchParams.has("before")
+          ? route.fulfill({ status: 500, json: { error: { code: "read_failed", message: "read failed" } } })
+          : route.fulfill({ json: answer(url) });
+      });
       await page.goto(`${origin}/?pane=${encodeURIComponent(pane)}`);
       await page.locator(".conn-live").waitFor();
       return { page, errors };
@@ -80,13 +87,35 @@ export async function checkPromptRail(browser: Browser, origin: string): Promise
     await until(async () => Math.abs((await topOf(page, 9)) ?? 999) < 30, "back to prompt 9");
     console.log("PASS Mod+Shift+] and Mod+Shift+[ step on and back");
 
-    // back past the first prompt read: the page before comes in, and the prompt before is brought up
+    // a page before that cannot be read: the rail says so
+    failEarlier = true;
     await page.keyboard.press("Control+Shift+BracketLeft");
     await until(async () => Math.abs((await topOf(page, 8)) ?? 999) < 30, "back to prompt 8");
     await page.keyboard.press("Control+Shift+BracketLeft");
-    await until(async () => Math.abs((await topOf(page, 7)) ?? 999) < 30, "the page before, and prompt 7 at the top");
-    assert.ok((await ticks.count()) > 5, "the ticks of the page before joined");
-    console.log("PASS a step back past the first prompt loads the page before and lands on the prompt there");
+    await rail.locator(".prompt-rail-earlier.is-failed").waitFor();
+    assert.equal(await rail.locator(".prompt-rail-earlier").getAttribute("aria-label"), "Couldn't load earlier messages — retry");
+    assert.ok(Math.abs((await topOf(page, 8)) ?? 999) < 30, "a failed read leaves the reader where they were");
+    console.log("PASS a page before that cannot be read stops the step, and the rail says so");
+
+    // back past the first prompt read: the pages before come in, the two that hold only the agent's
+    // turns read on through, and the prompt before is brought up
+    failEarlier = false;
+    await page.keyboard.press("Control+Shift+BracketLeft");
+    await until(async () => Math.abs((await topOf(page, 7)) ?? 999) < 30, "the pages before, and prompt 7 at the top");
+    assert.ok((await ticks.count()) > 5, "the ticks of the pages before joined");
+    console.log("PASS a step back past the first prompt reads pages without one on, and lands on the prompt before");
+
+    // back to the first prompt of all, and once more: the pages before it hold no prompt, and run out
+    for (let tries = 0; Math.abs((await topOf(page, 1)) ?? 999) >= 30; tries += 1) {
+      assert.ok(tries < 20, "stepping back reaches prompt 1");
+      await page.keyboard.press("Control+Shift+BracketLeft");
+      await Bun.sleep(250);
+    }
+    await page.keyboard.press("Control+Shift+BracketLeft");
+    await until(async () => (await rail.locator(".prompt-rail-earlier").count()) === 0, "every page before read");
+    await until(async () => Math.abs((await topOf(page, 1)) ?? 999) < 30, "prompt 1 stays at the top");
+    assert.equal(await ticks.count(), PROMPTS);
+    console.log("PASS back past the first prompt of all reads the pages before it out, and stays on it");
 
     // the palette finds a prompt by its words
     await page.keyboard.press("Control+Shift+K");
@@ -129,12 +158,15 @@ export async function checkPromptRail(browser: Browser, origin: string): Promise
 /** prompt n's time, which is its turn's key in the chat */
 const tsOf = (n: number): string => new Date(Date.UTC(2026, 9, 11, 9, n * 5)).toISOString();
 
+/** a turn of the agent's alone, as tall as the chat: a page of these holds no prompt */
+const agentOnly = (at: number): object => ({ role: "assistant", ts: new Date(Date.UTC(2026, 9, 11, 8, 0, at)).toISOString(), parts: [{ kind: "text", text: `more work ${at}. ${"a line of the work. ".repeat(200)}` }] });
+
 /**
  * The stand-in transcript: each prompt, then its answer with one edit, ending 90 seconds later and
- * taller than the chat; the fleet's message after prompt 10. 25 turns: the newest page (11) starts
- * at prompt 8, the one before it at prompt 2.
+ * taller than the chat; the fleet's message after prompt 10. Before prompt 1 a page of the agent's
+ * turns alone, and before prompt 8 two such pages. The newest page (11 turns) starts at prompt 8.
  */
-const TURNS = Array.from({ length: PROMPTS }, (_, index) => {
+const TURNS = [...Array.from({ length: PAGE }, (_, at) => agentOnly(at)), ...Array.from({ length: PROMPTS }, (_, index) => {
   const n = index + 1;
   const turns: object[] = [
     { role: "user", ts: tsOf(n), parts: [{ kind: "text", text: `prompt ${n} ${"asks for one more change. ".repeat(6)}` }] },
@@ -147,8 +179,9 @@ const TURNS = Array.from({ length: PROMPTS }, (_, index) => {
     },
   ];
   if (n === 10) turns.push({ role: "user", ts: "fleet-1", parts: [{ kind: "text", text: "[fleet] The thread Fix the retry is ready for review." }] });
+  if (n === 7) turns.push(...Array.from({ length: 2 * PAGE }, (_, at) => agentOnly(100 + at)));
   return turns;
-}).flat();
+}).flat()];
 
 /** A page of the stand-in transcript: the newest, the one before a cursor, or from a held start on. */
 function answer(url: URL): object {

@@ -96,7 +96,7 @@ export function PromptRail({ model, emit }: { model: PromptRailModel; emit: Emit
 
   return <nav className="prompt-rail" aria-label={t("Prompts")} style={{ "--rail-gutter": `${gutter}px` } as CSSProperties}>
     {earlier !== "none" && (
-      <button type="button" className="prompt-rail-earlier" disabled={earlier === "loading"} onClick={() => emit({ type: "rail-earlier" })}
+      <button type="button" className={`prompt-rail-earlier${earlier === "failed" ? " is-failed" : ""}`} disabled={earlier === "loading"} onClick={() => emit({ type: "rail-earlier" })}
         title={t(earlier === "loading" ? "Loading earlier messages…" : earlier === "failed" ? "Couldn't load earlier messages — retry" : "Earlier messages")}
         aria-label={t(earlier === "loading" ? "Loading earlier messages…" : earlier === "failed" ? "Couldn't load earlier messages — retry" : "Earlier messages")} />
     )}

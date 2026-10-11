@@ -76,6 +76,8 @@
 }
 
 .prompt-rail-earlier:hover { border-top-color: var(--ink); }
+/* the read failed: the stub says so in the color of what needs the person, and a click retries */
+.prompt-rail-earlier.is-failed { border-top-color: var(--needs); }
 .prompt-rail-earlier:disabled { cursor: progress; opacity: 0.5; }
 .prompt-rail-earlier:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 

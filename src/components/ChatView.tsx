@@ -475,8 +475,8 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
   const readFrame = useRef<number | null>(null);
   /** the prompt ringed after a jump, and the timer that lets it go */
   const landed = useRef<{ row: HTMLElement; timer: number } | null>(null);
-  /** a step back went past the first prompt: the prompt it was on, until the earlier page is in */
-  const stepPast = useRef<string | null>(null);
+  /** a step back went past the first prompt: the prompt it started from (null with none read), until a page before it holds one */
+  const stepPast = useRef<{ before: string | null } | null>(null);
   /** the last seek taken; the state starts a pane's seeks over */
   const seenSeek = useRef(seek?.seq ?? 0);
 
@@ -628,18 +628,23 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
     else if (target.kind === "end") scrollToBottom();
     else if (target.kind === "earlier") {
       // the page before may be on its way already (a scroll near the top asks for it): the step waits for it
-      stepPast.current = list[0]?.ts ?? null;
+      stepPast.current = { before: list[0]?.ts ?? null };
       if (earlier !== "loading") loadOlder();
     }
   };
-  // a step back past the first prompt asked for the earlier page: once it is in, on to the prompt before
+  // A step back past the first prompt asked for the page before: once a page is in, on to the
+  // prompt before the one it started from. A page may hold no prompt (only the agent's turns, or
+  // the fleet's messages): pages are read on until one does. With none left, the first prompt is
+  // the one; a failed read stops the step, and the rail says the read failed.
   useLayoutEffect(() => {
-    const from = stepPast.current;
-    if (from === null || olderState === "loading") return;
+    const past = stepPast.current;
+    if (past === null || olderState === "loading") return;
+    const at = past.before === null ? entries.length : entries.findIndex((entry) => entry.ts === past.before);
+    if (at > 0) { stepPast.current = null; jumpTo(at - 1); return; }
+    if (at === 0 && olderState === "idle" && typeof olderCursor === "string") { loadOlder(); return; }
     stepPast.current = null;
-    const at = entries.findIndex((entry) => entry.ts === from);
-    if (at > 0) jumpTo(at - 1);
-  }, [entries, olderState]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (at === 0 && olderState !== "failed") jumpTo(0);
+  }, [entries, olderState, olderCursor]); // eslint-disable-line react-hooks/exhaustive-deps
   // a step from the keyboard, or a prompt picked in the palette
   useEffect(() => {
     if (seek === null || seek.seq === seenSeek.current) return;
