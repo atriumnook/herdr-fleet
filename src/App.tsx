@@ -233,6 +233,11 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         const next = panes[(index + direction + panes.length) % panes.length];
         if (next) selectPane(next.pane_id);
       },
+      stepPrompt: (direction) => {
+        // the chat beside on the Fleet screen when the focus is in it, else the pane's
+        const side = document.activeElement?.closest('[data-chat-lens="side"]') != null;
+        emitRef.current({ type: "prompt-rail-step", direction, ...(side ? { lens: "side" as const } : {}) });
+      },
       setView,
       toggleView: () => setView(view === "chat" ? "terminal" : "chat"),
       openNewSession: () => openNewSession(selectedMachineId),

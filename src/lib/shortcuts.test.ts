@@ -49,6 +49,22 @@ describe("keepsArrowsForText", () => {
   });
 });
 
+describe("prompt steps", () => {
+  it("step back and on with Mod+Shift+[ and ], read as the braces Shift makes of them", () => {
+    expect(matchShortcut(keyEvent("{", { ctrlKey: true, code: "BracketLeft" }), false)).toBe("previous-prompt");
+    expect(matchShortcut(keyEvent("}", { ctrlKey: true, code: "BracketRight" }), false)).toBe("next-prompt");
+    expect(matchShortcut(keyEvent("[", { metaKey: true }), true)).toBe("previous-prompt");
+    expect(matchShortcut(keyEvent("]", { metaKey: true }), true)).toBe("next-prompt");
+  });
+
+  it("take no key another shortcut has, and can be moved to another key or off", () => {
+    expect(shortcutConflict("previous-prompt", shortcutKeys("previous-prompt", {}), {})).toBe(false);
+    expect(shortcutConflict("next-prompt", shortcutKeys("next-prompt", {}), {})).toBe(false);
+    expect(matchShortcut(keyEvent("p", { ctrlKey: true }), false, { "previous-prompt": "p" })).toBe("previous-prompt");
+    expect(matchShortcut(keyEvent("{", { ctrlKey: true }), false, { "previous-prompt": null })).toBeNull();
+  });
+});
+
 describe("new session", () => {
   it("opens with Mod+Shift+O, which a browser tab lets through, and still with Mod+Shift+N", () => {
     const press = (key: string) => matchShortcut({ key, ctrlKey: true, metaKey: false, shiftKey: true, altKey: false }, false);
