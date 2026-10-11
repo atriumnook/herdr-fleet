@@ -217,6 +217,8 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     const limit = await thread("Limit the retries");
     const planned = await fetch(`${origin}/api/fleet/runs/${limit.id}/plan`, { method: "POST", headers: { "content-type": "application/json", "x-herdr-fleet": "1" }, body: JSON.stringify({ plan: PLAN }) });
     assert.equal(planned.status, 201, await planned.clone().text());
+    // and ends its turn BLOCKED, as agents/lead.md has it
+    writeFileSync(join(stateDir, "fleet-results", limit.id, "handoff.md"), "## HANDOFF\nBLOCKED — the plan waits for the person on the Fleet screen\n");
     await screen.locator(".fleet-row.group-needs", { hasText: "Limit the retries" }).locator(".fleet-plan-chip", { hasText: "Plan · 1 to answer" }).waitFor();
     await screen.locator(".fleet-row", { hasText: "Limit the retries" }).click();
     const planOpen = screen.locator(".fleet-overview .fleet-open");
