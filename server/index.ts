@@ -17,7 +17,7 @@ import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
-import { EXPLAIN_CONCURRENCY, EXPLAIN_MODEL, ExplainError, ExplainSlots, explainQuestion, explainRequest } from "./explain.ts";
+import { EXPLAIN_MODEL, ExplainCalls, ExplainError, explainQuestion, explainRequest, type ExplainDeps } from "./explain.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, fileRoots, locateFile, withinRoots } from "./file-view.ts";
@@ -289,6 +289,8 @@ export function createServer(
     sidecar?: boolean;
     /** the fleet's runtime (herdr unless a test stands in one), roles and config; unset, the real ones */
     fleet?: Partial<Pick<OrchestratorDeps, "runtime" | "agents" | "config" | "standingOrders">> & { usage?: UsageTracker; userDir?: string; homeDir?: string };
+    /** what an explanation's call uses in place of the real one: tests give a fake claude, a conversation and the account's answer */
+    explain?: Partial<Pick<ExplainDeps, "command" | "conversation" | "unavailable" | "timeoutMs" | "killAfterMs" | "env">>;
   } = {},
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
@@ -488,7 +490,7 @@ export function createServer(
 
   /** the server's own folder for explanations: the person's limits are read from it, and the claude call runs in its `work` folder, one at a time */
   const explainRoot = join(options.stateDir ?? defaultStateDir(), "explain");
-  const explainSlots = new ExplainSlots(EXPLAIN_CONCURRENCY);
+  const explainCalls = new ExplainCalls();
   /** the person's fleet.json, read and written by the Settings page */
   const settings = new FleetSettingsStore({ agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)), usage, userDir: options.fleet?.userDir });
   /** the fleet skill in the person's skill folders, put there from the Settings page */
@@ -1415,16 +1417,23 @@ export function createServer(
         // the person's own limits, read from the server's own folder: neither a project's fleet.json
         // nor one left in the shared temp folder decides what their account is spent on
         const config = (options.fleet?.config ?? ((cwd: string) => loadConfig(cwd)))(explainRoot);
+        // a call waits its turn and runs up to 90 s: Bun's 10 s idle limit would close the request
+        // while claude went on spending the plan, and a second press would spend it again
+        bunServer.timeout(request, 0);
         try {
           return jsonResponse(await explainQuestion(explain, {
             workDir: join(explainRoot, "work"),
-            slots: explainSlots,
+            calls: explainCalls,
             conversation: async (paneId) => (await paneConversation(paneId, options.codexHome)).turns,
             unavailable: () => usage.unavailable("claude", EXPLAIN_MODEL, config.maxUsedPercent),
             failed: (message) => { usage.noteFailure("claude", EXPLAIN_MODEL, message, config.rateLimitCooldownMinutes); },
-          }));
+            ...options.explain,
+          }, request.signal));
         } catch (error) {
-          if (error instanceof ExplainError) return jsonResponse({ error: { code: error.code === "limited" ? "usage_limited" : "explain_failed", message: error.message } }, error.code === "limited" ? 409 : 502);
+          if (error instanceof ExplainError) {
+            const [status, code] = ({ limited: [409, "usage_limited"], busy: [429, "explain_busy"], aborted: [499, "request_closed"], failed: [502, "explain_failed"] } as const)[error.code];
+            return jsonResponse({ error: { code, message: error.message } }, status);
+          }
           if (error instanceof ConversationUnavailable) return jsonResponse({ error: { code: "conversation_unavailable", message: "this pane has no conversation to read" } }, 404);
           return errorResponse(error);
         }

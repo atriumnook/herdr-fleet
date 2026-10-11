@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { chmodSync, lstatSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { ConversationTurn, ExplainRequest, ExplainResponse } from "../shared/protocol.ts";
@@ -23,6 +24,11 @@ const TIMEOUT_MS = 90_000;
 const KILL_AFTER_MS = 3_000;
 /** one call at a time for the whole server: each is a claude process on the person's plan */
 export const EXPLAIN_CONCURRENCY = 1;
+/** calls that may wait for it; one more is refused (busy) */
+export const EXPLAIN_MAX_WAITING = 2;
+/** how long an answer is reused for the same prompt, and how many are kept */
+export const EXPLAIN_KEEP_MS = 10 * 60_000;
+const EXPLAIN_KEPT = 8;
 
 const bounded = (text: string, max: number): string => (text.length <= max ? text : max > 0 ? `${text.slice(0, max - 1)}…` : "");
 const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
@@ -138,23 +144,57 @@ export function explainRequest(value: unknown): ExplainRequest | string {
   return { pane_id: body["pane_id"], kind: body["kind"], question: body["question"], options: parsed };
 }
 
-/** Why an explanation was not written: `limited` when the account is at its limit or cooling down. */
+/** Why an explanation was not written. */
 export class ExplainError extends Error {
-  constructor(readonly code: "limited" | "failed", message: string) {
+  /**
+   * `limited`: Claude was not asked (its account is at its limit or cooling down); `busy`: too many
+   * calls wait already; `aborted`: the request that waited was closed; `failed`: the call went wrong.
+   */
+  constructor(readonly code: "limited" | "busy" | "aborted" | "failed", message: string) {
     super(message);
   }
 }
 
-/** The calls that may run at once: a caller waits for a free one, in turn. */
-export class ExplainSlots {
+/** Answers `task`, or rejects as soon as `signal` aborts: the task itself goes on. */
+function abortable<T>(task: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (signal === undefined) return task;
+  if (signal.aborted) return Promise.reject(new ExplainError("aborted", "the request was closed"));
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = (): void => reject(new ExplainError("aborted", "the request was closed"));
+    signal.addEventListener("abort", onAbort, { once: true });
+    task.then(resolve, reject).finally(() => signal.removeEventListener("abort", onAbort));
+  });
+}
+
+/**
+ * The calls of the whole server: how many run at once, how many may wait, and the answers to reuse.
+ * A call whose prompt is already being answered, or was answered a while ago, gets that answer: a
+ * second press, or a page that lost its first answer, does not spend the person's plan again.
+ */
+export class ExplainCalls {
   private readonly waiting: Array<() => void> = [];
+  private readonly running = new Map<string, Promise<ExplainResponse>>();
+  private readonly answered = new Map<string, { at: number; response: ExplainResponse }>();
 
-  constructor(private free: number) {}
+  constructor(private free = EXPLAIN_CONCURRENCY, private readonly maxWaiting = EXPLAIN_MAX_WAITING, private readonly keepMs = EXPLAIN_KEEP_MS, private readonly now: () => number = Date.now) {}
 
-  /** Waits for a free slot; the function it answers gives it back. */
-  async take(): Promise<() => void> {
+  /** Waits in turn for a free slot (refused when too many wait, given up when `signal` aborts); the function it answers gives it back. */
+  async take(signal?: AbortSignal): Promise<() => void> {
+    if (signal?.aborted) throw new ExplainError("aborted", "the request was closed");
     if (this.free > 0) this.free -= 1;
-    else await new Promise<void>((resolve) => this.waiting.push(resolve));
+    else {
+      if (this.waiting.length >= this.maxWaiting) throw new ExplainError("busy", "other explanations are being written; try again in a moment");
+      await new Promise<void>((resolve, reject) => {
+        const turn = (): void => { signal?.removeEventListener("abort", onAbort); resolve(); };
+        const onAbort = (): void => {
+          const at = this.waiting.indexOf(turn);
+          if (at >= 0) this.waiting.splice(at, 1);
+          reject(new ExplainError("aborted", "the request was closed"));
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+        this.waiting.push(turn);
+      });
+    }
     let given = false;
     return () => {
       if (given) return;
@@ -162,6 +202,26 @@ export class ExplainSlots {
       const next = this.waiting.shift();
       if (next) next(); else this.free += 1;
     };
+  }
+
+  /** The answer for `key`: one kept from a while ago, the call under way, or a new one from `start`. */
+  answer(key: string, start: () => Promise<ExplainResponse>): Promise<ExplainResponse> {
+    const kept = this.answered.get(key);
+    if (kept !== undefined && this.now() - kept.at < this.keepMs) return Promise.resolve(kept.response);
+    this.answered.delete(key);
+    const under = this.running.get(key);
+    if (under !== undefined) return under;
+    const task = start();
+    this.running.set(key, task);
+    task.then(
+      (response) => {
+        this.answered.set(key, { at: this.now(), response });
+        // the oldest answers go first: a few are enough to cover a page that lost one
+        while (this.answered.size > EXPLAIN_KEPT) this.answered.delete(this.answered.keys().next().value!);
+      },
+      () => undefined,
+    ).finally(() => this.running.delete(key));
+    return task;
   }
 }
 
@@ -187,14 +247,34 @@ export interface ExplainDeps {
    * keeps one entry for it under ~/.claude/projects, not one per call; one call at a time shares it.
    */
   workDir: string;
-  /** the calls allowed at once, for the whole server */
-  slots: ExplainSlots;
-  /** runs argv in `cwd` with `input` on stdin */
-  run?(argv: string[], input: string, cwd: string, timing: { timeoutMs: number; killAfterMs: number }): Promise<CliResult>;
+  /** the calls of the whole server */
+  calls: ExplainCalls;
+  /** runs argv in `cwd` with `input` on stdin and `env` as its whole environment */
+  run?(argv: string[], input: string, cwd: string, env: Record<string, string>, timing: { timeoutMs: number; killAfterMs: number }): Promise<CliResult>;
   command?: string;
+  /** the server's environment, from which the call gets only what it needs (explainEnv) */
+  env?: Record<string, string | undefined>;
   timeoutMs?: number;
   /** how long after SIGTERM a CLI that has not ended gets SIGKILL */
   killAfterMs?: number;
+}
+
+/** what the call keeps of the server's environment: what claude needs to start and to find its sign-in */
+const KEPT_ENV = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TZ", "TMPDIR", "CLAUDE_CONFIG_DIR",
+  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS"]);
+
+/**
+ * The call's whole environment. Nothing else passes: an ANTHROPIC_API_KEY would bill the API instead
+ * of the person's plan, ANTHROPIC_* and CLAUDE_CODE_* could send the call elsewhere, and HERDR_*
+ * points at the person's session. The CLI does not update itself during the call.
+ */
+export function explainEnv(source: Record<string, string | undefined>): Record<string, string> {
+  const env: Record<string, string> = {};
+  for (const [name, value] of Object.entries(source)) {
+    if (value !== undefined && (KEPT_ENV.has(name) || name.startsWith("LC_") || name.startsWith("XDG_"))) env[name] = value;
+  }
+  env["DISABLE_AUTOUPDATER"] = "1";
+  return env;
 }
 
 /** Makes the work folder (0700) or empties it: what a call before left behind is not read by the next. */
@@ -206,15 +286,28 @@ export function emptyWorkDir(dir: string): void {
   for (const entry of readdirSync(dir)) rmSync(join(dir, entry), { recursive: true, force: true });
 }
 
-/** Runs the CLI with the prompt on stdin (not in argv, where `ps` shows it); out of time, SIGTERM, then SIGKILL. */
-export async function runCli(argv: string[], input: string, cwd: string, timing: { timeoutMs: number; killAfterMs: number }): Promise<CliResult> {
-  const child = Bun.spawn(argv, { cwd, stdin: new Blob([input]), stdout: "pipe", stderr: "pipe" });
+/**
+ * Runs the CLI with the prompt on stdin (not in argv, where `ps` shows it), in a process group of its
+ * own: out of time, the group gets SIGTERM, then SIGKILL, so a process it started goes with it.
+ */
+export async function runCli(argv: string[], input: string, cwd: string, env: Record<string, string>, timing: { timeoutMs: number; killAfterMs: number }): Promise<CliResult> {
+  const spawn = () => Bun.spawn(argv, { cwd, env, detached: true, stdin: new Blob([input]), stdout: "pipe", stderr: "pipe" });
+  let child: ReturnType<typeof spawn>;
+  try {
+    child = spawn();
+  } catch (error) {
+    if ((error as { code?: unknown }).code === "ENOENT") throw new ExplainError("failed", `${argv[0]} was not found`);
+    throw error;
+  }
+  const signal = (name: "SIGTERM" | "SIGKILL"): void => {
+    try { process.kill(-child.pid, name); } catch { child.kill(name); }
+  };
   let timedOut = false;
   let killTimer: ReturnType<typeof setTimeout> | undefined;
   const timer = setTimeout(() => {
     timedOut = true;
-    child.kill("SIGTERM");
-    killTimer = setTimeout(() => child.kill("SIGKILL"), timing.killAfterMs);
+    signal("SIGTERM");
+    killTimer = setTimeout(() => signal("SIGKILL"), timing.killAfterMs);
   }, timing.timeoutMs);
   try {
     const output = Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
@@ -236,16 +329,29 @@ interface PrintOutput {
   usage?: { input_tokens?: unknown; output_tokens?: unknown; cache_read_input_tokens?: unknown; cache_creation_input_tokens?: unknown };
 }
 
-export async function explainQuestion(request: ExplainRequest, deps: ExplainDeps): Promise<ExplainResponse> {
+/**
+ * Explains the question: from an answer kept or under way for the same prompt, or by a call of its
+ * own once a slot is free. `signal` is the request's: closed, it stops waiting; a call already
+ * running goes on, and its answer is kept for the next ask.
+ */
+export async function explainQuestion(request: ExplainRequest, deps: ExplainDeps, signal?: AbortSignal): Promise<ExplainResponse> {
   const reason = await deps.unavailable?.();
   if (reason !== undefined) throw new ExplainError("limited", reason);
   const prompt = explainPrompt(request, await deps.conversation(request.pane_id));
+  const key = createHash("sha256").update(prompt).digest("hex");
+  return abortable(deps.calls.answer(key, () => callClaude(prompt, deps, signal)), signal);
+}
+
+async function callClaude(prompt: string, deps: ExplainDeps, signal: AbortSignal | undefined): Promise<ExplainResponse> {
   const timing = { timeoutMs: deps.timeoutMs ?? TIMEOUT_MS, killAfterMs: deps.killAfterMs ?? KILL_AFTER_MS };
-  const release = await deps.slots.take();
+  const release = await deps.calls.take(signal);
   let result: CliResult;
   try {
+    // the account may have reached its limit while this call waited its turn
+    const reason = await deps.unavailable?.();
+    if (reason !== undefined) throw new ExplainError("limited", reason);
     emptyWorkDir(deps.workDir);
-    result = await (deps.run ?? runCli)(explainArgv(deps.command), prompt, deps.workDir, timing);
+    result = await (deps.run ?? runCli)(explainArgv(deps.command), prompt, deps.workDir, explainEnv(deps.env ?? process.env), timing);
   } finally {
     release();
   }
