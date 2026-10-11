@@ -5,15 +5,28 @@
  * the list (`claude --help` names them).
  */
 
-import { tmpdir } from "node:os";
 import type { ModelListing } from "../../shared/fleet.ts";
+import { childEnv, emptyWorkDir } from "../cli-child.ts";
 
 export type ModelEntry = ModelListing["models"][number];
 
 const TIMEOUT_MS = 20_000;
 
-async function run(argv: string[], env?: Record<string, string>): Promise<string> {
-  const child = Bun.spawn(argv, { cwd: tmpdir(), stdin: "ignore", stdout: "pipe", stderr: "ignore", env: { ...process.env, ...env } });
+/**
+ * Where a listing runs and what it starts: the CLI's own folder, emptied before each run, and only
+ * the environment it needs (cli-child), as for a usage probe. An API key there would make the CLI
+ * list another account's models.
+ */
+export interface ListOptions {
+  workDir: string;
+  command?: string;
+  /** the server's environment; process.env when left out */
+  env?: Record<string, string | undefined>;
+}
+
+async function run(argv: string[], options: ListOptions, env: Record<string, string>): Promise<string> {
+  emptyWorkDir(options.workDir);
+  const child = Bun.spawn(argv, { cwd: options.workDir, stdin: "ignore", stdout: "pipe", stderr: "ignore", env });
   const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
   try {
     const output = await new Response(child.stdout).text();
@@ -38,7 +51,8 @@ export function parseAgyModels(output: string): ModelEntry[] {
 }
 
 /** Auto-update is held off (`true`, not `1`), as for agy's usage probe. */
-export const listAgyModels = async (command = "agy"): Promise<ModelEntry[]> => parseAgyModels(await run([command, "models"], { AGY_CLI_DISABLE_AUTO_UPDATE: "true" }));
+export const listAgyModels = async (options: ListOptions): Promise<ModelEntry[]> =>
+  parseAgyModels(await run([options.command ?? "agy", "models"], options, { ...childEnv(options.env ?? process.env), AGY_CLI_DISABLE_AUTO_UPDATE: "true" }));
 
 /** `cursor-agent models`: `<id> - <name>` per line under a heading. */
 export function parseCursorModels(output: string): ModelEntry[] {
@@ -48,7 +62,8 @@ export function parseCursorModels(output: string): ModelEntry[] {
   });
 }
 
-export const listCursorModels = async (command = "cursor-agent"): Promise<ModelEntry[]> => parseCursorModels(await run([command, "models"]));
+export const listCursorModels = async (options: ListOptions): Promise<ModelEntry[]> =>
+  parseCursorModels(await run([options.command ?? "cursor-agent", "models"], options, childEnv(options.env ?? process.env)));
 
 /**
  * `pi --list-models`: a table of `provider model ...`. pi takes `provider/model` and also patterns
@@ -61,7 +76,9 @@ export function parsePiModels(output: string): ModelEntry[] {
   });
 }
 
-export const listPiModels = async (command = "pi"): Promise<ModelEntry[]> => parsePiModels(await run([command, "--list-models"]));
+/** pi keeps its sign-in under PI_CODING_AGENT_DIR, which passes when set. */
+export const listPiModels = async (options: ListOptions): Promise<ModelEntry[]> =>
+  parsePiModels(await run([options.command ?? "pi", "--list-models"], options, childEnv(options.env ?? process.env, ["PI_CODING_AGENT_DIR"])));
 
 /** codex's `model/list` result: the models of one page, and where the next begins. */
 export function parseCodexModels(result: unknown): { models: ModelEntry[]; next?: string } {
@@ -74,8 +91,11 @@ export function parseCodexModels(result: unknown): { models: ModelEntry[]; next?
  * `codex app-server` over stdio: initialize, then `model/list` page by page (hidden models too:
  * they run). A model's `model` is its slug, what `--model` takes; `id` is the same and `displayName` is its label.
  */
-export async function listCodexModels(command = "codex"): Promise<ModelEntry[]> {
-  const child = Bun.spawn([command, "app-server"], { cwd: tmpdir(), stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+export async function listCodexModels(options: ListOptions): Promise<ModelEntry[]> {
+  emptyWorkDir(options.workDir);
+  // codex keeps its sign-in under CODEX_HOME, which passes when set
+  const env = childEnv(options.env ?? process.env, ["CODEX_HOME"]);
+  const child = Bun.spawn([options.command ?? "codex", "app-server"], { cwd: options.workDir, env, stdin: "pipe", stdout: "pipe", stderr: "ignore" });
   const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
   try {
     const send = (message: Record<string, unknown>) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);

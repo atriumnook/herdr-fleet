@@ -1,9 +1,9 @@
-import { describe, expect, it } from "bun:test";
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { afterEach, describe, expect, it } from "bun:test";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AgentAdapter } from "./adapters.ts";
-import { listCodexModels, parseAgyModels, parseCodexModels, parseCursorModels, parsePiModels } from "./model-lists.ts";
+import { listAgyModels, listCodexModels, listCursorModels, listPiModels, parseAgyModels, parseCodexModels, parseCursorModels, parsePiModels } from "./model-lists.ts";
 import { modelListed } from "../../shared/fleet.ts";
 import { ModelCatalog } from "./models.ts";
 
@@ -29,7 +29,7 @@ describe("model lists, as each CLI prints them", () => {
 });
 
 function catalog(source: { complete: boolean; list: () => Promise<Array<{ id: string }>> } | undefined, now = () => 0) {
-  return new ModelCatalog({ adapter: () => ({ models: source }) as Pick<AgentAdapter, "models">, now });
+  return new ModelCatalog({ workDir: "/nonexistent", adapter: () => ({ models: source }) as Pick<AgentAdapter, "models">, now });
 }
 
 describe("the model catalog", () => {
@@ -104,7 +104,7 @@ describe("a CLI that fails or hangs", () => {
   });
 
   it("holds a spawn up for no longer than the wait, then lets the model through", async () => {
-    const models = new ModelCatalog({ spawnWaitMs: 30, adapter: () => ({ models: { complete: true, list: () => new Promise(() => {}) } }) as Pick<AgentAdapter, "models"> });
+    const models = new ModelCatalog({ workDir: "/nonexistent", spawnWaitMs: 30, adapter: () => ({ models: { complete: true, list: () => new Promise(() => {}) } }) as Pick<AgentAdapter, "models"> });
     const started = Date.now();
     expect(await models.unknown("codex", "anything")).toBeUndefined();
     expect(Date.now() - started).toBeLessThan(1000);
@@ -150,9 +150,95 @@ for await (const chunk of Bun.stdin.stream()) {
       const fake = join(dir, "codex");
       writeFileSync(fake, script);
       chmodSync(fake, 0o755);
-      expect(await listCodexModels(fake)).toEqual([{ id: "gpt-6-sol", label: "GPT-6-Sol" }, { id: "gpt-reserve", label: "GPT-Reserve" }]);
+      expect(await listCodexModels({ workDir: join(dir, "work"), command: fake })).toEqual([{ id: "gpt-6-sol", label: "GPT-6-Sol" }, { id: "gpt-reserve", label: "GPT-Reserve" }]);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+describe("what a model listing's CLI gets", () => {
+  // the server's environment as a listing sees it: API keys and the person's herdr session among the rest
+  const SERVER_ENV = {
+    PATH: process.env["PATH"], HOME: "/home/u", LANG: "ja_JP.UTF-8", CODEX_HOME: "/home/u/.codex-alt", PI_CODING_AGENT_DIR: "/home/u/.pi-alt", CLAUDE_CONFIG_DIR: "/home/u/.claude-alt",
+    ANTHROPIC_API_KEY: "sk-ant", OPENAI_API_KEY: "sk-openai", GEMINI_API_KEY: "g-key", CURSOR_API_KEY: "c-key", HERDR_SOCKET: "/run/herdr.sock", HERDR_FLEET_TOKEN: "t",
+  };
+  const FORBIDDEN = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GEMINI_API_KEY", "CURSOR_API_KEY", "HERDR_SOCKET", "HERDR_FLEET_TOKEN"];
+  const dirs: string[] = [];
+  const tempDir = () => { const dir = mkdtempSync(join(tmpdir(), "fleet-model-lists-")); dirs.push(dir); return dir; };
+  afterEach(() => { for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true }); });
+
+  /** a CLI that notes its environment, its folder and what it found there, then answers */
+  const recorder = (dir: string, name: string, answer: string) => {
+    const file = join(dir, name);
+    writeFileSync(file, `#!/bin/sh\n/usr/bin/env > "${file}.env"\npwd > "${file}.cwd"\nls -A > "${file}.ls"\n${answer}\n`, { mode: 0o755 });
+    return file;
+  };
+  const envNames = (file: string) => readFileSync(`${file}.env`, "utf8").split("\n").filter(Boolean).map((line) => line.split("=")[0]!);
+  /** what another run, or another user, could leave in the folder for the next CLI to read */
+  const plant = (workDir: string) => {
+    mkdirSync(join(workDir, ".claude"), { recursive: true });
+    writeFileSync(join(workDir, ".claude", "settings.json"), '{"hooks":{}}');
+    writeFileSync(join(workDir, "CLAUDE.md"), "planted");
+  };
+  const expectOwnEmptyFolder = (file: string, workDir: string) => {
+    expect(readFileSync(`${file}.cwd`, "utf8").trim()).toBe(realpathSync(workDir));
+    expect(readFileSync(`${file}.ls`, "utf8")).toBe("");
+    expect(statSync(workDir).mode & 0o777).toBe(0o700);
+  };
+  const noSecrets = (file: string) => { for (const name of FORBIDDEN) expect(envNames(file)).not.toContain(name); };
+
+  it("agy lists in its own emptied folder, without an API key or herdr session, and with its self-update held off", async () => {
+    const dir = tempDir();
+    const workDir = join(dir, "model-list", "agy");
+    plant(workDir);
+    const agy = recorder(dir, "agy", "echo 'gemini-3.1-pro-high\tGemini 3.1 Pro (High)'");
+    expect(await listAgyModels({ workDir, command: agy, env: SERVER_ENV })).toEqual([{ id: "gemini-3.1-pro-high", label: "Gemini 3.1 Pro (High)" }]);
+    expectOwnEmptyFolder(agy, workDir);
+    noSecrets(agy);
+    expect(readFileSync(`${agy}.env`, "utf8")).toContain("AGY_CLI_DISABLE_AUTO_UPDATE=true\n");
+  });
+
+  it("cursor lists in its own emptied folder, without an API key or herdr session", async () => {
+    const dir = tempDir();
+    const workDir = join(dir, "model-list", "cursor");
+    plant(workDir);
+    const cursor = recorder(dir, "cursor-agent", "echo 'auto - Auto (default)'");
+    expect(await listCursorModels({ workDir, command: cursor, env: SERVER_ENV })).toEqual([{ id: "auto", label: "Auto (default)" }]);
+    expectOwnEmptyFolder(cursor, workDir);
+    noSecrets(cursor);
+    expect(envNames(cursor)).toEqual(expect.arrayContaining(["PATH", "HOME", "LANG"]));
+  });
+
+  it("pi lists in its own emptied folder, with its own folder's setting and no API key or herdr session", async () => {
+    const dir = tempDir();
+    const workDir = join(dir, "model-list", "pi");
+    plant(workDir);
+    const pi = recorder(dir, "pi", "printf 'provider model\\nopenai gpt-4.1\\n'");
+    expect(await listPiModels({ workDir, command: pi, env: SERVER_ENV })).toEqual([{ id: "openai/gpt-4.1" }]);
+    expectOwnEmptyFolder(pi, workDir);
+    noSecrets(pi);
+    expect(envNames(pi)).toContain("PI_CODING_AGENT_DIR");
+    expect(envNames(pi)).not.toContain("CODEX_HOME");
+  });
+
+  it("codex app-server runs in its own emptied folder, with CODEX_HOME and no API key or herdr session", async () => {
+    const dir = tempDir();
+    const workDir = join(dir, "model-list", "codex");
+    plant(workDir);
+    const result = { data: [{ id: "gpt-6", model: "gpt-6", displayName: "GPT-6" }], nextCursor: null };
+    const codex = recorder(dir, "codex", `read a\necho '{"id":1,"result":{}}'\nread b\nread c\necho '${JSON.stringify({ id: 2, result })}'`);
+    expect(await listCodexModels({ workDir, command: codex, env: SERVER_ENV })).toEqual([{ id: "gpt-6", label: "GPT-6" }]);
+    expectOwnEmptyFolder(codex, workDir);
+    noSecrets(codex);
+    expect(envNames(codex)).toContain("CODEX_HOME");
+  });
+
+  it("refuses a link in place of the folder", async () => {
+    const dir = tempDir();
+    mkdirSync(join(dir, "elsewhere"));
+    symlinkSync(join(dir, "elsewhere"), join(dir, "agy"));
+    const agy = recorder(dir, "agy-cli", "echo x");
+    await expect(listAgyModels({ workDir: join(dir, "agy"), command: agy, env: SERVER_ENV })).rejects.toThrow("is not a folder");
   });
 });

@@ -1,7 +1,7 @@
 import { dirname } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { AgentKind, ThinkingLevel } from "./types.ts";
-import { CLAUDE_ALIASES, listAgyModels, listCodexModels, listCursorModels, listPiModels, type ModelEntry } from "./model-lists.ts";
+import { CLAUDE_ALIASES, listAgyModels, listCodexModels, listCursorModels, listPiModels, type ListOptions, type ModelEntry } from "./model-lists.ts";
 import type { UsageReading } from "./usage.ts";
 
 export interface LaunchOptions {
@@ -55,7 +55,7 @@ export interface AgentAdapter {
    * CLI runs, so a model outside it is refused before a run starts; otherwise it is names the CLI
    * accepts among others (aliases, patterns).
    */
-  readonly models?: { complete: boolean; list(): Promise<ModelEntry[]> };
+  readonly models?: { complete: boolean; list(options: ListOptions): Promise<ModelEntry[]> };
 }
 
 /** `model` as pi takes it: a `:level` suffix sets thinking; one already there wins. */

@@ -479,7 +479,7 @@ export function createServer(
       claude: claudeProbe({ workDir: join(options.stateDir ?? defaultStateDir(), "usage-probe", "claude") }),
     },
   });
-  const models = options.fleet?.models ?? new ModelCatalog();
+  const models = options.fleet?.models ?? new ModelCatalog({ workDir: join(options.stateDir ?? defaultStateDir(), "model-list") });
   const fleet = new Orchestrator({
     models,
     runtime: options.fleet?.runtime ?? new HerdrRuntime(),

@@ -1,6 +1,8 @@
+import { join } from "node:path";
 import { modelListed, type ModelListing } from "../../shared/fleet.ts";
 import { adapterFor, AGENT_KINDS, type AgentAdapter } from "./adapters.ts";
 import type { AgentKind } from "./types.ts";
+
 
 const TTL_MS = 10 * 60_000;
 /** a CLI that failed is not asked again for this long */
@@ -13,8 +15,8 @@ export class ModelCatalog {
   private readonly kept = new Map<AgentKind, { at: number; listing: ModelListing }>();
   private readonly asking = new Map<AgentKind, Promise<ModelListing>>();
 
-  /** `adapter` and `now` are for tests to stand in */
-  constructor(private readonly options: { adapter?: (kind: AgentKind) => Pick<AgentAdapter, "models">; now?: () => number; spawnWaitMs?: number } = {}) {}
+  /** `workDir`: the folder holding a folder per CLI, each emptied before the CLI runs in it. `adapter`, `now`, `spawnWaitMs` and `env` are for tests to stand in */
+  constructor(private readonly options: { workDir: string; env?: Record<string, string | undefined>; adapter?: (kind: AgentKind) => Pick<AgentAdapter, "models">; now?: () => number; spawnWaitMs?: number }) {}
 
   private adapter(kind: AgentKind): Pick<AgentAdapter, "models"> {
     return (this.options.adapter ?? adapterFor)(kind);
@@ -35,7 +37,7 @@ export class ModelCatalog {
       if (!source) return { agent, models: [], complete: false };
       let listing: ModelListing;
       try {
-        listing = { agent, models: await source.list(), complete: source.complete };
+        listing = { agent, models: await source.list({ workDir: join(this.options.workDir, agent), env: this.options.env }), complete: source.complete };
         if (listing.models.length === 0) listing = { ...listing, complete: false, error: `${agent} listed no models` };
       } catch (error) {
         listing = { agent, models: [], complete: false, error: error instanceof Error ? error.message : String(error) };

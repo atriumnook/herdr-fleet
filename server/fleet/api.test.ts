@@ -43,7 +43,7 @@ function fleet() {
   const usage = new UsageTracker({ file: null, probes: { codex: async () => { probes += 1; return { codex: { readAt: 1, windows: [{ name: "5h", usedPercent: 20 }] } }; } } });
   const settings = new FleetSettingsStore({ agents: () => orchestrator.roles(resultsRoot), userDir: mkdtempSync(join(resultsRoot, "config-")) });
   const entrances = new EntranceStore({ command: "fleet", url: () => "http://127.0.0.1:7317", tokenRequired: false, home: mkdtempSync(join(resultsRoot, "home-")) });
-  const models = new ModelCatalog({ adapter: (kind) => ({ models: kind === "codex" ? { complete: true, list: async () => [{ id: "gpt-6" }] } : undefined }) });
+  const models = new ModelCatalog({ workDir: "/nonexistent", adapter: (kind) => ({ models: kind === "codex" ? { complete: true, list: async () => [{ id: "gpt-6" }] } : undefined }) });
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = { "x-herdr-fleet": "1" }) => {
     const url = new URL(`http://127.0.0.1:7317/api/fleet${path}`);
     const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage, settings, entrances, models);
