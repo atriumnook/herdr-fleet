@@ -70,7 +70,10 @@ export function parseCodexModels(result: unknown): { models: ModelEntry[]; next?
   return { models, ...(typeof page?.nextCursor === "string" && page.nextCursor ? { next: page.nextCursor } : {}) };
 }
 
-/** `codex app-server` over stdio: initialize, then `model/list` page by page (hidden models too: they run). */
+/**
+ * `codex app-server` over stdio: initialize, then `model/list` page by page (hidden models too:
+ * they run). A model's `model` is its slug, what `--model` takes; `id` is the same and `displayName` is its label.
+ */
 export async function listCodexModels(command = "codex"): Promise<ModelEntry[]> {
   const child = Bun.spawn([command, "app-server"], { cwd: tmpdir(), stdin: "pipe", stdout: "pipe", stderr: "ignore" });
   const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
@@ -89,8 +92,10 @@ export async function listCodexModels(command = "codex"): Promise<ModelEntry[]> 
       while ((newline = buffer.indexOf("\n")) >= 0) {
         const line = buffer.slice(0, newline);
         buffer = buffer.slice(newline + 1);
-        let message: { id?: number; result?: unknown; error?: { message?: string } };
+        let message: { id?: number; method?: string; result?: unknown; error?: { message?: string } };
         try { message = JSON.parse(line); } catch { continue; }
+        // a notification or a request of the server's own is not an answer to ours
+        if (message.method !== undefined || (message.result === undefined && message.error === undefined)) continue;
         if (message.id === 1) {
           send({ method: "initialized" });
           send({ id: 2, method: "model/list", params: { includeHidden: true } });

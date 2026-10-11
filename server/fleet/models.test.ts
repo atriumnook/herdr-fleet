@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { AgentAdapter } from "./adapters.ts";
-import { parseAgyModels, parseCodexModels, parseCursorModels, parsePiModels } from "./model-lists.ts";
+import { listCodexModels, parseAgyModels, parseCodexModels, parseCursorModels, parsePiModels } from "./model-lists.ts";
 import { modelListed } from "../../shared/fleet.ts";
 import { ModelCatalog } from "./models.ts";
 
@@ -81,5 +84,39 @@ describe("agy's models, listed once per effort", () => {
     expect(modelListed(listing, "gemini-9")).toBe(false);
     // another CLI's names keep their ending
     expect(modelListed({ ...listing, agent: "cursor" }, "gemini-3.1-pro")).toBe(false);
+  });
+});
+
+describe("codex app-server's model/list", () => {
+  // recorded from `codex app-server`: a notification before the answers, a request of the server's own with no result, two pages
+  const script = `#!/usr/bin/env bun
+const out = (m) => console.log(JSON.stringify({ jsonrpc: "2.0", ...m }));
+let buffer = "";
+for await (const chunk of Bun.stdin.stream()) {
+  buffer += new TextDecoder().decode(chunk);
+  let n;
+  while ((n = buffer.indexOf("\\n")) >= 0) {
+    const m = JSON.parse(buffer.slice(0, n));
+    buffer = buffer.slice(n + 1);
+    if (m.method === "initialize") { out({ method: "remoteControl/status/changed", params: { status: "disabled" } }); out({ id: m.id, result: { userAgent: "codex" } }); }
+    else if (m.method === "model/list") {
+      out({ id: 3, method: "item/tool/requestUserInput", params: {} });
+      if (m.params.cursor === "p2") out({ id: m.id, result: { data: [{ id: "gpt-reserve", model: "gpt-reserve", displayName: "GPT-Reserve", hidden: true }], nextCursor: null } });
+      else out({ id: m.id, result: { data: [{ id: "gpt-6-sol", model: "gpt-6-sol", displayName: "GPT-6-Sol", hidden: false }], nextCursor: "p2" } });
+    }
+  }
+}
+`;
+
+  it("reads every page, skipping what is not an answer", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "fleet-codex-fake-"));
+    try {
+      const fake = join(dir, "codex");
+      writeFileSync(fake, script);
+      chmodSync(fake, 0o755);
+      expect(await listCodexModels(fake)).toEqual([{ id: "gpt-6-sol", label: "GPT-6-Sol" }, { id: "gpt-reserve", label: "GPT-Reserve" }]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
