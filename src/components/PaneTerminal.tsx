@@ -811,7 +811,7 @@ export function PaneTerminal({
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
         resizeTimer = null;
-        // the grid belongs to the pty while observing, and to herdr when fixed: only the view moves
+        // a grid this view does not size (herdr's, another device's, or a mirror's) stays: only the view moves
         // (a soft keyboard opening must not leave the prompt under it)
         if (adopted()) {
           panned = false;
