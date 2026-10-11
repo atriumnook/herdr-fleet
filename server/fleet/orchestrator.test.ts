@@ -1492,6 +1492,22 @@ describe("plans", () => {
     fleet.stop();
   });
 
+  it("stay unanswered when the answers do not reach the lead: on its approval screen, or a prompt that failed", async () => {
+    const { fleet, runtime, registry, root, planned } = project();
+    const { thread } = await planned();
+    const kept = () => JSON.parse(readFileSync(join(root, "fleet-plans", `${thread.id}.json`), "utf8"));
+    runtime.promptImpl = async () => { throw new HerdrError("agent_blocked", "agent is blocked"); };
+    await expect(fleet.answerPlan(thread.id, { version: 1, choices: { limit: "five" }, seen: ["limit"] })).rejects.toMatchObject({ code: "agent_blocked" });
+    expect(kept().answeredAt).toBeUndefined();
+    expect(registry.get(thread.id)!.plan!.answeredAt).toBeUndefined();
+    // the person answered the approval: the same answers go now
+    registry.get(thread.id)!.state = "idle";
+    runtime.promptImpl = async () => { throw new HerdrError("pane_not_found", "pane gone"); };
+    await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "answer_not_delivered" });
+    expect(kept().answeredAt).toBeUndefined();
+    fleet.stop();
+  });
+
   it("leave a newer plan the lead handed over while the answers went out as it is", async () => {
     const { fleet, runtime, registry, root, planned } = project();
     const { thread } = await planned();

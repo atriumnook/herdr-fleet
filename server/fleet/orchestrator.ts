@@ -752,7 +752,14 @@ export class Orchestrator {
     if (this.pending.has(run.id)) throw new FleetError("run_busy", `The lead of ${run.name} is working; wait for its turn to end.`);
     // the turn is under way before anything awaits again, so a second answer finds the lead busy;
     // the plan counts as answered once the message reached the lead
-    await this.submit(run, planAnswerMessage(plan, answer), signal);
+    const sent = await this.submit(run, planAnswerMessage(plan, answer), signal);
+    // submit answers a refusal without throwing: herdr would not type into a lead on its approval
+    // screen, or the prompt failed. The answers did not arrive, so the plan still takes them.
+    // (a prompt typed that left the lead on an approval screen did arrive: its turn is pending)
+    if (sent.state === "failed" || (sent.state === "blocked" && !this.pending.has(run.id))) {
+      if (sent.state === "blocked") throw new FleetError("agent_blocked", `The lead of ${run.name} is waiting on its screen (an approval or a question); answer it there, then send your answers again.`);
+      throw new FleetError("answer_not_delivered", `The answers did not reach the lead of ${run.name}: ${sent.lastError ?? "its pane refused them"}.`);
+    }
     // the lead may have handed over a newer plan meanwhile: only the version answered is marked
     let current: Plan | undefined;
     try { current = readPlan(file); } catch { current = undefined; }
