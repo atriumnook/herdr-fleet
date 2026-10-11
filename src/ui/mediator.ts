@@ -6,13 +6,13 @@ import type { HealthInfo } from "../lib/api.ts";
 import type { PaneView } from "../lib/actions.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
-import type { AgentKind, ClientRole, SlashCommand, ConversationTurn, DirectoryListing, HerdrPane, InteractivePrompt, PromptAnswer, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
+import type { AgentKind, ClientRole, SlashCommand, ConversationTurn, DirectoryListing, ExplainRequest, HerdrPane, InteractivePrompt, PromptAnswer, ServerMessage, WorkspaceCreated } from "../../shared/protocol.ts";
 import type { SubmitResult } from "../lib/ws.ts";
 import type { InputDraft } from "../lib/draft.ts";
 import type { HeldMessage } from "../lib/messageQueue.ts";
 import type { Settings } from "../lib/settings.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
-import { INITIAL_STATE, transition, type ComposerDraftChange, type ConversationOutcome, type Effect, type FileOutcome, type LineDraftChange, type QueueChange, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
+import { INITIAL_STATE, transition, type ComposerDraftChange, type ConversationOutcome, type Effect, type ExplainOutcome, type FileOutcome, type LineDraftChange, type QueueChange, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
 
 type PtyData = Extract<ServerMessage, { type: "pty-data" }>;
 
@@ -130,6 +130,8 @@ export interface EffectPorts {
   searchFiles(machineId: string, paneId: string, query: string): Promise<string[]>;
   /** answers a pane's waiting prompt with one of its options or its own reply row; throws with `status` 409 when the menu moved on */
   answerPrompt(machineId: string, answer: PromptAnswer): Promise<void>;
+  /** asks Claude Haiku to explain a question a pane's agent asked; a refusal is an outcome, not a throw */
+  explainQuestion(machineId: string, request: ExplainRequest): Promise<ExplainOutcome>;
   /** changes a pane's composer draft and answers it as now kept, with what a settle left */
   changeComposerDraft(owner: string, change: ComposerDraftChange): { text: string; sending: boolean; settled: { text: string; edited: boolean } | null };
   /** changes a pane's terminal input line and answers it as now kept */
@@ -540,6 +542,13 @@ export class Mediator {
           dispatch({ type: "answer-result", id: effect.id, outcome: { kind: "failed", status, code, message: message(error) } });
         }
         return;
+      case "explain-question": {
+        let outcome: ExplainOutcome;
+        try { outcome = await this.ports.explainQuestion(effect.machineId, { pane_id: effect.paneId, ...effect.request }); }
+        catch (error) { outcome = { kind: "failed", message: message(error), limited: false }; }
+        dispatch({ type: "explain-result", paneId: effect.paneId, key: effect.key, outcome });
+        return;
+      }
       case "composer-draft-change": {
         const { text, sending, settled } = this.ports.changeComposerDraft(effect.owner, effect.change);
         dispatch({ type: "composer-draft-loaded", owner: effect.owner, text, sending, settled });

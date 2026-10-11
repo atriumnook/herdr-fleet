@@ -9,6 +9,8 @@ import "./ChatView.css";
 import { AgentMark } from "./AgentMark.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { PromptCard, type PromptCardEvent } from "./PromptCard.tsx";
+import { AskedCard, type AskedCardEvent } from "./AskedCard.tsx";
+import type { PlainQuestion } from "../lib/plainQuestion.ts";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { ThreadCard, type ThreadCardEvent } from "./fleet/ThreadCard.tsx";
 import type { ThreadRowModel } from "../ui/fleetView.ts";
@@ -16,7 +18,7 @@ import { turnRevision } from "../lib/turnRevision.ts";
 import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
 import type { Emit } from "../ui/bubble.ts";
-import type { ChatState, ConversationView, UiEvent } from "../ui/state.ts";
+import type { ChatState, ConversationView, Explanation, UiEvent } from "../ui/state.ts";
 import type { TranscriptMessage } from "../lib/transcript.ts";
 import { isLiveWorkTurn, formatWorkDuration, splitTurn, workSummary, type ToolPart as ToolPartType } from "../lib/workBlocks.ts";
 import { phaseRows, planRows, taskRows, todoRows, type ChecklistRow } from "../lib/checklist.ts";
@@ -67,10 +69,17 @@ export interface ChatViewModel {
   showThinking: boolean;
   /** a project conversation's thread cards, by the time of the coordinator's turn that started them */
   cards?: ReadonlyMap<string, ThreadRowModel[]>;
+  /** the person's newest message, shown on the question screen's card */
+  instruction?: string | null;
+  /** a question the agent wrote at the end of its reply, with no question screen up */
+  asked?: PlainQuestion | null;
+  /** what Claude Haiku said of the question screen's question, and of the written one */
+  promptExplanation?: Explanation;
+  askedExplanation?: Explanation;
 }
 
-/** the prompt card's answers, and an earlier page asked for */
-export type ChatViewEvent = PromptCardEvent | ThreadCardEvent | Extract<UiEvent, { type: "load-older-conversation" }>;
+/** the prompt card's answers, the written question's card, and an earlier page asked for */
+export type ChatViewEvent = PromptCardEvent | AskedCardEvent | ThreadCardEvent | Extract<UiEvent, { type: "load-older-conversation" }>;
 
 function formatTime(ts: string | null): string | null {
   if (ts === null) return null;
@@ -448,7 +457,7 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
  * an unchanged model sits those out (memo).
  */
 export const ChatView = memo(function ChatView({ model, emit }: { model: ChatViewModel; emit: Emit<ChatViewEvent> }) {
-  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards } = model;
+  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, instruction = null, asked = null, promptExplanation, askedExplanation } = model;
   const [newMessages, setNewMessages] = useState(false);
   /** scrolled up from the end: the way back is offered even when nothing new came */
   const [away, setAway] = useState(false);
@@ -571,7 +580,8 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{error.status === 401 ? t("This server asks for the access token or a pairing code again.") : error.message}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
       {loaded && empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
-      {prompt !== null && <PromptCard prompt={prompt} typedAnswer={pendingAnswer !== null && pendingAnswer.promptId === prompt.id ? pendingAnswer.answer : null} card={card} emit={emit} />}
+      {prompt === null && asked !== null && !ended && <AskedCard question={asked} explanation={askedExplanation} emit={emit} />}
+      {prompt !== null && <PromptCard prompt={prompt} typedAnswer={pendingAnswer !== null && pendingAnswer.promptId === prompt.id ? pendingAnswer.answer : null} card={card} instruction={instruction} explanation={promptExplanation} emit={emit} />}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
     </div>
     {newMessages ? <button type="button" className="btn chat-new-messages" onClick={scrollToBottom}>{t("New messages")} <ArrowDown aria-hidden="true" /></button>

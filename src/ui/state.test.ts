@@ -2203,3 +2203,41 @@ describe("answering the waiting prompt in its card", () => {
     expect(failed.state.chat.pendingAnswer).toBeNull();
   });
 });
+
+describe("explaining an agent's question", () => {
+  const request = { kind: "plain" as const, question: "Which store?", options: [{ label: "Redis", description: null }] };
+  const ask = (paneId = "w1:p1", lens?: "side"): UiEvent => ({ type: "explain-question", machineId: "local", paneId, key: "plain:t:Which store?", request, ...(lens ? { lens } : {}) });
+  const response = { text: "### 推奨\n→ 1. Redis", model: "haiku", tokens: { input: 900, output: 120 } };
+  const opened = play([{ type: "chat-open", machineId: "local", paneId: "w1:p1" }]).state;
+
+  it("asks once per question, and keeps what came back for it", () => {
+    const asked = play([ask(), ask()], opened);
+    expect(asked.effects).toEqual([{ kind: "explain-question", machineId: "local", paneId: "w1:p1", key: "plain:t:Which store?", request }]);
+    expect(asked.state.chat.explanations["plain:t:Which store?"]).toEqual({ status: "loading" });
+    const done = play([{ type: "explain-result", paneId: "w1:p1", key: "plain:t:Which store?", outcome: { kind: "ok", response } }, ask()], asked.state);
+    expect(done.state.chat.explanations["plain:t:Which store?"]).toEqual({ status: "done", ...response });
+    expect(done.effects).toEqual([]);
+  });
+
+  it("says why it was not written, and may be asked again", () => {
+    const asked = play([ask(), { type: "explain-result", paneId: "w1:p1", key: "plain:t:Which store?", outcome: { kind: "failed", message: "claude has used 95% of its 5h limit", limited: true } }], opened);
+    expect(asked.state.chat.explanations["plain:t:Which store?"]).toEqual({ status: "failed", message: "claude has used 95% of its 5h limit", limited: true });
+    expect(play([ask()], asked.state).effects).toHaveLength(1);
+  });
+
+  it("drops an answer for a pane the chat has left, and forgets the explanations with it", () => {
+    const asked = play([ask()], opened).state;
+    const moved = play([{ type: "chat-open", machineId: "local", paneId: "w1:p2" }, { type: "explain-result", paneId: "w1:p1", key: "plain:t:Which store?", outcome: { kind: "ok", response } }], asked).state;
+    expect(moved.chat.explanations).toEqual({});
+    // a question of another pane than the open one is not asked
+    expect(play([ask("w1:p1")], moved).effects).toEqual([]);
+  });
+
+  it("runs on the chat beside with its own explanations", () => {
+    const side = play([{ type: "chat-open", machineId: "local", paneId: "w1:p2", lens: "side" }], opened).state;
+    const asked = play([ask("w1:p2", "side")], side);
+    expect(asked.effects).toEqual([{ kind: "explain-question", machineId: "local", paneId: "w1:p2", key: "plain:t:Which store?", request, lens: "side" }]);
+    expect(asked.state.side.chat.explanations["plain:t:Which store?"]).toEqual({ status: "loading" });
+    expect(asked.state.chat.explanations).toEqual({});
+  });
+});

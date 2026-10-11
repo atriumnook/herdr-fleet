@@ -1,0 +1,145 @@
+/* A question's explanation and the person's last message, inside the question's card. */
+
+.question-explain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.question-explain-button svg {
+  width: var(--icon-size);
+  height: var(--icon-size);
+}
+
+.question-explain-error {
+  flex: 1 1 100%;
+  margin: 0;
+}
+
+.question-explanation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--input);
+}
+
+.question-explanation-text {
+  color: var(--ink);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-base);
+  overflow-wrap: anywhere;
+}
+
+/* the question screen's card stays at the bottom of the chat: a long explanation scrolls inside it */
+.prompt-card .question-explanation-text {
+  max-height: 40vh;
+  overflow: auto;
+}
+
+.question-explanation-text h3 {
+  margin: var(--space-2) 0 var(--space-1);
+  color: var(--ink-strong);
+  font-size: var(--fs-sm);
+  font-weight: var(--fw-semibold);
+}
+
+.question-explanation-text h3:first-child {
+  margin-top: 0;
+}
+
+.question-explanation-text p,
+.question-explanation-text ol,
+.question-explanation-text ul {
+  margin: 0;
+}
+
+/* the model and the tokens it measured: machine values, in mono */
+.question-explanation-meta {
+  margin: 0;
+  color: var(--sub);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+
+.question-instruction {
+  color: var(--sub);
+  font-size: var(--fs-sm);
+}
+
+.question-instruction summary {
+  display: flex;
+  gap: var(--space-2);
+  min-width: 0;
+  cursor: pointer;
+}
+
+.question-instruction-label {
+  flex: none;
+  font-weight: var(--fw-medium);
+}
+
+/* closed, one line: the start of the message */
+.question-instruction-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ink);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.question-instruction[open] .question-instruction-preview {
+  display: none;
+}
+
+.question-instruction summary::-webkit-details-marker {
+  display: none;
+}
+
+.question-instruction-caret {
+  flex: none;
+  align-self: center;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  margin-left: auto;
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.question-instruction[open] .question-instruction-caret {
+  transform: rotate(180deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .question-instruction-caret {
+    transition: none;
+  }
+}
+
+.question-instruction-text {
+  max-height: 10rem;
+  margin: var(--space-1) 0 0;
+  overflow: auto;
+  color: var(--ink);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* the agent's own question, found by a guess: a card at the end of the conversation, not one that needs you */
+.asked-card {
+  position: static;
+  border-color: var(--line-strong);
+  box-shadow: none;
+}
+
+.asked-card-icon {
+  flex: none;
+  align-self: flex-start;
+  width: var(--icon-size);
+  height: var(--icon-size);
+  margin-top: 2px;
+  color: var(--sub);
+}

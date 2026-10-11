@@ -61,6 +61,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     loadPromptState: async () => ({ prompt: null, suggestion: null }),
     changeQueue: () => ({ messages: [], unsaved: false }),
     answerPrompt: async () => {},
+    explainQuestion: async () => ({ kind: "ok", response: { text: "", model: "haiku", tokens: { input: 0, output: 0 } } }),
     uploadFile: async (_machineId, _paneId, file) => `/tmp/${file.name}`,
     loadCommands: async () => [],
     loadSlashUsage: () => ({}),

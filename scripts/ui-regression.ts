@@ -27,7 +27,7 @@ import { checkFleetScreen } from "./fleet-screen-regression.ts";
 import { checkDirectoryBrowser } from "./directory-browser-regression.ts";
 import { checkTerminalSession } from "./terminal-session-regression.ts";
 import { checkTerminalDraft } from "./terminal-draft-regression.ts";
-import { checkChatPrompt } from "./chat-prompt-regression.ts";
+import { checkChatPrompt, checkChatQuestionGuide } from "./chat-prompt-regression.ts";
 import { checkChatConversation } from "./chat-conversation-regression.ts";
 import { checkChatQueue } from "./chat-queue-regression.ts";
 import { checkComposerSend } from "./composer-send-regression.ts";
@@ -352,6 +352,7 @@ try {
   await checkTerminalSession(browser, origin);
   await checkTerminalDraft(browser, origin);
   await checkChatPrompt(browser, origin);
+  await checkChatQuestionGuide(browser, origin);
   await checkChatConversation(browser, origin);
   await checkChatQueue(browser, origin);
   await checkComposerSend(browser, origin);

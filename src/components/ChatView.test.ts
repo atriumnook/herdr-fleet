@@ -58,4 +58,27 @@ describe("Chat view", () => {
     expect(render(model({ connected: false }))).toContain("reconnecting…");
     expect(render(model({ ended: true }))).toContain("terminal ended");
   });
+
+  it("offers a written question's choices and an explanation, without saying the pane needs you", () => {
+    const asked = { question: "Which store should I use?", options: [{ label: "Redis", description: "fast" }, { label: "SQLite", description: null }] };
+    const html = render(model({ view: { ...EMPTY_VIEW, turns: [user("pick")] }, asked }));
+    expect(html).toContain("Which store should I use?");
+    expect(html).toContain(">Redis</span>");
+    expect(html).toContain(" Explain</button>");
+    expect(html).not.toContain("Needs you");
+    // a question screen up is answered in its own card
+    const prompt: InteractivePrompt = { id: "p", agent: "claude", kind: "approval", title: "Allow?", question: "Edit?", body: null, options: [{ label: "Yes", description: null }], multi_select: false, custom_option_index: null };
+    expect(render(model({ asked, prompt }))).not.toContain("Which store should I use?");
+  });
+
+  it("shows the person's last message on the question screen's card, and what Claude Haiku said of it", () => {
+    const prompt: InteractivePrompt = { id: "p", agent: "codex", kind: "approval", title: "Allow?", question: "Run the migration?", body: null, options: [{ label: "Yes", description: null }], multi_select: false, custom_option_index: null };
+    const html = render(model({ prompt, instruction: "migrate the users table\nthen run the tests", promptExplanation: { status: "done", text: "### 推奨\n→ 1. Yes", model: "haiku", tokens: { input: 1200, output: 80 } } }));
+    expect(html).toContain("Your last message");
+    expect(html).toContain("migrate the users table");
+    expect(html).toContain("推奨");
+    expect(html).toContain("haiku · 1k in · 80 out");
+    expect(render(model({ prompt, promptExplanation: { status: "loading" } }))).toContain("Explaining…");
+    expect(render(model({ prompt, promptExplanation: { status: "failed", message: "claude has used 95% of its 5h limit", limited: true } }))).toContain(t("Claude was not asked. {reason}", { reason: "claude has used 95% of its 5h limit" }));
+  });
 });

@@ -13,3 +13,10 @@ agents/architect.md adapts ideas from pstack's architect skill (grounding first,
 designing twice, the design red flags), by Lauren Tan, licensed under the MIT License.
 
 Source:      https://github.com/cursor/plugins/tree/main/pstack/skills/architect
+
+src/lib/plainQuestion.ts (the plain-text question test) and server/explain.ts (the
+explanation's four sections, the quoted-data instruction and the bounds on what is
+sent) adapt qa-guide from claude_qamods, Copyright (c) 2026 aieo-product, licensed
+under the MIT License.
+
+Source:      https://github.com/aieo-product/claude_qamods/tree/main/plugins/qa-guide
