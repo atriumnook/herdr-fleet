@@ -117,7 +117,7 @@ function RoleRow({ role, models, readOnlyAgents, open, canAct, toggle, change }:
           {role.readOnly && <p className="fleet-role-note">{t("This role edits no file, so it runs only on {agents}.", { agents: readOnlyAgents.join(", ") })}</p>}
           <ol className="fleet-candidate-list">
             {role.candidates.map((candidate, index) => {
-              const hint = models.unlisted.includes(`${role.name}:${index}`) ? t("{agent} does not offer this model.", { agent: candidate.agent }) : candidate.skip ?? "";
+              const hint = [models.unlisted.includes(`${role.name}:${index}`) ? t("{agent} does not offer this model.", { agent: candidate.agent }) : "", candidate.skip ?? ""].filter(Boolean).join(" ");
               return (
               <li key={`${index}-${label(candidate)}`} className="fleet-candidate-row">
                 <span className="fleet-candidate-number mono">{index + 1}</span>
