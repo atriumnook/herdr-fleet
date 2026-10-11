@@ -124,6 +124,8 @@ export interface PlanState {
   confirm: { runId: string; status: "asking" | "running"; error?: string } | null;
   /** answers to an older version, dropped when the lead handed over a newer one: the person is told */
   dropped: { runId: string; version: number } | null;
+  /** reads asked so far: only the latest one's answer is kept, so an older read never shows over a newer one */
+  seq: number;
 }
 
 export type RequestState =
@@ -731,8 +733,8 @@ type BareEvent =
   | { type: "fleet-land"; runId: string; action: LandAction }
   | { type: "landing-confirm" }
   | { type: "landing-cancel" }
-  | { type: "plan-loaded"; runId: string; plan: Plan }
-  | { type: "plan-failed"; runId: string; message: string }
+  | { type: "plan-loaded"; runId: string; seq: number; plan: Plan }
+  | { type: "plan-failed"; runId: string; seq: number; message: string }
   /** an option of a decision picked, the recommended one too: the decision counts as seen */
   | { type: "plan-choose"; runId: string; ask: string; value: string }
   /** a comment on a claim, by its number; an empty one is taken back */
@@ -1025,7 +1027,7 @@ type BareEffect =
   | { kind: "request"; action: RequestAction }
   | { kind: "load-landing-diff"; runId: string }
   | { kind: "load-landing-checks"; runId: string }
-  | { kind: "load-plan"; runId: string }
+  | { kind: "load-plan"; runId: string; seq: number }
   | { kind: "load-fleet-settings"; cwd: string | null }
   | { kind: "save-fleet-settings"; cwd: string | null; patch: FleetSettingsPatch; seq: number }
   | { kind: "save-settings"; settings: Settings }
@@ -1113,7 +1115,7 @@ export interface Transition { state: UiState; effects: Effect[] }
 const NO_LANDING: LandingState = { runId: null, diff: { status: "idle", data: null }, checks: { status: "idle", data: null }, comments: {}, confirm: null };
 
 /** No plan read, no answer written, nothing asked. */
-const NO_PLAN: PlanState = { runId: null, reading: { status: "idle", data: null }, drafts: {}, confirm: null, dropped: null };
+const NO_PLAN: PlanState = { runId: null, reading: { status: "idle", data: null }, drafts: {}, confirm: null, dropped: null, seq: 0 };
 
 export const INITIAL_STATE: UiState = {
   screen: "pane",
@@ -1176,10 +1178,17 @@ function readLanding(landing: LandingState, view: FleetViewState, effects: Effec
 /** The open thread's plan, read again when its tab shows it. */
 function readPlan(plan: PlanState, view: FleetViewState, effects: Effect[]): PlanState {
   const runId = view.open?.kind === "thread" ? view.open.runId : null;
-  const fresh = plan.runId === runId ? plan : { ...plan, runId, reading: NO_PLAN.reading, dropped: null };
+  // another thread: what was read, told or asked for the one before is not this one's
+  const fresh = plan.runId === runId ? plan : { ...plan, runId, reading: NO_PLAN.reading, dropped: null, confirm: null };
   if (runId === null || view.tab !== "plan") return fresh;
-  effects.push({ kind: "load-plan", runId });
-  return { ...fresh, reading: { ...fresh.reading, status: "loading" } };
+  return loadPlan(fresh, runId, effects);
+}
+
+/** A read of `runId`'s plan, numbered: the answer of any read before it will be dropped. */
+function loadPlan(plan: PlanState, runId: string, effects: Effect[]): PlanState {
+  const seq = plan.seq + 1;
+  effects.push({ kind: "load-plan", runId, seq });
+  return { ...plan, seq, reading: { ...plan.reading, status: "loading" } };
 }
 
 /** A thread's answers so far to its plan's version `version`: answers to an older version are dropped. */
@@ -1550,7 +1559,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     }
     case "plan-loaded":
     case "plan-failed": {
-      if (event.runId !== state.plan.runId) return next({});
+      if (event.runId !== state.plan.runId || event.seq !== state.plan.seq) return next({});
       if (event.type === "plan-failed") return next({ plan: { ...state.plan, reading: { ...state.plan.reading, status: "error", error: event.message } } });
       // answers to a version the lead has since replaced are dropped
       const draft = state.plan.drafts[event.runId];
@@ -1558,7 +1567,9 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       const stale = draft !== undefined && draft.version !== event.plan.version;
       const dropped = stale && (Object.keys(draft.choices).length > 0 || Object.values(draft.comments).some((text) => text.trim()) || draft.note.trim() !== "")
         ? { runId: event.runId, version: draft.version } : state.plan.dropped;
-      return next({ plan: { ...state.plan, drafts: stale ? others : state.plan.drafts, dropped, reading: { status: "ready", data: event.plan } } });
+      // a yes asked for the older version is not a yes to this one
+      const confirm = stale && state.plan.confirm?.status === "asking" ? null : state.plan.confirm;
+      return next({ plan: { ...state.plan, drafts: stale ? others : state.plan.drafts, dropped, confirm, reading: { status: "ready", data: event.plan } } });
     }
     case "plan-choose":
     case "plan-comment":
@@ -1655,8 +1666,8 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
         // sent: the answers are the lead's now, and the plan, marked answered, is read again
         const { [action.runId]: _sent, ...drafts } = state.plan.drafts;
         const shown = state.plan.runId === action.runId && state.fleetView.tab === "plan";
-        if (shown) effects.push({ kind: "load-plan", runId: action.runId });
-        return next({ request: { status: "none" }, plan: { ...state.plan, drafts, confirm: null, ...(shown ? { reading: { ...state.plan.reading, status: "loading" as const } } : {}) } });
+        const sent = { ...state.plan, drafts, confirm: null };
+        return next({ request: { status: "none" }, plan: shown ? loadPlan(sent, action.runId, effects) : sent });
       }
       if (action.kind !== "land") return next({ request: { status: "none" }, usage });
       // the comments went out: the ones written meanwhile stay

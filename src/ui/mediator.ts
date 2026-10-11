@@ -297,8 +297,8 @@ export class Mediator {
         catch (error) { dispatch({ type: "landing-checks-failed", runId: effect.runId, message: message(error) }); }
         return;
       case "load-plan":
-        try { dispatch({ type: "plan-loaded", runId: effect.runId, plan: await this.ports.loadPlan(effect.runId) }); }
-        catch (error) { dispatch({ type: "plan-failed", runId: effect.runId, message: message(error) }); }
+        try { dispatch({ type: "plan-loaded", runId: effect.runId, seq: effect.seq, plan: await this.ports.loadPlan(effect.runId) }); }
+        catch (error) { dispatch({ type: "plan-failed", runId: effect.runId, seq: effect.seq, message: message(error) }); }
         return;
       case "save-settings":
         this.ports.saveSettings(effect.settings);

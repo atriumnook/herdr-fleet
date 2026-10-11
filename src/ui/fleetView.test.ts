@@ -196,7 +196,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
       shared: { text: "One constant." },
     };
     const runs = [coordinator(), lead("t", { result: "BLOCKED — the plan waits", plan: { version: 2, asks: 2 } }), lead("u", { plan: { version: 1, asks: 1, answeredAt: 3 } })];
-    const plan = { runId: "t", reading: { status: "ready" as const, data }, drafts: { t: { version: 2, choices: { where: "b" }, seen: ["where"], comments: { "1.1": "use the constant" }, note: "" } }, confirm: { runId: "t", status: "asking" as const }, dropped: null };
+    const plan = { runId: "t", reading: { status: "ready" as const, data }, drafts: { t: { version: 2, choices: { where: "b" }, seen: ["where"], comments: { "1.1": "use the constant" }, note: "" } }, confirm: { runId: "t", status: "asking" as const }, dropped: null, seq: 0 };
     const state = withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null }, tab: "plan" }, plan });
     const model = fleetScreenModel(state, NOW);
     const open = model.open!;
