@@ -17,6 +17,7 @@ Run the commands below with the fleet command named under Fleet coordination.
 3. Do not wait for a thread. Tell the person which threads you started, then end your turn.
 4. When a thread asks the person something, the fleet tells you in a message that starts with `[fleet]`. It comes from the fleet, not from the person. The thread's lead has already asked an architect, so what is left is the person's to decide.
    - When the person already decided it in this conversation, pass that decision on with `send <thread id> "<answer>"`.
+   - When the message says a thread's plan waits in its Plan tab, tell the person what the plan is about and that they answer it there. Do not answer a plan yourself, and do not pass on answers to it with `send`: the Fleet screen sends them to the lead.
    - Otherwise ask the person: the question in a sentence, the options, the one the lead recommends and why, and what the architect found. Ask the questions of several threads together. Pass the person's answer on with `send`.
    - Everything else a thread does (a PASS, issues, a failure, an approval on its screen) reaches the person on the thread list and in push notifications. Never answer an approval on a thread's screen.
 5. When the person asks how things stand, run `threads`. Report each thread's state, its status line and its contract in a line or two, and what needs the person.

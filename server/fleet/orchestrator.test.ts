@@ -1375,3 +1375,204 @@ describe("landing", () => {
     await expect(fleet.checks(helper.id, helper.group)).rejects.toMatchObject({ code: "not_a_thread" });
   });
 });
+
+describe("plans", () => {
+  const agents = [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true }), role("reviewer")];
+  const PLAN = {
+    title: "Retry limit",
+    claims: [{ text: "A failed send is tried three times.", exhibit: { kind: "code", path: "src/retry.ts", start: 1 },
+      ask: { id: "limit", question: "How many?", options: [{ value: "three", label: "3" }, { value: "five", label: "5" }], recommended: "three" } }],
+  };
+
+  function project() {
+    const states = new Map<string, AgentState>();
+    // the thread's worktree is a real folder: the plan's code is read from it
+    const tree = mkdtempSync(join(tmpdir(), "fleet-plan-tree-"));
+    roots.push(tree);
+    mkdirSync(join(tree, "src"));
+    writeFileSync(join(tree, "src", "retry.ts"), "export const RETRIES = 3;\n");
+    const harness = setup({ agents, gitRoot: async () => "/repo" });
+    harness.runtime.createLocationImpl = async (options) => ({ paneId: `w1:p${harness.runtime.locations.length}`, cwd: options.worktree ? tree : options.cwd });
+    harness.runtime.getImpl = async (name) => states.get(name) ?? "working";
+    const turn = async (run: AgentRun, state: AgentState) => {
+      states.set(run.herdrName, state);
+      await Bun.sleep(GRACE + 5);
+      harness.fleet.onPaneStatus(run.paneId);
+      await Bun.sleep(30);
+    };
+    const to = (run: AgentRun) => harness.runtime.prompts.filter((p) => p.name === run.herdrName).map((p) => p.text);
+    /** a coordinator, and a thread whose lead handed over a plan and ended its turn BLOCKED */
+    const planned = async () => {
+      const coordinator = await harness.fleet.startProject({ task: "fix the retry", cwd: "/repo" });
+      await turn(coordinator, "idle");
+      const thread = await harness.fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+      const plan = harness.fleet.submitPlan(thread.id, PLAN);
+      writeFileSync(join(harness.root, "results", thread.id, "handoff.md"), "BLOCKED — the plan waits for the person");
+      await turn(thread, "idle");
+      return { coordinator, thread, plan };
+    };
+    return { ...harness, states, turn, to, planned, tree };
+  }
+
+  it("are kept beside the lead's result file with the code read from its worktree, and the thread waits on the person", async () => {
+    const { fleet, registry, root, planned } = project();
+    const { thread, plan } = await planned();
+    expect(plan.version).toBe(1);
+    expect(plan.claims[0]!.exhibit).toMatchObject({ lines: ["export const RETRIES = 3;"] });
+    expect(JSON.parse(readFileSync(join(root, "fleet-plans", `${thread.id}.json`), "utf8"))).toEqual(plan);
+    expect(fleet.plan(thread.id)).toEqual(plan);
+    expect(registry.get(thread.id)!.plan).toEqual({ version: 1, asks: 1 });
+    expect(threadState(registry.get(thread.id)!)).toBe("waiting");
+    expect(fleet.submitPlan(thread.id, PLAN).version).toBe(2);
+    fleet.stop();
+  });
+
+  it("send the coordinator to the Plan tab rather than have it answer", async () => {
+    const { fleet, to, planned } = project();
+    const { coordinator } = await planned();
+    expect(to(coordinator)[1]).toContain("waits for the person in the thread's Plan tab on the Fleet screen: point them there, and do not answer it yourself.");
+    fleet.stop();
+  });
+
+  it("reach the lead as its next task once answered, and only once", async () => {
+    const { fleet, registry, to, root, planned } = project();
+    const { thread } = await planned();
+    await fleet.answerPlan(thread.id, { version: 1, choices: { limit: "five" }, seen: ["limit"], comments: [] });
+    expect(to(thread).at(-1)).toContain("- D1 (on claim 1) How many? → 5 [limit=five] (instead of your recommendation, 3)");
+    expect(registry.get(thread.id)!.plan!.answeredAt).toBeNumber();
+    expect(JSON.parse(readFileSync(join(root, "fleet-plans", `${thread.id}.json`), "utf8"))).toMatchObject({ answeredAt: expect.any(Number), answer: { version: 1, choices: { limit: "five" }, seen: ["limit"] } });
+    expect(threadState(registry.get(thread.id)!)).toBe("working");
+    await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "plan_answered" });
+    fleet.stop();
+  });
+
+  it("wait for the lead's turn to end, and refuse an answer to an older version", async () => {
+    const { fleet, runtime, planned, turn } = project();
+    const { thread } = await planned();
+    fleet.submitPlan(thread.id, PLAN);
+    await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "plan_outdated" });
+    await fleet.send(thread.id, "one more thing");
+    await expect(fleet.answerPlan(thread.id, { version: 2 })).rejects.toMatchObject({ code: "run_busy" });
+    // in that turn the lead writes version 3, which then waits for the person
+    fleet.submitPlan(thread.id, PLAN);
+    await turn(thread, "idle");
+    const prompts = runtime.prompts.length;
+    await fleet.answerPlan(thread.id, { version: 3 });
+    expect(runtime.prompts.length).toBe(prompts + 1);
+    fleet.stop();
+  });
+
+  it("hold the thread waiting only through the BLOCKED turn: a lead that did not stop is ready for review", async () => {
+    const { fleet, registry, root, turn } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    fleet.submitPlan(thread.id, PLAN);
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "PASS — built without waiting");
+    await turn(thread, "idle");
+    expect(threadState(registry.get(thread.id)!)).toBe("review");
+    // the plan was written in that turn: it still takes answers
+    expect(registry.get(thread.id)!.plan!.closedAt).toBeUndefined();
+    fleet.stop();
+  });
+
+  it("close when the lead's next turn ends without the answers, and take none then", async () => {
+    const { fleet, registry, root, to, turn, planned } = project();
+    const { coordinator, thread } = await planned();
+    // the coordinator passes on a decision the person made in its conversation instead
+    await fleet.send(thread.id, "The person chose five retries.");
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "PASS — five retries");
+    await turn(thread, "idle");
+    const run = registry.get(thread.id)!;
+    expect(run.plan!.closedAt).toBeNumber();
+    expect(JSON.parse(readFileSync(join(root, "fleet-plans", `${thread.id}.json`), "utf8")).closedAt).toBeNumber();
+    expect(threadState(run)).toBe("review");
+    await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "plan_closed" });
+    // a BLOCKED turn after it asks about something else: the closed plan is not pointed to again
+    await fleet.send(thread.id, "go on");
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "BLOCKED — which branch?");
+    await turn(thread, "idle");
+    // the coordinator, still on the first question's turn, hears it once that turn ends
+    await turn(coordinator, "idle");
+    expect(to(coordinator).at(-1)).toContain("which branch?");
+    expect(to(coordinator).at(-1)).not.toContain("Plan tab");
+    fleet.stop();
+  });
+
+  it("answered before the coordinator heard of them, are not passed on to it afterwards", async () => {
+    const { fleet, registry, root, to, turn } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    // the coordinator is at work, so the thread's question waits for it
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    fleet.submitPlan(thread.id, PLAN);
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "BLOCKED — the plan waits for the person");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.notice).toContain("Plan tab");
+    await fleet.answerPlan(thread.id, { version: 1 });
+    expect(registry.get(thread.id)!.notice).toBeUndefined();
+    await turn(coordinator, "idle");
+    expect(to(coordinator)).toEqual(["go"]);
+    fleet.stop();
+  });
+
+  it("stay unanswered when the answers do not reach the lead: on its approval screen, or a prompt that failed", async () => {
+    const { fleet, runtime, registry, root, planned } = project();
+    const { thread } = await planned();
+    const kept = () => JSON.parse(readFileSync(join(root, "fleet-plans", `${thread.id}.json`), "utf8"));
+    runtime.promptImpl = async () => { throw new HerdrError("agent_blocked", "agent is blocked"); };
+    await expect(fleet.answerPlan(thread.id, { version: 1, choices: { limit: "five" }, seen: ["limit"] })).rejects.toMatchObject({ code: "agent_blocked" });
+    expect(kept().answeredAt).toBeUndefined();
+    expect(registry.get(thread.id)!.plan!.answeredAt).toBeUndefined();
+    // the person answered the approval: the same answers go now
+    registry.get(thread.id)!.state = "idle";
+    runtime.promptImpl = async () => { throw new HerdrError("pane_not_found", "pane gone"); };
+    await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "answer_not_delivered" });
+    expect(kept().answeredAt).toBeUndefined();
+    fleet.stop();
+  });
+
+  it("leave a newer plan the lead handed over while the answers went out as it is", async () => {
+    const { fleet, runtime, registry, root, planned } = project();
+    const { thread } = await planned();
+    // the lead writes version 2 while the answers to version 1 are being typed into its pane
+    runtime.promptImpl = async (name, text) => {
+      runtime.prompts.push({ name, text });
+      fleet.submitPlan(thread.id, { ...PLAN, title: "Retry limit, again" });
+      return "working";
+    };
+    await fleet.answerPlan(thread.id, { version: 1, choices: { limit: "five" }, seen: ["limit"] });
+    const kept = JSON.parse(readFileSync(join(root, "fleet-plans", `${thread.id}.json`), "utf8"));
+    expect(kept).toMatchObject({ version: 2, title: "Retry limit, again" });
+    expect(kept.answeredAt).toBeUndefined();
+    expect(registry.get(thread.id)!.plan).toEqual({ version: 2, asks: 1 });
+    fleet.stop();
+  });
+
+  it("are kept where the lead does not write, and one that does not hold together is refused, not drawn", async () => {
+    const { fleet, root, planned } = project();
+    const { coordinator, thread } = await planned();
+    // a plan.json the lead wrote into its own result folder is not the fleet's
+    writeFileSync(join(root, "results", thread.id, "plan.json"), JSON.stringify({ version: 9, writtenAt: 1, title: "Mine", claims: [{ text: "x", children: [] }], why: [], scope: [] }));
+    expect(fleet.plan(thread.id).title).toBe("Retry limit");
+    // the kept file, broken: refused as unreadable, and the rest of the fleet reads on
+    writeFileSync(join(root, "fleet-plans", `${thread.id}.json`), JSON.stringify({ version: 1, writtenAt: 1, title: "t", claims: [{ text: { html: "<b>" } }] }));
+    expect(() => fleet.plan(thread.id)).toThrow(expect.objectContaining({ code: "plan_unreadable" }));
+    await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "plan_unreadable" });
+    expect((await fleet.threads({ callerRun: coordinator.id })).map((each) => each.run.id)).toEqual([thread.id]);
+    // the lead hands it over again: the next version
+    expect(fleet.submitPlan(thread.id, PLAN).version).toBe(2);
+    fleet.stop();
+  });
+
+  it("come only from a thread's lead, and only plans that hold together", async () => {
+    const { fleet, planned } = project();
+    const { thread } = await planned();
+    const helper = await spawn(fleet, { role: "reviewer" });
+    expect(() => fleet.submitPlan(helper.id, PLAN, helper.group)).toThrow(expect.objectContaining({ code: "not_a_thread" }));
+    expect(() => fleet.submitPlan(thread.id, { ...PLAN, claims: [{ text: "x", exhibit: { kind: "code", path: "../../etc/passwd", start: 1 } }] }))
+      .toThrow("../../etc/passwd is not a file in the thread's worktree");
+    expect(() => fleet.submitPlan(thread.id, { title: "t", claims: [] })).toThrow(expect.objectContaining({ code: "invalid_plan" }));
+    expect(fleet.plan(thread.id).version).toBe(1);
+    fleet.stop();
+  });
+});

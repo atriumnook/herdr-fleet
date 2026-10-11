@@ -19,6 +19,7 @@ import type {
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
 import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
+import type { Plan, PlanAnswer } from "../../shared/plan.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 
@@ -451,6 +452,16 @@ export async function fetchFleetLanding(runId: string): Promise<LandingChecks> {
 /** A landing step the person pressed, with the comments a comments step sends. */
 export async function landFleetRun(runId: string, action: LandAction, comments?: LineComment[]): Promise<void> {
   await sendFleet(`/runs/${encodeURIComponent(runId)}/land`, { action, ...(comments ? { comments } : {}) });
+}
+
+/** The plan a thread's lead handed over last. */
+export async function fetchFleetPlan(runId: string): Promise<Plan> {
+  return (await getJson<{ plan: Plan }>(`/api/fleet/runs/${encodeURIComponent(runId)}/plan`)).plan;
+}
+
+/** The person's answers to a thread's plan, which the server sends to its lead. */
+export async function answerFleetPlan(runId: string, answer: PlanAnswer): Promise<void> {
+  await sendFleet(`/runs/${encodeURIComponent(runId)}/plan/answer`, { answer });
 }
 
 /** The person's fleet.json as the project in `cwd` uses it (none: the server's own folder). */

@@ -24,6 +24,13 @@ which follows the plugin's function of that name closely.
 
 Source:      https://github.com/oikon48/prompt-rail/tree/main/plugins/prompt-rail
 
+The thread plan (shared/plan.ts, the Plan tab, agents/lead.md) takes its shape from the
+html-plan plugin's idea: a plan as a tree of claims (what, how, where), one exhibit per claim,
+each decision on the claim it changes, and one response sent back. No code of it is used; the
+plan is JSON the Web UI draws.
+
+Source:      https://github.com/anthropics/claude-plugins-community/tree/main/html-plan
+
 src/lib/plainQuestion.ts (the plain-text question test) and server/explain.ts (the
 explanation's four sections, the quoted-data instruction and the bounds on what is
 sent) adapt qa-guide from claude_qamods, Copyright (c) 2026 aieo-product, licensed

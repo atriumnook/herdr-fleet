@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { handleFleetRequest } from "./api.ts";
@@ -153,6 +153,32 @@ describe("fleet API", () => {
     expect((await call("POST", `/runs/${thread.id}/land`, { action: "discard", group: thread.group })).body["run"]).toMatchObject({ landed: "discarded" });
     expect(Bun.spawnSync(["git", "-C", repo, "branch", "--list", thread.branch]).stdout.toString()).toBe("");
     expect(await call("POST", `/runs/${thread.id}/land`, { action: "merge", group: thread.group })).toMatchObject({ status: 409, body: { error: { code: "thread_landed" } } });
+  });
+
+  it("takes a thread lead's plan and shows it; the person's answers wait for the lead's turn to end", async () => {
+    const { call } = fleet();
+    const repo = join(resultsRoot, "plan");
+    Bun.spawnSync(["git", "init", "-q", "-b", "main", repo]);
+    Bun.spawnSync(["git", "-C", repo, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "base"]);
+    const thread = (await call("POST", "/threads", { title: "Fix", task: "t", cwd: repo })).body["run"];
+    const at = (path = "") => `/runs/${thread.id}/plan${path}`;
+    expect(await call("GET", at())).toMatchObject({ status: 404, body: { error: { code: "no_plan" } } });
+    const plan = { title: "Retry limit", claims: [{ text: "A failed send is tried three times.", exhibit: { kind: "list", items: ["three tries"] },
+      ask: { id: "limit", question: "How many?", options: [{ value: "three", label: "3" }, { value: "five", label: "5" }], recommended: "three" } }] };
+    expect((await call("POST", at(), { plan }, {})).status).toBe(403);
+    expect(await call("POST", at(), { plan: { title: "t" } })).toMatchObject({ status: 400, body: { error: { code: "invalid_plan" } } });
+    // counted in bytes: 30,000 characters of Japanese are 90,000 bytes
+    expect(await call("POST", at(), { plan: { ...plan, filler: "あ".repeat(30_000) } })).toMatchObject({ status: 400, body: { error: { code: "invalid_plan", message: "The plan is larger than 65536 bytes." } } });
+    expect(await call("POST", at(), { plan })).toMatchObject({ status: 201, body: { plan: { version: 1, title: "Retry limit" } } });
+    expect((await call("GET", at())).body["plan"]).toMatchObject({ version: 1 });
+    expect((await call("GET", `/runs/${thread.id}`)).body["run"].plan).toEqual({ version: 1, asks: 1 });
+    // the lead is still at work on its task
+    expect(await call("POST", at("/answer"), { answer: { version: 1 } })).toMatchObject({ status: 409, body: { error: { code: "run_busy" } } });
+    expect(await call("POST", at("/answer"), { answer: { version: 0 } })).toMatchObject({ status: 409, body: { error: { code: "plan_outdated" } } });
+    expect(await call("POST", at("/answer"), { answer: { version: 1, choices: { limit: "ten" } } })).toMatchObject({ status: 400, body: { error: { code: "invalid_answer" } } });
+    // a kept plan that does not hold together is answered as such, not as a server error
+    writeFileSync(join(resultsRoot, "fleet-plans", `${thread.id}.json`), JSON.stringify({ version: 1, writtenAt: 1, title: "t", claims: [{ text: 5 }] }));
+    expect(await call("GET", at())).toMatchObject({ status: 409, body: { error: { code: "plan_unreadable" } } });
   });
 
   it("reads the settings, and writes a change only with the fleet header", async () => {

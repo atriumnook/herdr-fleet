@@ -20,6 +20,22 @@ const CHANGES: Record<string, { file: string; text: string }> = {
 /** what each agent of the stand-in fleet does, by the name it was started with */
 const BEHAVIOUR: Record<string, AgentState> = {
   "repo · fleet": "idle", "Fix the retry": "blocked", "Update the README": "idle", "Weekly usage window": "working", review: "idle", bench: "working",
+  "Limit the retries": "idle",
+};
+
+/** the plan the "Limit the retries" lead hands over: a decision, lines of its worktree, and code it proposes */
+const PLAN = {
+  title: "Retry limit in the README",
+  why: ["say how many times a send is tried"],
+  claims: [
+    {
+      text: "The README says a failed send is tried three times.",
+      ask: { id: "limit", question: "How many tries should the README promise?", options: [{ value: "three", label: "3 tries" }, { value: "five", label: "5 tries", note: "claim 1.1 changes" }], recommended: "three" },
+      children: [{ text: "README.md:1 · the title", exhibit: { kind: "code", path: "README.md", start: 1, end: 1 } }],
+    },
+    { text: "The limit is one constant.", exhibit: { kind: "code", path: "src/limit.ts", text: "export const RETRIES = 3;" } },
+  ],
+  scope: ["The retry code itself"],
 };
 
 /**
@@ -207,6 +223,43 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await screen.locator(".fleet-overview").getByRole("button", { name: "Back to threads" }).click();
     await screen.locator(".fleet-fold", { hasText: "Resolved 1" }).waitFor();
 
+    // a lead hands over a plan: the thread waits on the person, who answers it in the Plan tab
+    const limit = await thread("Limit the retries");
+    const planned = await fetch(`${origin}/api/fleet/runs/${limit.id}/plan`, { method: "POST", headers: { "content-type": "application/json", "x-herdr-fleet": "1" }, body: JSON.stringify({ plan: PLAN }) });
+    assert.equal(planned.status, 201, await planned.clone().text());
+    // and ends its turn BLOCKED, as agents/lead.md has it
+    writeFileSync(join(stateDir, "fleet-results", limit.id, "handoff.md"), "## HANDOFF\nBLOCKED — the plan waits for the person on the Fleet screen\n");
+    await screen.locator(".fleet-row.group-needs", { hasText: "Limit the retries" }).locator(".fleet-plan-chip", { hasText: "Plan · 1 to answer" }).waitFor();
+    await screen.locator(".fleet-row", { hasText: "Limit the retries" }).click();
+    const planOpen = screen.locator(".fleet-overview .fleet-open");
+    await planOpen.getByRole("button", { name: /^Plan/ }).click();
+    const planView = planOpen.locator(".fleet-plan");
+    await planView.locator(".fleet-plan-head", { hasText: "Retry limit in the README" }).waitFor();
+    // closed, the tree is the summary: the first-level claims only
+    assert.equal(await planView.locator(".fleet-plan-claim.level-1").count(), 2);
+    assert.equal(await planView.locator(".fleet-plan-claim.level-2").first().isVisible(), false);
+    await save(page, shots, "fleet-plan-dark");
+    // "1 to answer" opens the decision; the lines come from the thread's worktree
+    await planView.getByRole("button", { name: "1 to answer" }).click();
+    await planView.getByRole("radio", { name: /5 tries/ }).click();
+    await planView.locator(".fleet-plan-claim.level-2 summary").click();
+    assert.match(await planView.locator(".fleet-plan-code").first().textContent() ?? "", /# repo/);
+    await planView.locator(".fleet-plan-claim.level-1").first().locator(".fleet-plan-comment-button").first().click();
+    await planView.getByRole("textbox", { name: "Comment on 1" }).fill("Say it in the install section");
+    await save(page, shots, "fleet-plan-answered-dark");
+    // Respond asks first, then the answers go to the lead, and the plan shows them sent
+    await planView.getByRole("button", { name: "Respond" }).and(page.locator(":enabled")).click();
+    const respond = page.getByRole("alertdialog", { name: "Send your answers to the lead?" });
+    await respond.waitFor();
+    assert.match(await respond.textContent() ?? "", /D1 How many tries should the README promise\? → 5 tries/);
+    await save(page, shots, "fleet-plan-confirm-dark");
+    await respond.getByRole("button", { name: "Send answers" }).click();
+    await planView.locator(".fleet-plan-done", { hasText: "Answered" }).waitFor();
+    const answered = await (await fetch(`${origin}/api/fleet/runs/${limit.id}/plan`)).json() as { plan: { answer: { choices: Record<string, string>; comments: unknown[] } } };
+    assert.deepEqual(answered.plan.answer.choices, { limit: "five" });
+    assert.deepEqual(answered.plan.answer.comments, [{ claim: "1", text: "Say it in the install section" }]);
+    await planOpen.getByRole("button", { name: "Back to threads" }).click();
+
     // the Settings page: a candidate added to the lead is written to fleet.json, and codex, 92% used, is passed over
     const settingsFile = join(root, "config", "fleet.json");
     await page.locator(".fleet-rail-settings").click();
@@ -336,6 +389,14 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await phoneScreen.locator(".fleet-file.is-on", { hasText: "src/retry.ts" }).waitFor();
     assert.equal(await sideways(), 0, "a change does not push the screen sideways on a phone");
     await save(mobile, shots, "fleet-phone-changes-dark");
+    // the answered plan of another thread, on the whole screen
+    await phoneScreen.getByRole("button", { name: "Back to threads" }).click();
+    await phoneScreen.locator(".fleet-row", { hasText: "Limit the retries" }).click();
+    await phoneScreen.getByRole("button", { name: /^Plan/ }).click();
+    await phoneScreen.locator(".fleet-plan-done", { hasText: "Answered" }).waitFor();
+    await phoneScreen.locator(".fleet-plan-claim.level-1 summary").first().click();
+    assert.equal(await sideways(), 0, "a plan does not push the screen sideways on a phone");
+    await save(mobile, shots, "fleet-phone-plan-dark");
     // the Settings page from the drawer, on the whole screen
     await mobile.locator(".drawer-toggle").click();
     await mobile.locator(".fleet-rail-settings").click();

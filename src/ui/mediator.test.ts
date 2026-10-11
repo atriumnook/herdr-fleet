@@ -22,6 +22,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     runRequest: async (action) => { requests.push(action); },
     loadLandingDiff: async (runId) => ({ diff: `diff of ${runId}`, truncated: false }),
     loadLandingChecks: async () => ({ baseBranch: "main", uncommitted: [], ahead: 1, behind: 0 }),
+    loadPlan: async () => ({ version: 1, writtenAt: 0, title: "t", why: [], claims: [], scope: [] }),
     loadFleetSettings: async () => SETTINGS,
     saveFleetSettings: async () => ({ ...SETTINGS, maxConcurrent: 3 }),
     loadFleetEntrances: async () => ({ entrances: [], tokenRequired: false }),
