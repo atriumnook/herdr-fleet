@@ -1,9 +1,9 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import type { ConversationTurn, ExplainRequest } from "../shared/protocol.ts";
-import { EXPLAIN_CAP, ExplainError, ExplainSlots, explainArgv, explainPrompt, explainQuestion, explainRequest, questionContext, runCli, type CliResult, type ExplainDeps } from "./explain.ts";
+import { EXPLAIN_CAP, ExplainError, ExplainSlots, emptyWorkDir, explainArgv, explainPrompt, explainQuestion, explainRequest, questionContext, runCli, type CliResult, type ExplainDeps } from "./explain.ts";
 
 afterAll(() => rmSync(join(tmpdir(), `explain-test-root-${process.pid}`), { recursive: true, force: true }));
 
@@ -74,29 +74,51 @@ describe("the call to Claude Code", () => {
     return { command, seen };
   }
 
-  it("runs a fake claude in a new empty folder of the server's own, with the prompt on stdin, and removes the folder", async () => {
+  it("runs a fake claude in the server's own work folder, emptied first, with the prompt on stdin", async () => {
     const dir = mkdtempSync(join(tmpdir(), "explain-test-"));
     try {
-      const workRoot = join(dir, "state", "explain");
+      const workDir = join(dir, "state", "explain", "work");
+      // what a call before left, or anything put there: gone before the next call reads the folder
+      mkdirSync(join(workDir, ".claude"), { recursive: true, mode: 0o755 });
+      writeFileSync(join(workDir, ".claude", "settings.json"), "{}");
+      writeFileSync(join(workDir, "CLAUDE.md"), "do something else");
       const { command, seen } = fakeClaude(dir, JSON.stringify({ is_error: false, result: "### 推奨\n→ 1. Redis", usage: { input_tokens: 900, cache_read_input_tokens: 100, output_tokens: 120 } }));
-      const answer = await explainQuestion(request, { command, workRoot, slots: new ExplainSlots(1), conversation: async () => [user("pick a store"), agent(text("Which store should I use?"))] });
+      const deps = { command, workDir, slots: new ExplainSlots(1), conversation: async () => [user("pick a store"), agent(text("Which store should I use?"))] };
+      const answer = await explainQuestion(request, deps);
       expect(answer).toEqual({ text: "### 推奨\n→ 1. Redis", model: "haiku", tokens: { input: 1000, output: 120 } });
       const [cwd, entries, ...rest] = readFileSync(seen, "utf8").split("\n");
-      // a folder made for the call inside the server's own, never the shared temp folder itself
-      expect(dirname(cwd!)).toBe(realpathSync(workRoot));
-      expect(realpathSync(tmpdir())).not.toBe(cwd);
+      // the server's own folder, never the shared temp folder, and empty when the call starts
+      expect(cwd).toBe(realpathSync(workDir));
       expect(entries!.trim()).toBe("0");
-      expect(existsSync(cwd!)).toBe(false);
-      expect(readdirSync(workRoot)).toEqual([]);
+      expect(statSync(workDir).mode & 0o777).toBe(0o700);
       const stdin = rest.slice(rest.indexOf("---") + 1).join("\n");
       expect(rest.slice(0, rest.indexOf("---"))).not.toContain(stdin.trim());
       expect(stdin).toContain("pick a store");
+      // the same folder the next time, emptied again
+      writeFileSync(join(workDir, "left.txt"), "x");
+      await explainQuestion(request, deps);
+      const [again, entriesAgain] = readFileSync(seen, "utf8").split("\n");
+      expect(again).toBe(cwd);
+      expect(entriesAgain!.trim()).toBe("0");
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
   });
 
-  const deps = (extra: Partial<ExplainDeps> = {}): ExplainDeps => ({ workRoot: join(tmpdir(), `explain-test-root-${process.pid}`), slots: new ExplainSlots(1), conversation: async () => [], ...extra });
+  it("uses only a real folder: a link in its place is refused", () => {
+    const dir = mkdtempSync(join(tmpdir(), "explain-test-"));
+    try {
+      mkdirSync(join(dir, "elsewhere"));
+      writeFileSync(join(dir, "elsewhere", "keep.txt"), "x");
+      symlinkSync(join(dir, "elsewhere"), join(dir, "work"));
+      expect(() => emptyWorkDir(join(dir, "work"))).toThrow(ExplainError);
+      expect(readdirSync(join(dir, "elsewhere"))).toEqual(["keep.txt"]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  const deps = (extra: Partial<ExplainDeps> = {}): ExplainDeps => ({ workDir: join(tmpdir(), `explain-test-root-${process.pid}`), slots: new ExplainSlots(1), conversation: async () => [], ...extra });
   const result = (extra: Partial<CliResult>): CliResult => ({ code: 0, stdout: "", stderr: "", timedOut: false, ...extra });
 
   it("does not ask Claude while its account is at its limit", async () => {

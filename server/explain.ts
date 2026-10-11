@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { chmodSync, lstatSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import type { ConversationTurn, ExplainRequest, ExplainResponse } from "../shared/protocol.ts";
 
@@ -6,8 +6,8 @@ import type { ConversationTurn, ExplainRequest, ExplainResponse } from "../share
  * An explanation of a question an agent asked: why it asks, what each choice leads to, and which
  * one to pick. Written by Claude Code's smallest model in print mode, only when the person asks for
  * it on the chat's card, on the person's own Claude subscription. The call reads no personal
- * setting, hook or MCP server, uses no tool and keeps no session; it runs in an empty folder of its
- * own (ExplainDeps.workRoot), one call at a time. The instructions and the bounds on what is sent
+ * setting, hook or MCP server, uses no tool and keeps no session; it runs in an emptied folder of
+ * the server's own (ExplainDeps.workDir), one call at a time. The instructions and the bounds on what is sent
  * are adapted from qa-guide (claude_qamods by aieo-product, MIT; see NOTICE).
  */
 
@@ -181,11 +181,12 @@ export interface ExplainDeps {
   /** the call failed: a rate limit puts Claude in cooldown */
   failed?(message: string): void;
   /**
-   * The server's own folder (in its state folder, which only the person can write): each call runs
-   * in a new empty folder made there and removed after. Never the shared temp folder, where another
-   * user could leave a `.claude/settings.json` or a `CLAUDE.md` for the call to read.
+   * The folder every call runs in: the server's own, in its state folder (only the person may enter
+   * it), emptied before each call. Never the shared temp folder, where another user could leave a
+   * `.claude/settings.json` or a `CLAUDE.md` for the call to read. One fixed folder, so Claude Code
+   * keeps one entry for it under ~/.claude/projects, not one per call; one call at a time shares it.
    */
-  workRoot: string;
+  workDir: string;
   /** the calls allowed at once, for the whole server */
   slots: ExplainSlots;
   /** runs argv in `cwd` with `input` on stdin */
@@ -194,6 +195,15 @@ export interface ExplainDeps {
   timeoutMs?: number;
   /** how long after SIGTERM a CLI that has not ended gets SIGKILL */
   killAfterMs?: number;
+}
+
+/** Makes the work folder (0700) or empties it: what a call before left behind is not read by the next. */
+export function emptyWorkDir(dir: string): void {
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // a link in its place would send the call elsewhere: only a real folder is used
+  if (!lstatSync(dir).isDirectory()) throw new ExplainError("failed", `${dir} is not a folder`);
+  chmodSync(dir, 0o700);
+  for (const entry of readdirSync(dir)) rmSync(join(dir, entry), { recursive: true, force: true });
 }
 
 /** Runs the CLI with the prompt on stdin (not in argv, where `ps` shows it); out of time, SIGTERM, then SIGKILL. */
@@ -234,13 +244,8 @@ export async function explainQuestion(request: ExplainRequest, deps: ExplainDeps
   const release = await deps.slots.take();
   let result: CliResult;
   try {
-    mkdirSync(deps.workRoot, { recursive: true, mode: 0o700 });
-    const cwd = mkdtempSync(join(deps.workRoot, "explain-"));
-    try {
-      result = await (deps.run ?? runCli)(explainArgv(deps.command), prompt, cwd, timing);
-    } finally {
-      rmSync(cwd, { recursive: true, force: true });
-    }
+    emptyWorkDir(deps.workDir);
+    result = await (deps.run ?? runCli)(explainArgv(deps.command), prompt, deps.workDir, timing);
   } finally {
     release();
   }

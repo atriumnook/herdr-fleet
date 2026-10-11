@@ -485,10 +485,10 @@ export function createServer(
     agentEnv: () => ({ HERDR_FLEET_URL: `http://127.0.0.1:${listeningPort}`, ...(token ? { HERDR_FLEET_TOKEN: token } : {}) }),
   });
 
-  /** the person's fleet.json, read and written by the Settings page */
-  /** where an explanation's claude call runs, one at a time: an empty folder made there per call */
+  /** the server's own folder for explanations: the person's limits are read from it, and the claude call runs in its `work` folder, one at a time */
   const explainRoot = join(options.stateDir ?? defaultStateDir(), "explain");
   const explainSlots = new ExplainSlots(EXPLAIN_CONCURRENCY);
+  /** the person's fleet.json, read and written by the Settings page */
   const settings = new FleetSettingsStore({ agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)), usage, userDir: options.fleet?.userDir });
 
   function broadcast(paneId: string, message: ServerMessage): void {
@@ -1414,7 +1414,7 @@ export function createServer(
         const config = (options.fleet?.config ?? ((cwd: string) => loadConfig(cwd)))(explainRoot);
         try {
           return jsonResponse(await explainQuestion(explain, {
-            workRoot: explainRoot,
+            workDir: join(explainRoot, "work"),
             slots: explainSlots,
             conversation: async (paneId) => (await paneConversation(paneId, options.codexHome)).turns,
             unavailable: () => usage.unavailable("claude", EXPLAIN_MODEL, config.maxUsedPercent),
