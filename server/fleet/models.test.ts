@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { AgentAdapter } from "./adapters.ts";
+import { AGENT_KINDS, type AgentAdapter } from "./adapters.ts";
 import { listAgyModels, listCodexModels, listCursorModels, listPiModels, parseAgyModels, parseCodexModels, parseCursorModels, parsePiModels } from "./model-lists.ts";
 import { modelListed } from "../../shared/fleet.ts";
 import { ModelCatalog } from "./models.ts";
@@ -97,7 +97,7 @@ describe("a CLI that fails or hangs", () => {
     await models.list("codex");
     await models.list("codex");
     await models.listAll();
-    expect(asked).toBe(1 + 4 /* the other kinds ask once each: they share the stub */);
+    expect(asked).toBe(AGENT_KINDS.length /* codex once, and every other kind once: they share the stub */);
     at = 61_000;
     await models.list("codex");
     expect(asked).toBe(6);
