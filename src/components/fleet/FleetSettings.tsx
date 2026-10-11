@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { ArrowDown, ArrowUp, Minus, Plus, X } from "lucide-react";
 import type { Emit } from "../../ui/bubble.ts";
 import type { FleetSettingsModel } from "../../ui/fleetView.ts";
@@ -51,7 +51,7 @@ export function FleetSettingsPage({ model, emit }: { model: FleetSettingsModel; 
           {!model.canAct && <p className="fleet-settings-intro">{t("This device can only watch, so the settings cannot be changed here.")}</p>}
           {!settings ? (model.status !== "error" && <p className="fleet-quiet">{t("Loading settings…")}</p>) : (
             <>
-              {section === "roles" && <RolesSection settings={settings} canAct={model.canAct} change={change} />}
+              {section === "roles" && <RolesSection settings={settings} models={model.models} canAct={model.canAct} change={change} />}
               {section === "usage" && <UsageSection settings={settings} model={model} change={change} />}
               {section === "projects" && <ProjectsSection model={model} change={change} />}
               {section === "limits" && <LimitsSection settings={settings} canAct={model.canAct} change={change} />}
@@ -70,7 +70,7 @@ const SECTION_LABEL: Record<Section, string> = { roles: "Roles", usage: "Usage",
 
 type Change = (patch: Extract<FleetSettingsEvent, { type: "fleet-settings-change" }>["patch"]) => void;
 
-function RolesSection({ settings, canAct, change }: { settings: FleetSettings; canAct: boolean; change: Change }) {
+function RolesSection({ settings, models, canAct, change }: { settings: FleetSettings; models: FleetSettingsModel["models"]; canAct: boolean; change: Change }) {
   // purely visual: the role whose candidates are being edited
   const [open, setOpen] = useState<string | null>(null);
   return (
@@ -79,7 +79,7 @@ function RolesSection({ settings, canAct, change }: { settings: FleetSettings; c
       <p className="fleet-settings-intro">{t("Each role tries its candidates from the top and starts on the first one whose account has usage left.")}</p>
       <div className="fleet-roles">
         {settings.roles.map((role) => (
-          <RoleRow key={role.name} role={role} readOnlyAgents={settings.readOnlyAgents} open={open === role.name} canAct={canAct}
+          <RoleRow key={role.name} role={role} models={models} readOnlyAgents={settings.readOnlyAgents} open={open === role.name} canAct={canAct}
             toggle={() => setOpen(open === role.name ? null : role.name)} change={change} />
         ))}
       </div>
@@ -87,7 +87,7 @@ function RolesSection({ settings, canAct, change }: { settings: FleetSettings; c
   );
 }
 
-function RoleRow({ role, readOnlyAgents, open, canAct, toggle, change }: { role: RoleSettings; readOnlyAgents: FleetAgentKind[]; open: boolean; canAct: boolean; toggle: () => void; change: Change }) {
+function RoleRow({ role, models, readOnlyAgents, open, canAct, toggle, change }: { role: RoleSettings; models: FleetSettingsModel["models"]; readOnlyAgents: FleetAgentKind[]; open: boolean; canAct: boolean; toggle: () => void; change: Change }) {
   const now = role.candidates.find((candidate) => !candidate.skip);
   const save = (candidates: RoleCandidate[], thinking?: ThinkingLevel | null) => change({ roles: { [role.name]: { candidates: candidates.map(({ agent, model }) => (model ? { agent, model } : { agent })), ...(thinking !== undefined ? { thinking } : {}) } } });
   const list = role.candidates.map(({ agent, model }) => (model ? { agent, model } : { agent }));
@@ -116,14 +116,16 @@ function RoleRow({ role, readOnlyAgents, open, canAct, toggle, change }: { role:
           )}
           {role.readOnly && <p className="fleet-role-note">{t("This role edits no file, so it runs only on {agents}.", { agents: readOnlyAgents.join(", ") })}</p>}
           <ol className="fleet-candidate-list">
-            {role.candidates.map((candidate, index) => (
+            {role.candidates.map((candidate, index) => {
+              const hint = models.unlisted.includes(`${role.name}:${index}`) ? t("{agent} does not offer this model.", { agent: candidate.agent }) : candidate.skip ?? "";
+              return (
               <li key={`${index}-${label(candidate)}`} className="fleet-candidate-row">
                 <span className="fleet-candidate-number mono">{index + 1}</span>
                 <select className="input" aria-label={t("CLI of candidate {n}", { n: index + 1 })} value={candidate.agent} disabled={!canAct}
                   onChange={(event) => save(list.map((each, at) => (at === index ? { agent: event.target.value as FleetAgentKind, ...(each.model ? { model: each.model } : {}) } : each)))}>
                   {KINDS.map((kind) => <option key={kind} value={kind} disabled={!allowed(kind)}>{kind}</option>)}
                 </select>
-                <ModelField value={candidate.model ?? ""} index={index} disabled={!canAct}
+                <ModelField value={candidate.model ?? ""} index={index} options={models.options[candidate.agent] ?? []} disabled={!canAct}
                   commit={(model) => save(list.map((each, at) => (at === index ? (model ? { agent: each.agent, model } : { agent: each.agent }) : each)))} />
                 <span className="fleet-candidate-actions">
                   <button type="button" className="icon-button" aria-label={t("Move candidate {n} up", { n: index + 1 })} disabled={!canAct || index === 0}
@@ -133,9 +135,10 @@ function RoleRow({ role, readOnlyAgents, open, canAct, toggle, change }: { role:
                   <button type="button" className="icon-button" aria-label={t("Remove candidate {n}", { n: index + 1 })} disabled={!canAct || list.length === 1}
                     onClick={() => save(list.filter((_, at) => at !== index))}><X aria-hidden="true" /></button>
                 </span>
-                <span className={`fleet-candidate-hint${candidate.skip ? " is-skipped" : ""}`}>{candidate.skip ?? ""}</span>
+                <span className={`fleet-candidate-hint${hint ? " is-skipped" : ""}`}>{hint}</span>
               </li>
-            ))}
+              );
+            })}
           </ol>
           <div className="fleet-role-footer">
             <button type="button" className="btn" disabled={!canAct || !unused || list.length >= MAX_CANDIDATES} onClick={() => unused && save([...list, { agent: unused }])}><Plus aria-hidden="true" />{t("Add candidate")}</button>
@@ -156,15 +159,19 @@ function RoleRow({ role, readOnlyAgents, open, canAct, toggle, change }: { role:
   );
 }
 
-/** A model name, saved when the field is left or on Enter; empty is the CLI's own default. */
-function ModelField({ value, index, disabled, commit }: { value: string; index: number; disabled: boolean; commit: (model: string) => void }) {
+/** A model name, saved when the field is left or on Enter; empty is the CLI's own default. The CLI's own models are offered; any other name can still be typed. */
+function ModelField({ value, index, options, disabled, commit }: { value: string; index: number; options: Array<{ id: string; label?: string }>; disabled: boolean; commit: (model: string) => void }) {
   // what is typed: the field's own until it is saved
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   const save = () => { if (draft.trim() !== value) commit(draft.trim()); };
+  const listId = useId();
   return (
-    <input className="input mono" aria-label={t("Model of candidate {n}", { n: index + 1 })} placeholder={t("CLI default")} value={draft} disabled={disabled} spellCheck={false}
-      onChange={(event) => setDraft(event.target.value.replace(/\s/g, ""))} onBlur={save} onKeyDown={(event) => { if (event.key === "Enter") save(); }} />
+    <>
+      <input className="input mono" aria-label={t("Model of candidate {n}", { n: index + 1 })} placeholder={t("CLI default")} value={draft} disabled={disabled} spellCheck={false} list={options.length ? listId : undefined}
+        onChange={(event) => setDraft(event.target.value.replace(/\s/g, ""))} onBlur={save} onKeyDown={(event) => { if (event.key === "Enter") save(); }} />
+      {options.length > 0 && <datalist id={listId}>{options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</datalist>}
+    </>
   );
 }
 

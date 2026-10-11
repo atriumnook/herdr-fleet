@@ -173,6 +173,7 @@ export const JA: Record<string, string> = {
   // ---- fleet settings ----
   "Each role tries its candidates from the top and starts on the first one whose account has usage left.": "役割ごとに、上の候補から順に試します。使用量が残っているアカウントの候補のうち、最初のもので起動します。",
   "This project's .herdr-fleet/fleet.json sets this role. In this project the fleet starts it on {candidates}.": "このプロジェクトの .herdr-fleet/fleet.json がこの役割を設定しています。このプロジェクトでは、fleet は {candidates} の順に試して起動します。",
+  "{agent} does not offer this model.": "{agent} にこのモデルはありません。",
   "This role edits no file, so it runs only on {agents}.": "この役割はファイルを編集しないので、{agents} でだけ起動します。",
   "The fleet passes over a candidate whose account has used this share of any limit window (5 hours, a week, and so on).": "利用枠(5 時間、1 週間など)のどれか 1 つでもこの割合まで使ったアカウントの候補は、fleet が飛ばします。",
   "When a CLI stops at a rate limit and gives no time to resume, the fleet does not use its account for this long.": "CLI が利用上限で止まり、再開の時刻を示さなかったときは、fleet はそのアカウントをこの時間だけ使いません。",

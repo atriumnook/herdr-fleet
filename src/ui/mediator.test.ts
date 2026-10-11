@@ -26,6 +26,7 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     loadFleetSettings: async () => SETTINGS,
     saveFleetSettings: async () => ({ ...SETTINGS, maxConcurrent: 3 }),
     loadFleetEntrances: async () => ({ entrances: [], tokenRequired: false }),
+    loadFleetModels: async () => [],
     changeFleetEntrance: async () => ({ entrances: [], tokenRequired: true }),
     saveSettings: (settings) => { saved.push(settings); },
     forgetPaneViews: () => { forgotten.push(1); },

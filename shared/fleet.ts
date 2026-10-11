@@ -298,6 +298,16 @@ export interface ModelListing {
   error?: string;
 }
 
+/**
+ * Whether `model` is one the listing names. A `:level` suffix is not part of a name, and cursor's
+ * bracketed parameters (`gpt-5[effort=high]`) belong to one model.
+ */
+export function modelListed(listing: ModelListing, model: string): boolean {
+  const bare = (name: string) => name.replace(/\[.*\]$/, "");
+  const name = bare(model.replace(/:(off|minimal|low|medium|high|xhigh|max)$/, ""));
+  return listing.models.some((each) => each.id === name || bare(each.id) === name);
+}
+
 /** How a task sent from a pane's conversation opens (the fleet skill's `fleet project`), so the coordinator and the Fleet screen tell where it came from. */
 export const FROM_PANE = "[from pane ";
 

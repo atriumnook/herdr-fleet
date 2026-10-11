@@ -113,6 +113,11 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
       port: 0, hostname: "127.0.0.1", token: "", stateDir,
       fleet: {
         runtime, usage, userDir: join(root, "config"), homeDir: join(root, "home"),
+        // the CLIs' own lists stand in: nothing here runs claude or codex
+        models: { unknown: async () => undefined, listAll: async () => [
+          { agent: "claude", models: [{ id: "opus" }, { id: "sonnet" }], complete: false },
+          { agent: "codex", models: [{ id: "gpt-6", label: "GPT-6" }], complete: true },
+        ] },
         config: () => ({ ...DEFAULT_CONFIG, closeOnSettle: false }),
         agents: () => [
           { name: "coordinator", description: "coordinates", agent: "claude", interactive: true, spawning: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" },
@@ -270,6 +275,21 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await settingsPage.locator(".fleet-role.is-open .fleet-candidate.is-skipped", { hasText: "codex" }).waitFor();
     assert.deepEqual(JSON.parse(readFileSync(settingsFile, "utf8")).roles.lead, { agent: "claude", model: "claude:", fallbackModels: ["codex:"] });
     assert.match(await settingsPage.locator(".fleet-role.is-open .fleet-role-now").textContent() ?? "", /Now: claude/);
+    // a model field offers its CLI's own models, and flags a name a complete list lacks
+    const claudeModel = settingsPage.getByRole("combobox", { name: "Model of candidate 1" });
+    const codexModel = settingsPage.getByRole("combobox", { name: "Model of candidate 2" });
+    const offered = (field: typeof claudeModel) => field.evaluate((input: HTMLInputElement) => [...(input.list?.options ?? [])].map((option) => option.value));
+    assert.deepEqual(await offered(claudeModel), ["opus", "sonnet"]);
+    assert.deepEqual(await offered(codexModel), ["gpt-6"]);
+    await codexModel.fill("gpt-9");
+    await codexModel.press("Enter");
+    // (the page is in Japanese here: sentences are translated)
+    await settingsPage.locator(".fleet-role.is-open .fleet-candidate-hint.is-skipped", { hasText: "codex にこのモデルはありません。" }).waitFor();
+    await codexModel.fill("gpt-6");
+    await codexModel.press("Enter");
+    await settingsPage.locator(".fleet-role.is-open .fleet-candidate-hint", { hasText: "このモデルはありません" }).waitFor({ state: "detached" });
+    await codexModel.fill("");
+    await codexModel.press("Enter");
     await save(page, shots, "fleet-settings-dark");
     // no conversation is open on the Settings page: the prompt steps' keys are left alone
     await page.evaluate(() => {

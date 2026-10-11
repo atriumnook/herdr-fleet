@@ -1,5 +1,5 @@
-import type { ModelListing } from "../../shared/fleet.ts";
-import { adapterFor, AGENT_KINDS, splitThinking, type AgentAdapter } from "./adapters.ts";
+import { modelListed, type ModelListing } from "../../shared/fleet.ts";
+import { adapterFor, AGENT_KINDS, type AgentAdapter } from "./adapters.ts";
 import type { AgentKind } from "./types.ts";
 
 const TTL_MS = 10 * 60_000;
@@ -53,13 +53,10 @@ export class ModelCatalog {
    */
   async unknown(agent: AgentKind, model: string | undefined): Promise<string | undefined> {
     if (!model || !this.adapter(agent).models?.complete) return undefined;
-    // a level is not part of the name, and cursor's brackets carry parameters of one model
-    const name = (splitThinking(model).model ?? model).replace(/\[.*\]$/, "");
-    const listed = (listing: ModelListing) => listing.models.some((each) => each.id === name || each.id.replace(/\[.*\]$/, "") === name);
     let listing = await this.list(agent);
-    if (listing.error || listed(listing)) return undefined;
+    if (listing.error || modelListed(listing, model)) return undefined;
     listing = await this.list(agent, true);
-    if (listing.error || listed(listing)) return undefined;
+    if (listing.error || modelListed(listing, model)) return undefined;
     return `${agent} does not offer a model named ${model}`;
   }
 }

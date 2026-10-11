@@ -1,11 +1,11 @@
-import { handoffStatus, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type LandAction, type LineComment, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
+import { handoffStatus, modelListed, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type LandAction, type LineComment, type ModelListing, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import { parseDiff, type DiffLine } from "./diff.ts";
 import { isEnded, planDraft, type ConfirmedStep, type PlanDraft, type ThreadTab, type UiState } from "./state.ts";
 import { numberClaims, planAsks, planOpen, type PlanAnswer, type PlanClaim, type PlanExhibit } from "../../shared/plan.ts";
 
 /** The regions the Fleet screen draws: its Presenter re-renders when one of them changes. */
-export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView", "landing", "plan", "fleetSettings", "fleetEntrances"] as const;
+export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView", "landing", "plan", "fleetSettings", "fleetEntrances", "fleetModels"] as const;
 export type FleetState = Pick<UiState, (typeof FLEET_REGIONS)[number]>;
 
 /**
@@ -271,6 +271,8 @@ export interface FleetSettingsModel {
     busy: FleetEntrance["id"] | null;
     changeError?: string;
   };
+  /** each CLI's models to offer (none where it has no list), and the candidates (`<role>:<index>`) whose model their CLI does not offer */
+  models: { options: Partial<Record<FleetAgentKind, Array<{ id: string; label?: string }>>>; unlisted: string[] };
   canAct: boolean;
 }
 
@@ -635,8 +637,22 @@ function settingsModel(state: FleetState, projectPaths: string[], now: number): 
       status: entrances.status, ...(entrances.error ? { error: entrances.error } : {}), list: entrances.data?.entrances ?? [], tokenRequired: entrances.data?.tokenRequired ?? false,
       busy: entrances.busy, ...(entrances.changeError ? { changeError: entrances.changeError } : {}),
     },
+    models: modelsModel(settings, state.fleetModels.data ?? []),
     canAct: state.canAct,
   };
+}
+
+function modelsModel(settings: FleetSettings | null, listings: ModelListing[]): FleetSettingsModel["models"] {
+  const options: FleetSettingsModel["models"]["options"] = {};
+  const unlisted: string[] = [];
+  for (const listing of listings) if (listing.models.length) options[listing.agent] = listing.models;
+  for (const role of settings?.roles ?? []) {
+    role.candidates.forEach((candidate, index) => {
+      const listing = listings.find((each) => each.agent === candidate.agent);
+      if (candidate.model && listing?.complete && !modelListed(listing, candidate.model)) unlisted.push(`${role.name}:${index}`);
+    });
+  }
+  return { options, unlisted };
 }
 
 /**
