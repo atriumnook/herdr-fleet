@@ -228,8 +228,10 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     document.title = selectedTitle ? `${selectedTitle} · herdr` : APP_TITLE;
   }, [selectedTitle]);
 
-  // a chat shows: the Fleet screen's conversation, or the chat lens on the Pane screen's pane
-  const chatShows = screen === "fleet" || (selectedPaneId !== null && view === "chat");
+  // a chat shows and has its conversation open: the Pane screen's chat lens, the Fleet screen's
+  // project conversation or the thread beside it (a chat opens itself while it is mounted). The
+  // Fleet screen with no conversation open has no prompt to step to.
+  const chatShows = useSelected((state) => state.chat.open !== null || state.side.chat.open !== null);
   const actions = useMemo<AppActions>(
     () => ({
       selectPane,
