@@ -1,6 +1,6 @@
 # herdr-fleet
 
-[Herdr](https://herdr.dev/) 上で動く複数のコーディングエージェント(pi / Claude Code / Codex / Cursor / Antigravity)を、ブラウザから見て操作するための個人用ツール。
+[Herdr](https://herdr.dev/) 上で動く複数のコーディングエージェント(pi / Claude Code / Codex / Cursor / Antigravity / OpenCode)を、ブラウザから見て操作するための個人用ツール。
 
 現時点の中身は、[herdr-web-ui](https://github.com/devswha/herdr-web-ui) v0.3.45 から派生した Web UI です。上流の履歴は取り込んでおらず、起点のコミットは [NOTICE](NOTICE) に記録しています。上流の変更は自動では取り込まず、差分を読んでから手で移します。
 
@@ -96,6 +96,14 @@ fleet はエージェントを起動する前に、その CLI のサブスクの
 | Antigravity | `agy -p /usage`(モデルを呼ばないので、トークンを消費しない)。Gemini とそれ以外のモデル群で別々に数える |
 | Cursor | ターンが終わったペインで `/usage` を開いて画面から読む。前回の値から 10 分以上たったときだけ読む |
 | pi | 取得しない。エラー検知によるクールダウンだけで扱う |
+| OpenCode | 取得しない。エラー検知によるクールダウンだけで扱う。プロバイダ(`anthropic/...` の `anthropic`)ごとに別々に数える |
+
+OpenCode は、モデルを `opencode:<プロバイダ>/<モデル>` の形で指定します。ほかの CLI と違う点は次のとおりです。
+
+- 要求を判断する auto mode がありません(既定はすべて許可で、`--auto` はすべて承認します)。fleet は `--auto` を使わず、起動するペインの環境変数 `OPENCODE_PERMISSION` で規則を渡します。ファイルの編集は通します。シェルのコマンドは、リポジトリを読むだけの短い一覧(`git status`、`git diff`、`git log`、`git show`、`git ls-files`、`git rev-parse`、`ls`、`pwd`)と fleet のコマンドを除いて、実行の前に使う人へ確かめます。push もここに入ります。Web の取得と検索も確かめます。確かめる画面が出ている間、run は blocked になります。自分の opencode の設定で agent ごとに permission を書いていると、それが fleet の規則より優先されることがあります
+- 自己更新、セッションの共有、言語サーバーのダウンロードは、ペインの環境変数で止めます。プラグインは止めません。herdr が opencode の状態を知るために使っているからです
+- 指示文は、設定ではなく最初のプロンプトの先頭に付けます。thinking の段階は渡せません
+- `edits: false` の役割は、fleet が環境変数で定義するエージェント `fleet-readonly` で起動します。結果ファイルのほかは編集できません
 
 役割の `fallbackModels` には、同じ CLI のモデルのほかに、`<agent>:<model>` の形で別の CLI を並べられます(例: `["codex:gpt-6", "claude:claude-sonnet-5-5"]`)。fleet は、最初に使える候補で起動します。どの候補も使えなければ、理由を並べて起動を断ります。`fleet spawn --model codex:gpt-6` のように、呼び出し側から別の CLI を指定することもできます。
 
@@ -218,7 +226,7 @@ bun run build
 
 ## 目指す姿
 
-複数のサブスク(Claude Code / Codex / Cursor / Antigravity / pi)を、一つのチームとして働かせます。使う人は Web UI で「これをやって」と頼むだけで済み、役割の割り振りと、使用量に応じた CLI の選び分けは fleet が行います。頼む、経過を見る、取り込む、設定する、は Fleet 画面でできます。ペインで動いている CLI の会話からも頼めます。目指す形は次のとおりです。
+複数のサブスク(Claude Code / Codex / Cursor / Antigravity / OpenCode / pi)を、一つのチームとして働かせます。使う人は Web UI で「これをやって」と頼むだけで済み、役割の割り振りと、使用量に応じた CLI の選び分けは fleet が行います。頼む、経過を見る、取り込む、設定する、は Fleet 画面でできます。ペインで動いている CLI の会話からも頼めます。目指す形は次のとおりです。
 
 - **窓口は Web UI。** 頼む、設定する、経過を見る、呼ばれたら判断する、を画面で完結させる。`fleet` CLI と `fleet.json` は、エージェント同士と内部で使う手段で、使う人が知っている必要はない
 - **話しかける相手はプロジェクトに 1 つの会話。** その会話の coordinator が、頼まれたことをスレッドに分けて起こし、進み具合を追い、質問に答え、結果を報告する
