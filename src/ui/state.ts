@@ -1343,8 +1343,11 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       if (event.seq !== state.usage.autoSeq || state.screen !== "fleet") return next({});
       effects.push(...autoUsage(state), { kind: "later", ms: AUTO_USAGE_TICK_MS, event: { type: "auto-usage-tick", seq: event.seq } });
       return next({});
-    case "usage-auto-refreshed":
-      return next({ usage: { ...state.usage, data: event.entries } });
+    case "usage-auto-refreshed": {
+      // like a button refresh's answer: a read still in flight may have read the server before it, so it is read again after
+      const usage = { ...state.usage, data: event.entries, error: undefined, again: state.usage.status === "loading" ? true : state.usage.again };
+      return next({ usage: state.usage.status === "loading" ? usage : { ...usage, status: "ready" } });
+    }
     case "select-pane":
       return next({ screen: "pane", ...pick(state, event.machineId, event.paneId, effects) });
     case "pane-connection": {
@@ -2099,6 +2102,8 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
     }
     case "visibility":
       // each time the page shows (again), it catches up at once
+      // on the Fleet screen the usage is refreshed at once too, as the ticks it missed while hidden would have
+      if (event.visible && !connection.visible && state.screen === "fleet") effects.push(...autoUsage({ ...state, connection: { ...connection, visible: true } }));
       return next({ ...(event.visible ? read() : {}), connection: connection.visible === event.visible ? connection : { ...connection, visible: event.visible } });
     case "auth-link":
       effects.push({ kind: "authenticate", token: event.token, reason: "link" });

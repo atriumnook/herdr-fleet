@@ -64,6 +64,26 @@ describe("usage refreshing by itself", () => {
     const refreshing = play([{ type: "show-screen", screen: "fleet" }, { type: "refresh-usage" }]).state;
     expect(transition(refreshing, { type: "usage-auto-refreshed", entries: usage }).state.usage).toMatchObject({ data: usage, refreshing: true });
   });
+
+  it("settles like a refresh's answer: ready, no error, and a read still in flight is repeated after", () => {
+    const failed = play([{ type: "fleet-changed" }, { type: "usage-failed", message: "offline" }]).state;
+    expect(failed.usage).toMatchObject({ status: "error", error: "offline" });
+    expect(transition(failed, { type: "usage-auto-refreshed", entries: usage }).state.usage).toMatchObject({ status: "ready", error: undefined, data: usage });
+    const loading = play([{ type: "fleet-changed" }]).state;
+    const answered = transition(loading, { type: "usage-auto-refreshed", entries: usage });
+    expect(answered.state.usage).toMatchObject({ status: "loading", again: true, data: usage });
+    expect(transition(answered.state, { type: "usage-loaded", entries: [] }).effects).toEqual([{ kind: "load-usage" }]);
+  });
+
+  it("asks at once when the page shows again on the Fleet screen, and not elsewhere or while still shown", () => {
+    const shown = play([{ type: "show-screen", screen: "fleet" }]).state;
+    const hidden = transition(shown, { type: "visibility", visible: false });
+    expect(hidden.effects.filter((effect) => effect.kind === "auto-refresh-usage")).toEqual([]);
+    expect(transition(hidden.state, { type: "visibility", visible: true }).effects).toContainEqual({ kind: "auto-refresh-usage" });
+    expect(transition(shown, { type: "visibility", visible: true }).effects).not.toContainEqual({ kind: "auto-refresh-usage" });
+    const onPane = transition(INITIAL_STATE, { type: "visibility", visible: false }).state;
+    expect(transition(onPane, { type: "visibility", visible: true }).effects).not.toContainEqual({ kind: "auto-refresh-usage" });
+  });
 });
 
 describe("loading runs and usage", () => {
@@ -322,8 +342,13 @@ describe("screens and the Fleet screen's view", () => {
   it("selects a live run's pane on this PC, again when asked again, and not an ended run's", () => {
     const first = play([{ type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "a" }], withRuns);
     expect(first.state).toMatchObject({ screen: "pane", selection: { machineId: "local", paneId: "w1:a", auto: false } });
-    // opening the Fleet screen also starts its usage refresh (auto-refresh-usage and its tick); the rest is the selection
-    expect(first.effects.filter((effect) => effect.kind !== "auto-refresh-usage" && effect.kind !== "later")).toEqual([{ kind: "store-selection", machineId: "local", paneId: "w1:a" }, { kind: "remember-pane", machineId: "local", paneId: "w1:a" }]);
+    // opening the Fleet screen also starts its usage refresh: the refresh and its first tick
+    expect(first.effects).toEqual([
+      { kind: "auto-refresh-usage" },
+      { kind: "later", ms: AUTO_USAGE_TICK_MS, event: { type: "auto-usage-tick", seq: 1 } },
+      { kind: "store-selection", machineId: "local", paneId: "w1:a" },
+      { kind: "remember-pane", machineId: "local", paneId: "w1:a" },
+    ]);
     const elsewhere = play([{ type: "select-pane", machineId: "local", paneId: "w1:b" }, { type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "a" }], first.state).state;
     expect(elsewhere.selection.paneId).toBe("w1:a");
     expect(play([{ type: "show-screen", screen: "fleet" }, { type: "open-pane", runId: "gone" }], withRuns).state).toMatchObject({ screen: "fleet", selection: INITIAL_STATE.selection });

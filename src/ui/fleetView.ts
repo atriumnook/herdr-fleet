@@ -323,14 +323,17 @@ export function toneOf(state: AgentState): RunTone {
   }
 }
 
-/** Plenty while half is left, getting low under half, low under a fifth (DESIGN.md meters). */
-/** when the newest reading was taken */
+/**
+ * When the oldest reading of the accounts the fleet refreshes by itself (codex, claude, agy) was
+ * taken, so it never looks fresher than a capsule shown. Cursor's is left out: it is read only after
+ * a turn or by the button.
+ */
 function lastRead(entries: UsageEntry[]): number | undefined {
-  const times = entries.flatMap((entry) => (entry.reading ? [entry.reading.readAt] : []));
-  return times.length ? Math.max(...times) : undefined;
+  const times = entries.flatMap((entry) => (entry.reading && /^(codex|claude|agy)(:|$)/.test(entry.key) ? [entry.reading.readAt] : []));
+  return times.length ? Math.min(...times) : undefined;
 }
 
-export function meterLevel(usedPercent: number): UsageCapsuleModel["level"] {
+/** Plenty while half is left, getting low under half, low under a fifth (DESIGN.md meters). */export function meterLevel(usedPercent: number): UsageCapsuleModel["level"] {
   return usedPercent < 50 ? "ok" : usedPercent < 80 ? "mid" : "low";
 }
 

@@ -59,6 +59,14 @@ describe("fleet screen model", () => {
     expect(capsules[0]).toMatchObject({ agent: "agy", cooldown: undefined, error: "agy exited with 1", worst: undefined });
   });
 
+  it("dates the usage by the oldest reading of the accounts refreshed by themselves, leaving cursor's out", () => {
+    const at = (readAt: number) => ({ readAt, windows: [{ name: "5h", usedPercent: 1 }] });
+    const usage = (data: UiState["usage"]["data"]): UiState => ({ ...withRuns([]), usage: { status: "ready", again: false, refreshing: false, data } });
+    const model = fleetScreenModel(usage([{ key: "codex", reading: at(300) }, { key: "agy:3p", reading: at(200) }, { key: "agy:gemini", reading: at(250) }, { key: "claude", reading: at(400) }, { key: "cursor", reading: at(100) }]), NOW);
+    expect(model.usage.readAt).toBe(200);
+    expect(fleetScreenModel(usage([{ key: "cursor", reading: at(100) }]), NOW).usage.readAt).toBeUndefined();
+  });
+
   it("says what the last action's failure was", () => {
     const state = withRuns([run("a")], { request: { status: "failed", action: { kind: "interrupt", runId: "a" }, message: "read_only" } });
     expect(fleetScreenModel(state, NOW).requestError).toBe("read_only");
