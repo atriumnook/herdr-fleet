@@ -1,7 +1,7 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
 import { dirname } from "node:path";
 import type { UsageEntry, UsageReading, UsageWindow } from "../../shared/fleet.ts";
+import { childEnv, claudeEnv, emptyWorkDir } from "../cli-child.ts";
 import type { AgentKind } from "./types.ts";
 
 export type { Cooldown, UsageEntry, UsageReading, UsageWindow } from "../../shared/fleet.ts";
@@ -362,8 +362,22 @@ export class UsageTracker {
 
 // ---- probes: each asks the CLI itself ------------------------------------------------------
 
-async function run(argv: string[], options: { timeoutMs: number; env?: Record<string, string> }): Promise<string> {
-  const child = Bun.spawn(argv, { cwd: tmpdir(), stdin: "ignore", stdout: "pipe", stderr: "ignore", env: { ...process.env, ...options.env } });
+/**
+ * Where a probe runs and what it starts. The folder is the probe's own, emptied before each run
+ * (cli-child's emptyWorkDir); the tracker asks one probe of a kind at a time, so a kind's runs share
+ * it. The CLI gets only the environment it needs from `env` (childEnv): an API key there would make
+ * the CLI answer for the API, not the person's plan.
+ */
+export interface ProbeOptions {
+  workDir: string;
+  command?: string;
+  /** the server's environment; process.env when left out */
+  env?: Record<string, string | undefined>;
+}
+
+async function run(argv: string[], options: { timeoutMs: number; cwd: string; env: Record<string, string> }): Promise<string> {
+  emptyWorkDir(options.cwd);
+  const child = Bun.spawn(argv, { cwd: options.cwd, stdin: "ignore", stdout: "pipe", stderr: "ignore", env: options.env });
   const timer = setTimeout(() => child.kill(), options.timeoutMs);
   try {
     const output = await new Response(child.stdout).text();
@@ -377,11 +391,14 @@ async function run(argv: string[], options: { timeoutMs: number; env?: Record<st
 
 /**
  * `codex app-server` over stdio: initialize, then `account/rateLimits/read`. The answer comes back
- * as one JSON line among others; only the rate limits are kept (it also names the account).
+ * as one JSON line among others; only the rate limits are kept (it also names the account). codex
+ * keeps its sign-in under CODEX_HOME, which passes when set.
  */
-export function codexProbe(command = "codex"): UsageProbe {
+export function codexProbe(options: ProbeOptions): UsageProbe {
   return async (): Promise<Record<string, UsageReading>> => {
-    const child = Bun.spawn([command, "app-server"], { cwd: tmpdir(), stdin: "pipe", stdout: "pipe", stderr: "ignore" });
+    emptyWorkDir(options.workDir);
+    const env = childEnv(options.env ?? process.env, ["CODEX_HOME"]);
+    const child = Bun.spawn([options.command ?? "codex", "app-server"], { cwd: options.workDir, env, stdin: "pipe", stdout: "pipe", stderr: "ignore" });
     const timer = setTimeout(() => child.kill(), 15_000);
     try {
       const send = (message: Record<string, unknown>) => child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", ...message })}\n`);
@@ -417,19 +434,23 @@ export function codexProbe(command = "codex"): UsageProbe {
 }
 
 /** `agy -p /usage`: answered by the CLI without a model turn. Auto-update is held off (`true`, not `1`). */
-export function agyProbe(command = "agy"): UsageProbe {
-  return async () => parseAgyUsage(JSON.parse(await run([command, "-p", "/usage", "--output-format", "json"], { timeoutMs: 30_000, env: { AGY_CLI_DISABLE_AUTO_UPDATE: "true" } })));
+export function agyProbe(options: ProbeOptions): UsageProbe {
+  return async () => {
+    const env = { ...childEnv(options.env ?? process.env), AGY_CLI_DISABLE_AUTO_UPDATE: "true" };
+    return parseAgyUsage(JSON.parse(await run([options.command ?? "agy", "-p", "/usage", "--output-format", "json"], { timeoutMs: 30_000, cwd: options.workDir, env })));
+  };
 }
 
 /**
  * `claude -p /usage`: a local command in print mode, answered without a model turn. No session is
  * kept, and the person's settings are not loaded, so their hooks and plugins do not run at every
- * probe (the sign-in is not a setting: it still applies). It runs in the temp folder, whose project
- * folder Claude Code still makes, empty.
+ * probe (the sign-in is not a setting: it still applies). It runs in the probe's own folder, whose
+ * project folder Claude Code still makes once, empty.
  */
-export function claudeProbe(command = "claude"): UsageProbe {
+export function claudeProbe(options: ProbeOptions): UsageProbe {
   return async (): Promise<Record<string, UsageReading>> => {
-    const output = JSON.parse(await run([command, "-p", "/usage", "--no-session-persistence", "--setting-sources", "project", "--output-format", "json"], { timeoutMs: 30_000 })) as { is_error?: boolean; result?: unknown };
+    const argv = [options.command ?? "claude", "-p", "/usage", "--no-session-persistence", "--setting-sources", "project", "--output-format", "json"];
+    const output = JSON.parse(await run(argv, { timeoutMs: 30_000, cwd: options.workDir, env: claudeEnv(options.env ?? process.env) })) as { is_error?: boolean; result?: unknown };
     if (output.is_error || typeof output.result !== "string") throw new Error("claude: /usage gave no answer");
     const reading = parseClaudeUsage(output.result);
     return reading ? { claude: reading } : {};

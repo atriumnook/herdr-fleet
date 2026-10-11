@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import type { ConversationTurn, ExplainRequest, ExplainResponse } from "../shared/protocol.ts";
-import { childEnv, emptyWorkDir as emptyFolder } from "./cli-child.ts";
+import { claudeEnv, emptyWorkDir as emptyFolder } from "./cli-child.ts";
 
 /**
  * An explanation of a question an agent asked: why it asks, what each choice leads to, and which
@@ -254,12 +254,12 @@ export interface ExplainDeps {
 }
 
 /**
- * The call's whole environment: what claude needs to start and to find its sign-in (childEnv), and
+ * The call's whole environment: what claude needs to start and to find its sign-in (claudeEnv), and
  * nothing else; ANTHROPIC_* and CLAUDE_CODE_* could send the call elsewhere. The CLI does not update
  * itself during the call.
  */
 export function explainEnv(source: Record<string, string | undefined>): Record<string, string> {
-  return { ...childEnv(source, ["CLAUDE_CONFIG_DIR"]), DISABLE_AUTOUPDATER: "1" };
+  return claudeEnv(source);
 }
 
 /** Makes the work folder (0700) or empties it (cli-child's emptyWorkDir); a link in its place fails the call. */

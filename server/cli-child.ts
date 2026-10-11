@@ -24,6 +24,11 @@ export function childEnv(source: Record<string, string | undefined>, alsoKeep: r
   return env;
 }
 
+/** claude's environment: childEnv with its own folder, and no self-update while it runs */
+export function claudeEnv(source: Record<string, string | undefined>): Record<string, string> {
+  return { ...childEnv(source, ["CLAUDE_CONFIG_DIR"]), DISABLE_AUTOUPDATER: "1" };
+}
+
 /**
  * Makes the folder (0700) or empties it, so what a run before left behind is not read by the next.
  * Never the shared temp folder, where another user could leave a `.claude/settings.json` or a

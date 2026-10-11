@@ -472,7 +472,11 @@ export function createServer(
   /** each subscription's usage, asked of the CLIs themselves; rate limits the fleet meets add cooldowns */
   const usage = options.fleet?.usage ?? new UsageTracker({
     file: join(options.stateDir ?? defaultStateDir(), "fleet-usage.json"),
-    probes: { codex: codexProbe(), agy: agyProbe(), claude: claudeProbe() },
+    probes: {
+      codex: codexProbe({ workDir: join(options.stateDir ?? defaultStateDir(), "usage-probe", "codex") }),
+      agy: agyProbe({ workDir: join(options.stateDir ?? defaultStateDir(), "usage-probe", "agy") }),
+      claude: claudeProbe({ workDir: join(options.stateDir ?? defaultStateDir(), "usage-probe", "claude") }),
+    },
   });
   const fleet = new Orchestrator({
     runtime: options.fleet?.runtime ?? new HerdrRuntime(),
