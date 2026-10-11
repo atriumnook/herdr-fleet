@@ -987,6 +987,13 @@ describe("projects", () => {
     const { fleet } = setup({ agents: [coordinator] });
     await expect(fleet.startProject({ task: " " })).rejects.toMatchObject({ code: "missing_task" });
   });
+
+  it("open a task sent from a pane's conversation with that pane, for the coordinator and the Fleet screen", async () => {
+    const { fleet, runtime } = setup({ agents: [coordinator], gitRoot: async () => "/repo" });
+    await fleet.startProject({ task: "Fix the doubled login error.", cwd: "/repo", fromPane: "w2:p3" });
+    await fleet.startProject({ task: "And the logout one.", cwd: "/repo", fromPane: "w2:p3" });
+    expect(runtime.prompts.map((p) => p.text)).toEqual(["[from pane w2:p3]\n\nFix the doubled login error.", "[from pane w2:p3]\n\nAnd the logout one."]);
+  });
 });
 
 describe("thread questions", () => {
