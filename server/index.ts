@@ -62,7 +62,7 @@ import { FleetSettingsStore } from "./fleet/settings.ts";
 import { EntranceStore } from "./fleet/entrances.ts";
 import { loadConfig, loadStandingOrders } from "./fleet/config.ts";
 import { Orchestrator, type OrchestratorDeps } from "./fleet/orchestrator.ts";
-import { agyProbe, claudeProbe, codexProbe, UsageTracker } from "./fleet/usage.ts";
+import { defaultProbes, UsageTracker } from "./fleet/usage.ts";
 import { RunRegistry } from "./fleet/registry.ts";
 import { HerdrRuntime } from "./fleet/runtime.ts";
 import { handleMachineRequest } from "./machine-api.ts";
@@ -472,11 +472,7 @@ export function createServer(
   /** each subscription's usage, asked of the CLIs themselves; rate limits the fleet meets add cooldowns */
   const usage = options.fleet?.usage ?? new UsageTracker({
     file: join(options.stateDir ?? defaultStateDir(), "fleet-usage.json"),
-    probes: {
-      codex: codexProbe({ workDir: join(options.stateDir ?? defaultStateDir(), "usage-probe", "codex") }),
-      agy: agyProbe({ workDir: join(options.stateDir ?? defaultStateDir(), "usage-probe", "agy") }),
-      claude: claudeProbe({ workDir: join(options.stateDir ?? defaultStateDir(), "usage-probe", "claude") }),
-    },
+    probes: defaultProbes(options.stateDir ?? defaultStateDir()),
   });
   const fleet = new Orchestrator({
     runtime: options.fleet?.runtime ?? new HerdrRuntime(),

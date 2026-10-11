@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agyProbe, AUTO_REFRESH_MS, BACKOFF_CAP_MS, claudeProbe, codexProbe, parseAgyUsage, parseClaudeUsage, parseCodexRateLimits, rateLimitUntil, usageKey, UsageTracker, type UsageReading } from "./usage.ts";
+import { agyProbe, AUTO_REFRESH_MS, BACKOFF_CAP_MS, claudeProbe, codexProbe, defaultProbes, parseAgyUsage, parseClaudeUsage, parseCodexRateLimits, rateLimitUntil, usageKey, UsageTracker, type UsageReading } from "./usage.ts";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -333,6 +333,29 @@ describe("UsageTracker", () => {
     now += AUTO_REFRESH_MS;
     await usage.refresh(false, AUTO_REFRESH_MS);
     expect(calls).toBe(before + 3);
+  });
+
+  it("keeps a spawn's own probe at the plain TTL however often the CLI failed", async () => {
+    let now = NOW;
+    let calls = 0;
+    const usage = new UsageTracker({ file: null, now: () => now, probeTtlMs: 60_000, probes: { agy: async () => { calls += 1; throw new Error("agy exited with 1"); } } });
+    for (let i = 0; i < 4; i += 1) { now += 60_000; await usage.refresh(false, AUTO_REFRESH_MS); now += 24 * 60 * 60_000; await usage.refresh(false, AUTO_REFRESH_MS); }
+    const before = calls;
+    // the automatic refresh is backed off now, but a spawn one minute later still asks
+    now += 60_000;
+    await usage.refresh(false, AUTO_REFRESH_MS);
+    expect(calls).toBe(before);
+    await usage.unavailable("agy", "gemini-pro", 90);
+    expect(calls).toBe(before + 1);
+    await usage.unavailable("agy", "gemini-pro", 90);
+    expect(calls).toBe(before + 1);
+    now += 60_000;
+    await usage.unavailable("agy", "gemini-pro", 90);
+    expect(calls).toBe(before + 2);
+  });
+
+  it("is built with probes for codex, claude and agy only: never cursor", () => {
+    expect(Object.keys(defaultProbes(tempDir())).sort()).toEqual(["agy", "claude", "codex"]);
   });
 
   it("has cursor's screen read only when neither its last reading nor its last try is recent", () => {

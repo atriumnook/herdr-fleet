@@ -1,5 +1,5 @@
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, join } from "node:path";
 import type { UsageEntry, UsageReading, UsageWindow } from "../../shared/fleet.ts";
 import { childEnv, claudeEnv, emptyWorkDir } from "../cli-child.ts";
 import type { AgentKind } from "./types.ts";
@@ -232,8 +232,9 @@ export class UsageTracker {
   }
 
   /**
-   * Asks every probe whose last try is older than `maxAgeMs` (the probe TTL by default), one that
-   * keeps failing after longer. `force` asks them all now, backing off or not.
+   * Asks every probe whose last try is older than `maxAgeMs` (the probe TTL by default). With
+   * `maxAgeMs` (the automatic refresh), one that keeps failing is asked after longer. `force` asks
+   * them all now, backing off or not.
    */
   async refresh(force = false, maxAgeMs?: number): Promise<void> {
     await Promise.all(Object.keys(this.options.probes ?? {}).map((kind) => this.probe(kind as AgentKind, force, maxAgeMs)));
@@ -317,9 +318,11 @@ export class UsageTracker {
     if (!probe) return Promise.resolve();
     const running = this.inFlight.get(kind);
     if (running) return running;
-    const wait = maxAgeMs ?? this.options.probeTtlMs ?? PROBE_TTL_MS;
-    const backedOff = Math.min(wait * 2 ** Math.min(this.failures.get(kind) ?? 0, 6), Math.max(wait, BACKOFF_CAP_MS));
-    if (!force && this.now() - (this.probedAt.get(kind) ?? -Infinity) < backedOff) return Promise.resolve();
+    // only the automatic refresh backs off: a spawn asks at the plain TTL, so routing never leans on an hours-old reading
+    const wait = maxAgeMs === undefined
+      ? this.options.probeTtlMs ?? PROBE_TTL_MS
+      : Math.min(maxAgeMs * 2 ** Math.min(this.failures.get(kind) ?? 0, 6), Math.max(maxAgeMs, BACKOFF_CAP_MS));
+    if (!force && this.now() - (this.probedAt.get(kind) ?? -Infinity) < wait) return Promise.resolve();
     const next = (async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       try {
@@ -374,6 +377,12 @@ export class UsageTracker {
       console.warn(`fleet: cannot save usage to ${file}: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
+}
+
+/** The probes the server runs: cursor has none (its `/usage` is typed into a live pane, so it is never refreshed automatically). */
+export function defaultProbes(stateDir: string): Partial<Record<AgentKind, UsageProbe>> {
+  const workDir = (kind: string) => join(stateDir, "usage-probe", kind);
+  return { codex: codexProbe({ workDir: workDir("codex") }), agy: agyProbe({ workDir: workDir("agy") }), claude: claudeProbe({ workDir: workDir("claude") }) };
 }
 
 // ---- probes: each asks the CLI itself ------------------------------------------------------
