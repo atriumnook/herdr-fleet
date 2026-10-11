@@ -1,5 +1,5 @@
 import type { AgentRun, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
-import type { Plan, PlanAnswer } from "../../shared/plan.ts";
+import { planOpen, type Plan, type PlanAnswer } from "../../shared/plan.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
 import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
@@ -1559,7 +1559,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "plan-note": {
       const plan = state.plan.reading.data;
       // answers are written only to the plan shown, while it waits for them
-      if (state.plan.runId !== event.runId || !plan || plan.answeredAt !== undefined) return next({});
+      if (state.plan.runId !== event.runId || !plan || !planOpen(plan)) return next({});
       const draft = planDraft(state.plan, event.runId, plan.version);
       const changed: PlanDraft = event.type === "plan-choose"
         ? { ...draft, choices: { ...draft.choices, [event.ask]: event.value }, seen: draft.seen.includes(event.ask) ? draft.seen : [...draft.seen, event.ask] }
@@ -1569,7 +1569,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     }
     case "plan-respond": {
       const plan = state.plan.reading.data;
-      if (!state.canAct || state.plan.runId !== event.runId || !plan || plan.answeredAt !== undefined || state.plan.confirm?.status === "running") return next({});
+      if (!state.canAct || state.plan.runId !== event.runId || !plan || !planOpen(plan) || state.plan.confirm?.status === "running") return next({});
       return next({ plan: { ...state.plan, confirm: { runId: event.runId, status: "asking" } } });
     }
     case "plan-confirm": {

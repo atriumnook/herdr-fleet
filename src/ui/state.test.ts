@@ -187,6 +187,9 @@ describe("screens and the Fleet screen's view", () => {
     // an answered plan takes no more answers
     const closed = play([{ type: "plan-loaded", runId: "a", plan: plan(1, { answeredAt: 5 }) }, { type: "plan-choose", runId: "a", ask: "limit", value: "three" }, { type: "plan-respond", runId: "a" }], sent.state).state;
     expect(closed.plan).toMatchObject({ drafts: {}, confirm: null });
+    // nor does one the lead went on without
+    const stale = play([{ type: "plan-loaded", runId: "a", plan: plan(1, { closedAt: 5 }) }, { type: "plan-choose", runId: "a", ask: "limit", value: "three" }, { type: "plan-respond", runId: "a" }], sent.state).state;
+    expect(stale.plan).toMatchObject({ drafts: {}, confirm: null });
     // the lead hands over version 2: it is read again, and answers to version 1 are dropped
     const replanned = play([{ type: "runs-loaded", runs: [run("a", { state: "idle", plan: { version: 2, asks: 1 } })] }], answered);
     expect(replanned.effects).toEqual([{ kind: "load-plan", runId: "a" }]);

@@ -1446,10 +1446,49 @@ describe("plans", () => {
     await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "plan_outdated" });
     await fleet.send(thread.id, "one more thing");
     await expect(fleet.answerPlan(thread.id, { version: 2 })).rejects.toMatchObject({ code: "run_busy" });
+    // in that turn the lead writes version 3, which then waits for the person
+    fleet.submitPlan(thread.id, PLAN);
     await turn(thread, "idle");
     const prompts = runtime.prompts.length;
-    await fleet.answerPlan(thread.id, { version: 2 });
+    await fleet.answerPlan(thread.id, { version: 3 });
     expect(runtime.prompts.length).toBe(prompts + 1);
+    fleet.stop();
+  });
+
+  it("hold the thread waiting only through the BLOCKED turn: a lead that did not stop is ready for review", async () => {
+    const { fleet, registry, root, turn } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    fleet.submitPlan(thread.id, PLAN);
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "PASS — built without waiting");
+    await turn(thread, "idle");
+    expect(threadState(registry.get(thread.id)!)).toBe("review");
+    // the plan was written in that turn: it still takes answers
+    expect(registry.get(thread.id)!.plan!.closedAt).toBeUndefined();
+    fleet.stop();
+  });
+
+  it("close when the lead's next turn ends without the answers, and take none then", async () => {
+    const { fleet, registry, root, to, turn, planned } = project();
+    const { coordinator, thread } = await planned();
+    // the coordinator passes on a decision the person made in its conversation instead
+    await fleet.send(thread.id, "The person chose five retries.");
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "PASS — five retries");
+    await turn(thread, "idle");
+    const run = registry.get(thread.id)!;
+    expect(run.plan!.closedAt).toBeNumber();
+    expect(JSON.parse(readFileSync(join(root, "results", thread.id, "plan.json"), "utf8")).closedAt).toBeNumber();
+    expect(threadState(run)).toBe("review");
+    await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "plan_closed" });
+    // a BLOCKED turn after it asks about something else: the closed plan is not pointed to again
+    await fleet.send(thread.id, "go on");
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "BLOCKED — which branch?");
+    await turn(thread, "idle");
+    // the coordinator, still on the first question's turn, hears it once that turn ends
+    await turn(coordinator, "idle");
+    expect(to(coordinator).at(-1)).toContain("which branch?");
+    expect(to(coordinator).at(-1)).not.toContain("Plan tab");
     fleet.stop();
   });
 

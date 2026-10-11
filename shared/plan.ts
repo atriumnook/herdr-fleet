@@ -26,6 +26,8 @@ export interface Plan {
   /** when the person answered this version (epoch ms), and what they answered */
   answeredAt?: number;
   answer?: PlanAnswer;
+  /** when the lead went on to another turn without the answers, which closed this version (epoch ms) */
+  closedAt?: number;
 }
 
 /** One claim: a sentence that can be true or false (a place at the third level), its exhibit, a decision on it, and the claims under it. */
@@ -71,6 +73,12 @@ export interface PlanMark {
   version: number;
   asks: number;
   answeredAt?: number;
+  closedAt?: number;
+}
+
+/** A plan still takes answers: none were sent, and the lead has not gone on without them. */
+export function planOpen(plan: Pick<PlanMark, "answeredAt" | "closedAt">): boolean {
+  return plan.answeredAt === undefined && plan.closedAt === undefined;
 }
 
 export const PLAN_LIMITS = {
@@ -79,7 +87,7 @@ export const PLAN_LIMITS = {
 } as const;
 
 /** The plan as the lead wrote it, before the server reads its code and numbers its version. */
-export type PlanInput = Omit<Plan, "version" | "writtenAt" | "answeredAt" | "answer">;
+export type PlanInput = Omit<Plan, "version" | "writtenAt" | "answeredAt" | "answer" | "closedAt">;
 
 const ID = /^[a-z0-9][a-z0-9_-]{0,31}$/i;
 

@@ -211,6 +211,12 @@ describe("the projects, their threads and the run open in the Overview", () => {
     // the thread list: a plan waits with one decision left to look at; an answered one does not wait
     expect(model.threadGroups.find((group) => group.key === "needs")!.rows.map((row) => [row.id, row.plan])).toEqual([["t", { toAnswer: 1 }]]);
     expect(model.threads.find((row) => row.id === "u")!.plan).toBeUndefined();
+    // a plan the lead went on without: shown, closed, nothing to answer or send
+    const closedRun = lead("t", { result: "PASS — five retries", plan: { version: 2, asks: 2, closedAt: 4 } });
+    const closed = fleetScreenModel(withRuns([coordinator(), closedRun], { fleetView: state.fleetView, plan: { ...plan, reading: { status: "ready", data: { ...data, closedAt: 4 } } } }), NOW);
+    expect(closed.threads[0]!.plan).toBeUndefined();
+    expect(closed.threads[0]!.state).toBe("review");
+    expect(closed.open!.plan).toMatchObject({ closedAt: 4, toAnswer: [], canRespond: false });
     // the lead at work, or a watch-only device: nothing to send
     expect(fleetScreenModel(withRuns([coordinator(), { ...runs[1]!, state: "working" }], { fleetView: state.fleetView, plan }), NOW).open!.plan!.canRespond).toBe(false);
     expect(fleetScreenModel({ ...state, canAct: false }, NOW).open!.plan!.canRespond).toBe(false);

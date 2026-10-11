@@ -8,7 +8,7 @@ import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brie
 import { contractItems, handoffStatus, threadState, type LandAction, type LandingChecks, type LineComment, type PullRequest } from "../../shared/fleet.ts";
 import { readPullRequest, type PullRequestReading } from "./github.ts";
 import { checkAnswer, planAnswerMessage, preparePlan, readPlan, writePlan } from "./plan.ts";
-import { planAsks, type Plan } from "../../shared/plan.ts";
+import { planAsks, planOpen, type Plan } from "../../shared/plan.ts";
 import { branchHead, branchState, diffStat, diffText, excludeWorktrees, gitBranch, gitHead, gitRoot, isMerged, removeThread, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
@@ -731,6 +731,7 @@ export class Orchestrator {
     const plan = this.plan(run.id);
     const answer = checkAnswer(plan, value);
     if (plan.answeredAt !== undefined) throw new FleetError("plan_answered", `The person already answered version ${plan.version} of the plan of ${run.name}.`);
+    if (plan.closedAt !== undefined) throw new FleetError("plan_closed", `The lead of ${run.name} went on without answers to version ${plan.version} of its plan.`);
     if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
     await this.reconcileLocks.get(run.id);
     if (this.pending.has(run.id)) throw new FleetError("run_busy", `The lead of ${run.name} is working; wait for its turn to end.`);
@@ -745,6 +746,21 @@ export class Orchestrator {
     run.plan = { version: plan.version, asks: planAsks(current).length, answeredAt };
     this.save(run);
     return { ...run };
+  }
+
+  /**
+   * A turn of the lead settled after the one that wrote its plan, without the person's answers
+   * (someone sent it another task, or decided in its chat): the lead went on, and the plan, no
+   * longer what it builds to, takes no answers.
+   */
+  private closeStalePlan(run: AgentRun, turn: PendingTurn): void {
+    if (!run.plan || !planOpen(run.plan) || turn.submittedAt === undefined) return;
+    const dir = join(this.deps.resultsDir, run.id);
+    const plan = readPlan(dir);
+    if (!plan || plan.version !== run.plan.version || plan.writtenAt >= turn.submittedAt) return;
+    const closedAt = Date.now();
+    writePlan(dir, { ...plan, closedAt });
+    run.plan = { ...run.plan, closedAt };
   }
 
   /** The project's live coordinator: the merges happen in the main checkout it sits on. */
@@ -1111,6 +1127,7 @@ export class Orchestrator {
       this.deps.usage?.noteFailure(run.agent, run.model, turnError, config.rateLimitCooldownMinutes);
     }
     if (isThread(run)) {
+      this.closeStalePlan(run, pending);
       run.notice = threadQuestion(run);
       const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
       run.contract = contract ? contractItems(contract) : undefined;
@@ -1335,7 +1352,7 @@ const QUESTION_MAX_CHARS = 4000;
 export function threadQuestion(run: AgentRun): string | undefined {
   if (run.state === "failed" || !run.result || !/^BLOCKED\b/.test(handoffStatus(run.result) ?? "")) return undefined;
   const handoff = run.result.length > QUESTION_MAX_CHARS ? `${run.result.slice(0, QUESTION_MAX_CHARS)}\n[cut at ${QUESTION_MAX_CHARS} characters]` : run.result;
-  const plan = run.plan && run.plan.answeredAt === undefined
+  const plan = run.plan && planOpen(run.plan)
     ? `\nIts plan (version ${run.plan.version}, ${run.plan.asks} decision${run.plan.asks === 1 ? "" : "s"}) waits for the person in the thread's Plan tab on the Fleet screen: point them there, and do not answer it yourself.`
     : "";
   return `${threadLabel(run)} asks the person:\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}${plan}`;

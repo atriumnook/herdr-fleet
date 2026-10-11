@@ -141,7 +141,7 @@ export interface ContractItem {
 
 /**
  * Where a thread stands for the person: its lead at work, waiting on the person (a question in its
- * HANDOFF or on its screen, a plan to answer, a landing step that went wrong, failing checks), done with a PASS, its
+ * HANDOFF or on its screen, a landing step that went wrong, failing checks), done with a PASS, its
  * pull request open, settled otherwise, failed, its pane gone, or marked done.
  */
 export type ThreadState = "working" | "waiting" | "review" | "landing" | "idle" | "failed" | "ended" | "resolved";
@@ -204,7 +204,8 @@ export function threadState(run: AgentRun): ThreadState {
   if (run.state === "stopped") return "ended";
   if (run.state === "blocked") return "waiting";
   if (working) return "working";
-  if (run.plan && run.plan.answeredAt === undefined) return "waiting";
+  // a plan waits on the person through the BLOCKED HANDOFF its turn ends with (agents/lead.md),
+  // not by itself: a lead that went on without the answers is not waiting
   const status = run.result ? handoffStatus(run.result) : undefined;
   if (status?.startsWith("BLOCKED") || run.landing?.error || (run.pr?.state === "OPEN" && run.pr.checks === "fail")) return "waiting";
   if (run.pr?.state === "OPEN") return "landing";

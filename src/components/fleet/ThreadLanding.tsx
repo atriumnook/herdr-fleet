@@ -61,7 +61,7 @@ export function ThreadTabs({ tab: shown, landing, plan, emit }: { tab: ThreadTab
     <div className="fleet-tabs">
       <Segmented label={t("Thread view")}>
         {tab("chat", "Chat")}
-        {plan && tab("plan", "Plan", plan.answeredAt === undefined ? <span className="fleet-tab-alert" aria-label={t("Needs you")}>{toAnswer || "!"}</span> : null)}
+        {plan && tab("plan", "Plan", plan.answeredAt === undefined && plan.closedAt === undefined ? <span className="fleet-tab-alert" aria-label={t("Needs you")}>{toAnswer || "!"}</span> : null)}
         {landing && tab("changes", "Changes", landing.comments.length > 0 ? <span className="pill">{landing.comments.length}</span> : null)}
         {landing && tab("checks", "Checks", landing.attention ? <span className="fleet-tab-alert" aria-label={t("Needs a look")}>!</span> : null)}
       </Segmented>

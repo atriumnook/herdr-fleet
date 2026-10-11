@@ -2,7 +2,7 @@ import { handoffStatus, threadState, type AgentRun, type AgentState, type Contra
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import { parseDiff, type DiffLine } from "./diff.ts";
 import { isEnded, planDraft, type ConfirmedStep, type PlanDraft, type ThreadTab, type UiState } from "./state.ts";
-import { numberClaims, planAsks, type PlanAnswer, type PlanClaim, type PlanExhibit } from "../../shared/plan.ts";
+import { numberClaims, planAsks, planOpen, type PlanAnswer, type PlanClaim, type PlanExhibit } from "../../shared/plan.ts";
 
 /** The regions the Fleet screen draws: its Presenter re-renders when one of them changes. */
 export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView", "landing", "plan", "fleetSettings"] as const;
@@ -166,6 +166,8 @@ export interface PlanModel {
   error?: string;
   version: number;
   answeredAt?: number;
+  /** the lead went on to another turn without the answers: the plan takes none now */
+  closedAt?: number;
   title?: string;
   why: string[];
   claims: PlanClaimModel[];
@@ -462,7 +464,7 @@ function threadRow(run: AgentRun, selected: boolean, fleet: Pick<FleetState, "pl
   return {
     id: run.id, title: run.name, state, group, ...THREAD_BADGE[state], agent: run.agent, branch: run.branch, diff: run.diff, contract: run.contract ?? [], ...(run.pr ? { pr: run.pr } : {}),
     ...(question ? { question } : {}), startedAt: run.startedAt, updatedAt: run.updatedAt, selected,
-    ...(run.plan && run.plan.answeredAt === undefined ? { plan: { toAnswer: Math.max(0, run.plan.asks - planDraft(fleet.plan, run.id, run.plan.version).seen.length) } } : {}),
+    ...(run.plan && planOpen(run.plan) ? { plan: { toAnswer: Math.max(0, run.plan.asks - planDraft(fleet.plan, run.id, run.plan.version).seen.length) } } : {}),
   };
 }
 
@@ -516,15 +518,17 @@ function planModel(run: AgentRun, fleet: FleetState): PlanModel {
   });
   const claims = plan ? plan.claims.map((each) => claim(each, ids.get(each) ?? "", 1)) : [];
   const answered = plan?.answeredAt;
+  const closed = plan?.closedAt ?? run.plan!.closedAt;
+  const open = answered === undefined && closed === undefined;
   const comments = Object.values(draft.comments).filter((text) => text.trim()).length;
   const toAnswer = asks.filter((each) => !draft.seen.includes(each.ask.id)).map((each) => each.ask.id);
   const confirm = fleet.plan.confirm?.runId === run.id ? fleet.plan.confirm : null;
   return {
-    runId: run.id, status: reading.status, ...(reading.error ? { error: reading.error } : {}), version, ...(answered !== undefined ? { answeredAt: answered } : {}),
+    runId: run.id, status: reading.status, ...(reading.error ? { error: reading.error } : {}), version, ...(answered !== undefined ? { answeredAt: answered } : {}), ...(closed !== undefined ? { closedAt: closed } : {}),
     ...(plan ? { title: plan.title } : {}), why: plan?.why ?? [], claims,
     ...(plan?.shared ? { shared: { id: "shared", level: 1, text: plan.shared.text, ...(plan.shared.exhibit ? { exhibit: plan.shared.exhibit } : {}), comment: draft.comments["shared"] ?? "", children: [] } } : {}),
-    scope: plan?.scope ?? [], toAnswer: answered === undefined ? toAnswer : [], note: draft.note, comments,
-    canRespond: plan !== null && answered === undefined && fleet.canAct && fleet.request.status !== "pending" && (run.state === "idle" || run.state === "done"),
+    scope: plan?.scope ?? [], toAnswer: open ? toAnswer : [], note: draft.note, comments,
+    canRespond: plan !== null && open && fleet.canAct && fleet.request.status !== "pending" && (run.state === "idle" || run.state === "done"),
     confirm: confirm && plan ? {
       running: confirm.status === "running", ...(confirm.error ? { error: confirm.error } : {}),
       decisions: asks.map(({ number, ask }) => {

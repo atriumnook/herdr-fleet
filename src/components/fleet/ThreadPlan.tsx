@@ -28,7 +28,8 @@ function unseen(claim: PlanClaimModel): number {
  */
 export function ThreadPlan({ plan, emit }: { plan: PlanModel; emit: Emit<PlanEvent> }) {
   const root = useRef<HTMLDivElement>(null);
-  const answered = plan.answeredAt !== undefined;
+  // answered, or closed because the lead went on without answers: the plan only shows
+  const answered = plan.answeredAt !== undefined || plan.closedAt !== undefined;
   // purely visual: the next decision not looked at, its claims opened and scrolled into view
   const toNext = () => {
     const ask = root.current?.querySelector<HTMLElement>(`[data-ask="${CSS.escape(plan.toAnswer[0] ?? "")}"]`);
@@ -76,7 +77,7 @@ export function ThreadPlan({ plan, emit }: { plan: PlanModel; emit: Emit<PlanEve
         {answered ? (
           <>
             {plan.note && <p className="fleet-plan-sent-note"><b>{t("Note")}</b> {plan.note}</p>}
-            <span className="fleet-plan-done">{t("Answered · sent to the lead")}</span>
+            <span className="fleet-plan-done">{plan.answeredAt !== undefined ? t("Answered · sent to the lead") : t("Closed · the lead went on without answers")}</span>
           </>
         ) : (
           <>
