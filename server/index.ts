@@ -211,7 +211,8 @@ interface PaneAttachment {
    * viewport sizes it (driver). An attach holds the terminal at its pty's size, so a viewport
    * that kept it after the user left it (a tab left open) had herdr's own screen show the top
    * of a taller grid, the prompt under its bottom edge: a viewport sizes the pane only while
-   * it is in front (a phone's terminal lens), and lets go when it leaves.
+   * it is in front with the focus (a terminal lens in the window the person looks at), and lets
+   * go when it leaves.
    */
   cols: number;
   rows: number;
@@ -554,17 +555,19 @@ export function createServer(
     return { cols, rows };
   }
 
-  function setGrid(paneId: string, attachment: PaneAttachment, cols: number, rows: number): void {
-    if (attachment.cols === cols && attachment.rows === rows) return;
+  /** `free`: no viewport sizes the pane now, which is said even when its grid stays the same */
+  function setGrid(paneId: string, attachment: PaneAttachment, cols: number, rows: number, free = false): void {
+    if (attachment.cols === cols && attachment.rows === rows && !free) return;
+    if (attachment.cols !== cols || attachment.rows !== rows) attachment.pty.resize(cols, rows);
     attachment.cols = cols;
     attachment.rows = rows;
-    attachment.pty.resize(cols, rows);
-    broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols, rows });
+    broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols, rows, ...(free ? { free: true } : {}) });
   }
 
   /**
    * The viewport sizing the pane lets go: the pane is back at the grid it had, herdr's. A layout
    * that moved meanwhile is seen at the next look (regridMoved), which left its rect as it was.
+   * The clients hear that the pane is free: the one the person looks at takes it again.
    */
   function release(paneId: string, client: Client): void {
     const attachment = attachments.get(paneId);
@@ -572,7 +575,7 @@ export function createServer(
     const own = attachment.ownGrid;
     attachment.driver = undefined;
     attachment.ownGrid = undefined;
-    if (own) setGrid(paneId, attachment, own.cols, own.rows);
+    if (own) setGrid(paneId, attachment, own.cols, own.rows, true);
   }
 
   function ensureAttachment(paneId: string): Promise<PaneAttachment> {

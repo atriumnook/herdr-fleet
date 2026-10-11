@@ -132,7 +132,13 @@ export function PaneTerminal({
   wheelSpeedRef.current = terminalWheelSpeed;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
+  /** sizes the grid to the mount at the settings' font: the grid this view sizes */
+  const fitRef = useRef<{ fit(): void } | null>(null);
+  /** fits a grid this view does not size to the mount (the font size), keeping the cursor's row in sight */
+  const fitViewRef = useRef<(() => void) | null>(null);
+  /** the font a grid this view sizes is drawn at, and the smallest one a grid it does not size is fitted at */
+  const fontSizeRef = useRef(terminalFontSize);
+  fontSizeRef.current = terminalFontSize;
   const paneRef = useRef<string | null>(paneId);
   const emitRef = useRef(emit);
   emitRef.current = emit;
@@ -168,12 +174,13 @@ export function PaneTerminal({
   // keyboard by itself, only a tap on the message box or the grid does. A desktop has no keyboard
   // to raise, and the pane it picks takes the typing at once.
   const coarseRef = useRef(coarse); coarseRef.current = coarse;
-  // A viewport sizes the pane only while it is in front on a touch screen (a phone's terminal
-  // lens), and lets go when it leaves (keep-size). A desktop draws herdr's own grid: herdr's screen
-  // sits beside it, and a tab left open must not hold the pane at its size, or herdr's screen
-  // shows the top of a taller grid and loses the prompt under its bottom edge.
-  const drives = (): boolean => coarseRef.current && !observeRef.current && !fixedGridRef.current
-    && !chatViewRef.current && document.visibilityState === "visible";
+  // The screen the person looks at sizes the pane: this viewport does while its terminal lens is
+  // in front and its window has the focus, and lets go when either leaves (keep-size). herdr's
+  // own screen, looked at meanwhile, then lays the pane out again, and a window left open must
+  // not hold the pane at its size, or herdr's screen shows the top left of a larger grid and
+  // loses the prompt under its bottom edge. A grid this view does not size is fitted to it.
+  const drives = (): boolean => !observeRef.current && !fixedGridRef.current
+    && !chatViewRef.current && document.visibilityState === "visible" && document.hasFocus();
   const { settings, update: updateSettings } = useSettings();
   const shortcutSettings = useRef(settings.shortcutOverrides);
   shortcutSettings.current = settings.shortcutOverrides;
@@ -249,8 +256,15 @@ export function PaneTerminal({
       // Option+drag selects on macOS, as Shift+drag does elsewhere; a plain drag is forced below
       macOptionClickForcesSelection: true,
     });
-    const fit = new FitAddon();
-    term.loadAddon(fit);
+    const addon = new FitAddon();
+    term.loadAddon(addon);
+    // a grid fitted while this view did not size it is drawn in another font: its own is measured in the settings' one
+    const fit = {
+      fit: (): void => {
+        if (term.options.fontSize !== fontSizeRef.current) term.options.fontSize = fontSizeRef.current;
+        addon.fit();
+      },
+    };
     matchHerdrWidths(term);
     // an address in the terminal opens in a new tab; the page never navigates away from the pane
     term.loadAddon(new WebLinksAddon((_event, uri) => { window.open(uri, "_blank", "noopener,noreferrer"); }));
@@ -365,6 +379,35 @@ export function PaneTerminal({
       const cursorBottom = screen.offsetTop + (term.buffer.active.cursorY + 1) * row;
       const max = host.scrollHeight - host.clientHeight;
       host.scrollTop = cursorBottom <= host.clientHeight ? 0 : cursorBottom - row >= max ? max : cursorBottom - host.clientHeight;
+    };
+    // A grid this view does not size is drawn as large as the mount holds it, by the font size in
+    // half pixels, but never smaller than the settings' font: then the mount scrolls. Glyph widths
+    // round, so the size scaled to the space is tried, then stepped down while the grid overflows.
+    const fitGrid = (): void => {
+      const element = term.element;
+      const screen = element?.querySelector<HTMLElement>(".xterm-screen");
+      // a hidden mount (the chat lens, a page not laid out) has no space to fit to
+      if (drives() || !element || !screen || host.clientWidth === 0 || host.clientHeight === 0) return;
+      const padding = getComputedStyle(element);
+      const width = host.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight);
+      const height = host.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom);
+      const least = fontSizeRef.current;
+      let size = term.options.fontSize ?? least;
+      for (let tries = 0; tries < 3 && screen.offsetWidth > 0 && screen.offsetHeight > 0; tries += 1) {
+        const scaled = Math.max(least, Math.floor(size * Math.min(width / screen.offsetWidth, height / screen.offsetHeight) * 2) / 2);
+        if (scaled === size) break;
+        size = scaled;
+        term.options.fontSize = size;
+      }
+      while (size > least && (screen.offsetWidth > width || screen.offsetHeight > height)) {
+        size = Math.max(least, size - 0.5);
+        term.options.fontSize = size;
+      }
+    };
+    fitViewRef.current = (): void => {
+      fitGrid();
+      panned = false;
+      followCursor();
     };
 
     /** herdr's text for the last drag, while its highlight is still the selection */
@@ -686,8 +729,10 @@ export function PaneTerminal({
         // (a masked prompt) is drawn for it
         sharedGridRef.current = { cols: message.cols, rows: message.rows };
         if (term.cols !== message.cols || term.rows !== message.rows) term.resize(message.cols, message.rows);
-        panned = false;
-        followCursor();
+        // another device that sized the pane let go while this window kept the focus: it takes the
+        // pane again (a grid another device takes is followed, never fought over)
+        if (message.free && drives()) refit();
+        else fitViewRef.current?.();
       } else if (message.type === "error") {
         // the state says these (Mediator); the grid writes an error it knows nothing of
         if (message.code === "input_not_ready" || message.code === "input_failed") return;
@@ -817,11 +862,10 @@ export function PaneTerminal({
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       resizeTimer = window.setTimeout(() => {
         resizeTimer = null;
-        // a grid this view does not size (herdr's, another device's, or a mirror's) stays: only the view moves
-        // (a soft keyboard opening must not leave the prompt under it)
+        // a grid this view does not size (herdr's, another device's, or a mirror's) stays: only its
+        // font and the view move (a soft keyboard opening must not leave the prompt under it)
         if (adopted()) {
-          panned = false;
-          followCursor();
+          fitViewRef.current?.();
           return;
         }
         try {
@@ -882,9 +926,10 @@ export function PaneTerminal({
     host.addEventListener("touchmove", onTouchMove, { passive: false });
     host.addEventListener("touchend", onTouchEnd, { passive: true });
 
-    // A phone in front sizes the pane: coming back (another device may have taken the pane
-    // meanwhile, and this viewport never changed, so the ResizeObserver above stays silent) it
-    // takes it again, and leaving (another app, the screen locked) it lets go at once.
+    // The window with the focus sizes the pane: coming back (another device may have taken the
+    // pane meanwhile, and this viewport never changed, so the ResizeObserver above stays silent) it
+    // takes it again, and leaving (herdr's own terminal window, another app, the screen locked)
+    // it lets go at once. The grid it gets back is herdr's, or another device's, and is fitted.
     const refit = (): void => {
       const current = paneRef.current;
       if (!current || !drives()) return;
@@ -895,12 +940,18 @@ export function PaneTerminal({
       }
       command({ kind: "resize", paneId: current, cols: term.cols, rows: term.rows, force: true });
     };
+    const leave = (): void => {
+      const current = paneRef.current;
+      if (current) command({ kind: "keep-size", paneId: current });
+      // the server says nothing when the pane's own grid is the one this view had
+      fitViewRef.current?.();
+    };
     const onVisible = (): void => {
       if (document.visibilityState === "visible") return refit();
-      const current = paneRef.current;
-      if (current && coarseRef.current) command({ kind: "keep-size", paneId: current });
+      leave();
     };
     window.addEventListener("focus", refit);
+    window.addEventListener("blur", leave);
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
@@ -918,6 +969,7 @@ export function PaneTerminal({
       stopEdge();
       selectionChange.dispose();
       window.removeEventListener("focus", refit);
+      window.removeEventListener("blur", leave);
       document.removeEventListener("visibilitychange", onVisible);
       onShiftEnter.dispose();
       onCommandBackspace.dispose();
@@ -959,7 +1011,10 @@ export function PaneTerminal({
       if (term.options.fontSize === terminalFontSize && term.options.fontFamily === fontFamily) return;
       term.options.fontSize = terminalFontSize;
       term.options.fontFamily = fontFamily;
-      if (!drives()) return;
+      if (!drives()) {
+        fitViewRef.current?.();
+        return;
+      }
       try {
         fitRef.current?.fit();
       } catch {
@@ -973,9 +1028,9 @@ export function PaneTerminal({
     return () => { superseded = true; };
   }, [terminalFontSize, fontFamily]);
 
-  // the chat lens covers the grid: a phone lets go of the pane, and the hidden screen keeps the
-  // pty's grid. The terminal lens on a phone sizes the pane again, fitted anew: a resize while
-  // covered may have been skipped by a zero-size layout
+  // the chat lens covers the grid: this view lets go of the pane, and the hidden screen keeps the
+  // pty's grid. The terminal lens in a window with the focus sizes the pane again, fitted anew: a
+  // resize while covered may have been skipped by a zero-size layout
   useEffect(() => {
     const shared = sharedGridRef.current;
     const grid = termRef.current;
@@ -990,6 +1045,7 @@ export function PaneTerminal({
     }
     if (!drives()) {
       adopt();
+      fitViewRef.current?.();
       if (!autoSelected && !coarseRef.current) grid?.focus();
       return;
     }

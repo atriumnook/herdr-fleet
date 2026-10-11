@@ -344,7 +344,13 @@ setInterval(() => {}, 1000);
     await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
 
     // a window smaller than herdr's grid: the wheel first brings the hidden rows and columns into
-    // view, and only at the mount's edge scrolls herdr's history
+    // view, and only at the mount's edge scrolls herdr's history. A window with the focus sizes the
+    // pane to itself; one without it (herdr's terminal has it) draws herdr's grid, here larger
+    const focus = (focused: boolean) => page.evaluate((focused) => {
+      Object.defineProperty(document, "hasFocus", { configurable: true, value: () => focused });
+      window.dispatchEvent(new Event(focused ? "focus" : "blur"));
+    }, focused);
+    await focus(false);
     await page.setViewportSize({ width: 420, height: 300 });
     const mount = page.locator(".pane-terminal");
     await page.waitForFunction(() => {
@@ -412,6 +418,7 @@ setInterval(() => {}, 1000);
     assert.equal(inputs.length, from, "a watcher's wheel sends herdr nothing");
     await setRole("interact");
     await page.setViewportSize({ width: 1280, height: 800 });
+    await focus(true);
 
     console.log("PASS plain drag copies terminal text; Ctrl+C copies a selection (also without the async clipboard)");
     console.log("PASS a selecting drag scrolls herdr by wheel and edge, and copies herdr's text for the whole range");
