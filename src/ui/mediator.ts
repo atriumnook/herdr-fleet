@@ -1,4 +1,4 @@
-import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandingChecks, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandingChecks, ModelListing, UsageEntry } from "../../shared/fleet.ts";
 import type { Plan } from "../../shared/plan.ts";
 import type { Machine, MachineEvent } from "../../shared/machines.ts";
 import type { BridgeHealth } from "../../shared/machines.ts";
@@ -69,6 +69,7 @@ export interface EffectPorts {
   loadFleetSettings(cwd: string | null): Promise<FleetSettings>;
   saveFleetSettings(cwd: string | null, patch: FleetSettingsPatch): Promise<FleetSettings>;
   loadFleetEntrances(): Promise<FleetEntrances>;
+  loadFleetModels(): Promise<ModelListing[]>;
   changeFleetEntrance(id: FleetEntrance["id"], action: "install" | "remove"): Promise<FleetEntrances>;
   saveSettings(settings: Settings): void;
   forgetPaneViews(): void;
@@ -300,6 +301,10 @@ export class Mediator {
       case "save-fleet-settings":
         try { dispatch({ type: "fleet-settings-saved", seq: effect.seq, settings: await this.ports.saveFleetSettings(effect.cwd, effect.patch) }); }
         catch (error) { dispatch({ type: "fleet-settings-save-failed", seq: effect.seq, message: message(error) }); }
+        return;
+      case "load-fleet-models":
+        try { dispatch({ type: "fleet-models-loaded", listings: await this.ports.loadFleetModels() }); }
+        catch (error) { dispatch({ type: "fleet-models-failed", message: message(error) }); }
         return;
       case "load-fleet-entrances":
         try { dispatch({ type: "fleet-entrances-loaded", entrances: await this.ports.loadFleetEntrances() }); }

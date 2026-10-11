@@ -1,4 +1,4 @@
-import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, ModelListing, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
 import { planOpen, type Plan, type PlanAnswer } from "../../shared/plan.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
@@ -74,6 +74,9 @@ export interface FleetSettingsState extends Reading<FleetSettings> {
   seq: number;
   saveError?: string;
 }
+
+/** What each agent CLI says it offers as models, as the Settings page last read it. */
+export type FleetModelsState = Reading<ModelListing[]>;
 
 /** The skill folders as the Settings page last read them; `busy` is the folder being changed. */
 export interface FleetEntrancesState extends Reading<FleetEntrances> {
@@ -673,6 +676,7 @@ export interface UiState {
   plan: PlanState;
   fleetSettings: FleetSettingsState;
   fleetEntrances: FleetEntrancesState;
+  fleetModels: FleetModelsState;
   /** this device may change things (a paired watch-only device may not: the server answers read_only) */
   canAct: boolean;
   /** the pane shown: on which PC, and whether the shell picked it itself (the one selected closed) */
@@ -756,6 +760,8 @@ type BareEvent =
   | { type: "fleet-settings-change"; patch: FleetSettingsPatch }
   | { type: "fleet-settings-saved"; seq: number; settings: FleetSettings }
   | { type: "fleet-settings-save-failed"; seq: number; message: string }
+  | { type: "fleet-models-loaded"; listings: ModelListing[] }
+  | { type: "fleet-models-failed"; message: string }
   | { type: "fleet-entrances-loaded"; entrances: FleetEntrances }
   | { type: "fleet-entrances-failed"; message: string }
   | { type: "fleet-entrance"; id: FleetEntrance["id"]; action: "install" | "remove" }
@@ -1081,6 +1087,7 @@ type BareEffect =
   | { kind: "load-fleet-settings"; cwd: string | null }
   | { kind: "save-fleet-settings"; cwd: string | null; patch: FleetSettingsPatch; seq: number }
   | { kind: "load-fleet-entrances" }
+  | { kind: "load-fleet-models" }
   | { kind: "change-fleet-entrance"; id: FleetEntrance["id"]; action: "install" | "remove" }
   | { kind: "save-settings"; settings: Settings }
   /** every pane's own lens on this device is forgotten */
@@ -1180,6 +1187,7 @@ export const INITIAL_STATE: UiState = {
   plan: NO_PLAN,
   fleetSettings: { status: "idle", data: null, cwd: null, saving: 0, seq: 0 },
   fleetEntrances: { status: "idle", data: null, busy: null },
+  fleetModels: { status: "idle", data: null },
   selection: { machineId: "local", paneId: null, auto: false },
   canAct: true,
   settings: DEFAULT_SETTINGS,
@@ -1601,13 +1609,18 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "fleet-settings": {
       if (!event.open) return next(state.fleetView.settings ? { fleetView: { ...state.fleetView, settings: false } } : {});
       const cwd = event.cwd ?? null;
-      effects.push({ kind: "load-fleet-settings", cwd }, { kind: "load-fleet-entrances" });
+      effects.push({ kind: "load-fleet-settings", cwd }, { kind: "load-fleet-entrances" }, { kind: "load-fleet-models" });
       return next({
         fleetView: { ...state.fleetView, settings: true, open: null, expanded: false, tab: "chat" },
         fleetSettings: { ...state.fleetSettings, cwd, status: "loading", error: undefined, saveError: undefined, ...(state.fleetSettings.cwd === cwd ? {} : { data: null }) },
         fleetEntrances: { ...state.fleetEntrances, status: "loading", error: undefined, changeError: undefined },
+        fleetModels: { ...state.fleetModels, status: "loading", error: undefined },
       });
     }
+    case "fleet-models-loaded":
+      return next({ fleetModels: { status: "ready", data: event.listings } });
+    case "fleet-models-failed":
+      return next({ fleetModels: { ...state.fleetModels, status: "error", error: event.message } });
     case "fleet-entrances-loaded":
       return next({ fleetEntrances: { ...state.fleetEntrances, status: "ready", data: event.entrances, error: undefined } });
     case "fleet-entrances-failed":

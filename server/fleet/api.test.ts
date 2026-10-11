@@ -11,6 +11,7 @@ import type { AgentState } from "./types.ts";
 import { AUTO_REFRESH_MS, UsageTracker } from "./usage.ts";
 import { FleetSettingsStore } from "./settings.ts";
 import { EntranceStore } from "./entrances.ts";
+import { ModelCatalog } from "./models.ts";
 
 const resultsRoot = mkdtempSync(join(tmpdir(), "fleet-api-"));
 afterAll(() => rmSync(resultsRoot, { recursive: true, force: true }));
@@ -42,9 +43,10 @@ function fleet() {
   const usage = new UsageTracker({ file: null, probes: { codex: async () => { probes += 1; return { codex: { readAt: 1, windows: [{ name: "5h", usedPercent: 20 }] } }; } } });
   const settings = new FleetSettingsStore({ agents: () => orchestrator.roles(resultsRoot), userDir: mkdtempSync(join(resultsRoot, "config-")) });
   const entrances = new EntranceStore({ command: "fleet", url: () => "http://127.0.0.1:7317", tokenRequired: false, home: mkdtempSync(join(resultsRoot, "home-")) });
+  const models = new ModelCatalog({ workDir: "/nonexistent", adapter: (kind) => ({ models: kind === "codex" ? { complete: true, list: async () => [{ id: "gpt-6" }] } : undefined }) });
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = { "x-herdr-fleet": "1" }) => {
     const url = new URL(`http://127.0.0.1:7317/api/fleet${path}`);
-    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage, settings, entrances);
+    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage, settings, entrances, models);
     return { status: response.status, body: await response.json() as Record<string, any> };
   };
   return { call, state, usage, probes: () => probes };
@@ -130,6 +132,14 @@ describe("fleet API", () => {
     expect(state((await call("POST", "/entrances", { id: "claude", action: "remove" })).body, "claude")).toBe("missing");
     expect(await call("POST", "/entrances", { id: "claude", action: "overwrite" })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
     expect(await call("POST", "/entrances", { id: "home", action: "install" })).toMatchObject({ status: 404, body: { error: { code: "unknown_entrance" } } });
+  });
+
+  it("lists the models each CLI offers, and says so when one cannot be asked", async () => {
+    const { call } = fleet();
+    const { status, body } = await call("GET", "/models");
+    expect(status).toBe(200);
+    expect(body["listings"].find((each: { agent: string }) => each.agent === "codex")).toEqual({ agent: "codex", models: [{ id: "gpt-6" }], complete: true });
+    expect(body["listings"].find((each: { agent: string }) => each.agent === "pi")).toEqual({ agent: "pi", models: [], complete: false });
   });
 
   it("marks a thread done and opens it again, and refuses a run that is no thread's lead", async () => {

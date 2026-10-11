@@ -251,6 +251,24 @@ describe("the projects, their threads and the run open in the Overview", () => {
     expect(fleetScreenModel(withRuns([coordinator()]), NOW).settings).toBeNull();
   });
 
+  it("offers each CLI's models, and marks a candidate whose model its CLI does not offer", () => {
+    const candidate = (agent: "codex" | "claude" | "pi", model?: string) => ({ agent, ...(model ? { model } : {}) });
+    const role = (name: string, candidates: Array<ReturnType<typeof candidate>>) => ({ name, description: name, readOnly: false, candidates, changed: false, defaults: { candidates } });
+    const settings = { file: "/c/fleet.json", roles: [role("worker", [candidate("codex", "gpt-6:high"), candidate("codex", "gpt-9"), candidate("claude", "claude-opus-9"), candidate("pi")])], maxUsedPercent: 80, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [], readOnlyAgents: [] };
+    const listings = [
+      { agent: "codex" as const, models: [{ id: "gpt-6", label: "GPT-6" }], complete: true },
+      { agent: "claude" as const, models: [{ id: "opus" }], complete: false },
+      { agent: "pi" as const, models: [], complete: false, error: "pi failed" },
+    ];
+    const model = fleetScreenModel(withRuns([coordinator()], {
+      fleetView: { ...INITIAL_STATE.fleetView, settings: true },
+      fleetSettings: { status: "ready", data: settings, cwd: "/repo", saving: 0, seq: 0 },
+      fleetModels: { status: "ready", data: listings },
+    }), NOW);
+    // a CLI that gave nothing offers nothing; a list that is not complete flags no one
+    expect(model.settings!.models).toEqual({ options: { codex: [{ id: "gpt-6", label: "GPT-6" }], claude: [{ id: "opus" }] }, unlisted: ["worker:1"] });
+  });
+
   it("puts each thread's card under the coordinator's turn it was started in", () => {
     const turn = (role: "user" | "assistant", ts: string): ConversationTurn => ({ role, ts, parts: [] });
     const at = (iso: string) => Date.parse(iso);

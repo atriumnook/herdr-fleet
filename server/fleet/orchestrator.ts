@@ -13,6 +13,7 @@ import { branchHead, branchState, diffStat, diffText, excludeWorktrees, gitBranc
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
 import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadSummary } from "./types.ts";
+import type { ModelCatalog } from "./models.ts";
 import { usageKey, type UsageTracker } from "./usage.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -143,6 +144,8 @@ export interface OrchestratorDeps {
   draftRetryMs?: number;
   /** what each account has used: candidates without usage left are skipped, rate limits start cooldowns */
   usage?: Pick<UsageTracker, "unavailable" | "noteFailure" | "claimScreen" | "record">;
+  /** refuses a model the CLI does not offer, before the run starts (models.ts) */
+  models?: Pick<ModelCatalog, "unknown">;
   onChanged?: (run: AgentRun) => void;
 }
 
@@ -382,9 +385,10 @@ export class Orchestrator {
       const last = i === candidates.length - 1;
       const avoided = request.avoid?.includes(kind) ? `the caller keeps ${kind} out`
         : definition.edits === false && !adapterFor(kind).readOnlyArgs ? `${kind} cannot be kept from editing files` : undefined;
-      const unusable = avoided ?? await this.deps.usage?.unavailable(kind, model, config.maxUsedPercent);
+      const refused = avoided ?? await this.deps.models?.unknown(kind, model);
+      const unusable = refused ?? await this.deps.usage?.unavailable(kind, model, config.maxUsedPercent);
       if (unusable) {
-        if (!avoided) outOfUsage = true;
+        if (!refused) outOfUsage = true;
         failures.push(`${entry ?? "default"}: ${unusable}`);
         skipped.push({ candidate: entry ?? "default", reason: unusable });
         if (!last) continue;

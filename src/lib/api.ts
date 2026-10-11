@@ -18,7 +18,7 @@ import type {
   SlashCommand,
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
-import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, ModelListing, UsageEntry } from "../../shared/fleet.ts";
 import type { Plan, PlanAnswer } from "../../shared/plan.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
@@ -472,6 +472,11 @@ export async function fetchFleetSettings(cwd: string | null): Promise<FleetSetti
 /** Writes a change into the person's fleet.json, and answers the settings after it. */
 export async function saveFleetSettings(cwd: string | null, patch: FleetSettingsPatch): Promise<FleetSettings> {
   return (await sendFleet<{ settings: FleetSettings }>("/settings", { patch, ...(cwd ? { cwd } : {}) })).settings;
+}
+
+/** The models each agent CLI says it offers. */
+export async function fetchFleetModels(): Promise<ModelListing[]> {
+  return (await getJson<{ listings: ModelListing[] }>("/api/fleet/models")).listings;
 }
 
 /** The folders agent CLIs read skills from, and whether the fleet skill is in each. */

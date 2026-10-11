@@ -301,7 +301,11 @@ describe("screens and the Fleet screen's view", () => {
   it("opens the Settings page for the project, saves each change, and keeps only the latest save's answer", () => {
     const settings = (maxConcurrent: number) => ({ file: "/c/fleet.json", roles: [], maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent, closeOnSettle: true, projects: [], readOnlyAgents: ["claude" as const] });
     const opened = play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-settings", open: true, cwd: "/repo" }], withRuns);
-    expect(opened.effects).toEqual([{ kind: "load-fleet-settings", cwd: "/repo" }, { kind: "load-fleet-entrances" }]);
+    expect(opened.effects).toEqual([{ kind: "load-fleet-settings", cwd: "/repo" }, { kind: "load-fleet-entrances" }, { kind: "load-fleet-models" }]);
+    expect(opened.state.fleetModels.status).toBe("loading");
+    const listed = play([{ type: "fleet-models-loaded", listings: [{ agent: "codex", models: [{ id: "gpt-6" }], complete: true }] }], opened.state).state;
+    expect(listed.fleetModels).toEqual({ status: "ready", data: [{ agent: "codex", models: [{ id: "gpt-6" }], complete: true }] });
+    expect(play([{ type: "fleet-models-failed", message: "offline" }], listed).state.fleetModels).toMatchObject({ status: "error", error: "offline", data: [{ agent: "codex" }] });
     expect(opened.state.fleetView).toMatchObject({ settings: true, open: null });
     const ready = play([{ type: "fleet-settings-loaded", settings: settings(6) }], opened.state).state;
     expect(ready.fleetSettings).toMatchObject({ status: "ready", cwd: "/repo", data: { maxConcurrent: 6 } });

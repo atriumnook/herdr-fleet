@@ -285,6 +285,31 @@ export interface FleetEntrances {
   tokenRequired: boolean;
 }
 
+/**
+ * The models one agent CLI says it offers. `complete`: the list is the CLI's whole answer, so a
+ * model outside it will not run; otherwise it holds only names the CLI is known to accept (claude's
+ * aliases, pi's patterns), and any other name may still work.
+ */
+export interface ModelListing {
+  agent: FleetAgentKind;
+  models: Array<{ id: string; label?: string }>;
+  complete: boolean;
+  /** why the CLI could not be asked; `models` is then empty */
+  error?: string;
+}
+
+/**
+ * Whether `model` is one the listing names. A `:level` suffix is not part of a name, and cursor's
+ * bracketed parameters (`gpt-5[effort=high]`) belong to one model.
+ */
+export function modelListed(listing: ModelListing, model: string): boolean {
+  const bare = (name: string) => name.replace(/\[.*\]$/, "");
+  const name = bare(model.replace(/:(off|minimal|low|medium|high|xhigh|max)$/, ""));
+  // agy lists a model once per effort (`gemini-3.1-pro-high`) and takes the effort apart, by `--effort`
+  const base = (id: string) => (listing.agent === "agy" ? id.replace(/-(low|medium|high|xhigh|max)$/, "") : id);
+  return listing.models.some((each) => each.id === name || bare(each.id) === name || base(each.id) === name);
+}
+
 /** How a task sent from a pane's conversation opens (the fleet skill's `fleet project`), so the coordinator and the Fleet screen tell where it came from. */
 export const FROM_PANE = "[from pane ";
 
