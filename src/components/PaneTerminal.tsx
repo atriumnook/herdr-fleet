@@ -294,13 +294,13 @@ export function PaneTerminal({
         dragWheel(event);
         return false;
       }
-      // a terminal that reports nothing to herdr leaves the wheel to the browser, to pan the mount
-      if (reportsNothing()) return false;
       // a grid larger than the mount: the wheel first brings its hidden rows and columns into view
       if (adopted() && pansMount(event)) {
         panMount(event);
         return false;
       }
+      // a terminal that reports nothing to herdr has no history there to scroll
+      if (reportsNothing()) return false;
       if (term.hasSelection()) term.clearSelection();
       const reporting = term.modes.mouseTrackingMode !== "none";
       // a trackpad pinch arrives as a wheel with Ctrl down: it is not scrolling, and goes once as before
