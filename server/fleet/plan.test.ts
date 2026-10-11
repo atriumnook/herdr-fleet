@@ -74,7 +74,13 @@ describe("a plan's code", () => {
 
   it("names lines that are there, in a text file", () => {
     const { tree } = worktree();
-    expect(() => readCodeLines(tree, "src/retry.ts", 40, 41)).toThrow("src/retry.ts has 6 lines; line 40 is past its end");
+    expect(() => readCodeLines(tree, "src/retry.ts", 40, 41)).toThrow("src/retry.ts has 5 lines; line 40 is past its end");
+    // the line after a final newline is no line
+    expect(readCodeLines(tree, "src/retry.ts", 5, 9)).toEqual(["}"]);
+    expect(() => readCodeLines(tree, "src/retry.ts", 6, 6)).toThrow("src/retry.ts has 5 lines; line 6 is past its end");
+    // a file written with CRLF reads without its carriage returns
+    writeFileSync(join(tree, "src", "win.ts"), "const a = 1;\r\nconst b = 2;\r\n");
+    expect(readCodeLines(tree, "src/win.ts", 1, 2)).toEqual(["const a = 1;", "const b = 2;"]);
     expect(() => readCodeLines(tree, "src", 1, 1)).toThrow("src is not a file");
     expect(() => readCodeLines(tree, "src/none.ts", 1, 1)).toThrow("src/none.ts is not a file in the thread's worktree");
     writeFileSync(join(tree, "blob.bin"), Buffer.from([1, 0, 2]));
@@ -143,6 +149,8 @@ describe("the person's answers", () => {
     expect(() => checkAnswer(answered, { version: 2, choices: { limit: "ten" } })).toThrow("ten is not an option of limit");
     expect(() => checkAnswer(answered, { version: 2, comments: [{ claim: "9", text: "x" }] })).toThrow("the plan has no claim 9");
     expect(() => checkAnswer(answered, { version: 2, seen: ["nope"] })).toThrow("seen must list the plan's decisions");
+    // a pick the person made is a decision they looked at
+    expect(() => checkAnswer(answered, { version: 2, choices: { limit: "five" }, seen: [] })).toThrow("limit has an option picked but is not in seen");
   });
 
   it("reach the lead as one message: each decision with what the person did with it, their words quoted", () => {

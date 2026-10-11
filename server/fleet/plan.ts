@@ -54,7 +54,9 @@ export function readCodeLines(root: string, path: string, start: number, end: nu
     }
     const bytes = buffer.subarray(0, length);
     if (bytes.includes(0)) throw new FleetError("invalid_plan", `${path} is not a text file`);
-    const lines = bytes.toString("utf8").split("\n");
+    // the file's lines as an editor counts them: none after a final newline, no carriage returns
+    const text = bytes.toString("utf8");
+    const lines = (text.endsWith("\n") ? text.slice(0, -1) : text).split("\n").map((line) => line.replace(/\r$/, ""));
     if (start > lines.length) throw new FleetError("invalid_plan", `${path} has ${lines.length} lines; line ${start} is past its end`);
     return lines.slice(start - 1, Math.min(end, lines.length)).map((line) => (line.length > CODE_LINE_MAX_CHARS
       ? `${line.slice(0, CODE_LINE_MAX_CHARS)} … [cut: ${line.length - CODE_LINE_MAX_CHARS} more characters]` : line));
@@ -158,6 +160,8 @@ export function checkAnswer(plan: Plan, value: unknown): PlanAnswer {
   }
   const seenValue = answer["seen"] ?? [];
   if (!Array.isArray(seenValue) || !seenValue.every((id) => typeof id === "string" && asks.has(id))) fail("seen must list the plan's decisions");
+  // a pick is a look: an option picked on a decision not marked seen would be sent as not opened
+  for (const id of Object.keys(choices)) if (!(seenValue as string[]).includes(id)) fail(`${id} has an option picked but is not in seen`);
   const claims = new Set([...numberClaims(plan).map((claim) => claim.id), ...(plan.shared ? ["shared"] : [])]);
   const commentsValue = answer["comments"] ?? [];
   if (!Array.isArray(commentsValue) || commentsValue.length > PLAN_LIMITS.comments) fail(`comments must be up to ${PLAN_LIMITS.comments} of { claim, text }`);
