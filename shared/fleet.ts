@@ -285,6 +285,19 @@ export interface FleetEntrances {
   tokenRequired: boolean;
 }
 
+/**
+ * The models one agent CLI says it offers. `complete`: the list is the CLI's whole answer, so a
+ * model outside it will not run; otherwise it holds only names the CLI is known to accept (claude's
+ * aliases, pi's patterns), and any other name may still work.
+ */
+export interface ModelListing {
+  agent: FleetAgentKind;
+  models: Array<{ id: string; label?: string }>;
+  complete: boolean;
+  /** why the CLI could not be asked; `models` is then empty */
+  error?: string;
+}
+
 /** How a task sent from a pane's conversation opens (the fleet skill's `fleet project`), so the coordinator and the Fleet screen tell where it came from. */
 export const FROM_PANE = "[from pane ";
 

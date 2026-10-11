@@ -10,6 +10,7 @@ import type { SpawnRequest } from "./types.ts";
 import type { UsageTracker } from "./usage.ts";
 import type { FleetSettingsStore } from "./settings.ts";
 import type { EntranceStore } from "./entrances.ts";
+import type { ModelCatalog } from "./models.ts";
 
 /**
  * Fleet HTTP API, behind the same gate as the rest of /api. Changes need X-Herdr-Fleet: 1: a page
@@ -42,10 +43,11 @@ import type { EntranceStore } from "./entrances.ts";
  *  POST /api/fleet/usage/clear            { key? }   -> { cleared: string[] }; ends cooldowns: one account, a CLI's, or all
  *  GET  /api/fleet/settings[?cwd=]                  -> { settings: FleetSettings }; the person's fleet.json, as the project in cwd uses it
  *  POST /api/fleet/settings      { patch, cwd? }    -> { settings }; the patch written into the person's fleet.json
+ *  GET  /api/fleet/models                           -> { listings: ModelListing[] }; what each CLI says it offers (kept for minutes; asks no model)
  *  GET  /api/fleet/entrances                        -> FleetEntrances; the skill folders and whether the fleet skill is in each
  *  POST /api/fleet/entrances     { id, action: "install" | "remove" } -> FleetEntrances
  */
-export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator, usage?: Pick<UsageTracker, "list" | "refresh" | "clearCooldown">, settings?: Pick<FleetSettingsStore, "read" | "update">, entrances?: Pick<EntranceStore, "list" | "install" | "remove">): Promise<Response> {
+export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator, usage?: Pick<UsageTracker, "list" | "refresh" | "clearCooldown">, settings?: Pick<FleetSettingsStore, "read" | "update">, entrances?: Pick<EntranceStore, "list" | "install" | "remove">, models?: Pick<ModelCatalog, "listAll">): Promise<Response> {
   const parts = url.pathname.slice("/api/fleet".length).split("/").filter(Boolean).map(decodeURIComponent);
   const method = request.method;
   try {
@@ -116,6 +118,7 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
         return jsonResponse({ settings: await settings.update(cwd || process.cwd(), body["patch"] as FleetSettingsPatch) });
       }
     }
+    if (parts[0] === "models" && parts.length === 1 && method === "GET" && models) return jsonResponse({ listings: await models.listAll() });
     if (parts[0] === "entrances" && parts.length === 1 && entrances) {
       if (method === "GET") return jsonResponse(entrances.list());
       if (method === "POST") {

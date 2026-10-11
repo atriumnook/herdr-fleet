@@ -9,6 +9,7 @@ import { RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, type AgentMetadata, type AgentRuntime, type CreateLocationOptions, type RuntimeLocation, type StartOptions } from "./runtime.ts";
 import type { AgentDefinition, AgentRun, AgentState, FleetConfig } from "./types.ts";
 import { UsageTracker } from "./usage.ts";
+import type { ModelCatalog } from "./models.ts";
 import { threadState } from "../../shared/fleet.ts";
 
 const GRACE = 60;
@@ -78,6 +79,7 @@ interface SetupOptions {
   gitHead?: (cwd: string) => Promise<string | null>;
   diffStat?: (cwd: string, base: string) => Promise<{ added: number; removed: number; files: number } | null>;
   landing?: Partial<LandingTools>;
+  models?: Pick<ModelCatalog, "unknown">;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -89,7 +91,7 @@ function setup(options: SetupOptions = {}) {
   const fleet = new Orchestrator({
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
-    usage: options.usage, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}), standingOrders: options.standingOrders,
+    usage: options.usage, models: options.models, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}), standingOrders: options.standingOrders,
     draftRetryMs: options.draftRetryMs, gitHead: options.gitHead ?? (async () => null), diffStat: options.diffStat,
     landing: { gitBranch: async () => null, readPullRequest: async () => null, ...options.landing },
   });
@@ -460,6 +462,26 @@ describe("model fallbacks", () => {
     expect(await waiting).toMatchObject({ state: "failed", lastError: "quota" });
     expect(fleet.get(run.id).replacedBy).toBeUndefined();
     expect(runtime.starts).toHaveLength(1);
+  });
+});
+
+describe("a model the CLI does not offer", () => {
+  const offers = (...names: string[]) => ({ unknown: async (agent: string, model?: string) => (model && !names.includes(model) ? `${agent} does not offer a model named ${model}` : undefined) });
+
+  it("is passed over for the next candidate before any pane opens", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { model: "p/primary", fallbackModels: ["codex:gpt-6"] })], models: offers("gpt-6") });
+    const run = await spawn(fleet);
+    expect(run).toMatchObject({ agent: "codex", model: "gpt-6", fallbackFrom: "p/primary" });
+    expect(run.skipped).toEqual([{ candidate: "p/primary", reason: "pi does not offer a model named p/primary" }]);
+    expect(runtime.locations).toHaveLength(1);
+  });
+
+  it("refuses the spawn, with every reason, when no candidate is left", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { model: "nope" })], models: offers() });
+    const error = await spawn(fleet).catch((e) => e);
+    expect(error).toMatchObject({ code: "no_candidates" });
+    expect(error.message).toContain("nope: pi does not offer a model named nope");
+    expect(runtime.locations).toEqual([]);
   });
 });
 

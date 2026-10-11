@@ -1,6 +1,7 @@
 import { dirname } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { AgentKind, ThinkingLevel } from "./types.ts";
+import { CLAUDE_ALIASES, listAgyModels, listCodexModels, listCursorModels, listPiModels, type ModelEntry } from "./model-lists.ts";
 import type { UsageReading } from "./usage.ts";
 
 export interface LaunchOptions {
@@ -49,6 +50,12 @@ export interface AgentAdapter {
   readonly usageCommand?: string;
   /** the usage on that screen, once it shows */
   usageScreen?(screen: string, now: number): UsageReading | undefined;
+  /**
+   * The CLI's own list of its models, asked without a model call. `complete`: the list is all the
+   * CLI runs, so a model outside it is refused before a run starts; otherwise it is names the CLI
+   * accepts among others (aliases, patterns).
+   */
+  readonly models?: { complete: boolean; list(): Promise<ModelEntry[]> };
 }
 
 /** `model` as pi takes it: a `:level` suffix sets thinking; one already there wins. */
@@ -115,6 +122,7 @@ function effortFor(thinking: ThinkingLevel | undefined, levels: Partial<Record<T
 export const piAdapter: AgentAdapter = {
   kind: "pi",
   instructionsInPrompt: false,
+  models: { complete: false, list: listPiModels },
   launchArgs({ model, thinking, tools, name, systemPromptFile }) {
     const args: string[] = [];
     if (model) args.push("--model", withThinking(model, thinking));
@@ -135,6 +143,8 @@ export const piAdapter: AgentAdapter = {
 export const claudeAdapter: AgentAdapter = {
   kind: "claude",
   instructionsInPrompt: false,
+  // no command lists them: the aliases `claude --help` names, and a full name works as well
+  models: { complete: false, list: async () => CLAUDE_ALIASES },
   launchArgs(options) {
     const { model, thinking } = splitThinking(options.model, options.thinking);
     const effort = effortFor(thinking, { low: "low", medium: "medium", high: "high", xhigh: "xhigh", max: "max" });
@@ -175,6 +185,7 @@ const CODEX_FLEET_NOTE = "If a fleet command fails because it cannot reach the f
 export const codexAdapter: AgentAdapter = {
   kind: "codex",
   instructionsInPrompt: false,
+  models: { complete: true, list: listCodexModels },
   launchArgs(options) {
     const { model, thinking } = splitThinking(options.model, options.thinking);
     // what codex's models list (model/list) as their efforts: low is the lowest, max only on some
@@ -207,6 +218,7 @@ const CURSOR_INPUT = /Plan, search, build anything/;
 export const cursorAdapter: AgentAdapter = {
   kind: "cursor",
   instructionsInPrompt: true,
+  models: { complete: true, list: listCursorModels },
   launchArgs(options) {
     const { model } = splitThinking(options.model, options.thinking);
     // the folder holding every run's result folder: trusted once, not once per run
@@ -257,6 +269,7 @@ export function cursorUsage(screen: string, now: number): UsageReading | undefin
 export const agyAdapter: AgentAdapter = {
   kind: "agy",
   instructionsInPrompt: true,
+  models: { complete: true, list: listAgyModels },
   launchArgs(options) {
     const { model, thinking } = splitThinking(options.model, options.thinking);
     const effort = effortFor(thinking, { low: "low", medium: "medium", high: "high", max: "max" });
@@ -289,6 +302,8 @@ export const agyAdapter: AgentAdapter = {
 };
 
 const ADAPTERS: Record<AgentKind, AgentAdapter> = { pi: piAdapter, claude: claudeAdapter, codex: codexAdapter, cursor: cursorAdapter, agy: agyAdapter };
+
+export const AGENT_KINDS = Object.keys(ADAPTERS) as AgentKind[];
 
 export function adapterFor(kind: AgentKind): AgentAdapter {
   return ADAPTERS[kind];
