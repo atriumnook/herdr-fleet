@@ -14,10 +14,12 @@ designing twice, the design red flags), by Lauren Tan, licensed under the MIT Li
 
 Source:      https://github.com/cursor/plugins/tree/main/pstack/skills/architect
 
-The prompt rail (src/lib/promptRail.ts, src/components/PromptRail.tsx) adapts ideas from
-oikon48's prompt-rail Claude Code plugin (the rail of the person's prompts, the turn line
-"1m 23s · 2 edits · app.ts", file names told apart by their folder, finding a prompt by
-its words, the thick tick for the prompt being read), Copyright (c) 2026 oikon48,
-licensed under the MIT License.
+The prompt rail (src/lib/promptRail.ts, src/components/PromptRail.tsx) takes ideas from
+oikon48's prompt-rail Claude Code plugin, Copyright (c) 2026 oikon48, licensed under the
+MIT License: a rail of the person's prompts with a thick tick for the one being read, the
+turn line's form ("1m 23s · 2 edits · app.ts", up to three files written, two files with
+one name told apart by their folder), and the search rule (the newest prompt holding every
+word). The code was written for this project, except fileNames in src/lib/promptRail.ts,
+which follows the plugin's function of that name closely.
 
 Source:      https://github.com/oikon48/prompt-rail/tree/main/plugins/prompt-rail
