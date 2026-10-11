@@ -45,11 +45,13 @@ describe("the model catalog", () => {
     expect(asked).toBe(2);
   });
 
-  it("answers a failed ask with the reason, and asks again next time", async () => {
+  it("answers a failed ask with the reason, and asks again once the minute is over", async () => {
     let fail = true;
-    const models = catalog({ complete: true, list: async () => { if (fail) throw new Error("offline"); return [{ id: "a" }]; } });
+    let at = 0;
+    const models = catalog({ complete: true, list: async () => { if (fail) throw new Error("offline"); return [{ id: "a" }]; } }, () => at);
     expect(await models.list("codex")).toEqual({ agent: "codex", models: [], complete: false, error: "offline" });
     fail = false;
+    at = 61_000;
     expect(await models.list("codex")).toMatchObject({ models: [{ id: "a" }], complete: true });
   });
 
@@ -84,6 +86,28 @@ describe("agy's models, listed once per effort", () => {
     expect(modelListed(listing, "gemini-9")).toBe(false);
     // another CLI's names keep their ending
     expect(modelListed({ ...listing, agent: "cursor" }, "gemini-3.1-pro")).toBe(false);
+  });
+});
+
+describe("a CLI that fails or hangs", () => {
+  it("is not asked again for a minute, then is", async () => {
+    let asked = 0;
+    let at = 0;
+    const models = catalog({ complete: true, list: async () => { asked += 1; throw new Error("down"); } }, () => at);
+    await models.list("codex");
+    await models.list("codex");
+    await models.listAll();
+    expect(asked).toBe(1 + 4 /* the other kinds ask once each: they share the stub */);
+    at = 61_000;
+    await models.list("codex");
+    expect(asked).toBe(6);
+  });
+
+  it("holds a spawn up for no longer than the wait, then lets the model through", async () => {
+    const models = new ModelCatalog({ spawnWaitMs: 30, adapter: () => ({ models: { complete: true, list: () => new Promise(() => {}) } }) as Pick<AgentAdapter, "models"> });
+    const started = Date.now();
+    expect(await models.unknown("codex", "anything")).toBeUndefined();
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 });
 
