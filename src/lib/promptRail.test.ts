@@ -41,6 +41,12 @@ describe("railEntries", () => {
     expect(entries[1]!.line).toBe("");
   });
 
+  it("takes a request sent from a pane as the person's prompt, without the line naming the pane", () => {
+    const entries = railEntries([user("t1", "[from pane w2:p3]\n\nFix the login error."), user("t2", "next")]);
+    expect(entries.map((entry) => entry.text)).toEqual(["Fix the login error.", "next"]);
+    expect(findPrompts(entries, "from pane")).toEqual([]);
+  });
+
   it("keys each prompt by its time and which of the prompts with that time it is", () => {
     const entries = railEntries([user("t1", "a"), user("t1", "b"), user("t2", "c"), user("t1", "d")]);
     expect(entries.map((entry) => entry.key)).toEqual(["t1#0", "t1#1", "t2#0", "t1#2"]);

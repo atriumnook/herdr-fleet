@@ -10,7 +10,7 @@ import { AgentMark } from "./AgentMark.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { PromptCard, type PromptCardEvent } from "./PromptCard.tsx";
 import { PromptRail, type PromptRailEvent, type PromptRailModel } from "./PromptRail.tsx";
-import { isPrompt, occurrenceKeys, railEntries, stepFrom, type RailEntry } from "../lib/promptRail.ts";
+import { FLEET_MESSAGE, isPrompt, occurrenceKeys, railEntries, stepFrom, userText, type RailEntry } from "../lib/promptRail.ts";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { ThreadCard, type ThreadCardEvent } from "./fleet/ThreadCard.tsx";
 import type { ThreadRowModel } from "../ui/fleetView.ts";
@@ -400,14 +400,6 @@ interface TurnProps {
 }
 
 // a turn that did not change keeps its object across polls: skip re-rendering it
-/** what a user turn says, its text parts together */
-function userText(turn: ConversationTurn): string {
-  return turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
-}
-
-/** how the fleet opens what it types into an agent itself (server/fleet/orchestrator.ts) */
-const FLEET_MESSAGE = "[fleet] ";
-
 const Turn = memo(function Turn({ paneId, turn, live, last, showThinking, askedName = null, emit }: TurnProps) {
   const time = formatTime(turn.ts);
   const compact = turn.parts.find((part): part is Extract<ConversationPart, { kind: "compact" }> => part.kind === "compact");

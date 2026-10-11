@@ -7,11 +7,12 @@
  */
 import type { ConversationPart, ConversationTurn } from "../../shared/protocol.ts";
 import { patchFiles, patchText } from "../../shared/patch.ts";
+import { fromPane } from "../../shared/fleet.ts";
 import { formatWorkDuration, workSummary } from "./workBlocks.ts";
 import { t } from "./i18n.ts";
 
 /** how the fleet opens what it types into an agent itself (server/fleet/orchestrator.ts) */
-const FLEET_MESSAGE = "[fleet] ";
+export const FLEET_MESSAGE = "[fleet] ";
 
 /** One prompt on the rail. */
 export interface RailEntry {
@@ -21,14 +22,14 @@ export interface RailEntry {
   key: string;
   /** where the prompt sits among the turns read, 0 at the first and 1 at the last */
   at: number;
-  /** what the person typed; empty for a message of images alone */
+  /** what the person typed (a request sent from a pane without its `[from pane …]` line); empty for a message of images alone */
   text: string;
   /** the turn it started on one line: `1m 23s · 2 edits · app.ts, README.md`; empty when nothing is known */
   line: string;
 }
 
 /** The text a user turn holds, its parts joined as the chat shows them. */
-function userText(turn: ConversationTurn): string {
+export function userText(turn: ConversationTurn): string {
   return turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
 }
 
@@ -62,7 +63,8 @@ export function railEntries(turns: readonly ConversationTurn[]): RailEntry[] {
   return starts.map((start, n) => {
     const turn = turns[start]!;
     const answer = turns.slice(start + 1, starts[n + 1] ?? turns.length).filter((reply) => reply.role === "assistant");
-    return { ts: turn.ts!, key: keys[n]!, at: turns.length === 1 ? 0 : start / last, text: userText(turn), line: turnLine(turn, answer) };
+    const text = userText(turn);
+    return { ts: turn.ts!, key: keys[n]!, at: turns.length === 1 ? 0 : start / last, text: fromPane(text)?.text ?? text, line: turnLine(turn, answer) };
   });
 }
 

@@ -79,6 +79,8 @@ describe("Chat view", () => {
     expect(open).toContain(">Open pane</button>");
     expect(open).toContain("Fix the doubled login error.");
     expect(open).not.toContain("[from pane");
+    // it is a prompt of the person's: its row carries the time the prompt rail jumps to
+    expect(open).toContain('data-turn-ts="2026-10-11T10:00:00Z"');
     const closed = render(model({ view: { ...EMPTY_VIEW, turns: [asked] }, askedFrom: new Map([["w2:p3", null]]) }));
     expect(closed).toContain("Closed pane");
     expect(closed).not.toContain("Open pane");
