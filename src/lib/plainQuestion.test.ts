@@ -89,4 +89,9 @@ describe("the person's last instruction", () => {
     expect(lastInstruction([user("first"), { role: "user", ts: null, parts: [{ kind: "notice", text: "task finished" }] }])).toBe("first");
     expect(lastInstruction([agent("hello")])).toBeNull();
   });
+
+  it("is the person's, as the prompt rail reads it: not the fleet's message, and a pane's request without its pane line", () => {
+    expect(lastInstruction([user("add a cache"), agent("ok"), user("[fleet] The thread t1 is ready for review.")])).toBe("add a cache");
+    expect(lastInstruction([user("[from pane w1:p2]\n\nfix the login test")])).toBe("fix the login test");
+  });
 });

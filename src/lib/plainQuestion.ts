@@ -1,4 +1,6 @@
 import type { ConversationTurn } from "../../shared/protocol.ts";
+import { fromPane } from "../../shared/fleet.ts";
+import { FLEET_MESSAGE, userText } from "./promptRail.ts";
 import { splitTurn } from "./workBlocks.ts";
 
 /**
@@ -97,7 +99,11 @@ export function lastInstruction(turns: readonly ConversationTurn[]): string | nu
   for (let index = turns.length - 1; index >= 0; index -= 1) {
     const turn = turns[index]!;
     if (turn.role !== "user") continue;
-    const text = turn.parts.flatMap((part) => (part.kind === "text" ? [part.text] : [])).join("\n").trim();
+    // as the prompt rail reads them: the fleet's own messages are not the person's, and a request
+    // sent from a pane is what it asks, without the line naming that pane
+    const said = userText(turn);
+    if (said.startsWith(FLEET_MESSAGE)) continue;
+    const text = (fromPane(said)?.text ?? said).trim();
     if (text.length > 0) return text;
   }
   return null;
