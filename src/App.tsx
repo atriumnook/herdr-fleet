@@ -223,6 +223,8 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     document.title = selectedTitle ? `${selectedTitle} · herdr` : APP_TITLE;
   }, [selectedTitle]);
 
+  // a chat shows: the Fleet screen's conversation, or the chat lens on the Pane screen's pane
+  const chatShows = screen === "fleet" || (selectedPaneId !== null && view === "chat");
   const actions = useMemo<AppActions>(
     () => ({
       selectPane,
@@ -233,11 +235,11 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         const next = panes[(index + direction + panes.length) % panes.length];
         if (next) selectPane(next.pane_id);
       },
-      stepPrompt: (direction) => {
+      stepPrompt: chatShows ? (direction) => {
         // the chat beside on the Fleet screen when the focus is in it, else the pane's
         const side = document.activeElement?.closest('[data-chat-lens="side"]') != null;
         emitRef.current({ type: "prompt-rail-step", direction, ...(side ? { lens: "side" as const } : {}) });
-      },
+      } : null,
       setView,
       toggleView: () => setView(view === "chat" ? "terminal" : "chat"),
       openNewSession: () => openNewSession(selectedMachineId),
@@ -256,7 +258,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       refresh: () => emitRef.current({ type: "reload-machines" }),
       openFiles: selectedPaneId !== null ? () => emitRef.current({ type: "open-files" }) : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, chatShows, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications],
   );
   // a connected PC's sessions: a new session is this shell's; the rest goes up as it is
   const treeEmit = useMemo(() => relay<SidebarEvent, UiEvent>(emit, (event, pass) => {
@@ -268,7 +270,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   ), [selectedMachineId, selectedPaneId, treeEmit]);
 
   // the palette's actions are this shell's: run, and the palette closes
-  const paletteOffers = useMemo(() => ({ notifications: actions.enableNotifications !== null, lock: actions.lock !== null, files: actions.openFiles !== null, pane: selectedPane !== null }), [actions, selectedPane]);
+  const paletteOffers = useMemo(() => ({ notifications: actions.enableNotifications !== null, lock: actions.lock !== null, files: actions.openFiles !== null, pane: selectedPane !== null, prompts: actions.stepPrompt !== null }), [actions, selectedPane]);
   const actionsRef = useRef(actions);
   actionsRef.current = actions;
   const selectedRef = useRef({ machineId: selectedMachineId, pane: selectedPane });

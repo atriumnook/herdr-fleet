@@ -27,7 +27,8 @@ export interface CommandPaletteModel {
   /** the panes opened last on this PC, newest first */
   recent: string[];
   /** the actions this device has now (no bell once alerts are on, no sign-out without a token or pairing) */
-  offers: { notifications: boolean; lock: boolean; files: boolean; pane: boolean };
+  /** `prompts`: a chat shows, so its prompts can be searched */
+  offers: { notifications: boolean; lock: boolean; files: boolean; pane: boolean; prompts: boolean };
   /** the open chat's prompts that hold the words searched for, newest first */
   prompts: RailEntry[];
 }

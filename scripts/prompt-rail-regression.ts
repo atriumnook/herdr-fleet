@@ -128,8 +128,28 @@ export async function checkPromptRail(browser: Browser, origin: string): Promise
     await found.first().click();
     await palette.waitFor({ state: "hidden" });
     await until(async () => Math.abs((await topOf(page, 11)) ?? 999) < 30, "the prompt picked in the palette at the top");
-    assert.deepEqual(errors, []);
     console.log("PASS the palette finds a prompt by its words and brings it up");
+
+    // the terminal lens shows no chat: the palette offers no prompts, and the steps' keys are not taken
+    await page.getByRole("button", { name: "Terminal", exact: true }).click();
+    await chat.waitFor({ state: "detached" });
+    await page.keyboard.press("Control+Shift+K");
+    await palette.waitFor();
+    await palette.getByRole("searchbox").fill("prompt 11");
+    await Bun.sleep(300);
+    assert.equal(await palette.locator(".palette-prompt").count(), 0, "no prompts while the terminal shows");
+    await page.keyboard.press("Escape");
+    await palette.waitFor({ state: "hidden" });
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      const seen = { prevented: null as boolean | null };
+      (window as unknown as { stepKey: typeof seen }).stepKey = seen;
+      window.addEventListener("keydown", (event) => { if (event.code === "BracketRight") seen.prevented = event.defaultPrevented; });
+    });
+    await page.keyboard.press("Control+Shift+BracketRight");
+    assert.equal(await page.evaluate(() => (window as unknown as { stepKey: { prevented: boolean | null } }).stepKey.prevented), false, "the key goes on with no chat showing");
+    assert.deepEqual(errors, []);
+    console.log("PASS with the terminal showing, the palette offers no prompts and the step keys are left alone");
 
     // ---- a phone: no pointing, so a button opens the prompts as a list ----
     const phone = await open({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });

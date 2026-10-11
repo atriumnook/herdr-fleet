@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 
-import { matchShortcut, type ShortcutEventLike, keepsArrowsForText, shortcutConflict, shortcutKeys } from "./shortcuts.ts";
+import { isAppShortcut, matchShortcut, type ShortcutEventLike, keepsArrowsForText, shortcutConflict, shortcutKeys } from "./shortcuts.ts";
 
 function keyEvent(key: string, patch: Partial<ShortcutEventLike> = {}): ShortcutEventLike {
   return { key, ctrlKey: false, metaKey: false, shiftKey: true, altKey: false, ...patch };
@@ -55,6 +55,12 @@ describe("prompt steps", () => {
     expect(matchShortcut(keyEvent("}", { ctrlKey: true, code: "BracketRight" }), false)).toBe("next-prompt");
     expect(matchShortcut(keyEvent("[", { metaKey: true }), true)).toBe("previous-prompt");
     expect(matchShortcut(keyEvent("]", { metaKey: true }), true)).toBe("next-prompt");
+  });
+
+  it("stay the terminal's keys while it holds the keyboard: no chat shows then", () => {
+    expect(isAppShortcut(keyEvent("{", { ctrlKey: true, code: "BracketLeft" }))).toBe(false);
+    expect(isAppShortcut(keyEvent("}", { ctrlKey: true, code: "BracketRight" }))).toBe(false);
+    expect(isAppShortcut(keyEvent("k", { ctrlKey: true }))).toBe(true);
   });
 
   it("take no key another shortcut has, and can be moved to another key or off", () => {
