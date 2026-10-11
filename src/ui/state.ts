@@ -1,4 +1,4 @@
-import type { AgentRun, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
 import { planOpen, type Plan, type PlanAnswer } from "../../shared/plan.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
@@ -73,6 +73,12 @@ export interface FleetSettingsState extends Reading<FleetSettings> {
   saving: number;
   seq: number;
   saveError?: string;
+}
+
+/** The skill folders as the Settings page last read them; `busy` is the folder being changed. */
+export interface FleetEntrancesState extends Reading<FleetEntrances> {
+  busy: FleetEntrance["id"] | null;
+  changeError?: string;
 }
 
 export type ThreadTab = "chat" | "plan" | "changes" | "checks";
@@ -644,6 +650,7 @@ export interface UiState {
   landing: LandingState;
   plan: PlanState;
   fleetSettings: FleetSettingsState;
+  fleetEntrances: FleetEntrancesState;
   /** this device may change things (a paired watch-only device may not: the server answers read_only) */
   canAct: boolean;
   /** the pane shown: on which PC, and whether the shell picked it itself (the one selected closed) */
@@ -722,6 +729,11 @@ type BareEvent =
   | { type: "fleet-settings-change"; patch: FleetSettingsPatch }
   | { type: "fleet-settings-saved"; seq: number; settings: FleetSettings }
   | { type: "fleet-settings-save-failed"; seq: number; message: string }
+  | { type: "fleet-entrances-loaded"; entrances: FleetEntrances }
+  | { type: "fleet-entrances-failed"; message: string }
+  | { type: "fleet-entrance"; id: FleetEntrance["id"]; action: "install" | "remove" }
+  | { type: "fleet-entrance-changed"; entrances: FleetEntrances }
+  | { type: "fleet-entrance-failed"; message: string }
   | { type: "landing-diff-loaded"; runId: string; diff: { diff: string; truncated: boolean } }
   | { type: "landing-diff-failed"; runId: string; message: string }
   | { type: "landing-checks-loaded"; runId: string; checks: LandingChecks }
@@ -747,6 +759,8 @@ type BareEvent =
   /** the person read that their answers to an older version were dropped */
   | { type: "plan-dropped-seen" }
   | { type: "open-pane"; runId: string }
+  /** a pane of this PC on the Pane screen: the one a request to a coordinator was sent from */
+  | { type: "go-to-pane"; paneId: string }
   | { type: "interrupt-run"; runId: string }
   | { type: "close-done"; group: string }
   | { type: "clear-cooldown"; key: string }
@@ -1030,6 +1044,8 @@ type BareEffect =
   | { kind: "load-plan"; runId: string; seq: number }
   | { kind: "load-fleet-settings"; cwd: string | null }
   | { kind: "save-fleet-settings"; cwd: string | null; patch: FleetSettingsPatch; seq: number }
+  | { kind: "load-fleet-entrances" }
+  | { kind: "change-fleet-entrance"; id: FleetEntrance["id"]; action: "install" | "remove" }
   | { kind: "save-settings"; settings: Settings }
   /** every pane's own lens on this device is forgotten */
   | { kind: "forget-pane-views" }
@@ -1126,6 +1142,7 @@ export const INITIAL_STATE: UiState = {
   landing: NO_LANDING,
   plan: NO_PLAN,
   fleetSettings: { status: "idle", data: null, cwd: null, saving: 0, seq: 0 },
+  fleetEntrances: { status: "idle", data: null, busy: null },
   selection: { machineId: "local", paneId: null, auto: false },
   canAct: true,
   settings: DEFAULT_SETTINGS,
@@ -1517,12 +1534,27 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "fleet-settings": {
       if (!event.open) return next(state.fleetView.settings ? { fleetView: { ...state.fleetView, settings: false } } : {});
       const cwd = event.cwd ?? null;
-      effects.push({ kind: "load-fleet-settings", cwd });
+      effects.push({ kind: "load-fleet-settings", cwd }, { kind: "load-fleet-entrances" });
       return next({
         fleetView: { ...state.fleetView, settings: true, open: null, expanded: false, tab: "chat" },
         fleetSettings: { ...state.fleetSettings, cwd, status: "loading", error: undefined, saveError: undefined, ...(state.fleetSettings.cwd === cwd ? {} : { data: null }) },
+        fleetEntrances: { ...state.fleetEntrances, status: "loading", error: undefined, changeError: undefined },
       });
     }
+    case "fleet-entrances-loaded":
+      return next({ fleetEntrances: { ...state.fleetEntrances, status: "ready", data: event.entrances, error: undefined } });
+    case "fleet-entrances-failed":
+      return next({ fleetEntrances: { ...state.fleetEntrances, status: "error", error: event.message } });
+    case "fleet-entrance": {
+      // one folder at a time: a second press waits for the first answer
+      if (!state.canAct || state.fleetEntrances.busy !== null) return next({});
+      effects.push({ kind: "change-fleet-entrance", id: event.id, action: event.action });
+      return next({ fleetEntrances: { ...state.fleetEntrances, busy: event.id, changeError: undefined } });
+    }
+    case "fleet-entrance-changed":
+      return next({ fleetEntrances: { ...state.fleetEntrances, busy: null, status: "ready", data: event.entrances } });
+    case "fleet-entrance-failed":
+      return next({ fleetEntrances: { ...state.fleetEntrances, busy: null, changeError: event.message } });
     case "fleet-settings-loaded":
       return next({ fleetSettings: { ...state.fleetSettings, status: "ready", data: event.settings, error: undefined } });
     case "fleet-settings-failed":
@@ -1650,6 +1682,10 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       if (!run || isEnded(run)) return next({});
       // a fleet run's pane lives on this PC
       return next({ screen: "pane", ...pick(state, "local", run.paneId, effects) });
+    }
+    case "go-to-pane": {
+      const there = state.machines.list.find((machine) => machine.id === "local")?.snapshot?.panes.some((pane) => pane.pane_id === event.paneId);
+      return there ? next({ screen: "pane", ...pick(state, "local", event.paneId, effects) }) : next({});
     }
     case "interrupt-run":
       return request(state, { kind: "interrupt", runId: event.runId });

@@ -924,6 +924,17 @@ pre.fleet-plan-code { padding: var(--space-2) var(--space-3); }
 .fleet-setting-text b { color: var(--ink-strong); font-weight: var(--fw-semibold); }
 .fleet-setting-text span { color: var(--sub); font-size: var(--fs-xs); overflow-wrap: anywhere; }
 .fleet-setting-project .input { flex: 1 1 100%; }
+.fleet-setting-entrance .fleet-setting-text b { font-size: var(--fs-sm); font-weight: var(--fw-regular); overflow-wrap: anywhere; }
+.fleet-setting-text .fleet-entrance-readers { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
+.fleet-entrance-reader { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); }
+.fleet-entrance-state { font-size: var(--fs-xs); color: var(--sub); white-space: nowrap; display: inline-flex; align-items: center; gap: 6px; }
+.fleet-entrance-state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--sub); }
+.fleet-entrance-installed { color: var(--done); }
+.fleet-entrance-installed::before { background: var(--done); box-shadow: none; }
+.fleet-entrance-outdated { color: var(--meter-mid); }
+.fleet-entrance-outdated::before { background: var(--meter-mid); box-shadow: none; }
+.fleet-entrance-taken { color: var(--needs); }
+.fleet-entrance-taken::before { background: var(--needs); box-shadow: none; }
 .fleet-accounts { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; }
 .fleet-account { padding: 1px var(--space-2); border: var(--hairline) solid var(--line-strong); border-radius: var(--radius-pill); background: var(--input); font: var(--fs-xs) var(--font-mono); }
 .fleet-account.is-skipped { border-color: var(--needs); color: var(--needs); }

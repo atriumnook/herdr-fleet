@@ -82,6 +82,29 @@
   overflow-wrap: anywhere;
 }
 
+/* a request the person sent from a pane's conversation: which pane, above the bubble */
+.chat-asked-from {
+  max-width: 80%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1) var(--space-2);
+  color: var(--sub);
+  font-size: var(--fs-xs);
+}
+
+.chat-asked-chip {
+  padding: 1px var(--space-2);
+  border-radius: 999px;
+  background: var(--working-tint);
+  color: var(--working);
+  font-family: var(--font-mono);
+  font-size: var(--fs-2xs);
+}
+
+.chat-asked-name { overflow-wrap: anywhere; }
+
 /* meta rows fade in on hover / focus: the transcript reads as text, not as controls */
 .chat-turn-meta {
   min-height: var(--chip-h);

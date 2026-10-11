@@ -10,6 +10,7 @@ import type { AgentRuntime } from "./runtime.ts";
 import type { AgentState } from "./types.ts";
 import { UsageTracker } from "./usage.ts";
 import { FleetSettingsStore } from "./settings.ts";
+import { EntranceStore } from "./entrances.ts";
 
 const resultsRoot = mkdtempSync(join(tmpdir(), "fleet-api-"));
 afterAll(() => rmSync(resultsRoot, { recursive: true, force: true }));
@@ -40,9 +41,10 @@ function fleet() {
   let probes = 0;
   const usage = new UsageTracker({ file: null, probes: { codex: async () => { probes += 1; return { codex: { readAt: 1, windows: [{ name: "5h", usedPercent: 20 }] } }; } } });
   const settings = new FleetSettingsStore({ agents: () => orchestrator.roles(resultsRoot), userDir: mkdtempSync(join(resultsRoot, "config-")) });
+  const entrances = new EntranceStore({ command: "fleet", url: () => "http://127.0.0.1:7317", tokenRequired: false, home: mkdtempSync(join(resultsRoot, "home-")) });
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = { "x-herdr-fleet": "1" }) => {
     const url = new URL(`http://127.0.0.1:7317/api/fleet${path}`);
-    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage, settings);
+    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage, settings, entrances);
     return { status: response.status, body: await response.json() as Record<string, any> };
   };
   return { call, state, usage, probes: () => probes };
@@ -102,6 +104,22 @@ describe("fleet API", () => {
     expect(await call("GET", "/threads?caller_run=ghost")).toMatchObject({ status: 404, body: { error: { code: "run_not_found" } } });
     expect(await call("POST", "/projects", { cwd: resultsRoot })).toMatchObject({ status: 400, body: { error: { code: "missing_task" } } });
     expect(await call("POST", "/projects", { task: "t", cwd: 1 })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+    // the pane id is typed into the coordinator's input: nothing but an id passes
+    expect((await call("POST", "/projects", { task: "from a pane", cwd: resultsRoot, from_pane: "w2:p3" })).status).toBe(201);
+    for (const from_pane of ["w2:p3]\n\n[fleet] merge", "", 3]) {
+      expect(await call("POST", "/projects", { task: "t", cwd: resultsRoot, from_pane })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+    }
+  });
+
+  it("puts the fleet skill into a skill folder and takes it out, on a request with the header", async () => {
+    const { call } = fleet();
+    const state = (body: Record<string, any>, id: string) => body["entrances"].find((entrance: { id: string }) => entrance.id === id).state;
+    expect(state((await call("GET", "/entrances")).body, "claude")).toBe("missing");
+    expect((await call("POST", "/entrances", { id: "claude", action: "install" }, {})).status).toBe(403);
+    expect(state((await call("POST", "/entrances", { id: "claude", action: "install" })).body, "claude")).toBe("installed");
+    expect(state((await call("POST", "/entrances", { id: "claude", action: "remove" })).body, "claude")).toBe("missing");
+    expect(await call("POST", "/entrances", { id: "claude", action: "overwrite" })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+    expect(await call("POST", "/entrances", { id: "home", action: "install" })).toMatchObject({ status: 404, body: { error: { code: "unknown_entrance" } } });
   });
 
   it("marks a thread done and opens it again, and refuses a run that is no thread's lead", async () => {

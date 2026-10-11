@@ -1,11 +1,11 @@
-import { handoffStatus, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetSettings, type LandAction, type LineComment, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
+import { handoffStatus, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type LandAction, type LineComment, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import { parseDiff, type DiffLine } from "./diff.ts";
 import { isEnded, planDraft, type ConfirmedStep, type PlanDraft, type ThreadTab, type UiState } from "./state.ts";
 import { numberClaims, planAsks, planOpen, type PlanAnswer, type PlanClaim, type PlanExhibit } from "../../shared/plan.ts";
 
 /** The regions the Fleet screen draws: its Presenter re-renders when one of them changes. */
-export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView", "landing", "plan", "fleetSettings"] as const;
+export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView", "landing", "plan", "fleetSettings", "fleetEntrances"] as const;
 export type FleetState = Pick<UiState, (typeof FLEET_REGIONS)[number]>;
 
 /**
@@ -262,6 +262,15 @@ export interface FleetSettingsModel {
   projects: Array<{ path: string; name: string; setup: string }>;
   /** each account's fullest window now, and whether the usage limit passes it over */
   accounts: Array<{ key: string; usedPercent: number; skipped: boolean }>;
+  /** the skill folders, and whether the fleet skill is in each */
+  entrances: {
+    status: "idle" | "loading" | "ready" | "error";
+    error?: string;
+    list: FleetEntrance[];
+    tokenRequired: boolean;
+    busy: FleetEntrance["id"] | null;
+    changeError?: string;
+  };
   canAct: boolean;
 }
 
@@ -608,6 +617,7 @@ const CI_TONE: Record<PullRequest["checks"], CheckTone> = { pending: "run", pass
 
 function settingsModel(state: FleetState, projectPaths: string[], now: number): FleetSettingsModel {
   const read = state.fleetSettings;
+  const entrances = state.fleetEntrances;
   const settings = read.data;
   const setups = new Map((settings?.projects ?? []).map((project) => [project.path, project.setup]));
   const paths = [...new Set([...projectPaths, ...setups.keys()])];
@@ -620,7 +630,12 @@ function settingsModel(state: FleetState, projectPaths: string[], now: number): 
   }).sort((a, b) => a.key.localeCompare(b.key));
   return {
     status: read.status, ...(read.error ? { error: read.error } : {}), saving: read.saving > 0, ...(read.saveError ? { saveError: read.saveError } : {}),
-    settings, projects: paths.map((path) => ({ path, name: baseName(path), setup: setups.get(path) ?? "" })), accounts, canAct: state.canAct,
+    settings, projects: paths.map((path) => ({ path, name: baseName(path), setup: setups.get(path) ?? "" })), accounts,
+    entrances: {
+      status: entrances.status, ...(entrances.error ? { error: entrances.error } : {}), list: entrances.data?.entrances ?? [], tokenRequired: entrances.data?.tokenRequired ?? false,
+      busy: entrances.busy, ...(entrances.changeError ? { changeError: entrances.changeError } : {}),
+    },
+    canAct: state.canAct,
   };
 }
 

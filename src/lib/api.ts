@@ -16,7 +16,7 @@ import type {
   SlashCommand,
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
-import type { AgentRun, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
 import type { Plan, PlanAnswer } from "../../shared/plan.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
@@ -461,6 +461,16 @@ export async function fetchFleetSettings(cwd: string | null): Promise<FleetSetti
 /** Writes a change into the person's fleet.json, and answers the settings after it. */
 export async function saveFleetSettings(cwd: string | null, patch: FleetSettingsPatch): Promise<FleetSettings> {
   return (await sendFleet<{ settings: FleetSettings }>("/settings", { patch, ...(cwd ? { cwd } : {}) })).settings;
+}
+
+/** The folders agent CLIs read skills from, and whether the fleet skill is in each. */
+export async function fetchFleetEntrances(): Promise<FleetEntrances> {
+  return getJson<FleetEntrances>("/api/fleet/entrances");
+}
+
+/** Puts the fleet skill into one of those folders, or takes it out. */
+export async function changeFleetEntrance(id: FleetEntrance["id"], action: "install" | "remove"): Promise<FleetEntrances> {
+  return sendFleet<FleetEntrances>("/entrances", { id, action });
 }
 
 /** Marks a thread done for the person, or open again. */
