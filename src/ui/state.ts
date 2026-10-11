@@ -308,7 +308,8 @@ export type NewSessionState =
   };
 
 /** The command palette, on the selected pane's PC: the search typed, and the panes opened last there. */
-export type PaletteState = { open: false } | { open: true; machineId: string; query: string; recent: string[] };
+/** `chat`: the chat whose prompts it searches, the one that held the focus when it opened */
+export type PaletteState = { open: false } | { open: true; machineId: string; query: string; recent: string[]; chat: Lens };
 
 /** The sign-in screen while the server does not know this browser: a pairing code, or the shared token. */
 export interface GateState {
@@ -802,7 +803,8 @@ type BareEvent =
   /** `agentError`: why the agent asked for did not start; the pane exists all the same */
   | { type: "new-session-created"; paneId: string; agentError: string | null; seq: number }
   | { type: "new-session-failed"; message: string; invalidCwd: boolean; seq: number }
-  | { type: "open-palette" }
+  /** `chat`: the chat that holds the focus (the one beside on the Fleet screen), else the pane's */
+  | { type: "open-palette"; chat?: Lens }
   | { type: "close-palette" }
   | { type: "palette-query"; text: string }
   | { type: "palette-recent"; machineId: string; recent: string[] }
@@ -1282,7 +1284,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return newSessionTransition(state, event, effects);
     case "open-palette":
       effects.push({ kind: "load-recent", machineId: state.selection.machineId });
-      return next({ palette: { open: true, machineId: state.selection.machineId, query: "", recent: [] } });
+      return next({ palette: { open: true, machineId: state.selection.machineId, query: "", recent: [], chat: event.chat ?? "main" } });
     case "close-palette":
       return next(state.palette.open ? { palette: { open: false } } : {});
     case "palette-query":
@@ -1294,6 +1296,8 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return next({ screen: "pane", palette: { open: false }, ...pick(state, state.palette.machineId, event.paneId, effects) });
     case "palette-pick-prompt":
       if (!state.palette.open) return next({});
+      // the prompt is the searched chat's: the pane's, or the one beside
+      if (state.palette.chat === "side") return next({ palette: { open: false }, side: { ...state.side, chat: seekPrompt(state.side.chat, { key: event.key }) } });
       return next({ palette: { open: false }, chat: seekPrompt(state.chat, { key: event.key }) });
     case "prompt-rail-step":
       return next({ chat: seekPrompt(state.chat, event.direction) });

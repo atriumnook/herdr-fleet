@@ -29,7 +29,7 @@ export interface CommandPaletteModel {
   /** the actions this device has now (no bell once alerts are on, no sign-out without a token or pairing) */
   /** `prompts`: a chat shows, so its prompts can be searched */
   offers: { notifications: boolean; lock: boolean; files: boolean; pane: boolean; prompts: boolean };
-  /** the open chat's prompts that hold the words searched for, newest first */
+  /** the searched chat's prompts that hold the words searched for, newest first */
   prompts: RailEntry[];
 }
 

@@ -938,7 +938,7 @@ describe("the command palette", () => {
 
   it("opens on the selected pane's PC with an empty search, reading the panes opened last there", () => {
     const { state, effects } = play([{ type: "select-pane", machineId: "local", paneId: "w1:p1" }, { type: "open-palette" }]);
-    expect(state.palette).toEqual({ open: true, machineId: "local", query: "", recent: [] });
+    expect(state.palette).toEqual({ open: true, machineId: "local", query: "", recent: [], chat: "main" });
     expect(effects).toContainEqual({ kind: "load-recent", machineId: "local" });
     expect(play([{ type: "palette-recent", machineId: "local", recent: ["w1:p2"] }], state).state.palette).toMatchObject({ recent: ["w1:p2"] });
   });
@@ -2256,6 +2256,13 @@ describe("the prompt rail", () => {
     expect(state.screen).toBe(open().screen);
     // a pick that comes after the palette closed asks nothing
     expect(play([{ type: "palette-pick-prompt", key: "t8#0" }], state).state.chat.seek).toEqual({ to: { key: "t7#0" }, seq: 1 });
+  });
+
+  it("scrolls the chat beside to the prompt picked, when the palette opened from it", () => {
+    const { state } = play([{ type: "open-palette", chat: "side" }, { type: "palette-pick-prompt", key: "t3#0" }], open());
+    expect(state.palette).toEqual({ open: false });
+    expect(state.side.chat.seek).toEqual({ to: { key: "t3#0" }, seq: 1 });
+    expect(state.chat.seek).toBeNull();
   });
 
   it("asks nothing of a chat opened on another pane", () => {
