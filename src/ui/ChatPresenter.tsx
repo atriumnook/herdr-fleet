@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { AgentStatus, ConversationTurn, ExplainRequest, InteractivePrompt } from "../../shared/protocol.ts";
 import { paneStorageId } from "../../shared/machines.ts";
-import { endingQuestion, lastInstruction } from "../lib/plainQuestion.ts";
+import { askedKey, draftWithChoice, endingQuestion, lastInstruction } from "../lib/plainQuestion.ts";
 import { ChatView, type ChatViewEvent, type ChatViewModel } from "../components/ChatView.tsx";
 import { useMachineId } from "../lib/machineContext.tsx";
 import { useSettings } from "../lib/settings.ts";
@@ -84,15 +84,22 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
   // a question written at the end of a reply, found by a guess: offered here only, never counted as the pane needing the person
   const asked = useMemo(() => (view.source === "conversation" ? endingQuestion(view.turns, working) : null), [view, working]);
   const lastTurn = view.turns[view.turns.length - 1];
-  const askedKey = asked === null ? null : `plain:${lastTurn?.ts ?? ""}:${asked.question}`;
+  // where the newest page starts and how long it is: the last turn's place, for a transcript that keeps no time
+  const pageStart = useSelected((state) => (here(state) ? lensOf(state).conversation.answer?.cursor : undefined));
+  const pageLength = useSelected((state) => (here(state) ? lensOf(state).conversation.answer?.turns.length ?? 0 : 0));
+  const askedId = asked === null ? null : askedKey(asked, { historyId, ts: lastTurn?.ts ?? null, pageStart, index: pageLength - 1 });
+  // a choice goes into the message box only while it is empty
+  const owner = paneStorageId(machineId, paneId);
+  const draftText = useSelected((state) => state.drafts.composer[owner]?.text ?? "");
   const promptKey = prompt === null ? null : `screen:${prompt.id}`;
   const instruction = useMemo(() => (prompt === null ? null : lastInstruction([...older, ...view.turns])), [prompt, older, view.turns]);
   const promptExplanation = promptKey === null ? undefined : explanations[promptKey];
-  const askedExplanation = askedKey === null ? undefined : explanations[askedKey];
+  const askedExplanation = askedId === null ? undefined : explanations[askedId];
+  const boxEmpty = draftWithChoice(draftText, "") !== null;
   const model = useMemo<ChatViewModel>(() => ({
     paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, seek,
-    instruction, asked, promptExplanation, askedExplanation,
-  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, seek, instruction, asked, promptExplanation, askedExplanation]);
+    instruction, asked, promptExplanation, askedExplanation, askedCanPick: boxEmpty,
+  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, seek, instruction, asked, promptExplanation, askedExplanation, boxEmpty]);
   // an answer in the prompt's card is for this pane's prompt on this PC
   const relayed = useMemo(() => relay<ChatViewEvent, ChatUpEvent>(emit, (event, pass) => {
     switch (event.type) {
@@ -103,17 +110,18 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
         if (prompt !== null && promptKey !== null) pass({ type: "explain-question", machineId, paneId, key: promptKey, request: screenRequest(prompt) });
         return;
       case "asked-explain":
-        if (asked !== null && askedKey !== null) pass({ type: "explain-question", machineId, paneId, key: askedKey, request: { kind: "plain", question: asked.question, options: asked.options } });
+        if (asked !== null && askedId !== null) pass({ type: "explain-question", machineId, paneId, key: askedId, request: { kind: "plain", question: asked.question, options: asked.options } });
         return;
       case "asked-pick": {
-        // the choice goes into this pane's message box; the person sends it
+        // the choice goes into this pane's empty message box; the person sends it. Text they are writing stays
         const option = asked?.options[event.index];
-        if (option !== undefined) pass({ type: "composer-draft", owner: paneStorageId(machineId, paneId), change: { kind: "set", text: `${event.index + 1}. ${option.label}` } });
+        const text = option === undefined ? null : draftWithChoice(draftText, `${event.index + 1}. ${option.label}`);
+        if (text !== null) pass({ type: "composer-draft", owner, change: { kind: "set", text } });
         return;
       }
       default:
         pass(event);
     }
-  }), [emit, machineId, paneId, prompt, promptKey, asked, askedKey]);
+  }), [emit, machineId, paneId, prompt, promptKey, asked, askedId, owner, draftText]);
   return <ChatView model={model} emit={relayed} />;
 }

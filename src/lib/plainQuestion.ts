@@ -16,32 +16,40 @@ export interface PlainQuestion {
 const MAX_OPTIONS = 6;
 /** closing courtesies: "anything else?" asks nothing to decide */
 const COURTESY = /(他に|ほかに|何か(あれば|ありましたら|気になる)|お気軽に|いつでも|anything else|let me know if|feel free|any (other )?questions|need anything|happy to help)/i;
-const ASKING = /(しますか|ますか|でしょうか|どうしますか|よろしいですか|どちら|どれ|いかがですか|ませんか|\b(should i|shall i|would you like|do you want|which|what would you prefer|can you confirm|ok to|okay to)\b)/i;
+/** a Japanese sentence that asks, by how it ends; an English one asks with a question mark */
+const ASKING_END = /(ますか|ですか|でしょうか|ましょうか|ませんか)[。．.]?$/;
 const LIST_ITEM = /^\s*(?:\d+[.)]|[-*•]|[A-Z][.)])\s+(.+)$/;
+/** a fenced code block, or one left open at the end: code is never the question */
+const CODE_BLOCK = /^\s*(`{3,}|~{3,})[^\n]*\n[\s\S]*?(?:^\s*\1\s*$|(?![\s\S]))/gm;
 
-/** The last question sentence of a reply's text, if it reads like the agent waiting on a decision. */
+/** A list item, or a line indented under one. */
+const inList = (line: string): boolean => LIST_ITEM.test(line) || /^\s+\S/.test(line);
+
+/**
+ * The reply's last sentence, if it asks: it ends with a question mark, or with a Japanese asking
+ * ending. A list after it is read as its choices, else a list just before it. Code blocks are left
+ * out first, and nothing above the last sentence counts: a question further up was answered by the
+ * work after it.
+ */
 export function detectPlainQuestion(answer: string): PlainQuestion | null {
-  const text = answer.trim();
-  if (text.length === 0) return null;
-  const sentences = text.slice(-600).split(/(?<=[。？！?!])\s*|\n+/).map((sentence) => sentence.trim()).filter(Boolean);
-  const last = [...sentences].reverse().find((sentence) => /[?？]$/.test(sentence) || ASKING.test(sentence));
-  if (last === undefined || COURTESY.test(last)) return null;
-  // only the reply's last lines count: a question further up was answered by the work after it
-  const lines = text.split("\n").slice(-12);
-  const at = lines.map((line) => line.includes(last.slice(0, 20))).lastIndexOf(true);
-  if (at < 0) return null;
-  const listed = (from: number, step: 1 | -1): string[] => {
-    const found: string[] = [];
-    for (let index = from; index >= 0 && index < lines.length; index += step) {
-      const line = lines[index]!;
-      if (LIST_ITEM.test(line)) { if (step === 1) found.push(line); else found.unshift(line); }
-      else if (line.trim().length > 0 && (found.length === 0 || !/^\s+\S/.test(line))) break;
-    }
-    return found;
-  };
-  // the choices follow the question, or lead up to it
-  const after = listed(at + 1, 1);
-  const optionLines = after.length > 0 ? after : listed(at - 1, -1);
+  const lines = answer.replace(CODE_BLOCK, "").split("\n").map((line) => line.trimEnd());
+  while (lines.length > 0 && lines[lines.length - 1]!.trim().length === 0) lines.pop();
+  // a list that ends the reply holds the choices; the question is the sentence above it
+  let end = lines.length;
+  while (end > 0 && (inList(lines[end - 1]!) || lines[end - 1]!.trim().length === 0)) end -= 1;
+  const trailing = lines.slice(end).filter((line) => line.trim().length > 0);
+  if (end === 0) return null;
+  const at = end - 1;
+  // markup alone after the last stop ("**" closing a bold question) is no sentence
+  const sentences = lines[at]!.split(/(?<=[。？！?!])\s*/).map((sentence) => sentence.trim()).filter((sentence) => /[\p{L}\p{N}]/u.test(sentence));
+  // markdown around the sentence (**, `, a heading's #) is not part of how it ends
+  const last = (sentences[sentences.length - 1] ?? "").replace(/^[#>*\s]+/, "").replace(/[*_`\s]+$/, "");
+  if (!(/[?？]$/.test(last) || ASKING_END.test(last)) || COURTESY.test(last)) return null;
+  const leading: string[] = [];
+  if (trailing.length === 0) {
+    for (let index = at - 1; index >= 0 && inList(lines[index]!); index -= 1) leading.unshift(lines[index]!);
+  }
+  const optionLines = (trailing.length > 0 ? trailing : leading).filter((line) => LIST_ITEM.test(line));
   const options = optionLines
     .map((line) => LIST_ITEM.exec(line)?.[1])
     .filter((item): item is string => item !== undefined)
@@ -51,7 +59,7 @@ export function detectPlainQuestion(answer: string): PlainQuestion | null {
       const description = rest.join(" ").trim().slice(0, 200);
       return { label: label.replace(/\*\*/g, "").trim().slice(0, 80), description: description.length > 0 ? description : null };
     });
-  return { question: last.replace(/^[#>*\s]+/, "").slice(0, 300), options };
+  return { question: last.slice(0, 300), options };
 }
 
 /** What the agent said at the end of its turn: the text after its last action. */
@@ -67,6 +75,21 @@ export function endingQuestion(turns: readonly ConversationTurn[], working: bool
   const last = turns[turns.length - 1];
   if (working || last === undefined || last.role !== "assistant") return null;
   return detectPlainQuestion(answerText(last));
+}
+
+/**
+ * What names a written question among the pane's, for its explanation: its turn's time, or, for a
+ * transcript that keeps none, where the turn sits (the page's start and the turn's place in it), so
+ * the same words asked twice are two questions. A replaced transcript (`historyId`) starts anew.
+ */
+export function askedKey(question: PlainQuestion, at: { historyId: string | undefined; ts: string | null; pageStart: string | null | undefined; index: number }): string {
+  const place = at.ts ?? `${at.pageStart ?? "-"}+${at.index}`;
+  return `plain:${at.historyId ?? ""}:${place}:${question.question}`;
+}
+
+/** A choice picked in the card goes into an empty message box only: text the person is writing stays as it is. */
+export function draftWithChoice(draft: string, choice: string): string | null {
+  return draft.trim().length === 0 ? choice : null;
 }
 
 /** The person's newest message in the conversation: the text they typed, not a notice or a compaction. */

@@ -88,6 +88,8 @@ export interface ChatViewModel {
   /** what Claude Haiku said of the question screen's question, and of the written one */
   promptExplanation?: Explanation;
   askedExplanation?: Explanation;
+  /** the message box is empty: the written question's choices may go into it */
+  askedCanPick?: boolean;
 }
 
 /** the prompt card's answers, the written question's card, and an earlier page asked for */
@@ -469,7 +471,7 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
  * an unchanged model sits those out (memo).
  */
 export const ChatView = memo(function ChatView({ model, emit }: { model: ChatViewModel; emit: Emit<ChatViewEvent> }) {
-  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, seek, instruction = null, asked = null, promptExplanation, askedExplanation } = model;
+  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, seek, instruction = null, asked = null, promptExplanation, askedExplanation, askedCanPick = true } = model;
   const [newMessages, setNewMessages] = useState(false);
   /** scrolled up from the end: the way back is offered even when nothing new came */
   const [away, setAway] = useState(false);
@@ -700,7 +702,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
       {error !== null && <p className="chat-inline-state chat-inline-error" role="alert">{error.status === 401 ? t("This server asks for the access token or a pairing code again.") : error.message}</p>}
       {!loaded && error === null && <p className="chat-inline-state" role="status">{t("Loading conversation…")}</p>}
       {loaded && empty && error === null && prompt === null && <div className="chat-empty"><AgentMark agent={agent ?? "agent"} size={32} /><p>{t("No conversation yet — say something below")}</p></div>}
-      {prompt === null && asked !== null && !ended && <AskedCard question={asked} explanation={askedExplanation} emit={emit} />}
+      {prompt === null && asked !== null && !ended && <AskedCard question={asked} explanation={askedExplanation} canPick={askedCanPick} emit={emit} />}
       {prompt !== null && <PromptCard prompt={prompt} typedAnswer={pendingAnswer !== null && pendingAnswer.promptId === prompt.id ? pendingAnswer.answer : null} card={card} instruction={instruction} explanation={promptExplanation} emit={emit} />}
       {ended && <p className="chat-endcap">{t("terminal ended")}</p>}
     </div>

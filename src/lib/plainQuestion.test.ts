@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ConversationTurn } from "../../shared/protocol.ts";
-import { detectPlainQuestion, endingQuestion, lastInstruction } from "./plainQuestion.ts";
+import { askedKey, detectPlainQuestion, draftWithChoice, endingQuestion, lastInstruction } from "./plainQuestion.ts";
 
 const agent = (text: string, extra: ConversationTurn["parts"] = []): ConversationTurn => ({ role: "assistant", ts: "t2", parts: [...extra, { kind: "text", text }] });
 const user = (text: string): ConversationTurn => ({ role: "user", ts: "t1", parts: [{ kind: "text", text }] });
@@ -11,6 +11,22 @@ describe("plain-text questions", () => {
     expect(detectPlainQuestion("Done with the parser.\n\nShould I also update the README?")?.question).toBe("Should I also update the README?");
     // an asking phrase without a question mark
     expect(detectPlainQuestion("どちらの方式で進めるか決めてください。どちらにしますか")?.question).toBe("どちらにしますか");
+  });
+
+  it("asks only by how the last sentence ends: a word like which or どちら elsewhere is not a question", () => {
+    expect(detectPlainQuestion("Here is the config which I changed.")).toBeNull();
+    expect(detectPlainQuestion("どちらも更新しました。")).toBeNull();
+    expect(detectPlainQuestion("Do you want the long story? I fixed the parser and the tests pass.")).toBeNull();
+    // a question further up was answered by the work after it
+    expect(detectPlainQuestion("Should I add a test?\n\nI added one; it passes.")).toBeNull();
+    expect(detectPlainQuestion("Done.\n\n**Should I push it?**")?.question).toBe("Should I push it?");
+  });
+
+  it("leaves code blocks out: a question mark in code is not the agent asking", () => {
+    expect(detectPlainQuestion("Updated the check:\n\n```ts\nconst ok = ready ? run() : wait();\nwhich?\n```")).toBeNull();
+    expect(detectPlainQuestion("Which version should I pin?\n\n```json\n{ \"v\": 1 }\n```")?.question).toBe("Which version should I pin?");
+    // a block left open at the end of the reply is code to the end
+    expect(detectPlainQuestion("Run this:\n```sh\nread -p 'continue?'")).toBeNull();
   });
 
   it("leaves out courtesies and replies with no question", () => {
@@ -45,6 +61,25 @@ describe("plain-text questions", () => {
     expect(endingQuestion([agent("Should I push?"), user("yes")], false)).toBeNull();
     // narration before the last tool call is work, not the reply
     expect(endingQuestion([{ role: "assistant", ts: "t", parts: [{ kind: "text", text: "Which file should I read?" }, ...tool, { kind: "text", text: "Read it. Done." }] }], false)).toBeNull();
+  });
+});
+
+describe("a written question's key and choice", () => {
+  const question = { question: "Should I push?", options: [] };
+
+  it("names two questions with the same words apart, also when the transcript keeps no time", () => {
+    const first = askedKey(question, { historyId: "h1", ts: null, pageStart: "c:10", index: 3 });
+    const second = askedKey(question, { historyId: "h1", ts: null, pageStart: "c:10", index: 7 });
+    expect(first).not.toBe(second);
+    expect(askedKey(question, { historyId: "h1", ts: null, pageStart: "c:20", index: 3 })).not.toBe(first);
+    expect(askedKey(question, { historyId: "h1", ts: "t1", pageStart: "c:10", index: 3 })).toBe(askedKey(question, { historyId: "h1", ts: "t1", pageStart: "c:30", index: 0 }));
+    expect(askedKey(question, { historyId: "h2", ts: "t1", pageStart: null, index: 0 })).not.toBe(askedKey(question, { historyId: "h1", ts: "t1", pageStart: null, index: 0 }));
+  });
+
+  it("goes into an empty message box only", () => {
+    expect(draftWithChoice("", "2. SQLite")).toBe("2. SQLite");
+    expect(draftWithChoice("  \n", "2. SQLite")).toBe("2. SQLite");
+    expect(draftWithChoice("use redis but", "2. SQLite")).toBeNull();
   });
 });
 

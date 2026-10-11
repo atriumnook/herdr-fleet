@@ -66,6 +66,7 @@ export const JA: Record<string, string> = {
   "Claude was not asked. {reason}": "Claude には尋ねませんでした。{reason}",
   "Could not explain. {reason}": "説明を作れませんでした。{reason}",
   "Puts this choice in the message box. Send it from there.": "この選択肢をメッセージ欄に入れます。送信はメッセージ欄から行ってください。",
+  "The message box has text. Send or clear it to pick a choice here.": "メッセージ欄に入力中の文があります。ここで選択肢を選ぶには、その文を送信するか消してください。",
   // ---- composer ----
   "Reconnecting. The message stays here and is not queued.": "再接続しています。メッセージはここに残り、Queue には入りません。",
   "Sent as it was. Your changes made while it was sending stayed here and were not sent.": "変更前の内容で送りました。送信中に加えた変更はここに残っていて、送っていません。",

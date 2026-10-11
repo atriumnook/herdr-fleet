@@ -6,6 +6,7 @@ import { join } from "node:path";
 import type { Browser } from "playwright-core";
 import type { InteractivePrompt } from "../shared/protocol.ts";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { t } from "../src/lib/i18n.ts";
 
 const PROMPT: InteractivePrompt = {
   id: "approve-1", agent: "claude", kind: "approval", title: "Allow the edit?", question: "Edit src/app.ts?", body: null,
@@ -117,6 +118,10 @@ export async function checkChatQuestionGuide(browser: Browser, origin: string): 
     const box = page.locator(".composer textarea");
     for (let i = 0; i < 40 && (await box.inputValue()) !== "2. SQLite"; i++) await Bun.sleep(50);
     assert.equal(await box.inputValue(), "2. SQLite", "a choice goes into the message box, unsent");
+    // with text in the box, the choices wait: nothing the person wrote is replaced
+    await card.getByText(t("The message box has text. Send or clear it to pick a choice here.")).waitFor();
+    assert.equal(await card.getByRole("button", { name: /Redis/ }).isDisabled(), true, "a choice cannot replace text in the box");
+    assert.equal(await box.inputValue(), "2. SQLite");
     await card.getByRole("button", { name: "Explain" }).click();
     await card.locator(".question-explanation").getByText("→ 2. SQLite", { exact: false }).waitFor();
     assert.deepEqual(asked, [{ pane_id: pane, kind: "plain", question: "Which store should I use?", options: [{ label: "Redis", description: "fast, one more service" }, { label: "SQLite", description: "no new service" }] }]);

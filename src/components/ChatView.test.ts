@@ -85,6 +85,11 @@ describe("Chat view", () => {
     // a question screen up is answered in its own card
     const prompt: InteractivePrompt = { id: "p", agent: "claude", kind: "approval", title: "Allow?", question: "Edit?", body: null, options: [{ label: "Yes", description: null }], multi_select: false, custom_option_index: null };
     expect(render(model({ asked, prompt }))).not.toContain("Which store should I use?");
+    // text in the message box is never replaced by a choice: the choices wait until it is sent or cleared
+    const writing = render(model({ asked, askedCanPick: false }));
+    expect(writing).toContain(t("The message box has text. Send or clear it to pick a choice here."));
+    expect(writing.match(/class="prompt-card-option" disabled=""/g)).toHaveLength(2);
+    expect(html).not.toContain(t("The message box has text. Send or clear it to pick a choice here."));
   });
 
   it("shows the person's last message on the question screen's card, and what Claude Haiku said of it", () => {

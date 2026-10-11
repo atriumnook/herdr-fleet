@@ -14,6 +14,8 @@ export type AskedCardEvent = { type: "asked-pick"; index: number } | { type: "as
 export interface AskedCardProps {
   question: PlainQuestion;
   explanation: Explanation | undefined;
+  /** the message box is empty: a choice may go into it (text the person is writing is never replaced) */
+  canPick: boolean;
   emit: Emit<AskedCardEvent>;
 }
 
@@ -22,7 +24,7 @@ export interface AskedCardProps {
  * It is the agent's own words, so the card does not say the pane needs the person, and a choice
  * only fills the message box: the person sends it.
  */
-export function AskedCard({ question, explanation, emit }: AskedCardProps) {
+export function AskedCard({ question, explanation, canPick, emit }: AskedCardProps) {
   return (
     <section className="prompt-card asked-card" role="region" aria-label={t("Agent asked in its reply")}>
       <header className="prompt-card-header">
@@ -32,7 +34,7 @@ export function AskedCard({ question, explanation, emit }: AskedCardProps) {
       {question.options.length > 0 && (
         <div className="prompt-card-options" role="group" aria-label={t("Choices")}>
           {question.options.map((option, index) => (
-            <button key={index} type="button" className="prompt-card-option" title={t("Puts this choice in the message box. Send it from there.")} onClick={() => emit({ type: "asked-pick", index })}>
+            <button key={index} type="button" className="prompt-card-option" disabled={!canPick} title={t("Puts this choice in the message box. Send it from there.")} onClick={() => emit({ type: "asked-pick", index })}>
               <span className="prompt-card-number">{index + 1}.</span>
               <span className="prompt-card-option-text">
                 <span className="prompt-card-option-label">{option.label}</span>
@@ -42,6 +44,7 @@ export function AskedCard({ question, explanation, emit }: AskedCardProps) {
           ))}
         </div>
       )}
+      {question.options.length > 0 && !canPick && <p className="prompt-card-hint">{t("The message box has text. Send or clear it to pick a choice here.")}</p>}
       <ExplainBlock explanation={explanation} onExplain={() => emit({ type: "asked-explain" })} />
     </section>
   );
