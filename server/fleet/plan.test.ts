@@ -46,7 +46,11 @@ describe("a plan's code", () => {
 
   it("never shows an environment file, a key or credentials, by the name written or the one a symlink leads to", () => {
     const { tree } = worktree();
-    const secrets = [".env", ".env.local", "deploy.pem", "tls/server.key", "id_ed25519", "id_rsa.pub", "aws-credentials.json", "secrets.yaml", ".netrc"];
+    const secrets = [
+      ".env", ".env.local", "deploy.pem", "tls/server.key", "id_ed25519", "id_rsa.pub", "aws-credentials.json", "secrets.yaml", ".netrc",
+      "secrets/api.ts", "config/secrets/db.txt", ".ssh/config", "infra/prod.tfstate", "infra/prod.tfvars", "deploy/kubeconfig", "web/.htpasswd",
+      "credentials", "client_secret_123.apps.json",
+    ];
     for (const name of secrets) {
       mkdirSync(join(tree, name, ".."), { recursive: true });
       writeFileSync(join(tree, name), "TOKEN=abc\n");
@@ -55,7 +59,8 @@ describe("a plan's code", () => {
     symlinkSync(join(tree, ".env"), join(tree, "src", "settings.txt"));
     expect(() => readCodeLines(tree, "src/settings.txt", 1, 1)).toThrow("src/settings.txt looks like a secret");
     // ordinary source whose name only starts like one is shown
-    for (const name of ["src/environment.ts", "src/id_token.ts", "src/keyboard.ts"]) {
+    for (const name of ["src/environment.ts", "src/id_token.ts", "src/keyboard.ts", "src/credentials.ts", "src/secret_manager.ts", "docs/secrets.md", "src/ssh.ts"]) {
+      mkdirSync(join(tree, name, ".."), { recursive: true });
       writeFileSync(join(tree, name), "export {};\n");
       expect(readCodeLines(tree, name, 1, 1)).toEqual(["export {};"]);
     }

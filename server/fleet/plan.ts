@@ -1,5 +1,5 @@
 import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, writeFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import { numberClaims, parsePlan, planAsks, PLAN_LIMITS, type Plan, type PlanAnswer, type PlanClaim, type PlanExhibit } from "../../shared/plan.ts";
 import { FleetError } from "./runtime.ts";
 
@@ -13,14 +13,25 @@ export const PLAN_STORED_MAX_BYTES = 256 * 1024;
 export const CODE_LINE_MAX_CHARS = 400;
 
 /**
- * Files a plan never shows, by name: environment files, keys and credentials. A worktree may hold
- * them, and the Fleet screen may be open on a phone.
+ * Files a plan never shows, by name: environment files, keys, credentials and the state that holds
+ * them. A worktree may hold them, and the Fleet screen may be open on a phone. Credentials and
+ * secrets are refused as data files (JSON, YAML, …), not as source code that only has the word in
+ * its name (src/credentials.ts).
  */
-const SECRET_NAMES = /^(?:\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx|keystore|jks)|id_[a-z0-9_]+(?:\.pub)?|\.netrc|\.npmrc|\.pypirc|.*credentials.*|.*secrets?(?:\..*)?)$/i;
+const SECRET_NAMES = new RegExp(`^(?:${[
+  String.raw`\.env(?:\..*)?`,
+  String.raw`.*\.(?:pem|key|p12|pfx|keystore|jks|tfstate|tfstate\.backup|tfvars)`,
+  String.raw`id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?(?:\.pub)?`,
+  String.raw`\.netrc|\.npmrc|\.pypirc|\.htpasswd|\.pgpass|kubeconfig|authorized_keys|known_hosts`,
+  String.raw`(?:.*[._-])?(?:credentials?|secrets?|client_secret[^/]*)(?:\.(?:json|ya?ml|toml|ini|env|txt|cfg|conf|properties|xml))?`,
+].join("|")})$`, "i");
+/** Folders whose files are all secrets, wherever they sit in the path. */
+const SECRET_FOLDERS = new Set([".ssh", ".gnupg", ".aws", ".kube", ".docker", "secrets", ".secrets"]);
 
-/** Whether a file's name says it holds a secret. */
+/** Whether a path, by its file's name or a folder on the way to it, says it holds a secret. */
 export function looksSecret(path: string): boolean {
-  return SECRET_NAMES.test(basename(path));
+  const parts = path.split(/[\\/]+/).filter(Boolean);
+  return SECRET_NAMES.test(basename(path)) || parts.slice(0, -1).some((part) => SECRET_FOLDERS.has(part.toLowerCase()));
 }
 
 /**
@@ -38,7 +49,8 @@ export function readCodeLines(root: string, path: string, start: number, end: nu
     base = realpathSync(root);
   } catch { throw outside(); }
   if (real !== base && !real.startsWith(base.endsWith(sep) ? base : base + sep)) throw outside();
-  if (looksSecret(path) || looksSecret(real)) throw new FleetError("invalid_plan", `${path} looks like a secret (an environment file, a key or credentials); a plan does not show it`);
+  // the folders inside the worktree only: where the worktree itself sits says nothing
+  if (looksSecret(path) || looksSecret(relative(base, real))) throw new FleetError("invalid_plan", `${path} looks like a secret (an environment file, a key or credentials); a plan does not show it`);
   let fd: number;
   try { fd = openSync(real, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { throw new FleetError("invalid_plan", `${path} cannot be read`); }
   try {
