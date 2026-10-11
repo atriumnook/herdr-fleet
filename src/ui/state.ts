@@ -127,7 +127,8 @@ export interface PlanState {
   runId: string | null;
   reading: Reading<Plan>;
   drafts: Record<string, PlanDraft>;
-  confirm: { runId: string; status: "asking" | "running"; error?: string } | null;
+  /** the yes the answers wait for: asked for one thread's one version of its plan */
+  confirm: { runId: string; version: number; status: "asking" | "running"; error?: string } | null;
   /** answers to an older version, dropped when the lead handed over a newer one: the person is told */
   dropped: { runId: string; version: number } | null;
   /** reads asked so far: only the latest one's answer is kept, so an older read never shows over a newer one */
@@ -1599,8 +1600,9 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       const stale = draft !== undefined && draft.version !== event.plan.version;
       const dropped = stale && (Object.keys(draft.choices).length > 0 || Object.values(draft.comments).some((text) => text.trim()) || draft.note.trim() !== "")
         ? { runId: event.runId, version: draft.version } : state.plan.dropped;
-      // a yes asked for the older version is not a yes to this one
-      const confirm = stale && state.plan.confirm?.status === "asking" ? null : state.plan.confirm;
+      // a yes asked for another version is not a yes to this one, answers written or not
+      const asked = state.plan.confirm;
+      const confirm = asked?.status === "asking" && asked.version !== event.plan.version ? null : asked;
       return next({ plan: { ...state.plan, drafts: stale ? others : state.plan.drafts, dropped, confirm, reading: { status: "ready", data: event.plan } } });
     }
     case "plan-choose":
@@ -1619,15 +1621,15 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "plan-respond": {
       const plan = state.plan.reading.data;
       if (!state.canAct || state.plan.runId !== event.runId || !plan || !planOpen(plan) || state.plan.confirm?.status === "running") return next({});
-      return next({ plan: { ...state.plan, confirm: { runId: event.runId, status: "asking" } } });
+      return next({ plan: { ...state.plan, confirm: { runId: event.runId, version: plan.version, status: "asking" } } });
     }
     case "plan-confirm": {
       const confirm = state.plan.confirm;
       const plan = state.plan.reading.data;
-      if (confirm?.status !== "asking" || !plan || state.plan.runId !== confirm.runId) return next({});
+      if (confirm?.status !== "asking" || !plan || state.plan.runId !== confirm.runId || plan.version !== confirm.version) return next({});
       const asked = request(state, { kind: "answer-plan", runId: confirm.runId, answer: planAnswer(planDraft(state.plan, confirm.runId, plan.version)) });
       if (asked.state === state) return asked;
-      return { state: { ...asked.state, plan: { ...state.plan, confirm: { runId: confirm.runId, status: "running" } } }, effects: asked.effects };
+      return { state: { ...asked.state, plan: { ...state.plan, confirm: { runId: confirm.runId, version: confirm.version, status: "running" } } }, effects: asked.effects };
     }
     case "plan-dropped-seen":
       return next(state.plan.dropped ? { plan: { ...state.plan, dropped: null } } : {});

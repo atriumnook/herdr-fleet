@@ -179,7 +179,7 @@ describe("screens and the Fleet screen's view", () => {
     const sending = play([{ type: "plan-confirm" }], asking.state);
     expect(sending.effects).toEqual([{ kind: "request", action: { kind: "answer-plan", runId: "a", answer: { version: 1, choices: { limit: "five" }, seen: ["limit"], comments: [{ claim: "1", text: "keep the log quiet" }], note: "ship it" } } }]);
     const failed = play([{ type: "request-failed", message: "The lead of a is working." }], sending.state).state;
-    expect(failed.plan.confirm).toEqual({ runId: "a", status: "asking", error: "The lead of a is working." });
+    expect(failed.plan.confirm).toEqual({ runId: "a", version: 1, status: "asking", error: "The lead of a is working." });
     expect(failed.plan.drafts["a"]).toBeDefined();
     const sent = play([{ type: "plan-confirm" }, { type: "request-done" }], failed);
     expect(sent.effects.at(-1)).toEqual({ kind: "load-plan", runId: "a", seq: 2 });
@@ -215,7 +215,7 @@ describe("screens and the Fleet screen's view", () => {
       { type: "runs-loaded", runs }, { type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-tab", tab: "plan" },
       { type: "plan-loaded", runId: "a", seq: 1, plan: plan(1) }, { type: "plan-choose", runId: "a", ask: "limit", value: "five" }, { type: "plan-respond", runId: "a" },
     ], withRuns).state;
-    expect(asking.plan.confirm).toEqual({ runId: "a", status: "asking" });
+    expect(asking.plan.confirm).toEqual({ runId: "a", version: 1, status: "asking" });
     // version 2 arrives while the dialog is up: the answers and the yes they waited for go, so nothing unread is sent
     const replaced = play([{ type: "runs-loaded", runs: [{ ...runs[0]!, plan: { version: 2, asks: 1 } }, runs[1]!] }, { type: "plan-loaded", runId: "a", seq: 2, plan: plan(2) }], asking).state;
     expect(replaced.plan).toMatchObject({ confirm: null, drafts: {} });
@@ -226,6 +226,17 @@ describe("screens and the Fleet screen's view", () => {
     ], asking);
     expect(back.state.plan.confirm).toBeNull();
     expect(play([{ type: "plan-confirm" }], back.state).effects).toEqual([]);
+    // Respond pressed with nothing picked, then version 2: the yes was for version 1 and goes too
+    const bare = play([
+      { type: "runs-loaded", runs }, { type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-tab", tab: "plan" },
+      { type: "plan-loaded", runId: "a", seq: 1, plan: plan(1) }, { type: "plan-respond", runId: "a" },
+    ], withRuns).state;
+    expect(bare.plan.confirm).toEqual({ runId: "a", version: 1, status: "asking" });
+    const bareReplaced = play([{ type: "runs-loaded", runs: [{ ...runs[0]!, plan: { version: 2, asks: 1 } }, runs[1]!] }, { type: "plan-loaded", runId: "a", seq: 2, plan: plan(2) }], bare).state;
+    expect(bareReplaced.plan.confirm).toBeNull();
+    expect(play([{ type: "plan-confirm" }], bareReplaced).effects).toEqual([]);
+    // the same version read again keeps the yes
+    expect(play([{ type: "plan-loaded", runId: "a", seq: 1, plan: plan(1) }], bare).state.plan.confirm).toEqual({ runId: "a", version: 1, status: "asking" });
     // two reads in flight: the older one answering last does not cover the newer one
     const twice = play([{ type: "runs-loaded", runs: [{ ...runs[0]!, plan: { version: 2, asks: 1 } }, runs[1]!] }], play([{ type: "plan-cancel" }], asking).state).state;
     const latest = play([{ type: "plan-loaded", runId: "a", seq: 2, plan: plan(2) }, { type: "plan-loaded", runId: "a", seq: 1, plan: plan(1) }, { type: "plan-failed", runId: "a", seq: 1, message: "late" }], twice).state;
