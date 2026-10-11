@@ -61,6 +61,17 @@ describe("a plan's code", () => {
     }
   });
 
+  it("cuts a line too long to read (a minified file) and says so, and keeps the plan within its size", () => {
+    const { tree } = worktree();
+    writeFileSync(join(tree, "bundle.min.js"), Array.from({ length: 60 }, (_, index) => `${index}:${"x".repeat(5000)}`).join("\n"));
+    const [first] = readCodeLines(tree, "bundle.min.js", 1, 1);
+    expect(first).toBe(`0:${"x".repeat(398)} … [cut: 4602 more characters]`);
+    const code = { kind: "code", path: "bundle.min.js", start: 1, end: 60 };
+    const claims = Array.from({ length: 5 }, (_, index) => ({ text: `claim ${index}`, exhibit: code, children: [{ text: "a", exhibit: code }, { text: "b", exhibit: code }] }));
+    expect(() => preparePlan({ title: "Big", claims }, tree, 1)).toThrow(/With its code read in, the plan is \d+ bytes, more than 262144: show fewer lines\./);
+    expect(preparePlan({ title: "Small", claims: [{ text: "one", exhibit: code }] }, tree, 1).claims[0]!.exhibit).toMatchObject({ lines: expect.any(Array) });
+  });
+
   it("names lines that are there, in a text file", () => {
     const { tree } = worktree();
     expect(() => readCodeLines(tree, "src/retry.ts", 40, 41)).toThrow("src/retry.ts has 6 lines; line 40 is past its end");

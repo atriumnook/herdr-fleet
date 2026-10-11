@@ -123,7 +123,7 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
         if (parts.length === 3 && method === "GET") return jsonResponse({ plan: fleet.plan(target, group()) });
         if (parts.length === 3 && method === "POST") {
           const body = await readBody();
-          if (JSON.stringify(body["plan"] ?? null).length > PLAN_MAX_BYTES) throw new FleetError("invalid_plan", `The plan is larger than ${PLAN_MAX_BYTES} bytes.`);
+          if (Buffer.byteLength(JSON.stringify(body["plan"] ?? null)) > PLAN_MAX_BYTES) throw new FleetError("invalid_plan", `The plan is larger than ${PLAN_MAX_BYTES} bytes.`);
           return jsonResponse({ plan: fleet.submitPlan(target, body["plan"], group(body)) }, 201);
         }
         if (parts.length === 4 && parts[3] === "answer" && method === "POST") {

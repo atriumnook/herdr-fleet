@@ -7,8 +7,12 @@ import { FleetError } from "./runtime.ts";
 export const PLAN_FILE = "plan.json";
 /** the largest file a code exhibit reads lines of */
 const CODE_FILE_MAX_BYTES = 2 * 1024 * 1024;
-/** the largest plan the API takes */
+/** the largest plan the API takes, in UTF-8 bytes */
 export const PLAN_MAX_BYTES = 64 * 1024;
+/** the largest plan kept once its code is read in, in UTF-8 bytes */
+export const PLAN_STORED_MAX_BYTES = 256 * 1024;
+/** a line of code longer than this (a minified file) is cut, and says so */
+export const CODE_LINE_MAX_CHARS = 400;
 
 /**
  * Files a plan never shows, by name: environment files, keys and credentials. A worktree may hold
@@ -54,7 +58,8 @@ export function readCodeLines(root: string, path: string, start: number, end: nu
     if (bytes.includes(0)) throw new FleetError("invalid_plan", `${path} is not a text file`);
     const lines = bytes.toString("utf8").split("\n");
     if (start > lines.length) throw new FleetError("invalid_plan", `${path} has ${lines.length} lines; line ${start} is past its end`);
-    return lines.slice(start - 1, Math.min(end, lines.length));
+    return lines.slice(start - 1, Math.min(end, lines.length)).map((line) => (line.length > CODE_LINE_MAX_CHARS
+      ? `${line.slice(0, CODE_LINE_MAX_CHARS)} … [cut: ${line.length - CODE_LINE_MAX_CHARS} more characters]` : line));
   } finally {
     closeSync(fd);
   }
@@ -89,6 +94,8 @@ export function preparePlan(value: unknown, root: string, version: number, now =
     version, writtenAt: now,
   };
   if (errors.length) throw new FleetError("invalid_plan", `The plan has problems:\n${errors.map((error) => `- ${error}`).join("\n")}`);
+  const bytes = Buffer.byteLength(JSON.stringify(plan));
+  if (bytes > PLAN_STORED_MAX_BYTES) throw new FleetError("invalid_plan", `With its code read in, the plan is ${bytes} bytes, more than ${PLAN_STORED_MAX_BYTES}: show fewer lines.`);
   return plan;
 }
 

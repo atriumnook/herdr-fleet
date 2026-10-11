@@ -149,7 +149,8 @@ describe("fleet API", () => {
       ask: { id: "limit", question: "How many?", options: [{ value: "three", label: "3" }, { value: "five", label: "5" }], recommended: "three" } }] };
     expect((await call("POST", at(), { plan }, {})).status).toBe(403);
     expect(await call("POST", at(), { plan: { title: "t" } })).toMatchObject({ status: 400, body: { error: { code: "invalid_plan" } } });
-    expect(await call("POST", at(), { plan: { ...plan, title: "x".repeat(70_000) } })).toMatchObject({ status: 400, body: { error: { code: "invalid_plan" } } });
+    // counted in bytes: 30,000 characters of Japanese are 90,000 bytes
+    expect(await call("POST", at(), { plan: { ...plan, filler: "あ".repeat(30_000) } })).toMatchObject({ status: 400, body: { error: { code: "invalid_plan", message: "The plan is larger than 65536 bytes." } } });
     expect(await call("POST", at(), { plan })).toMatchObject({ status: 201, body: { plan: { version: 1, title: "Retry limit" } } });
     expect((await call("GET", at())).body["plan"]).toMatchObject({ version: 1 });
     expect((await call("GET", `/runs/${thread.id}`)).body["run"].plan).toEqual({ version: 1, asks: 1 });
