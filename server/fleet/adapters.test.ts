@@ -198,7 +198,7 @@ describe("agy adapter", () => {
 
 describe("opencode adapter", () => {
   const opencode = adapterFor("opencode");
-  const pane = { resultsDir: "/state/fleet-results", fleetCommand: "/usr/bin/bun /opt/fleet/bin/fleet.ts" };
+  const pane = { resultDir: "/state/fleet-results/r1", fleetCommand: "/usr/bin/bun /opt/fleet/bin/fleet.ts" };
 
   it("takes the model as provider/model, no thinking level, no approve-everything flag, and instructions in the first prompt", () => {
     expect(opencode.launchArgs({ ...base, model: "anthropic/claude-sonnet-5-5", thinking: "high" })).toEqual(["--model", "anthropic/claude-sonnet-5-5"]);
@@ -215,23 +215,70 @@ describe("opencode adapter", () => {
   it("asks before any shell command that is not on its short read-only list, and never allows everything", () => {
     const permission = opencodePermission(pane) as { bash: Record<string, string>; edit: Record<string, string>; external_directory: Record<string, string> };
     expect(Object.entries(permission.bash)[0]).toEqual(["*", "ask"]);
-    expect(Object.keys(permission.bash).slice(1).every((pattern) => permission.bash[pattern] === "allow")).toBe(true);
     expect(permission.bash["/usr/bin/bun /opt/fleet/bin/fleet.ts *"]).toBe("allow");
-    expect(permission.bash["git status *"]).toBe("allow");
+    expect(permission.bash["git status"]).toBe("allow");
     expect(permission.bash["git push *"]).toBeUndefined();
-    expect(permission.bash["rm *"]).toBeUndefined();
-    // only the results folder is opened to edits and to paths outside the workspace
-    expect(permission.edit).toEqual({ "*fleet-results/*": "allow" });
-    expect(permission.external_directory).toEqual({ "/state/fleet-results/*": "allow" });
+    // a pattern ending in `*` also matches arguments (`git diff --output=f`): only the fleet command has one
+    const wild = Object.keys(permission.bash).filter((pattern) => permission.bash[pattern] === "allow" && pattern.endsWith("*"));
+    expect(wild).toEqual(["/usr/bin/bun /opt/fleet/bin/fleet.ts *"]);
+    // the asks come last, so they win over every allow
+    const rules = Object.entries(permission.bash);
+    expect(rules.slice(rules.findIndex(([, action], i) => i > 0 && action === "ask")).every(([, action]) => action === "ask")).toBe(true);
+    // only this run's result folder is opened to edits and to paths outside the workspace
+    expect(permission.edit).toEqual({ "*/fleet-results/r1/*": "allow" });
+    expect(permission.external_directory).toEqual({ "/state/fleet-results/r1/*": "allow" });
     const sent = JSON.parse(opencode.env!(pane)["OPENCODE_PERMISSION"]!);
     expect(sent).toEqual(permission);
     expect(Object.values(sent).includes("allow")).toBe(false);
   });
 
+  /**
+   * opencode 1.19.0 (the bundled JS of the binary, read with `strings`), the parts this follows:
+   * - shell tool, `collect`: every `command` node under the parsed input is looked at on its own
+   *   (`vi(c)` = `descendantsOfType("command")`, so `;`, `&&`, `|` and `$(...)` yield several),
+   *   and each one that is not exempt adds `Pi(U)` to the patterns it asks about;
+   * - `Pi(o)`: `o.parent?.type === "redirected_statement" ? o.parent.text : o.text` - a command with
+   *   a redirect is asked about as the text of the whole statement, redirect included;
+   * - `Wildcard.match` (`JH`): `*` becomes `.*`, `?` becomes `.`, a trailing ` *` is optional,
+   *   anchored, flag `s`;
+   * - `Permission.evaluate` (`c`): `findLast` over the merged rules, `ask` when none matches.
+   * The tool asks when any of its patterns evaluates to ask.
+   */
+  describe("under opencode's matching", () => {
+    const rules = Object.entries((opencodePermission(pane) as { bash: Record<string, string> }).bash);
+    const match = (text: string, pattern: string) => {
+      let source = pattern.replaceAll("\\", "/").replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+      if (source.endsWith(" .*")) source = `${source.slice(0, -3)}( .*)?`;
+      return new RegExp(`^${source}$`, "s").test(text.replaceAll("\\", "/"));
+    };
+    const action = (text: string) => [...rules].reverse().find(([pattern]) => match(text, pattern))?.[1] ?? "ask";
+    /** what the tool decides for a command line, given the statements it parses out of it */
+    const verdict = (...patterns: string[]) => (patterns.every((pattern) => action(pattern) === "allow") ? "allow" : "ask");
+    const fleet = "/usr/bin/bun /opt/fleet/bin/fleet.ts";
+
+    it("lets the listed commands and the fleet command through", () => {
+      for (const text of ["ls", "pwd", "git status", "git diff", `${fleet} list`, `${fleet} send lead "go"`]) expect(verdict(text)).toBe("allow");
+    });
+
+    it("asks when a redirect, a second command or a substitution comes with one", () => {
+      expect(verdict("ls > ~/y")).toBe("ask");
+      expect(verdict("git show HEAD:f > ~/.bashrc")).toBe("ask");
+      expect(verdict(`${fleet} send lead "x" > ~/x`)).toBe("ask");
+      expect(verdict("cat < /etc/passwd")).toBe("ask");
+      expect(verdict("ls", "rm -rf ~")).toBe("ask"); // ls; rm -rf ~
+      expect(verdict("ls", "git push")).toBe("ask"); // ls && git push
+      expect(verdict("ls $(rm x)", "rm x")).toBe("ask"); // ls $(rm x)
+    });
+
+    it("asks for the arguments that write or run helpers, and for anything not listed", () => {
+      for (const text of ["git diff --output=/tmp/x", "git diff --no-index a b", "git log --ext-diff", "git show --textconv x", "git diff HEAD~1", "git log -1", "rm -rf build", `${fleet} send lead x --output=y`]) expect(verdict(text)).toBe("ask");
+    });
+  });
+
   it("defines the read-only agent with a deny that its allowance for the result file follows", () => {
     const config = JSON.parse(opencode.env!(pane)["OPENCODE_CONFIG_CONTENT"]!);
     const edit = config.agent["fleet-readonly"].permission.edit;
-    expect(Object.entries(edit)).toEqual([["*", "deny"], ["*fleet-results/*", "allow"]]);
+    expect(Object.entries(edit)).toEqual([["*", "deny"], ["*/fleet-results/r1/*", "allow"]]);
     expect(config.agent["fleet-readonly"].mode).toBe("primary");
   });
 

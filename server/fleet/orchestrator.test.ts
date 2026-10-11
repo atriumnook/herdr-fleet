@@ -746,10 +746,10 @@ describe("agent kinds", () => {
 
   it("starts opencode with the fleet's permission rules and update guard in its pane, and holds a read-only role to its result file", async () => {
     const { fleet, runtime, root } = setup({ agents: [role("auditor", { agent: "opencode", model: "p/m", edits: false, interactive: true })] });
-    await spawn(fleet, { role: "auditor" });
+    const run = await spawn(fleet, { role: "auditor" });
     const env = runtime.locations[0]!.env;
     expect(env).toMatchObject({ HERDR_FLEET_GROUP: "g1", HERDR_FLEET_URL: "http://127.0.0.1:1", OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_SHARE: "true", OPENCODE_DISABLE_LSP_DOWNLOAD: "true" });
-    expect(JSON.parse(env["OPENCODE_PERMISSION"]!).external_directory).toEqual({ [`${join(root, "results")}/*`]: "allow" });
+    expect(JSON.parse(env["OPENCODE_PERMISSION"]!).external_directory).toEqual({ [`${join(root, "results")}/${run.id}/*`]: "allow" });
     expect(runtime.starts[0]).toMatchObject({ kind: "opencode", args: ["--model", "p/m", "--agent", "fleet-readonly"] });
     expect(runtime.prompts[0]!.text).toContain("write that with your file-editing tool");
   });

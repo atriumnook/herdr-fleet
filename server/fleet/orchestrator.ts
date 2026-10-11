@@ -423,7 +423,7 @@ export class Orchestrator {
     const id = makeId();
     const herdrName = makeHerdrName(request.group, definition.name, id);
     const displayName = request.name?.trim() || definition.name;
-    const env = { ...this.deps.agentEnv(), ...adapter.env?.({ resultsDir: this.deps.resultsDir, fleetCommand: this.deps.fleetCommand }), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
+    const env = { ...this.deps.agentEnv(), ...adapter.env?.({ resultDir: join(this.deps.resultsDir, id), fleetCommand: this.deps.fleetCommand }), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
 
     // the budget counts runs across fleets: the check and the first save must not interleave
     const previousGate = this.spawnGate;

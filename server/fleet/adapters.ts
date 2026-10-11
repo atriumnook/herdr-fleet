@@ -20,8 +20,8 @@ export interface LaunchOptions {
 
 /** What the fleet knows when it creates a pane, before the agent starts in it. */
 export interface PaneContext {
-  /** the folder that holds every run's result folder */
-  resultsDir: string;
+  /** this run's result folder */
+  resultDir: string;
   /** the shell command that runs the fleet CLI */
   fleetCommand: string;
 }
@@ -300,26 +300,38 @@ export const agyAdapter: AgentAdapter = {
   },
 };
 
-/** The commands opencode may run unasked: they read the repository and change nothing. */
-const OPENCODE_READ_ONLY_COMMANDS = ["git status", "git diff", "git log", "git show", "git ls-files", "git rev-parse", "ls", "pwd"];
+/**
+ * The commands opencode may run unasked, each exactly as written: a pattern with a trailing `*` also
+ * matches the arguments, and git's `--output=<file>` writes, `--no-index` reads any file, `--ext-diff`
+ * and `--textconv` run helpers.
+ */
+const OPENCODE_READ_ONLY_COMMANDS = ["git status", "git diff", "git log", "git show", "git ls-files", "ls", "pwd"];
 const OPENCODE_READ_ONLY_AGENT = "fleet-readonly";
+/**
+ * Text that turns an allowed command back into an ask, whatever it is allowed by. opencode matches a
+ * command that has a redirect by the text of the whole statement, so `ls > ~/x` would match the
+ * pattern for `ls *` (see the test); the later rule wins, so these follow the allows.
+ */
+const OPENCODE_ASK_AFTER = ["*>*", "*<*", "*--output*", "*--no-index*", "*--ext-diff*", "*--textconv*"];
 
 /**
  * opencode has no mode that judges a request: it allows everything by default, and its only other
  * mode (`--auto`) approves every request not denied. So the fleet gives it a permission ruleset of
  * its own (`OPENCODE_PERMISSION`, merged after the person's config; the last matching rule wins):
- * edits go through, a shell command is asked unless it only reads the repository or is the fleet
- * CLI, and so is the web. The run blocks for a person at each ask.
+ * edits go through, a shell command is asked unless it is one of a few read-only commands or the
+ * fleet CLI (and has no redirect), and so is the web. The run blocks for a person at each ask.
  */
-export function opencodePermission({ resultsDir, fleetCommand }: PaneContext): Record<string, unknown> {
+export function opencodePermission({ resultDir, fleetCommand }: PaneContext): Record<string, unknown> {
+  const runFolder = `${basename(dirname(resultDir))}/${basename(resultDir)}`;
   return {
     // the result file lies outside the workspace; edit patterns are paths relative to the worktree, hence the leading `*`
-    edit: { [`*${basename(resultsDir)}/*`]: "allow" },
-    external_directory: { [`${resultsDir}/*`]: "allow" },
+    edit: { [`*/${runFolder}/*`]: "allow" },
+    external_directory: { [`${resultDir}/*`]: "allow" },
     bash: {
       "*": "ask",
-      ...Object.fromEntries(OPENCODE_READ_ONLY_COMMANDS.map((command) => [`${command} *`, "allow"])),
+      ...Object.fromEntries(OPENCODE_READ_ONLY_COMMANDS.map((command) => [command, "allow"])),
       [`${fleetCommand} *`]: "allow",
+      ...Object.fromEntries(OPENCODE_ASK_AFTER.map((pattern) => [pattern, "ask"])),
     },
     webfetch: "ask",
     websearch: "ask",
