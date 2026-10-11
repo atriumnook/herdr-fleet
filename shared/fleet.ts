@@ -258,3 +258,23 @@ export interface FleetSettingsPatch {
   /** an empty setup command removes it */
   projects?: Record<string, { setup: string }>;
 }
+
+/**
+ * A folder agent CLIs read skills from, where the Settings page puts the fleet skill: with it, an
+ * agent in a pane's conversation hands work to the project's coordinator.
+ */
+export interface FleetEntrance {
+  id: "claude" | "agents" | "gemini";
+  /** the skill's file, absolute */
+  file: string;
+  /** the CLIs that read skills from this folder */
+  readers: FleetAgentKind[];
+  /** installed: as the fleet writes it now; outdated: the fleet wrote it for another command or address; taken: a file the fleet did not write is there */
+  state: "installed" | "missing" | "outdated" | "taken";
+}
+
+export interface FleetEntrances {
+  entrances: FleetEntrance[];
+  /** the server wants a token, which the skill does not carry: a pane needs HERDR_FLEET_TOKEN set */
+  tokenRequired: boolean;
+}
