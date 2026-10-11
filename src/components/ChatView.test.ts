@@ -118,6 +118,13 @@ describe("Chat view", () => {
     expect(html).toContain("推奨");
     expect(html).toContain("haiku · 1k in · 80 out");
     expect(render(model({ prompt, promptExplanation: { status: "loading" } }))).toContain("Explaining…");
+    // what the button sends is said beside it, before the press
+    expect(render(model({ prompt }))).toContain(t("Sends part of this conversation (your recent messages, a summary of the tool calls and the agent's text, at most 12 KB) to Claude Haiku once, on your Claude plan."));
+    // a model wrote the explanation: its links show as text, none to click
+    const linked = render(model({ prompt, promptExplanation: { status: "done", text: "See [the docs](https://example.com/x) or https://example.com/y and `https://example.com/z`.", model: "haiku", tokens: { input: 1, output: 1 } } }));
+    const explanation = linked.slice(linked.indexOf("question-explanation-text"));
+    expect(explanation).toContain("the docs");
+    expect(explanation).not.toContain("<a ");
     expect(render(model({ prompt, promptExplanation: { status: "failed", message: "claude has used 95% of its 5h limit", limited: true } }))).toContain(t("Claude was not asked. {reason}", { reason: "claude has used 95% of its 5h limit" }));
   });
 });

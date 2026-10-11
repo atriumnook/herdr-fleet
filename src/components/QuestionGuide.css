@@ -12,6 +12,16 @@
   height: var(--icon-size);
 }
 
+/* what the button sends, beside it: read before the press, on a phone too */
+.question-explain-note {
+  flex: 1 1 16rem;
+  min-width: 0;
+  margin: 0;
+  color: var(--sub);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-base);
+}
+
 .question-explain-error {
   flex: 1 1 100%;
   margin: 0;

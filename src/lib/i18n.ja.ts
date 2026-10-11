@@ -62,7 +62,7 @@ export const JA: Record<string, string> = {
   "Choose with the option numbers above, e.g. 1 3.": "上の選択肢の番号で選んでください(例: 1 3)。",
   "Choose one of the options above: type {range}.": "上の選択肢から 1 つ選んでください。{range} を入力します。",
   // ---- question explanations ----
-  "Asks Claude Haiku once, on your Claude plan, why the agent asks and what each choice leads to.": "エージェントが聞いている理由と、選択肢ごとの結果を、Claude Haiku に 1 回だけ尋ねます。あなたの Claude の利用枠を使います。",
+  "Sends part of this conversation (your recent messages, a summary of the tool calls and the agent's text, at most 12 KB) to Claude Haiku once, on your Claude plan.": "この会話の一部(あなたの直近のメッセージ、ツール呼び出しの要約、エージェントの文章。最大 12 KB)を Claude Haiku に 1 回送ります。あなたの Claude の利用枠を使います。",
   "Claude was not asked. {reason}": "Claude には尋ねませんでした。{reason}",
   "Could not explain. {reason}": "説明を作れませんでした。{reason}",
   "Puts this choice in the message box. Send it from there.": "この選択肢をメッセージ欄に入れます。送信はメッセージ欄から行ってください。",

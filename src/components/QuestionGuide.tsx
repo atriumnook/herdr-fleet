@@ -1,3 +1,4 @@
+import { useId } from "react";
 import { ChevronDown, Sparkles } from "lucide-react";
 
 import "./QuestionGuide.css";
@@ -20,7 +21,8 @@ export function ExplainBlock({ explanation, onExplain }: ExplainBlockProps) {
   if (explanation?.status === "done") {
     return (
       <section className="question-explanation" aria-label={t("Explanation")}>
-        <div className="question-explanation-text"><Markdown>{explanation.text}</Markdown></div>
+        {/* a model wrote it: its links and paths are text, none to click */}
+        <div className="question-explanation-text"><Markdown plain>{explanation.text}</Markdown></div>
         <p className="question-explanation-meta">
           {explanation.model} · {t("{n} in", { n: formatTokens(explanation.tokens.input) })} · {t("{n} out", { n: formatTokens(explanation.tokens.output) })}
         </p>
@@ -28,11 +30,14 @@ export function ExplainBlock({ explanation, onExplain }: ExplainBlockProps) {
     );
   }
   const loading = explanation?.status === "loading";
+  const noteId = useId();
   return (
     <div className="question-explain">
-      <button type="button" className="btn btn-ghost question-explain-button" disabled={loading} aria-busy={loading} title={t("Asks Claude Haiku once, on your Claude plan, why the agent asks and what each choice leads to.")} onClick={onExplain}>
+      <button type="button" className="btn btn-ghost question-explain-button" disabled={loading} aria-busy={loading} aria-describedby={noteId} onClick={onExplain}>
         <Sparkles aria-hidden="true" /> {loading ? t("Explaining…") : t("Explain")}
       </button>
+      {/* what leaves the PC, said before the press: a tooltip would not show on a phone */}
+      <p className="question-explain-note" id={noteId}>{t("Sends part of this conversation (your recent messages, a summary of the tool calls and the agent's text, at most 12 KB) to Claude Haiku once, on your Claude plan.")}</p>
       {explanation?.status === "failed" && (
         <p className="notice question-explain-error" role="alert">
           {explanation.limited ? t("Claude was not asked. {reason}", { reason: explanation.message }) : t("Could not explain. {reason}", { reason: explanation.message })}
