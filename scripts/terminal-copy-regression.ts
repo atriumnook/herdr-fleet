@@ -326,8 +326,51 @@ setInterval(() => {}, 1000);
     assert.ok(inputs.slice(beforePlainWheel).some((text) => /\x1b\[<65;\d+;\d+M/.test(text)), "a wheel outside a drag scrolls herdr with mouse reports");
     await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
 
+    // a window smaller than herdr's grid: the wheel first brings the hidden rows and columns into
+    // view, and only at the mount's edge scrolls herdr's history
+    await page.setViewportSize({ width: 420, height: 300 });
+    const mount = page.locator(".pane-terminal");
+    await page.waitForFunction(() => {
+      const host = document.querySelector<HTMLElement>(".pane-terminal");
+      return !!host && host.hasAttribute("data-adopted-grid") && host.scrollHeight > host.clientHeight + 1 && host.scrollWidth > host.clientWidth + 1;
+    });
+    const offsets = () => mount.evaluate((host) => ({ top: host.scrollTop, left: host.scrollLeft, maxTop: host.scrollHeight - host.clientHeight }));
+    const reportsSince = (from: number, button: 64 | 65) => inputs.slice(from).filter((text) => new RegExp(`\\x1b\\[<${button};\\d+;\\d+M`).test(text)).length;
+    const mountBox = (await mount.boundingBox())!;
+    await page.mouse.move(mountBox.x + mountBox.width / 2, mountBox.y + mountBox.height / 2);
+    await mount.evaluate((host) => { host.scrollTop = 0; host.scrollLeft = 0; });
+    let from = inputs.length;
+    await page.mouse.wheel(0, lineHeight * 2);
+    await page.waitForTimeout(200);
+    assert.ok((await offsets()).top > 0, "a wheel down shows the rows below the mount's edge");
+    assert.equal(reportsSince(from, 65), 0, "while rows are hidden below, a wheel down does not scroll herdr");
+    await mount.evaluate((host) => { host.scrollTop = host.scrollHeight; });
+    from = inputs.length;
+    await page.mouse.wheel(0, lineHeight * 2);
+    await page.waitForTimeout(200);
+    assert.ok(reportsSince(from, 65) > 0, "at the mount's bottom, a wheel down scrolls herdr");
+    from = inputs.length;
+    await page.mouse.wheel(0, -lineHeight * 2);
+    await page.waitForTimeout(200);
+    const raised = await offsets();
+    assert.ok(raised.top < raised.maxTop, "a wheel up shows the rows above first");
+    assert.equal(reportsSince(from, 64), 0, "while rows are hidden above, a wheel up does not scroll herdr");
+    await mount.evaluate((host) => { host.scrollTop = 0; });
+    from = inputs.length;
+    await page.mouse.wheel(0, -lineHeight * 2);
+    await page.waitForTimeout(200);
+    assert.ok(reportsSince(from, 64) > 0, "at the mount's top, a wheel up scrolls herdr's history");
+    from = inputs.length;
+    await page.mouse.wheel(lineHeight * 4, 0);
+    await page.waitForTimeout(200);
+    assert.ok((await offsets()).left > 0, "a sideways wheel shows the columns past the mount's edge");
+    assert.equal(inputs.slice(from).filter((text) => /\x1b\[<6[4-7];/.test(text)).length, 0, "a sideways wheel does not scroll herdr");
+    await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 0 });
+    await page.setViewportSize({ width: 1280, height: 800 });
+
     console.log("PASS plain drag copies terminal text; Ctrl+C copies a selection (also without the async clipboard)");
     console.log("PASS a selecting drag scrolls herdr by wheel and edge, and copies herdr's text for the whole range");
+    console.log("PASS on a grid larger than the window, the wheel shows the hidden rows and columns first, then scrolls herdr at the edge");
     console.log("PASS drag copy starts in the gesture, survives denied clipboard permission, and ignores stale or empty selection responses");
   } finally {
     await context.close();

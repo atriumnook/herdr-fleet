@@ -296,6 +296,11 @@ export function PaneTerminal({
       }
       // a terminal that reports nothing to herdr leaves the wheel to the browser, to pan the mount
       if (reportsNothing()) return false;
+      // a grid larger than the mount: the wheel first brings its hidden rows and columns into view
+      if (adopted() && pansMount(event)) {
+        panMount(event);
+        return false;
+      }
       if (term.hasSelection()) term.clearSelection();
       const reporting = term.modes.mouseTrackingMode !== "none";
       // a trackpad pinch arrives as a wheel with Ctrl down: it is not scrolling, and goes once as before
@@ -323,6 +328,28 @@ export function PaneTerminal({
     // pane's history; only an observer (its reports are dropped) and a mirror (it reports nothing)
     // have none to send them to.
     const reportsNothing = (): boolean => observeRef.current || fixedGridRef.current;
+    // Whether a wheel scrolls the mount rather than herdr, on a grid larger than the mount.
+    // Sideways (a trackpad's swipe, or Shift with the wheel) always does while columns are
+    // hidden. Up and down do until the mount's edge in that direction; past it, herdr scrolls
+    // the pane's history. Its rows above the cursor are newer than that history, so going up
+    // shows them first.
+    const pansMount = (event: WheelEvent): boolean => {
+      if (event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY)) return host.scrollWidth - host.clientWidth > 1;
+      if (event.deltaY > 0) return host.scrollHeight - host.clientHeight - host.scrollTop > 1;
+      if (event.deltaY < 0) return host.scrollTop > 1;
+      return false;
+    };
+    // The mount is scrolled here: left to the browser, a wheel up scrolled xterm's own viewport
+    // inside it instead, which holds rows herdr already drew and moves nothing in sight.
+    const panMount = (event: WheelEvent): void => {
+      event.preventDefault();
+      panned = true;
+      const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
+      const unit = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? (screen ? screen.offsetHeight / term.rows : 16)
+        : event.deltaMode === WheelEvent.DOM_DELTA_PAGE ? host.clientHeight : 1;
+      const sideways = event.shiftKey || Math.abs(event.deltaX) > Math.abs(event.deltaY);
+      host.scrollBy(sideways ? { left: (event.deltaX || event.deltaY) * unit } : { top: event.deltaY * unit });
+    };
     let panned = false;
     const followCursor = (): void => {
       host.toggleAttribute("data-adopted-grid", adopted());
