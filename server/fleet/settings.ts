@@ -15,7 +15,7 @@ import { isThinkingLevel, type AgentDefinition, type FleetConfig, type RoleOverr
 import type { UsageTracker } from "./usage.ts";
 
 const MAX_CANDIDATES = 8;
-const KINDS: readonly FleetAgentKind[] = ["claude", "codex", "cursor", "agy", "pi"];
+const KINDS: readonly FleetAgentKind[] = ["claude", "codex", "cursor", "agy", "opencode", "pi"];
 const MAX_SETUP_CHARS = 2000;
 const LIMITS = {
   maxUsedPercent: [1, 100], rateLimitCooldownMinutes: [1, 24 * 60], maxConcurrent: [1, 32],

@@ -310,7 +310,7 @@ export interface FleetScreenModel {
   canAct: boolean;
 }
 
-const KINDS: readonly FleetAgentKind[] = ["pi", "claude", "codex", "cursor", "agy"];
+const KINDS: readonly FleetAgentKind[] = ["pi", "claude", "codex", "cursor", "agy", "opencode"];
 
 export function toneOf(state: AgentState): RunTone {
   switch (state) {

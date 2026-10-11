@@ -39,7 +39,7 @@ describe("fleet settings", () => {
   it("draw each role's candidates in the order the fleet tries them, with why one would be passed over now", () => {
     const { store, repo, file } = setup();
     const settings = store.read(repo);
-    expect(settings).toMatchObject({ file, maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [], readOnlyAgents: ["claude"] });
+    expect(settings).toMatchObject({ file, maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [], readOnlyAgents: ["claude", "opencode"] });
     expect(settings.roles.map((each) => [each.name, each.candidates, each.thinking, each.readOnly, each.changed])).toEqual([
       ["coordinator", [{ agent: "claude" }], "high", true, false],
       ["lead", [{ agent: "claude" }, { agent: "codex", skip: "codex has used 92% of its 5h limit" }], "high", false, false],

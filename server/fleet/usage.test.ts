@@ -12,7 +12,7 @@ const NOW = Date.parse("2026-10-04T07:00:00Z");
 const HOUR = 3_600_000;
 
 describe("usageKey", () => {
-  it("splits agy by model group and pi by provider; the other CLIs are one account each", () => {
+  it("splits agy by model group, and pi and opencode by provider; the other CLIs are one account each", () => {
     expect(usageKey("codex", "gpt-6")).toBe("codex");
     expect(usageKey("claude")).toBe("claude");
     expect(usageKey("agy", "gemini-3.8-flash-low")).toBe("agy:gemini");
@@ -20,6 +20,8 @@ describe("usageKey", () => {
     expect(usageKey("agy", "claude-sonnet-5-5")).toBe("agy:3p");
     expect(usageKey("pi", "opencode-go/space-bunny-free")).toBe("pi:opencode-go");
     expect(usageKey("pi")).toBe("pi");
+    expect(usageKey("opencode", "anthropic/claude-sonnet-5-5")).toBe("opencode:anthropic");
+    expect(usageKey("opencode")).toBe("opencode");
   });
 });
 

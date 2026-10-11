@@ -11,7 +11,7 @@ import { Segmented } from "../Segmented.tsx";
 /** What the Settings page hands up: the Mediator's own events, complete. */
 export type FleetSettingsEvent = Extract<UiEvent, { type: "fleet-settings-change" | "fleet-settings" | "fleet-entrance" }>;
 
-const KINDS: readonly FleetAgentKind[] = ["claude", "codex", "cursor", "agy", "pi"];
+const KINDS: readonly FleetAgentKind[] = ["claude", "codex", "cursor", "agy", "opencode", "pi"];
 const LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 const MAX_CANDIDATES = 8;
 

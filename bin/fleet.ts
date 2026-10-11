@@ -15,7 +15,7 @@ const USAGE = `usage: fleet <command> [options]
 
   spawn --role <role> --task <text> [--name <name>] [--model <provider/model>] [--thinking <level>]
         [--cwd <dir>] [--worktree] [--interactive] [--direction right|down] [--wait] [--timeout <ms>]
-        [--avoid <cli>]...               keep a CLI out (pi, claude, codex, cursor, agy), such as the writer's for a review
+        [--avoid <cli>]...               keep a CLI out (pi, claude, codex, cursor, agy, opencode), such as the writer's for a review
         an agent handing work on gives a brief instead of --task (--task then adds notes):
         --goal <one sentence> --write <path>... | --read-only --context <files, earlier results, or none>
         --done <checkable condition> --verify <commands, and the evidence to return> [--forbid <text>] [--timebox <text>]

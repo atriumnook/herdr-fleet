@@ -1,4 +1,4 @@
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { AgentKind, ThinkingLevel } from "./types.ts";
 import type { UsageReading } from "./usage.ts";
@@ -18,15 +18,27 @@ export interface LaunchOptions {
   resultDir: string;
 }
 
+/** What the fleet knows when it creates a pane, before the agent starts in it. */
+export interface PaneContext {
+  /** this run's result folder */
+  resultDir: string;
+  /** the shell command that runs the fleet CLI */
+  fleetCommand: string;
+}
+
 /** What differs between agent CLIs: how one is launched, and how it says it failed. */
 export interface AgentAdapter {
   readonly kind: AgentKind;
   /** the CLI takes no instructions at launch: they lead the first prompt instead */
   readonly instructionsInPrompt: boolean;
+  /** environment variables for the pane the CLI starts in, for a CLI configured by them (herdr's `agent.start` takes none) */
+  env?(context: PaneContext): Record<string, string>;
   /** argv after the executable, for herdr's `agent.start` */
   launchArgs(options: LaunchOptions): string[];
   /** argv that takes the CLI's file-editing tools away, for a role that edits nothing; absent where the CLI cannot be held to that */
   readonly readOnlyArgs?: readonly string[];
+  /** under `readOnlyArgs` the CLI's editing tool stays on for the result file alone, so a shell command to write it is not needed (and would be asked) */
+  readonly readOnlyEditsResult?: boolean;
   /** the CLI gave up while starting: the screen it left, read once no agent runs in the pane */
   startupError(screen: string): string | undefined;
   /**
@@ -288,7 +300,88 @@ export const agyAdapter: AgentAdapter = {
   },
 };
 
-const ADAPTERS: Record<AgentKind, AgentAdapter> = { pi: piAdapter, claude: claudeAdapter, codex: codexAdapter, cursor: cursorAdapter, agy: agyAdapter };
+/**
+ * The commands opencode may run unasked, each exactly as written: a pattern with a trailing `*` also
+ * matches the arguments, and git's `--output=<file>` writes, `--no-index` reads any file, `--ext-diff`
+ * and `--textconv` run helpers. `git diff`, `git log` and `git show` are not here at all: even bare they
+ * run the textconv and external-diff helpers that the repository's own config names.
+ */
+const OPENCODE_READ_ONLY_COMMANDS = ["git status", "git ls-files", "ls", "pwd"];
+const OPENCODE_READ_ONLY_AGENT = "fleet-readonly";
+/**
+ * Text that turns an allowed command back into an ask, whatever it is allowed by. opencode matches a
+ * command that has a redirect by the text of the whole statement, so `ls > ~/x` would match the
+ * pattern for `ls *` (see the test); the later rule wins, so these follow the allows.
+ */
+const OPENCODE_ASK_AFTER = ["*>*", "*<*", "*--output*", "*--no-index*", "*--ext-diff*", "*--textconv*"];
+
+/**
+ * opencode has no mode that judges a request: it allows everything by default, and its only other
+ * mode (`--auto`) approves every request not denied. So the fleet gives it a permission ruleset of
+ * its own (`OPENCODE_PERMISSION`, merged after the person's config; the last matching rule wins):
+ * edits go through, a shell command is asked unless it is one of a few read-only commands or the
+ * fleet CLI (and has no redirect), and so is the web. The run blocks for a person at each ask.
+ */
+export function opencodePermission({ resultDir, fleetCommand }: PaneContext): Record<string, unknown> {
+  const runFolder = `${basename(dirname(resultDir))}/${basename(resultDir)}`;
+  return {
+    // the result file lies outside the workspace; edit patterns are paths relative to the worktree, hence the leading `*`
+    edit: { [`*/${runFolder}/*`]: "allow" },
+    external_directory: { [`${resultDir}/*`]: "allow" },
+    bash: {
+      "*": "ask",
+      ...Object.fromEntries(OPENCODE_READ_ONLY_COMMANDS.map((command) => [command, "allow"])),
+      [`${fleetCommand} *`]: "allow",
+      ...Object.fromEntries(OPENCODE_ASK_AFTER.map((pattern) => [pattern, "ask"])),
+    },
+    webfetch: "ask",
+    websearch: "ask",
+  };
+}
+
+/**
+ * OpenCode: no instruction option short of a config file, so the instructions lead the first
+ * prompt. It updates itself, shares sessions if its config says so and downloads language servers;
+ * the pane's environment turns each off. Plugins stay on: herdr reports opencode's state through
+ * one. A model is `provider/model`; the TUI takes no thinking level (only `opencode run` has `--variant`).
+ */
+export const opencodeAdapter: AgentAdapter = {
+  kind: "opencode",
+  instructionsInPrompt: true,
+  env(context) {
+    const permission = opencodePermission(context);
+    return {
+      OPENCODE_DISABLE_AUTOUPDATE: "true",
+      OPENCODE_DISABLE_SHARE: "true",
+      OPENCODE_DISABLE_LSP_DOWNLOAD: "true",
+      OPENCODE_PERMISSION: JSON.stringify(permission),
+      // an agent that edits nothing but the result file: an agent's rules come after the top level's, so its deny is followed by the allow
+      OPENCODE_CONFIG_CONTENT: JSON.stringify({
+        agent: { [OPENCODE_READ_ONLY_AGENT]: { mode: "primary", description: "Reads the repository and edits no file.", permission: { edit: { "*": "deny", ...(permission["edit"] as object) } } } },
+      }),
+    };
+  },
+  launchArgs(options) {
+    const { model } = splitThinking(options.model, options.thinking);
+    return model ? ["--model", model] : [];
+  },
+  readOnlyArgs: ["--agent", OPENCODE_READ_ONLY_AGENT],
+  readOnlyEditsResult: true,
+  startupError(screen) {
+    return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
+  },
+  question(screen) {
+    // the permission request replaces the input; once answered it leaves the screen
+    const plain = stripVTControlCharacters(screen);
+    return /Permission required/.test(plain) && /Allow once/.test(plain) ? "OpenCode asks for permission." : undefined;
+  },
+  turnError(output) {
+    // while it retries a failed request opencode shows `<reason> [retrying in 12s attempt #2]`
+    return lastMatch(output, /^\s*(.+?) \[retrying (?:in \S+ )?attempt #\d+\]\s*$/gm);
+  },
+};
+
+const ADAPTERS: Record<AgentKind, AgentAdapter> = { pi: piAdapter, claude: claudeAdapter, codex: codexAdapter, cursor: cursorAdapter, agy: agyAdapter, opencode: opencodeAdapter };
 
 export function adapterFor(kind: AgentKind): AgentAdapter {
   return ADAPTERS[kind];
