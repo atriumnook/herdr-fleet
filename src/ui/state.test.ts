@@ -681,6 +681,12 @@ describe("the connection to the server", () => {
     expect(state.selection).toEqual({ machineId: "local", paneId: "w1:p2", auto: false });
   });
 
+  it("opens the pane a coordinator's request came from on the Pane screen, and stays put when that pane is gone", () => {
+    const onFleet = play([{ type: "show-screen", screen: "fleet" }], inWith([pc(["w1:p1", "w2:p3"])])).state;
+    expect(play([{ type: "go-to-pane", paneId: "w2:p3" }], onFleet).state).toMatchObject({ screen: "pane", selection: { machineId: "local", paneId: "w2:p3", auto: false } });
+    expect(play([{ type: "go-to-pane", paneId: "w2:gone" }], onFleet).state).toMatchObject({ screen: "fleet", selection: onFleet.selection });
+  });
+
   it("confirms with the PC that a selected pane closed before picking another, marked as the shell's own pick", () => {
     const selected = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }], inWith([pc(["w1:p1", "w1:gone"])])).state;
     const closed = play([{ type: "machines-pushed", machines: [pc(["w1:p1"])] }], selected);

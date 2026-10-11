@@ -278,3 +278,12 @@ export interface FleetEntrances {
   /** the server wants a token, which the skill does not carry: a pane needs HERDR_FLEET_TOKEN set */
   tokenRequired: boolean;
 }
+
+/** How a task sent from a pane's conversation opens (the fleet skill's `fleet project`), so the coordinator and the Fleet screen tell where it came from. */
+export const FROM_PANE = "[from pane ";
+
+/** The pane a message to a coordinator was sent from, and the message without that opening line; none for one the person typed on the Fleet screen. */
+export function fromPane(text: string): { paneId: string; text: string } | null {
+  const match = /^\[from pane ([\w:.-]{1,64})\]\n\n/.exec(text);
+  return match ? { paneId: match[1]!, text: text.slice(match[0].length) } : null;
+}

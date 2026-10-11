@@ -6,6 +6,8 @@ import { useSettings } from "../lib/settings.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { EMPTY_VIEW, type Lens, type UiEvent, type UiState } from "./state.ts";
 import { threadCards, type ThreadRowModel } from "./fleetView.ts";
+import { fromPane } from "../../shared/fleet.ts";
+import { displayPaneTitle } from "../components/Sidebar.tsx";
 import { useSelected } from "./presenter.ts";
 
 export type ChatUpEvent = Exclude<ChatViewEvent, { type: "card-answer" }> | Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "prompt-card-answer" }>;
@@ -15,6 +17,30 @@ const NO_THREADS: ThreadRowModel[] = [];
 
 /** no earlier turns: the same empty list each render, for the view's memo */
 const NO_TURNS: ConversationTurn[] = [];
+
+/** The panes the requests in these turns were sent from (the fleet skill's `fleet project`), each once. */
+function askingPaneIds(turns: ConversationTurn[]): string[] {
+  const ids = turns.flatMap((turn) => {
+    if (turn.role !== "user") return [];
+    const asked = fromPane(turn.parts.flatMap((part) => (part.kind === "text" ? [part.text] : [])).join("\n\n"));
+    return asked ? [asked.paneId] : [];
+  });
+  return [...new Set(ids)];
+}
+
+/** Each of those panes' names on this PC (its workspace, then its title), null once it closed. */
+function paneNames(state: UiState, ids: string[]): ReadonlyMap<string, string | null> {
+  const snapshot = state.machines.list.find((machine) => machine.id === "local")?.snapshot;
+  return new Map(ids.map((id) => {
+    const pane = snapshot?.panes.find((candidate) => candidate.pane_id === id);
+    if (!pane) return [id, null];
+    const workspace = snapshot?.workspaces.find((candidate) => candidate.workspace_id === pane.workspace_id)?.label;
+    return [id, workspace ? `${workspace} · ${displayPaneTitle(pane)}` : displayPaneTitle(pane)];
+  }));
+}
+
+const sameNames = (a: ReadonlyMap<string, string | null>, b: ReadonlyMap<string, string | null>): boolean =>
+  a.size === b.size && [...a].every(([id, name]) => b.has(id) && b.get(id) === name);
 
 export interface ChatPresenterProps {
   paneId: string;
@@ -66,9 +92,14 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
   const card = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.card : null));
   const { settings: { showThinking } } = useSettings();
   const cards = useMemo(() => (threads.length === 0 ? undefined : threadCards([...older, ...view.turns], threads)), [threads, older, view.turns]);
+  const asking = useMemo(() => askingPaneIds([...older, ...view.turns]), [older, view.turns]);
+  // a pane's name read only for the panes these turns name: other panes' changes re-render nothing.
+  // The turns are state too, so a new asking pane comes with a new state, which reads the names again
+  const askedFrom = useSelected((state) => paneNames(state, asking), sameNames);
   const model = useMemo<ChatViewModel>(() => ({
     paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards,
-  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards]);
+    ...(askedFrom.size ? { askedFrom } : {}),
+  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, askedFrom]);
   // an answer in the prompt's card is for this pane's prompt on this PC
   const promptId = prompt?.id ?? null;
   const relayed = useMemo(() => relay<ChatViewEvent, ChatUpEvent>(emit, (event, pass) => {

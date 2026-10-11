@@ -12,6 +12,7 @@ import { PromptCard, type PromptCardEvent } from "./PromptCard.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
 import { ThreadCard, type ThreadCardEvent } from "./fleet/ThreadCard.tsx";
 import type { ThreadRowModel } from "../ui/fleetView.ts";
+import { fromPane } from "../../shared/fleet.ts";
 import { turnRevision } from "../lib/turnRevision.ts";
 import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
@@ -67,10 +68,12 @@ export interface ChatViewModel {
   showThinking: boolean;
   /** a project conversation's thread cards, by the time of the coordinator's turn that started them */
   cards?: ReadonlyMap<string, ThreadRowModel[]>;
+  /** each pane a request in this conversation was sent from: its name on this PC, or null once it closed */
+  askedFrom?: ReadonlyMap<string, string | null>;
 }
 
 /** the prompt card's answers, and an earlier page asked for */
-export type ChatViewEvent = PromptCardEvent | ThreadCardEvent | Extract<UiEvent, { type: "load-older-conversation" }>;
+export type ChatViewEvent = PromptCardEvent | ThreadCardEvent | Extract<UiEvent, { type: "load-older-conversation" | "go-to-pane" }>;
 
 function formatTime(ts: string | null): string | null {
   if (ts === null) return null;
@@ -379,13 +382,21 @@ interface TurnProps {
   /** the newest assistant turn opens its work; older ones start folded */
   last: boolean;
   showThinking: boolean;
+  /** the name of the pane a request from a pane's conversation came from; null once it closed */
+  askedName?: string | null;
+  emit?: Emit<ChatViewEvent>;
 }
 
 // a turn that did not change keeps its object across polls: skip re-rendering it
+/** what a user turn says, its text parts together */
+function userText(turn: ConversationTurn): string {
+  return turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
+}
+
 /** how the fleet opens what it types into an agent itself (server/fleet/orchestrator.ts) */
 const FLEET_MESSAGE = "[fleet] ";
 
-const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: TurnProps) {
+const Turn = memo(function Turn({ paneId, turn, live, last, showThinking, askedName = null, emit }: TurnProps) {
   const time = formatTime(turn.ts);
   const compact = turn.parts.find((part): part is Extract<ConversationPart, { kind: "compact" }> => part.kind === "compact");
   if (compact !== undefined) {
@@ -403,7 +414,7 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
     </details>;
   }
   if (turn.role === "user") {
-    const text = turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
+    const text = userText(turn);
     // the fleet spoke, not the person (a thread's question for a coordinator): a quiet divider, the text on request
     if (text.startsWith(FLEET_MESSAGE)) {
       return <details className="chat-compact chat-notice">
@@ -411,12 +422,20 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
         <pre className="chat-compact-text chat-notice-text">{text}</pre>
       </details>;
     }
+    // the person asked from a pane's conversation, through its CLI (the fleet skill)
+    const asked = fromPane(text);
+    const shown = asked ? asked.text : text;
     return <article className="chat-turn chat-turn-user">
-      <UserImages paneId={paneId} parts={turn.parts} text={text} />
-      {text.length > 0 && <div className="chat-bubble"><Markdown>{text}</Markdown></div>}
+      {asked && <div className="chat-asked-from">
+        <span className="chat-asked-chip">{t("From a pane")}</span>
+        <span className="chat-asked-name">{askedName ?? t("Closed pane")}</span>
+        {askedName !== null && emit && <button type="button" className="btn btn-ghost btn-sm" onClick={() => emit({ type: "go-to-pane", paneId: asked.paneId })}>{t("Open pane")}</button>}
+      </div>}
+      <UserImages paneId={paneId} parts={turn.parts} text={shown} />
+      {shown.length > 0 && <div className="chat-bubble"><Markdown>{shown}</Markdown></div>}
       {/* the skill this message invoked (omp, pi): the runtime recorded its instructions with it */}
       <SkillActivityList parts={turn.parts} />
-      <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}{text.length > 0 && <CopyButton text={text} label={t("Copy message")} />}</div>
+      <div className="chat-turn-meta">{time !== null && <time dateTime={turn.ts ?? undefined}>{time}</time>}{shown.length > 0 && <CopyButton text={shown} label={t("Copy message")} />}</div>
     </article>;
   }
   const { work, answer } = splitTurn(turn.parts);
@@ -448,7 +467,7 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
  * an unchanged model sits those out (memo).
  */
 export const ChatView = memo(function ChatView({ model, emit }: { model: ChatViewModel; emit: Emit<ChatViewEvent> }) {
-  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards } = model;
+  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards, askedFrom } = model;
   const [newMessages, setNewMessages] = useState(false);
   /** scrolled up from the end: the way back is offered even when nothing new came */
   const [away, setAway] = useState(false);
@@ -559,8 +578,10 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
             const started = turn.ts !== null ? cards?.get(turn.ts) : undefined;
+            const asked = turn.role === "user" ? fromPane(userText(turn)) : null;
             return <RenderBoundary key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} resetKey={turnRevision(turn)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
-              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={showThinking} />
+              <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={showThinking}
+                {...(asked ? { askedName: askedFrom?.get(asked.paneId) ?? null, emit } : {})} />
               {started && <div className="chat-thread-cards">{started.map((thread) => <ThreadCard key={thread.id} thread={thread} emit={emit} />)}</div>}
             </RenderBoundary>;
           })

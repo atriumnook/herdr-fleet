@@ -54,6 +54,21 @@ describe("Chat view", () => {
     expect(other).toContain('aria-busy="false"');
   });
 
+  it("marks a request sent from a pane's conversation with that pane, and offers it while it is open", () => {
+    const asked = user("[from pane w2:p3]\n\nFix the doubled login error.");
+    const open = render(model({ view: { ...EMPTY_VIEW, turns: [asked] }, askedFrom: new Map([["w2:p3", "herdr-fleet · claude"]]) }));
+    expect(open).toContain("From a pane");
+    expect(open).toContain("herdr-fleet · claude");
+    expect(open).toContain(">Open pane</button>");
+    expect(open).toContain("Fix the doubled login error.");
+    expect(open).not.toContain("[from pane");
+    const closed = render(model({ view: { ...EMPTY_VIEW, turns: [asked] }, askedFrom: new Map([["w2:p3", null]]) }));
+    expect(closed).toContain("Closed pane");
+    expect(closed).not.toContain("Open pane");
+    // a message the person typed on the Fleet screen has no such line
+    expect(render(model({ view: { ...EMPTY_VIEW, turns: [user("What is left?")] } }))).not.toContain("From a pane");
+  });
+
   it("says the pane is reconnecting, and ended", () => {
     expect(render(model({ connected: false }))).toContain("reconnecting…");
     expect(render(model({ ended: true }))).toContain("terminal ended");

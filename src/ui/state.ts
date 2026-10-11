@@ -714,6 +714,8 @@ type BareEvent =
   | { type: "landing-confirm" }
   | { type: "landing-cancel" }
   | { type: "open-pane"; runId: string }
+  /** a pane of this PC on the Pane screen: the one a request to a coordinator was sent from */
+  | { type: "go-to-pane"; paneId: string }
   | { type: "interrupt-run"; runId: string }
   | { type: "close-done"; group: string }
   | { type: "clear-cooldown"; key: string }
@@ -1551,6 +1553,10 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       if (!run || isEnded(run)) return next({});
       // a fleet run's pane lives on this PC
       return next({ screen: "pane", ...pick(state, "local", run.paneId, effects) });
+    }
+    case "go-to-pane": {
+      const there = state.machines.list.find((machine) => machine.id === "local")?.snapshot?.panes.some((pane) => pane.pane_id === event.paneId);
+      return there ? next({ screen: "pane", ...pick(state, "local", event.paneId, effects) }) : next({});
     }
     case "interrupt-run":
       return request(state, { kind: "interrupt", runId: event.runId });

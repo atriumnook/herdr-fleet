@@ -5,7 +5,7 @@ import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
 import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
-import { contractItems, handoffStatus, threadState, type LandAction, type LandingChecks, type LineComment, type PullRequest } from "../../shared/fleet.ts";
+import { contractItems, FROM_PANE, handoffStatus, threadState, type LandAction, type LandingChecks, type LineComment, type PullRequest } from "../../shared/fleet.ts";
 import { readPullRequest, type PullRequestReading } from "./github.ts";
 import { branchHead, branchState, diffStat, diffText, excludeWorktrees, gitBranch, gitHead, gitRoot, isMerged, removeThread, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
@@ -58,8 +58,6 @@ export interface ProjectRequest {
   fromPane?: string;
 }
 
-/** how a task sent from a pane's conversation opens, so the coordinator and the Fleet screen tell where it came from */
-export const FROM_PANE = "[from pane ";
 
 const PROJECT_ROLE = "coordinator";
 /** where a thread lead writes its acceptance contract: beside its result file (agents/lead.md) */
