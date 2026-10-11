@@ -205,3 +205,56 @@ export function threadState(run: AgentRun): ThreadState {
   if (run.pr?.state === "OPEN") return "landing";
   return status?.startsWith("PASS") ? "review" : "idle";
 }
+
+/** One candidate of a role: the CLI, and its model (none: the CLI's own default). */
+export interface RoleCandidate {
+  agent: FleetAgentKind;
+  model?: string;
+}
+
+/** A role as the Settings page draws it. */
+export interface RoleSettings {
+  name: string;
+  description: string;
+  /** the role edits no file: only a CLI the fleet can keep from editing plays it */
+  readOnly: boolean;
+  /** the candidates in the order the fleet tries them, as the role's file and the person's fleet.json set them, each with why it would be passed over now */
+  candidates: Array<RoleCandidate & { skip?: string }>;
+  thinking?: ThinkingLevel;
+  /** the person's fleet.json sets the candidates or the thinking level */
+  changed: boolean;
+  /** what the role's file alone sets: Reset goes back to it */
+  defaults: { candidates: RoleCandidate[]; thinking?: ThinkingLevel };
+  /** set when the project's own `.herdr-fleet/fleet.json` sets the role: the fleet uses these in that project */
+  project?: { candidates: RoleCandidate[]; thinking?: ThinkingLevel };
+}
+
+/** The fleet's settings from the person's fleet.json, with what each role and the project make of them. */
+export interface FleetSettings {
+  /** the person's fleet.json, where every change is saved */
+  file: string;
+  roles: RoleSettings[];
+  /** a candidate is passed over while a window of its account is used this much (percent) */
+  maxUsedPercent: number;
+  /** how long an account sits out after a rate limit whose message names no time (minutes) */
+  rateLimitCooldownMinutes: number;
+  /** agents starting or working at once */
+  maxConcurrent: number;
+  /** a helper's pane closes when its turn ends */
+  closeOnSettle: boolean;
+  /** the setup command of each repository the person's fleet.json names */
+  projects: Array<{ path: string; setup: string }>;
+  /** the CLIs a read-only role can run on */
+  readOnlyAgents: FleetAgentKind[];
+}
+
+/** A change to the person's fleet.json: what is named changes, the rest stays. A role set to null goes back to its file's candidates. */
+export interface FleetSettingsPatch {
+  roles?: Record<string, { candidates: RoleCandidate[]; thinking?: ThinkingLevel | null } | null>;
+  maxUsedPercent?: number;
+  rateLimitCooldownMinutes?: number;
+  maxConcurrent?: number;
+  closeOnSettle?: boolean;
+  /** an empty setup command removes it */
+  projects?: Record<string, { setup: string }>;
+}
