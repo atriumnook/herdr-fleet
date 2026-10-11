@@ -2236,4 +2236,13 @@ describe("the prompt rail", () => {
     // a pick that comes after the palette closed asks nothing
     expect(play([{ type: "palette-pick-prompt", ts: "t8" }], state).state.chat.seek).toEqual({ to: { ts: "t7" }, seq: 1 });
   });
+
+  it("asks nothing of a chat opened on another pane", () => {
+    const asked = play([{ type: "prompt-rail-step", direction: -1 }, side({ type: "prompt-rail-step", direction: 1 })], open()).state;
+    const moved = play([{ type: "chat-open", machineId: "local", paneId: "w1:p3" }, side({ type: "chat-open", machineId: "local", paneId: "w1:p4" })], asked).state;
+    expect(moved.chat.seek).toBeNull();
+    expect(moved.side.chat.seek).toBeNull();
+    // the same pane opened again keeps what was asked
+    expect(play([{ type: "chat-open", machineId: "local", paneId: "w1:p1" }], asked).state.chat.seek).toEqual({ to: -1, seq: 1 });
+  });
 });

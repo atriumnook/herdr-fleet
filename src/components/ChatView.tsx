@@ -477,12 +477,15 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
   const landed = useRef<{ row: HTMLElement; timer: number } | null>(null);
   /** a step back went past the first prompt: the prompt it was on, until the earlier page is in */
   const stepPast = useRef<string | null>(null);
+  /** the last seek taken; the state starts a pane's seeks over */
   const seenSeek = useRef(seek?.seq ?? 0);
 
-  // a pane, or a replaced transcript, opens at its end
+  // a pane, or a replaced transcript, opens at its end, and asks nothing of the one before
   useLayoutEffect(() => {
     stickToBottom.current = true; setNewMessages(false); setAway(false);
-  }, [paneId, historyId]);
+    stepPast.current = null;
+    seenSeek.current = seek?.seq ?? 0;
+  }, [paneId, historyId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // the newest page moved for a reader scrolled up: they are told, not moved
   useLayoutEffect(() => {

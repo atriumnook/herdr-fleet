@@ -2348,7 +2348,7 @@ function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): Ch
       // another pane: nothing of the one before holds, and its reads answer too late; the settings
       // reported are kept by pane, so the same pane opened again shows them at once; an answer
       // still on its way from its card holds the card when its prompt shows again
-      return { ...chat, open: { machineId: event.machineId, paneId: event.paneId }, agent: false, prompt: null, suggestion: null, pendingAnswer: null, card: cardAnswering(state, event.machineId, event.paneId), promptSeq: chat.promptSeq + 1 };
+      return { ...chat, open: { machineId: event.machineId, paneId: event.paneId }, agent: false, prompt: null, suggestion: null, pendingAnswer: null, card: cardAnswering(state, event.machineId, event.paneId), promptSeq: chat.promptSeq + 1, seek: null };
     case "chat-close":
       if (chat.open?.machineId !== event.machineId || !here(event.paneId)) return chat;
       return { ...chat, open: null, agent: false, prompt: null, suggestion: null, pendingAnswer: null, card: null, promptSeq: chat.promptSeq + 1 };
