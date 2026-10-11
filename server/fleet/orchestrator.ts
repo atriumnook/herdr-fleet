@@ -1,6 +1,6 @@
 import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
@@ -119,6 +119,11 @@ export interface OrchestratorDeps {
   /** each run's result folder goes here, removed with the run's record */
   resultsDir: string;
   /**
+   * each thread's plan, a file per run, written by the server only: apart from the result folders,
+   * which agents may write. Beside `resultsDir` (fleet-plans) unless given.
+   */
+  plansDir?: string;
+  /**
    * instructions still to lead the first prompt of a CLI that takes none at launch, a file per run
    * so a restart keeps them; apart from the result folders, which agents may write
    */
@@ -207,11 +212,19 @@ export class Orchestrator {
 
   /** A result folder outlives its pane but not its run: once the registry dropped the run, it goes. So do undelivered instructions. */
   private pruneResults(): void {
-    for (const dir of [this.deps.resultsDir, this.deps.instructionsDir]) {
+    for (const dir of [this.deps.resultsDir, this.deps.instructionsDir, this.plansDir]) {
       let names: string[];
       try { names = readdirSync(dir); } catch { continue; }
-      for (const name of names) if (!this.deps.registry.get(name.replace(/\.md$/, ""))) rmSync(join(dir, name), { recursive: true, force: true });
+      for (const name of names) if (!this.deps.registry.get(name.replace(/\.(?:md|json)$/, ""))) rmSync(join(dir, name), { recursive: true, force: true });
     }
+  }
+
+  private get plansDir(): string {
+    return this.deps.plansDir ?? join(dirname(this.deps.resultsDir), "fleet-plans");
+  }
+
+  private planFile(run: AgentRun): string {
+    return join(this.plansDir, `${run.id}.json`);
   }
 
   private undeliveredFile(run: AgentRun): string {
@@ -698,15 +711,17 @@ export class Orchestrator {
 
   /**
    * The plan a thread's lead hands over (`fleet plan`): checked, its code read from the thread's
-   * worktree, and kept beside the lead's result file in place of the one before. The thread then
+   * worktree, and kept in the fleet's plans folder in place of the one before. The thread then
    * waits on the person until they answer it on the Fleet screen.
    */
   submitPlan(target: string, value: unknown, group?: string): Plan {
     const run = this.planner(target, group);
-    const dir = join(this.deps.resultsDir, run.id);
-    const plan = preparePlan(value, run.cwd, (readPlan(dir)?.version ?? 0) + 1);
-    mkdirSync(dir, { recursive: true, mode: 0o700 });
-    writePlan(dir, plan);
+    const file = this.planFile(run);
+    let previous: number;
+    // a kept plan that cannot be read back still counted a version
+    try { previous = readPlan(file)?.version ?? 0; } catch { previous = run.plan?.version ?? 0; }
+    const plan = preparePlan(value, run.cwd, previous + 1);
+    writePlan(file, plan);
     run.plan = { version: plan.version, asks: planAsks(plan).length };
     run.updatedAt = Date.now();
     this.save(run);
@@ -716,7 +731,7 @@ export class Orchestrator {
   /** The thread's plan as its lead last handed it over. */
   plan(target: string, group?: string): Plan {
     const run = this.planner(target, group);
-    const plan = readPlan(join(this.deps.resultsDir, run.id));
+    const plan = readPlan(this.planFile(run));
     if (!plan) throw new FleetError("no_plan", `${run.name} has written no plan.`);
     return plan;
   }
@@ -727,7 +742,7 @@ export class Orchestrator {
    */
   async answerPlan(target: string, value: unknown, group?: string, signal?: AbortSignal): Promise<AgentRun> {
     const run = this.planner(target, group);
-    const dir = join(this.deps.resultsDir, run.id);
+    const file = this.planFile(run);
     const plan = this.plan(run.id);
     const answer = checkAnswer(plan, value);
     if (plan.answeredAt !== undefined) throw new FleetError("plan_answered", `The person already answered version ${plan.version} of the plan of ${run.name}.`);
@@ -739,10 +754,11 @@ export class Orchestrator {
     // the plan counts as answered once the message reached the lead
     await this.submit(run, planAnswerMessage(plan, answer), signal);
     // the lead may have handed over a newer plan meanwhile: only the version answered is marked
-    const current = readPlan(dir);
+    let current: Plan | undefined;
+    try { current = readPlan(file); } catch { current = undefined; }
     if (current?.version !== plan.version) return { ...run };
     const answeredAt = Date.now();
-    writePlan(dir, { ...current, answeredAt, answer });
+    writePlan(file, { ...current, answeredAt, answer });
     run.plan = { version: plan.version, asks: planAsks(current).length, answeredAt };
     this.save(run);
     return { ...run };
@@ -755,11 +771,12 @@ export class Orchestrator {
    */
   private closeStalePlan(run: AgentRun, turn: PendingTurn): void {
     if (!run.plan || !planOpen(run.plan) || turn.submittedAt === undefined) return;
-    const dir = join(this.deps.resultsDir, run.id);
-    const plan = readPlan(dir);
+    const file = this.planFile(run);
+    let plan: Plan | undefined;
+    try { plan = readPlan(file); } catch { return; }
     if (!plan || plan.version !== run.plan.version || plan.writtenAt >= turn.submittedAt) return;
     const closedAt = Date.now();
-    writePlan(dir, { ...plan, closedAt });
+    writePlan(file, { ...plan, closedAt });
     run.plan = { ...run.plan, closedAt };
   }
 

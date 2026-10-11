@@ -89,21 +89,45 @@ describe("a plan's code", () => {
 });
 
 describe("a plan's file", () => {
-  it("is written whole for the owner only, and read back", () => {
+  it("is written whole for the owner only, and read back with the lines its code holds and the answers", () => {
     const { root, tree } = worktree();
-    const plan = preparePlan(input({ kind: "list", items: ["x"] }), tree, 1);
-    writePlan(root, plan);
-    expect(readPlan(root)).toEqual(plan);
-    expect(statSync(join(root, "plan.json")).mode & 0o777).toBe(0o600);
+    const file = join(root, "plans", "r1.json");
+    const plan = preparePlan(input({ kind: "code", path: "src/retry.ts", start: 1, end: 2 }), tree, 1);
+    writePlan(file, plan);
+    expect(readPlan(file)).toEqual(plan);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    const answered = { ...plan, answeredAt: 5, answer: { version: 1, choices: { limit: "five" }, seen: ["limit"], comments: [] } };
+    writePlan(file, answered);
+    expect(readPlan(file)).toEqual(answered);
+    expect(readPlan(join(root, "plans", "none.json"))).toBeUndefined();
+  });
+
+  it("is checked again when read: one that does not hold together is unreadable, never drawn", () => {
+    const { root, tree } = worktree();
+    const file = join(root, "r1.json");
+    const good = preparePlan(input({ kind: "list", items: ["x"] }), tree, 1);
+    const broken: unknown[] = [
+      "not json",
+      JSON.stringify([]),
+      JSON.stringify({ ...good, claims: [{ text: 5 }] }),
+      JSON.stringify({ ...good, claims: "everything" }),
+      JSON.stringify({ ...good, claims: [{ text: "x", exhibit: { kind: "code", path: "a", start: 1, lines: [{ toString: 1 }] } }] }),
+      JSON.stringify({ ...good, version: "2" }),
+    ];
+    for (const text of broken) {
+      writeFileSync(file, text as string);
+      expect(() => readPlan(file)).toThrow(expect.objectContaining({ code: "plan_unreadable" }));
+    }
+    // answers that do not fit it are left out; the plan still shows
+    writeFileSync(file, JSON.stringify({ ...good, answeredAt: 5, answer: { version: 1, choices: { nope: "a" } } }));
+    expect(readPlan(file)).toEqual({ ...good, answeredAt: 5 });
   });
 
   it("is not read through a symlink", () => {
     const { root } = worktree();
-    const dir = join(root, "results");
-    mkdirSync(dir);
     writeFileSync(join(root, "other.json"), JSON.stringify({ version: 1, claims: [] }));
-    symlinkSync(join(root, "other.json"), join(dir, "plan.json"));
-    expect(readPlan(dir)).toBeUndefined();
+    symlinkSync(join(root, "other.json"), join(root, "r1.json"));
+    expect(readPlan(join(root, "r1.json"))).toBeUndefined();
   });
 });
 

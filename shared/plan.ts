@@ -1,8 +1,8 @@
 /**
  * A thread lead's plan: a tree of claims the person reads level by level and answers in place,
  * before the lead builds a large change. The lead hands it over as JSON (`fleet plan <file>`); the
- * server checks it with parsePlan, reads the code it points at, and keeps it beside the lead's
- * result file. The Fleet screen draws it and sends the person's answers back to the lead as one
+ * server checks it with parsePlan, reads the code it points at, and keeps it in a folder of its
+ * own, outside the lead's result folder, checking it again each time it reads it. The Fleet screen draws it and sends the person's answers back to the lead as one
  * message. The shape follows html-plan's idea (a claim per level: what, how, where; one exhibit
  * per claim; a decision on the claim it changes), drawn by the Web UI instead of the agent's HTML.
  */
@@ -82,7 +82,7 @@ export function planOpen(plan: Pick<PlanMark, "answeredAt" | "closedAt">): boole
 }
 
 export const PLAN_LIMITS = {
-  title: 120, why: 5, quote: 600, claims: 5, depth: 3, text: 300, asks: 5, options: 5, codeLines: 60,
+  title: 120, why: 5, quote: 600, claims: 5, depth: 3, text: 300, asks: 5, options: 5, codeLines: 60, codeLine: 480,
   schema: 4000, rows: 30, items: 12, scope: 8, comments: 50, comment: 2000, note: 4000,
 } as const;
 
@@ -93,9 +93,10 @@ const ID = /^[a-z0-9][a-z0-9_-]{0,31}$/i;
 
 /**
  * Checks a plan the lead wrote and answers it in the shape the fleet keeps, or every problem found,
- * so the lead fixes them all at once. Unknown keys are left out.
+ * so the lead fixes them all at once. Unknown keys are left out. `stored`: a plan the server kept,
+ * read back, whose code exhibits hold the lines it read.
  */
-export function parsePlan(value: unknown): { plan: PlanInput } | { errors: string[] } {
+export function parsePlan(value: unknown, options: { stored?: boolean } = {}): { plan: PlanInput } | { errors: string[] } {
   const errors: string[] = [];
   const asks = new Set<string>();
   const object = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -134,8 +135,14 @@ export function parsePlan(value: unknown): { plan: PlanInput } | { errors: strin
           if (start === undefined) errors.push(`${where} needs start (and end) to show lines of ${path ?? "the file"}, or text for code it proposes`);
           else if (end !== undefined && (end < start || end - start + 1 > PLAN_LIMITS.codeLines)) errors.push(`${where} must show 1 to ${PLAN_LIMITS.codeLines} lines`);
         }
+        const read = v["lines"];
+        let lines: string[] | undefined;
+        if (options.stored && read !== undefined) {
+          if (!Array.isArray(read) || read.length > PLAN_LIMITS.codeLines || !read.every((each) => typeof each === "string" && each.length <= PLAN_LIMITS.codeLine)) errors.push(`${where}.lines must be up to ${PLAN_LIMITS.codeLines} lines`);
+          else lines = read as string[];
+        }
         if (!path) return undefined;
-        return { kind: "code", path, ...(start !== undefined ? { start } : {}), ...(end !== undefined ? { end } : {}), ...(lang ? { lang } : {}), ...(code !== undefined ? { text: code } : {}) };
+        return { kind: "code", path, ...(start !== undefined ? { start } : {}), ...(end !== undefined ? { end } : {}), ...(lang ? { lang } : {}), ...(code !== undefined ? { text: code } : {}), ...(lines ? { lines } : {}) };
       }
       case "schema": {
         const body = text(v["text"], `${where}.text`, PLAN_LIMITS.schema);

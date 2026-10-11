@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { handleFleetRequest } from "./api.ts";
@@ -158,6 +158,9 @@ describe("fleet API", () => {
     expect(await call("POST", at("/answer"), { answer: { version: 1 } })).toMatchObject({ status: 409, body: { error: { code: "run_busy" } } });
     expect(await call("POST", at("/answer"), { answer: { version: 0 } })).toMatchObject({ status: 409, body: { error: { code: "plan_outdated" } } });
     expect(await call("POST", at("/answer"), { answer: { version: 1, choices: { limit: "ten" } } })).toMatchObject({ status: 400, body: { error: { code: "invalid_answer" } } });
+    // a kept plan that does not hold together is answered as such, not as a server error
+    writeFileSync(join(resultsRoot, "fleet-plans", `${thread.id}.json`), JSON.stringify({ version: 1, writtenAt: 1, title: "t", claims: [{ text: 5 }] }));
+    expect(await call("GET", at())).toMatchObject({ status: 409, body: { error: { code: "plan_unreadable" } } });
   });
 
   it("reads the settings, and writes a change only with the fleet header", async () => {

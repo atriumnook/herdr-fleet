@@ -1,10 +1,8 @@
-import { closeSync, constants, fstatSync, openSync, readFileSync, readSync, realpathSync, renameSync, writeFileSync } from "node:fs";
-import { basename, isAbsolute, join, resolve, sep } from "node:path";
+import { closeSync, constants, fstatSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, renameSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, resolve, sep } from "node:path";
 import { numberClaims, parsePlan, planAsks, PLAN_LIMITS, type Plan, type PlanAnswer, type PlanClaim, type PlanExhibit } from "../../shared/plan.ts";
 import { FleetError } from "./runtime.ts";
 
-/** where a thread's plan is kept: beside its lead's result file, written by the server only */
-export const PLAN_FILE = "plan.json";
 /** the largest file a code exhibit reads lines of */
 const CODE_FILE_MAX_BYTES = 2 * 1024 * 1024;
 /** the largest plan the API takes, in UTF-8 bytes */
@@ -99,24 +97,44 @@ export function preparePlan(value: unknown, root: string, version: number, now =
   return plan;
 }
 
-/** The plan kept in a run's result folder; none when it has none or the file is not the server's. */
-export function readPlan(dir: string): Plan | undefined {
+/**
+ * The plan kept in `file`, none when there is none. What is read is checked again as when the lead
+ * handed it over: the server writes these files, and a file that does not hold together (written
+ * by someone else, or cut short) is refused as unreadable rather than drawn.
+ */
+export function readPlan(file: string): Plan | undefined {
   let fd: number;
-  try { fd = openSync(join(dir, PLAN_FILE), constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { return undefined; }
+  try { fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK); } catch { return undefined; }
+  const unreadable = (why: string) => new FleetError("plan_unreadable", `The kept plan cannot be read back (${why}); the lead can hand it over again.`);
+  let raw: unknown;
   try {
-    if (!fstatSync(fd).isFile()) return undefined;
-    const plan = JSON.parse(readFileSync(fd, "utf8")) as Plan;
-    return typeof plan === "object" && plan !== null && typeof plan.version === "number" && Array.isArray(plan.claims) ? plan : undefined;
-  } catch {
-    return undefined;
+    const stat = fstatSync(fd);
+    if (!stat.isFile()) throw unreadable("not a file");
+    if (stat.size > PLAN_STORED_MAX_BYTES * 2) throw unreadable("too large");
+    try { raw = JSON.parse(readFileSync(fd, "utf8")); } catch { throw unreadable("not JSON"); }
   } finally {
     closeSync(fd);
   }
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) throw unreadable("not an object");
+  const kept = raw as Record<string, unknown>;
+  const parsed = parsePlan(kept, { stored: true });
+  if ("errors" in parsed) throw unreadable(parsed.errors[0]!);
+  const time = (value: unknown) => typeof value === "number" && Number.isFinite(value) && value >= 0;
+  if (!Number.isInteger(kept["version"]) || (kept["version"] as number) < 1 || !time(kept["writtenAt"])) throw unreadable("no version");
+  const plan: Plan = {
+    ...parsed.plan, version: kept["version"] as number, writtenAt: kept["writtenAt"] as number,
+    ...(time(kept["answeredAt"]) ? { answeredAt: kept["answeredAt"] as number } : {}),
+    ...(time(kept["closedAt"]) ? { closedAt: kept["closedAt"] as number } : {}),
+  };
+  if (kept["answer"] !== undefined) {
+    try { plan.answer = checkAnswer(plan, kept["answer"]); } catch { /* answers that do not fit the plan are not shown */ }
+  }
+  return plan;
 }
 
 /** Writes the plan in place of the one before, whole or not at all. */
-export function writePlan(dir: string, plan: Plan): void {
-  const file = join(dir, PLAN_FILE);
+export function writePlan(file: string, plan: Plan): void {
+  mkdirSync(dirname(file), { recursive: true, mode: 0o700 });
   const temp = `${file}.${process.pid}.tmp`;
   writeFileSync(temp, `${JSON.stringify(plan, null, 2)}\n`, { mode: 0o600 });
   renameSync(temp, file);

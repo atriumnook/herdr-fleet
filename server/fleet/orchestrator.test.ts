@@ -1412,7 +1412,7 @@ describe("plans", () => {
     const { thread, plan } = await planned();
     expect(plan.version).toBe(1);
     expect(plan.claims[0]!.exhibit).toMatchObject({ lines: ["export const RETRIES = 3;"] });
-    expect(JSON.parse(readFileSync(join(root, "results", thread.id, "plan.json"), "utf8"))).toEqual(plan);
+    expect(JSON.parse(readFileSync(join(root, "fleet-plans", `${thread.id}.json`), "utf8"))).toEqual(plan);
     expect(fleet.plan(thread.id)).toEqual(plan);
     expect(registry.get(thread.id)!.plan).toEqual({ version: 1, asks: 1 });
     expect(threadState(registry.get(thread.id)!)).toBe("waiting");
@@ -1433,7 +1433,7 @@ describe("plans", () => {
     await fleet.answerPlan(thread.id, { version: 1, choices: { limit: "five" }, seen: ["limit"], comments: [] });
     expect(to(thread).at(-1)).toContain("- D1 (on claim 1) How many? → 5 [limit=five] (instead of your recommendation, 3)");
     expect(registry.get(thread.id)!.plan!.answeredAt).toBeNumber();
-    expect(JSON.parse(readFileSync(join(root, "results", thread.id, "plan.json"), "utf8"))).toMatchObject({ answeredAt: expect.any(Number), answer: { version: 1, choices: { limit: "five" }, seen: ["limit"] } });
+    expect(JSON.parse(readFileSync(join(root, "fleet-plans", `${thread.id}.json`), "utf8"))).toMatchObject({ answeredAt: expect.any(Number), answer: { version: 1, choices: { limit: "five" }, seen: ["limit"] } });
     expect(threadState(registry.get(thread.id)!)).toBe("working");
     await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "plan_answered" });
     fleet.stop();
@@ -1478,7 +1478,7 @@ describe("plans", () => {
     await turn(thread, "idle");
     const run = registry.get(thread.id)!;
     expect(run.plan!.closedAt).toBeNumber();
-    expect(JSON.parse(readFileSync(join(root, "results", thread.id, "plan.json"), "utf8")).closedAt).toBeNumber();
+    expect(JSON.parse(readFileSync(join(root, "fleet-plans", `${thread.id}.json`), "utf8")).closedAt).toBeNumber();
     expect(threadState(run)).toBe("review");
     await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "plan_closed" });
     // a BLOCKED turn after it asks about something else: the closed plan is not pointed to again
@@ -1502,10 +1502,26 @@ describe("plans", () => {
       return "working";
     };
     await fleet.answerPlan(thread.id, { version: 1, choices: { limit: "five" }, seen: ["limit"] });
-    const kept = JSON.parse(readFileSync(join(root, "results", thread.id, "plan.json"), "utf8"));
+    const kept = JSON.parse(readFileSync(join(root, "fleet-plans", `${thread.id}.json`), "utf8"));
     expect(kept).toMatchObject({ version: 2, title: "Retry limit, again" });
     expect(kept.answeredAt).toBeUndefined();
     expect(registry.get(thread.id)!.plan).toEqual({ version: 2, asks: 1 });
+    fleet.stop();
+  });
+
+  it("are kept where the lead does not write, and one that does not hold together is refused, not drawn", async () => {
+    const { fleet, root, planned } = project();
+    const { coordinator, thread } = await planned();
+    // a plan.json the lead wrote into its own result folder is not the fleet's
+    writeFileSync(join(root, "results", thread.id, "plan.json"), JSON.stringify({ version: 9, writtenAt: 1, title: "Mine", claims: [{ text: "x", children: [] }], why: [], scope: [] }));
+    expect(fleet.plan(thread.id).title).toBe("Retry limit");
+    // the kept file, broken: refused as unreadable, and the rest of the fleet reads on
+    writeFileSync(join(root, "fleet-plans", `${thread.id}.json`), JSON.stringify({ version: 1, writtenAt: 1, title: "t", claims: [{ text: { html: "<b>" } }] }));
+    expect(() => fleet.plan(thread.id)).toThrow(expect.objectContaining({ code: "plan_unreadable" }));
+    await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "plan_unreadable" });
+    expect((await fleet.threads({ callerRun: coordinator.id })).map((each) => each.run.id)).toEqual([thread.id]);
+    // the lead hands it over again: the next version
+    expect(fleet.submitPlan(thread.id, PLAN).version).toBe(2);
     fleet.stop();
   });
 
