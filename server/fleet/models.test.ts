@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentAdapter } from "./adapters.ts";
 import { parseAgyModels, parseCodexModels, parseCursorModels, parsePiModels } from "./model-lists.ts";
+import { modelListed } from "../../shared/fleet.ts";
 import { ModelCatalog } from "./models.ts";
 
 describe("model lists, as each CLI prints them", () => {
@@ -65,5 +66,20 @@ describe("the model catalog", () => {
     expect(await catalog({ complete: true, list: async () => [{ id: "a" }] }).unknown("codex", undefined)).toBeUndefined();
     expect(await catalog({ complete: true, list: async () => { throw new Error("offline"); } }).unknown("codex", "x")).toBeUndefined();
     expect(await catalog(undefined).unknown("codex", "x")).toBeUndefined();
+  });
+});
+
+describe("agy's models, listed once per effort", () => {
+  // as `agy models` prints them; the adapter passes `--effort` apart from `--model`
+  const listing = { agent: "agy" as const, complete: true, models: parseAgyModels("Fetching available models...\ngemini-3.1-pro-high\tGemini 3.1 Pro (High)\ngemini-3.1-pro-low\tGemini 3.1 Pro (Low)\nclaude-opus-5-5-medium\tClaude Opus 5.5 (Medium)\ngpt-oss-120b-medium\tGPT-OSS 120B (Medium)\n") };
+
+  it("accepts a listed id and the same model without its effort, and nothing else", () => {
+    expect(modelListed(listing, "gemini-3.1-pro-high")).toBe(true);
+    expect(modelListed(listing, "gemini-3.1-pro")).toBe(true);
+    expect(modelListed(listing, "claude-opus-5-5")).toBe(true);
+    expect(modelListed(listing, "gemini-3.1-pro-xhigh")).toBe(false);
+    expect(modelListed(listing, "gemini-9")).toBe(false);
+    // another CLI's names keep their ending
+    expect(modelListed({ ...listing, agent: "cursor" }, "gemini-3.1-pro")).toBe(false);
   });
 });

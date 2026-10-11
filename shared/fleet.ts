@@ -305,7 +305,9 @@ export interface ModelListing {
 export function modelListed(listing: ModelListing, model: string): boolean {
   const bare = (name: string) => name.replace(/\[.*\]$/, "");
   const name = bare(model.replace(/:(off|minimal|low|medium|high|xhigh|max)$/, ""));
-  return listing.models.some((each) => each.id === name || bare(each.id) === name);
+  // agy lists a model once per effort (`gemini-3.1-pro-high`) and takes the effort apart, by `--effort`
+  const base = (id: string) => (listing.agent === "agy" ? id.replace(/-(low|medium|high|xhigh|max)$/, "") : id);
+  return listing.models.some((each) => each.id === name || bare(each.id) === name || base(each.id) === name);
 }
 
 /** How a task sent from a pane's conversation opens (the fleet skill's `fleet project`), so the coordinator and the Fleet screen tell where it came from. */
