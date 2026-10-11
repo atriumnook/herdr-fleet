@@ -61,7 +61,7 @@ describe("mutation body validation", () => {
     for (const path of [
       "/api/workspace/create", "/api/workspace/rename", "/api/workspace/move", "/api/workspace/close",
       "/api/pane/rename", "/api/pane/input", "/api/pane/keys", "/api/pane/close", "/api/pane/image",
-      "/api/pane/scroll",
+      "/api/pane/scroll", "/api/pane/explain",
     ]) {
       for (const body of [null, [], "text", 42, true]) {
         const response = await fetch(`${base()}${path}`, {

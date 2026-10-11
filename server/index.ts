@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
@@ -17,6 +17,7 @@ import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
+import { EXPLAIN_MODEL, ExplainError, explainQuestion, explainRequest } from "./explain.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, fileRoots, locateFile, withinRoots } from "./file-view.ts";
@@ -1391,6 +1392,31 @@ export function createServer(
           // an unrecognized pane is not an error: the client falls back to the
           // scrollback transcript, exactly like chatmux's terminal fallback
           if (error instanceof ConversationUnavailable) return jsonResponse({ source: "scrollback", turns: [] });
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/pane/explain") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: unknown;
+        try {
+          payload = await request.json();
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        const explain = explainRequest(payload);
+        if (typeof explain === "string") return badRequest("invalid_body", explain);
+        // the person's own limits: a project's fleet.json does not decide what their account is spent on
+        const config = (options.fleet?.config ?? ((cwd: string) => loadConfig(cwd)))(tmpdir());
+        try {
+          return jsonResponse(await explainQuestion(explain, {
+            conversation: async (paneId) => (await paneConversation(paneId, options.codexHome)).turns,
+            unavailable: () => usage.unavailable("claude", EXPLAIN_MODEL, config.maxUsedPercent),
+            failed: (message) => { usage.noteFailure("claude", EXPLAIN_MODEL, message, config.rateLimitCooldownMinutes); },
+          }));
+        } catch (error) {
+          if (error instanceof ExplainError) return jsonResponse({ error: { code: error.code === "limited" ? "usage_limited" : "explain_failed", message: error.message } }, error.code === "limited" ? 409 : 502);
+          if (error instanceof ConversationUnavailable) return jsonResponse({ error: { code: "conversation_unavailable", message: "this pane has no conversation to read" } }, 404);
           return errorResponse(error);
         }
       }
