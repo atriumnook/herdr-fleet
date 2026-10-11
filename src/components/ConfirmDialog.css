@@ -12,6 +12,13 @@
   font-size: var(--fs-sm);
 }
 
+.confirm-items {
+  margin: var(--space-2) 0 0;
+  padding-left: var(--space-4);
+  color: var(--sub);
+  font-size: var(--fs-sm);
+}
+
 .confirm-error {
   margin-top: var(--space-2);
 }

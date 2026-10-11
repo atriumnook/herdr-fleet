@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, answerPanePrompt, createWorkspace, uploadPaneImage, fetchPaneCommands, fetchPaneFiles, fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetRuns, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, resolveFleetRun, startFleetProject, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, answerPanePrompt, createWorkspace, uploadPaneImage, fetchPaneCommands, fetchPaneFiles, fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetDiff, fetchFleetLanding, fetchFleetRuns, landFleetRun, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, resolveFleetRun, startFleetProject, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -58,8 +58,11 @@ export const FLEET_PORTS: EffectPorts = {
     else if (action.kind === "close-done") await closeDoneFleetRuns(action.group);
     else if (action.kind === "start-project") await startFleetProject(action.task, action.cwd);
     else if (action.kind === "resolve") await resolveFleetRun(action.runId, action.resolved);
+    else if (action.kind === "land") await landFleetRun(action.runId, action.action, action.comments);
     else await clearFleetCooldown(action.key);
   },
+  loadLandingDiff: fetchFleetDiff,
+  loadLandingChecks: fetchFleetLanding,
   saveSettings,
   forgetPaneViews: () => void forgetPaneViews(),
   loadRemoteAccess: fetchRemoteAccess,

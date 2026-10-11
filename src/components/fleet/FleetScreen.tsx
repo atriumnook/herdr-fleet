@@ -9,11 +9,13 @@ import { AgentMark } from "../AgentMark.tsx";
 import { Segmented } from "../Segmented.tsx";
 import { RunCard, type RunCardEvent } from "./RunCard.tsx";
 import { DiffCount, ThreadBadge } from "./ThreadCard.tsx";
+import { LandingActions, LandingConfirm, ThreadChanges, ThreadChecks, ThreadTabs } from "./ThreadLanding.tsx";
 import "./Fleet.css";
 
 /** What the Fleet screen hands up to the Root: the Mediator's own events, complete. */
 export type FleetScreenEvent = Extract<UiEvent, {
   type: "fleet-overview" | "fleet-open" | "fleet-member" | "fleet-close" | "fleet-expand" | "fleet-start-project" | "fleet-resolve"
+    | "fleet-tab" | "fleet-land" | "landing-comment" | "landing-uncomment" | "landing-clear-comments" | "landing-confirm" | "landing-cancel"
     | "open-pane" | "interrupt-run" | "dismiss-error";
 }>;
 
@@ -191,6 +193,7 @@ function ThreadRow({ row, now, emit }: { row: ThreadRowModel; now: number; emit:
     <button type="button" className={`fleet-row group-${row.group}${row.selected ? " is-selected" : ""}`} onClick={() => emit({ type: "fleet-open", kind: "thread", runId: row.id })}>
       <b className="fleet-row-title">{row.title}</b>
       {row.group === "review" || row.group === "idle" ? <DiffCount diff={row.diff} /> : <ThreadBadge label={row.label} badge={row.badge} />}
+      {row.group === "landing" && row.pr && <span className="fleet-row-meta"><span className="mono">PR #{row.pr.number}</span><span>{t(CI_LABEL[row.pr.checks])}</span></span>}
       <span className="fleet-row-meta">{row.branch && <span className="mono">{row.branch}</span>}{meta.map((item) => <span key={item}>{item}</span>)}</span>
       {row.question && <span className="fleet-row-question">{row.question}</span>}
     </button>
@@ -198,9 +201,18 @@ function ThreadRow({ row, now, emit }: { row: ThreadRowModel; now: number; emit:
 }
 
 const MARK = { met: "✓", open: "·", unmet: "✗" } as const;
+const CI_LABEL = { pending: "Checks running", pass: "Checks passed", fail: "Checks failed", none: "No checks" } as const;
 
-/** The thread or agent open in the Overview, or large in the middle: its agents, its chat, its actions. */
+/**
+ * The thread or agent open in the Overview, or large in the middle: its agents, its chat, its
+ * actions. A thread on a branch of its own also shows its change and its checks, and the steps
+ * that land it; its chat stays mounted behind those, so coming back to it does not load it again.
+ */
 function OpenRun({ open, side, large, emit }: { open: OpenRunModel; side: ReactNode; large: boolean; emit: Emit<FleetScreenEvent> }) {
+  const landing = open.landing;
+  const tab = landing?.tab ?? "chat";
+  const resolve = open.canResolve ? <button type="button" className="btn btn-ghost" onClick={() => emit({ type: "fleet-resolve", runId: open.runId, resolved: true })}>{t("Resolve")}</button>
+    : open.resolved ? <button type="button" className="btn btn-ghost" onClick={() => emit({ type: "fleet-resolve", runId: open.runId, resolved: false })}>{t("Reopen")}</button> : null;
   return (
     <div className={`fleet-open${large ? " is-large" : ""}`}>
       <header className="fleet-open-head">
@@ -227,8 +239,7 @@ function OpenRun({ open, side, large, emit }: { open: OpenRunModel; side: ReactN
           <span className="fleet-contract">{open.contract.map((item) => <span key={item.id} className={`is-${item.state}`}>{item.id} {MARK[item.state]}</span>)}</span>
         )}
         <span className="fleet-grow" />
-        {open.canResolve && <button type="button" className="btn btn-ghost" onClick={() => emit({ type: "fleet-resolve", runId: open.runId, resolved: true })}>{t("Resolve")}</button>}
-        {open.resolved && <button type="button" className="btn btn-ghost" onClick={() => emit({ type: "fleet-resolve", runId: open.runId, resolved: false })}>{t("Reopen")}</button>}
+        {!landing && resolve}
       </div>
       {open.skipped.length > 0 && (
         <p className="fleet-open-skipped">{t("Skipped")}: {open.skipped.map((skip) => <span key={skip.candidate} title={skip.reason}><span className="mono">{skip.candidate}</span> ({skip.reason})</span>)}</p>
@@ -245,7 +256,12 @@ function OpenRun({ open, side, large, emit }: { open: OpenRunModel; side: ReactN
           ))}
         </div>
       )}
-      {side}
+      {landing && <LandingActions landing={landing} resolve={resolve} emit={emit} />}
+      {landing && <ThreadTabs landing={landing} emit={emit} />}
+      <div className="fleet-open-chat" hidden={tab !== "chat"}>{side}</div>
+      {landing && tab === "changes" && <ThreadChanges landing={landing} emit={emit} />}
+      {landing && tab === "checks" && <ThreadChecks landing={landing} emit={emit} />}
+      {landing && <LandingConfirm landing={landing} emit={emit} />}
     </div>
   );
 }

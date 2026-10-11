@@ -577,6 +577,156 @@
   overflow-y: auto;
 }
 
+/* ---------- landing a thread: its steps, its change, its checks ---------- */
+
+.fleet-open-chat { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.fleet-open-chat[hidden] { display: none; }
+
+.fleet-land-actions {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0 var(--space-4) var(--space-2);
+}
+
+.fleet-land-actions .btn { height: 30px; padding: 0 var(--space-3); font-size: var(--fs-sm); }
+.fleet-land-actions .btn svg { width: 14px; height: 14px; }
+.fleet-land-pending { color: var(--working); font-size: var(--fs-sm); }
+.fleet-land-done { color: var(--sub); font-size: var(--fs-sm); }
+
+.fleet-tabs { flex: none; display: flex; align-items: center; gap: var(--space-3); padding: 0 var(--space-4) var(--space-2); }
+.fleet-tabs .segmented button { display: inline-flex; align-items: center; gap: 6px; }
+.fleet-tabs-note { margin-left: auto; color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.fleet-tab-alert { color: var(--needs); font: var(--fw-bold) var(--fs-xs) var(--font-mono); }
+.fleet-pane-note { margin: 0; padding: var(--space-2) var(--space-4); font-size: var(--fs-xs); color: var(--sub); }
+
+.fleet-changes, .fleet-checks {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: var(--hairline) solid var(--line);
+  background: var(--surface);
+}
+
+.fleet-overview .fleet-changes, .fleet-overview .fleet-checks {
+  margin: 0 var(--space-2) var(--space-2);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.fleet-changes-body { flex: 1; min-height: 0; display: flex; }
+
+.fleet-files {
+  flex: none;
+  width: 240px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border-right: var(--hairline) solid var(--line);
+  overflow: auto;
+}
+
+.fleet-file {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 6px var(--space-2);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: none;
+  color: var(--ink);
+  font: var(--fs-xs) var(--font-mono);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fleet-file:hover { background: var(--field); }
+.fleet-file.is-on { background: var(--tint); color: var(--ink-strong); }
+.fleet-file-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.fleet-file-comments { min-width: 16px; height: 16px; padding: 0 4px; border-radius: var(--radius-pill); background: var(--working-tint); color: var(--working); font: var(--fw-semibold) 10px/16px var(--font-mono); text-align: center; }
+
+/* a container, so a comment fits the visible width however wide the longest line runs */
+.fleet-diff-view { flex: 1; min-width: 0; overflow: auto; padding-bottom: var(--space-3); container-type: inline-size; }
+.fleet-diff-head { position: sticky; top: 0; z-index: 1; display: flex; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); background: var(--surface); color: var(--sub); font-size: var(--fs-xs); }
+.fleet-diff-lines { font-size: 12.5px; line-height: 1.6; min-width: max-content; }
+
+.fleet-line {
+  display: grid;
+  grid-template-columns: 44px 44px 18px minmax(0, 1fr);
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fleet-line:hover { background: var(--tint); }
+.fleet-line.is-add { background: color-mix(in srgb, var(--done) 8%, transparent); }
+.fleet-line.is-del { background: color-mix(in srgb, var(--needs) 8%, transparent); }
+.fleet-line.is-add .fleet-line-sign { color: var(--done); }
+.fleet-line.is-del .fleet-line-sign { color: var(--needs); }
+.fleet-line.is-hunk { display: block; padding: 2px var(--space-4); background: var(--working-tint); color: var(--sub); cursor: default; }
+.fleet-line.has-comment { box-shadow: inset 3px 0 0 var(--working); }
+.fleet-line-no { padding-right: var(--space-2); color: var(--sub); opacity: 0.6; text-align: right; user-select: none; }
+.fleet-line-sign { color: var(--sub); user-select: none; }
+.fleet-line-text { white-space: pre; }
+
+.fleet-line-comment, .fleet-comment-box { --comment-left: 106px; margin: var(--space-1) var(--space-4) var(--space-2) var(--comment-left); width: min(640px, calc(100cqw - var(--comment-left) - var(--space-4))); box-sizing: border-box; font-family: var(--font-ui); }
+.fleet-line-comment { display: flex; align-items: flex-start; gap: var(--space-2); padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--field); font-size: var(--fs-sm); white-space: normal; }
+.fleet-line-comment-who { flex: none; color: var(--working); font: var(--fs-2xs) var(--font-mono); line-height: 20px; }
+.fleet-line-comment-text { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.fleet-line-comment .btn { height: 24px; padding: 0 var(--space-2); font-size: var(--fs-xs); }
+.fleet-comment-box { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2); }
+.fleet-comment-box textarea { border: 0; background: none; color: var(--ink); font: inherit; font-size: var(--fs-sm); resize: vertical; outline: none; min-height: 44px; }
+.fleet-comment-box-actions { display: flex; justify-content: flex-end; gap: var(--space-2); }
+.fleet-comment-box-actions .btn { height: 28px; font-size: var(--fs-sm); }
+
+.fleet-comment-queue { flex: none; display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); padding: var(--space-2) var(--space-4); border-top: var(--hairline) solid var(--line); background: var(--working-tint); font-size: var(--fs-sm); }
+.fleet-comment-queue .btn { height: 28px; font-size: var(--fs-sm); }
+
+.fleet-checks { overflow: auto; padding: var(--space-2) var(--space-4) var(--space-4); gap: var(--space-1); }
+.fleet-checks-section { display: flex; flex-direction: column; gap: var(--space-1); max-width: 820px; }
+.fleet-checks-section h3 { margin: var(--space-3) 2px 2px; font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--sub); }
+.fleet-check-error { margin-top: var(--space-2); overflow-wrap: anywhere; }
+
+.fleet-check {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 2px var(--space-3);
+  padding: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--field);
+}
+
+.fleet-check b { color: var(--ink-strong); font-weight: var(--fw-semibold); }
+.fleet-check .btn { height: 28px; font-size: var(--fs-sm); }
+.fleet-check-sub { grid-column: 2 / -1; font-size: var(--fs-xs); color: var(--sub); overflow-wrap: anywhere; }
+.fleet-check-mark { width: 20px; height: 20px; border-radius: var(--radius-pill); display: grid; place-items: center; font: var(--fw-bold) 11px var(--font-mono); }
+.fleet-check.tone-ok .fleet-check-mark { background: var(--done-tint); color: var(--done); }
+.fleet-check.tone-warn .fleet-check-mark { background: color-mix(in srgb, var(--meter-mid) 14%, transparent); color: var(--meter-mid); }
+.fleet-check.tone-bad { box-shadow: inset 0 0 0 var(--hairline) var(--needs); }
+.fleet-check.tone-bad .fleet-check-mark { background: var(--needs-tint); color: var(--needs); }
+.fleet-check.tone-run .fleet-check-mark { background: var(--working-tint); color: var(--working); }
+.fleet-check.tone-none .fleet-check-mark { box-shadow: inset 0 0 0 1.5px var(--line-strong); color: var(--sub); }
+
+/* beside the conversation, or on a phone, the files sit over the diff */
+.fleet-overview .fleet-changes-body { flex-direction: column; }
+.fleet-overview .fleet-files { width: auto; max-height: 132px; border-right: 0; border-bottom: var(--hairline) solid var(--line); }
+.fleet-overview .fleet-line-comment, .fleet-overview .fleet-comment-box { --comment-left: var(--space-4); }
+.fleet-overview .fleet-tabs-note { display: none; }
+.fleet-overview .fleet-land-actions { gap: var(--space-1); }
+.fleet-overview .fleet-land-actions .btn { padding: 0 var(--space-2); }
+
 /* the sheet's own scrim and close button show on a narrower screen only */
 .fleet-sheet-scrim, .fleet-sheet-close { display: none; }
 

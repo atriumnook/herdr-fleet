@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup as renderBare } from "react-dom/server";
 import { DEFAULT_SETTINGS, SettingsProvider } from "../../lib/settings.ts";
-import type { AgentRun, AgentState } from "../../../shared/fleet.ts";
+import type { AgentRun, AgentState, PullRequest } from "../../../shared/fleet.ts";
 import { fleetScreenModel } from "../../ui/fleetView.ts";
 import { INITIAL_STATE, type UiState } from "../../ui/state.ts";
 import { FleetScreen, forRun } from "./FleetScreen.tsx";
@@ -58,7 +58,7 @@ describe("Fleet screen views", () => {
 
   it("opens a thread in the Overview with its agents and its chat, and large in the middle when expanded", () => {
     const runs = [coordinator, lead("t", { result: "PASS", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }] }), run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done" })];
-    const open = (expanded: boolean) => screen(state(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member: null }, expanded } }));
+    const open = (expanded: boolean) => screen(state(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member: null }, expanded, tab: "chat" } }));
     const beside = open(false);
     expect(beside).toContain("slot-conversation");
     expect(beside).toContain("slot-side");
@@ -72,6 +72,60 @@ describe("Fleet screen views", () => {
     expect(large).toContain('aria-label="Collapse"');
     // the Overview lists the threads again, the open one marked
     expect(large).toContain("fleet-row group-review is-selected");
+  });
+
+  it("offers the steps that land a thread, and its chat, change and checks", () => {
+    const opened = (target: AgentRun, extra: Partial<UiState> = {}) => screen(state([coordinator, target], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: target.id, member: null }, ...extra.fleetView }, ...extra }));
+    const review = opened(lead("t", { result: "PASS", baseBranch: "main", diff: { added: 3, removed: 1, files: 1 } }));
+    expect(review).toContain(">Discard<");
+    expect(review).toContain(">Merge into main<");
+    expect(review).toContain(">Create PR<");
+    expect(review).toContain(">Chat</button>");
+    expect(review).toContain(">Changes</button>");
+    expect(review).toContain(">Checks</button>");
+    // the chat stays mounted while it shows
+    expect(review).toMatch(/class="fleet-open-chat"><div class="slot-side"/);
+    // the lead at work: its steps wait
+    expect(opened(lead("t", { state: "working", diff: { added: 3, removed: 1, files: 1 } }))).toMatch(/disabled="" class="btn btn-primary"|class="btn btn-primary" disabled="">Create PR/);
+    const pr: PullRequest = { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "fail", failing: ["test"] };
+    const landing = opened(lead("t", { result: "PASS", pr, landing: { action: "fix-ci", at: 1, sent: true } }));
+    expect(landing).toContain('href="https://github.com/o/r/pull/70"');
+    expect(landing).toContain("PR #70");
+    expect(landing).toContain("Lead is fixing CI…");
+    expect(landing).not.toContain(">Create PR<");
+    expect(landing).toContain(">Merge PR<");
+    expect(landing).toContain("fleet-tab-alert");
+    expect(opened(lead("t", { result: "PASS", landed: "merged", resolvedAt: 1, state: "stopped", baseBranch: "main" }))).toContain("Merged into main");
+  });
+
+  it("draws a thread's change with the comments not sent yet, and its checks with the steps that settle them", () => {
+    const target = lead("t", { result: "PASS", baseBranch: "main", diff: { added: 1, removed: 1, files: 1 }, pr: { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "fail", failing: ["test", "lint"] } });
+    const diff = ["diff --git a/a.md b/a.md", "--- a/a.md", "+++ b/a.md", "@@ -1,2 +1,2 @@", " same", "-old", "+new"].join("\n");
+    const landing = {
+      runId: "t", diff: { status: "ready" as const, data: { diff, truncated: false } },
+      checks: { status: "ready" as const, data: { baseBranch: "main", uncommitted: [], ahead: 2, behind: 3 } },
+      comments: { t: [{ file: "a.md", line: 2, text: "why the new word?" }] }, confirm: null,
+    };
+    const tab = (name: "changes" | "checks") => screen(state([coordinator, target], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null }, tab: name }, landing }));
+    const changes = tab("changes");
+    expect(changes).toContain("compared with main");
+    expect(changes).toContain('class="fleet-file is-on"');
+    expect(changes).toContain("fleet-line is-add has-comment");
+    expect(changes).toContain("why the new word?");
+    expect(changes).toContain("not sent");
+    expect(changes).toContain("1 comment for the lead");
+    expect(changes).toContain(">Send to lead<");
+    // the chat waits behind, hidden
+    expect(changes).toContain('class="fleet-open-chat" hidden=""');
+    const checks = tab("checks");
+    expect(checks).toContain("All work committed");
+    expect(checks).toContain("main moved 3 commits ahead");
+    expect(checks).toContain(">Update branch<");
+    expect(checks).toContain("1 comment not sent");
+    expect(checks).toContain("Checks failed");
+    expect(checks).toContain("test · lint");
+    expect(checks).toContain(">Fix CI<");
+    expect(checks).toContain("No review on another CLI");
   });
 
   it("draws a thread's card with its change, its state, and what it waits on the person for", () => {

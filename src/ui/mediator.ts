@@ -1,4 +1,4 @@
-import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, LandingChecks, UsageEntry } from "../../shared/fleet.ts";
 import type { Machine, MachineEvent } from "../../shared/machines.ts";
 import type { BridgeHealth } from "../../shared/machines.ts";
 import type { PairedDevice, PairingCode, RemoteAccess, SessionSnapshot } from "../../shared/protocol.ts";
@@ -61,6 +61,8 @@ export interface EffectPorts {
   loadUsage(): Promise<UsageEntry[]>;
   refreshUsage(): Promise<UsageEntry[]>;
   runRequest(action: RequestAction): Promise<void>;
+  loadLandingDiff(runId: string): Promise<{ diff: string; truncated: boolean }>;
+  loadLandingChecks(runId: string): Promise<LandingChecks>;
   saveSettings(settings: Settings): void;
   forgetPaneViews(): void;
   loadRemoteAccess(): Promise<RemoteAccess>;
@@ -273,6 +275,14 @@ export class Mediator {
         return;
       case "request":
         try { await this.ports.runRequest(effect.action); dispatch({ type: "request-done" }); } catch (error) { dispatch({ type: "request-failed", message: message(error) }); }
+        return;
+      case "load-landing-diff":
+        try { dispatch({ type: "landing-diff-loaded", runId: effect.runId, diff: await this.ports.loadLandingDiff(effect.runId) }); }
+        catch (error) { dispatch({ type: "landing-diff-failed", runId: effect.runId, message: message(error) }); }
+        return;
+      case "load-landing-checks":
+        try { dispatch({ type: "landing-checks-loaded", runId: effect.runId, checks: await this.ports.loadLandingChecks(effect.runId) }); }
+        catch (error) { dispatch({ type: "landing-checks-failed", runId: effect.runId, message: message(error) }); }
         return;
       case "save-settings":
         this.ports.saveSettings(effect.settings);

@@ -127,11 +127,65 @@ describe("the projects, their threads and the run open in the Overview", () => {
   it("keeps the agents outside every thread and project conversation, and opens a thread on its lead or one of its helpers", () => {
     const helper = run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done" });
     const runs = [coordinator(), lead("t", { result: "PASS" }), helper, run("loose", { group: "g9" }), run("old", { group: "g8", state: "stopped" })];
-    const open = (member: string | null, expanded = false) => fleetScreenModel(withRuns(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member }, expanded } }), NOW);
+    const open = (member: string | null, expanded = false) => fleetScreenModel(withRuns(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member }, expanded, tab: "chat" } }), NOW);
     expect(open(null).agents.map((card) => card.id)).toEqual(["loose"]);
     expect(open(null).open).toMatchObject({ title: "t", paneId: "w1:t", paneRunId: "t", label: "Ready for review", canResolve: true, members: [{ runId: null, name: "lead", selected: true }, { runId: "rev", name: "rev", selected: false }] });
     expect(open("rev", true)).toMatchObject({ expanded: true, open: { paneId: "w1:rev", paneRunId: "rev", agent: "cursor", members: [{ selected: false }, { selected: true }] } });
     expect(open(null).threadGroups[0]!.rows[0]!.selected).toBe(true);
+  });
+
+  it("lands a thread: the steps it offers where it stands, and what can be pressed now", () => {
+    const pr = { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "pending" } as const;
+    const runs = [
+      coordinator(),
+      lead("t", { result: "PASS", agent: "claude", baseBranch: "main", diff: { added: 3, removed: 1, files: 1 } }),
+      run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done", result: "PASS — no findings" }),
+      lead("pr", { result: "PASS", pr, updatedAt: 3 }),
+      lead("red", { result: "PASS", pr: { ...pr, number: 71, checks: "fail", failing: ["test"] }, updatedAt: 4 }),
+      lead("stuck", { result: "PASS", landing: { action: "merge", at: 1, sent: true, error: "fleet/stuck is not in main after the coordinator's turn; its reply says why." }, updatedAt: 5 }),
+    ];
+    const opened = (runId: string, extra: Partial<UiState> = {}) => fleetScreenModel(withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId, member: null } }, ...extra }), NOW).open!.landing!;
+    const groups = fleetScreenModel(withRuns(runs), NOW).threadGroups;
+    expect(groups.map((group) => [group.key, group.rows.map((row) => row.id)])).toEqual([["needs", ["stuck", "red"]], ["review", ["t"]], ["landing", ["pr"]]]);
+    expect(groups[0]!.rows.map((row) => row.question)).toEqual(["fleet/stuck is not in main after the coordinator's turn; its reply says why.", "PR #71: test"]);
+    expect(groups[2]!.rows[0]).toMatchObject({ label: "Landing", badge: "working", pr });
+    const review = opened("t");
+    expect(review).toMatchObject({ stage: "review", baseBranch: "main", branch: "fleet/t", repo: "/repo", tab: "chat", can: { lead: true, merge: true, discard: true } });
+    expect(review.offers).toEqual({ createPr: true, mergeLocal: true, discard: true, fixCi: false, mergePr: false });
+    expect(review.checks.thread.find((check) => check.kind === "review")).toEqual({ kind: "review", tone: "ok", reviewers: [{ agent: "cursor", status: "PASS — no findings" }] });
+    expect(opened("pr")).toMatchObject({ stage: "landing", offers: { createPr: false, mergeLocal: false, discard: false, mergePr: true }, mergePrReady: false });
+    expect(opened("red")).toMatchObject({ offers: { fixCi: true }, attention: true });
+    expect(opened("red").checks.pr.map((check) => [check.kind, check.tone])).toEqual([["pr", "ok"], ["ci", "bad"]]);
+    // a step under way holds the next one; a watch-only device or an action in flight presses nothing
+    const asked = { ...runs[1]!, landing: { action: "pr" as const, at: 1, sent: true } };
+    expect(fleetScreenModel(withRuns([coordinator(), asked], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null } } }), NOW).open!.landing).toMatchObject({ pending: "pr", can: { lead: false, merge: false, discard: true } });
+    expect(opened("t", { canAct: false }).can).toEqual({ lead: false, merge: false, discard: false });
+    expect(opened("t", { request: { status: "pending", action: { kind: "resolve", runId: "x", resolved: true } } }).can.discard).toBe(false);
+  });
+
+  it("reads the open thread's change into files, with the person's comments on their lines, and its checks", () => {
+    const runs = [coordinator(), lead("t", { result: "PASS", baseBranch: "main", diff: { added: 1, removed: 1, files: 1 } })];
+    const diff = ["diff --git a/a.md b/a.md", "--- a/a.md", "+++ b/a.md", "@@ -1,2 +1,2 @@", " same", "-old", "+new"].join("\n");
+    const landing = {
+      runId: "t", diff: { status: "ready" as const, data: { diff, truncated: true } },
+      checks: { status: "ready" as const, data: { baseBranch: "main", uncommitted: ["notes.txt"], ahead: 2, behind: 1 } },
+      comments: { t: [{ file: "a.md", line: 2, text: "why?" }, { file: "a.md", line: 2, removed: true, text: "keep it" }] },
+      confirm: { runId: "t", action: "discard" as const, status: "asking" as const },
+    };
+    const model = fleetScreenModel(withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null }, tab: "changes" }, landing }), NOW).open!.landing!;
+    expect(model.changes).toMatchObject({ status: "ready", truncated: true, files: [{ path: "a.md", added: 1, removed: 1, comments: 2 }] });
+    expect(model.changes.files[0]!.lines.slice(1).map((line) => [line.kind, line.comments])).toEqual([
+      ["ctx", []], ["del", [{ index: 1, text: "keep it" }]], ["add", [{ index: 0, text: "why?" }]],
+    ]);
+    expect(model.checks.branch).toEqual([
+      { kind: "committed", tone: "warn", uncommitted: ["notes.txt"], ahead: 2 },
+      { kind: "base", tone: "warn", baseBranch: "main", behind: 1, action: "update" },
+    ]);
+    expect(model.checks.thread.find((check) => check.kind === "comments")).toEqual({ kind: "comments", tone: "warn", count: 2, action: "comments" });
+    expect(model.confirm).toEqual({ action: "discard", running: false, worktree: "/repo/.herdr-fleet/worktrees/t", ahead: 2 });
+    // what was read for another thread is not this one's
+    const other = fleetScreenModel(withRuns([...runs, lead("u", { result: "PASS" })], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "u", member: null } }, landing }), NOW).open!.landing!;
+    expect(other).toMatchObject({ changes: { status: "idle", files: [] }, checks: { status: "idle", branch: [] }, comments: [], confirm: null });
   });
 
   it("puts each thread's card under the coordinator's turn it was started in", () => {
