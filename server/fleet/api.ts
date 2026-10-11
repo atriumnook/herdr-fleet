@@ -18,7 +18,8 @@ import type { FleetSettingsStore } from "./settings.ts";
  *  POST /api/fleet/spawn         SpawnRequest        -> 201 { run }
  *  POST /api/fleet/threads       { title, task|brief, cwd?, depth?, caller_run? } -> 201 { run }
  *  GET  /api/fleet/threads[?caller_run=&cwd=]        -> { threads: ThreadSummary[] }; the caller's project's
- *  POST /api/fleet/projects      { task, cwd? }      -> 201 { run }; the project's coordinator, started or told the task
+ *  POST /api/fleet/projects      { task, cwd?, from_pane? } -> 201 { run }; the project's coordinator, started or told the task
+ *                                                       (from_pane: the herdr pane whose conversation sent it)
  *  GET  /api/fleet/runs/:target[?group=]             -> { run }
  *  POST /api/fleet/runs/:target/send   { message, group? }     -> { run }
  *  POST /api/fleet/runs/:target/wait   { timeout_ms?, group? } -> { run }; 408 wait_timeout with { run }
@@ -72,8 +73,11 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
       const task = body["task"];
       const cwd = body["cwd"];
       if (typeof task !== "string" || !task.trim()) throw new FleetError("missing_task", "task is required");
+      const fromPane = body["from_pane"];
       if (cwd !== undefined && typeof cwd !== "string") throw new FleetError("invalid_body", "cwd must be a string");
-      const run = await fleet.startProject({ task, ...(cwd ? { cwd } : {}) }, request.signal);
+      // the pane id goes into the coordinator's input as written: nothing but an id's characters
+      if (fromPane !== undefined && (typeof fromPane !== "string" || !/^[\w:.-]{1,64}$/.test(fromPane))) throw new FleetError("invalid_body", "from_pane must be a herdr pane id");
+      const run = await fleet.startProject({ task, ...(cwd ? { cwd } : {}), ...(fromPane ? { fromPane } : {}) }, request.signal);
       return jsonResponse({ run }, 201);
     }
     if (parts[0] === "spawn" && parts.length === 1 && method === "POST") {

@@ -25,6 +25,7 @@ const USAGE = `usage: fleet <command> [options]
   threads [--cwd <dir>]            the threads of this project: state, branch, HANDOFF status line and contract
   project --task <text> [--cwd <dir>]
                                    talk to the project's coordinator, started at its main checkout if none runs
+  guide                            how an agent in a pane's conversation hands work to the fleet (the fleet skill runs this)
   send <agent> <message...>        hand an agent its next task
   wait <agent> [--timeout <ms>]    until its turn settles; follows a re-spawn after a fallback
   read <agent> [--lines <n>]       its recent output
@@ -50,6 +51,23 @@ const paneId = env["HERDR_PANE_ID"];
 const group = env["HERDR_FLEET_GROUP"] || (paneId ? `fleet-${paneId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}` : "fleet-default");
 const depth = Number.parseInt(env["HERDR_FLEET_DEPTH"] ?? "0", 10) || 0;
 const callerRun = env["HERDR_FLEET_RUN"] || undefined;
+
+/** What the fleet skill (server/fleet/entrances.ts) has an agent in a pane's conversation read; kept here so it matches this CLI. */
+const GUIDE = `herdr-fleet runs a team of coding agents in herdr. Each repository has one coordinator: it talks with
+the person on the Fleet screen and splits work into threads, each on a branch of its own.
+Below, \`fleet\` is the command the skill named, with HERDR_FLEET_URL set as it shows.
+
+To hand work on:  fleet project --cwd <the repository> --task "<the request>"
+- This is a handoff: the repository's coordinator owns the work from here. Do not wait for it, and do not
+  follow its threads up yourself.
+- The coordinator has not seen this conversation. Write the request so that it stands alone: what to do and
+  why, what this conversation found and decided, the files involved, and how to tell it is done.
+- Then tell the person it was sent, and that the coordinator's reply and its threads are on the Fleet screen.
+
+To check on it, when the person asks:  fleet threads --cwd <the repository>
+
+If the command cannot reach the server, your sandbox may block the loopback: ask to run that one command
+outside it. Do not change the sandbox's network settings.`;
 
 class CliError extends Error {
   constructor(message: string, readonly exitCode = 1, readonly body?: { run?: Run }) { super(message); }
@@ -213,10 +231,15 @@ async function main(argv: string[]): Promise<number> {
     }
     case "project": {
       if (!values.task) throw new CliError("fleet project: --task is required", 2);
-      const { run } = await call<{ run: Run }>("POST", "/projects", { task: values.task, cwd: values.cwd ?? process.cwd() });
+      // an agent the fleet started reports to whoever started it (its instructions), never past it to the coordinator
+      if (callerRun) throw new CliError("fleet project: the fleet's own agents do not call the coordinator; report as your instructions say", 2);
+      const { run } = await call<{ run: Run }>("POST", "/projects", { task: values.task, cwd: values.cwd ?? process.cwd(), ...(paneId ? { from_pane: paneId } : {}) });
       print(json, run, () => [describe(run), run.lastError ? `note: ${run.lastError}` : ""].filter(Boolean).join("\n"));
       return run.state === "blocked" ? 4 : 0;
     }
+    case "guide":
+      console.log(GUIDE);
+      return 0;
     case "send": {
       const message = positionals.slice(1).join(" ");
       if (!message) throw new CliError("fleet send: give the message", 2);

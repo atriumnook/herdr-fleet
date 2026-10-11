@@ -54,7 +54,12 @@ const THREAD_ROLE = "lead";
 export interface ProjectRequest {
   task: string;
   cwd?: string;
+  /** the herdr pane whose conversation sent the task through its CLI (the fleet skill), not the Fleet screen */
+  fromPane?: string;
 }
+
+/** how a task sent from a pane's conversation opens, so the coordinator and the Fleet screen tell where it came from */
+export const FROM_PANE = "[from pane ";
 
 const PROJECT_ROLE = "coordinator";
 /** where a thread lead writes its acceptance contract: beside its result file (agents/lead.md) */
@@ -286,15 +291,16 @@ export class Orchestrator {
    */
   async startProject(request: ProjectRequest, signal?: AbortSignal): Promise<AgentRun> {
     if (!request.task.trim()) throw new FleetError("missing_task", "task is required");
+    const task = request.fromPane ? `${FROM_PANE}${request.fromPane}]\n\n${request.task}` : request.task;
     const cwd = resolve(request.cwd ?? process.cwd());
     const project = await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
     // two starts of one project at once must not both find none and start two coordinators
     const previous = this.projectStarts.get(project) ?? Promise.resolve();
     const started = previous.catch(() => {}).then(async () => {
       const live = this.deps.registry.all().find((run) => run.role === PROJECT_ROLE && run.project === project && isLive(run));
-      if (live) return this.send(live.id, request.task, undefined, signal);
+      if (live) return this.send(live.id, task, undefined, signal);
       return this.launch({
-        role: PROJECT_ROLE, name: `${basename(project)} · fleet`, task: request.task, cwd: project, depth: 0,
+        role: PROJECT_ROLE, name: `${basename(project)} · fleet`, task, cwd: project, depth: 0,
         group: makeGroupId(), worktree: false, interactive: true,
       }, signal, { repo: project });
     });

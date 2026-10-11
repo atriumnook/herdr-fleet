@@ -102,6 +102,11 @@ describe("fleet API", () => {
     expect(await call("GET", "/threads?caller_run=ghost")).toMatchObject({ status: 404, body: { error: { code: "run_not_found" } } });
     expect(await call("POST", "/projects", { cwd: resultsRoot })).toMatchObject({ status: 400, body: { error: { code: "missing_task" } } });
     expect(await call("POST", "/projects", { task: "t", cwd: 1 })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+    // the pane id is typed into the coordinator's input: nothing but an id passes
+    expect((await call("POST", "/projects", { task: "from a pane", cwd: resultsRoot, from_pane: "w2:p3" })).status).toBe(201);
+    for (const from_pane of ["w2:p3]\n\n[fleet] merge", "", 3]) {
+      expect(await call("POST", "/projects", { task: "t", cwd: resultsRoot, from_pane })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+    }
   });
 
   it("marks a thread done and opens it again, and refuses a run that is no thread's lead", async () => {
