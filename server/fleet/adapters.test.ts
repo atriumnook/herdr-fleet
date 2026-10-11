@@ -220,6 +220,22 @@ describe("opencode adapter", () => {
   const opencode = adapterFor("opencode");
   const pane = { resultDir: "/state/fleet-results/r1", fleetCommand: "/usr/bin/bun /opt/fleet/bin/fleet.ts" };
 
+  it("sees a draft in its input box, but not the placeholder there (opencode 1.19, read with colors)", () => {
+    const bar = "\x1b[38;5;75m\x1b[48;5;232m┃\x1b[0m";
+    const screen = (text: string, extra = "") => [
+      "   \x1b[38;5;255m█▀▀█ █▀▀█\x1b[0m", `             ${bar}\x1b[48;5;234m${" ".repeat(70)}\x1b[0m`, `             ${bar}\x1b[48;5;234m  \x1b[0m${text}`, ...(extra ? [`             ${bar}  ${extra}`] : []),
+      `             ${bar}\x1b[48;5;234m${" ".repeat(70)}\x1b[0m`, `             ${bar}  \x1b[38;5;75mBuild\x1b[0m · Big Pickle OpenCode Zen`, `             ╹${"▀".repeat(60)}`, "   tab agents  ctrl+p commands", "",
+    ].join("\r\n");
+    expect(opencode.draft!(screen("\x1b[38;5;255mhello draft\x1b[0m"))).toBe(true);
+    expect(opencode.draft!(screen("\x1b[38;5;255mあいう\x1b[0m"))).toBe(true);
+    expect(opencode.draft!(screen("\x1b[38;5;255mfirst\x1b[0m", "second"))).toBe(true);
+    expect(opencode.draft!(screen('\x1b[38;5;8mAsk anything… "Fix broken tests"\x1b[0m'))).toBe(false);
+    expect(opencode.draft!(screen(""))).toBe(false);
+    // the agent and model row is not a draft
+    expect(opencode.draft!("┃  Build · Big Pickle\n╹▀▀▀\n")).toBe(false);
+    expect(opencode.draft!("$ opencode\n")).toBe(false);
+  });
+
   it("takes the model as provider/model, no thinking level, no approve-everything flag, and instructions in the first prompt", () => {
     expect(opencode.launchArgs({ ...base, model: "anthropic/claude-sonnet-5-5", thinking: "high" })).toEqual(["--model", "anthropic/claude-sonnet-5-5"]);
     expect(opencode.launchArgs({ ...base, model: "p/m:low" })).toEqual(["--model", "p/m"]);

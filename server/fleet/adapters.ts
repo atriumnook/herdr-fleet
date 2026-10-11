@@ -377,6 +377,18 @@ export const opencodeAdapter: AgentAdapter = {
   },
   readOnlyArgs: ["--agent", OPENCODE_READ_ONLY_AGENT],
   readOnlyEditsResult: true,
+  // the input is a box of `┃` rows that ends above a `╹▀▀▀` line: padding, the text, padding, and last the agent and model; empty, it shows a "Ask anything…" placeholder (opencode 1.19, new session)
+  draft(screen) {
+    const lines = stripVTControlCharacters(screen).split(/\r?\n/).map((line) => line.trim());
+    const bottom = lines.map((line, at) => (/^╹▀+/.test(line) ? at : -1)).reduce((last, at) => Math.max(last, at), -1);
+    if (bottom < 0) return false;
+    let top = bottom;
+    while (top > 0 && lines[top - 1]!.startsWith("┃")) top--;
+    return lines.slice(top, bottom - 1).some((line) => {
+      const text = line.slice(1).trim();
+      return text !== "" && !text.startsWith("Ask anything…");
+    });
+  },
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },
