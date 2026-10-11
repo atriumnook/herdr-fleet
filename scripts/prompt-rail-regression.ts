@@ -70,7 +70,19 @@ export async function checkPromptRail(browser: Browser, origin: string): Promise
     assert.match(await card.textContent() ?? "", /prompt 9 /);
     assert.match(await card.textContent() ?? "", /2 \/ 5 · \d\d:\d\d · 1m 30s · 1 edit · file-9\.ts/);
     await save(page, shots, "prompt-rail-desktop");
-    console.log("PASS a tick per prompt read, and the card of the one pointed at");
+    // a pointer passing over another tick changes the card only once it rests there
+    await hover(page, ticks.nth(3));
+    assert.match(await card.textContent() ?? "", /prompt 9 /, "a pointer passing by leaves the card as it is");
+    await until(async () => /prompt 11 /.test(await card.textContent() ?? ""), "the card of the tick the pointer rests on");
+    await page.mouse.move(10, 400);
+    await card.waitFor({ state: "detached" });
+    // a tick with the focus is described by its card
+    await ticks.nth(2).focus();
+    const described = await ticks.nth(2).getAttribute("aria-describedby");
+    assert.ok(described !== null && described === await card.getAttribute("id"), "the focused tick is described by its card");
+    assert.match(await card.textContent() ?? "", /prompt 10 /);
+    assert.equal(await page.getByRole("navigation", { name: "Prompts", exact: true }).count(), 1);
+    console.log("PASS a tick per prompt read, and the card of the one pointed at or focused");
 
     // a click brings the prompt to the top of the chat, ringed
     await ticks.nth(1).click();
@@ -153,7 +165,7 @@ export async function checkPromptRail(browser: Browser, origin: string): Promise
 
     // ---- a phone: no pointing, so a button opens the prompts as a list ----
     const phone = await open({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
-    const opener = phone.page.locator(".prompt-rail-open");
+    const opener = phone.page.getByRole("button", { name: "Show prompts", exact: true });
     await opener.waitFor();
     await save(phone.page, shots, "prompt-rail-phone");
     assert.equal(await phone.page.locator(".prompt-rail-track").isVisible(), false, "no ticks to point at on a touch screen");
@@ -163,6 +175,11 @@ export async function checkPromptRail(browser: Browser, origin: string): Promise
     assert.equal(await sheet.locator(".prompt-sheet-row").count(), 5);
     await save(phone.page, shots, "prompt-rail-phone-sheet");
     assert.match(await sheet.locator(".prompt-sheet-row.is-reading .prompt-sheet-text").textContent() ?? "", /^prompt 12 /);
+    // the sheet is modal: Tab goes round its buttons and never leaves it
+    for (let press = 0; press < 9; press += 1) {
+      await phone.page.keyboard.press(press % 3 === 2 ? "Shift+Tab" : "Tab");
+      assert.ok(await phone.page.evaluate(() => document.activeElement?.closest(".prompt-sheet") != null), "the focus stays in the sheet");
+    }
     await sheet.locator(".prompt-sheet-row", { hasText: "prompt 9" }).tap();
     await sheet.waitFor({ state: "hidden" });
     await until(async () => Math.abs((await topOf(phone.page, 9)) ?? 999) < 30, "the prompt tapped at the top");

@@ -159,7 +159,7 @@ describe("screens and the Fleet screen's view", () => {
   it("opens the Settings page for the project, saves each change, and keeps only the latest save's answer", () => {
     const settings = (maxConcurrent: number) => ({ file: "/c/fleet.json", roles: [], maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent, closeOnSettle: true, projects: [], readOnlyAgents: ["claude" as const] });
     const opened = play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-settings", open: true, cwd: "/repo" }], withRuns);
-    expect(opened.effects).toEqual([{ kind: "load-fleet-settings", cwd: "/repo" }]);
+    expect(opened.effects).toEqual([{ kind: "load-fleet-settings", cwd: "/repo" }, { kind: "load-fleet-entrances" }]);
     expect(opened.state.fleetView).toMatchObject({ settings: true, open: null });
     const ready = play([{ type: "fleet-settings-loaded", settings: settings(6) }], opened.state).state;
     expect(ready.fleetSettings).toMatchObject({ status: "ready", cwd: "/repo", data: { maxConcurrent: 6 } });
@@ -180,6 +180,21 @@ describe("screens and the Fleet screen's view", () => {
     expect(play([{ type: "fleet-settings", open: false }], failed).state.fleetView.settings).toBe(false);
     // a watch-only device saves nothing
     expect(play([{ type: "fleet-settings-change", patch: { maxConcurrent: 3 } }], { ...failed, canAct: false }).effects).toEqual([]);
+  });
+
+  it("puts the fleet skill into one skill folder at a time, and keeps the folders' last answer", () => {
+    const entrances = (claude: "installed" | "missing" | "taken") => ({ entrances: [{ id: "claude" as const, file: "/h/.claude/skills/herdr-fleet/SKILL.md", readers: ["claude" as const, "cursor" as const], state: claude }], tokenRequired: false });
+    const opened = play([{ type: "fleet-settings", open: true, cwd: "/repo" }, { type: "fleet-entrances-loaded", entrances: entrances("missing") }], withRuns).state;
+    expect(opened.fleetEntrances).toMatchObject({ status: "ready", busy: null, data: { entrances: [{ state: "missing" }] } });
+    const pressed = play([{ type: "fleet-entrance", id: "claude", action: "install" }, { type: "fleet-entrance", id: "agents", action: "install" }], opened);
+    // the second press came while the first ran: it is dropped
+    expect(pressed.effects).toEqual([{ kind: "change-fleet-entrance", id: "claude", action: "install" }]);
+    expect(pressed.state.fleetEntrances.busy).toBe("claude");
+    const installed = play([{ type: "fleet-entrance-changed", entrances: entrances("installed") }], pressed.state).state;
+    expect(installed.fleetEntrances).toMatchObject({ busy: null, data: { entrances: [{ state: "installed" }] } });
+    const refused = play([{ type: "fleet-entrance", id: "claude", action: "remove" }, { type: "fleet-entrance-failed", message: "not written by herdr-fleet" }], installed).state;
+    expect(refused.fleetEntrances).toMatchObject({ busy: null, changeError: "not written by herdr-fleet", data: { entrances: [{ state: "installed" }] } });
+    expect(play([{ type: "fleet-entrance", id: "claude", action: "remove" }], { ...refused, canAct: false }).effects).toEqual([]);
   });
 
   it("selects a live run's pane on this PC, again when asked again, and not an ended run's", () => {
@@ -666,6 +681,12 @@ describe("the connection to the server", () => {
     expect(state.selection).toEqual({ machineId: "local", paneId: "w1:p2", auto: false });
   });
 
+  it("opens the pane a coordinator's request came from on the Pane screen, and stays put when that pane is gone", () => {
+    const onFleet = play([{ type: "show-screen", screen: "fleet" }], inWith([pc(["w1:p1", "w2:p3"])])).state;
+    expect(play([{ type: "go-to-pane", paneId: "w2:p3" }], onFleet).state).toMatchObject({ screen: "pane", selection: { machineId: "local", paneId: "w2:p3", auto: false } });
+    expect(play([{ type: "go-to-pane", paneId: "w2:gone" }], onFleet).state).toMatchObject({ screen: "fleet", selection: onFleet.selection });
+  });
+
   it("confirms with the PC that a selected pane closed before picking another, marked as the shell's own pick", () => {
     const selected = play([{ type: "select-pane", machineId: "local", paneId: "w1:gone" }], inWith([pc(["w1:p1", "w1:gone"])])).state;
     const closed = play([{ type: "machines-pushed", machines: [pc(["w1:p1"])] }], selected);
@@ -917,7 +938,7 @@ describe("the command palette", () => {
 
   it("opens on the selected pane's PC with an empty search, reading the panes opened last there", () => {
     const { state, effects } = play([{ type: "select-pane", machineId: "local", paneId: "w1:p1" }, { type: "open-palette" }]);
-    expect(state.palette).toEqual({ open: true, machineId: "local", query: "", recent: [] });
+    expect(state.palette).toEqual({ open: true, machineId: "local", query: "", recent: [], chat: "main" });
     expect(effects).toContainEqual({ kind: "load-recent", machineId: "local" });
     expect(play([{ type: "palette-recent", machineId: "local", recent: ["w1:p2"] }], state).state.palette).toMatchObject({ recent: ["w1:p2"] });
   });
@@ -2273,6 +2294,13 @@ describe("the prompt rail", () => {
     expect(state.screen).toBe(open().screen);
     // a pick that comes after the palette closed asks nothing
     expect(play([{ type: "palette-pick-prompt", key: "t8#0" }], state).state.chat.seek).toEqual({ to: { key: "t7#0" }, seq: 1 });
+  });
+
+  it("scrolls the chat beside to the prompt picked, when the palette opened from it", () => {
+    const { state } = play([{ type: "open-palette", chat: "side" }, { type: "palette-pick-prompt", key: "t3#0" }], open());
+    expect(state.palette).toEqual({ open: false });
+    expect(state.side.chat.seek).toEqual({ to: { key: "t3#0" }, seq: 1 });
+    expect(state.chat.seek).toBeNull();
   });
 
   it("asks nothing of a chat opened on another pane", () => {

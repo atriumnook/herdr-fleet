@@ -409,8 +409,10 @@ One set for both themes: the card is island black wherever it shows.
   sits. `[fleet]` messages, compactions and runtime notices are no prompts. The prompt being read
   (the last whose row starts at or above the top of the view) is a 3px `--accent` bar. A dotted stub
   at the top loads the page before. No panel: the transcript never sits on glass.
-- Pointing at the rail shows the nearest prompt's card (`.menu`, left of the rail): its first three
-  lines, then `2 / 5 · time · 1m 30s · 1 edit · app.ts` in `--sub`. A click jumps there: the row
+- Pointing at the rail shows the nearest prompt's card (`.menu`, left of the rail, the tooltip that
+  describes a focused tick): its first three lines, then `2 / 5 · time · 1m 30s · 1 edit · app.ts` in
+  `--sub`. While a card shows, a pointer passing over other ticks changes it only once it rests
+  (`120ms`). The ticks change at once, with no transition. A click jumps there: the row
   lands `8px` under the top at once (no smooth scroll) and its bubble is ringed in `--accent`, fading
   out over `1.6s` (no fade under reduced motion).
 - **Previous prompt** / **Next prompt** (`Mod+Shift+[` / `Mod+Shift+]`) step through the chat that
@@ -418,9 +420,9 @@ One set for both themes: the card is island black wherever it shows.
   first loads the page before and lands on the prompt there, on past the last goes to the end. The
   ticks take the keyboard too: ↑ ↓ Home End move, Enter jumps, Escape leaves.
 - The command palette lists up to five prompts holding every word typed, newest first.
-- On coarse pointers there is nothing to point at: a round button at the chat's lower right opens
-  the prompts as a bottom sheet (number, first line, time and turn line; the one being read tinted),
-  and a tap jumps there. The terminal lens has no rail: herdr's scrollback says nothing of prompts.
+- On coarse pointers there is nothing to point at: a round **Show prompts** button at the chat's
+  lower right opens the prompts as a modal bottom sheet (number, first line, time and turn line; the
+  one being read tinted; Tab stays inside it), and a tap jumps there. The terminal lens has no rail: herdr's scrollback says nothing of prompts.
 - Adapted from oikon48's prompt-rail (MIT, see NOTICE).
 
 ### Work block (`.work-block`, `.work-row`)

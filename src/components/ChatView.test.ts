@@ -70,6 +70,24 @@ describe("Chat view", () => {
     expect(render(model({ view: scrollback }))).not.toContain("prompt-rail");
   });
 
+  it("marks a request sent from a pane's conversation with that pane, and offers it while it is open", () => {
+    // a time of its own: the prompt rail marks a prompt's row with its time, which `user` makes of the text
+    const asked = { ...user("[from pane w2:p3]\n\nFix the doubled login error."), ts: "2026-10-11T10:00:00Z" };
+    const open = render(model({ view: { ...EMPTY_VIEW, turns: [asked] }, askedFrom: new Map([["w2:p3", "herdr-fleet · claude"]]) }));
+    expect(open).toContain("From a pane");
+    expect(open).toContain("herdr-fleet · claude");
+    expect(open).toContain(">Open pane</button>");
+    expect(open).toContain("Fix the doubled login error.");
+    expect(open).not.toContain("[from pane");
+    // it is a prompt of the person's: its row carries the time the prompt rail jumps to
+    expect(open).toContain('data-turn-ts="2026-10-11T10:00:00Z"');
+    const closed = render(model({ view: { ...EMPTY_VIEW, turns: [asked] }, askedFrom: new Map([["w2:p3", null]]) }));
+    expect(closed).toContain("Closed pane");
+    expect(closed).not.toContain("Open pane");
+    // a message the person typed on the Fleet screen has no such line
+    expect(render(model({ view: { ...EMPTY_VIEW, turns: [user("What is left?")] } }))).not.toContain("From a pane");
+  });
+
   it("says the pane is reconnecting, and ended", () => {
     expect(render(model({ connected: false }))).toContain("reconnecting…");
     expect(render(model({ ended: true }))).toContain("terminal ended");

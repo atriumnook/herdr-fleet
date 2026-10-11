@@ -59,6 +59,7 @@ import { MachineManager } from "./machines.ts";
 import { discoverAgents } from "./fleet/agents.ts";
 import { handleFleetRequest } from "./fleet/api.ts";
 import { FleetSettingsStore } from "./fleet/settings.ts";
+import { EntranceStore } from "./fleet/entrances.ts";
 import { loadConfig, loadStandingOrders } from "./fleet/config.ts";
 import { Orchestrator, type OrchestratorDeps } from "./fleet/orchestrator.ts";
 import { agyProbe, claudeProbe, codexProbe, UsageTracker } from "./fleet/usage.ts";
@@ -287,7 +288,7 @@ export function createServer(
     /** whether this runtime can run the PTY sidecar; unset, server/pty/sidecar.ts says. Tests give a runtime without Node or node-pty, while herdr keeps its own answer. */
     sidecar?: boolean;
     /** the fleet's runtime (herdr unless a test stands in one), roles and config; unset, the real ones */
-    fleet?: Partial<Pick<OrchestratorDeps, "runtime" | "agents" | "config" | "standingOrders">> & { usage?: UsageTracker; userDir?: string };
+    fleet?: Partial<Pick<OrchestratorDeps, "runtime" | "agents" | "config" | "standingOrders">> & { usage?: UsageTracker; userDir?: string; homeDir?: string };
   } = {},
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
@@ -490,6 +491,8 @@ export function createServer(
   const explainSlots = new ExplainSlots(EXPLAIN_CONCURRENCY);
   /** the person's fleet.json, read and written by the Settings page */
   const settings = new FleetSettingsStore({ agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)), usage, userDir: options.fleet?.userDir });
+  /** the fleet skill in the person's skill folders, put there from the Settings page */
+  const entrances = new EntranceStore({ command: FLEET_COMMAND, url: () => `http://127.0.0.1:${listeningPort}`, tokenRequired: token !== "", home: options.fleet?.homeDir });
 
   function broadcast(paneId: string, message: ServerMessage): void {
     const attachment = attachments.get(paneId);
@@ -1008,7 +1011,7 @@ export function createServer(
       if (pathname === "/api/fleet" || pathname.startsWith("/api/fleet/")) {
         // a spawn waits for the agent to start, a wait for its turn: Bun's 10 s idle limit is too short
         bunServer.timeout(request, 0);
-        return handleFleetRequest(request, url, fleet, usage, settings);
+        return handleFleetRequest(request, url, fleet, usage, settings, entrances);
       }
       if (pathname === "/api/machines" || pathname.startsWith("/api/machines/")) {
         if (!machines) return jsonResponse({ error: { code: "bridge_only", message: "Manage PCs on the connection server" } }, 404);

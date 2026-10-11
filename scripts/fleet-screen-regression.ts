@@ -27,7 +27,8 @@ const BEHAVIOUR: Record<string, AgentState> = {
  * agent CLI starts) in real herdr panes: the project list, the project conversation, the Overview
  * with the threads by what they ask of the person, a thread opened beside it and large, one of its
  * helpers, its change with a comment waiting, its checks and the yes a discard asks for, a thread
- * marked done, the Settings page writing fleet.json (a folder of its own, never the person's), and
+ * marked done, the Settings page writing fleet.json and putting the fleet skill into a skill folder
+ * (folders of its own, never the person's), and
  * on a phone the Overview as a sheet, a thread with its change on the whole screen and the Settings
  * page. With FLEET_SCREENSHOTS set to a folder, it saves what it saw there.
  */
@@ -88,10 +89,14 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     usage.record("claude", { readAt: now, windows: [{ name: "5h", usedPercent: 42, resetsAt: now + 3_600_000 }, { name: "weekly", usedPercent: 28, resetsAt: now + 86_400_000 }] });
     usage.record("codex", { readAt: now, windows: [{ name: "5h", usedPercent: 92, resetsAt: now + 3_600_000 }, { name: "weekly", usedPercent: 64, resetsAt: now + 86_400_000 }] });
     const stateDir = join(root, "state");
+    // a skill of the person's own where agy reads skills: the fleet must leave it alone
+    const ownSkill = join(root, "home", ".gemini", "config", "skills", "herdr-fleet", "SKILL.md");
+    mkdirSync(join(ownSkill, ".."), { recursive: true });
+    writeFileSync(ownSkill, "---\nname: herdr-fleet\ndescription: my own\n---\n");
     server = createServer({
       port: 0, hostname: "127.0.0.1", token: "", stateDir,
       fleet: {
-        runtime, usage, userDir: join(root, "config"),
+        runtime, usage, userDir: join(root, "config"), homeDir: join(root, "home"),
         config: () => ({ ...DEFAULT_CONFIG, closeOnSettle: false }),
         agents: () => [
           { name: "coordinator", description: "coordinates", agent: "claude", interactive: true, spawning: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" },
@@ -116,7 +121,7 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     writeFileSync(join(stateDir, "fleet-results", readme.id, "contract.md"), "- [x] A1 steps run — evidence: started\n- [x] A2 reviewed — evidence: no findings\n");
     await thread("Weekly usage window");
     await post("/spawn", { role: "reviewer", name: "review", task: "t", cwd: repo, group: readme.group });
-    await post("/spawn", { role: "worker", name: "bench", task: "t", cwd: root, group: "fleet-bench" });
+    const bench = await post("/spawn", { role: "worker", name: "bench", task: "t", cwd: root, group: "fleet-bench" });
 
     const desktop = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "en-US" });
     await desktop.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({})));
@@ -213,6 +218,15 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     assert.deepEqual(JSON.parse(readFileSync(settingsFile, "utf8")).roles.lead, { agent: "claude", model: "claude:", fallbackModels: ["codex:"] });
     assert.match(await settingsPage.locator(".fleet-role.is-open .fleet-role-now").textContent() ?? "", /Now: claude/);
     await save(page, shots, "fleet-settings-dark");
+    // no conversation is open on the Settings page: the prompt steps' keys are left alone
+    await page.evaluate(() => {
+      (document.activeElement as HTMLElement | null)?.blur();
+      const seen = { prevented: null as boolean | null };
+      (window as unknown as { stepKey: typeof seen }).stepKey = seen;
+      window.addEventListener("keydown", (event) => { if (event.code === "BracketLeft") seen.prevented = event.defaultPrevented; });
+    });
+    await page.keyboard.press("Control+Shift+BracketLeft");
+    assert.equal(await page.evaluate(() => (window as unknown as { stepKey: { prevented: boolean | null } }).stepKey.prevented), false, "no prompt to step to with no conversation open");
     await settingsPage.getByRole("button", { name: "Projects", exact: true }).click();
     const setup = settingsPage.getByRole("textbox", { name: "Setup command for repo" });
     await setup.fill("bun install --ignore-scripts");
@@ -225,6 +239,17 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await settingsPage.getByRole("button", { name: "Usage", exact: true }).click();
     await settingsPage.locator(".fleet-account.is-skipped", { hasText: "codex" }).waitFor();
     await save(page, shots, "fleet-settings-usage-dark");
+    // Entrances: Install puts the fleet skill where pi, codex and cursor read skills; the person's own file stays
+    await settingsPage.getByRole("button", { name: "Entrances", exact: true }).click();
+    const agentsRow = settingsPage.locator(".fleet-setting-entrance", { hasText: "/.agents/skills/herdr-fleet/SKILL.md" });
+    await agentsRow.getByRole("button", { name: "Install" }).click();
+    await agentsRow.locator(".fleet-entrance-installed").waitFor();
+    assert.match(readFileSync(join(root, "home", ".agents", "skills", "herdr-fleet", "SKILL.md"), "utf8"), /fleet\.ts guide\n/);
+    const takenRow = settingsPage.locator(".fleet-setting-entrance", { hasText: "/.gemini/config/skills/herdr-fleet/SKILL.md" });
+    await takenRow.locator(".fleet-entrance-taken").waitFor();
+    assert.equal(await takenRow.getByRole("button").count(), 0, "a file the fleet did not write offers no Install or Remove");
+    assert.match(readFileSync(ownSkill, "utf8"), /my own/);
+    await save(page, shots, "fleet-settings-entrances-dark");
     await settingsPage.getByRole("button", { name: "Close settings" }).click();
     await screen.locator(".fleet-main .fleet-chat").waitFor();
 
@@ -235,6 +260,31 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await screen.waitFor({ state: "detached" });
     assert.equal(await page.locator(".screen-switch button[aria-pressed='true']").getAttribute("title"), "Pane");
     await page.locator(".view-switch").waitFor();
+
+    // a request sent from a pane's conversation names that pane, and Open pane opens it while it is there
+    // (the README lead's pane is real; bench's is a stand-in id, as a pane that closed)
+    await page.route(`**/api/pane/conversation?pane_id=${encodeURIComponent(coordinator.paneId)}*`, (route) => route.fulfill({
+      contentType: "application/json",
+      body: JSON.stringify({ history_id: "asked", source: "claude-transcript", cursor: null, turns: [
+        { role: "user", ts: "2026-10-11T09:00:00.000Z", parts: [{ kind: "text", text: `[from pane ${bench.paneId}]\n\nTidy the bench script.` }] },
+        { role: "assistant", ts: "2026-10-11T09:00:05.000Z", parts: [{ kind: "text", text: "Started a thread." }] },
+        { role: "user", ts: "2026-10-11T09:01:00.000Z", parts: [{ kind: "text", text: `[from pane ${readme.paneId}]\n\nFix the doubled login error.` }] },
+      ] }),
+    }));
+    await page.locator(".fleet-button").click();
+    await screen.locator(".fleet-main .chat-asked-from").first().waitFor();
+    const closedPane = screen.locator(".fleet-main .chat-turn-user", { hasText: "Tidy the bench script." }).locator(".chat-asked-from");
+    assert.match(await closedPane.textContent() ?? "", /From a pane\s*Closed pane/);
+    assert.equal(await closedPane.getByRole("button").count(), 0, "a pane that closed is not offered");
+    const asked = screen.locator(".fleet-main .chat-turn-user", { hasText: "Fix the doubled login error." }).locator(".chat-asked-from");
+    assert.match(await asked.textContent() ?? "", /From a pane\s*herdr-fleet-test-Update-the-README/);
+    assert.equal(await screen.locator(".fleet-main .chat-bubble", { hasText: "Fix the doubled login error." }).count(), 1);
+    assert.equal(await screen.locator(".fleet-main .chat-bubble", { hasText: "[from pane" }).count(), 0, "the opening line is not shown as the message");
+    await save(page, shots, "fleet-asked-from-pane-dark");
+    await asked.getByRole("button", { name: "Open pane" }).click();
+    await screen.waitFor({ state: "detached" });
+    assert.equal(await page.locator(".screen-switch button[aria-pressed='true']").getAttribute("title"), "Pane");
+    assert.equal(JSON.parse(await page.evaluate(() => sessionStorage.getItem("herdr-fleet:selection") ?? "{}")).pane_id, readme.paneId);
     assert.deepEqual(errors, []);
     await desktop.close();
 

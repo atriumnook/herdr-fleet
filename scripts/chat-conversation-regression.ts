@@ -78,8 +78,10 @@ export async function checkChatConversation(browser: Browser, origin: string): P
     await page.locator(".conn-live").waitFor();
     await until(async () => JSON.stringify(await shown()) === JSON.stringify(range(21, 30)), "the newest page");
 
-    // an earlier page goes in above, and the newest is polled from where it started
-    await page.locator(".chat-older").click();
+    // an earlier page goes in above, and the newest is polled from where it started. The button is
+    // pressed where it is: a click that first scrolled it into view would bring the chat near its top,
+    // which asks for the page before by itself, and the two would race (that path is checked below)
+    await page.locator(".chat-older").dispatchEvent("click");
     await until(async () => JSON.stringify(await shown()) === JSON.stringify(range(11, 30)), "the earlier page above");
     await until(async () => requests.at(-1) === `from=c:20`, "polled from the held start");
     console.log("PASS an earlier page goes in above the newest, which is polled from where it started");
@@ -109,9 +111,10 @@ export async function checkChatConversation(browser: Browser, origin: string): P
     // the transcript replaced, its cursors still valid: the new history id alone drops the earlier pages
     history = "h2";
     await until(async () => JSON.stringify(await shown()) === JSON.stringify(range(37, 46)), "a new history starts from its newest page");
-    // a cursor the transcript no longer knows (409) starts over too
-    await page.locator(".chat-older").click();
-    await until(async () => (await shown())[0] === 27, "an earlier page of the new history");
+    // a cursor the transcript no longer knows (409) starts over too; the page before comes in by
+    // itself when the reader scrolls near the top
+    await page.locator(".chat-view").evaluate((node) => { node.scrollTop = 0; node.dispatchEvent(new Event("scroll")); });
+    await until(async () => (await shown())[0] === 27, "an earlier page of the new history, read on scrolling to the top");
     count = 12;
     await until(async () => JSON.stringify(await shown()) === JSON.stringify(range(3, 12)), "a cursor the transcript no longer knows starts over");
     console.log("PASS a replaced transcript (a new history id, or a cursor it no longer knows) starts over");

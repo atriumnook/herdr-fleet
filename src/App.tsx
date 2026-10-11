@@ -35,7 +35,7 @@ import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
 import { useSelected } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
-import type { UiEvent } from "./ui/state.ts";
+import type { Lens, UiEvent } from "./ui/state.ts";
 
 const APP_TITLE = "herdr fleet";
 /**
@@ -60,6 +60,11 @@ function storedView(paneId: string, machineId: string, hasAgent: boolean | null,
   if (defaultView === "chat") return hasAgent !== false ? "chat" : "terminal";
   if (defaultView === "terminal") return "terminal";
   return hasAgent !== false && window.matchMedia?.("(pointer: coarse)").matches === true ? "chat" : "terminal";
+}
+
+/** The chat that holds the focus: the one beside on the Fleet screen, else the pane's (the keys and the palette's prompts go to it). */
+function focusedChat(): Lens {
+  return document.activeElement?.closest('[data-chat-lens="side"]') != null ? "side" : "main";
 }
 
 function Brand() {
@@ -223,8 +228,10 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     document.title = selectedTitle ? `${selectedTitle} · herdr` : APP_TITLE;
   }, [selectedTitle]);
 
-  // a chat shows: the Fleet screen's conversation, or the chat lens on the Pane screen's pane
-  const chatShows = screen === "fleet" || (selectedPaneId !== null && view === "chat");
+  // a chat shows and has its conversation open: the Pane screen's chat lens, the Fleet screen's
+  // project conversation or the thread beside it (a chat opens itself while it is mounted). The
+  // Fleet screen with no conversation open has no prompt to step to.
+  const chatShows = useSelected((state) => state.chat.open !== null || state.side.chat.open !== null);
   const actions = useMemo<AppActions>(
     () => ({
       selectPane,
@@ -236,14 +243,12 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         if (next) selectPane(next.pane_id);
       },
       stepPrompt: chatShows ? (direction) => {
-        // the chat beside on the Fleet screen when the focus is in it, else the pane's
-        const side = document.activeElement?.closest('[data-chat-lens="side"]') != null;
-        emitRef.current({ type: "prompt-rail-step", direction, ...(side ? { lens: "side" as const } : {}) });
+        emitRef.current({ type: "prompt-rail-step", direction, ...(focusedChat() === "side" ? { lens: "side" as const } : {}) });
       } : null,
       setView,
       toggleView: () => setView(view === "chat" ? "terminal" : "chat"),
       openNewSession: () => openNewSession(selectedMachineId),
-      openPalette: () => emitRef.current({ type: "open-palette" }),
+      openPalette: () => emitRef.current({ type: "open-palette", chat: focusedChat() }),
       openSettings: () => {
         setDrawerOpen(false);
         emitRef.current({ type: "open-settings" });

@@ -1,4 +1,4 @@
-import type { AgentRun, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
 import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, ExplainRequest, ExplainResponse, FileInfo, InteractivePrompt, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
@@ -70,6 +70,12 @@ export interface FleetSettingsState extends Reading<FleetSettings> {
   saving: number;
   seq: number;
   saveError?: string;
+}
+
+/** The skill folders as the Settings page last read them; `busy` is the folder being changed. */
+export interface FleetEntrancesState extends Reading<FleetEntrances> {
+  busy: FleetEntrance["id"] | null;
+  changeError?: string;
 }
 
 export type ThreadTab = "chat" | "changes" | "checks";
@@ -302,7 +308,8 @@ export type NewSessionState =
   };
 
 /** The command palette, on the selected pane's PC: the search typed, and the panes opened last there. */
-export type PaletteState = { open: false } | { open: true; machineId: string; query: string; recent: string[] };
+/** `chat`: the chat whose prompts it searches, the one that held the focus when it opened */
+export type PaletteState = { open: false } | { open: true; machineId: string; query: string; recent: string[]; chat: Lens };
 
 /** The sign-in screen while the server does not know this browser: a pairing code, or the shared token. */
 export interface GateState {
@@ -628,6 +635,7 @@ export interface UiState {
   fleetView: FleetViewState;
   landing: LandingState;
   fleetSettings: FleetSettingsState;
+  fleetEntrances: FleetEntrancesState;
   /** this device may change things (a paired watch-only device may not: the server answers read_only) */
   canAct: boolean;
   /** the pane shown: on which PC, and whether the shell picked it itself (the one selected closed) */
@@ -706,6 +714,11 @@ type BareEvent =
   | { type: "fleet-settings-change"; patch: FleetSettingsPatch }
   | { type: "fleet-settings-saved"; seq: number; settings: FleetSettings }
   | { type: "fleet-settings-save-failed"; seq: number; message: string }
+  | { type: "fleet-entrances-loaded"; entrances: FleetEntrances }
+  | { type: "fleet-entrances-failed"; message: string }
+  | { type: "fleet-entrance"; id: FleetEntrance["id"]; action: "install" | "remove" }
+  | { type: "fleet-entrance-changed"; entrances: FleetEntrances }
+  | { type: "fleet-entrance-failed"; message: string }
   | { type: "landing-diff-loaded"; runId: string; diff: { diff: string; truncated: boolean } }
   | { type: "landing-diff-failed"; runId: string; message: string }
   | { type: "landing-checks-loaded"; runId: string; checks: LandingChecks }
@@ -718,6 +731,8 @@ type BareEvent =
   | { type: "landing-confirm" }
   | { type: "landing-cancel" }
   | { type: "open-pane"; runId: string }
+  /** a pane of this PC on the Pane screen: the one a request to a coordinator was sent from */
+  | { type: "go-to-pane"; paneId: string }
   | { type: "interrupt-run"; runId: string }
   | { type: "close-done"; group: string }
   | { type: "clear-cooldown"; key: string }
@@ -802,7 +817,8 @@ type BareEvent =
   /** `agentError`: why the agent asked for did not start; the pane exists all the same */
   | { type: "new-session-created"; paneId: string; agentError: string | null; seq: number }
   | { type: "new-session-failed"; message: string; invalidCwd: boolean; seq: number }
-  | { type: "open-palette" }
+  /** `chat`: the chat that holds the focus (the one beside on the Fleet screen), else the pane's */
+  | { type: "open-palette"; chat?: Lens }
   | { type: "close-palette" }
   | { type: "palette-query"; text: string }
   | { type: "palette-recent"; machineId: string; recent: string[] }
@@ -1007,6 +1023,8 @@ type BareEffect =
   | { kind: "load-landing-checks"; runId: string }
   | { kind: "load-fleet-settings"; cwd: string | null }
   | { kind: "save-fleet-settings"; cwd: string | null; patch: FleetSettingsPatch; seq: number }
+  | { kind: "load-fleet-entrances" }
+  | { kind: "change-fleet-entrance"; id: FleetEntrance["id"]; action: "install" | "remove" }
   | { kind: "save-settings"; settings: Settings }
   /** every pane's own lens on this device is forgotten */
   | { kind: "forget-pane-views" }
@@ -1100,6 +1118,7 @@ export const INITIAL_STATE: UiState = {
   fleetView: { project: null, overview: true, open: null, expanded: false, tab: "chat", settings: false },
   landing: NO_LANDING,
   fleetSettings: { status: "idle", data: null, cwd: null, saving: 0, seq: 0 },
+  fleetEntrances: { status: "idle", data: null, busy: null },
   selection: { machineId: "local", paneId: null, auto: false },
   canAct: true,
   settings: DEFAULT_SETTINGS,
@@ -1283,7 +1302,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return newSessionTransition(state, event, effects);
     case "open-palette":
       effects.push({ kind: "load-recent", machineId: state.selection.machineId });
-      return next({ palette: { open: true, machineId: state.selection.machineId, query: "", recent: [] } });
+      return next({ palette: { open: true, machineId: state.selection.machineId, query: "", recent: [], chat: event.chat ?? "main" } });
     case "close-palette":
       return next(state.palette.open ? { palette: { open: false } } : {});
     case "palette-query":
@@ -1295,6 +1314,8 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return next({ screen: "pane", palette: { open: false }, ...pick(state, state.palette.machineId, event.paneId, effects) });
     case "palette-pick-prompt":
       if (!state.palette.open) return next({});
+      // the prompt is the searched chat's: the pane's, or the one beside
+      if (state.palette.chat === "side") return next({ palette: { open: false }, side: { ...state.side, chat: seekPrompt(state.side.chat, { key: event.key }) } });
       return next({ palette: { open: false }, chat: seekPrompt(state.chat, { key: event.key }) });
     case "prompt-rail-step":
       return next({ chat: seekPrompt(state.chat, event.direction) });
@@ -1463,12 +1484,27 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "fleet-settings": {
       if (!event.open) return next(state.fleetView.settings ? { fleetView: { ...state.fleetView, settings: false } } : {});
       const cwd = event.cwd ?? null;
-      effects.push({ kind: "load-fleet-settings", cwd });
+      effects.push({ kind: "load-fleet-settings", cwd }, { kind: "load-fleet-entrances" });
       return next({
         fleetView: { ...state.fleetView, settings: true, open: null, expanded: false, tab: "chat" },
         fleetSettings: { ...state.fleetSettings, cwd, status: "loading", error: undefined, saveError: undefined, ...(state.fleetSettings.cwd === cwd ? {} : { data: null }) },
+        fleetEntrances: { ...state.fleetEntrances, status: "loading", error: undefined, changeError: undefined },
       });
     }
+    case "fleet-entrances-loaded":
+      return next({ fleetEntrances: { ...state.fleetEntrances, status: "ready", data: event.entrances, error: undefined } });
+    case "fleet-entrances-failed":
+      return next({ fleetEntrances: { ...state.fleetEntrances, status: "error", error: event.message } });
+    case "fleet-entrance": {
+      // one folder at a time: a second press waits for the first answer
+      if (!state.canAct || state.fleetEntrances.busy !== null) return next({});
+      effects.push({ kind: "change-fleet-entrance", id: event.id, action: event.action });
+      return next({ fleetEntrances: { ...state.fleetEntrances, busy: event.id, changeError: undefined } });
+    }
+    case "fleet-entrance-changed":
+      return next({ fleetEntrances: { ...state.fleetEntrances, busy: null, status: "ready", data: event.entrances } });
+    case "fleet-entrance-failed":
+      return next({ fleetEntrances: { ...state.fleetEntrances, busy: null, changeError: event.message } });
     case "fleet-settings-loaded":
       return next({ fleetSettings: { ...state.fleetSettings, status: "ready", data: event.settings, error: undefined } });
     case "fleet-settings-failed":
@@ -1552,6 +1588,10 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       if (!run || isEnded(run)) return next({});
       // a fleet run's pane lives on this PC
       return next({ screen: "pane", ...pick(state, "local", run.paneId, effects) });
+    }
+    case "go-to-pane": {
+      const there = state.machines.list.find((machine) => machine.id === "local")?.snapshot?.panes.some((pane) => pane.pane_id === event.paneId);
+      return there ? next({ screen: "pane", ...pick(state, "local", event.paneId, effects) }) : next({});
     }
     case "interrupt-run":
       return request(state, { kind: "interrupt", runId: event.runId });

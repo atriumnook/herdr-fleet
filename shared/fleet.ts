@@ -258,3 +258,32 @@ export interface FleetSettingsPatch {
   /** an empty setup command removes it */
   projects?: Record<string, { setup: string }>;
 }
+
+/**
+ * A folder agent CLIs read skills from, where the Settings page puts the fleet skill: with it, an
+ * agent in a pane's conversation hands work to the project's coordinator.
+ */
+export interface FleetEntrance {
+  id: "claude" | "agents" | "gemini";
+  /** the skill's file, absolute */
+  file: string;
+  /** the CLIs that read skills from this folder */
+  readers: FleetAgentKind[];
+  /** installed: as the fleet writes it now; outdated: the fleet wrote it for another command or address; taken: a file the fleet did not write is there */
+  state: "installed" | "missing" | "outdated" | "taken";
+}
+
+export interface FleetEntrances {
+  entrances: FleetEntrance[];
+  /** the server wants a token, which the skill does not carry: a pane needs HERDR_FLEET_TOKEN set */
+  tokenRequired: boolean;
+}
+
+/** How a task sent from a pane's conversation opens (the fleet skill's `fleet project`), so the coordinator and the Fleet screen tell where it came from. */
+export const FROM_PANE = "[from pane ";
+
+/** The pane a message to a coordinator was sent from, and the message without that opening line; none for one the person typed on the Fleet screen. */
+export function fromPane(text: string): { paneId: string; text: string } | null {
+  const match = /^\[from pane ([\w:.-]{1,64})\]\n\n/.exec(text);
+  return match ? { paneId: match[1]!, text: text.slice(match[0].length) } : null;
+}

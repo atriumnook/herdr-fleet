@@ -12,7 +12,7 @@ import { SHORTCUTS, formatKeys, type ShortcutId } from "../lib/shortcuts.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
 import { placeLine } from "../lib/paneName.ts";
-import { promptTitle, type RailEntry } from "../lib/promptRail.ts";
+import { entryLine, promptTitle, type RailEntry } from "../lib/promptRail.ts";
 import { t } from "../lib/i18n.ts";
 
 /** The actions the palette lists; the shell runs them. */
@@ -29,7 +29,7 @@ export interface CommandPaletteModel {
   /** the actions this device has now (no bell once alerts are on, no sign-out without a token or pairing) */
   /** `prompts`: a chat shows, so its prompts can be searched */
   offers: { notifications: boolean; lock: boolean; files: boolean; pane: boolean; prompts: boolean };
-  /** the open chat's prompts that hold the words searched for, newest first */
+  /** the searched chat's prompts that hold the words searched for, newest first */
   prompts: RailEntry[];
 }
 
@@ -172,7 +172,7 @@ export function CommandPalette({ model, emit }: { model: CommandPaletteModel; em
           {prompts.map((entry, promptIndex) => {
             const index = panes.length + promptIndex;
             return <button key={entry.key} id={`palette-item-${index}`} type="button" role="option" className="menu-item palette-prompt" aria-selected={activeIndex === index} onMouseEnter={() => setActiveIndex(index)} onClick={() => runPrompt(entry)}>
-              <MessageSquareText /><span className="menu-item-main"><span className="palette-row-title">{promptTitle(entry)}</span>{entry.line.length > 0 && <span className="palette-row-subtitle">{entry.line}</span>}</span>
+              <MessageSquareText /><span className="menu-item-main"><span className="palette-row-title">{promptTitle(entry)}</span>{entryLine(entry).length > 0 && <span className="palette-row-subtitle">{entryLine(entry)}</span>}</span>
             </button>;
           })}
           {visibleActions.length > 0 && <div className="menu-heading">{t("Actions")}</div>}
