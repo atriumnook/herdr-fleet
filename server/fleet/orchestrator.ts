@@ -7,6 +7,8 @@ import { findAgent } from "./agents.ts";
 import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
 import { contractItems, handoffStatus, threadState, type LandAction, type LandingChecks, type LineComment, type PullRequest } from "../../shared/fleet.ts";
 import { readPullRequest, type PullRequestReading } from "./github.ts";
+import { checkAnswer, planAnswerMessage, preparePlan, readPlan, writePlan } from "./plan.ts";
+import { planAsks, type Plan } from "../../shared/plan.ts";
 import { branchHead, branchState, diffStat, diffText, excludeWorktrees, gitBranch, gitHead, gitRoot, isMerged, removeThread, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
@@ -685,6 +687,63 @@ export class Orchestrator {
     return { ...this.get(run.id) };
   }
 
+  // ---- a thread's plan -------------------------------------------------------------------------
+
+  /** A thread's lead, which alone writes a plan for the person. */
+  private planner(target: string, group?: string): AgentRun & { project: string } {
+    const run = this.get(target, group);
+    if (!isThread(run)) throw new FleetError("not_a_thread", `${run.name} is not a thread's lead; only a thread's lead writes a plan.`);
+    return run as AgentRun & { project: string };
+  }
+
+  /**
+   * The plan a thread's lead hands over (`fleet plan`): checked, its code read from the thread's
+   * worktree, and kept beside the lead's result file in place of the one before. The thread then
+   * waits on the person until they answer it on the Fleet screen.
+   */
+  submitPlan(target: string, value: unknown, group?: string): Plan {
+    const run = this.planner(target, group);
+    const dir = join(this.deps.resultsDir, run.id);
+    const plan = preparePlan(value, run.cwd, (readPlan(dir)?.version ?? 0) + 1);
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    writePlan(dir, plan);
+    run.plan = { version: plan.version, asks: planAsks(plan).length };
+    run.updatedAt = Date.now();
+    this.save(run);
+    return plan;
+  }
+
+  /** The thread's plan as its lead last handed it over. */
+  plan(target: string, group?: string): Plan {
+    const run = this.planner(target, group);
+    const plan = readPlan(join(this.deps.resultsDir, run.id));
+    if (!plan) throw new FleetError("no_plan", `${run.name} has written no plan.`);
+    return plan;
+  }
+
+  /**
+   * The person's answers to the plan, sent to the lead as its next task. The lead must be free: its
+   * turn ended, as for the landing steps it takes. An answer to an older version is refused.
+   */
+  async answerPlan(target: string, value: unknown, group?: string, signal?: AbortSignal): Promise<AgentRun> {
+    const run = this.planner(target, group);
+    const dir = join(this.deps.resultsDir, run.id);
+    const plan = this.plan(run.id);
+    const answer = checkAnswer(plan, value);
+    if (plan.answeredAt !== undefined) throw new FleetError("plan_answered", `The person already answered version ${plan.version} of the plan of ${run.name}.`);
+    if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
+    await this.reconcileLocks.get(run.id);
+    if (this.pending.has(run.id)) throw new FleetError("run_busy", `The lead of ${run.name} is working; wait for its turn to end.`);
+    // the turn is under way before anything awaits again, so a second answer finds the lead busy;
+    // the plan counts as answered once the message reached the lead
+    await this.submit(run, planAnswerMessage(plan, answer), signal);
+    const answeredAt = Date.now();
+    writePlan(dir, { ...plan, answeredAt, answer });
+    run.plan = { version: plan.version, asks: planAsks(plan).length, answeredAt };
+    this.save(run);
+    return { ...run };
+  }
+
   /** The project's live coordinator: the merges happen in the main checkout it sits on. */
   private projectCoordinator(thread: AgentRun): AgentRun | undefined {
     return this.deps.registry.all().find((run) => run.role === PROJECT_ROLE && run.project === thread.project && isLive(run));
@@ -1273,7 +1332,10 @@ const QUESTION_MAX_CHARS = 4000;
 export function threadQuestion(run: AgentRun): string | undefined {
   if (run.state === "failed" || !run.result || !/^BLOCKED\b/.test(handoffStatus(run.result) ?? "")) return undefined;
   const handoff = run.result.length > QUESTION_MAX_CHARS ? `${run.result.slice(0, QUESTION_MAX_CHARS)}\n[cut at ${QUESTION_MAX_CHARS} characters]` : run.result;
-  return `${threadLabel(run)} asks the person:\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}`;
+  const plan = run.plan && run.plan.answeredAt === undefined
+    ? `\nIts plan (version ${run.plan.version}, ${run.plan.asks} decision${run.plan.asks === 1 ? "" : "s"}) waits for the person in the thread's Plan tab on the Fleet screen: point them there, and do not answer it yourself.`
+    : "";
+  return `${threadLabel(run)} asks the person:\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}${plan}`;
 }
 
 /**

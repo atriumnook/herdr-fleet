@@ -137,6 +137,28 @@ describe("fleet API", () => {
     expect(await call("POST", `/runs/${thread.id}/land`, { action: "merge", group: thread.group })).toMatchObject({ status: 409, body: { error: { code: "thread_landed" } } });
   });
 
+  it("takes a thread lead's plan and shows it; the person's answers wait for the lead's turn to end", async () => {
+    const { call } = fleet();
+    const repo = join(resultsRoot, "plan");
+    Bun.spawnSync(["git", "init", "-q", "-b", "main", repo]);
+    Bun.spawnSync(["git", "-C", repo, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "base"]);
+    const thread = (await call("POST", "/threads", { title: "Fix", task: "t", cwd: repo })).body["run"];
+    const at = (path = "") => `/runs/${thread.id}/plan${path}`;
+    expect(await call("GET", at())).toMatchObject({ status: 404, body: { error: { code: "no_plan" } } });
+    const plan = { title: "Retry limit", claims: [{ text: "A failed send is tried three times.", exhibit: { kind: "list", items: ["three tries"] },
+      ask: { id: "limit", question: "How many?", options: [{ value: "three", label: "3" }, { value: "five", label: "5" }], recommended: "three" } }] };
+    expect((await call("POST", at(), { plan }, {})).status).toBe(403);
+    expect(await call("POST", at(), { plan: { title: "t" } })).toMatchObject({ status: 400, body: { error: { code: "invalid_plan" } } });
+    expect(await call("POST", at(), { plan: { ...plan, title: "x".repeat(70_000) } })).toMatchObject({ status: 400, body: { error: { code: "invalid_plan" } } });
+    expect(await call("POST", at(), { plan })).toMatchObject({ status: 201, body: { plan: { version: 1, title: "Retry limit" } } });
+    expect((await call("GET", at())).body["plan"]).toMatchObject({ version: 1 });
+    expect((await call("GET", `/runs/${thread.id}`)).body["run"].plan).toEqual({ version: 1, asks: 1 });
+    // the lead is still at work on its task
+    expect(await call("POST", at("/answer"), { answer: { version: 1 } })).toMatchObject({ status: 409, body: { error: { code: "run_busy" } } });
+    expect(await call("POST", at("/answer"), { answer: { version: 0 } })).toMatchObject({ status: 409, body: { error: { code: "plan_outdated" } } });
+    expect(await call("POST", at("/answer"), { answer: { version: 1, choices: { limit: "ten" } } })).toMatchObject({ status: 400, body: { error: { code: "invalid_answer" } } });
+  });
+
   it("reads the settings, and writes a change only with the fleet header", async () => {
     const { call } = fleet();
     const read = await call("GET", `/settings?cwd=${encodeURIComponent(resultsRoot)}`);

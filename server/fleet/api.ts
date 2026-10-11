@@ -3,6 +3,7 @@ import { isJsonObject, jsonResponse } from "../http.ts";
 import { isAgentKind } from "./adapters.ts";
 import { AgentWaitTimeoutError, type Orchestrator, type ThreadRequest } from "./orchestrator.ts";
 import { FleetError } from "./runtime.ts";
+import { PLAN_MAX_BYTES } from "./plan.ts";
 import type { Brief } from "./brief.ts";
 import type { FleetSettingsPatch, LandAction, LineComment } from "../../shared/fleet.ts";
 import type { SpawnRequest } from "./types.ts";
@@ -29,6 +30,9 @@ import type { FleetSettingsStore } from "./settings.ts";
  *  GET  /api/fleet/runs/:target/diff[?group=]     -> { diff, truncated }; a thread's change since it left its base branch
  *  GET  /api/fleet/runs/:target/landing[?group=]  -> { checks: LandingChecks }; asks git and GitHub (gh) now
  *  POST /api/fleet/runs/:target/land      { action, comments?, group? } -> { run }; a landing step the person pressed
+ *  GET  /api/fleet/runs/:target/plan[?group=]     -> { plan }; the plan the thread's lead handed over last (shared/plan.ts)
+ *  POST /api/fleet/runs/:target/plan      { plan, group? } -> 201 { plan }; a thread's lead hands over its plan (`fleet plan`)
+ *  POST /api/fleet/runs/:target/plan/answer { answer, group? } -> { run }; the person's answers, sent to the lead
  *  POST /api/fleet/close-done             { group? } -> { runs }
  *  GET  /api/fleet/usage                            -> { usage: UsageEntry[] }; what is known, asking no CLI
  *  POST /api/fleet/usage/refresh          { all? }   -> { usage }; asks the CLIs whose reading is stale (all with all: true).
@@ -115,6 +119,18 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
       if (parts.length === 2 && method === "GET") return jsonResponse({ run: fleet.get(target, group()) });
       if (parts.length === 3 && parts[2] === "diff" && method === "GET") return jsonResponse(await fleet.diff(target, group()));
       if (parts.length === 3 && parts[2] === "landing" && method === "GET") return jsonResponse({ checks: await fleet.checks(target, group()) });
+      if (parts[2] === "plan") {
+        if (parts.length === 3 && method === "GET") return jsonResponse({ plan: fleet.plan(target, group()) });
+        if (parts.length === 3 && method === "POST") {
+          const body = await readBody();
+          if (JSON.stringify(body["plan"] ?? null).length > PLAN_MAX_BYTES) throw new FleetError("invalid_plan", `The plan is larger than ${PLAN_MAX_BYTES} bytes.`);
+          return jsonResponse({ plan: fleet.submitPlan(target, body["plan"], group(body)) }, 201);
+        }
+        if (parts.length === 4 && parts[3] === "answer" && method === "POST") {
+          const body = await readBody();
+          return jsonResponse({ run: await fleet.answerPlan(target, body["answer"], group(body), request.signal) });
+        }
+      }
       if (parts.length === 3 && parts[2] === "read" && method === "GET") {
         const lines = query.get("lines");
         return jsonResponse({ text: await fleet.read(target, lines ? Math.max(1, Math.min(10_000, Number(lines) || 0)) : undefined, group()) });
@@ -242,7 +258,7 @@ function briefOf(value: unknown): Partial<Brief> | undefined {
 }
 
 const STATUS: Record<string, number> = {
-  run_not_found: 404, unknown_role: 404, not_a_thread: 409, thread_landed: 409, landing_busy: 409, run_busy: 409, no_pull_request: 409, diff_unavailable: 409, settings_unreadable: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
+  run_not_found: 404, unknown_role: 404, no_plan: 404, plan_outdated: 409, plan_answered: 409, not_a_thread: 409, thread_landed: 409, landing_busy: 409, run_busy: 409, no_pull_request: 409, diff_unavailable: 409, settings_unreadable: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
   agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429, scope_conflict: 409, setup_failed: 502,
 };
 

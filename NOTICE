@@ -13,3 +13,10 @@ agents/architect.md adapts ideas from pstack's architect skill (grounding first,
 designing twice, the design red flags), by Lauren Tan, licensed under the MIT License.
 
 Source:      https://github.com/cursor/plugins/tree/main/pstack/skills/architect
+
+The thread plan (shared/plan.ts, the Plan tab, agents/lead.md) takes its shape from the
+html-plan plugin's idea: a plan as a tree of claims (what, how, where), one exhibit per claim,
+each decision on the claim it changes, and one response sent back. No code of it is used; the
+plan is JSON the Web UI draws.
+
+Source:      https://github.com/anthropics/claude-plugins-community/tree/main/html-plan
