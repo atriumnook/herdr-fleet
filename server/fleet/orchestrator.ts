@@ -760,6 +760,11 @@ export class Orchestrator {
       if (sent.state === "blocked") throw new FleetError("agent_blocked", `The lead of ${run.name} is waiting on its screen (an approval or a question); answer it there, then send your answers again.`);
       throw new FleetError("answer_not_delivered", `The answers did not reach the lead of ${run.name}: ${sent.lastError ?? "its pane refused them"}.`);
     }
+    // the question the coordinator was still to hear was this plan: the person answered it
+    if (run.notice !== undefined) {
+      delete run.notice;
+      this.save(run);
+    }
     // the lead may have handed over a newer plan meanwhile: only the version answered is marked
     let current: Plan | undefined;
     try { current = readPlan(file); } catch { current = undefined; }

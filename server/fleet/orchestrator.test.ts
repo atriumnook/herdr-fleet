@@ -1492,6 +1492,22 @@ describe("plans", () => {
     fleet.stop();
   });
 
+  it("answered before the coordinator heard of them, are not passed on to it afterwards", async () => {
+    const { fleet, registry, root, to, turn } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    // the coordinator is at work, so the thread's question waits for it
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    fleet.submitPlan(thread.id, PLAN);
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "BLOCKED — the plan waits for the person");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.notice).toContain("Plan tab");
+    await fleet.answerPlan(thread.id, { version: 1 });
+    expect(registry.get(thread.id)!.notice).toBeUndefined();
+    await turn(coordinator, "idle");
+    expect(to(coordinator)).toEqual(["go"]);
+    fleet.stop();
+  });
+
   it("stay unanswered when the answers do not reach the lead: on its approval screen, or a prompt that failed", async () => {
     const { fleet, runtime, registry, root, planned } = project();
     const { thread } = await planned();
