@@ -1,6 +1,6 @@
 import "./test-herdr.ts"; // a herdr session of its own: nothing shows in the user's
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, Page } from "playwright-core";
@@ -27,8 +27,9 @@ const BEHAVIOUR: Record<string, AgentState> = {
  * agent CLI starts) in real herdr panes: the project list, the project conversation, the Overview
  * with the threads by what they ask of the person, a thread opened beside it and large, one of its
  * helpers, its change with a comment waiting, its checks and the yes a discard asks for, a thread
- * marked done, and on a phone the Overview as a sheet and a thread with its change on the whole
- * screen. With FLEET_SCREENSHOTS set to a folder, it saves what it saw there.
+ * marked done, the Settings page writing fleet.json (a folder of its own, never the person's), and
+ * on a phone the Overview as a sheet, a thread with its change on the whole screen and the Settings
+ * page. With FLEET_SCREENSHOTS set to a folder, it saves what it saw there.
  */
 export async function checkFleetScreen(browser: Browser): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-fleet-fleet-screen-"));
@@ -90,7 +91,7 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     server = createServer({
       port: 0, hostname: "127.0.0.1", token: "", stateDir,
       fleet: {
-        runtime, usage,
+        runtime, usage, userDir: join(root, "config"),
         config: () => ({ ...DEFAULT_CONFIG, closeOnSettle: false }),
         agents: () => [
           { name: "coordinator", description: "coordinates", agent: "claude", interactive: true, spawning: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" },
@@ -196,6 +197,32 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await screen.locator(".fleet-overview").getByRole("button", { name: "Back to threads" }).click();
     await screen.locator(".fleet-fold", { hasText: "Resolved 1" }).waitFor();
 
+    // the Settings page: a candidate added to the lead is written to fleet.json, and codex, 92% used, is passed over
+    const settingsFile = join(root, "config", "fleet.json");
+    await page.locator(".fleet-rail-settings").click();
+    const settingsPage = screen.locator(".fleet-settings");
+    await settingsPage.locator(".fleet-role", { hasText: "lead" }).waitFor();
+    await settingsPage.locator(".fleet-role-head", { hasText: "lead" }).click();
+    await settingsPage.getByRole("button", { name: "Add candidate" }).click();
+    await settingsPage.locator(".fleet-role.is-open .fleet-candidate.is-skipped", { hasText: "codex" }).waitFor();
+    assert.deepEqual(JSON.parse(readFileSync(settingsFile, "utf8")).roles.lead, { agent: "claude", model: "claude:", fallbackModels: ["codex:"] });
+    assert.match(await settingsPage.locator(".fleet-role.is-open .fleet-role-now").textContent() ?? "", /Now: claude/);
+    await save(page, shots, "fleet-settings-dark");
+    await settingsPage.getByRole("button", { name: "Projects", exact: true }).click();
+    const setup = settingsPage.getByRole("textbox", { name: "Setup command for repo" });
+    await setup.fill("bun install --ignore-scripts");
+    await setup.press("Enter");
+    for (let tries = 0; !readFileSync(settingsFile, "utf8").includes("ignore-scripts"); tries++) {
+      assert.ok(tries < 50, "the setup command reaches fleet.json");
+      await Bun.sleep(100);
+    }
+    assert.equal(JSON.parse(readFileSync(settingsFile, "utf8")).projects[repo].setup, "bun install --ignore-scripts");
+    await settingsPage.getByRole("button", { name: "Usage", exact: true }).click();
+    await settingsPage.locator(".fleet-account.is-skipped", { hasText: "codex" }).waitFor();
+    await save(page, shots, "fleet-settings-usage-dark");
+    await settingsPage.getByRole("button", { name: "Close settings" }).click();
+    await screen.locator(".fleet-main .fleet-chat").waitFor();
+
     // the agents outside every thread; Terminal takes the person to the coordinator's real pane
     await screen.locator(".fleet-overview").getByRole("button", { name: "Agents", exact: true }).click();
     await screen.locator(".fleet-run", { hasText: "bench" }).waitFor();
@@ -254,6 +281,16 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await phoneScreen.locator(".fleet-file.is-on", { hasText: "src/retry.ts" }).waitFor();
     assert.equal(await sideways(), 0, "a change does not push the screen sideways on a phone");
     await save(mobile, shots, "fleet-phone-changes-dark");
+    // the Settings page from the drawer, on the whole screen
+    await mobile.locator(".drawer-toggle").click();
+    await mobile.locator(".fleet-rail-settings").click();
+    await phoneScreen.locator(".fleet-settings .fleet-role", { hasText: "lead" }).waitFor();
+    // the drawer closes with the pick, and slides away
+    await mobile.locator(".drawer-toggle[aria-expanded='false']").waitFor();
+    await Bun.sleep(400);
+    await phoneScreen.locator(".fleet-role-head", { hasText: "lead" }).click();
+    assert.equal(await sideways(), 0, "the Settings page does not push the screen sideways on a phone");
+    await save(mobile, shots, "fleet-phone-settings-dark");
     assert.deepEqual(mobileErrors, []);
     await phone.close();
   } finally {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, FleetSettings, UsageEntry } from "../../shared/fleet.ts";
 import type { PairedDevice, RemoteAccess, ServerMessage } from "../../shared/protocol.ts";
 import type { Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts, type PaneSocketHandle, type TerminalSink } from "./mediator.ts";
@@ -7,6 +7,7 @@ import { INITIAL_STATE, type RequestAction } from "./state.ts";
 
 const run: AgentRun = { id: "a", name: "impl", role: "worker", agent: "pi", group: "g1", herdrName: "h", paneId: "w1:p1", cwd: "/w", state: "working", depth: 1, interactive: false, worktree: false, startedAt: 1, updatedAt: 1 };
 const access: RemoteAccess = { port: 7000, tailscale: { state: "running", dns_name: "pc.tail.ts.net", serving_url: "https://pc.tail.ts.net", serve_command: null, serve_url: null } };
+const SETTINGS: FleetSettings = { file: "/c/fleet.json", roles: [], maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [], readOnlyAgents: ["claude"] };
 const until = async (check: () => boolean) => { for (let i = 0; i < 100 && !check(); i++) await Bun.sleep(2); expect(check()).toBe(true); };
 
 function ports(overrides: Partial<EffectPorts> = {}) {
@@ -21,6 +22,8 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     runRequest: async (action) => { requests.push(action); },
     loadLandingDiff: async (runId) => ({ diff: `diff of ${runId}`, truncated: false }),
     loadLandingChecks: async () => ({ baseBranch: "main", uncommitted: [], ahead: 1, behind: 0 }),
+    loadFleetSettings: async () => SETTINGS,
+    saveFleetSettings: async () => ({ ...SETTINGS, maxConcurrent: 3 }),
     saveSettings: (settings) => { saved.push(settings); },
     forgetPaneViews: () => { forgotten.push(1); },
     loadRemoteAccess: async (): Promise<RemoteAccess> => access,

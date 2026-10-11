@@ -1,4 +1,4 @@
-import type { AgentRun, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
 import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, InteractivePrompt, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
@@ -57,6 +57,19 @@ export interface FleetViewState {
   expanded: boolean;
   /** what the open thread shows: its chat, its change, or what stands before it lands */
   tab: ThreadTab;
+  /** the Settings page shows in the middle, in place of the project */
+  settings: boolean;
+}
+
+/**
+ * The person's fleet.json as the Settings page last read it, for the project in `cwd`. Each change
+ * is saved at once; `saving` counts the saves in flight, and only the latest one's answer is kept.
+ */
+export interface FleetSettingsState extends Reading<FleetSettings> {
+  cwd: string | null;
+  saving: number;
+  seq: number;
+  saveError?: string;
 }
 
 export type ThreadTab = "chat" | "changes" | "checks";
@@ -598,6 +611,7 @@ export interface UiState {
   request: RequestState;
   fleetView: FleetViewState;
   landing: LandingState;
+  fleetSettings: FleetSettingsState;
   /** this device may change things (a paired watch-only device may not: the server answers read_only) */
   canAct: boolean;
   /** the pane shown: on which PC, and whether the shell picked it itself (the one selected closed) */
@@ -669,6 +683,13 @@ type BareEvent =
   | { type: "fleet-start-project"; task: string; cwd: string }
   | { type: "fleet-resolve"; runId: string; resolved: boolean }
   | { type: "fleet-tab"; tab: ThreadTab }
+  /** the Settings page opens for the project in `cwd` (none: the server's own folder), or closes */
+  | { type: "fleet-settings"; open: boolean; cwd?: string | null }
+  | { type: "fleet-settings-loaded"; settings: FleetSettings }
+  | { type: "fleet-settings-failed"; message: string }
+  | { type: "fleet-settings-change"; patch: FleetSettingsPatch }
+  | { type: "fleet-settings-saved"; seq: number; settings: FleetSettings }
+  | { type: "fleet-settings-save-failed"; seq: number; message: string }
   | { type: "landing-diff-loaded"; runId: string; diff: { diff: string; truncated: boolean } }
   | { type: "landing-diff-failed"; runId: string; message: string }
   | { type: "landing-checks-loaded"; runId: string; checks: LandingChecks }
@@ -961,6 +982,8 @@ type BareEffect =
   | { kind: "request"; action: RequestAction }
   | { kind: "load-landing-diff"; runId: string }
   | { kind: "load-landing-checks"; runId: string }
+  | { kind: "load-fleet-settings"; cwd: string | null }
+  | { kind: "save-fleet-settings"; cwd: string | null; patch: FleetSettingsPatch; seq: number }
   | { kind: "save-settings"; settings: Settings }
   /** every pane's own lens on this device is forgotten */
   | { kind: "forget-pane-views" }
@@ -1050,8 +1073,9 @@ export const INITIAL_STATE: UiState = {
   runs: { status: "idle", data: [], again: false },
   usage: { status: "idle", data: [], again: false, refreshing: false },
   request: { status: "none" },
-  fleetView: { project: null, overview: true, open: null, expanded: false, tab: "chat" },
+  fleetView: { project: null, overview: true, open: null, expanded: false, tab: "chat", settings: false },
   landing: NO_LANDING,
+  fleetSettings: { status: "idle", data: null, cwd: null, saving: 0, seq: 0 },
   selection: { machineId: "local", paneId: null, auto: false },
   canAct: true,
   settings: DEFAULT_SETTINGS,
@@ -1404,11 +1428,39 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       effects.push({ kind: "refresh-usage" });
       return next({ usage: { ...state.usage, refreshing: true } });
     case "fleet-project":
-      return next({ fleetView: { ...state.fleetView, project: event.project, open: null, expanded: false, tab: "chat" } });
+      return next({ fleetView: { ...state.fleetView, project: event.project, open: null, expanded: false, tab: "chat", settings: false } });
+    case "fleet-settings": {
+      if (!event.open) return next(state.fleetView.settings ? { fleetView: { ...state.fleetView, settings: false } } : {});
+      const cwd = event.cwd ?? null;
+      effects.push({ kind: "load-fleet-settings", cwd });
+      return next({
+        fleetView: { ...state.fleetView, settings: true, open: null, expanded: false, tab: "chat" },
+        fleetSettings: { ...state.fleetSettings, cwd, status: "loading", error: undefined, saveError: undefined, ...(state.fleetSettings.cwd === cwd ? {} : { data: null }) },
+      });
+    }
+    case "fleet-settings-loaded":
+      return next({ fleetSettings: { ...state.fleetSettings, status: "ready", data: event.settings, error: undefined } });
+    case "fleet-settings-failed":
+      return next({ fleetSettings: { ...state.fleetSettings, status: "error", error: event.message } });
+    case "fleet-settings-change": {
+      if (!state.canAct) return next({});
+      const seq = state.fleetSettings.seq + 1;
+      effects.push({ kind: "save-fleet-settings", cwd: state.fleetSettings.cwd, patch: event.patch, seq });
+      return next({ fleetSettings: { ...state.fleetSettings, seq, saving: state.fleetSettings.saving + 1, saveError: undefined } });
+    }
+    case "fleet-settings-saved":
+    case "fleet-settings-save-failed": {
+      const saving = Math.max(0, state.fleetSettings.saving - 1);
+      // an older save's answer is older than what a later one wrote
+      if (event.seq !== state.fleetSettings.seq) return next({ fleetSettings: { ...state.fleetSettings, saving } });
+      return next({ fleetSettings: event.type === "fleet-settings-saved"
+        ? { ...state.fleetSettings, saving, status: "ready", data: event.settings, saveError: undefined }
+        : { ...state.fleetSettings, saving, saveError: event.message } });
+    }
     case "fleet-overview":
       return next(state.fleetView.overview === event.open ? {} : { fleetView: { ...state.fleetView, overview: event.open } });
     case "fleet-open": {
-      const fleetView: FleetViewState = { ...state.fleetView, overview: true, open: { kind: event.kind, runId: event.runId, member: null }, tab: "chat" };
+      const fleetView: FleetViewState = { ...state.fleetView, overview: true, open: { kind: event.kind, runId: event.runId, member: null }, tab: "chat", settings: false };
       return next({ fleetView, landing: readLanding(state.landing, fleetView, effects) });
     }
     case "fleet-member":

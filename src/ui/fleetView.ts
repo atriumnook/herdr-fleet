@@ -1,10 +1,10 @@
-import { handoffStatus, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type LandAction, type LineComment, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
+import { handoffStatus, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetSettings, type LandAction, type LineComment, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import { parseDiff, type DiffLine } from "./diff.ts";
 import { isEnded, type ConfirmedStep, type ThreadTab, type UiState } from "./state.ts";
 
 /** The regions the Fleet screen draws: its Presenter re-renders when one of them changes. */
-export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView", "landing"] as const;
+export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView", "landing", "fleetSettings"] as const;
 export type FleetState = Pick<UiState, (typeof FLEET_REGIONS)[number]>;
 
 /**
@@ -191,6 +191,20 @@ export interface LandingModel {
   confirm: { action: ConfirmedStep; running: boolean; error?: string; worktree: string; ahead?: number } | null;
 }
 
+/** The Settings page: the person's fleet.json as last read, the projects to set up, and how full each account is now. */
+export interface FleetSettingsModel {
+  status: "idle" | "loading" | "ready" | "error";
+  error?: string;
+  saving: boolean;
+  saveError?: string;
+  settings: FleetSettings | null;
+  /** the fleet's projects and the ones fleet.json names, each with its setup command */
+  projects: Array<{ path: string; name: string; setup: string }>;
+  /** each account's fullest window now, and whether the usage limit passes it over */
+  accounts: Array<{ key: string; usedPercent: number; skipped: boolean }>;
+  canAct: boolean;
+}
+
 /** The app's one badge look, by its state class. */
 export type Badge = "blocked" | "failed" | "working" | "done" | "idle";
 
@@ -208,6 +222,8 @@ export interface FleetScreenModel {
   /** runs outside every thread and project conversation */
   agents: RunCardModel[];
   open: OpenRunModel | null;
+  /** the Settings page, shown in the middle in place of the project */
+  settings: FleetSettingsModel | null;
   overview: boolean;
   expanded: boolean;
   status: "loading" | "ready" | "error";
@@ -313,7 +329,8 @@ export function fleetScreenModel(state: FleetState, now: number): FleetScreenMod
     resolved: rows.filter((row) => row.group === "resolved").sort(byRecent),
     threads: [...rows].sort((a, b) => a.startedAt - b.startedAt),
     agents: outside,
-    open: openRun(runs, view, state),
+    open: view.settings ? null : openRun(runs, view, state),
+    settings: view.settings ? settingsModel(state, project.list.map((each) => each.path), now) : null,
     overview: view.overview,
     expanded: view.expanded && view.open !== null,
     status: state.runs.status === "error" ? "error" : state.runs.status === "ready" ? "ready" : "loading",
@@ -478,6 +495,24 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
 }
 
 const CI_TONE: Record<PullRequest["checks"], CheckTone> = { pending: "run", pass: "ok", fail: "bad", none: "none" };
+
+function settingsModel(state: FleetState, projectPaths: string[], now: number): FleetSettingsModel {
+  const read = state.fleetSettings;
+  const settings = read.data;
+  const setups = new Map((settings?.projects ?? []).map((project) => [project.path, project.setup]));
+  const paths = [...new Set([...projectPaths, ...setups.keys()])];
+  const limit = settings?.maxUsedPercent ?? 100;
+  const accounts = state.usage.data.flatMap((entry) => {
+    const windows = (entry.reading?.windows ?? []).filter((window) => window.resetsAt === undefined || window.resetsAt > now);
+    if (!windows.length) return [];
+    const usedPercent = Math.max(...windows.map((window) => window.usedPercent));
+    return [{ key: entry.key, usedPercent, skipped: usedPercent >= limit }];
+  }).sort((a, b) => a.key.localeCompare(b.key));
+  return {
+    status: read.status, ...(read.error ? { error: read.error } : {}), saving: read.saving > 0, ...(read.saveError ? { saveError: read.saveError } : {}),
+    settings, projects: paths.map((path) => ({ path, name: baseName(path), setup: setups.get(path) ?? "" })), accounts, canAct: state.canAct,
+  };
+}
 
 /**
  * Where a thread's card goes in the project conversation: under the coordinator's turn it was

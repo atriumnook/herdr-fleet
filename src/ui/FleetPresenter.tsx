@@ -46,7 +46,7 @@ export function ProjectRailPresenter({ emit }: { emit: Emit<ProjectRailEvent | F
   const now = useClock();
   const model = useMemo(() => {
     const screen = fleetScreenModel(fleet, now);
-    return { projects: projectsOf(fleet).list, usage: screen.usage, canAct: fleet.canAct, now };
+    return { projects: projectsOf(fleet).list, usage: screen.usage, canAct: fleet.canAct, now, settings: fleet.fleetView.settings };
   }, [fleet, now]);
   // fleet projects are folders on this PC
   return (

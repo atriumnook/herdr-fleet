@@ -16,7 +16,7 @@ import type {
   SlashCommand,
   WorkspaceCreated,
 } from "../../shared/protocol.ts";
-import type { AgentRun, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 
@@ -440,6 +440,16 @@ export async function fetchFleetLanding(runId: string): Promise<LandingChecks> {
 /** A landing step the person pressed, with the comments a comments step sends. */
 export async function landFleetRun(runId: string, action: LandAction, comments?: LineComment[]): Promise<void> {
   await sendFleet(`/runs/${encodeURIComponent(runId)}/land`, { action, ...(comments ? { comments } : {}) });
+}
+
+/** The person's fleet.json as the project in `cwd` uses it (none: the server's own folder). */
+export async function fetchFleetSettings(cwd: string | null): Promise<FleetSettings> {
+  return (await getJson<{ settings: FleetSettings }>(`/api/fleet/settings${cwd ? `?cwd=${encodeURIComponent(cwd)}` : ""}`)).settings;
+}
+
+/** Writes a change into the person's fleet.json, and answers the settings after it. */
+export async function saveFleetSettings(cwd: string | null, patch: FleetSettingsPatch): Promise<FleetSettings> {
+  return (await sendFleet<{ settings: FleetSettings }>("/settings", { patch, ...(cwd ? { cwd } : {}) })).settings;
 }
 
 /** Marks a thread done for the person, or open again. */
