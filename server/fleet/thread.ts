@@ -5,6 +5,7 @@
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import type { DiffStat } from "../../shared/fleet.ts";
 
 const SETUP_TIMEOUT_MS = 10 * 60_000;
 const SETUP_TAIL_LINES = 20;
@@ -24,6 +25,35 @@ export async function gitRoot(cwd: string): Promise<string | null> {
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** A git command's output, or null when it fails or takes longer than `timeoutMs`; core.fsmonitor off, as in gitRoot. */
+async function gitOutput(cwd: string, args: string[], timeoutMs = 5_000): Promise<string | null> {
+  const proc = Bun.spawn(["git", "-c", "core.fsmonitor=false", "-C", cwd, ...args], {
+    stdout: "pipe", stderr: "ignore", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" },
+  });
+  const timer = setTimeout(() => proc.kill(), timeoutMs);
+  try {
+    const [output, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+    return exitCode === 0 ? output : null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** The commit `cwd` is at: a thread's change is later measured against it. */
+export async function gitHead(cwd: string): Promise<string | null> {
+  const head = (await gitOutput(cwd, ["rev-parse", "HEAD"]))?.trim();
+  return head && /^[0-9a-f]{7,64}$/.test(head) ? head : null;
+}
+
+/** What the worktree at `cwd` changed since `base`, committed or not, in the files git tracks (a binary file counts no lines). */
+export async function diffStat(cwd: string, base: string): Promise<DiffStat | null> {
+  const output = await gitOutput(cwd, ["diff", "--numstat", base, "--"]);
+  if (output === null) return null;
+  const rows = output.split("\n").filter(Boolean).map((line) => line.split("\t"));
+  const count = (value: string | undefined) => (value && /^\d+$/.test(value) ? Number(value) : 0);
+  return { added: rows.reduce((sum, row) => sum + count(row[0]), 0), removed: rows.reduce((sum, row) => sum + count(row[1]), 0), files: rows.length };
 }
 
 /** Where a thread's worktree goes: inside the repository, which the agent CLIs already trust (claude, codex and cursor ask nothing there). */

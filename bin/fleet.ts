@@ -81,7 +81,7 @@ interface ThreadSummary {
 }
 
 const CONTRACT_MARKS = { met: "✓", open: "·", unmet: "✗" } as const;
-const THREAD_STATES = { working: "Working", waiting: "Waiting on you", review: "Ready for review", idle: "Idle", failed: "Failed", ended: "Ended" } as const;
+const THREAD_STATES = { working: "Working", waiting: "Needs you", review: "Ready for review", idle: "Idle", failed: "Failed", ended: "Ended", resolved: "Resolved" } as const;
 
 function describeThread(thread: ThreadSummary): string {
   const contract = thread.contract?.length ? `Contract: ${thread.contract.map((item) => `${item.id} ${CONTRACT_MARKS[item.state]}`).join(" ")}` : "";

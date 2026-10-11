@@ -58,6 +58,21 @@ export interface AgentRun {
   write?: string[];
   /** a thread's question for the person that its project's coordinator has not been given yet */
   notice?: string;
+  /** the commit a thread's worktree started from: its change is measured against it */
+  base?: string;
+  /** a thread lead's acceptance contract, as it stood when the lead's turn last settled */
+  contract?: ContractItem[];
+  /** what a thread changed since `base`, as it stood when the lead's turn last settled */
+  diff?: DiffStat;
+  /** when the person marked the thread done (epoch ms); its lead working again takes it back */
+  resolvedAt?: number;
+}
+
+/** Lines a change adds and removes, in the files git tracks. */
+export interface DiffStat {
+  added: number;
+  removed: number;
+  files: number;
 }
 
 /** One assertion of a thread lead's acceptance contract (contract.md), as the lead last marked it. */
@@ -68,9 +83,9 @@ export interface ContractItem {
 
 /**
  * Where a thread stands for the person: its lead at work, waiting on the person (a question in its
- * HANDOFF or on its screen), done with a PASS, settled otherwise, failed, or its pane gone.
+ * HANDOFF or on its screen), done with a PASS, settled otherwise, failed, its pane gone, or marked done.
  */
-export type ThreadState = "working" | "waiting" | "review" | "idle" | "failed" | "ended";
+export type ThreadState = "working" | "waiting" | "review" | "idle" | "failed" | "ended" | "resolved";
 
 /** A thread as its project's coordinator sees it: the lead's run, where it stands, its HANDOFF status line, and its contract. */
 export interface ThreadSummary {
@@ -108,4 +123,28 @@ export interface UsageEntry {
   cooldown?: Cooldown;
   /** the last reading attempt failed; the reading kept is older */
   error?: string;
+}
+
+/** The HANDOFF's status line: the first that opens with PASS, ISSUES or BLOCKED, without its markdown. */
+export function handoffStatus(result: string): string | undefined {
+  return result.split("\n").map((l) => l.replace(/^[\s#>-]+/, "").replace(/\*\*/g, "").trim()).find((l) => /^(PASS|ISSUES|BLOCKED)\b/.test(l));
+}
+
+/** contract.md's assertions: `- [ ] A1 …` open, `- [x]` met, `- [!]` cannot be met. */
+export function contractItems(text: string): ContractItem[] {
+  return [...text.matchAll(/^\s*[-*]\s*\[([ xX!])\]\s*(A\d+)\b/gm)].map((m) => ({
+    id: m[2]!, state: m[1] === "!" ? "unmet" : m[1] === " " ? "open" : "met",
+  }));
+}
+
+/** Where a thread stands: herdr's state of its lead, and once a turn settled, the HANDOFF's verdict. */
+export function threadState(run: AgentRun): ThreadState {
+  const working = run.state === "starting" || run.state === "working" || run.state === "unknown";
+  if (run.resolvedAt !== undefined && !working) return "resolved";
+  if (run.state === "failed") return "failed";
+  if (run.state === "stopped") return "ended";
+  if (run.state === "blocked") return "waiting";
+  if (working) return "working";
+  const status = run.result ? handoffStatus(run.result) : undefined;
+  return status?.startsWith("BLOCKED") ? "waiting" : status?.startsWith("PASS") ? "review" : "idle";
 }

@@ -23,6 +23,7 @@ import type { UsageTracker } from "./usage.ts";
  *  GET  /api/fleet/runs/:target/read[?lines=&group=] -> { text }
  *  POST /api/fleet/runs/:target/interrupt { group? } -> { run }
  *  POST /api/fleet/runs/:target/focus     { group? } -> { run }
+ *  POST /api/fleet/runs/:target/resolve   { resolved?, group? } -> { run }; a thread marked done (resolved: false opens it again)
  *  POST /api/fleet/close-done             { group? } -> { runs }
  *  GET  /api/fleet/usage                            -> { usage: UsageEntry[] }; what is known, asking no CLI
  *  POST /api/fleet/usage/refresh          { all? }   -> { usage }; asks the CLIs whose reading is stale (all with all: true).
@@ -113,6 +114,11 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
           }
           case "interrupt": return jsonResponse({ run: await fleet.interrupt(target, group(body)) });
           case "focus": return jsonResponse({ run: await fleet.focus(target, group(body)) });
+          case "resolve": {
+            const resolved = body["resolved"];
+            if (resolved !== undefined && typeof resolved !== "boolean") throw new FleetError("invalid_body", "resolved must be true or false");
+            return jsonResponse({ run: fleet.resolve(target, resolved !== false, group(body)) });
+          }
         }
       }
     }
@@ -197,7 +203,7 @@ function briefOf(value: unknown): Partial<Brief> | undefined {
 }
 
 const STATUS: Record<string, number> = {
-  run_not_found: 404, unknown_role: 404, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
+  run_not_found: 404, unknown_role: 404, not_a_thread: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
   agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429, scope_conflict: 409, setup_failed: 502,
 };
 
