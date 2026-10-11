@@ -49,10 +49,7 @@
 }
 
 /* the prompt being read is thick, as prompt-rail draws it. The ticks change with no transition: the
-   thick one moves with every scroll, and only state changes move here. A transition declared on the
-   ticks also made Chromium dispatch the chat's scroll event (which loads the page before near the
-   top) ahead of a click that had just scrolled "Earlier messages" into view, so the click found the
-   transcript moved under it (scripts/chat-conversation-regression.ts) */
+   thick one moves with every scroll, and only state changes move here */
 .prompt-rail-tick.is-reading::before {
   left: 0;
   right: 0;
