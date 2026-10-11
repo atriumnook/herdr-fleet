@@ -1453,6 +1453,23 @@ describe("plans", () => {
     fleet.stop();
   });
 
+  it("leave a newer plan the lead handed over while the answers went out as it is", async () => {
+    const { fleet, runtime, registry, root, planned } = project();
+    const { thread } = await planned();
+    // the lead writes version 2 while the answers to version 1 are being typed into its pane
+    runtime.promptImpl = async (name, text) => {
+      runtime.prompts.push({ name, text });
+      fleet.submitPlan(thread.id, { ...PLAN, title: "Retry limit, again" });
+      return "working";
+    };
+    await fleet.answerPlan(thread.id, { version: 1, choices: { limit: "five" }, seen: ["limit"] });
+    const kept = JSON.parse(readFileSync(join(root, "results", thread.id, "plan.json"), "utf8"));
+    expect(kept).toMatchObject({ version: 2, title: "Retry limit, again" });
+    expect(kept.answeredAt).toBeUndefined();
+    expect(registry.get(thread.id)!.plan).toEqual({ version: 2, asks: 1 });
+    fleet.stop();
+  });
+
   it("come only from a thread's lead, and only plans that hold together", async () => {
     const { fleet, planned } = project();
     const { thread } = await planned();

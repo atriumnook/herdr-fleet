@@ -737,9 +737,12 @@ export class Orchestrator {
     // the turn is under way before anything awaits again, so a second answer finds the lead busy;
     // the plan counts as answered once the message reached the lead
     await this.submit(run, planAnswerMessage(plan, answer), signal);
+    // the lead may have handed over a newer plan meanwhile: only the version answered is marked
+    const current = readPlan(dir);
+    if (current?.version !== plan.version) return { ...run };
     const answeredAt = Date.now();
-    writePlan(dir, { ...plan, answeredAt, answer });
-    run.plan = { version: plan.version, asks: planAsks(plan).length, answeredAt };
+    writePlan(dir, { ...current, answeredAt, answer });
+    run.plan = { version: plan.version, asks: planAsks(current).length, answeredAt };
     this.save(run);
     return { ...run };
   }
