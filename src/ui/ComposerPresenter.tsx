@@ -5,7 +5,7 @@ import { Composer, type ComposerEvent, type ComposerModel } from "../components/
 import { useMachineId } from "../lib/machineContext.tsx";
 import { quickReplyButtons, useSettings } from "../lib/settings.ts";
 import type { Emit } from "./bubble.ts";
-import type { ComposerAttachment, UiEvent } from "./state.ts";
+import type { ComposerAttachment, Lens, UiEvent } from "./state.ts";
 import { useSelected } from "./presenter.ts";
 
 export type ComposerUpEvent = ComposerEvent | Extract<UiEvent, { type: "completions-open" | "attachments-close" }>;
@@ -25,6 +25,8 @@ export interface ComposerPresenterProps {
   queueMode: boolean;
   answerHint: string | null;
   suggestion: string | null;
+  /** which of the state's chats this composer sends for: the pane's (default) or the one beside */
+  lens?: Lens;
   emit: Emit<ComposerUpEvent>;
 }
 
@@ -34,7 +36,9 @@ export interface ComposerPresenterProps {
  * the settings that shape the box. It reads the draft back and the commands as it opens, and as
  * it goes, the files it attached go with it and its `@` names no file any more.
  */
-export function ComposerPresenter({ paneId, connected, autoFocus, agent, agentStatus, metadata, queueMode, answerHint, suggestion, emit }: ComposerPresenterProps) {
+export function ComposerPresenter({ paneId, connected, autoFocus, agent, agentStatus, metadata, queueMode, answerHint, suggestion, lens = "main", emit: up }: ComposerPresenterProps) {
+  // what this composer sends answers its own chat's prompt
+  const emit = useMemo<Emit<ComposerUpEvent>>(() => (lens === "side" ? (event) => up({ ...event, lens: "side" } as ComposerUpEvent) : up), [lens, up]);
   const machineId = useMachineId();
   const owner = paneStorageId(machineId, paneId);
   const emitRef = useRef(emit);

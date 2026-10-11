@@ -7,10 +7,10 @@ import { fleetScreenModel } from "../../ui/fleetView.ts";
 import { INITIAL_STATE, type UiState } from "../../ui/state.ts";
 import { FleetScreen, forRun } from "./FleetScreen.tsx";
 import { RunCard } from "./RunCard.tsx";
-import { RunDetailSheet } from "./RunDetailSheet.tsx";
+import { ThreadCard } from "./ThreadCard.tsx";
+import { ProjectRail } from "./ProjectRail.tsx";
 import { UsageCapsule } from "./UsageCapsule.tsx";
 import { StateBadge } from "./format.tsx";
-import { t } from "../../lib/i18n.ts";
 
 const NOW = Date.now();
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
@@ -26,28 +26,70 @@ function renderToStaticMarkup(element: ReturnType<typeof createElement>): string
 }
 
 describe("Fleet screen views", () => {
-  it("draws the runs in the order they need the person, with the usage beside the title", () => {
-    const html = renderToStaticMarkup(createElement(FleetScreen, {
-      model: model(state([run("impl"), run("review", { state: "blocked", lastError: "codex asks to run a command" })], {
-        usage: { status: "ready", again: false, refreshing: false, data: [{ key: "claude", reading: { readAt: NOW, windows: [{ name: "5h", usedPercent: 92 }] } }] },
-      })),
-      emit: noop,
-    }));
-    expect(html.indexOf("review")).toBeLessThan(html.indexOf("impl"));
-    expect(html).toContain("codex asks to run a command");
-    expect(html).toContain("Open pane to answer");
-    expect(html).toContain('class="fleet-capsule level-low"');
-    expect(html).toContain("--fleet-ring:92%");
-    // the header is the one place that switches screens: none floats over the runs
-    expect(html).not.toContain("aria-pressed");
-    expect(html).toContain("Refresh usage");
+  const lead = (id: string, extra: Partial<AgentRun> = {}) => run(id, { role: "lead", agent: "claude", project: "/repo", group: `g-${id}`, interactive: true, branch: `fleet/${id}`, state: "idle", ...extra });
+  const coordinator = run("co", { role: "coordinator", agent: "claude", project: "/repo", group: "g-co", interactive: true, state: "idle" });
+  const screen = (s: UiState, slots: { conversation?: string; side?: string } = {}) => renderToStaticMarkup(createElement(FleetScreen, {
+    model: model(s), conversation: createElement("div", { className: "slot-conversation" }, slots.conversation ?? "conversation"),
+    side: createElement("div", { className: "slot-side" }, slots.side ?? "side"), emit: noop,
+  }));
+
+  it("draws the project conversation beside the Overview, its threads by what the person has to do", () => {
+    const html = screen(state([coordinator, lead("ask", { result: "BLOCKED — keep the old API?" }), lead("done", { result: "PASS", diff: { added: 24, removed: 9, files: 2 } }), lead("busy", { state: "working" })]));
+    expect(html).toContain("slot-conversation");
+    expect(html).not.toContain("slot-side");
+    expect(html).toContain("coordinator · claude");
+    expect(html.indexOf('id="fleet-group-needs"')).toBeGreaterThan(-1);
+    expect(html.indexOf('id="fleet-group-needs"')).toBeLessThan(html.indexOf('id="fleet-group-review"'));
+    expect(html.indexOf('id="fleet-group-review"')).toBeLessThan(html.indexOf('id="fleet-group-working"'));
+    expect(html).toContain("BLOCKED — keep the old API?");
+    expect(html).toContain("+24");
+    // the Overview button carries the dot while a thread waits on the person
+    expect(html).toContain("fleet-needs-dot");
+    expect(html).toContain('aria-label="Overview: 1 need you"');
   });
 
-  it("says when there are no runs yet, and folds ended runs behind a button", () => {
-    expect(renderToStaticMarkup(createElement(FleetScreen, { model: model(state([])), emit: noop }))).toContain("No fleet agents yet");
-    const html = renderToStaticMarkup(createElement(FleetScreen, { model: model(state([run("old", { state: "stopped" })])), emit: noop }));
-    expect(html).toContain("Show 1 ended runs");
-    expect(html).not.toContain(">old<");
+  it("asks for the first message while the project has no coordinator, and says when there is no project", () => {
+    const html = screen(state([lead("t")]));
+    expect(html).toContain("Ask repo");
+    expect(html).toContain("No coordinator yet");
+    expect(html).not.toContain("slot-conversation");
+    expect(screen(state([]))).toContain("No projects yet");
+  });
+
+  it("opens a thread in the Overview with its agents and its chat, and large in the middle when expanded", () => {
+    const runs = [coordinator, lead("t", { result: "PASS", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }] }), run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done" })];
+    const open = (expanded: boolean) => screen(state(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member: null }, expanded } }));
+    const beside = open(false);
+    expect(beside).toContain("slot-conversation");
+    expect(beside).toContain("slot-side");
+    expect(beside).toContain("lead · claude");
+    expect(beside).toContain("rev · cursor");
+    expect(beside).toContain("A1 ✓");
+    expect(beside).toContain(">Resolve<");
+    expect(beside).toContain('aria-label="Expand"');
+    const large = open(true);
+    expect(large).not.toContain("slot-conversation");
+    expect(large).toContain('aria-label="Collapse"');
+    // the Overview lists the threads again, the open one marked
+    expect(large).toContain("fleet-row group-review is-selected");
+  });
+
+  it("draws a thread's card with its change, its state, and what it waits on the person for", () => {
+    const rows = model(state([coordinator, lead("ask", { state: "blocked", lastError: "Allow bun test?", diff: { added: 3, removed: 1, files: 1 } })])).threads;
+    const html = renderToStaticMarkup(createElement(ThreadCard, { thread: rows[0]!, emit: noop }));
+    expect(html).toContain("is-near");
+    expect(html).toContain("Allow bun test?");
+    expect(html).toContain("fleet/ask");
+    expect(html).toContain('class="badge badge-blocked"');
+  });
+
+  it("lists the projects with what their threads ask of the person, and a new one from a folder", () => {
+    const projects = [{ path: "/repo", name: "repo", dot: "needs" as const, selected: true }, { path: "/new", name: "new", dot: "none" as const, selected: false }];
+    const html = renderToStaticMarkup(createElement(ProjectRail, { model: { projects, usage: { capsules: [], refreshing: false }, canAct: true, now: NOW }, browser: () => null, emit: noop }));
+    expect(html).toContain('aria-current="true"');
+    expect(html).toContain("fleet-project-dot dot-needs");
+    expect(html).toContain("New project");
+    expect(html.match(/fleet-project-dot/g)).toHaveLength(1);
   });
 
   it("offers no pane or interrupt where there is none, and shows a finished run's result", () => {
@@ -97,24 +139,13 @@ describe("Fleet screen views", () => {
     expect(renderToStaticMarkup(createElement(UsageCapsule, { capsule: capsules.find((c) => c.key === "agy")!, now: NOW, emit: noop }))).toContain("Last read failed");
   });
 
-  it("tells in the detail how the run was routed, and that only a person answers its question", () => {
-    const detail = model(state([run("review", { state: "blocked", lastError: "asks", skipped: [{ candidate: "claude:sonnet", reason: "claude has used 92% of its 5h limit" }] })], { detail: "review" })).detail!;
-    const html = renderToStaticMarkup(createElement(RunDetailSheet, { run: detail, now: NOW, emit: noop }));
-    expect(html).toContain("claude:sonnet");
-    expect(html).toContain("claude has used 92% of its 5h limit");
-    expect(html).toContain("codex:gpt-6");
-    expect(html).toContain(t("The fleet never answers a question; only a person does."));
-    expect(html).toContain("1:03");
-  });
 });
 
 describe("events from the views", () => {
   it("bubble up as the Mediator's events for the run they are about", () => {
     const events: unknown[] = [];
     const emit = forRun((event) => events.push(event), "r1");
-    for (const type of ["open-pane", "interrupt", "show-detail", "close"] as const) emit({ type });
-    expect(events).toEqual([
-      { type: "open-pane", runId: "r1" }, { type: "interrupt-run", runId: "r1" }, { type: "show-run", runId: "r1" }, { type: "hide-run" },
-    ]);
+    for (const type of ["open-pane", "interrupt", "show-detail"] as const) emit({ type });
+    expect(events).toEqual([{ type: "open-pane", runId: "r1" }, { type: "interrupt-run", runId: "r1" }, { type: "fleet-open", kind: "agent", runId: "r1" }]);
   });
 });

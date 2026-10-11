@@ -4,10 +4,14 @@ import { ChatView, type ChatViewEvent, type ChatViewModel } from "../components/
 import { useMachineId } from "../lib/machineContext.tsx";
 import { useSettings } from "../lib/settings.ts";
 import { relay, type Emit } from "./bubble.ts";
-import { EMPTY_VIEW, type UiEvent, type UiState } from "./state.ts";
+import { EMPTY_VIEW, type Lens, type UiEvent, type UiState } from "./state.ts";
+import { threadCards, type ThreadRowModel } from "./fleetView.ts";
 import { useSelected } from "./presenter.ts";
 
 export type ChatUpEvent = Exclude<ChatViewEvent, { type: "card-answer" }> | Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "prompt-card-answer" }>;
+
+/** no threads: the same empty list each render */
+const NO_THREADS: ThreadRowModel[] = [];
 
 /** no earlier turns: the same empty list each render, for the view's memo */
 const NO_TURNS: ConversationTurn[] = [];
@@ -18,6 +22,10 @@ export interface ChatPresenterProps {
   ended: boolean;
   agent: string | null;
   agentStatus: AgentStatus | undefined;
+  /** which of the state's chats this one is: the pane's (default) or the one beside */
+  lens?: Lens;
+  /** a project conversation's threads: each one's card goes under the coordinator's turn that started it */
+  threads?: ThreadRowModel[];
   emit: Emit<ChatUpEvent>;
 }
 
@@ -28,10 +36,13 @@ export interface ChatPresenterProps {
  * Codex TUI can show its directory-trust menu while herdr still reports idle, so the visible
  * prompt, not the status badge, decides whether to offer answers), and whether it has an agent.
  */
-export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, emit }: ChatPresenterProps) {
+export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, lens = "main", threads = NO_THREADS, emit: up }: ChatPresenterProps) {
   const machineId = useMachineId();
+  // what this chat says goes to its own chat in the state
+  const emit = useMemo<Emit<ChatUpEvent>>(() => (lens === "side" ? (event) => up({ ...event, lens: "side" }) : up), [lens, up]);
   const emitRef = useRef(emit);
   emitRef.current = emit;
+  const lensOf = (state: UiState) => (lens === "side" ? state.side : state);
   useEffect(() => {
     emitRef.current({ type: "chat-open", machineId, paneId });
     return () => emitRef.current({ type: "chat-close", machineId, paneId });
@@ -39,24 +50,25 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, em
   const hasAgent = agent !== null;
   useEffect(() => emitRef.current({ type: "chat-agent", paneId, agent: hasAgent }), [paneId, hasAgent]);
 
-  const here = (state: UiState): boolean => state.conversation.open?.paneId === paneId;
-  const view = useSelected((state) => (here(state) ? state.conversation.view : EMPTY_VIEW));
-  const fresh = useSelected((state) => !here(state) || state.conversation.fresh);
-  const older = useSelected((state) => (here(state) ? state.conversation.older.turns : NO_TURNS));
-  const olderCursor = useSelected((state) => (here(state) ? state.conversation.older.cursor : undefined));
-  const olderState = useSelected((state) => (here(state) ? state.conversation.older.status : "idle"));
-  const historyId = useSelected((state) => (here(state) ? state.conversation.historyId : undefined));
-  const error = useSelected((state) => (here(state) ? state.conversation.error : null));
-  const loaded = useSelected((state) => here(state) && state.conversation.loaded);
-  const abandoned = useSelected((state) => (here(state) ? state.conversation.abandoned : null));
-  const sentOver = useSelected((state) => (here(state) ? state.conversation.sentOver : null));
-  const prompt = useSelected((state) => (state.chat.open?.paneId === paneId ? state.chat.prompt : null));
-  const pendingAnswer = useSelected((state) => (state.chat.open?.paneId === paneId ? state.chat.pendingAnswer : null));
-  const card = useSelected((state) => (state.chat.open?.paneId === paneId ? state.chat.card : null));
+  const here = (state: UiState): boolean => lensOf(state).conversation.open?.paneId === paneId;
+  const view = useSelected((state) => (here(state) ? lensOf(state).conversation.view : EMPTY_VIEW));
+  const fresh = useSelected((state) => !here(state) || lensOf(state).conversation.fresh);
+  const older = useSelected((state) => (here(state) ? lensOf(state).conversation.older.turns : NO_TURNS));
+  const olderCursor = useSelected((state) => (here(state) ? lensOf(state).conversation.older.cursor : undefined));
+  const olderState = useSelected((state) => (here(state) ? lensOf(state).conversation.older.status : "idle"));
+  const historyId = useSelected((state) => (here(state) ? lensOf(state).conversation.historyId : undefined));
+  const error = useSelected((state) => (here(state) ? lensOf(state).conversation.error : null));
+  const loaded = useSelected((state) => here(state) && lensOf(state).conversation.loaded);
+  const abandoned = useSelected((state) => (here(state) ? lensOf(state).conversation.abandoned : null));
+  const sentOver = useSelected((state) => (here(state) ? lensOf(state).conversation.sentOver : null));
+  const prompt = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.prompt : null));
+  const pendingAnswer = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.pendingAnswer : null));
+  const card = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.card : null));
   const { settings: { showThinking } } = useSettings();
+  const cards = useMemo(() => (threads.length === 0 ? undefined : threadCards([...older, ...view.turns], threads)), [threads, older, view.turns]);
   const model = useMemo<ChatViewModel>(() => ({
-    paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking,
-  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking]);
+    paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards,
+  }), [paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards]);
   // an answer in the prompt's card is for this pane's prompt on this PC
   const promptId = prompt?.id ?? null;
   const relayed = useMemo(() => relay<ChatViewEvent, ChatUpEvent>(emit, (event, pass) => {

@@ -1,12 +1,15 @@
-/* The Fleet screen: run cards on the ground (bg and its glows), on opaque field faces, near or
-   far by what they ask of the person (DESIGN.md RunCard). Only the detail sheet is glass. It
-   floats over the pane in Main; the pane stays attached underneath. */
+/* The Fleet screen (DESIGN.md, the Fleet screen): the project conversation on the reading surface,
+   the Overview beside it as the screen's one glass panel, a thread opened there or large in the
+   middle. It floats over the pane in Main; the pane stays attached underneath. On a narrower
+   screen the Overview is a sheet from the bottom and an open thread takes the screen. */
 
 .fleet-screen {
   position: absolute;
   inset: 0;
   /* over the pane's own notices (banners), under popovers, the drawer and dialogs */
   z-index: calc(var(--z-banner) + 1);
+  display: flex;
+  gap: var(--space-2);
   overflow: hidden;
   background: var(--bg);
   color: var(--ink);
@@ -22,51 +25,358 @@
     radial-gradient(60% 40% at 50% 105%, var(--glow-3), transparent 70%);
 }
 
-.fleet-scroll {
+.fleet-grow { flex: 1; }
+
+/* ---------- the middle: the project conversation, or a thread made large ---------- */
+
+.fleet-main {
   position: relative;
-  height: 100%;
-  overflow-y: auto;
-  box-sizing: border-box;
-  padding: var(--space-6) var(--space-6) calc(var(--space-6) + env(safe-area-inset-bottom, 0px));
+  flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-5);
+  overflow: hidden;
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
 }
 
-.fleet-scroll > * {
-  width: 100%;
-  max-width: 1120px;
-  margin-inline: auto;
-}
-
-/* ---------- header and usage ---------- */
-
-.fleet-head {
+.fleet-main-head {
+  flex: none;
   display: flex;
-  flex-wrap: wrap;
-  align-items: flex-end;
-  gap: var(--space-4);
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 52px;
+  padding: 0 var(--space-3) 0 var(--space-4);
+  border-bottom: var(--hairline) solid var(--line);
 }
 
-.fleet-title {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-right: auto;
-}
-
-.fleet-title h1 {
-  margin: 0;
-  font-size: 30px;
-  font-weight: var(--fw-bold);
-  line-height: var(--lh-tight);
+.fleet-main-title {
   color: var(--ink-strong);
+  font-size: var(--fs-lg);
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
-.fleet-title span {
-  font-size: var(--fs-sm);
+.fleet-main-meta { color: var(--sub); white-space: nowrap; }
+
+.fleet-overview-button.is-on { background: var(--tint); border-color: var(--control-edge); color: var(--ink-strong); }
+.fleet-main-head .btn svg { width: 16px; height: 16px; }
+.fleet-open-meta .btn { height: 28px; padding: 0 var(--space-2); font-size: var(--fs-sm); }
+
+.fleet-needs-dot {
+  width: var(--dot-size);
+  height: var(--dot-size);
+  border-radius: var(--radius-pill);
+  background: var(--needs);
+}
+
+.fleet-notice { margin: var(--space-3) var(--space-4) 0; display: flex; align-items: center; gap: var(--space-3); }
+.fleet-notice span { flex: 1; overflow-wrap: anywhere; }
+
+/* a fleet pane's chat: the transcript scrolls, the composer stays under it */
+.fleet-chat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fleet-chat-surface { position: relative; flex: 1; min-height: 0; }
+
+/* the threads a coordinator's turn started, under it */
+.chat-thread-cards {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0 var(--space-4);
+  max-width: 600px;
+}
+
+.fleet-thread-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fleet-thread-card:hover { background: var(--field-hover); border-color: var(--line-strong); }
+.fleet-thread-card.is-near { border-color: var(--needs); box-shadow: var(--shadow-near); }
+.fleet-thread-card.is-selected { border-color: var(--accent); }
+.fleet-thread-text { min-width: 0; display: flex; flex-direction: column; }
+.fleet-thread-text b { color: var(--ink-strong); font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fleet-thread-meta { display: flex; gap: var(--space-2); font-size: var(--fs-xs); color: var(--sub); min-width: 0; white-space: nowrap; overflow: hidden; }
+.fleet-thread-question { grid-column: 2 / -1; font-size: var(--fs-sm); color: var(--needs-text); }
+
+.fleet-diff { font-family: var(--font-mono); font-size: var(--fs-xs); white-space: nowrap; }
+.fleet-diff-add { color: var(--done); }
+.fleet-diff-del { color: var(--needs); }
+
+/* the first message to a project with no coordinator */
+.fleet-ask {
+  margin: auto;
+  width: min(560px, calc(100% - 2 * var(--space-6)));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  padding-block: var(--space-6);
+}
+
+.fleet-ask-head h2 { margin: 0 0 var(--space-1); font-size: var(--fs-xl); color: var(--ink-strong); font-weight: var(--fw-semibold); }
+.fleet-ask-head p { margin: 0; color: var(--sub); font-size: var(--fs-sm); }
+
+.fleet-ask-box {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border: var(--hairline) solid var(--control-edge);
+  border-radius: var(--radius-lg);
+  background: var(--input);
+}
+
+.fleet-ask-box:focus-within { border-color: var(--accent); }
+.fleet-ask-box .btn { align-self: flex-end; }
+
+.fleet-ask-input {
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: var(--fs-input) / var(--lh-base) var(--font-ui);
+  resize: vertical;
+  outline: none;
+}
+
+.fleet-empty { margin: auto; padding: var(--space-6); text-align: center; color: var(--sub); }
+.fleet-empty h2 { margin: 0 0 var(--space-1); font-size: var(--fs-lg); color: var(--ink-strong); font-weight: var(--fw-semibold); }
+.fleet-empty p { margin: 0; font-size: var(--fs-sm); }
+
+/* ---------- the Overview: the one glass panel ---------- */
+
+.fleet-overview {
+  position: relative;
+  flex: 0 1 420px;
+  min-width: 340px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: var(--hairline) solid var(--edge);
+  border-radius: var(--radius-xl);
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-panel);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .fleet-overview { background: var(--field); -webkit-backdrop-filter: none; backdrop-filter: none; }
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .fleet-overview { background: var(--field); }
+}
+
+.fleet-overview-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3) var(--space-2) var(--space-4);
+}
+
+.fleet-overview-head h2 { margin: 0 auto 0 0; font-size: var(--fs-lg); color: var(--ink-strong); font-weight: var(--fw-semibold); }
+
+.fleet-overview-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 var(--space-3) calc(var(--space-4) + env(safe-area-inset-bottom, 0px));
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fleet-overview-body .fleet-group h3 {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: var(--space-3) var(--space-1) var(--space-1);
+  font-size: var(--fs-xs);
+  font-weight: var(--fw-medium);
   color: var(--sub);
 }
+
+.fleet-overview-body .fleet-group.tone-needs h3 { color: var(--needs-text); }
+
+.fleet-quiet { margin: var(--space-4) var(--space-1); color: var(--sub); font-size: var(--fs-sm); }
+.fleet-fold { margin-top: var(--space-2); align-self: flex-start; }
+
+.fleet-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-3);
+  border: var(--hairline) solid transparent;
+  border-radius: var(--radius-md);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fleet-row:hover { background: var(--field-hover); border-color: var(--line-strong); }
+.fleet-row.group-needs { border-color: var(--needs); }
+.fleet-row.is-selected { border-color: var(--accent); }
+.fleet-row.group-review, .fleet-row.group-idle { opacity: 0.88; }
+.fleet-row.group-resolved { opacity: 0.72; }
+.fleet-row-title { color: var(--ink-strong); font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fleet-row-meta { grid-column: 1 / -1; display: flex; gap: var(--space-2); font-size: var(--fs-xs); color: var(--sub); white-space: nowrap; overflow: hidden; }
+.fleet-row-question { grid-column: 1 / -1; padding: 6px var(--space-2); border-radius: var(--radius-sm); background: var(--needs-tint); color: var(--needs-text); font-size: var(--fs-sm); }
+
+/* ---------- a thread or agent open ---------- */
+
+.fleet-open {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.fleet-open-head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-2) var(--space-1);
+}
+
+.fleet-open-title { flex: 1; min-width: 0; color: var(--ink-strong); font-size: var(--fs-md); font-weight: var(--fw-semibold); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fleet-open.is-large .fleet-open-head { min-height: 52px; padding: 0 var(--space-3); border-bottom: var(--hairline) solid var(--line); }
+.fleet-open.is-large .fleet-open-title { font-size: var(--fs-lg); }
+
+.fleet-open-meta {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  padding: var(--space-1) var(--space-4) var(--space-2);
+  font-size: var(--fs-xs);
+  color: var(--sub);
+}
+
+.fleet-open.is-large .fleet-open-meta { padding-top: var(--space-2); }
+
+.fleet-contract { display: inline-flex; gap: var(--space-1); }
+.fleet-contract span { padding: 1px 6px; border-radius: var(--radius-sm); background: var(--field); font: var(--fs-2xs) var(--font-mono); }
+.fleet-contract .is-met { color: var(--done); }
+.fleet-contract .is-unmet { color: var(--needs); }
+
+.fleet-open-skipped { flex: none; margin: 0; padding: 0 var(--space-4) var(--space-2); font-size: var(--fs-xs); color: var(--sub); }
+.fleet-open-skipped > span + span::before { content: " · "; }
+
+.fleet-members { flex: none; display: flex; flex-wrap: wrap; gap: var(--space-1); padding: 0 var(--space-4) var(--space-2); }
+
+.fleet-member {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 var(--space-2) 0 6px;
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-pill);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.fleet-member.is-selected { border-color: var(--accent); background: var(--tint); color: var(--ink-strong); }
+.fleet-member-dot { width: 7px; height: 7px; border-radius: var(--radius-pill); background: var(--idle); }
+.fleet-member-dot.badge-working { background: var(--working); }
+.fleet-member-dot.badge-blocked, .fleet-member-dot.badge-failed { background: var(--needs); }
+.fleet-member-dot.badge-done { background: var(--done); }
+
+/* the chat inside the Overview sits on its own reading surface */
+.fleet-overview .fleet-chat {
+  margin: 0 var(--space-2) var(--space-2);
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+/* ---------- the project rail (the sidebar on the Fleet screen) ---------- */
+
+.fleet-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  height: 100%;
+  min-height: 0;
+  padding: var(--space-3);
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.fleet-rail-head { margin: var(--space-1) var(--space-2) var(--space-2); font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--sub); }
+.fleet-rail-list { display: flex; flex-direction: column; gap: var(--space-1); }
+
+.fleet-project {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  min-height: var(--row-h);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fleet-project:hover { background: var(--field-hover); }
+.fleet-project.is-selected { background: var(--tint); }
+.fleet-project.is-selected::before { content: ""; position: absolute; left: 0; top: 12px; bottom: 12px; width: var(--rail-w); border-radius: var(--rail-w); background: var(--accent); }
+.fleet-project-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.fleet-project-text b { color: var(--ink-strong); font-weight: var(--fw-semibold); }
+.fleet-project-text .mono { font-size: var(--fs-2xs); color: var(--sub); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fleet-project-dot { flex: none; width: 9px; height: 9px; border-radius: var(--radius-pill); }
+.fleet-project-dot.dot-needs { background: var(--needs); }
+.fleet-project-dot.dot-working { background: var(--working); }
+.fleet-project-dot.dot-idle { box-shadow: inset 0 0 0 1.5px var(--idle); }
+
+.fleet-new-project { margin-top: var(--space-2); border-style: dashed; justify-content: center; }
+.fleet-new-project svg { width: 16px; height: 16px; }
+.fleet-rail-browser { display: flex; flex-direction: column; gap: var(--space-2); margin-top: var(--space-2); }
+
+.fleet-rail-usage {
+  margin-top: auto;
+  padding-top: var(--space-3);
+  border-top: var(--hairline) solid var(--line);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.fleet-rail-usage .fleet-capsule { width: 100%; box-sizing: border-box; }
 
 .fleet-capsules {
   display: flex;
@@ -144,28 +454,6 @@
 }
 
 /* ---------- sections and runs ---------- */
-
-.fleet-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.fleet-section-head {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--control-h);
-}
-
-/* the section's word: caption, sub, the UI face; never capitals or spaced letters */
-.fleet-section-head h2 {
-  margin: 0 auto 0 0;
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-medium);
-  color: var(--sub);
-}
 
 .fleet-stack,
 .fleet-group {
@@ -289,213 +577,39 @@
   overflow-y: auto;
 }
 
-/* the notice the screen itself gives (a refused request, a fleet that would not load) */
-.fleet-alert {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: 10px 14px;
-  border-radius: var(--radius-md);
-  background: var(--needs-tint);
-  color: var(--needs-text);
-  font-size: var(--fs-sm);
-}
+/* the sheet's own scrim and close button show on a narrower screen only */
+.fleet-sheet-scrim, .fleet-sheet-close { display: none; }
 
-.fleet-alert span { flex: 1; overflow-wrap: anywhere; }
+/* ---------- a narrower screen: nothing expands, the Overview is a sheet ---------- */
 
-.fleet-empty {
-  color: var(--sub);
-  text-align: center;
-  padding-block: 12vh 0;
-}
-
-.fleet-empty p { margin: 0 0 var(--space-1); }
-.fleet-empty p:first-child { color: var(--ink-strong); font-size: var(--fs-lg); }
-
-@media (prefers-reduced-motion: no-preference) {
-  .fleet-run { transition: transform var(--dur-base) var(--ease-out); }
-  .fleet-run:hover { transform: translateY(-2px); }
-}
-
-/* ---------- detail sheet ---------- */
-
-.fleet-sheet {
-  position: absolute;
-  top: var(--space-4);
-  right: var(--space-4);
-  bottom: var(--space-4);
-  z-index: 3;
-  width: min(520px, calc(100% - 2 * var(--space-4)));
-  box-sizing: border-box;
-  overflow-y: auto;
-  padding: var(--space-6);
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-5);
-  border: var(--hairline) solid var(--edge);
-  border-radius: var(--radius-xl);
-  /* the one glass layer on this screen: strong enough to read over the cards under it */
-  background: var(--glass-strong);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  box-shadow: var(--shadow-panel);
-}
-
-@media (prefers-reduced-transparency: reduce) {
-  .fleet-sheet {
-    background: var(--field);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
+@media (max-width: 900px) {
+  .fleet-hide-narrow, .fleet-overview-label { display: none; }
+  .fleet-screen { gap: 0; }
+  .fleet-main { border-radius: 0; border-width: 0; }
+  .fleet-sheet-scrim {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    border: 0;
+    background: var(--scrim);
   }
-}
-
-@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
-  .fleet-sheet {
-    background: var(--field);
+  .fleet-sheet-close { display: inline-flex; }
+  .fleet-overview {
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    top: 12%;
+    z-index: 3;
+    min-width: 0;
+    border-width: var(--hairline) 0 0;
+    border-radius: var(--radius-xl) var(--radius-xl) 0 0;
+    background: var(--glass-strong);
   }
-}
-
-.fleet-sheet-head {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-}
-
-.fleet-sheet-title {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  line-height: 1.25;
-}
-
-.fleet-sheet-title h2 {
-  margin: 0;
-  font-size: var(--fs-xl);
-  color: var(--ink-strong);
-}
-
-.fleet-sheet-title span {
-  font: var(--fs-xs) var(--font-mono);
-  color: var(--sub);
-}
-
-.fleet-sheet-facts {
-  margin: 0;
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: var(--space-2);
-}
-
-.fleet-sheet-facts div {
-  padding: 10px 12px;
-  border-radius: var(--radius-md);
-  background: var(--field);
-  min-width: 0;
-}
-
-.fleet-sheet-facts dt,
-.fleet-sheet-section h3 {
-  margin: 0 0 2px;
-  font-size: var(--fs-xs);
-  font-weight: var(--fw-medium);
-  color: var(--sub);
-}
-
-.fleet-sheet-section h3.is-blocked { color: var(--needs); }
-
-.fleet-sheet-facts dd {
-  margin: 0;
-  color: var(--ink-strong);
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.fleet-sheet-section {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.fleet-sheet-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--space-2);
-}
-
-.fleet-sheet-hint,
-.fleet-sheet-empty {
-  margin: 0;
-  font-size: var(--fs-xs);
-  color: var(--sub);
-}
-
-.fleet-sheet-empty {
-  padding: 12px 14px;
-  border-radius: var(--radius-md);
-  border: var(--hairline) dashed var(--line-strong);
-}
-
-.fleet-sheet-foot {
-  margin-top: auto;
-  font-size: var(--fs-2xs);
-  color: var(--sub);
-}
-
-.fleet-route {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-}
-
-.fleet-route li {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr);
-  column-gap: var(--space-3);
-  line-height: 1.4;
-}
-
-.fleet-route li::before {
-  content: "";
-  grid-row: 1 / 3;
-  width: 10px;
-  height: 10px;
-  margin-top: 5px;
-  border-radius: 50%;
-  border: 2px solid var(--idle);
-}
-
-.fleet-route li.is-chosen::before {
-  border-color: var(--accent);
-  background: var(--accent);
-}
-
-.fleet-route b {
-  font: var(--fw-semibold) var(--fs-xs) var(--font-mono);
-  color: var(--ink-strong);
-  overflow-wrap: anywhere;
-}
-
-.fleet-route span {
-  font-size: var(--fs-xs);
-  color: var(--sub);
-  overflow-wrap: anywhere;
-}
-
-/* ---------- phone ---------- */
-
-@media (max-width: 640px) {
-  .fleet-scroll { padding: var(--space-4) var(--space-4) calc(var(--space-6) + env(safe-area-inset-bottom, 0px)); gap: var(--space-4); }
-  .fleet-title h1 { font-size: 24px; }
-  .fleet-capsules { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-  .fleet-capsules > .btn { grid-column: 1 / -1; }
-  .fleet-run.is-near { padding: var(--space-4); }
-  .fleet-run-actions { width: 100%; }
-  .is-near .fleet-run-actions .btn { flex: 1; }
-  .fleet-sheet { inset: var(--space-2) var(--space-2) calc(var(--space-2) + env(safe-area-inset-bottom, 0px)); width: auto; padding: var(--space-4); }
+  /* an open thread takes the screen */
+  .fleet-screen.has-open .fleet-overview { top: 0; border-radius: 0; border-width: 0; }
+  .fleet-screen.has-open .fleet-sheet-scrim { display: none; }
 }
 
 /* ---------- header switch (App) ---------- */

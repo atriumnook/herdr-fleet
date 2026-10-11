@@ -77,14 +77,30 @@ describe("loading runs and usage", () => {
   });
 });
 
-describe("screens and the detail sheet", () => {
+describe("screens and the Fleet screen's view", () => {
   const withRuns = play([{ type: "fleet-changed" }, { type: "runs-loaded", runs: [run("a"), run("gone", { state: "stopped" })] }]).state;
 
-  it("opens a run's detail, closes it when the run disappears, and leaves it on the way to a pane", () => {
-    expect(play([{ type: "show-screen", screen: "fleet" }, { type: "show-run", runId: "a" }], withRuns).state).toMatchObject({ screen: "fleet", detail: "a" });
-    expect(play([{ type: "show-run", runId: "nobody" }], withRuns).state.detail).toBeNull();
-    expect(play([{ type: "show-run", runId: "a" }, { type: "runs-loaded", runs: [] }], withRuns).state.detail).toBeNull();
-    expect(play([{ type: "show-screen", screen: "fleet" }, { type: "show-run", runId: "a" }, { type: "select-pane", machineId: "local", paneId: "w1:x" }], withRuns).state).toMatchObject({ screen: "pane", detail: null });
+  it("opens a thread or an agent in the Overview, one of its agents, large, and closes it when its run disappears", () => {
+    const opened = play([{ type: "show-screen", screen: "fleet" }, { type: "fleet-overview", open: false }, { type: "fleet-open", kind: "thread", runId: "a" }], withRuns).state;
+    expect(opened.fleetView).toEqual({ project: null, overview: true, open: { kind: "thread", runId: "a", member: null }, expanded: false });
+    const helper = play([{ type: "fleet-member", runId: "h" }, { type: "fleet-expand", expanded: true }], opened).state;
+    expect(helper.fleetView).toMatchObject({ open: { member: "h" }, expanded: true });
+    expect(play([{ type: "runs-loaded", runs: [run("gone", { state: "stopped" })] }], helper).state.fleetView).toMatchObject({ open: null, expanded: false });
+    expect(play([{ type: "fleet-close" }], helper).state.fleetView).toMatchObject({ open: null, expanded: false });
+    // an agent has no helpers, and nothing expands with nothing open
+    expect(play([{ type: "fleet-open", kind: "agent", runId: "a" }, { type: "fleet-member", runId: "h" }], withRuns).state.fleetView.open).toEqual({ kind: "agent", runId: "a", member: null });
+    expect(play([{ type: "fleet-expand", expanded: true }], withRuns).state.fleetView.expanded).toBe(false);
+  });
+
+  it("starts a project from its first message, picks it, and marks a thread done", () => {
+    const started = play([{ type: "fleet-start-project", task: "fix the retry", cwd: "/repo" }], withRuns);
+    expect(started.effects).toEqual([{ kind: "request", action: { kind: "start-project", task: "fix the retry", cwd: "/repo" } }]);
+    expect(started.state.fleetView.project).toBe("/repo");
+    expect(play([{ type: "fleet-start-project", task: " ", cwd: "/repo" }], withRuns).effects).toEqual([]);
+    expect(play([{ type: "fleet-resolve", runId: "a", resolved: true }], withRuns).effects).toEqual([{ kind: "request", action: { kind: "resolve", runId: "a", resolved: true } }]);
+    const watching = { ...withRuns, canAct: false };
+    expect(play([{ type: "fleet-start-project", task: "t", cwd: "/repo" }], watching).effects).toEqual([]);
+    expect(play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-project", project: "/other" }], withRuns).state.fleetView).toMatchObject({ project: "/other", open: null });
   });
 
   it("selects a live run's pane on this PC, again when asked again, and not an ended run's", () => {

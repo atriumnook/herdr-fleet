@@ -421,3 +421,13 @@ export async function closeDoneFleetRuns(group: string): Promise<void> {
 export async function clearFleetCooldown(key: string): Promise<void> {
   await sendFleet("/usage/clear", { key });
 }
+
+/** Starts the coordinator of the project `cwd` lies in, or hands the task to the one there. */
+export async function startFleetProject(task: string, cwd: string): Promise<void> {
+  await sendFleet("/projects", { task, cwd });
+}
+
+/** Marks a thread done for the person, or open again. */
+export async function resolveFleetRun(runId: string, resolved: boolean): Promise<void> {
+  await sendFleet(`/runs/${encodeURIComponent(runId)}/resolve`, { resolved });
+}

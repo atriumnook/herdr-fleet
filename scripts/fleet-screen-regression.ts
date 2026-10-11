@@ -1,6 +1,6 @@
 import "./test-herdr.ts"; // a herdr session of its own: nothing shows in the user's
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, Page } from "playwright-core";
@@ -8,16 +8,20 @@ import { workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
 import { createServer } from "../server/index.ts";
 import { DEFAULT_CONFIG } from "../server/fleet/config.ts";
 import type { AgentRuntime } from "../server/fleet/runtime.ts";
-import type { AgentState } from "../server/fleet/types.ts";
+import type { AgentRun, AgentState } from "../server/fleet/types.ts";
 import { UsageTracker } from "../server/fleet/usage.ts";
-import { t } from "../src/lib/i18n.ts";
+
+/** what each agent of the stand-in fleet does, by the name it was started with */
+const BEHAVIOUR: Record<string, AgentState> = {
+  "repo · fleet": "idle", "Fix the retry": "blocked", "Update the README": "idle", "Weekly usage window": "working", review: "idle", bench: "working",
+};
 
 /**
  * The Fleet screen in a real browser, over a server whose fleet runs on a stand-in runtime (no
- * agent CLI starts): the header button opens it, runs show in the order they need the person,
- * usage capsules show their windows and a cooldown that can be ended, a run's detail opens on a
- * sheet, and "Open pane" takes the person to the run's real herdr pane. With FLEET_SCREENSHOTS set
- * to a folder, it saves what it saw there.
+ * agent CLI starts) in real herdr panes: the project list, the project conversation, the Overview
+ * with the threads by what they ask of the person, a thread opened beside it and large, one of its
+ * helpers, a thread marked done, and on a phone the Overview as a sheet and a thread on the whole
+ * screen. With FLEET_SCREENSHOTS set to a folder, it saves what it saw there.
  */
 export async function checkFleetScreen(browser: Browser): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-fleet-fleet-screen-"));
@@ -25,50 +29,78 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
   const workspaces: string[] = [];
   let server: ReturnType<typeof createServer> | undefined;
   try {
-    mkdirSync(join(root, "pane"));
-    const created = await workspaceCreate({ cwd: join(root, "pane"), label: "herdr-fleet-test-fleet-screen" });
-    workspaces.push(created.workspace.workspace_id);
-    const realPane = created.root_pane.pane_id;
+    // the project: a repository with one commit, which the threads' change is measured against
+    const repo = join(root, "repo");
+    mkdirSync(repo);
+    const git = (...args: string[]) => Bun.spawnSync(["git", "-c", "core.fsmonitor=false", "-c", "user.email=t@example.invalid", "-c", "user.name=t", "-C", repo, ...args]);
+    git("init", "-q", "-b", "main");
+    writeFileSync(join(repo, "README.md"), "# repo\n");
+    git("add", "README.md");
+    git("commit", "-q", "-m", "start");
 
-    // impl works in the real pane; review stops at a question; scout finishes its turn at once,
-    // which the fleet notices once its grace period after the prompt has passed
-    const stateOf = (name: string): AgentState => (name.includes("scout") ? "idle" : "working");
-    let panes = 0;
+    // every agent the screen opens sits in a real pane, so its chat reads something
+    const paneFor = new Map<string, string>();
+    const realPane = async (label: string) => {
+      const created = await workspaceCreate({ cwd: repo, label: `herdr-fleet-test-${label.replace(/\W+/g, "-")}` });
+      workspaces.push(created.workspace.workspace_id);
+      return created.root_pane.pane_id;
+    };
+    const labelOf = new Map<string, string>();
+    const stateOf = new Map<string, AgentState>();
+    let fakes = 0;
     const runtime: AgentRuntime = {
-      createLocation: async (options) => ({ paneId: options.label === "impl" ? realPane : `w99:p${++panes}`, cwd: options.cwd }),
-      start: async (options) => (options.name.includes("review") ? "blocked" : "idle"),
-      prompt: async (name) => stateOf(name),
-      get: async (name) => stateOf(name),
+      createLocation: async (options) => {
+        const paneId = options.label === "bench" ? `w99:p${++fakes}` : await realPane(options.label);
+        labelOf.set(paneId, options.label);
+        paneFor.set(options.label, paneId);
+        return { paneId, cwd: options.cwd };
+      },
+      start: async (options) => {
+        const state = BEHAVIOUR[labelOf.get(options.paneId) ?? ""] ?? "working";
+        stateOf.set(options.name, state);
+        return state === "blocked" ? "blocked" : "idle";
+      },
+      prompt: async (name) => stateOf.get(name) ?? "working",
+      get: async (name) => stateOf.get(name) ?? "working",
       read: async () => "", screen: async () => "",
       closePane: async () => {}, interrupt: async () => {}, focus: async () => {}, reportMetadata: async () => {},
     };
     const now = Date.now();
     const usage = new UsageTracker({ file: null });
-    usage.record("claude", { readAt: now, windows: [{ name: "5h", usedPercent: 92, resetsAt: now + 3_600_000 }, { name: "weekly", usedPercent: 28, resetsAt: now + 86_400_000 }] });
-    usage.record("codex", { readAt: now, windows: [{ name: "5h", usedPercent: 12, resetsAt: now + 3_600_000 }, { name: "weekly", usedPercent: 64, resetsAt: now + 86_400_000 }] });
-    usage.noteFailure("cursor", undefined, "Error: rate limit exceeded", 60);
+    usage.record("claude", { readAt: now, windows: [{ name: "5h", usedPercent: 42, resetsAt: now + 3_600_000 }, { name: "weekly", usedPercent: 28, resetsAt: now + 86_400_000 }] });
+    usage.record("codex", { readAt: now, windows: [{ name: "5h", usedPercent: 92, resetsAt: now + 3_600_000 }, { name: "weekly", usedPercent: 64, resetsAt: now + 86_400_000 }] });
+    const stateDir = join(root, "state");
     server = createServer({
-      port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"),
+      port: 0, hostname: "127.0.0.1", token: "", stateDir,
       fleet: {
         runtime, usage,
         config: () => ({ ...DEFAULT_CONFIG, closeOnSettle: false }),
         agents: () => [
+          { name: "coordinator", description: "coordinates", agent: "claude", interactive: true, spawning: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" },
+          { name: "lead", description: "leads", agent: "claude", interactive: true, spawning: true, systemPrompt: "", source: "bundled", filePath: "" },
+          { name: "reviewer", description: "reviews", agent: "cursor", systemPrompt: "", source: "bundled", filePath: "" },
           { name: "worker", description: "implements", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" },
-          { name: "reviewer", description: "reviews", agent: "codex", model: "gpt-6", systemPrompt: "", source: "bundled", filePath: "" },
-          { name: "scout", description: "looks", agent: "agy", model: "gemini-3.8-flash-low", systemPrompt: "", source: "bundled", filePath: "" },
         ],
       },
     });
     const origin = `http://127.0.0.1:${server.port}`;
-    const spawn = async (role: string, name: string) => {
-      const response = await fetch(`${origin}/api/fleet/spawn`, { method: "POST", headers: { "content-type": "application/json", "x-herdr-fleet": "1" }, body: JSON.stringify({ role, name, task: "t", cwd: root, group: "fleet-e2e" }) });
-      assert.equal(response.status, 201, await response.clone().text());
+    const post = async (path: string, body: unknown): Promise<AgentRun> => {
+      const response = await fetch(`${origin}/api/fleet${path}`, { method: "POST", headers: { "content-type": "application/json", "x-herdr-fleet": "1" }, body: JSON.stringify(body) });
+      assert.ok(response.ok, await response.clone().text());
+      return ((await response.json()) as { run: AgentRun }).run;
     };
-    await spawn("worker", "impl");
-    await spawn("reviewer", "review");
-    await spawn("scout", "scout");
+    const coordinator = await post("/projects", { task: "Fix the retry, update the README and show the weekly usage window", cwd: repo });
+    const thread = (title: string) => post("/threads", { title, task: "t", cwd: repo, caller_run: coordinator.id });
+    await thread("Fix the retry");
+    const readme = await thread("Update the README");
+    // the README's lead finishes with a PASS and a contract, read once its turn settles
+    writeFileSync(join(stateDir, "fleet-results", readme.id, "handoff.md"), "## HANDOFF\nPASS — the steps start the server (bun run start)\n");
+    writeFileSync(join(stateDir, "fleet-results", readme.id, "contract.md"), "- [x] A1 steps run — evidence: started\n- [x] A2 reviewed — evidence: no findings\n");
+    await thread("Weekly usage window");
+    await post("/spawn", { role: "reviewer", name: "review", task: "t", cwd: repo, group: readme.group });
+    await post("/spawn", { role: "worker", name: "bench", task: "t", cwd: root, group: "fleet-bench" });
 
-    const desktop = await browser.newContext({ viewport: { width: 1280, height: 860 }, locale: "en-US" });
+    const desktop = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "en-US" });
     await desktop.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({})));
     const page = await desktop.newPage();
     const errors: string[] = [];
@@ -76,71 +108,71 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await page.goto(origin);
     await page.locator(".conn-live").waitFor();
 
-    // the header's screen switch names how many runs wait on the person, and opens the screen;
-    // choosing Fleet again keeps it, and the pane's Chat / Terminal switch steps aside meanwhile
-    const button = page.locator(".fleet-button");
-    await page.locator(".fleet-button-count", { hasText: "1" }).waitFor();
-    assert.equal(await button.getAttribute("aria-label"), "Fleet: 1 need you");
-    await button.click();
+    await page.locator(".fleet-button").click();
     const screen = page.locator(".fleet-screen");
     await screen.waitFor();
-    await button.click();
-    assert.equal(await screen.isVisible(), true, "choosing Fleet again keeps the Fleet screen");
-    assert.equal(await page.locator(".screen-switch button[aria-pressed='true']").getAttribute("title"), "Fleet");
-    assert.equal(await page.locator(".view-switch").count(), 0, "Chat / Terminal steps aside on the Fleet screen");
-    assert.equal(await page.locator(".fleet-ornament").count(), 0, "no switch floats over the screen");
-    // scout's settle comes after the grace period: wait for it to reach Done
-    await page.locator(".fleet-section.tone-done").waitFor();
-    const headings = await screen.locator(".fleet-section-head h2").allTextContents();
-    assert.deepEqual(headings, ["Needs you", "Working", "Done"]);
-    assert.equal(await screen.locator(".fleet-run.is-prominent .fleet-run-name b").textContent(), "review");
-    assert.match(await screen.locator(".fleet-capsule.level-low").textContent() ?? "", /claude/);
+    // the sidebar lists the projects; the conversation is the coordinator's
+    await page.locator(".fleet-project.is-selected", { hasText: "repo" }).waitFor();
+    assert.match(await screen.locator(".fleet-main-meta").textContent() ?? "", /coordinator · claude/);
+    await screen.locator(".fleet-main .fleet-chat").waitFor();
+    // the Overview: what waits on the person first, the README's PASS once its turn settled
+    await screen.locator("#fleet-group-review").waitFor();
+    const groups = await screen.locator(".fleet-overview-body h3").allTextContents();
+    assert.deepEqual(groups.map((group) => group.replace(/\s*\d+$/, "")), ["Needs you", "Ready for review", "Working"]);
+    assert.match(await screen.locator(".fleet-row.group-needs").textContent() ?? "", /Fix the retry/);
+    assert.equal(await screen.locator(".fleet-overview-button .fleet-needs-dot").count(), 1);
     await save(page, shots, "fleet-desktop-dark");
 
-    // a cooldown ends from its capsule
-    const cooling = screen.locator(".fleet-capsule.is-cooling");
-    assert.match(await cooling.textContent() ?? "", /cursor/);
-    await cooling.getByRole("button", { name: "Clear" }).click();
-    await screen.locator(".fleet-capsule.is-cooling").waitFor({ state: "detached" });
+    // a thread opens beside the conversation, with its helper
+    await screen.locator(".fleet-row", { hasText: "Update the README" }).click();
+    const open = screen.locator(".fleet-overview .fleet-open");
+    await open.waitFor();
+    assert.match(await open.locator(".fleet-open-title").textContent() ?? "", /Update the README/);
+    assert.match(await open.locator(".fleet-contract").textContent() ?? "", /A1 ✓/);
+    await open.locator(".fleet-overview .fleet-chat, .fleet-chat").first().waitFor();
+    // the chat beside reads its pane's conversation, as the pane's own chat does
+    await open.locator(".fleet-chat .chat-terminal-fallback, .fleet-chat .chat-empty").first().waitFor();
+    await open.locator(".fleet-member", { hasText: "review · cursor" }).click();
+    await open.locator(".fleet-member.is-selected", { hasText: "review" }).waitFor();
+    await open.locator(".fleet-chat .chat-terminal-fallback, .fleet-chat .chat-empty").first().waitFor();
+    await save(page, shots, "fleet-thread-dark");
 
-    // a run's detail opens in front, and closes
-    await screen.locator(".fleet-run-name", { hasText: "review" }).click();
-    const sheet = page.locator(".fleet-sheet");
-    await sheet.waitFor();
-    assert.ok((await sheet.textContent() ?? "").includes(t("The fleet never answers a question; only a person does.")));
-    assert.match(await sheet.textContent() ?? "", /codex:gpt-6/);
-    await save(page, shots, "fleet-detail-dark");
-    await sheet.getByRole("button", { name: "Close" }).click();
-    await sheet.waitFor({ state: "detached" });
+    // large in the middle, the Overview listing the threads again with this one marked
+    await open.getByRole("button", { name: "Expand" }).click();
+    await screen.locator(".fleet-main .fleet-open.is-large").waitFor();
+    await screen.locator(".fleet-row.is-selected", { hasText: "Update the README" }).waitFor();
+    await save(page, shots, "fleet-expanded-dark");
+    await screen.locator(".fleet-main").getByRole("button", { name: "Collapse" }).click();
+    await screen.locator(".fleet-overview .fleet-open").waitFor();
 
-    // Open pane takes the person to the run's own pane, and the pane under the screen was live all along
-    await screen.locator(".fleet-run", { hasText: "impl" }).getByRole("button", { name: "Open pane" }).click();
+    // marked done, it folds under Resolved
+    await screen.locator(".fleet-overview .fleet-open").getByRole("button", { name: "Resolve" }).click();
+    await screen.locator(".fleet-overview .fleet-open").getByRole("button", { name: "Reopen" }).waitFor();
+    await screen.locator(".fleet-overview").getByRole("button", { name: "Back to threads" }).click();
+    await screen.locator(".fleet-fold", { hasText: "Resolved 1" }).waitFor();
+
+    // the agents outside every thread; Terminal takes the person to the coordinator's real pane
+    await screen.locator(".fleet-overview").getByRole("button", { name: "Agents", exact: true }).click();
+    await screen.locator(".fleet-run", { hasText: "bench" }).waitFor();
+    await screen.locator(".fleet-main-head").getByRole("button", { name: "Terminal" }).click();
     await screen.waitFor({ state: "detached" });
-    await page.waitForURL(origin + "/");
-    assert.equal(await page.locator(".pane-layer").getAttribute("inert"), null);
-    await page.locator(".context", { hasText: "herdr-fleet-test-fleet-screen" }).waitFor();
     assert.equal(await page.locator(".screen-switch button[aria-pressed='true']").getAttribute("title"), "Pane");
     await page.locator(".view-switch").waitFor();
-    // and the switch takes the person back and forth
-    await button.click();
-    await screen.waitFor();
-    await page.locator(".screen-switch").getByRole("button", { name: "Pane", exact: true }).click();
-    await screen.waitFor({ state: "detached" });
     assert.deepEqual(errors, []);
     await desktop.close();
 
     for (const theme of shots ? ["light"] : []) {
-      const context = await browser.newContext({ viewport: { width: 1280, height: 860 }, locale: "en-US" });
+      const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: "en-US" });
       await context.addInitScript((t) => localStorage.setItem("herdr-fleet:settings", JSON.stringify({ theme: t })), theme);
       const light = await context.newPage();
       await light.goto(origin);
       await light.locator(".fleet-button").click();
-      await light.locator(".fleet-section.tone-done").waitFor();
+      await light.locator("#fleet-group-needs").waitFor();
       await save(light, shots, `fleet-desktop-${theme}`);
       await context.close();
     }
 
-    // on a phone the header's switch still fits, and the screen reads top to bottom with nothing over it
+    // on a phone: the conversation, the Overview as a sheet, a thread on the whole screen
     const phone = await browser.newContext({ viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true, locale: "en-US" });
     await phone.addInitScript(() => localStorage.setItem("herdr-fleet:settings", JSON.stringify({})));
     const mobile = await phone.newPage();
@@ -148,21 +180,30 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     mobile.on("pageerror", (error) => mobileErrors.push(error.message));
     await mobile.goto(origin);
     await mobile.locator(".fleet-button").click();
-    await mobile.locator(".fleet-section.tone-done").waitFor();
-    const header = await mobile.evaluate(() => {
-      const bar = document.querySelector(".app-header")!;
-      const box = document.querySelector(".screen-switch")!.getBoundingClientRect();
-      const title = document.querySelector(".context")!.getBoundingClientRect();
-      return { overflow: bar.scrollWidth - bar.clientWidth, right: box.right, height: box.height, title: title.width };
+    const phoneScreen = mobile.locator(".fleet-screen");
+    await phoneScreen.waitFor();
+    const sideways = () => mobile.evaluate(() => {
+      const screenBox = document.querySelector(".fleet-screen")!;
+      return Math.max(document.documentElement.scrollWidth - document.documentElement.clientWidth, screenBox.scrollWidth - screenBox.clientWidth);
     });
-    // the switches take a row of their own, so the pane title keeps most of the first
-    assert.ok(header.title >= 390 / 2, `the pane title keeps its room: ${JSON.stringify(header)}`);
-    assert.equal(header.overflow, 0, `the header fits the phone: ${JSON.stringify(header)}`);
-    assert.ok(header.right <= 390 && header.height >= 40, `the switch is on screen, a finger tall: ${JSON.stringify(header)}`);
-    assert.equal(await mobile.locator(".fleet-ornament").count(), 0);
-    const overflow = await mobile.evaluate(() => document.querySelector(".fleet-scroll")!.scrollWidth - document.querySelector(".fleet-scroll")!.clientWidth);
-    assert.equal(overflow, 0, "nothing scrolls sideways on a phone");
+    // the Overview starts open: on a phone it is the sheet; Close leaves the conversation
+    await phoneScreen.locator(".fleet-overview").waitFor();
+    await save(mobile, shots, "fleet-phone-overview-dark");
+    await phoneScreen.locator(".fleet-sheet-close").click();
+    await phoneScreen.locator(".fleet-overview").waitFor({ state: "detached" });
+    assert.equal(await sideways(), 0, "nothing scrolls sideways on a phone");
     await save(mobile, shots, "fleet-phone-dark");
+    await phoneScreen.locator(".fleet-overview-button").click();
+    await phoneScreen.locator(".fleet-row", { hasText: "Fix the retry" }).click();
+    await phoneScreen.locator(".fleet-screen.has-open .fleet-open").or(mobile.locator(".fleet-screen.has-open .fleet-open")).first().waitFor();
+    const covers = await mobile.evaluate(() => {
+      const box = document.querySelector(".fleet-overview")!.getBoundingClientRect();
+      const screenBox = document.querySelector(".fleet-screen")!.getBoundingClientRect();
+      return Math.abs(box.top - screenBox.top) < 2 && Math.abs(box.height - screenBox.height) < 2;
+    });
+    assert.ok(covers, "an open thread takes the whole screen on a phone");
+    assert.equal(await sideways(), 0);
+    await save(mobile, shots, "fleet-phone-thread-dark");
     assert.deepEqual(mobileErrors, []);
     await phone.close();
   } finally {

@@ -23,7 +23,7 @@ import { relay, type Emit } from "./ui/bubble.ts";
 import { paneFromUrl } from "./lib/selection.ts";
 import { needsCount } from "./ui/fleetView.ts";
 import { DevicesPanelPresenter } from "./ui/DevicesPanelPresenter.tsx";
-import { FleetPresenter } from "./ui/FleetPresenter.tsx";
+import { FleetPresenter, ProjectRailPresenter } from "./ui/FleetPresenter.tsx";
 import { NewSessionPresenter } from "./ui/NewSessionPresenter.tsx";
 import { AccessGatePresenter } from "./ui/AccessGatePresenter.tsx";
 import { CommandPalettePresenter } from "./ui/CommandPalettePresenter.tsx";
@@ -159,6 +159,12 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     else if (event.type === "select-pane") pass(event);
     else { setDrawerOpen(false); pass(event); }
   }), [emit, openNewSession, installPrompt.install, setDrawerOpen]);
+
+  // the Fleet screen's projects: one picked closes the phone's drawer
+  const railEmit = useMemo(() => relay<UiEvent, UiEvent>(emit, (event, pass) => {
+    if (event.type === "fleet-project") setDrawerOpen(false);
+    pass(event);
+  }), [emit, setDrawerOpen]);
 
   // the ?pane= a notification opened us with has done its job once it selected the pane
   useEffect(() => {
@@ -443,7 +449,9 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
       <div className="app-body">
         <aside id="workspace-drawer" className={`sidebar${drawerOpen ? " is-open" : ""}`}>
           {error && <div className="error-state" role="alert"><p>{error}</p><button className="btn" onClick={() => emit({ type: "reload-machines" })}>{t("Retry")}</button></div>}
-          <MachineSidebarPresenter version={health?.herdr?.version ?? null} machines={machines} install={installPrompt} tree={machineTree} emit={sidebarEmit} />
+          {screen === "fleet"
+            ? <ProjectRailPresenter emit={railEmit} />
+            : <MachineSidebarPresenter version={health?.herdr?.version ?? null} machines={machines} install={installPrompt} tree={machineTree} emit={sidebarEmit} />}
         </aside>
 
         {drawerOpen && <div className="scrim" aria-hidden="true" onClick={() => setDrawerOpen(false)} />}
@@ -459,6 +467,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
             agent={selectedAgent}
             agentStatus={selectedPane?.agent_status}
             view={view}
+            chatShown={screen === "pane"}
             autoSelected={autoSelected}
             terminalFontSize={settings.terminalFontSize}
             terminalWheelSpeed={settings.terminalWheelSpeed}
