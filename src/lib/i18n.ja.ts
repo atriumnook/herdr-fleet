@@ -173,4 +173,12 @@ export const JA: Record<string, string> = {
   "Could not load the settings. {error}": "設定を読み込めませんでした。{error}",
   "Could not save. {error}": "保存できませんでした。{error}",
   "This device can only watch, so the settings cannot be changed here.": "この端末は閲覧専用なので、ここでは設定を変えられません。",
+  // ---- entrances ----
+  "Lets the conversation of an agent CLI in a herdr pane hand work to the fleet. The fleet puts its skill, herdr-fleet, into a folder the CLI reads skills from. When you say \"ask the fleet\" in that conversation, the CLI sends the request to the coordinator of its repository.": "herdr のペインで動いているエージェント CLI の会話から、fleet に仕事を頼めるようにします。fleet は、自分のスキル herdr-fleet を、CLI がスキルを読むフォルダに置きます。その会話で「fleet に頼んで」と言うと、CLI がそのリポジトリの coordinator に頼みごとを送ります。",
+  "Could not read the skill folders. {error}": "スキルのフォルダを読めませんでした。{error}",
+  "Could not change the skill folder. {error}": "スキルのフォルダを変更できませんでした。{error}",
+  "This server asks for a token, and the skill does not hold it. A pane can send requests only when HERDR_FLEET_TOKEN is set in it.": "このサーバーはトークンを求めますが、スキルにはトークンを書きません。ペインから頼めるのは、そのペインで HERDR_FLEET_TOKEN が設定されているときだけです。",
+  "The fleet wrote this file for another fleet command or server address. Update writes it again.": "このファイルは、別の fleet コマンドかサーバーのアドレスに向けて fleet が書いたものです。Update で書き直します。",
+  "A file the fleet did not write is there. The fleet does not overwrite or remove it.": "fleet が書いていないファイルがあります。fleet はこのファイルを上書きも削除もしません。",
+  "The skill holds only where the fleet command is and this server's address. The CLI reads how to hand work on from the fleet guide command each time, so the skill does not need updating when herdr-fleet changes.": "スキルに書くのは、fleet コマンドの場所とこのサーバーのアドレスだけです。頼み方は、CLI がそのつど fleet guide コマンドで読みます。そのため、herdr-fleet を更新してもスキルを書き直す必要はありません。",
 };

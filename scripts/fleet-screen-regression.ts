@@ -27,7 +27,8 @@ const BEHAVIOUR: Record<string, AgentState> = {
  * agent CLI starts) in real herdr panes: the project list, the project conversation, the Overview
  * with the threads by what they ask of the person, a thread opened beside it and large, one of its
  * helpers, its change with a comment waiting, its checks and the yes a discard asks for, a thread
- * marked done, the Settings page writing fleet.json (a folder of its own, never the person's), and
+ * marked done, the Settings page writing fleet.json and putting the fleet skill into a skill folder
+ * (folders of its own, never the person's), and
  * on a phone the Overview as a sheet, a thread with its change on the whole screen and the Settings
  * page. With FLEET_SCREENSHOTS set to a folder, it saves what it saw there.
  */
@@ -88,10 +89,14 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     usage.record("claude", { readAt: now, windows: [{ name: "5h", usedPercent: 42, resetsAt: now + 3_600_000 }, { name: "weekly", usedPercent: 28, resetsAt: now + 86_400_000 }] });
     usage.record("codex", { readAt: now, windows: [{ name: "5h", usedPercent: 92, resetsAt: now + 3_600_000 }, { name: "weekly", usedPercent: 64, resetsAt: now + 86_400_000 }] });
     const stateDir = join(root, "state");
+    // a skill of the person's own where agy reads skills: the fleet must leave it alone
+    const ownSkill = join(root, "home", ".gemini", "config", "skills", "herdr-fleet", "SKILL.md");
+    mkdirSync(join(ownSkill, ".."), { recursive: true });
+    writeFileSync(ownSkill, "---\nname: herdr-fleet\ndescription: my own\n---\n");
     server = createServer({
       port: 0, hostname: "127.0.0.1", token: "", stateDir,
       fleet: {
-        runtime, usage, userDir: join(root, "config"),
+        runtime, usage, userDir: join(root, "config"), homeDir: join(root, "home"),
         config: () => ({ ...DEFAULT_CONFIG, closeOnSettle: false }),
         agents: () => [
           { name: "coordinator", description: "coordinates", agent: "claude", interactive: true, spawning: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" },
@@ -220,6 +225,17 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await settingsPage.getByRole("button", { name: "Usage", exact: true }).click();
     await settingsPage.locator(".fleet-account.is-skipped", { hasText: "codex" }).waitFor();
     await save(page, shots, "fleet-settings-usage-dark");
+    // Entrances: Install puts the fleet skill where pi, codex and cursor read skills; the person's own file stays
+    await settingsPage.getByRole("button", { name: "Entrances", exact: true }).click();
+    const agentsRow = settingsPage.locator(".fleet-setting-entrance", { hasText: "/.agents/skills/herdr-fleet/SKILL.md" });
+    await agentsRow.getByRole("button", { name: "Install" }).click();
+    await agentsRow.locator(".fleet-entrance-installed").waitFor();
+    assert.match(readFileSync(join(root, "home", ".agents", "skills", "herdr-fleet", "SKILL.md"), "utf8"), /fleet\.ts guide\n/);
+    const takenRow = settingsPage.locator(".fleet-setting-entrance", { hasText: "/.gemini/config/skills/herdr-fleet/SKILL.md" });
+    await takenRow.locator(".fleet-entrance-taken").waitFor();
+    assert.equal(await takenRow.getByRole("button").count(), 0, "a file the fleet did not write offers no Install or Remove");
+    assert.match(readFileSync(ownSkill, "utf8"), /my own/);
+    await save(page, shots, "fleet-settings-entrances-dark");
     await settingsPage.getByRole("button", { name: "Close settings" }).click();
     await screen.locator(".fleet-main .fleet-chat").waitFor();
 

@@ -3,19 +3,19 @@ import { ArrowDown, ArrowUp, Minus, Plus, X } from "lucide-react";
 import type { Emit } from "../../ui/bubble.ts";
 import type { FleetSettingsModel } from "../../ui/fleetView.ts";
 import type { UiEvent } from "../../ui/state.ts";
-import type { FleetAgentKind, FleetSettings, RoleCandidate, RoleSettings, ThinkingLevel } from "../../../shared/fleet.ts";
+import type { FleetAgentKind, FleetEntrance, FleetSettings, RoleCandidate, RoleSettings, ThinkingLevel } from "../../../shared/fleet.ts";
 import { t } from "../../lib/i18n.ts";
 import { AgentMark } from "../AgentMark.tsx";
 import { Segmented } from "../Segmented.tsx";
 
 /** What the Settings page hands up: the Mediator's own events, complete. */
-export type FleetSettingsEvent = Extract<UiEvent, { type: "fleet-settings-change" | "fleet-settings" }>;
+export type FleetSettingsEvent = Extract<UiEvent, { type: "fleet-settings-change" | "fleet-settings" | "fleet-entrance" }>;
 
 const KINDS: readonly FleetAgentKind[] = ["claude", "codex", "cursor", "agy", "pi"];
 const LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 const MAX_CANDIDATES = 8;
 
-type Section = "roles" | "usage" | "projects" | "limits";
+type Section = "roles" | "usage" | "projects" | "limits" | "entrances";
 
 const label = (candidate: RoleCandidate): string => (candidate.model ? `${candidate.agent}:${candidate.model}` : candidate.agent);
 
@@ -39,7 +39,7 @@ export function FleetSettingsPage({ model, emit }: { model: FleetSettingsModel; 
       </header>
       <div className="fleet-settings-tabs">
         <Segmented label={t("Settings section")}>
-          {(["roles", "usage", "projects", "limits"] as const).map((each) => (
+          {(["roles", "usage", "projects", "limits", "entrances"] as const).map((each) => (
             <button key={each} type="button" aria-pressed={section === each} onClick={() => setSection(each)}>{t(SECTION_LABEL[each])}</button>
           ))}
         </Segmented>
@@ -55,6 +55,7 @@ export function FleetSettingsPage({ model, emit }: { model: FleetSettingsModel; 
               {section === "usage" && <UsageSection settings={settings} model={model} change={change} />}
               {section === "projects" && <ProjectsSection model={model} change={change} />}
               {section === "limits" && <LimitsSection settings={settings} canAct={model.canAct} change={change} />}
+              {section === "entrances" && <EntrancesSection model={model} emit={emit} />}
               <p className="fleet-settings-file">{t("Changes are saved to {file} as you make them.", { file: settings.file })}</p>
             </>
           )}
@@ -64,7 +65,7 @@ export function FleetSettingsPage({ model, emit }: { model: FleetSettingsModel; 
   );
 }
 
-const SECTION_LABEL: Record<Section, string> = { roles: "Roles", usage: "Usage", projects: "Projects", limits: "Limits" };
+const SECTION_LABEL: Record<Section, string> = { roles: "Roles", usage: "Usage", projects: "Projects", limits: "Limits", entrances: "Entrances" };
 
 type Change = (patch: Extract<FleetSettingsEvent, { type: "fleet-settings-change" }>["patch"]) => void;
 
@@ -241,6 +242,45 @@ function LimitsSection({ settings, canAct, change }: { settings: FleetSettings; 
         <button type="button" className="settings-toggle" role="switch" aria-checked={settings.closeOnSettle} aria-label={t("Close a helper's pane when it finishes")} disabled={!canAct}
           onClick={() => change({ closeOnSettle: !settings.closeOnSettle })}><span className="settings-toggle-thumb" /></button>
       </div>
+    </section>
+  );
+}
+
+const ENTRANCE_STATE: Record<FleetEntrance["state"], string> = { installed: "Installed", missing: "Not installed", outdated: "Outdated", taken: "Another file is there" };
+
+function EntrancesSection({ model, emit }: { model: FleetSettingsModel; emit: Emit<FleetSettingsEvent> }) {
+  const { entrances } = model;
+  const press = (id: FleetEntrance["id"], action: "install" | "remove") => emit({ type: "fleet-entrance", id, action });
+  return (
+    <section aria-label={t("Entrances")}>
+      <h2 className="fleet-settings-heading">{t("Entrances")}</h2>
+      <p className="fleet-settings-intro">{t("Lets the conversation of an agent CLI in a herdr pane hand work to the fleet. The fleet puts its skill, herdr-fleet, into a folder the CLI reads skills from. When you say \"ask the fleet\" in that conversation, the CLI sends the request to the coordinator of its repository.")}</p>
+      {entrances.status === "error" && <div className="notice" role="alert">{t("Could not read the skill folders. {error}", { error: entrances.error ?? "" })}</div>}
+      {entrances.changeError && <div className="notice" role="alert">{t("Could not change the skill folder. {error}", { error: entrances.changeError })}</div>}
+      {entrances.tokenRequired && <div className="notice">{t("This server asks for a token, and the skill does not hold it. A pane can send requests only when HERDR_FLEET_TOKEN is set in it.")}</div>}
+      {entrances.list.length === 0 && entrances.status !== "error" && <p className="fleet-quiet">{t("Loading settings…")}</p>}
+      {entrances.list.map((entrance) => {
+        const busy = entrances.busy === entrance.id;
+        const off = !model.canAct || entrances.busy !== null;
+        return (
+          <div key={entrance.id} className="fleet-setting fleet-setting-entrance">
+            <div className="fleet-setting-text">
+              <b className="mono">{entrance.file}</b>
+              <span className="fleet-entrance-readers">{t("Read by")} {entrance.readers.map((kind) => <span key={kind} className="fleet-entrance-reader"><AgentMark agent={kind} size={14} />{kind}</span>)}</span>
+              {entrance.state === "outdated" && <span>{t("The fleet wrote this file for another fleet command or server address. Update writes it again.")}</span>}
+              {entrance.state === "taken" && <span>{t("A file the fleet did not write is there. The fleet does not overwrite or remove it.")}</span>}
+            </div>
+            <span className={`fleet-entrance-state fleet-entrance-${entrance.state}`}>{busy ? t("Saving…") : t(ENTRANCE_STATE[entrance.state])}</span>
+            {(entrance.state === "missing" || entrance.state === "outdated") && (
+              <button type="button" className={entrance.state === "missing" ? "btn btn-primary" : "btn"} disabled={off} onClick={() => press(entrance.id, "install")}>{t(entrance.state === "missing" ? "Install" : "Update")}</button>
+            )}
+            {(entrance.state === "installed" || entrance.state === "outdated") && (
+              <button type="button" className="btn" disabled={off} onClick={() => press(entrance.id, "remove")}>{t("Remove")}</button>
+            )}
+          </div>
+        );
+      })}
+      <p className="fleet-settings-file">{t("The skill holds only where the fleet command is and this server's address. The CLI reads how to hand work on from the fleet guide command each time, so the skill does not need updating when herdr-fleet changes.")}</p>
     </section>
   );
 }

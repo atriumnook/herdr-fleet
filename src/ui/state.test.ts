@@ -159,7 +159,7 @@ describe("screens and the Fleet screen's view", () => {
   it("opens the Settings page for the project, saves each change, and keeps only the latest save's answer", () => {
     const settings = (maxConcurrent: number) => ({ file: "/c/fleet.json", roles: [], maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent, closeOnSettle: true, projects: [], readOnlyAgents: ["claude" as const] });
     const opened = play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-settings", open: true, cwd: "/repo" }], withRuns);
-    expect(opened.effects).toEqual([{ kind: "load-fleet-settings", cwd: "/repo" }]);
+    expect(opened.effects).toEqual([{ kind: "load-fleet-settings", cwd: "/repo" }, { kind: "load-fleet-entrances" }]);
     expect(opened.state.fleetView).toMatchObject({ settings: true, open: null });
     const ready = play([{ type: "fleet-settings-loaded", settings: settings(6) }], opened.state).state;
     expect(ready.fleetSettings).toMatchObject({ status: "ready", cwd: "/repo", data: { maxConcurrent: 6 } });
@@ -180,6 +180,21 @@ describe("screens and the Fleet screen's view", () => {
     expect(play([{ type: "fleet-settings", open: false }], failed).state.fleetView.settings).toBe(false);
     // a watch-only device saves nothing
     expect(play([{ type: "fleet-settings-change", patch: { maxConcurrent: 3 } }], { ...failed, canAct: false }).effects).toEqual([]);
+  });
+
+  it("puts the fleet skill into one skill folder at a time, and keeps the folders' last answer", () => {
+    const entrances = (claude: "installed" | "missing" | "taken") => ({ entrances: [{ id: "claude" as const, file: "/h/.claude/skills/herdr-fleet/SKILL.md", readers: ["claude" as const, "cursor" as const], state: claude }], tokenRequired: false });
+    const opened = play([{ type: "fleet-settings", open: true, cwd: "/repo" }, { type: "fleet-entrances-loaded", entrances: entrances("missing") }], withRuns).state;
+    expect(opened.fleetEntrances).toMatchObject({ status: "ready", busy: null, data: { entrances: [{ state: "missing" }] } });
+    const pressed = play([{ type: "fleet-entrance", id: "claude", action: "install" }, { type: "fleet-entrance", id: "agents", action: "install" }], opened);
+    // the second press came while the first ran: it is dropped
+    expect(pressed.effects).toEqual([{ kind: "change-fleet-entrance", id: "claude", action: "install" }]);
+    expect(pressed.state.fleetEntrances.busy).toBe("claude");
+    const installed = play([{ type: "fleet-entrance-changed", entrances: entrances("installed") }], pressed.state).state;
+    expect(installed.fleetEntrances).toMatchObject({ busy: null, data: { entrances: [{ state: "installed" }] } });
+    const refused = play([{ type: "fleet-entrance", id: "claude", action: "remove" }, { type: "fleet-entrance-failed", message: "not written by herdr-fleet" }], installed).state;
+    expect(refused.fleetEntrances).toMatchObject({ busy: null, changeError: "not written by herdr-fleet", data: { entrances: [{ state: "installed" }] } });
+    expect(play([{ type: "fleet-entrance", id: "claude", action: "remove" }], { ...refused, canAct: false }).effects).toEqual([]);
   });
 
   it("selects a live run's pane on this PC, again when asked again, and not an ended run's", () => {
