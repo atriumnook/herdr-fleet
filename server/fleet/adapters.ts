@@ -303,9 +303,10 @@ export const agyAdapter: AgentAdapter = {
 /**
  * The commands opencode may run unasked, each exactly as written: a pattern with a trailing `*` also
  * matches the arguments, and git's `--output=<file>` writes, `--no-index` reads any file, `--ext-diff`
- * and `--textconv` run helpers.
+ * and `--textconv` run helpers. `git diff`, `git log` and `git show` are not here at all: even bare they
+ * run the textconv and external-diff helpers that the repository's own config names.
  */
-const OPENCODE_READ_ONLY_COMMANDS = ["git status", "git diff", "git log", "git show", "git ls-files", "ls", "pwd"];
+const OPENCODE_READ_ONLY_COMMANDS = ["git status", "git ls-files", "ls", "pwd"];
 const OPENCODE_READ_ONLY_AGENT = "fleet-readonly";
 /**
  * Text that turns an allowed command back into an ask, whatever it is allowed by. opencode matches a

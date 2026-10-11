@@ -257,7 +257,7 @@ describe("opencode adapter", () => {
     const fleet = "/usr/bin/bun /opt/fleet/bin/fleet.ts";
 
     it("lets the listed commands and the fleet command through", () => {
-      for (const text of ["ls", "pwd", "git status", "git diff", `${fleet} list`, `${fleet} send lead "go"`]) expect(verdict(text)).toBe("allow");
+      for (const text of ["ls", "pwd", "git status", "git ls-files", `${fleet} list`, `${fleet} send lead "go"`]) expect(verdict(text)).toBe("allow");
     });
 
     it("asks when a redirect, a second command or a substitution comes with one", () => {
@@ -271,7 +271,7 @@ describe("opencode adapter", () => {
     });
 
     it("asks for the arguments that write or run helpers, and for anything not listed", () => {
-      for (const text of ["git diff --output=/tmp/x", "git diff --no-index a b", "git log --ext-diff", "git show --textconv x", "git diff HEAD~1", "git log -1", "rm -rf build", `${fleet} send lead x --output=y`]) expect(verdict(text)).toBe("ask");
+      for (const text of ["git diff --output=/tmp/x", "git diff --no-index a b", "git log --ext-diff", "git show --textconv x", "git diff", "git log", "git show", "git diff HEAD~1", "git log -1", "rm -rf build", `${fleet} send lead x --output=y`]) expect(verdict(text)).toBe("ask");
     });
   });
 
