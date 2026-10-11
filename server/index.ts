@@ -1,5 +1,5 @@
 import { statSync } from "node:fs";
-import { homedir, tmpdir } from "node:os";
+import { homedir } from "node:os";
 import { join, resolve, isAbsolute } from "node:path";
 import type { ServerWebSocket } from "bun";
 
@@ -17,7 +17,7 @@ import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
-import { EXPLAIN_MODEL, ExplainError, explainQuestion, explainRequest } from "./explain.ts";
+import { EXPLAIN_CONCURRENCY, EXPLAIN_MODEL, ExplainError, ExplainSlots, explainQuestion, explainRequest } from "./explain.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { listDirectories } from "./directories.ts";
 import { fileResponse, fileRoots, locateFile, withinRoots } from "./file-view.ts";
@@ -486,6 +486,9 @@ export function createServer(
   });
 
   /** the person's fleet.json, read and written by the Settings page */
+  /** where an explanation's claude call runs, one at a time: an empty folder made there per call */
+  const explainRoot = join(options.stateDir ?? defaultStateDir(), "explain");
+  const explainSlots = new ExplainSlots(EXPLAIN_CONCURRENCY);
   const settings = new FleetSettingsStore({ agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)), usage, userDir: options.fleet?.userDir });
 
   function broadcast(paneId: string, message: ServerMessage): void {
@@ -1406,10 +1409,13 @@ export function createServer(
         }
         const explain = explainRequest(payload);
         if (typeof explain === "string") return badRequest("invalid_body", explain);
-        // the person's own limits: a project's fleet.json does not decide what their account is spent on
-        const config = (options.fleet?.config ?? ((cwd: string) => loadConfig(cwd)))(tmpdir());
+        // the person's own limits, read from the server's own folder: neither a project's fleet.json
+        // nor one left in the shared temp folder decides what their account is spent on
+        const config = (options.fleet?.config ?? ((cwd: string) => loadConfig(cwd)))(explainRoot);
         try {
           return jsonResponse(await explainQuestion(explain, {
+            workRoot: explainRoot,
+            slots: explainSlots,
             conversation: async (paneId) => (await paneConversation(paneId, options.codexHome)).turns,
             unavailable: () => usage.unavailable("claude", EXPLAIN_MODEL, config.maxUsedPercent),
             failed: (message) => { usage.noteFailure("claude", EXPLAIN_MODEL, message, config.rateLimitCooldownMinutes); },

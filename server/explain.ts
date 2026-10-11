@@ -1,13 +1,14 @@
-import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import type { ConversationTurn, ExplainRequest, ExplainResponse } from "../shared/protocol.ts";
 
 /**
  * An explanation of a question an agent asked: why it asks, what each choice leads to, and which
  * one to pick. Written by Claude Code's smallest model in print mode, only when the person asks for
  * it on the chat's card, on the person's own Claude subscription. The call reads no personal
- * setting, hook or MCP server, uses no tool, keeps no session, and runs in the temp folder, as the
- * usage probe does. The instructions and the bounds on what is sent are adapted from qa-guide
- * (claude_qamods by aieo-product, MIT; see NOTICE).
+ * setting, hook or MCP server, uses no tool and keeps no session; it runs in an empty folder of its
+ * own (ExplainDeps.workRoot), one call at a time. The instructions and the bounds on what is sent
+ * are adapted from qa-guide (claude_qamods by aieo-product, MIT; see NOTICE).
  */
 
 /** the model alias Claude Code resolves to its smallest current model */
@@ -19,6 +20,9 @@ const PROMPT_CHARS = 600;
 const RECENT_PROMPTS = 3;
 const RECENT_TOOLS = 12;
 const TIMEOUT_MS = 90_000;
+const KILL_AFTER_MS = 3_000;
+/** one call at a time for the whole server: each is a claude process on the person's plan */
+export const EXPLAIN_CONCURRENCY = 1;
 
 const bounded = (text: string, max: number): string => (text.length <= max ? text : max > 0 ? `${text.slice(0, max - 1)}…` : "");
 const oneLine = (text: string): string => text.replace(/\s+/g, " ").trim();
@@ -77,8 +81,20 @@ export function questionContext(turns: readonly ConversationTurn[]): { prompts: 
 /** The whole request: instructions, then each part as quoted data, all of it within EXPLAIN_CAP. */
 export function explainPrompt(request: Pick<ExplainRequest, "kind" | "question" | "options">, turns: readonly ConversationTurn[]): string {
   const { prompts, lead, tools } = questionContext(turns);
-  const headings = [INSTRUCTIONS[request.kind], FORMAT, "", QUOTE_HINT, "", "人の最近の指示(古い順、最後が最新):", "", "質問の前にエージェントが書いた文:", "", "最後の指示からあとのツール呼び出し:", "", "質問内容:"];
-  const fixed = headings.join("\n").length + 8;
+  const layout = (promptText: string, leadText: string, toolText: string, questionText: string): string => [
+    INSTRUCTIONS[request.kind], FORMAT, "", QUOTE_HINT, "",
+    "人の最近の指示(古い順、最後が最新):", promptText, "",
+    "質問の前にエージェントが書いた文:", leadText, "",
+    "最後の指示からあとのツール呼び出し:", toolText, "",
+    "質問内容:", questionText,
+  ].join("\n");
+  // the room is counted on the text as sent: JSON escapes (a newline becomes \n) take room too
+  let room = EXPLAIN_CAP - layout("", "", "", "").length;
+  const take = (text: string, max = room): string => {
+    const kept = bounded(text, Math.max(0, Math.min(max, room)));
+    room -= kept.length;
+    return kept;
+  };
   // every choice survives: long fields are cut one by one, never the serialized list
   const fit = (description: number): string => JSON.stringify({
     question: bounded(request.question, 600),
@@ -86,16 +102,12 @@ export function explainPrompt(request: Pick<ExplainRequest, "kind" | "question" 
   }, null, 1);
   let question = fit(300);
   if (question.length > 4000) question = fit(0);
-  const toolText = tools.join("\n");
-  const promptText = bounded(JSON.stringify(prompts, null, 1), Math.max(0, Math.min(4000, EXPLAIN_CAP - fixed - lead.length - toolText.length - question.length)));
-  const questionText = bounded(question, Math.max(0, EXPLAIN_CAP - fixed - lead.length - toolText.length - promptText.length));
-  return [
-    headings[0], headings[1], headings[2], headings[3], headings[4],
-    headings[5], promptText, headings[6],
-    headings[7], JSON.stringify(lead), headings[8],
-    headings[9], toolText, headings[10],
-    headings[11], questionText,
-  ].join("\n");
+  // the question first, then the tool calls, the person's prompts, and the agent's text in what is left
+  const questionText = take(question);
+  const toolText = take(tools.join("\n"));
+  const promptText = take(JSON.stringify(prompts, null, 1), 4000);
+  const leadText = take(JSON.stringify(lead));
+  return layout(promptText, leadText, toolText, questionText);
 }
 
 /** The argv of the call: print mode, no tool, no MCP server, no personal setting, no session kept. */
@@ -133,6 +145,34 @@ export class ExplainError extends Error {
   }
 }
 
+/** The calls that may run at once: a caller waits for a free one, in turn. */
+export class ExplainSlots {
+  private readonly waiting: Array<() => void> = [];
+
+  constructor(private free: number) {}
+
+  /** Waits for a free slot; the function it answers gives it back. */
+  async take(): Promise<() => void> {
+    if (this.free > 0) this.free -= 1;
+    else await new Promise<void>((resolve) => this.waiting.push(resolve));
+    let given = false;
+    return () => {
+      if (given) return;
+      given = true;
+      const next = this.waiting.shift();
+      if (next) next(); else this.free += 1;
+    };
+  }
+}
+
+/** What the CLI did: its exit code (null when a signal ended it), what it wrote, and whether the time ran out. */
+export interface CliResult {
+  code: number | null;
+  stdout: string;
+  stderr: string;
+  timedOut: boolean;
+}
+
 export interface ExplainDeps {
   /** the pane's conversation, newest page */
   conversation(paneId: string): Promise<ConversationTurn[]>;
@@ -140,37 +180,85 @@ export interface ExplainDeps {
   unavailable?(): Promise<string | undefined>;
   /** the call failed: a rate limit puts Claude in cooldown */
   failed?(message: string): void;
-  /** runs argv with `input` on stdin in the temp folder; answers stdout */
-  run?(argv: string[], input: string): Promise<string>;
+  /**
+   * The server's own folder (in its state folder, which only the person can write): each call runs
+   * in a new empty folder made there and removed after. Never the shared temp folder, where another
+   * user could leave a `.claude/settings.json` or a `CLAUDE.md` for the call to read.
+   */
+  workRoot: string;
+  /** the calls allowed at once, for the whole server */
+  slots: ExplainSlots;
+  /** runs argv in `cwd` with `input` on stdin */
+  run?(argv: string[], input: string, cwd: string, timing: { timeoutMs: number; killAfterMs: number }): Promise<CliResult>;
   command?: string;
+  timeoutMs?: number;
+  /** how long after SIGTERM a CLI that has not ended gets SIGKILL */
+  killAfterMs?: number;
 }
 
-/** Runs the CLI in the temp folder, the prompt on stdin (not in argv, where `ps` shows it). */
-async function runCli(argv: string[], input: string): Promise<string> {
-  const child = Bun.spawn(argv, { cwd: tmpdir(), stdin: new Blob([input]), stdout: "pipe", stderr: "pipe" });
-  const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
+/** Runs the CLI with the prompt on stdin (not in argv, where `ps` shows it); out of time, SIGTERM, then SIGKILL. */
+export async function runCli(argv: string[], input: string, cwd: string, timing: { timeoutMs: number; killAfterMs: number }): Promise<CliResult> {
+  const child = Bun.spawn(argv, { cwd, stdin: new Blob([input]), stdout: "pipe", stderr: "pipe" });
+  let timedOut = false;
+  let killTimer: ReturnType<typeof setTimeout> | undefined;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    child.kill("SIGTERM");
+    killTimer = setTimeout(() => child.kill("SIGKILL"), timing.killAfterMs);
+  }, timing.timeoutMs);
   try {
-    const [output, error] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
+    const output = Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
     const code = await child.exited;
-    // print mode answers its own errors as JSON on stdout with a non-zero exit: those are read below
-    if (code !== 0 && output.trim().length === 0) throw new ExplainError("failed", `${argv[0]} exited with ${code}${error.trim() ? `: ${bounded(oneLine(error), 200)}` : ""}`);
-    return output;
+    // a process it left behind can hold the pipes open: once it has ended, they get a short while only
+    const drained = await Promise.race([output, Bun.sleep(timing.killAfterMs).then(() => null)]);
+    const [stdout, stderr] = drained ?? ["", ""];
+    return { code: child.signalCode ? null : code, stdout, stderr, timedOut };
   } finally {
     clearTimeout(timer);
+    clearTimeout(killTimer);
   }
+}
+
+/** What `claude -p --output-format json` prints. */
+interface PrintOutput {
+  is_error?: unknown;
+  result?: unknown;
+  usage?: { input_tokens?: unknown; output_tokens?: unknown; cache_read_input_tokens?: unknown; cache_creation_input_tokens?: unknown };
 }
 
 export async function explainQuestion(request: ExplainRequest, deps: ExplainDeps): Promise<ExplainResponse> {
   const reason = await deps.unavailable?.();
   if (reason !== undefined) throw new ExplainError("limited", reason);
   const prompt = explainPrompt(request, await deps.conversation(request.pane_id));
-  const raw = await (deps.run ?? runCli)(explainArgv(deps.command), prompt);
-  let output: { is_error?: unknown; result?: unknown; usage?: { input_tokens?: unknown; output_tokens?: unknown; cache_read_input_tokens?: unknown; cache_creation_input_tokens?: unknown } };
-  try { output = JSON.parse(raw) as typeof output; } catch { throw new ExplainError("failed", "claude gave no answer"); }
-  if (output.is_error || typeof output.result !== "string" || output.result.trim().length === 0) {
-    const message = typeof output.result === "string" && output.result.trim() ? bounded(oneLine(output.result), 200) : "claude gave no answer";
+  const timing = { timeoutMs: deps.timeoutMs ?? TIMEOUT_MS, killAfterMs: deps.killAfterMs ?? KILL_AFTER_MS };
+  const release = await deps.slots.take();
+  let result: CliResult;
+  try {
+    mkdirSync(deps.workRoot, { recursive: true, mode: 0o700 });
+    const cwd = mkdtempSync(join(deps.workRoot, "explain-"));
+    try {
+      result = await (deps.run ?? runCli)(explainArgv(deps.command), prompt, cwd, timing);
+    } finally {
+      rmSync(cwd, { recursive: true, force: true });
+    }
+  } finally {
+    release();
+  }
+  /** a refusal is told to the fleet (a rate limit puts Claude in cooldown), then to the person */
+  const fail = (message: string): never => {
     deps.failed?.(message);
     throw new ExplainError("failed", message);
+  };
+  if (result.timedOut) fail(`claude did not answer within ${Math.round(timing.timeoutMs / 1000)}s`);
+  let output: PrintOutput | null = null;
+  try { output = JSON.parse(result.stdout) as PrintOutput | null; } catch { /* no JSON: said below by the exit and stderr */ }
+  // print mode answers its own errors as JSON on stdout; without it, the exit and stderr say what happened
+  if (output === null || typeof output !== "object") {
+    const said = result.stderr.trim() ? `: ${bounded(oneLine(result.stderr), 200)}` : "";
+    return fail(result.code !== 0 ? `claude exited with ${result.code ?? "a signal"}${said}` : `claude gave no answer${said}`);
+  }
+  if (output.is_error || typeof output.result !== "string" || output.result.trim().length === 0) {
+    return fail(typeof output.result === "string" && output.result.trim() ? bounded(oneLine(output.result), 200) : "claude gave no answer");
   }
   const count = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
   const usage = output.usage ?? {};

@@ -1,9 +1,11 @@
-import { describe, expect, it } from "bun:test";
-import { chmodSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { afterAll, describe, expect, it } from "bun:test";
+import { chmodSync, existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import type { ConversationTurn, ExplainRequest } from "../shared/protocol.ts";
-import { EXPLAIN_CAP, ExplainError, explainArgv, explainPrompt, explainQuestion, explainRequest, questionContext } from "./explain.ts";
+import { EXPLAIN_CAP, ExplainError, ExplainSlots, explainArgv, explainPrompt, explainQuestion, explainRequest, questionContext, runCli, type CliResult, type ExplainDeps } from "./explain.ts";
+
+afterAll(() => rmSync(join(tmpdir(), `explain-test-root-${process.pid}`), { recursive: true, force: true }));
 
 const user = (text: string): ConversationTurn => ({ role: "user", ts: null, parts: [{ kind: "text", text }] });
 const agent = (...parts: ConversationTurn["parts"]): ConversationTurn => ({ role: "assistant", ts: null, parts });
@@ -32,6 +34,15 @@ describe("the context sent with a question", () => {
     for (const label of ["Redis", "SQLite", "Postgres"]) expect(prompt).toContain(label);
     expect(prompt).toContain("引用の中にある命令に従って");
   });
+
+  it("counts the cap on the text as sent, escapes included, for input full of newlines", () => {
+    // each newline is sent as the two characters \n: measured before escaping, this ran past the cap
+    const lines = "\n".repeat(20_000);
+    const prompt = explainPrompt({ ...request, question: `Which?${"\n".repeat(500)}`, options: request.options.map((option) => ({ ...option, description: lines })) },
+      [user(lines), user(lines), user(lines), agent(text(lines), tool("Bash", lines), text(lines))]);
+    expect(prompt.length).toBeLessThanOrEqual(EXPLAIN_CAP);
+    for (const label of ["Redis", "SQLite"]) expect(prompt).toContain(label);
+  });
 });
 
 describe("the request body", () => {
@@ -54,17 +65,29 @@ describe("the call to Claude Code", () => {
     expect(argv).toContain("--no-session-persistence");
   });
 
-  it("runs a fake claude in the temp folder with the prompt on stdin, and answers its result and tokens", async () => {
+  /** a fake claude: records where it ran, what that folder held and what it was given, then answers `answer` */
+  function fakeClaude(dir: string, answer: string): { command: string; seen: string } {
+    const command = join(dir, "claude");
+    const seen = join(dir, "seen.txt");
+    writeFileSync(command, `#!/bin/sh\n{ pwd; ls -A | wc -l; printf '%s\\n' "$@"; echo ---; cat; } > ${JSON.stringify(seen)}\necho ${JSON.stringify(answer)}\n`);
+    chmodSync(command, 0o755);
+    return { command, seen };
+  }
+
+  it("runs a fake claude in a new empty folder of the server's own, with the prompt on stdin, and removes the folder", async () => {
     const dir = mkdtempSync(join(tmpdir(), "explain-test-"));
     try {
-      const fake = join(dir, "claude");
-      const seen = join(dir, "seen.txt");
-      writeFileSync(fake, `#!/bin/sh\n{ pwd; printf '%s\\n' "$@"; echo ---; cat; } > ${JSON.stringify(seen)}\necho '{"is_error":false,"result":"### 推奨\\n→ 1. Redis","usage":{"input_tokens":900,"cache_read_input_tokens":100,"output_tokens":120}}'\n`);
-      chmodSync(fake, 0o755);
-      const answer = await explainQuestion(request, { command: fake, conversation: async () => [user("pick a store"), agent(text("Which store should I use?"))] });
+      const workRoot = join(dir, "state", "explain");
+      const { command, seen } = fakeClaude(dir, JSON.stringify({ is_error: false, result: "### 推奨\n→ 1. Redis", usage: { input_tokens: 900, cache_read_input_tokens: 100, output_tokens: 120 } }));
+      const answer = await explainQuestion(request, { command, workRoot, slots: new ExplainSlots(1), conversation: async () => [user("pick a store"), agent(text("Which store should I use?"))] });
       expect(answer).toEqual({ text: "### 推奨\n→ 1. Redis", model: "haiku", tokens: { input: 1000, output: 120 } });
-      const [cwd, ...rest] = readFileSync(seen, "utf8").split("\n");
-      expect(realpathSync(cwd!)).toBe(realpathSync(tmpdir()));
+      const [cwd, entries, ...rest] = readFileSync(seen, "utf8").split("\n");
+      // a folder made for the call inside the server's own, never the shared temp folder itself
+      expect(dirname(cwd!)).toBe(realpathSync(workRoot));
+      expect(realpathSync(tmpdir())).not.toBe(cwd);
+      expect(entries!.trim()).toBe("0");
+      expect(existsSync(cwd!)).toBe(false);
+      expect(readdirSync(workRoot)).toEqual([]);
       const stdin = rest.slice(rest.indexOf("---") + 1).join("\n");
       expect(rest.slice(0, rest.indexOf("---"))).not.toContain(stdin.trim());
       expect(stdin).toContain("pick a store");
@@ -73,9 +96,12 @@ describe("the call to Claude Code", () => {
     }
   });
 
+  const deps = (extra: Partial<ExplainDeps> = {}): ExplainDeps => ({ workRoot: join(tmpdir(), `explain-test-root-${process.pid}`), slots: new ExplainSlots(1), conversation: async () => [], ...extra });
+  const result = (extra: Partial<CliResult>): CliResult => ({ code: 0, stdout: "", stderr: "", timedOut: false, ...extra });
+
   it("does not ask Claude while its account is at its limit", async () => {
     let ran = false;
-    const outcome = explainQuestion(request, { conversation: async () => [], unavailable: async () => "claude has used 95% of its 5h limit", run: async () => { ran = true; return ""; } });
+    const outcome = explainQuestion(request, deps({ unavailable: async () => "claude has used 95% of its 5h limit", run: async () => { ran = true; return result({}); } }));
     await expect(outcome).rejects.toBeInstanceOf(ExplainError);
     await expect(outcome).rejects.toMatchObject({ code: "limited" });
     expect(ran).toBe(false);
@@ -83,8 +109,68 @@ describe("the call to Claude Code", () => {
 
   it("reports a refused call, so a rate limit can put Claude in cooldown", async () => {
     const failures: string[] = [];
-    const outcome = explainQuestion(request, { conversation: async () => [], failed: (message) => failures.push(message), run: async () => JSON.stringify({ is_error: true, result: "Claude AI usage limit reached|1760000000" }) });
+    const outcome = explainQuestion(request, deps({ failed: (message) => failures.push(message), run: async () => result({ code: 1, stdout: JSON.stringify({ is_error: true, result: "Claude AI usage limit reached|1760000000" }) }) }));
     await expect(outcome).rejects.toMatchObject({ code: "failed" });
     expect(failures).toEqual(["Claude AI usage limit reached|1760000000"]);
+  });
+
+  it("reports an exit with nothing on stdout, with what stderr said", async () => {
+    const failures: string[] = [];
+    const outcome = explainQuestion(request, deps({ failed: (message) => failures.push(message), run: async () => result({ code: 1, stderr: "API Error: 429 rate limit reached, try again in 5 hours\n" }) }));
+    await expect(outcome).rejects.toMatchObject({ code: "failed", message: "claude exited with 1: API Error: 429 rate limit reached, try again in 5 hours" });
+    expect(failures).toEqual(["claude exited with 1: API Error: 429 rate limit reached, try again in 5 hours"]);
+  });
+
+  it("runs one call at a time: the next waits for the one before to end", async () => {
+    const slots = new ExplainSlots(1);
+    const started: string[] = [];
+    let finishFirst = (): void => {};
+    const answer = result({ stdout: JSON.stringify({ result: "ok" }) });
+    const first = explainQuestion({ ...request, question: "first" }, deps({ slots, run: async (_argv, input) => {
+      started.push(input.includes("first") ? "first" : "second");
+      if (input.includes("first")) await new Promise<void>((resolve) => { finishFirst = resolve; });
+      return answer;
+    } }));
+    const second = explainQuestion({ ...request, question: "second" }, deps({ slots, run: async () => { started.push("second"); return answer; } }));
+    await Bun.sleep(20);
+    expect(started).toEqual(["first"]);
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(started).toEqual(["first", "second"]);
+  });
+
+  it("gives a free slot to the callers waiting, in turn", async () => {
+    const slots = new ExplainSlots(1);
+    const order: number[] = [];
+    const release = await slots.take();
+    const waiters = [1, 2].map((n) => slots.take().then((give) => { order.push(n); give(); }));
+    release();
+    release(); // given back twice, it counts once
+    await Promise.all(waiters);
+    expect(order).toEqual([1, 2]);
+  });
+
+  it("sends SIGTERM when the time runs out, and SIGKILL a while after to a CLI that ignores it", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "explain-test-"));
+    try {
+      const stubborn = join(dir, "claude");
+      // it ignores SIGTERM, and the sleep it leaves behind holds its pipes open past its own end
+      writeFileSync(stubborn, "#!/bin/sh\ntrap '' TERM\nsleep 10 &\nwait $!\nwait $!\n");
+      chmodSync(stubborn, 0o755);
+      const startedAt = Date.now();
+      const ended = await runCli([stubborn], "", dir, { timeoutMs: 200, killAfterMs: 300 });
+      expect(ended.timedOut).toBe(true);
+      expect(ended.code).toBeNull();
+      expect(Date.now() - startedAt).toBeLessThan(5_000);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports a call that ran out of time", async () => {
+    const failures: string[] = [];
+    const outcome = explainQuestion(request, deps({ timeoutMs: 90_000, failed: (message) => failures.push(message), run: async () => result({ code: null, timedOut: true }) }));
+    await expect(outcome).rejects.toMatchObject({ code: "failed", message: "claude did not answer within 90s" });
+    expect(failures).toEqual(["claude did not answer within 90s"]);
   });
 });
