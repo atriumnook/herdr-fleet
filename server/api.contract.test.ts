@@ -1451,6 +1451,37 @@ describe("token auth", () => {
     expect(body.error.code).toBe("unauthorized");
   });
 
+  it("keeps a thread's plan behind the gate, and its changes behind the same-origin and fleet-header checks", async () => {
+    const plan = "/api/fleet/runs/r-none/plan";
+    const routes = [["GET", plan], ["POST", plan], ["POST", `${plan}/answer`]] as const;
+    const json = { "content-type": "application/json", "x-herdr-fleet": "1" };
+    for (const [method, path] of routes) {
+      // no token, no device: refused before the fleet sees it
+      const res = await fetch(`${securedBase()}${path}`, { method, headers: json, body: method === "GET" ? undefined : "{}" });
+      expect(res.status).toBe(401);
+      expect(((await res.json()) as ApiError).error.code).toBe("unauthorized");
+    }
+    // with no token set, a page that rebound its own name to this PC reaches loopback under a foreign Host: refused
+    for (const [method, path] of routes) {
+      const rebound = await fetch(`${base()}${path}`, { method, headers: { ...json, host: "evil.example" }, body: method === "GET" ? undefined : "{}" });
+      expect(rebound.status).toBe(401);
+    }
+    const bearer = { authorization: `Bearer ${TOKEN}` };
+    // with the token: the plan of an unknown run is read as such
+    const read = await fetch(`${securedBase()}${plan}`, { headers: bearer });
+    expect(read.status).toBe(404);
+    for (const [, path] of routes.slice(1)) {
+      // a page on another site cannot hand over or answer a plan, even with the person's token
+      const foreign = await fetch(`${securedBase()}${path}`, { method: "POST", headers: { ...bearer, ...json, origin: "https://evil.example" }, body: "{}" });
+      expect(foreign.status).toBe(403);
+      expect(((await foreign.json()) as ApiError).error.code).toBe("invalid_origin");
+      // nor a request without the fleet header, which no other site can send without a preflight
+      const bare = await fetch(`${securedBase()}${path}`, { method: "POST", headers: { ...bearer, "content-type": "application/json" }, body: "{}" });
+      expect(bare.status).toBe(403);
+      expect(((await bare.json()) as ApiError).error.code).toBe("invalid_fleet_request");
+    }
+  });
+
   it("keeps /api/health public and advertises the gate state", async () => {
     const res = await fetch(`${securedBase()}/api/health`);
     expect(res.status).toBe(200);

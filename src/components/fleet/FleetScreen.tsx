@@ -8,8 +8,9 @@ import { t } from "../../lib/i18n.ts";
 import { AgentMark } from "../AgentMark.tsx";
 import { Segmented } from "../Segmented.tsx";
 import { RunCard, type RunCardEvent } from "./RunCard.tsx";
-import { DiffCount, ThreadBadge } from "./ThreadCard.tsx";
+import { DiffCount, PlanChip, ThreadBadge } from "./ThreadCard.tsx";
 import { LandingActions, LandingConfirm, ThreadChanges, ThreadChecks, ThreadTabs } from "./ThreadLanding.tsx";
+import { ThreadPlan } from "./ThreadPlan.tsx";
 import { FleetSettingsPage } from "./FleetSettings.tsx";
 import "./Fleet.css";
 
@@ -17,6 +18,7 @@ import "./Fleet.css";
 export type FleetScreenEvent = Extract<UiEvent, {
   type: "fleet-overview" | "fleet-open" | "fleet-member" | "fleet-close" | "fleet-expand" | "fleet-start-project" | "fleet-resolve"
     | "fleet-tab" | "fleet-land" | "landing-comment" | "landing-uncomment" | "landing-clear-comments" | "landing-confirm" | "landing-cancel"
+    | "plan-choose" | "plan-comment" | "plan-note" | "plan-respond" | "plan-confirm" | "plan-cancel" | "plan-dropped-seen"
     | "fleet-settings" | "fleet-settings-change" | "fleet-entrance"
     | "open-pane" | "interrupt-run" | "dismiss-error";
 }>;
@@ -205,6 +207,7 @@ function ThreadRow({ row, now, emit }: { row: ThreadRowModel; now: number; emit:
       {row.group === "review" || row.group === "idle" ? <DiffCount diff={row.diff} /> : <ThreadBadge label={row.label} badge={row.badge} />}
       {row.group === "landing" && row.pr && <span className="fleet-row-meta"><span className="mono">PR #{row.pr.number}</span><span>{t(CI_LABEL[row.pr.checks])}</span></span>}
       <span className="fleet-row-meta">{row.branch && <span className="mono">{row.branch}</span>}{meta.map((item) => <span key={item}>{item}</span>)}</span>
+      {row.plan && <PlanChip plan={row.plan} />}
       {row.question && <span className="fleet-row-question">{row.question}</span>}
     </button>
   );
@@ -220,7 +223,7 @@ const CI_LABEL = { pending: "Checks running", pass: "Checks passed", fail: "Chec
  */
 function OpenRun({ open, side, large, emit }: { open: OpenRunModel; side: ReactNode; large: boolean; emit: Emit<FleetScreenEvent> }) {
   const landing = open.landing;
-  const tab = landing?.tab ?? "chat";
+  const tab = open.tab;
   const resolve = open.canResolve ? <button type="button" className="btn btn-ghost" onClick={() => emit({ type: "fleet-resolve", runId: open.runId, resolved: true })}>{t("Resolve")}</button>
     : open.resolved ? <button type="button" className="btn btn-ghost" onClick={() => emit({ type: "fleet-resolve", runId: open.runId, resolved: false })}>{t("Reopen")}</button> : null;
   return (
@@ -267,8 +270,9 @@ function OpenRun({ open, side, large, emit }: { open: OpenRunModel; side: ReactN
         </div>
       )}
       {landing && <LandingActions landing={landing} resolve={resolve} emit={emit} />}
-      {landing && <ThreadTabs landing={landing} emit={emit} />}
+      {(landing || open.plan) && <ThreadTabs tab={tab} landing={landing} plan={open.plan} emit={emit} />}
       <div className="fleet-open-chat" hidden={tab !== "chat"}>{side}</div>
+      {open.plan && tab === "plan" && <ThreadPlan plan={open.plan} emit={emit} />}
       {landing && tab === "changes" && <ThreadChanges landing={landing} emit={emit} />}
       {landing && tab === "checks" && <ThreadChecks landing={landing} emit={emit} />}
       {landing && <LandingConfirm landing={landing} emit={emit} />}

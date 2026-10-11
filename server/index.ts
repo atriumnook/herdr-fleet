@@ -475,6 +475,7 @@ export function createServer(
     runtime: options.fleet?.runtime ?? new HerdrRuntime(),
     registry: new RunRegistry(join(options.stateDir ?? defaultStateDir(), "fleet-runs.json")),
     resultsDir: join(options.stateDir ?? defaultStateDir(), "fleet-results"),
+    plansDir: join(options.stateDir ?? defaultStateDir(), "fleet-plans"),
     instructionsDir: join(options.stateDir ?? defaultStateDir(), "fleet-instructions"),
     config: options.fleet?.config ?? ((cwd) => loadConfig(cwd)),
     agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)),

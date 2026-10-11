@@ -18,6 +18,11 @@ export function DiffCount({ diff }: { diff: DiffStat | undefined }) {
   </span>;
 }
 
+/** A thread whose lead's plan waits for the person: the decisions left to look at, or that it waits to be sent. */
+export function PlanChip({ plan }: { plan: { toAnswer: number } }) {
+  return <span className="fleet-plan-chip">{plan.toAnswer > 0 ? t("Plan · {n} to answer", { n: plan.toAnswer }) : t("Plan · ready to send")}</span>;
+}
+
 /** the Mediator's own event: the thread opens in the Overview */
 export type ThreadCardEvent = Extract<UiEvent, { type: "fleet-open" }>;
 
@@ -35,6 +40,7 @@ export function ThreadCard({ thread, emit }: { thread: ThreadRowModel; emit: Emi
         <span className="fleet-thread-meta">{thread.branch && <span className="mono">{thread.branch}</span>}<DiffCount diff={thread.diff} /></span>
       </span>
       <ThreadBadge label={thread.label} badge={thread.badge} />
+      {thread.plan && <PlanChip plan={thread.plan} />}
       {near && thread.question && <span className="fleet-thread-question">{thread.question}</span>}
     </button>
   );

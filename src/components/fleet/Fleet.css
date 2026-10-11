@@ -755,6 +755,116 @@
 .fleet-overview .fleet-land-actions { gap: var(--space-1); }
 .fleet-overview .fleet-land-actions .btn { padding: 0 var(--space-2); }
 
+/* ---------- a thread's plan: a tree of claims, closed to its first level ---------- */
+
+.fleet-plan-chip { grid-column: 1 / -1; justify-self: start; padding: 1px var(--space-2); border-radius: var(--radius-pill); background: var(--needs-tint); color: var(--needs-text); font-size: var(--fs-xs); white-space: nowrap; }
+.fleet-thread-card .fleet-plan-chip { grid-column: 2 / -1; }
+
+.fleet-plan {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  border-top: var(--hairline) solid var(--line);
+  background: var(--surface);
+}
+
+.fleet-overview .fleet-plan { margin: 0 var(--space-2) var(--space-2); border: var(--hairline) solid var(--line); border-radius: var(--radius-lg); overflow: hidden; }
+
+.fleet-plan-body { flex: 1; min-height: 0; overflow: auto; padding: var(--space-3) var(--space-4) var(--space-4); }
+.fleet-plan-body > * { max-width: 860px; }
+.fleet-plan-dropped { display: flex; align-items: center; gap: var(--space-2); margin-bottom: var(--space-3); overflow-wrap: anywhere; }
+.fleet-plan-dropped .btn { flex: none; height: 28px; font-size: var(--fs-sm); }
+.fleet-plan-head { display: flex; align-items: baseline; gap: var(--space-2); }
+.fleet-plan-head h3 { margin: 0; color: var(--ink-strong); font-size: var(--fs-md); font-weight: var(--fw-semibold); overflow-wrap: anywhere; }
+.fleet-plan-version { color: var(--sub); font-size: var(--fs-xs); }
+
+.fleet-plan-why { margin-top: var(--space-1); color: var(--sub); font-size: var(--fs-sm); }
+.fleet-plan-why summary { cursor: pointer; }
+.fleet-plan-why blockquote { margin: var(--space-2) 0 0; padding: var(--space-1) var(--space-3); border-left: 3px solid var(--line-strong); color: var(--ink); overflow-wrap: anywhere; }
+
+.fleet-plan-tree { margin: var(--space-2) 0 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-1); }
+.fleet-plan-claim-body > .fleet-plan-tree { margin-left: var(--space-3); padding-left: var(--space-3); border-left: var(--hairline) solid var(--line); }
+.fleet-plan-claim > details { border-radius: var(--radius-md); }
+.fleet-plan-claim.level-1 > details { background: var(--field); }
+.fleet-plan-claim summary {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: var(--space-2) var(--space-3);
+  box-sizing: border-box;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  list-style: none;
+}
+.fleet-plan-claim summary::-webkit-details-marker { display: none; }
+.fleet-plan-claim summary:hover { background: var(--tint); }
+.fleet-plan-number { flex: none; min-width: 2.2em; color: var(--sub); font-size: var(--fs-xs); }
+.fleet-plan-text { flex: 1; min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
+.fleet-plan-claim.level-1 > details > summary .fleet-plan-text { color: var(--ink-strong); font-weight: var(--fw-medium); }
+.fleet-plan-commented { flex: none; width: 14px; height: 14px; color: var(--working); align-self: center; }
+.fleet-plan-left { flex: none; padding: 0 var(--space-2); border-radius: var(--radius-pill); background: var(--needs-tint); color: var(--needs-text); font-size: var(--fs-xs); white-space: nowrap; }
+.fleet-plan-claim-body { display: flex; flex-direction: column; gap: var(--space-2); padding: 0 var(--space-3) var(--space-3); }
+
+.fleet-plan-exhibit { margin: 0; border: var(--hairline) solid var(--line); border-radius: var(--radius-md); background: var(--input); overflow: hidden; }
+.fleet-plan-exhibit figcaption { display: flex; align-items: center; gap: var(--space-2); padding: 6px var(--space-3); border-bottom: var(--hairline) solid var(--line); color: var(--sub); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.fleet-plan-code { margin: 0; padding: var(--space-2) 0; overflow-x: auto; font-size: 12.5px; line-height: 1.6; white-space: pre; }
+pre.fleet-plan-code { padding: var(--space-2) var(--space-3); }
+.fleet-plan-code > div { display: grid; grid-template-columns: 44px max-content; }
+.fleet-plan-calls { padding: var(--space-2) 0; font-size: 12.5px; line-height: 1.7; overflow-x: auto; }
+.fleet-plan-call { display: flex; gap: var(--space-3); padding-right: var(--space-3); white-space: nowrap; }
+.fleet-plan-call-at { color: var(--sub); }
+.fleet-plan-list { margin: 0; padding-left: var(--space-5); color: var(--ink); font-size: var(--fs-sm); }
+
+.fleet-plan-ask { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border-radius: var(--radius-md); box-shadow: inset 0 0 0 1.5px var(--needs); background: var(--surface); }
+.fleet-plan-ask.is-seen { box-shadow: inset 0 0 0 var(--hairline) var(--control-edge); }
+.fleet-plan-question { margin: 0; color: var(--ink-strong); overflow-wrap: anywhere; }
+.fleet-plan-question b { margin-right: var(--space-1); color: var(--needs-text); }
+.fleet-plan-ask.is-seen .fleet-plan-question b { color: var(--sub); }
+.fleet-plan-options { display: flex; flex-direction: column; gap: var(--space-1); }
+.fleet-plan-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  box-sizing: border-box;
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--field);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.fleet-plan-option:hover:not(:disabled) { background: var(--tint); }
+.fleet-plan-option.is-on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 10%, var(--field)); }
+.fleet-plan-option:disabled { cursor: default; }
+.fleet-plan-option:disabled:not(.is-on) { opacity: 0.6; }
+.fleet-plan-radio { flex: none; width: 14px; height: 14px; margin-top: 3px; border-radius: 50%; box-shadow: inset 0 0 0 1.5px var(--line-strong); }
+.fleet-plan-option.is-on .fleet-plan-radio { box-shadow: inset 0 0 0 4px var(--accent); }
+.fleet-plan-option-text { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px var(--space-2); min-width: 0; }
+.fleet-plan-option-text b { font-weight: var(--fw-medium); }
+.fleet-plan-option-note { flex-basis: 100%; color: var(--sub); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+
+.fleet-plan-comment-button { align-self: flex-start; height: 28px; padding: 0 var(--space-2); font-size: var(--fs-xs); color: var(--sub); }
+.fleet-plan-comment-button svg { width: 14px; height: 14px; }
+.fleet-plan-comment-box { padding: var(--space-2); border: var(--hairline) solid var(--control-edge); border-radius: var(--radius-md); background: var(--input); }
+.fleet-plan-comment-box textarea { width: 100%; box-sizing: border-box; border: 0; background: none; color: var(--ink); font: inherit; font-size: var(--fs-sm); resize: vertical; outline: none; min-height: 44px; }
+.fleet-plan-comment, .fleet-plan-sent-note { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-md); background: var(--working-tint); font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.fleet-plan-comment b, .fleet-plan-sent-note b { margin-right: var(--space-1); color: var(--working); font-weight: var(--fw-medium); }
+
+.fleet-plan-aux { margin-top: var(--space-4); }
+.fleet-plan-aux h4 { margin: 0 2px; font-size: var(--fs-xs); font-weight: var(--fw-medium); color: var(--sub); }
+.fleet-plan-aux > ul { margin: var(--space-2) 0 0; padding-left: var(--space-5); color: var(--sub); font-size: var(--fs-sm); }
+
+.fleet-plan-foot { flex: none; display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-2) var(--space-4); border-top: var(--hairline) solid var(--line); background: var(--surface); }
+.fleet-plan-note-input { width: 100%; box-sizing: border-box; min-height: 36px; padding: var(--space-2) var(--space-3); border: var(--hairline) solid var(--control-edge); border-radius: var(--radius-md); background: var(--input); color: var(--ink); font: inherit; font-size: var(--fs-sm); resize: vertical; }
+.fleet-plan-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+.fleet-plan-actions .btn { height: 32px; font-size: var(--fs-sm); }
+.fleet-plan-count, .fleet-plan-done { color: var(--sub); font-size: var(--fs-sm); }
+
 /* ---------- the Settings page ---------- */
 
 .fleet-settings { flex: 1; min-height: 0; display: flex; flex-direction: column; }

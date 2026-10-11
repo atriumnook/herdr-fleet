@@ -3,6 +3,8 @@
  * usage the fleet knows (server/fleet/usage.ts). Shared so the Web UI reads the same shapes.
  */
 
+import type { PlanMark } from "./plan.ts";
+
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
 
 /** herdr's agent states, plus what the fleet adds: starting (no state yet), failed and stopped (the run is over). */
@@ -74,6 +76,8 @@ export interface AgentRun {
   landing?: LandingStep;
   /** how the thread ended: merged into its base branch, or thrown away */
   landed?: "merged" | "discarded";
+  /** the plan a thread's lead handed over last (shared/plan.ts), and whether the person answered it */
+  plan?: PlanMark;
 }
 
 /**
@@ -200,6 +204,8 @@ export function threadState(run: AgentRun): ThreadState {
   if (run.state === "stopped") return "ended";
   if (run.state === "blocked") return "waiting";
   if (working) return "working";
+  // a plan waits on the person through the BLOCKED HANDOFF its turn ends with (agents/lead.md),
+  // not by itself: a lead that went on without the answers is not waiting
   const status = run.result ? handoffStatus(run.result) : undefined;
   if (status?.startsWith("BLOCKED") || run.landing?.error || (run.pr?.state === "OPEN" && run.pr.checks === "fail")) return "waiting";
   if (run.pr?.state === "OPEN") return "landing";

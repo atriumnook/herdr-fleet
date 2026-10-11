@@ -23,6 +23,8 @@ const USAGE = `usage: fleet <command> [options]
                                    start a thread: a lead in a workspace of its own, on a worktree of its own in a repository
                                    (an agent gives a brief instead of --task, as for spawn)
   threads [--cwd <dir>]            the threads of this project: state, branch, HANDOFF status line and contract
+  plan <file.json>                 a thread's lead hands its plan to the person, who answers it on the Fleet screen
+                                   (- reads it from stdin); the answers come back as your next task
   project --task <text> [--cwd <dir>]
                                    talk to the project's coordinator, started at its main checkout if none runs
   guide                            how an agent in a pane's conversation hands work to the fleet (the fleet skill runs this)
@@ -227,6 +229,19 @@ async function main(argv: string[]): Promise<number> {
     case "threads": {
       const { threads } = await call<{ threads: ThreadSummary[] }>("GET", `/threads?cwd=${enc(values.cwd ?? process.cwd())}${callerRun ? `&caller_run=${enc(callerRun)}` : ""}`);
       print(json, threads, () => threads.length ? threads.map(describeThread).join("\n") : "no threads");
+      return 0;
+    }
+    case "plan": {
+      const file = positionals[0];
+      if (!file || positionals.length > 1) throw new CliError("fleet plan: give the plan's JSON file (- for stdin)", 2);
+      if (!callerRun) throw new CliError("fleet plan: only a thread's lead the fleet started writes a plan (HERDR_FLEET_RUN is not set)", 2);
+      const text = file === "-" ? await Bun.stdin.text() : await Bun.file(file).text().catch((error: unknown) => {
+        throw new CliError(`cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`, 2);
+      });
+      let plan: unknown;
+      try { plan = JSON.parse(text); } catch (error) { throw new CliError(`${file} is not JSON: ${error instanceof Error ? error.message : String(error)}`, 2); }
+      const saved = await call<{ plan: { version: number; title: string; claims: unknown[] } }>("POST", `/runs/${enc(callerRun)}/plan`, { plan, group });
+      print(json, saved.plan, () => `plan "${saved.plan.title}" version ${saved.plan.version} is on the Fleet screen. End your turn with a BLOCKED HANDOFF that says the plan waits for the person; their answers come back as your next task.`);
       return 0;
     }
     case "project": {

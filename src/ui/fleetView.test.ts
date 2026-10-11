@@ -188,6 +188,40 @@ describe("the projects, their threads and the run open in the Overview", () => {
     expect(other).toMatchObject({ changes: { status: "idle", files: [] }, checks: { status: "idle", branch: [] }, comments: [], confirm: null });
   });
 
+  it("draws the open thread's plan with the person's answers so far, and the thread as waiting on them until they are sent", () => {
+    const ask = (id: string) => ({ id, question: `Which ${id}?`, options: [{ value: "a", label: "A" }, { value: "b", label: "B" }], recommended: "a" });
+    const data = {
+      version: 2, writtenAt: 1, title: "Retry limit", why: ["too many retries"], scope: ["drafts"],
+      claims: [{ text: "Tried three times.", ask: ask("limit"), children: [{ text: "Stops at RETRIES.", ask: ask("where"), children: [] }] }],
+      shared: { text: "One constant." },
+    };
+    const runs = [coordinator(), lead("t", { result: "BLOCKED — the plan waits", plan: { version: 2, asks: 2 } }), lead("u", { plan: { version: 1, asks: 1, answeredAt: 3 } })];
+    const plan = { runId: "t", reading: { status: "ready" as const, data }, drafts: { t: { version: 2, choices: { where: "b" }, seen: ["where"], comments: { "1.1": "use the constant" }, note: "" } }, confirm: { runId: "t", version: 2, status: "asking" as const }, dropped: null, seq: 0 };
+    const state = withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null }, tab: "plan" }, plan });
+    const model = fleetScreenModel(state, NOW);
+    const open = model.open!;
+    expect(open.tab).toBe("plan");
+    expect(open.plan).toMatchObject({ status: "ready", version: 2, title: "Retry limit", toAnswer: ["limit"], comments: 1, canRespond: true });
+    expect(open.plan!.claims[0]).toMatchObject({ id: "1", ask: { number: "D1", chosen: "a", seen: false }, children: [{ id: "1.1", comment: "use the constant", ask: { number: "D2", chosen: "b", seen: true } }] });
+    expect(open.plan!.shared).toMatchObject({ id: "shared", text: "One constant." });
+    expect(open.plan!.confirm!.decisions).toEqual([
+      { number: "D1", question: "Which limit?", choice: "A", recommended: true, seen: false },
+      { number: "D2", question: "Which where?", choice: "B", recommended: false, seen: true },
+    ]);
+    // the thread list: a plan waits with one decision left to look at; an answered one does not wait
+    expect(model.threadGroups.find((group) => group.key === "needs")!.rows.map((row) => [row.id, row.plan])).toEqual([["t", { toAnswer: 1 }]]);
+    expect(model.threads.find((row) => row.id === "u")!.plan).toBeUndefined();
+    // a plan the lead went on without: shown, closed, nothing to answer or send
+    const closedRun = lead("t", { result: "PASS — five retries", plan: { version: 2, asks: 2, closedAt: 4 } });
+    const closed = fleetScreenModel(withRuns([coordinator(), closedRun], { fleetView: state.fleetView, plan: { ...plan, reading: { status: "ready", data: { ...data, closedAt: 4 } } } }), NOW);
+    expect(closed.threads[0]!.plan).toBeUndefined();
+    expect(closed.threads[0]!.state).toBe("review");
+    expect(closed.open!.plan).toMatchObject({ closedAt: 4, toAnswer: [], canRespond: false });
+    // the lead at work, or a watch-only device: nothing to send
+    expect(fleetScreenModel(withRuns([coordinator(), { ...runs[1]!, state: "working" }], { fleetView: state.fleetView, plan }), NOW).open!.plan!.canRespond).toBe(false);
+    expect(fleetScreenModel({ ...state, canAct: false }, NOW).open!.plan!.canRespond).toBe(false);
+  });
+
   it("draws the Settings page in place of the project, with each project's setup command and how full each account is", () => {
     const settings = { file: "/c/fleet.json", roles: [], maxUsedPercent: 80, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [{ path: "/kept", setup: "make" }, { path: "/repo", setup: "bun install" }], readOnlyAgents: ["claude" as const] };
     const usage = { status: "ready" as const, again: false, refreshing: false, data: [

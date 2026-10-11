@@ -1,4 +1,5 @@
 import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandingChecks, UsageEntry } from "../../shared/fleet.ts";
+import type { Plan } from "../../shared/plan.ts";
 import type { Machine, MachineEvent } from "../../shared/machines.ts";
 import type { BridgeHealth } from "../../shared/machines.ts";
 import type { PairedDevice, PairingCode, RemoteAccess, SessionSnapshot } from "../../shared/protocol.ts";
@@ -63,6 +64,7 @@ export interface EffectPorts {
   runRequest(action: RequestAction): Promise<void>;
   loadLandingDiff(runId: string): Promise<{ diff: string; truncated: boolean }>;
   loadLandingChecks(runId: string): Promise<LandingChecks>;
+  loadPlan(runId: string): Promise<Plan>;
   loadFleetSettings(cwd: string | null): Promise<FleetSettings>;
   saveFleetSettings(cwd: string | null, patch: FleetSettingsPatch): Promise<FleetSettings>;
   loadFleetEntrances(): Promise<FleetEntrances>;
@@ -303,6 +305,10 @@ export class Mediator {
       case "load-landing-checks":
         try { dispatch({ type: "landing-checks-loaded", runId: effect.runId, checks: await this.ports.loadLandingChecks(effect.runId) }); }
         catch (error) { dispatch({ type: "landing-checks-failed", runId: effect.runId, message: message(error) }); }
+        return;
+      case "load-plan":
+        try { dispatch({ type: "plan-loaded", runId: effect.runId, seq: effect.seq, plan: await this.ports.loadPlan(effect.runId) }); }
+        catch (error) { dispatch({ type: "plan-failed", runId: effect.runId, seq: effect.seq, message: message(error) }); }
         return;
       case "save-settings":
         this.ports.saveSettings(effect.settings);

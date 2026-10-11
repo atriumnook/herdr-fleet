@@ -23,3 +23,10 @@ word). The code was written for this project, except fileNames in src/lib/prompt
 which follows the plugin's function of that name closely.
 
 Source:      https://github.com/oikon48/prompt-rail/tree/main/plugins/prompt-rail
+
+The thread plan (shared/plan.ts, the Plan tab, agents/lead.md) takes its shape from the
+html-plan plugin's idea: a plan as a tree of claims (what, how, where), one exhibit per claim,
+each decision on the claim it changes, and one response sent back. No code of it is used; the
+plan is JSON the Web UI draws.
+
+Source:      https://github.com/anthropics/claude-plugins-community/tree/main/html-plan

@@ -1,8 +1,8 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { ExternalLink } from "lucide-react";
 import type { Emit } from "../../ui/bubble.ts";
-import type { CheckModel, DiffFileModel, DiffLineModel, LandingModel } from "../../ui/fleetView.ts";
-import type { UiEvent } from "../../ui/state.ts";
+import type { CheckModel, DiffFileModel, DiffLineModel, LandingModel, PlanModel } from "../../ui/fleetView.ts";
+import type { ThreadTab, UiEvent } from "../../ui/state.ts";
 import type { LandAction } from "../../../shared/fleet.ts";
 import { t } from "../../lib/i18n.ts";
 import { ConfirmDialog } from "../ConfirmDialog.tsx";
@@ -50,19 +50,22 @@ export function LandingActions({ landing, resolve, emit }: { landing: LandingMod
   );
 }
 
-/** Chat, Changes and Checks: the open thread's views. */
-export function ThreadTabs({ landing, emit }: { landing: LandingModel; emit: Emit<LandingEvent> }) {
-  const tab = (name: LandingModel["tab"], label: string, extra?: ReactNode) => (
-    <button type="button" aria-pressed={landing.tab === name} onClick={() => emit({ type: "fleet-tab", tab: name })}>{t(label)}{extra}</button>
+/** Chat, Plan, Changes and Checks: the open thread's views, Plan when its lead wrote one, the others on a branch of its own. */
+export function ThreadTabs({ tab: shown, landing, plan, emit }: { tab: ThreadTab; landing: LandingModel | null; plan: PlanModel | null; emit: Emit<LandingEvent> }) {
+  const tab = (name: ThreadTab, label: string, extra?: ReactNode) => (
+    <button type="button" aria-pressed={shown === name} onClick={() => emit({ type: "fleet-tab", tab: name })}>{t(label)}{extra}</button>
   );
+  // the decisions not looked at yet, or a mark while the plan waits to be sent
+  const toAnswer = plan?.toAnswer.length ?? 0;
   return (
     <div className="fleet-tabs">
       <Segmented label={t("Thread view")}>
         {tab("chat", "Chat")}
-        {tab("changes", "Changes", landing.comments.length > 0 ? <span className="pill">{landing.comments.length}</span> : null)}
-        {tab("checks", "Checks", landing.attention ? <span className="fleet-tab-alert" aria-label={t("Needs a look")}>!</span> : null)}
+        {plan && tab("plan", "Plan", plan.answeredAt === undefined && plan.closedAt === undefined ? <span className="fleet-tab-alert" aria-label={t("Needs you")}>{toAnswer || "!"}</span> : null)}
+        {landing && tab("changes", "Changes", landing.comments.length > 0 ? <span className="pill">{landing.comments.length}</span> : null)}
+        {landing && tab("checks", "Checks", landing.attention ? <span className="fleet-tab-alert" aria-label={t("Needs a look")}>!</span> : null)}
       </Segmented>
-      {landing.tab === "changes" && <span className="fleet-tabs-note mono">{t("compared with {base}", { base: landing.baseBranch })}</span>}
+      {landing && shown === "changes" && <span className="fleet-tabs-note mono">{t("compared with {base}", { base: landing.baseBranch })}</span>}
     </div>
   );
 }

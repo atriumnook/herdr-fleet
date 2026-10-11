@@ -1,10 +1,11 @@
 import { handoffStatus, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type LandAction, type LineComment, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import { parseDiff, type DiffLine } from "./diff.ts";
-import { isEnded, type ConfirmedStep, type ThreadTab, type UiState } from "./state.ts";
+import { isEnded, planDraft, type ConfirmedStep, type PlanDraft, type ThreadTab, type UiState } from "./state.ts";
+import { numberClaims, planAsks, planOpen, type PlanAnswer, type PlanClaim, type PlanExhibit } from "../../shared/plan.ts";
 
 /** The regions the Fleet screen draws: its Presenter re-renders when one of them changes. */
-export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView", "landing", "fleetSettings", "fleetEntrances"] as const;
+export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView", "landing", "plan", "fleetSettings", "fleetEntrances"] as const;
 export type FleetState = Pick<UiState, (typeof FLEET_REGIONS)[number]>;
 
 /**
@@ -84,6 +85,8 @@ export interface ThreadRowModel {
   pr?: PullRequest;
   /** what it waits on the person for: its question, the prompt on its screen, why it failed, or a landing step that went wrong */
   question?: string;
+  /** its lead's plan waits for the person: the decisions they have not looked at */
+  plan?: { toAnswer: number };
   startedAt: number;
   updatedAt: number;
   selected: boolean;
@@ -123,6 +126,63 @@ export interface OpenRunModel {
   resolved: boolean;
   /** a thread on a branch of its own: landing it */
   landing: LandingModel | null;
+  /** what the open thread shows: its chat, its plan, its change, or its checks */
+  tab: ThreadTab;
+  /** the plan its lead handed over, when it has one */
+  plan: PlanModel | null;
+}
+
+/** One decision of a plan, with the option the person picked so far (the lead's recommendation until then). */
+export interface PlanAskModel {
+  id: string;
+  /** D1, D2, … in reading order */
+  number: string;
+  question: string;
+  options: Array<{ value: string; label: string; note?: string; recommended: boolean }>;
+  chosen: string;
+  /** the person picked an option of it */
+  seen: boolean;
+}
+
+/** One claim of a plan as drawn: its number and level, its exhibit, its decision, the person's comment, the claims under it. */
+export interface PlanClaimModel {
+  id: string;
+  level: number;
+  text: string;
+  exhibit?: PlanExhibit;
+  ask?: PlanAskModel;
+  comment: string;
+  children: PlanClaimModel[];
+}
+
+/**
+ * A thread's plan as the Plan tab draws it: the tree of claims with the person's answers so far,
+ * what is left to look at, and the yes that sending the answers waits for. Once answered, the
+ * answers sent show in place, and nothing can be changed.
+ */
+export interface PlanModel {
+  runId: string;
+  status: "idle" | "loading" | "ready" | "error";
+  error?: string;
+  version: number;
+  answeredAt?: number;
+  /** the lead went on to another turn without the answers: the plan takes none now */
+  closedAt?: number;
+  /** the version whose answers were dropped when the lead handed over this one */
+  dropped?: number;
+  title?: string;
+  why: string[];
+  claims: PlanClaimModel[];
+  shared?: PlanClaimModel;
+  scope: string[];
+  /** the decisions the person has not looked at, in reading order */
+  toAnswer: string[];
+  note: string;
+  /** comments written on claims */
+  comments: number;
+  /** the answers can be sent now: the plan waits, the lead's turn ended, and nothing else is in flight */
+  canRespond: boolean;
+  confirm: { running: boolean; error?: string; decisions: Array<{ number: string; question: string; choice: string; recommended: boolean; seen: boolean }>; comments: number; note: boolean } | null;
 }
 
 /** One line of a thread's change, with the person's comments on it (`index`: where each is kept, to take it back). */
@@ -323,7 +383,7 @@ export function fleetScreenModel(state: FleetState, now: number): FleetScreenMod
   const project = projectsOf(state);
   const view = state.fleetView;
   const threadRuns = project.selected === null ? [] : runs.filter((run) => run.role === THREAD_ROLE && run.project === project.selected);
-  const rows = threadRuns.map((run) => threadRow(run, view.open?.kind === "thread" && view.open.runId === run.id));
+  const rows = threadRuns.map((run) => threadRow(run, view.open?.kind === "thread" && view.open.runId === run.id, state));
   const byRecent = (a: ThreadRowModel, b: ThreadRowModel) => b.updatedAt - a.updatedAt;
   const coordinatorRun = project.selected === null ? undefined
     : runs.filter((run) => run.role === PROJECT_ROLE && run.project === project.selected && !isEnded(run)).sort((a, b) => b.startedAt - a.startedAt)[0];
@@ -405,7 +465,7 @@ export function projectsOf(state: Pick<UiState, "runs" | "fleetView">): { list: 
   return { list, selected };
 }
 
-function threadRow(run: AgentRun, selected: boolean): ThreadRowModel {
+function threadRow(run: AgentRun, selected: boolean, fleet: Pick<FleetState, "plan">): ThreadRowModel {
   const state = threadState(run);
   const status = run.result ? handoffStatus(run.result) : undefined;
   const group: ThreadRowModel["group"] = state === "waiting" || state === "failed" ? "needs" : state === "review" || state === "landing" || state === "working" || state === "resolved" ? state : "idle";
@@ -415,6 +475,7 @@ function threadRow(run: AgentRun, selected: boolean): ThreadRowModel {
   return {
     id: run.id, title: run.name, state, group, ...THREAD_BADGE[state], agent: run.agent, branch: run.branch, diff: run.diff, contract: run.contract ?? [], ...(run.pr ? { pr: run.pr } : {}),
     ...(question ? { question } : {}), startedAt: run.startedAt, updatedAt: run.updatedAt, selected,
+    ...(run.plan && planOpen(run.plan) ? { plan: { toAnswer: Math.max(0, run.plan.asks - planDraft(fleet.plan, run.id, run.plan.version).seen.length) } } : {}),
   };
 }
 
@@ -439,6 +500,55 @@ function openRun(runs: AgentRun[], view: UiState["fleetView"], fleet: FleetState
     // a thread that landed has no worktree left to open again
     resolved: state === "resolved" && !run.landed,
     landing: open.kind === "thread" && run.branch && run.project ? landingModel(run as AgentRun & { branch: string; project: string }, helpers, view.tab, fleet) : null,
+    tab: open.kind === "thread" ? view.tab : "chat",
+    plan: open.kind === "thread" && run.plan ? planModel(run, fleet) : null,
+  };
+}
+
+/** The open thread's plan as read last, with the person's answers so far, or those it was sent with. */
+function planModel(run: AgentRun, fleet: FleetState): PlanModel {
+  const reading = fleet.plan.runId === run.id ? fleet.plan.reading : { status: "idle" as const, data: null };
+  const plan = reading.data;
+  const version = plan?.version ?? run.plan!.version;
+  const answer: PlanAnswer | undefined = plan?.answer;
+  const draft: PlanDraft = answer
+    ? { version, choices: answer.choices, seen: answer.seen, comments: Object.fromEntries(answer.comments.map((comment) => [comment.claim, comment.text])), note: answer.note ?? "" }
+    : planDraft(fleet.plan, run.id, version);
+  const asks = plan ? planAsks(plan) : [];
+  const numbers = new Map(asks.map((each) => [each.ask.id, each.number]));
+  const ids = new Map(plan ? numberClaims(plan).map(({ id, claim }) => [claim, id]) : []);
+  const claim = (each: PlanClaim, id: string, level: number): PlanClaimModel => ({
+    id, level, text: each.text, ...(each.exhibit ? { exhibit: each.exhibit } : {}), comment: draft.comments[id] ?? "",
+    ...(each.ask ? {
+      ask: {
+        id: each.ask.id, number: numbers.get(each.ask.id) ?? "", question: each.ask.question, chosen: draft.choices[each.ask.id] ?? each.ask.recommended, seen: draft.seen.includes(each.ask.id),
+        options: each.ask.options.map((option) => ({ ...option, recommended: option.value === each.ask!.recommended })),
+      },
+    } : {}),
+    children: each.children.map((child) => claim(child, ids.get(child) ?? "", level + 1)),
+  });
+  const claims = plan ? plan.claims.map((each) => claim(each, ids.get(each) ?? "", 1)) : [];
+  const answered = plan?.answeredAt;
+  const closed = plan?.closedAt ?? run.plan!.closedAt;
+  const open = answered === undefined && closed === undefined;
+  const comments = Object.values(draft.comments).filter((text) => text.trim()).length;
+  const toAnswer = asks.filter((each) => !draft.seen.includes(each.ask.id)).map((each) => each.ask.id);
+  const confirm = fleet.plan.confirm?.runId === run.id ? fleet.plan.confirm : null;
+  return {
+    runId: run.id, status: reading.status, ...(reading.error ? { error: reading.error } : {}), version, ...(answered !== undefined ? { answeredAt: answered } : {}), ...(closed !== undefined ? { closedAt: closed } : {}),
+    ...(fleet.plan.dropped?.runId === run.id ? { dropped: fleet.plan.dropped.version } : {}),
+    ...(plan ? { title: plan.title } : {}), why: plan?.why ?? [], claims,
+    ...(plan?.shared ? { shared: { id: "shared", level: 1, text: plan.shared.text, ...(plan.shared.exhibit ? { exhibit: plan.shared.exhibit } : {}), comment: draft.comments["shared"] ?? "", children: [] } } : {}),
+    scope: plan?.scope ?? [], toAnswer: open ? toAnswer : [], note: draft.note, comments,
+    canRespond: plan !== null && open && fleet.canAct && fleet.request.status !== "pending" && (run.state === "idle" || run.state === "done"),
+    confirm: confirm && plan ? {
+      running: confirm.status === "running", ...(confirm.error ? { error: confirm.error } : {}),
+      decisions: asks.map(({ number, ask }) => {
+        const choice = draft.choices[ask.id] ?? ask.recommended;
+        return { number, question: ask.question, choice: ask.options.find((option) => option.value === choice)?.label ?? choice, recommended: choice === ask.recommended, seen: draft.seen.includes(ask.id) };
+      }),
+      comments, note: draft.note.trim() !== "",
+    } : null,
   };
 }
 
