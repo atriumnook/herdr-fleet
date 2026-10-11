@@ -378,6 +378,31 @@
 
 .fleet-rail-usage .fleet-capsule { width: 100%; box-sizing: border-box; }
 
+/* the Settings page's entry, above the usage */
+.fleet-rail-settings {
+  position: relative;
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 36px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--sub);
+  font: inherit;
+  font-size: var(--fs-sm);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fleet-rail-settings svg { width: 16px; height: 16px; }
+.fleet-rail-settings:hover { background: var(--field-hover); color: var(--ink); }
+.fleet-rail-settings.is-selected { background: var(--tint); color: var(--ink-strong); }
+.fleet-rail-settings.is-selected::before { content: ""; position: absolute; left: 0; top: 9px; bottom: 9px; width: var(--rail-w); border-radius: var(--rail-w); background: var(--accent); }
+.fleet-rail-settings + .fleet-rail-usage { margin-top: var(--space-2); }
+
 .fleet-capsules {
   display: flex;
   flex-wrap: wrap;
@@ -727,6 +752,72 @@
 .fleet-overview .fleet-land-actions { gap: var(--space-1); }
 .fleet-overview .fleet-land-actions .btn { padding: 0 var(--space-2); }
 
+/* ---------- the Settings page ---------- */
+
+.fleet-settings { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.fleet-settings-status { color: var(--sub); font-size: var(--fs-sm); }
+.fleet-settings-tabs { flex: none; padding: var(--space-3) var(--space-5) 0; }
+.fleet-settings-body { flex: 1; min-height: 0; overflow: auto; padding: var(--space-2) var(--space-5) var(--space-6); }
+.fleet-settings-column { max-width: 880px; display: flex; flex-direction: column; gap: var(--space-2); }
+.fleet-settings-heading { margin: var(--space-3) 2px 0; color: var(--ink-strong); font-size: var(--fs-md); font-weight: var(--fw-semibold); }
+.fleet-settings-intro { margin: 0 2px var(--space-2); color: var(--sub); font-size: var(--fs-sm); }
+.fleet-settings-file { margin: var(--space-4) 2px 0; color: var(--sub); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+
+.fleet-roles { display: flex; flex-direction: column; gap: var(--space-1); }
+.fleet-role { border: var(--hairline) solid transparent; border-radius: var(--radius-md); background: var(--field); }
+.fleet-role.is-open { border-color: var(--control-edge); }
+
+.fleet-role-head {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px var(--space-3);
+  width: 100%;
+  padding: var(--space-3);
+  border: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.fleet-role-name { display: inline-flex; align-items: center; gap: 6px; color: var(--ink-strong); font-weight: var(--fw-semibold); }
+.fleet-pill-project { background: color-mix(in srgb, var(--meter-mid) 14%, transparent); color: var(--meter-mid); }
+.fleet-role-candidates { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-width: 0; }
+.fleet-candidate { display: inline-flex; align-items: center; gap: 6px; height: 24px; padding: 0 9px; border: var(--hairline) solid var(--line-strong); border-radius: var(--radius-pill); background: var(--input); font: var(--fs-xs) var(--font-mono); }
+.fleet-candidate.is-skipped { opacity: 0.55; text-decoration: line-through; }
+.fleet-candidate-arrow { margin-left: -4px; margin-right: 2px; color: var(--sub); text-decoration: none; }
+.fleet-candidate-thinking { color: var(--sub); font-size: var(--fs-xs); }
+.fleet-role-now { color: var(--done); font-size: var(--fs-xs); white-space: nowrap; }
+.fleet-role-now.is-none { color: var(--needs); }
+.fleet-role-description { grid-column: 1 / -1; color: var(--sub); font-size: var(--fs-xs); }
+
+.fleet-role-editor { display: flex; flex-direction: column; gap: var(--space-2); padding: var(--space-3); border-top: var(--hairline) solid var(--line); }
+.fleet-role-note { margin: 0; padding: var(--space-2) var(--space-3); border-radius: var(--radius-sm); background: var(--input); color: var(--sub); font-size: var(--fs-xs); }
+.fleet-candidate-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: var(--space-2); }
+.fleet-candidate-row { display: grid; grid-template-columns: 20px 130px minmax(0, 1fr) auto; align-items: center; gap: var(--space-2); }
+.fleet-candidate-number { color: var(--sub); text-align: right; }
+.fleet-candidate-actions { display: flex; gap: 2px; }
+.fleet-candidate-actions svg { width: 16px; height: 16px; }
+.fleet-candidate-hint { grid-column: 2 / -1; margin-top: -4px; color: var(--sub); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.fleet-candidate-hint:empty { display: none; }
+.fleet-candidate-hint.is-skipped { color: var(--needs); }
+.fleet-role-footer { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); margin-top: var(--space-1); }
+.fleet-role-footer .btn { height: 32px; font-size: var(--fs-sm); }
+.fleet-role-footer .btn svg { width: 14px; height: 14px; }
+.fleet-role-thinking { display: inline-flex; align-items: center; gap: var(--space-2); color: var(--sub); font-size: var(--fs-sm); }
+.fleet-role-thinking .input { width: auto; }
+
+.fleet-setting { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-4); padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--field); }
+.fleet-setting-text { flex: 1 1 320px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.fleet-setting-text b { color: var(--ink-strong); font-weight: var(--fw-semibold); }
+.fleet-setting-text span { color: var(--sub); font-size: var(--fs-xs); overflow-wrap: anywhere; }
+.fleet-setting-project .input { flex: 1 1 100%; }
+.fleet-accounts { flex: 1 1 100%; display: flex; flex-wrap: wrap; gap: 6px; }
+.fleet-account { padding: 1px var(--space-2); border: var(--hairline) solid var(--line-strong); border-radius: var(--radius-pill); background: var(--input); font: var(--fs-xs) var(--font-mono); }
+.fleet-account.is-skipped { border-color: var(--needs); color: var(--needs); }
+
 /* the sheet's own scrim and close button show on a narrower screen only */
 .fleet-sheet-scrim, .fleet-sheet-close { display: none; }
 
@@ -757,6 +848,14 @@
     border-radius: var(--radius-xl) var(--radius-xl) 0 0;
     background: var(--glass-strong);
   }
+  .fleet-settings-tabs { padding: var(--space-3) var(--space-4) 0; }
+  .fleet-settings-body { padding: var(--space-2) var(--space-4) var(--space-5); }
+  .fleet-role-head { grid-template-columns: minmax(0, 1fr) auto; }
+  .fleet-role-candidates { grid-column: 1 / -1; }
+  .fleet-candidate-row { grid-template-columns: 20px minmax(0, 1fr) auto; }
+  .fleet-candidate-row .input.mono { grid-column: 2 / -1; }
+  .fleet-candidate-row select { grid-column: 2; }
+  .fleet-candidate-actions { grid-column: 3; grid-row: 1; }
   /* an open thread takes the screen */
   .fleet-screen.has-open .fleet-overview { top: 0; border-radius: 0; border-width: 0; }
   .fleet-screen.has-open .fleet-sheet-scrim { display: none; }

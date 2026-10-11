@@ -9,6 +9,7 @@ import { RunRegistry } from "./registry.ts";
 import type { AgentRuntime } from "./runtime.ts";
 import type { AgentState } from "./types.ts";
 import { UsageTracker } from "./usage.ts";
+import { FleetSettingsStore } from "./settings.ts";
 
 const resultsRoot = mkdtempSync(join(tmpdir(), "fleet-api-"));
 afterAll(() => rmSync(resultsRoot, { recursive: true, force: true }));
@@ -38,9 +39,10 @@ function fleet() {
   });
   let probes = 0;
   const usage = new UsageTracker({ file: null, probes: { codex: async () => { probes += 1; return { codex: { readAt: 1, windows: [{ name: "5h", usedPercent: 20 }] } }; } } });
+  const settings = new FleetSettingsStore({ agents: () => orchestrator.roles(resultsRoot), userDir: mkdtempSync(join(resultsRoot, "config-")) });
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = { "x-herdr-fleet": "1" }) => {
     const url = new URL(`http://127.0.0.1:7317/api/fleet${path}`);
-    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage);
+    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage, settings);
     return { status: response.status, body: await response.json() as Record<string, any> };
   };
   return { call, state, usage, probes: () => probes };
@@ -133,6 +135,16 @@ describe("fleet API", () => {
     expect((await call("POST", `/runs/${thread.id}/land`, { action: "discard", group: thread.group })).body["run"]).toMatchObject({ landed: "discarded" });
     expect(Bun.spawnSync(["git", "-C", repo, "branch", "--list", thread.branch]).stdout.toString()).toBe("");
     expect(await call("POST", `/runs/${thread.id}/land`, { action: "merge", group: thread.group })).toMatchObject({ status: 409, body: { error: { code: "thread_landed" } } });
+  });
+
+  it("reads the settings, and writes a change only with the fleet header", async () => {
+    const { call } = fleet();
+    const read = await call("GET", `/settings?cwd=${encodeURIComponent(resultsRoot)}`);
+    expect(read.body["settings"].roles.map((each: { name: string }) => each.name)).toEqual(["worker", "coordinator", "lead"]);
+    expect((await call("POST", "/settings", { patch: { maxConcurrent: 3 } }, {})).status).toBe(403);
+    expect((await call("POST", "/settings", { patch: { maxConcurrent: 3 } })).body["settings"].maxConcurrent).toBe(3);
+    expect(await call("POST", "/settings", { patch: { roles: { coordinator: { candidates: [{ agent: "pi" }] } } } })).toMatchObject({ status: 400, body: { error: { code: "invalid_settings" } } });
+    expect(await call("POST", "/settings", { patch: 3 })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
   });
 
   it("answers bad requests with the reason", async () => {

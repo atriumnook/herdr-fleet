@@ -10,12 +10,14 @@ import { Segmented } from "../Segmented.tsx";
 import { RunCard, type RunCardEvent } from "./RunCard.tsx";
 import { DiffCount, ThreadBadge } from "./ThreadCard.tsx";
 import { LandingActions, LandingConfirm, ThreadChanges, ThreadChecks, ThreadTabs } from "./ThreadLanding.tsx";
+import { FleetSettingsPage } from "./FleetSettings.tsx";
 import "./Fleet.css";
 
 /** What the Fleet screen hands up to the Root: the Mediator's own events, complete. */
 export type FleetScreenEvent = Extract<UiEvent, {
   type: "fleet-overview" | "fleet-open" | "fleet-member" | "fleet-close" | "fleet-expand" | "fleet-start-project" | "fleet-resolve"
     | "fleet-tab" | "fleet-land" | "landing-comment" | "landing-uncomment" | "landing-clear-comments" | "landing-confirm" | "landing-cancel"
+    | "fleet-settings" | "fleet-settings-change"
     | "open-pane" | "interrupt-run" | "dismiss-error";
 }>;
 
@@ -54,6 +56,14 @@ export interface FleetScreenProps {
  * sheet and an open thread takes the screen. The chats come in as slots from the Presenter.
  */
 export function FleetScreen({ model, conversation, side, emit }: FleetScreenProps) {
+  if (model.settings) {
+    return (
+      <div className="fleet-screen is-settings" aria-label={t("Fleet")}>
+        <div className="fleet-backdrop" aria-hidden="true" />
+        <section className="fleet-main" aria-label={t("Fleet settings")}><FleetSettingsPage model={model.settings} emit={emit} /></section>
+      </div>
+    );
+  }
   const open = model.open;
   const big = model.expanded && open !== null;
   const classes = ["fleet-screen", model.overview ? "has-overview" : "", open ? "has-open" : "", big ? "is-expanded" : ""].filter(Boolean).join(" ");

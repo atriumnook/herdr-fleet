@@ -162,7 +162,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
 
   // the Fleet screen's projects: one picked closes the phone's drawer
   const railEmit = useMemo(() => relay<UiEvent, UiEvent>(emit, (event, pass) => {
-    if (event.type === "fleet-project") setDrawerOpen(false);
+    if (event.type === "fleet-project" || event.type === "fleet-settings") setDrawerOpen(false);
     pass(event);
   }), [emit, setDrawerOpen]);
 

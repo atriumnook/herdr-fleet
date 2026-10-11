@@ -160,4 +160,17 @@ export const JA: Record<string, string> = {
   "Deletes the branch {branch} and its commits.": "ブランチ {branch} を、そのコミットごと消します。",
   "Closes the panes of the lead and its helpers.": "担当と手伝いのペインを閉じます。",
   "Pull request #{n} stays open on GitHub.": "GitHub の pull request #{n} は開いたまま残ります。",
+  // ---- fleet settings ----
+  "Each role tries its candidates from the top and starts on the first one whose account has usage left.": "役割ごとに、上の候補から順に試します。使用量が残っているアカウントの候補のうち、最初のもので起動します。",
+  "This project's .herdr-fleet/fleet.json sets this role. In this project the fleet starts it on {candidates}.": "このプロジェクトの .herdr-fleet/fleet.json がこの役割を設定しています。このプロジェクトでは、fleet は {candidates} の順に試して起動します。",
+  "This role edits no file, so it runs only on {agents}.": "この役割はファイルを編集しないので、{agents} でだけ起動します。",
+  "The fleet passes over a candidate whose account has used this share of any limit window (5 hours, a week, and so on).": "利用枠(5 時間、1 週間など)のどれか 1 つでもこの割合まで使ったアカウントの候補は、fleet が飛ばします。",
+  "When a CLI stops at a rate limit and gives no time to resume, the fleet does not use its account for this long.": "CLI が利用上限で止まり、再開の時刻を示さなかったときは、fleet はそのアカウントをこの時間だけ使いません。",
+  "A new thread's worktree has no dependencies installed. Before its lead starts, the fleet runs the project's setup command in it. The fleet runs only commands written here, never one from the repository's own files.": "新しいスレッドの worktree には依存が入っていません。担当が起動する前に、fleet がその worktree でプロジェクトの準備のコマンドを実行します。fleet が実行するのはここに書いたコマンドだけです。リポジトリのファイルに書かれたコマンドは実行しません。",
+  "The most agents that start or work at the same time. Agents that wait for you or have finished do not count.": "起動中か作業中のエージェントの数の上限です。あなたの返事を待っているエージェントと、終わったエージェントは数えません。",
+  "When a helper's turn ends, the fleet closes its pane. It does not close the panes of leads and coordinators.": "手伝いのターンが終わったら、fleet がそのペインを閉じます。担当とまとめ役のペインは閉じません。",
+  "Changes are saved to {file} as you make them.": "変更するたびに {file} に保存します。",
+  "Could not load the settings. {error}": "設定を読み込めませんでした。{error}",
+  "Could not save. {error}": "保存できませんでした。{error}",
+  "This device can only watch, so the settings cannot be changed here.": "この端末は閲覧専用なので、ここでは設定を変えられません。",
 };

@@ -58,7 +58,7 @@ describe("Fleet screen views", () => {
 
   it("opens a thread in the Overview with its agents and its chat, and large in the middle when expanded", () => {
     const runs = [coordinator, lead("t", { result: "PASS", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }] }), run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done" })];
-    const open = (expanded: boolean) => screen(state(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member: null }, expanded, tab: "chat" } }));
+    const open = (expanded: boolean) => screen(state(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member: null }, expanded, tab: "chat", settings: false } }));
     const beside = open(false);
     expect(beside).toContain("slot-conversation");
     expect(beside).toContain("slot-side");
@@ -128,6 +128,29 @@ describe("Fleet screen views", () => {
     expect(checks).toContain("No review on another CLI");
   });
 
+  it("draws the Settings page in place of the project: each role's candidates and the one the fleet would start now", () => {
+    const settings = {
+      file: "/home/me/.config/herdr-fleet/fleet.json", maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [], readOnlyAgents: ["claude" as const],
+      roles: [
+        { name: "lead", description: "Owns one thread.", readOnly: false, changed: true, thinking: "high" as const, defaults: { candidates: [{ agent: "claude" as const }], thinking: "high" as const },
+          candidates: [{ agent: "codex" as const, model: "gpt-6", skip: "codex has used 92% of its 5h limit" }, { agent: "claude" as const }] },
+        { name: "coordinator", description: "Talks with you.", readOnly: true, changed: false, defaults: { candidates: [{ agent: "claude" as const }] }, candidates: [{ agent: "claude" as const }],
+          project: { candidates: [{ agent: "claude" as const, model: "opus" }] } },
+      ],
+    };
+    const html = screen(state([coordinator], { fleetView: { ...INITIAL_STATE.fleetView, settings: true }, fleetSettings: { status: "ready", data: settings, cwd: "/repo", saving: 0, seq: 0 } }));
+    expect(html).not.toContain("slot-conversation");
+    expect(html).toContain("Fleet settings");
+    expect(html).toContain("/home/me/.config/herdr-fleet/fleet.json");
+    expect(html).toContain("codex:gpt-6");
+    expect(html).toContain("fleet-candidate is-skipped");
+    expect(html).toContain("Now: claude");
+    expect(html).toContain(">Changed<");
+    expect(html).toContain(">Project<");
+    expect(html).toContain(">Roles</button>");
+    expect(html).toContain(">Limits</button>");
+  });
+
   it("draws a thread's card with its change, its state, and what it waits on the person for", () => {
     const rows = model(state([coordinator, lead("ask", { state: "blocked", lastError: "Allow bun test?", diff: { added: 3, removed: 1, files: 1 } })])).threads;
     const html = renderToStaticMarkup(createElement(ThreadCard, { thread: rows[0]!, emit: noop }));
@@ -139,11 +162,12 @@ describe("Fleet screen views", () => {
 
   it("lists the projects with what their threads ask of the person, and a new one from a folder", () => {
     const projects = [{ path: "/repo", name: "repo", dot: "needs" as const, selected: true }, { path: "/new", name: "new", dot: "none" as const, selected: false }];
-    const html = renderToStaticMarkup(createElement(ProjectRail, { model: { projects, usage: { capsules: [], refreshing: false }, canAct: true, now: NOW }, browser: () => null, emit: noop }));
+    const html = renderToStaticMarkup(createElement(ProjectRail, { model: { projects, usage: { capsules: [], refreshing: false }, canAct: true, now: NOW, settings: false }, browser: () => null, emit: noop }));
     expect(html).toContain('aria-current="true"');
     expect(html).toContain("fleet-project-dot dot-needs");
     expect(html).toContain("New project");
     expect(html.match(/fleet-project-dot/g)).toHaveLength(1);
+    expect(html).toContain("Fleet settings");
   });
 
   it("offers no pane or interrupt where there is none, and shows a finished run's result", () => {

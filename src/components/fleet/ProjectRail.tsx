@@ -1,5 +1,5 @@
 import { useState, type ReactNode } from "react";
-import { FolderPlus } from "lucide-react";
+import { FolderPlus, Settings } from "lucide-react";
 import type { Emit } from "../../ui/bubble.ts";
 import { relay } from "../../ui/bubble.ts";
 import type { ProjectModel, UsageCapsuleModel } from "../../ui/fleetView.ts";
@@ -7,13 +7,15 @@ import type { UiEvent } from "../../ui/state.ts";
 import { t } from "../../lib/i18n.ts";
 import { UsageCapsule, type UsageCapsuleEvent } from "./UsageCapsule.tsx";
 
-export type ProjectRailEvent = Extract<UiEvent, { type: "fleet-project" | "refresh-usage" | "clear-cooldown" }>;
+export type ProjectRailEvent = Extract<UiEvent, { type: "fleet-project" | "refresh-usage" | "clear-cooldown" | "fleet-settings" }>;
 
 export interface ProjectRailModel {
   projects: ProjectModel[];
   usage: { capsules: UsageCapsuleModel[]; refreshing: boolean };
   canAct: boolean;
   now: number;
+  /** the Settings page is open */
+  settings: boolean;
 }
 
 const DOT_WORD: Record<ProjectModel["dot"], string> = { needs: "Needs you", working: "Working", idle: "Idle", none: "" };
@@ -41,6 +43,10 @@ export function ProjectRail({ model, browser, emit }: { model: ProjectRailModel;
         ? <div className="fleet-rail-browser">{browser((path) => { setPicking(false); emit({ type: "fleet-project", project: path }); })}
             <button type="button" className="btn btn-ghost" onClick={() => setPicking(false)}>{t("Cancel")}</button></div>
         : <button type="button" className="btn fleet-new-project" disabled={!model.canAct} onClick={() => setPicking(true)}><FolderPlus aria-hidden="true" />{t("New project")}</button>}
+      <button type="button" className={`fleet-rail-settings${model.settings ? " is-selected" : ""}`} aria-current={model.settings ? "page" : undefined}
+        onClick={() => emit(model.settings ? { type: "fleet-settings", open: false } : { type: "fleet-settings", open: true, cwd: model.projects.find((project) => project.selected)?.path ?? null })}>
+        <Settings aria-hidden="true" />{t("Fleet settings")}
+      </button>
       <section className="fleet-rail-usage" aria-label={t("Usage")}>
         <h2 className="fleet-rail-head">{t("Usage")}</h2>
         {model.usage.capsules.map((capsule) => (

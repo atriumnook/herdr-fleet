@@ -127,7 +127,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
   it("keeps the agents outside every thread and project conversation, and opens a thread on its lead or one of its helpers", () => {
     const helper = run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done" });
     const runs = [coordinator(), lead("t", { result: "PASS" }), helper, run("loose", { group: "g9" }), run("old", { group: "g8", state: "stopped" })];
-    const open = (member: string | null, expanded = false) => fleetScreenModel(withRuns(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member }, expanded, tab: "chat" } }), NOW);
+    const open = (member: string | null, expanded = false) => fleetScreenModel(withRuns(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member }, expanded, tab: "chat", settings: false } }), NOW);
     expect(open(null).agents.map((card) => card.id)).toEqual(["loose"]);
     expect(open(null).open).toMatchObject({ title: "t", paneId: "w1:t", paneRunId: "t", label: "Ready for review", canResolve: true, members: [{ runId: null, name: "lead", selected: true }, { runId: "rev", name: "rev", selected: false }] });
     expect(open("rev", true)).toMatchObject({ expanded: true, open: { paneId: "w1:rev", paneRunId: "rev", agent: "cursor", members: [{ selected: false }, { selected: true }] } });
@@ -186,6 +186,25 @@ describe("the projects, their threads and the run open in the Overview", () => {
     // what was read for another thread is not this one's
     const other = fleetScreenModel(withRuns([...runs, lead("u", { result: "PASS" })], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "u", member: null } }, landing }), NOW).open!.landing!;
     expect(other).toMatchObject({ changes: { status: "idle", files: [] }, checks: { status: "idle", branch: [] }, comments: [], confirm: null });
+  });
+
+  it("draws the Settings page in place of the project, with each project's setup command and how full each account is", () => {
+    const settings = { file: "/c/fleet.json", roles: [], maxUsedPercent: 80, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [{ path: "/kept", setup: "make" }, { path: "/repo", setup: "bun install" }], readOnlyAgents: ["claude" as const] };
+    const usage = { status: "ready" as const, again: false, refreshing: false, data: [
+      { key: "codex", reading: { readAt: 1, windows: [{ name: "5h", usedPercent: 85 }, { name: "weekly", usedPercent: 40 }] } },
+      { key: "claude", reading: { readAt: 1, windows: [{ name: "5h", usedPercent: 99, resetsAt: NOW - 1 }, { name: "weekly", usedPercent: 30 }] } },
+      { key: "pi" },
+    ] };
+    const model = fleetScreenModel(withRuns([coordinator(), lead("t")], {
+      usage, fleetView: { ...INITIAL_STATE.fleetView, settings: true, open: { kind: "thread", runId: "t", member: null } },
+      fleetSettings: { status: "ready", data: settings, cwd: "/repo", saving: 1, seq: 1 },
+    }), NOW);
+    expect(model.open).toBeNull();
+    expect(model.settings).toMatchObject({ status: "ready", saving: true, canAct: true, settings });
+    expect(model.settings!.projects).toEqual([{ path: "/repo", name: "repo", setup: "bun install" }, { path: "/kept", name: "kept", setup: "make" }]);
+    // a window that reset no longer counts
+    expect(model.settings!.accounts).toEqual([{ key: "claude", usedPercent: 30, skipped: false }, { key: "codex", usedPercent: 85, skipped: true }]);
+    expect(fleetScreenModel(withRuns([coordinator()]), NOW).settings).toBeNull();
   });
 
   it("puts each thread's card under the coordinator's turn it was started in", () => {

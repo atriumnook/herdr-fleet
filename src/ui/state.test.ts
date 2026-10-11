@@ -82,7 +82,7 @@ describe("screens and the Fleet screen's view", () => {
 
   it("opens a thread or an agent in the Overview, one of its agents, large, and closes it when its run disappears", () => {
     const opened = play([{ type: "show-screen", screen: "fleet" }, { type: "fleet-overview", open: false }, { type: "fleet-open", kind: "thread", runId: "a" }], withRuns).state;
-    expect(opened.fleetView).toEqual({ project: null, overview: true, open: { kind: "thread", runId: "a", member: null }, expanded: false, tab: "chat" });
+    expect(opened.fleetView).toEqual({ project: null, overview: true, open: { kind: "thread", runId: "a", member: null }, expanded: false, tab: "chat", settings: false });
     const helper = play([{ type: "fleet-member", runId: "h" }, { type: "fleet-expand", expanded: true }], opened).state;
     expect(helper.fleetView).toMatchObject({ open: { member: "h" }, expanded: true });
     expect(play([{ type: "runs-loaded", runs: [run("gone", { state: "stopped" })] }], helper).state.fleetView).toMatchObject({ open: null, expanded: false });
@@ -154,6 +154,32 @@ describe("screens and the Fleet screen's view", () => {
     expect(failed.request).toEqual({ status: "none" });
     expect(play([{ type: "landing-confirm" }, { type: "request-done" }], failed).state.landing.confirm).toBeNull();
     expect(play([{ type: "fleet-land", runId: "a", action: "merge" }], { ...withRuns, canAct: false }).state.landing.confirm).toBeNull();
+  });
+
+  it("opens the Settings page for the project, saves each change, and keeps only the latest save's answer", () => {
+    const settings = (maxConcurrent: number) => ({ file: "/c/fleet.json", roles: [], maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent, closeOnSettle: true, projects: [], readOnlyAgents: ["claude" as const] });
+    const opened = play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-settings", open: true, cwd: "/repo" }], withRuns);
+    expect(opened.effects).toEqual([{ kind: "load-fleet-settings", cwd: "/repo" }]);
+    expect(opened.state.fleetView).toMatchObject({ settings: true, open: null });
+    const ready = play([{ type: "fleet-settings-loaded", settings: settings(6) }], opened.state).state;
+    expect(ready.fleetSettings).toMatchObject({ status: "ready", cwd: "/repo", data: { maxConcurrent: 6 } });
+    const two = play([{ type: "fleet-settings-change", patch: { maxConcurrent: 5 } }, { type: "fleet-settings-change", patch: { maxConcurrent: 4 } }], ready);
+    expect(two.effects).toEqual([
+      { kind: "save-fleet-settings", cwd: "/repo", patch: { maxConcurrent: 5 }, seq: 1 },
+      { kind: "save-fleet-settings", cwd: "/repo", patch: { maxConcurrent: 4 }, seq: 2 },
+    ]);
+    expect(two.state.fleetSettings.saving).toBe(2);
+    // the second answer came first: the first one's, older, is dropped
+    const saved = play([{ type: "fleet-settings-saved", seq: 2, settings: settings(4) }, { type: "fleet-settings-saved", seq: 1, settings: settings(5) }], two.state).state;
+    expect(saved.fleetSettings).toMatchObject({ saving: 0, data: { maxConcurrent: 4 } });
+    const failed = play([{ type: "fleet-settings-change", patch: { maxConcurrent: 0 } }, { type: "fleet-settings-save-failed", seq: 3, message: "maxConcurrent must be a whole number from 1 to 32" }], saved).state;
+    expect(failed.fleetSettings).toMatchObject({ saving: 0, saveError: "maxConcurrent must be a whole number from 1 to 32", data: { maxConcurrent: 4 } });
+    // a project picked, or a thread opened, leaves the page
+    expect(play([{ type: "fleet-project", project: "/other" }], failed).state.fleetView.settings).toBe(false);
+    expect(play([{ type: "fleet-open", kind: "thread", runId: "a" }], failed).state.fleetView.settings).toBe(false);
+    expect(play([{ type: "fleet-settings", open: false }], failed).state.fleetView.settings).toBe(false);
+    // a watch-only device saves nothing
+    expect(play([{ type: "fleet-settings-change", patch: { maxConcurrent: 3 } }], { ...failed, canAct: false }).effects).toEqual([]);
   });
 
   it("selects a live run's pane on this PC, again when asked again, and not an ended run's", () => {

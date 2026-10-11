@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, answerPanePrompt, createWorkspace, uploadPaneImage, fetchPaneCommands, fetchPaneFiles, fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetDiff, fetchFleetLanding, fetchFleetRuns, landFleetRun, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, resolveFleetRun, startFleetProject, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, answerPanePrompt, createWorkspace, uploadPaneImage, fetchPaneCommands, fetchPaneFiles, fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetDiff, fetchFleetLanding, fetchFleetRuns, fetchFleetSettings, landFleetRun, saveFleetSettings, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, resolveFleetRun, startFleetProject, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -63,6 +63,8 @@ export const FLEET_PORTS: EffectPorts = {
   },
   loadLandingDiff: fetchFleetDiff,
   loadLandingChecks: fetchFleetLanding,
+  loadFleetSettings: fetchFleetSettings,
+  saveFleetSettings,
   saveSettings,
   forgetPaneViews: () => void forgetPaneViews(),
   loadRemoteAccess: fetchRemoteAccess,

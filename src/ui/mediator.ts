@@ -1,4 +1,4 @@
-import type { AgentRun, LandingChecks, UsageEntry } from "../../shared/fleet.ts";
+import type { AgentRun, FleetSettings, FleetSettingsPatch, LandingChecks, UsageEntry } from "../../shared/fleet.ts";
 import type { Machine, MachineEvent } from "../../shared/machines.ts";
 import type { BridgeHealth } from "../../shared/machines.ts";
 import type { PairedDevice, PairingCode, RemoteAccess, SessionSnapshot } from "../../shared/protocol.ts";
@@ -63,6 +63,8 @@ export interface EffectPorts {
   runRequest(action: RequestAction): Promise<void>;
   loadLandingDiff(runId: string): Promise<{ diff: string; truncated: boolean }>;
   loadLandingChecks(runId: string): Promise<LandingChecks>;
+  loadFleetSettings(cwd: string | null): Promise<FleetSettings>;
+  saveFleetSettings(cwd: string | null, patch: FleetSettingsPatch): Promise<FleetSettings>;
   saveSettings(settings: Settings): void;
   forgetPaneViews(): void;
   loadRemoteAccess(): Promise<RemoteAccess>;
@@ -279,6 +281,14 @@ export class Mediator {
       case "load-landing-diff":
         try { dispatch({ type: "landing-diff-loaded", runId: effect.runId, diff: await this.ports.loadLandingDiff(effect.runId) }); }
         catch (error) { dispatch({ type: "landing-diff-failed", runId: effect.runId, message: message(error) }); }
+        return;
+      case "load-fleet-settings":
+        try { dispatch({ type: "fleet-settings-loaded", settings: await this.ports.loadFleetSettings(effect.cwd) }); }
+        catch (error) { dispatch({ type: "fleet-settings-failed", message: message(error) }); }
+        return;
+      case "save-fleet-settings":
+        try { dispatch({ type: "fleet-settings-saved", seq: effect.seq, settings: await this.ports.saveFleetSettings(effect.cwd, effect.patch) }); }
+        catch (error) { dispatch({ type: "fleet-settings-save-failed", seq: effect.seq, message: message(error) }); }
         return;
       case "load-landing-checks":
         try { dispatch({ type: "landing-checks-loaded", runId: effect.runId, checks: await this.ports.loadLandingChecks(effect.runId) }); }

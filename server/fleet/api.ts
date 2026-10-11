@@ -4,9 +4,10 @@ import { isAgentKind } from "./adapters.ts";
 import { AgentWaitTimeoutError, type Orchestrator, type ThreadRequest } from "./orchestrator.ts";
 import { FleetError } from "./runtime.ts";
 import type { Brief } from "./brief.ts";
-import type { LandAction, LineComment } from "../../shared/fleet.ts";
+import type { FleetSettingsPatch, LandAction, LineComment } from "../../shared/fleet.ts";
 import type { SpawnRequest } from "./types.ts";
 import type { UsageTracker } from "./usage.ts";
+import type { FleetSettingsStore } from "./settings.ts";
 
 /**
  * Fleet HTTP API, behind the same gate as the rest of /api. Changes need X-Herdr-Fleet: 1: a page
@@ -33,8 +34,10 @@ import type { UsageTracker } from "./usage.ts";
  *  POST /api/fleet/usage/refresh          { all? }   -> { usage }; asks the CLIs whose reading is stale (all with all: true).
  *                                                       A POST: it runs CLIs, so it needs the header like every change
  *  POST /api/fleet/usage/clear            { key? }   -> { cleared: string[] }; ends cooldowns: one account, a CLI's, or all
+ *  GET  /api/fleet/settings[?cwd=]                  -> { settings: FleetSettings }; the person's fleet.json, as the project in cwd uses it
+ *  POST /api/fleet/settings      { patch, cwd? }    -> { settings }; the patch written into the person's fleet.json
  */
-export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator, usage?: Pick<UsageTracker, "list" | "refresh" | "clearCooldown">): Promise<Response> {
+export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator, usage?: Pick<UsageTracker, "list" | "refresh" | "clearCooldown">, settings?: Pick<FleetSettingsStore, "read" | "update">): Promise<Response> {
   const parts = url.pathname.slice("/api/fleet".length).split("/").filter(Boolean).map(decodeURIComponent);
   const method = request.method;
   try {
@@ -90,6 +93,16 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
         const key = (await readBody())["key"];
         if (key !== undefined && (typeof key !== "string" || key === "")) throw new FleetError("invalid_body", "key must be a non-empty string");
         return jsonResponse({ cleared: usage.clearCooldown(key as string | undefined) });
+      }
+    }
+    if (parts[0] === "settings" && parts.length === 1 && settings) {
+      if (method === "GET") return jsonResponse({ settings: settings.read(query.get("cwd") || process.cwd()) });
+      if (method === "POST") {
+        const body = await readBody();
+        const cwd = body["cwd"];
+        if (cwd !== undefined && typeof cwd !== "string") throw new FleetError("invalid_body", "cwd must be a string");
+        if (!isJsonObject(body["patch"])) throw new FleetError("invalid_body", "patch must be an object");
+        return jsonResponse({ settings: await settings.update(cwd || process.cwd(), body["patch"] as FleetSettingsPatch) });
       }
     }
     if (parts[0] === "close-done" && parts.length === 1 && method === "POST") {
@@ -229,7 +242,7 @@ function briefOf(value: unknown): Partial<Brief> | undefined {
 }
 
 const STATUS: Record<string, number> = {
-  run_not_found: 404, unknown_role: 404, not_a_thread: 409, thread_landed: 409, landing_busy: 409, run_busy: 409, no_pull_request: 409, diff_unavailable: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
+  run_not_found: 404, unknown_role: 404, not_a_thread: 409, thread_landed: 409, landing_busy: 409, run_busy: 409, no_pull_request: 409, diff_unavailable: 409, settings_unreadable: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
   agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429, scope_conflict: 409, setup_failed: 502,
 };
 

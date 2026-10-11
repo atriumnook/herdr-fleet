@@ -233,6 +233,11 @@ export class UsageTracker {
    */
   async unavailable(kind: AgentKind, model: string | undefined, maxUsedPercent: number): Promise<string | undefined> {
     await this.probe(kind);
+    return this.known(kind, model, maxUsedPercent);
+  }
+
+  /** The same answer as unavailable from what is known now, asking no CLI. */
+  known(kind: AgentKind, model: string | undefined, maxUsedPercent: number): string | undefined {
     const key = usageKey(kind, model);
     const entry = this.entries.get(key);
     const now = this.now();
