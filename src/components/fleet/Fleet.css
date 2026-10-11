@@ -84,6 +84,9 @@
   flex-direction: column;
 }
 
+/* it takes the focus from a click only (tabindex -1), to say which chat the keys go to: no ring */
+.fleet-chat:focus { outline: none; }
+
 .fleet-chat-surface { position: relative; flex: 1; min-height: 0; }
 
 /* the threads a coordinator's turn started, under it */

@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ComponentType } from "react";
-import { Bell, FolderOpen, LockKeyhole, MessageSquarePlus, PanelLeft, Pencil, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
+import { Bell, FolderOpen, LockKeyhole, MessageSquarePlus, MessageSquareText, PanelLeft, Pencil, RefreshCw, Settings, SunMoon, SwitchCamera, X } from "lucide-react";
 
 import "./CommandPalette.css";
 
@@ -12,6 +12,7 @@ import { SHORTCUTS, formatKeys, type ShortcutId } from "../lib/shortcuts.ts";
 import { AgentMark } from "./AgentMark.tsx";
 import { displayPaneTitle, StatusBadge } from "./Sidebar.tsx";
 import { placeLine } from "../lib/paneName.ts";
+import { entryLine, promptTitle, type RailEntry } from "../lib/promptRail.ts";
 import { t } from "../lib/i18n.ts";
 
 /** The actions the palette lists; the shell runs them. */
@@ -26,13 +27,17 @@ export interface CommandPaletteModel {
   /** the panes opened last on this PC, newest first */
   recent: string[];
   /** the actions this device has now (no bell once alerts are on, no sign-out without a token or pairing) */
-  offers: { notifications: boolean; lock: boolean; files: boolean; pane: boolean };
+  /** `prompts`: a chat shows, so its prompts can be searched */
+  offers: { notifications: boolean; lock: boolean; files: boolean; pane: boolean; prompts: boolean };
+  /** the searched chat's prompts that hold the words searched for, newest first */
+  prompts: RailEntry[];
 }
 
 export type CommandPaletteEvent =
   | { type: "close-palette" }
   | { type: "palette-query"; text: string }
   | { type: "palette-pick"; paneId: string }
+  | { type: "palette-pick-prompt"; key: string }
   | { type: "palette-run"; id: PaletteActionId };
 
 interface PaletteAction {
@@ -57,7 +62,7 @@ function ShortcutHint({ shortcutId }: { shortcutId?: ShortcutId }) {
 
 /** Panes and actions by search. Which row is highlighted is the view's own. */
 export function CommandPalette({ model, emit }: { model: CommandPaletteModel; emit: Emit<CommandPaletteEvent> }) {
-  const { snapshot, selectedPaneId, view, query, recent: recentPaneIds, offers } = model;
+  const { snapshot, selectedPaneId, view, query, recent: recentPaneIds, offers, prompts } = model;
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   const onClose = (): void => emit({ type: "close-palette" });
@@ -107,7 +112,7 @@ export function CommandPalette({ model, emit }: { model: CommandPaletteModel; em
     const needle = query.trim().toLocaleLowerCase();
     return needle ? paletteActions.filter((action) => action.label.toLocaleLowerCase().includes(needle)) : paletteActions;
   }, [paletteActions, query]);
-  const itemCount = panes.length + visibleActions.length;
+  const itemCount = panes.length + prompts.length + visibleActions.length;
 
   useEffect(() => {
     setActiveIndex((index) => Math.min(index, Math.max(0, itemCount - 1)));
@@ -115,13 +120,19 @@ export function CommandPalette({ model, emit }: { model: CommandPaletteModel; em
 
   const runPane = (pane: PaneInfo): void => emit({ type: "palette-pick", paneId: pane.pane_id });
   const runAction = (action: PaletteAction): void => emit({ type: "palette-run", id: action.id });
+  const runPrompt = (entry: RailEntry): void => emit({ type: "palette-pick-prompt", key: entry.key });
   const activate = (index: number): void => {
     if (index < panes.length) {
       const pane = panes[index];
       if (pane) runPane(pane);
       return;
     }
-    const action = visibleActions[index - panes.length];
+    if (index < panes.length + prompts.length) {
+      const entry = prompts[index - panes.length];
+      if (entry) runPrompt(entry);
+      return;
+    }
+    const action = visibleActions[index - panes.length - prompts.length];
     if (action) runAction(action);
   };
   const onKeyDown = (event: React.KeyboardEvent): void => {
@@ -157,9 +168,16 @@ export function CommandPalette({ model, emit }: { model: CommandPaletteModel; em
               </button>
             );
           })}
+          {prompts.length > 0 && <div className="menu-heading">{t("Prompts")}</div>}
+          {prompts.map((entry, promptIndex) => {
+            const index = panes.length + promptIndex;
+            return <button key={entry.key} id={`palette-item-${index}`} type="button" role="option" className="menu-item palette-prompt" aria-selected={activeIndex === index} onMouseEnter={() => setActiveIndex(index)} onClick={() => runPrompt(entry)}>
+              <MessageSquareText /><span className="menu-item-main"><span className="palette-row-title">{promptTitle(entry)}</span>{entryLine(entry).length > 0 && <span className="palette-row-subtitle">{entryLine(entry)}</span>}</span>
+            </button>;
+          })}
           {visibleActions.length > 0 && <div className="menu-heading">{t("Actions")}</div>}
           {visibleActions.map((action, actionIndex) => {
-            const index = panes.length + actionIndex;
+            const index = panes.length + prompts.length + actionIndex;
             const Icon = action.icon;
             return <button key={action.id} id={`palette-item-${index}`} type="button" role="option" className="menu-item" aria-selected={activeIndex === index} onMouseEnter={() => setActiveIndex(index)} onClick={() => runAction(action)}><Icon /><span className="menu-item-main">{action.label}</span><ShortcutHint shortcutId={action.shortcut} /></button>;
           })}

@@ -308,7 +308,8 @@ export type NewSessionState =
   };
 
 /** The command palette, on the selected pane's PC: the search typed, and the panes opened last there. */
-export type PaletteState = { open: false } | { open: true; machineId: string; query: string; recent: string[] };
+/** `chat`: the chat whose prompts it searches, the one that held the focus when it opened */
+export type PaletteState = { open: false } | { open: true; machineId: string; query: string; recent: string[]; chat: Lens };
 
 /** The sign-in screen while the server does not know this browser: a pairing code, or the shared token. */
 export interface GateState {
@@ -431,6 +432,8 @@ export interface ChatState {
   promptSeq: number;
   /** an answer from the prompt's card: on its way, refused (`changed`: the prompt moved on under it), or none */
   card: { promptId: string; status: "pending" } | { promptId: string; status: "changed"; seq: number } | { promptId: string; status: "failed"; message: string } | null;
+  /** a prompt of the conversation asked for (a step back or on, or the one picked in the palette): the chat scrolls to it once per `seq` */
+  seek: { to: -1 | 1 | { key: string }; seq: number } | null;
 }
 
 /** how often the chat reads its conversation's newest page */
@@ -486,7 +489,7 @@ export interface ConversationState {
   sentOver: { turn: ConversationTurn; page: ConversationTurn[] } | null;
 }
 
-export const NO_CHAT: ChatState = { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0, card: null };
+export const NO_CHAT: ChatState = { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0, card: null, seek: null };
 
 const NO_OLDER: ConversationState["older"] = { turns: [], cursor: undefined, status: "idle", heldFrom: null };
 export const NO_CONVERSATION: ConversationState = {
@@ -800,12 +803,15 @@ type BareEvent =
   /** `agentError`: why the agent asked for did not start; the pane exists all the same */
   | { type: "new-session-created"; paneId: string; agentError: string | null; seq: number }
   | { type: "new-session-failed"; message: string; invalidCwd: boolean; seq: number }
-  | { type: "open-palette" }
+  /** `chat`: the chat that holds the focus (the one beside on the Fleet screen), else the pane's */
+  | { type: "open-palette"; chat?: Lens }
   | { type: "close-palette" }
   | { type: "palette-query"; text: string }
   | { type: "palette-recent"; machineId: string; recent: string[] }
   /** a pane picked in the palette: it opens, and the palette closes */
   | { type: "palette-pick"; paneId: string }
+  /** a prompt of the open chat picked in the palette (its rail key): the chat scrolls to it, and the palette closes */
+  | { type: "palette-pick-prompt"; key: string }
   /** the in-app alert held by a finger, and let go of without a flick */
   | { type: "droplet-press" }
   | { type: "droplet-release" }
@@ -836,6 +842,8 @@ type BareEvent =
   | { type: "chat-prompt-failed"; seq: number }
   | { type: "chat-pending-answer"; promptId: string; answer: TypedAnswer }
   | { type: "chat-pending-answer-done" }
+  /** the prompt before or after the one being read, by the keyboard */
+  | { type: "prompt-rail-step"; direction: -1 | 1 }
   /** files attached to a composer's message (picked, pasted or dropped) */
   | { type: "attach-files"; owner: string; machineId: string; paneId: string; files: File[] }
   | { type: "upload-done"; owner: string; id: number; path: string }
@@ -1276,7 +1284,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return newSessionTransition(state, event, effects);
     case "open-palette":
       effects.push({ kind: "load-recent", machineId: state.selection.machineId });
-      return next({ palette: { open: true, machineId: state.selection.machineId, query: "", recent: [] } });
+      return next({ palette: { open: true, machineId: state.selection.machineId, query: "", recent: [], chat: event.chat ?? "main" } });
     case "close-palette":
       return next(state.palette.open ? { palette: { open: false } } : {});
     case "palette-query":
@@ -1286,6 +1294,13 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "palette-pick":
       if (!state.palette.open) return next({});
       return next({ screen: "pane", palette: { open: false }, ...pick(state, state.palette.machineId, event.paneId, effects) });
+    case "palette-pick-prompt":
+      if (!state.palette.open) return next({});
+      // the prompt is the searched chat's: the pane's, or the one beside
+      if (state.palette.chat === "side") return next({ palette: { open: false }, side: { ...state.side, chat: seekPrompt(state.side.chat, { key: event.key }) } });
+      return next({ palette: { open: false }, chat: seekPrompt(state.chat, { key: event.key }) });
+    case "prompt-rail-step":
+      return next({ chat: seekPrompt(state.chat, event.direction) });
     case "droplet-press":
     case "droplet-release":
     case "droplet-dismiss":
@@ -2373,7 +2388,7 @@ function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): Ch
       // another pane: nothing of the one before holds, and its reads answer too late; the settings
       // reported are kept by pane, so the same pane opened again shows them at once; an answer
       // still on its way from its card holds the card when its prompt shows again
-      return { ...chat, open: { machineId: event.machineId, paneId: event.paneId }, agent: false, prompt: null, suggestion: null, pendingAnswer: null, card: cardAnswering(state, event.machineId, event.paneId), promptSeq: chat.promptSeq + 1 };
+      return { ...chat, open: { machineId: event.machineId, paneId: event.paneId }, agent: false, prompt: null, suggestion: null, pendingAnswer: null, card: cardAnswering(state, event.machineId, event.paneId), promptSeq: chat.promptSeq + 1, seek: null };
     case "chat-close":
       if (chat.open?.machineId !== event.machineId || !here(event.paneId)) return chat;
       return { ...chat, open: null, agent: false, prompt: null, suggestion: null, pendingAnswer: null, card: null, promptSeq: chat.promptSeq + 1 };
@@ -2395,6 +2410,11 @@ function chatTransition(state: UiState, event: ChatEvent, effects: Effect[]): Ch
   // a read begun before the latest send answers for the turn before it: its suggestion is dropped
   if (event.sent !== chat.sent || shown.suggestion === event.suggestion) return shown;
   return { ...shown, suggestion: event.suggestion };
+}
+
+/** A prompt asked for in the open chat; with no chat open there is nothing to scroll. */
+function seekPrompt(chat: ChatState, to: -1 | 1 | { key: string }): ChatState {
+  return chat.open === null ? chat : { ...chat, seek: { to, seq: (chat.seek?.seq ?? 0) + 1 } };
 }
 
 /** The settings a read reported for the pane; the same settings keep the same object, as every poll would otherwise re-render the composer. */

@@ -938,7 +938,7 @@ describe("the command palette", () => {
 
   it("opens on the selected pane's PC with an empty search, reading the panes opened last there", () => {
     const { state, effects } = play([{ type: "select-pane", machineId: "local", paneId: "w1:p1" }, { type: "open-palette" }]);
-    expect(state.palette).toEqual({ open: true, machineId: "local", query: "", recent: [] });
+    expect(state.palette).toEqual({ open: true, machineId: "local", query: "", recent: [], chat: "main" });
     expect(effects).toContainEqual({ kind: "load-recent", machineId: "local" });
     expect(play([{ type: "palette-recent", machineId: "local", recent: ["w1:p2"] }], state).state.palette).toMatchObject({ recent: ["w1:p2"] });
   });
@@ -2222,5 +2222,55 @@ describe("answering the waiting prompt in its card", () => {
     expect(sending.chat.pendingAnswer).not.toBeNull();
     const failed = play([{ type: "answer-result", id: sending.sends.seq, outcome: { kind: "failed", status: 500, code: null, message: "boom" } }], sending);
     expect(failed.state.chat.pendingAnswer).toBeNull();
+  });
+});
+
+describe("the prompt rail", () => {
+  const side = <T extends UiEvent>(event: T): T => ({ ...event, lens: "side" });
+  const open = () => play([{ type: "chat-open", machineId: "local", paneId: "w1:p1" }, side({ type: "chat-open", machineId: "local", paneId: "w1:p2" })]).state;
+
+  it("asks the open chat for the prompt before or after the one being read, a new ask each time", () => {
+    const first = play([{ type: "prompt-rail-step", direction: -1 }], open());
+    expect(first.state.chat.seek).toEqual({ to: -1, seq: 1 });
+    expect(first.effects).toEqual([]);
+    const again = play([{ type: "prompt-rail-step", direction: -1 }, { type: "prompt-rail-step", direction: 1 }], first.state).state;
+    expect(again.chat.seek).toEqual({ to: 1, seq: 3 });
+    expect(again.side.chat.seek).toBeNull();
+  });
+
+  it("asks the chat beside when the step is for it", () => {
+    const { state } = play([side({ type: "prompt-rail-step", direction: 1 })], open());
+    expect(state.side.chat.seek).toEqual({ to: 1, seq: 1 });
+    expect(state.chat.seek).toBeNull();
+  });
+
+  it("asks nothing with no chat open", () => {
+    const { state } = play([{ type: "prompt-rail-step", direction: 1 }]);
+    expect(state).toBe(INITIAL_STATE);
+  });
+
+  it("scrolls the pane's chat to the prompt picked in the palette, and closes the palette", () => {
+    const { state } = play([{ type: "open-palette" }, { type: "palette-pick-prompt", key: "t7#0" }], open());
+    expect(state.palette).toEqual({ open: false });
+    expect(state.chat.seek).toEqual({ to: { key: "t7#0" }, seq: 1 });
+    expect(state.screen).toBe(open().screen);
+    // a pick that comes after the palette closed asks nothing
+    expect(play([{ type: "palette-pick-prompt", key: "t8#0" }], state).state.chat.seek).toEqual({ to: { key: "t7#0" }, seq: 1 });
+  });
+
+  it("scrolls the chat beside to the prompt picked, when the palette opened from it", () => {
+    const { state } = play([{ type: "open-palette", chat: "side" }, { type: "palette-pick-prompt", key: "t3#0" }], open());
+    expect(state.palette).toEqual({ open: false });
+    expect(state.side.chat.seek).toEqual({ to: { key: "t3#0" }, seq: 1 });
+    expect(state.chat.seek).toBeNull();
+  });
+
+  it("asks nothing of a chat opened on another pane", () => {
+    const asked = play([{ type: "prompt-rail-step", direction: -1 }, side({ type: "prompt-rail-step", direction: 1 })], open()).state;
+    const moved = play([{ type: "chat-open", machineId: "local", paneId: "w1:p3" }, side({ type: "chat-open", machineId: "local", paneId: "w1:p4" })], asked).state;
+    expect(moved.chat.seek).toBeNull();
+    expect(moved.side.chat.seek).toBeNull();
+    // the same pane opened again keeps what was asked
+    expect(play([{ type: "chat-open", machineId: "local", paneId: "w1:p1" }], asked).state.chat.seek).toEqual({ to: -1, seq: 1 });
   });
 });
