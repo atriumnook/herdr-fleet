@@ -56,7 +56,8 @@ export function FleetSettingsPage({ model, emit }: { model: FleetSettingsModel; 
               {section === "projects" && <ProjectsSection model={model} change={change} />}
               {section === "limits" && <LimitsSection settings={settings} canAct={model.canAct} change={change} />}
               {section === "entrances" && <EntrancesSection model={model} emit={emit} />}
-              <p className="fleet-settings-file">{t("Changes are saved to {file} as you make them.", { file: settings.file })}</p>
+              {/* Entrances writes into the CLIs' skill folders, not fleet.json */}
+              {section !== "entrances" && <p className="fleet-settings-file">{t("Changes are saved to {file} as you make them.", { file: settings.file })}</p>}
             </>
           )}
         </div>
