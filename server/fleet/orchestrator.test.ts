@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { DEFAULT_CONFIG, mergeConfig } from "./config.ts";
-import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES, threadState } from "./orchestrator.ts";
+import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES } from "./orchestrator.ts";
 import { RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, type AgentMetadata, type AgentRuntime, type CreateLocationOptions, type RuntimeLocation, type StartOptions } from "./runtime.ts";
 import type { AgentDefinition, AgentRun, AgentState, FleetConfig } from "./types.ts";
@@ -74,6 +74,8 @@ interface SetupOptions {
   excludeWorktrees?: (repo: string) => Promise<void>;
   standingOrders?: (cwd: string) => string;
   draftRetryMs?: number;
+  gitHead?: (cwd: string) => Promise<string | null>;
+  diffStat?: (cwd: string, base: string) => Promise<{ added: number; removed: number; files: number } | null>;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -86,7 +88,7 @@ function setup(options: SetupOptions = {}) {
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
     usage: options.usage, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}), standingOrders: options.standingOrders,
-    draftRetryMs: options.draftRetryMs,
+    draftRetryMs: options.draftRetryMs, gitHead: options.gitHead ?? (async () => null), diffStat: options.diffStat,
   });
   return { fleet, runtime, registry, root };
 }
@@ -879,17 +881,40 @@ describe("threads", () => {
     expect(threads[1]!.contract).toBeUndefined();
   });
 
-  it("stand where their lead and its HANDOFF put them", () => {
-    const run = (state: AgentState) => ({ state }) as AgentRun;
-    expect(threadState(run("starting"), undefined)).toBe("working");
-    expect(threadState(run("working"), "BLOCKED — an earlier turn's")).toBe("working");
-    expect(threadState(run("blocked"), undefined)).toBe("waiting");
-    expect(threadState(run("idle"), "BLOCKED — which one?")).toBe("waiting");
-    expect(threadState(run("idle"), "PASS — 12 pass")).toBe("review");
-    expect(threadState(run("done"), "ISSUES — 2 fail")).toBe("idle");
-    expect(threadState(run("idle"), undefined)).toBe("idle");
-    expect(threadState(run("failed"), "PASS — 12 pass")).toBe("failed");
-    expect(threadState(run("stopped"), "PASS — 12 pass")).toBe("ended");
+  it("carry what the lead's turn left: the contract, and the change since the commit the worktree started from", async () => {
+    const diffs: Array<{ cwd: string; base: string }> = [];
+    const { fleet, registry, runtime, root } = setup({
+      agents: [lead], gitRoot: async () => "/repo", gitHead: async () => "abc1234",
+      diffStat: async (cwd, base) => { diffs.push({ cwd, base }); return { added: 24, removed: 9, files: 2 }; },
+    });
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    expect(thread.base).toBe("abc1234");
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "PASS — done");
+    writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 fixed\n- [ ] A2 docs\n");
+    runtime.getStatus = "idle";
+    await Bun.sleep(GRACE + 5);
+    fleet.onPaneStatus(thread.paneId);
+    await Bun.sleep(30);
+    expect(registry.get(thread.id)).toMatchObject({ contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }], diff: { added: 24, removed: 9, files: 2 } });
+    expect(diffs).toEqual([{ cwd: thread.cwd, base: "abc1234" }]);
+  });
+
+  it("are marked done by the person, and open again once their lead works again", async () => {
+    const { fleet, registry, runtime } = setup({ agents: [lead, role("worker")], gitRoot: async () => "/repo" });
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    runtime.getStatus = "idle";
+    await Bun.sleep(GRACE + 5);
+    fleet.onPaneStatus(thread.paneId);
+    await Bun.sleep(20);
+    expect(fleet.resolve(thread.id, true).resolvedAt).toBeNumber();
+    expect(fleet.resolve(thread.id, false).resolvedAt).toBeUndefined();
+    fleet.resolve(thread.id, true);
+    runtime.getStatus = "working";
+    fleet.onPaneStatus(thread.paneId);
+    await Bun.sleep(20);
+    expect(registry.get(thread.id)!.resolvedAt).toBeUndefined();
+    const helper = await spawn(fleet);
+    expect(() => fleet.resolve(helper.id, true, helper.group)).toThrow("is not a thread's lead");
   });
 
   it("are listed for the calling run's project, wherever it asks from", async () => {

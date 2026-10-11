@@ -5,10 +5,11 @@ import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
 import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
-import { excludeWorktrees, gitRoot, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
+import { contractItems, handoffStatus, threadState } from "../../shared/fleet.ts";
+import { diffStat, excludeWorktrees, gitHead, gitRoot, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
-import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type ContractItem, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadState, type ThreadSummary } from "./types.ts";
+import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadSummary } from "./types.ts";
 import { usageKey, type UsageTracker } from "./usage.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -32,7 +33,7 @@ const RESULT_FILE = "handoff.md";
 type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[]; thread?: ThreadPlace };
 
 /** Where a thread works (the repository its worktree comes from, or none outside one), and the run that owns it. */
-interface ThreadPlace { repo: string | null; owner?: string }
+interface ThreadPlace { repo: string | null; owner?: string; base?: string }
 
 /** A thread to start: its lead gets the task, in a workspace (and worktree) of its own named by the title. */
 export interface ThreadRequest {
@@ -103,6 +104,9 @@ export interface OrchestratorDeps {
   runSetup?: (cwd: string, command: string, signal?: AbortSignal) => Promise<SetupOutcome>;
   /** keeps the threads' worktrees out of the repository's git status (thread.ts excludeWorktrees) */
   excludeWorktrees?: (repo: string) => Promise<void>;
+  /** gitHead and diffStat; tests stand in for git */
+  gitHead?: (cwd: string) => Promise<string | null>;
+  diffStat?: typeof diffStat;
   /** the shell command an agent runs to reach the fleet (bin/fleet.ts) */
   fleetCommand: string;
   /** set in each agent's pane so its own fleet commands reach this server; read at each spawn */
@@ -246,10 +250,11 @@ export class Orchestrator {
     if (request.callerRun && !owner) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
     const repo = await (this.deps.gitRoot ?? gitRoot)(cwd);
     if (repo) await (this.deps.excludeWorktrees ?? excludeWorktrees)(repo);
+    const base = repo ? await (this.deps.gitHead ?? gitHead)(repo) : null;
     return this.launch({
       role: THREAD_ROLE, name: title, task: request.task, brief: request.brief, cwd, depth: request.depth,
       group: makeGroupId(), worktree: repo !== null, interactive: true,
-    }, signal, { repo, ...(owner ? { owner: owner.id } : {}) });
+    }, signal, { repo, ...(owner ? { owner: owner.id } : {}), ...(base ? { base } : {}) });
   }
 
   /**
@@ -287,7 +292,7 @@ export class Orchestrator {
     return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project).map((run) => {
       const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
       const status = run.result ? handoffStatus(run.result) : undefined;
-      return { run, state: threadState(run, status), ...(status ? { status } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
+      return { run, state: threadState(run), ...(status ? { status } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
     });
   }
 
@@ -406,6 +411,7 @@ export class Orchestrator {
         cwd: location.cwd, model, thinking, fallbackFrom, state: "starting", depth, interactive, worktree, startedAt: now, updatedAt: now,
         ...(worktree && request.thread ? { branch: `fleet/${id}` } : {}),
         ...(request.thread?.repo ? { project: request.thread.repo } : {}), ...(request.thread?.owner ? { owner: request.thread.owner } : {}),
+        ...(worktree && request.thread?.base ? { base: request.thread.base } : {}),
         ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
       };
       this.save(run);
@@ -557,6 +563,17 @@ export class Orchestrator {
     await this.reconcileLocks.get(run.id);
     if (!isLive(run)) throw new FleetError("run_ended", `${run.name} has ${run.state}; start a new agent instead.`);
     return this.submit(run, message, signal);
+  }
+
+  /** Marks a thread done for the person, or open again; its lead's next turn opens it again too. */
+  resolve(target: string, resolved: boolean, group?: string): AgentRun {
+    const run = this.get(target, group);
+    if (!isThread(run)) throw new FleetError("not_a_thread", `${run.name} is not a thread's lead.`);
+    if (resolved) run.resolvedAt = Date.now();
+    else delete run.resolvedAt;
+    run.updatedAt = Date.now();
+    this.save(run);
+    return { ...run };
   }
 
   /**
@@ -796,7 +813,13 @@ export class Orchestrator {
       // a rate limit sits the account out: the re-spawn below and later spawns pass it over
       this.deps.usage?.noteFailure(run.agent, run.model, turnError, config.rateLimitCooldownMinutes);
     }
-    if (isThread(run)) run.notice = threadQuestion(run);
+    if (isThread(run)) {
+      run.notice = threadQuestion(run);
+      const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
+      run.contract = contract ? contractItems(contract) : undefined;
+      const diff = run.base ? await (this.deps.diffStat ?? diffStat)(run.cwd, run.base) : null;
+      run.diff = diff ?? undefined;
+    }
     run.updatedAt = Date.now();
     this.save(run);
     if (isCompleted(run.state)) await this.readUsageScreen(run, config);
@@ -939,6 +962,8 @@ export class Orchestrator {
   private updateState(run: AgentRun, state: AgentState): void {
     const previous = run.state;
     run.state = state;
+    // a thread marked done that works again is open again
+    if (state === "working") delete run.resolvedAt;
     // working again after a question: a later block is news again
     if (state === "working" && previous === "blocked") {
       const pending = this.pending.get(run.id);
@@ -972,27 +997,6 @@ export function threadQuestion(run: AgentRun): string | undefined {
   if (run.state === "failed" || !run.result || !/^BLOCKED\b/.test(handoffStatus(run.result) ?? "")) return undefined;
   const handoff = run.result.length > QUESTION_MAX_CHARS ? `${run.result.slice(0, QUESTION_MAX_CHARS)}\n[cut at ${QUESTION_MAX_CHARS} characters]` : run.result;
   return `${threadLabel(run)} asks the person:\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}`;
-}
-
-/** Where a thread stands: herdr's state of its lead, and once a turn settled, the HANDOFF's verdict. */
-export function threadState(run: AgentRun, status: string | undefined): ThreadState {
-  if (run.state === "failed") return "failed";
-  if (run.state === "stopped") return "ended";
-  if (run.state === "blocked") return "waiting";
-  if (!isCompleted(run.state)) return "working";
-  return status?.startsWith("BLOCKED") ? "waiting" : status?.startsWith("PASS") ? "review" : "idle";
-}
-
-/** The HANDOFF's status line: the first that opens with PASS, ISSUES or BLOCKED, without its markdown. */
-export function handoffStatus(result: string): string | undefined {
-  return result.split("\n").map((l) => l.replace(/^[\s#>-]+/, "").replace(/\*\*/g, "").trim()).find((l) => /^(PASS|ISSUES|BLOCKED)\b/.test(l));
-}
-
-/** contract.md's assertions: `- [ ] A1 …` open, `- [x]` met, `- [!]` cannot be met. */
-export function contractItems(text: string): ContractItem[] {
-  return [...text.matchAll(/^\s*[-*]\s*\[([ xX!])\]\s*(A\d+)\b/gm)].map((m) => ({
-    id: m[2]!, state: m[1] === "!" ? "unmet" : m[1] === " " ? "open" : "met",
-  }));
 }
 
 /**

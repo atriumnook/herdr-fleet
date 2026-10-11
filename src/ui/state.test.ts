@@ -77,14 +77,30 @@ describe("loading runs and usage", () => {
   });
 });
 
-describe("screens and the detail sheet", () => {
+describe("screens and the Fleet screen's view", () => {
   const withRuns = play([{ type: "fleet-changed" }, { type: "runs-loaded", runs: [run("a"), run("gone", { state: "stopped" })] }]).state;
 
-  it("opens a run's detail, closes it when the run disappears, and leaves it on the way to a pane", () => {
-    expect(play([{ type: "show-screen", screen: "fleet" }, { type: "show-run", runId: "a" }], withRuns).state).toMatchObject({ screen: "fleet", detail: "a" });
-    expect(play([{ type: "show-run", runId: "nobody" }], withRuns).state.detail).toBeNull();
-    expect(play([{ type: "show-run", runId: "a" }, { type: "runs-loaded", runs: [] }], withRuns).state.detail).toBeNull();
-    expect(play([{ type: "show-screen", screen: "fleet" }, { type: "show-run", runId: "a" }, { type: "select-pane", machineId: "local", paneId: "w1:x" }], withRuns).state).toMatchObject({ screen: "pane", detail: null });
+  it("opens a thread or an agent in the Overview, one of its agents, large, and closes it when its run disappears", () => {
+    const opened = play([{ type: "show-screen", screen: "fleet" }, { type: "fleet-overview", open: false }, { type: "fleet-open", kind: "thread", runId: "a" }], withRuns).state;
+    expect(opened.fleetView).toEqual({ project: null, overview: true, open: { kind: "thread", runId: "a", member: null }, expanded: false });
+    const helper = play([{ type: "fleet-member", runId: "h" }, { type: "fleet-expand", expanded: true }], opened).state;
+    expect(helper.fleetView).toMatchObject({ open: { member: "h" }, expanded: true });
+    expect(play([{ type: "runs-loaded", runs: [run("gone", { state: "stopped" })] }], helper).state.fleetView).toMatchObject({ open: null, expanded: false });
+    expect(play([{ type: "fleet-close" }], helper).state.fleetView).toMatchObject({ open: null, expanded: false });
+    // an agent has no helpers, and nothing expands with nothing open
+    expect(play([{ type: "fleet-open", kind: "agent", runId: "a" }, { type: "fleet-member", runId: "h" }], withRuns).state.fleetView.open).toEqual({ kind: "agent", runId: "a", member: null });
+    expect(play([{ type: "fleet-expand", expanded: true }], withRuns).state.fleetView.expanded).toBe(false);
+  });
+
+  it("starts a project from its first message, picks it, and marks a thread done", () => {
+    const started = play([{ type: "fleet-start-project", task: "fix the retry", cwd: "/repo" }], withRuns);
+    expect(started.effects).toEqual([{ kind: "request", action: { kind: "start-project", task: "fix the retry", cwd: "/repo" } }]);
+    expect(started.state.fleetView.project).toBe("/repo");
+    expect(play([{ type: "fleet-start-project", task: " ", cwd: "/repo" }], withRuns).effects).toEqual([]);
+    expect(play([{ type: "fleet-resolve", runId: "a", resolved: true }], withRuns).effects).toEqual([{ kind: "request", action: { kind: "resolve", runId: "a", resolved: true } }]);
+    const watching = { ...withRuns, canAct: false };
+    expect(play([{ type: "fleet-start-project", task: "t", cwd: "/repo" }], watching).effects).toEqual([]);
+    expect(play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-project", project: "/other" }], withRuns).state.fleetView).toMatchObject({ project: "/other", open: null });
   });
 
   it("selects a live run's pane on this PC, again when asked again, and not an ended run's", () => {
@@ -1644,6 +1660,72 @@ describe("the chat's conversation", () => {
     const other = play([{ type: "chat-open", machineId: "local", paneId: "w1:p2" }], read).state;
     expect(other.conversation).toMatchObject({ open: { paneId: "w1:p2" }, view: { turns: [] }, loaded: false, historyId: undefined });
     expect(play([{ type: "conversation-read", seq: read.conversation.seq, olderSeq: read.conversation.olderSeq, outcome: ok(page([user("old")], null)) }], other).state.conversation.view.turns).toEqual([]);
+  });
+});
+
+describe("the chat beside the pane's", () => {
+  const user = (text: string): ConversationTurn => ({ role: "user", ts: text, parts: [{ kind: "text", text }] });
+  const page = (turns: ConversationTurn[]): ConversationResponse => ({ source: "claude-transcript", history_id: "h1", cursor: null, turns });
+  const side = <T extends UiEvent>(event: T): T => ({ ...event, lens: "side" });
+  const prompt = (id: string): InteractivePrompt => ({ id, agent: "claude", kind: "approval", title: "Allow?", question: "Run?", body: null, options: [{ label: "Yes", description: null }], multi_select: false, custom_option_index: null });
+  /** the pane's chat open on w1:p1, and the one beside on w1:p2 */
+  const both = () => play([
+    { type: "pane-attached", paneId: "w1:p1" }, { type: "pane-connection", connected: true },
+    { type: "chat-open", machineId: "local", paneId: "w1:p1" }, { type: "chat-agent", paneId: "w1:p1", agent: true },
+    side({ type: "chat-open", machineId: "local", paneId: "w1:p2" }), side({ type: "chat-agent", paneId: "w1:p2", agent: true }),
+  ]);
+
+  it("opens and reads apart from the pane's, and what it asks for answers it alone", () => {
+    const { state, effects } = both();
+    expect(state.chat.open).toEqual({ machineId: "local", paneId: "w1:p1" });
+    expect(state.side.chat.open).toEqual({ machineId: "local", paneId: "w1:p2" });
+    expect(effects).toContainEqual({ kind: "read-conversation", machineId: "local", paneId: "w1:p2", from: null, seq: state.side.conversation.seq, olderSeq: state.side.conversation.olderSeq, lens: "side" });
+    expect(effects).toContainEqual({ kind: "load-chat-prompt", machineId: "local", paneId: "w1:p2", seq: state.side.chat.promptSeq, sent: 0, lens: "side" });
+    const read = play([side({ type: "conversation-read", seq: state.side.conversation.seq, olderSeq: state.side.conversation.olderSeq, outcome: { kind: "ok", conversation: page([user("thread")]) } })], state);
+    expect(read.state.side.conversation.view.turns).toEqual([user("thread")]);
+    expect(read.state.conversation).toBe(state.conversation);
+    // its poll comes back to it
+    expect(read.effects).toEqual([{ kind: "later", ms: CONVERSATION_POLL_MS, lens: "side", event: { type: "poll-conversation", seq: state.side.conversation.seq, lens: "side" } }]);
+    // the pane's answer leaves it alone
+    const main = play([{ type: "conversation-read", seq: state.conversation.seq, olderSeq: state.conversation.olderSeq, outcome: { kind: "ok", conversation: page([user("coordinator")]) } }], read.state).state;
+    expect(main.conversation.view.turns).toEqual([user("coordinator")]);
+    expect(main.side).toBe(read.state.side);
+  });
+
+  it("is read again on its own pane's status edge, and stops reading once the page is away", () => {
+    const { state } = both();
+    const panes = (status: string) => [{ pane_id: "w1:p1", workspace_id: "w1", tab_id: "w1:t1", focused: false, agent_status: "idle" }, { pane_id: "w1:p2", workspace_id: "w1", tab_id: "w1:t1", focused: false, agent_status: status }];
+    const pc = { id: "local", name: "omarchy", kind: "local", enabled: true, state: "connected", error: null, snapshot: { version: "0.9.1", protocol: 22, focused_workspace_id: "w1", focused_tab_id: "w1:t1", focused_pane_id: null, workspaces: [], tabs: [], agents: [], panes: panes("working") } } as unknown as Machine;
+    const working = { ...state, machines: { ...state.machines, list: [pc] } };
+    const settled = play([{ type: "machine-message", machineId: "local", message: { type: "pane-status", pane_id: "w1:p2", agent_status: "idle" } }], working);
+    expect(settled.effects).toContainEqual(expect.objectContaining({ kind: "read-conversation", paneId: "w1:p2", lens: "side" }));
+    expect(settled.effects).not.toContainEqual(expect.objectContaining({ kind: "read-conversation", paneId: "w1:p1" }));
+    const away = play([{ type: "visibility", visible: false }], state).state;
+    expect(away.side.conversation.seq).toBe(state.side.conversation.seq + 1);
+  });
+
+  it("answers its own pane's prompt from its composer, and counts the send on itself", () => {
+    const { state } = both();
+    const asked = play([side({ type: "chat-prompt-read", seq: state.side.chat.promptSeq, sent: 0, prompt: prompt("p"), suggestion: null })], state).state;
+    expect(asked.side.chat.prompt).toEqual(prompt("p"));
+    expect(asked.chat.prompt).toBeNull();
+    const answered = play([side({ type: "composer-send", owner: "local:w1:p2", machineId: "local", paneId: "w1:p2", text: "Yes", via: "box", bracketedPaste: false, working: false })], asked);
+    // an approval is confirmed first: the pick waits on the chat beside, not the pane's
+    expect(answered.state.side.chat.pendingAnswer).toMatchObject({ promptId: "p" });
+    expect(answered.state.chat.pendingAnswer).toBeNull();
+    const sent = play([side({ type: "composer-send", owner: "local:w1:p2", machineId: "local", paneId: "w1:p2", text: "go on", via: "box", bracketedPaste: false, working: false })], state);
+    expect(sent.effects).toContainEqual(expect.objectContaining({ kind: "submit", paneId: "w1:p2", text: "go on", lens: "side" }));
+    const started = play([side({ type: "submit-started", id: sent.state.sends.seq })], sent.state).state;
+    expect(started.side.chat.sent).toBe(1);
+    expect(started.chat.sent).toBe(0);
+  });
+
+  it("closes apart from the pane's, keeping the same state object when nothing changes", () => {
+    const { state } = both();
+    const closed = play([side({ type: "chat-close", machineId: "local", paneId: "w1:p2" })], state).state;
+    expect(closed.side.chat.open).toBeNull();
+    expect(closed.chat.open).toEqual({ machineId: "local", paneId: "w1:p1" });
+    expect(transition(closed, side({ type: "chat-close", machineId: "local", paneId: "w1:p2" })).state).toBe(closed);
   });
 });
 

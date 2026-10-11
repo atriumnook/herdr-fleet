@@ -253,22 +253,26 @@ export class Mediator {
       this.state = state;
       for (const listener of [...this.listeners]) listener();
     }
-    for (const effect of effects) void this.run(effect);
+    for (const effect of effects) {
+      const lens = effect.lens;
+      void this.run(effect, lens === undefined ? (event) => this.dispatch(event) : (event) => this.dispatch({ ...event, lens }));
+    }
   };
 
-  private async run(effect: Effect): Promise<void> {
+  /** `dispatch`: where what the effect answers goes; an effect of the chat beside answers that chat (`lens`) */
+  private async run(effect: Effect, dispatch: (event: UiEvent) => void): Promise<void> {
     switch (effect.kind) {
       case "load-runs":
-        try { this.dispatch({ type: "runs-loaded", runs: await this.ports.loadRuns() }); } catch (error) { this.dispatch({ type: "runs-failed", message: message(error) }); }
+        try { dispatch({ type: "runs-loaded", runs: await this.ports.loadRuns() }); } catch (error) { dispatch({ type: "runs-failed", message: message(error) }); }
         return;
       case "load-usage":
-        try { this.dispatch({ type: "usage-loaded", entries: await this.ports.loadUsage() }); } catch (error) { this.dispatch({ type: "usage-failed", message: message(error) }); }
+        try { dispatch({ type: "usage-loaded", entries: await this.ports.loadUsage() }); } catch (error) { dispatch({ type: "usage-failed", message: message(error) }); }
         return;
       case "refresh-usage":
-        try { this.dispatch({ type: "usage-refreshed", entries: await this.ports.refreshUsage() }); } catch (error) { this.dispatch({ type: "usage-refresh-failed", message: message(error) }); }
+        try { dispatch({ type: "usage-refreshed", entries: await this.ports.refreshUsage() }); } catch (error) { dispatch({ type: "usage-refresh-failed", message: message(error) }); }
         return;
       case "request":
-        try { await this.ports.runRequest(effect.action); this.dispatch({ type: "request-done" }); } catch (error) { this.dispatch({ type: "request-failed", message: message(error) }); }
+        try { await this.ports.runRequest(effect.action); dispatch({ type: "request-done" }); } catch (error) { dispatch({ type: "request-failed", message: message(error) }); }
         return;
       case "save-settings":
         this.ports.saveSettings(effect.settings);
@@ -277,58 +281,58 @@ export class Mediator {
         this.ports.forgetPaneViews();
         return;
       case "load-remote-access":
-        try { this.dispatch({ type: "remote-access-loaded", access: await this.ports.loadRemoteAccess() }); } catch (error) { this.dispatch({ type: "remote-access-failed", message: message(error) }); }
+        try { dispatch({ type: "remote-access-loaded", access: await this.ports.loadRemoteAccess() }); } catch (error) { dispatch({ type: "remote-access-failed", message: message(error) }); }
         return;
       case "load-devices":
         try {
           const devices = await this.ports.loadDevices();
-          this.dispatch(devices === null ? { type: "devices-failed", message: "", unavailable: true, session: effect.session } : { type: "devices-loaded", devices, session: effect.session });
-        } catch (error) { this.dispatch({ type: "devices-failed", message: message(error), unavailable: false, session: effect.session }); }
+          dispatch(devices === null ? { type: "devices-failed", message: "", unavailable: true, session: effect.session } : { type: "devices-loaded", devices, session: effect.session });
+        } catch (error) { dispatch({ type: "devices-failed", message: message(error), unavailable: false, session: effect.session }); }
         return;
       case "start-pairing":
-        try { this.dispatch({ type: "pairing-started", code: await this.ports.startPairing(), at: Date.now(), session: effect.session }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
+        try { dispatch({ type: "pairing-started", code: await this.ports.startPairing(), at: Date.now(), session: effect.session }); } catch (error) { dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
         return;
       case "rename-device":
-        try { await this.ports.renameDevice(effect.id, effect.label); this.dispatch({ type: "device-renamed", session: effect.session }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
+        try { await this.ports.renameDevice(effect.id, effect.label); dispatch({ type: "device-renamed", session: effect.session }); } catch (error) { dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
         return;
       case "revoke-device":
-        try { await this.ports.revokeDevice(effect.id); this.dispatch({ type: "device-changed", session: effect.session }); } catch (error) { this.dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
+        try { await this.ports.revokeDevice(effect.id); dispatch({ type: "device-changed", session: effect.session }); } catch (error) { dispatch({ type: "device-change-failed", message: message(error), session: effect.session }); }
         return;
       case "test-push":
-        try { this.dispatch({ type: "push-tested", result: await this.ports.testPush(), session: effect.session }); } catch { this.dispatch({ type: "push-tested", result: "failed", session: effect.session }); }
+        try { dispatch({ type: "push-tested", result: await this.ports.testPush(), session: effect.session }); } catch { dispatch({ type: "push-tested", result: "failed", session: effect.session }); }
         return;
       case "tree-request": {
         const { machineId, request, viaConfirm, revert } = effect;
-        try { await this.ports.treeRequest(machineId, request); this.dispatch({ type: "tree-done", machineId, viaConfirm }); }
-        catch (error) { this.dispatch({ type: "tree-failed", machineId, request, reason: message(error), viaConfirm, revert }); }
+        try { await this.ports.treeRequest(machineId, request); dispatch({ type: "tree-done", machineId, viaConfirm }); }
+        catch (error) { dispatch({ type: "tree-failed", machineId, request, reason: message(error), viaConfirm, revert }); }
         return;
       }
       case "load-health":
-        try { this.dispatch({ type: "access-loaded", auth: (await this.ports.loadAccess()).auth }); } catch { /* the gate stays while the server restarts */ }
-        try { this.dispatch({ type: "health-loaded", health: await this.ports.loadHealth() }); } catch { this.dispatch({ type: "health-failed" }); }
+        try { dispatch({ type: "access-loaded", auth: (await this.ports.loadAccess()).auth }); } catch { /* the gate stays while the server restarts */ }
+        try { dispatch({ type: "health-loaded", health: await this.ports.loadHealth() }); } catch { dispatch({ type: "health-failed" }); }
         return;
       case "load-machines":
         try {
           const machines = await this.ports.loadMachines();
-          this.dispatch(machines === "unauthorized" ? { type: "machines-failed", message: "", unauthorized: true, revision: effect.revision } : { type: "machines-loaded", machines, revision: effect.revision });
-        } catch (error) { this.dispatch({ type: "machines-failed", message: message(error), unauthorized: false, revision: effect.revision }); }
+          dispatch(machines === "unauthorized" ? { type: "machines-failed", message: "", unauthorized: true, revision: effect.revision } : { type: "machines-loaded", machines, revision: effect.revision });
+        } catch (error) { dispatch({ type: "machines-failed", message: message(error), unauthorized: false, revision: effect.revision }); }
         return;
       case "authenticate":
-        try { await this.ports.authenticate(effect.token); this.dispatch({ type: "authenticated", reason: effect.reason }); } catch { this.dispatch({ type: "authentication-failed", reason: effect.reason }); }
+        try { await this.ports.authenticate(effect.token); dispatch({ type: "authenticated", reason: effect.reason }); } catch { dispatch({ type: "authentication-failed", reason: effect.reason }); }
         return;
       case "pair-from-address":
         // the gate, if any, reports a code that failed
-        try { await this.ports.pairFromAddress(effect.code); this.dispatch({ type: "paired-from-address" }); } catch { /* as above */ }
+        try { await this.ports.pairFromAddress(effect.code); dispatch({ type: "paired-from-address" }); } catch { /* as above */ }
         return;
       case "sign-out":
         try { await this.ports.signOut(); } catch { /* the cookie may still be set: health decides */ }
-        this.dispatch({ type: "signed-out" });
+        dispatch({ type: "signed-out" });
         return;
       case "open-stream":
         this.closeStream?.();
         this.closeStream = this.ports.openStream({
-          opened: () => this.dispatch({ type: "stream-opened" }),
-          event: (event) => this.dispatch(event.type === "machines" ? { type: "machines-pushed", machines: event.machines } : { type: "machine-message", machineId: event.machine_id, message: event.message, at: Date.now() }),
+          opened: () => dispatch({ type: "stream-opened" }),
+          event: (event) => dispatch(event.type === "machines" ? { type: "machines-pushed", machines: event.machines } : { type: "machine-message", machineId: event.machine_id, message: event.message, at: Date.now() }),
         });
         return;
       case "close-stream":
@@ -336,54 +340,54 @@ export class Mediator {
         this.closeStream = null;
         return;
       case "confirm-pane-gone":
-        try { this.dispatch({ type: "pane-session-read", machineId: effect.machineId, paneId: effect.paneId, session: await this.ports.loadSession(effect.machineId) }); }
-        catch { this.dispatch({ type: "pane-session-failed", machineId: effect.machineId, paneId: effect.paneId }); }
+        try { dispatch({ type: "pane-session-read", machineId: effect.machineId, paneId: effect.paneId, session: await this.ports.loadSession(effect.machineId) }); }
+        catch { dispatch({ type: "pane-session-failed", machineId: effect.machineId, paneId: effect.paneId }); }
         return;
       case "enable-alerts": {
         // an older browser can throw instead of answering: that is no permission
         const permission = await this.ports.requestPermission().catch((): NotificationState => "default");
-        this.dispatch({ type: "alerts-permission", permission });
+        dispatch({ type: "alerts-permission", permission });
         let ok = false;
         if (permission === "granted") {
           try {
             const endpoint = await this.ports.subscribePush(effect.prefs);
-            this.dispatch({ type: "push-subscribed", on: endpoint !== null, seq: null });
+            dispatch({ type: "push-subscribed", on: endpoint !== null, seq: null });
             if (endpoint !== null) await this.ports.confirmPush(endpoint);
             ok = endpoint !== null;
           } catch (error) {
             console.warn("web push unavailable, alerts stay tab-only", error);
           }
         }
-        this.dispatch({ type: "alerts-enabled", ok, session: effect.session });
+        dispatch({ type: "alerts-enabled", ok, session: effect.session });
         return;
       }
       case "remove-push":
         await this.ports.removePush().catch((error: unknown) => console.warn("could not drop the push subscription", error));
         return;
       case "subscribe-push":
-        try { this.dispatch({ type: "push-subscribed", on: (await this.ports.subscribePush(effect.prefs)) !== null, seq: effect.seq }); }
-        catch { this.dispatch({ type: "push-subscribed", on: false, seq: effect.seq }); }
+        try { dispatch({ type: "push-subscribed", on: (await this.ports.subscribePush(effect.prefs)) !== null, seq: effect.seq }); }
+        catch { dispatch({ type: "push-subscribed", on: false, seq: effect.seq }); }
         return;
       case "notify-pane":
-        this.ports.notifyPane(effect, () => this.dispatch({ type: "select-pane", machineId: effect.machineId, paneId: effect.pane.pane_id }));
+        this.ports.notifyPane(effect, () => dispatch({ type: "select-pane", machineId: effect.machineId, paneId: effect.pane.pane_id }));
         return;
       case "load-agents":
         // the agent chosen last shows at once; the list only checks this PC still has it
-        this.dispatch({ type: "new-session-remembered", agentKind: this.ports.rememberedAgent(), seq: effect.seq });
-        try { this.dispatch({ type: "new-session-agents", agents: await this.ports.loadAgentKinds(effect.machineId), seq: effect.seq }); }
-        catch (error) { this.dispatch({ type: "new-session-agents-failed", message: message(error), seq: effect.seq }); }
+        dispatch({ type: "new-session-remembered", agentKind: this.ports.rememberedAgent(), seq: effect.seq });
+        try { dispatch({ type: "new-session-agents", agents: await this.ports.loadAgentKinds(effect.machineId), seq: effect.seq }); }
+        catch (error) { dispatch({ type: "new-session-agents-failed", message: message(error), seq: effect.seq }); }
         return;
       case "gate-pair":
       case "gate-authenticate": {
         const via = effect.kind === "gate-pair" ? "code" : "token";
         try {
           const answer = effect.kind === "gate-pair" ? await this.ports.gatePair(effect.code) : await this.ports.gateAuthenticate(effect.token);
-          this.dispatch(answer === "ok" ? { type: "gate-passed" } : { type: "gate-failed", via, unauthorized: true, message: "" });
-        } catch (error) { this.dispatch({ type: "gate-failed", via, unauthorized: false, message: message(error) }); }
+          dispatch(answer === "ok" ? { type: "gate-passed" } : { type: "gate-failed", via, unauthorized: true, message: "" });
+        } catch (error) { dispatch({ type: "gate-failed", via, unauthorized: false, message: message(error) }); }
         return;
       }
       case "load-recent":
-        this.dispatch({ type: "palette-recent", machineId: effect.machineId, recent: this.ports.loadRecent(effect.machineId) });
+        dispatch({ type: "palette-recent", machineId: effect.machineId, recent: this.ports.loadRecent(effect.machineId) });
         return;
       case "remember-pane":
         this.ports.rememberPane(effect.machineId, effect.paneId);
@@ -394,10 +398,10 @@ export class Mediator {
       case "create-session":
         try {
           const created = await this.ports.createSession(effect.machineId, effect.request);
-          if (created === "invalid-cwd") { this.dispatch({ type: "new-session-failed", message: "", invalidCwd: true, seq: effect.seq }); return; }
+          if (created === "invalid-cwd") { dispatch({ type: "new-session-failed", message: "", invalidCwd: true, seq: effect.seq }); return; }
           const agentError = effect.request.agent !== null && !created.agent_started ? created.error?.message ?? null : null;
-          this.dispatch({ type: "new-session-created", paneId: created.pane_id, agentError, seq: effect.seq });
-        } catch (error) { this.dispatch({ type: "new-session-failed", message: message(error), invalidCwd: false, seq: effect.seq }); }
+          dispatch({ type: "new-session-created", paneId: created.pane_id, agentError, seq: effect.seq });
+        } catch (error) { dispatch({ type: "new-session-failed", message: message(error), invalidCwd: false, seq: effect.seq }); }
         return;
       case "store-lens":
         this.ports.storeLens(effect.storageId, effect.view);
@@ -410,30 +414,30 @@ export class Mediator {
         return;
       case "history-back":
         // with no entry of its own to go Back from, Back would leave the page: the viewer just closes
-        if (!this.ports.leavePreview()) this.dispatch({ type: "file-history", preview: null });
+        if (!this.ports.leavePreview()) dispatch({ type: "file-history", preview: null });
         return;
       case "load-file": {
         const { machineId, path, paneId, seq } = effect;
         let outcome: FileOutcome;
         try { outcome = await this.ports.loadFileInfo(machineId, path, paneId); } catch { outcome = { kind: "failed" }; }
-        this.dispatch({ type: "file-loaded", seq, outcome });
+        dispatch({ type: "file-loaded", seq, outcome });
         return;
       }
       case "load-file-text":
-        try { this.dispatch({ type: "file-text", seq: effect.seq, text: await this.ports.loadFileText(effect.machineId, effect.path, effect.paneId) }); }
-        catch { this.dispatch({ type: "file-loaded", seq: effect.seq, outcome: { kind: "failed" } }); }
+        try { dispatch({ type: "file-text", seq: effect.seq, text: await this.ports.loadFileText(effect.machineId, effect.path, effect.paneId) }); }
+        catch { dispatch({ type: "file-loaded", seq: effect.seq, outcome: { kind: "failed" } }); }
         return;
       case "list-folder":
         // a path that is not a readable folder either keeps the file's error
-        try { this.dispatch({ type: "file-folder", seq: effect.seq, path: await this.ports.listFolder(effect.machineId, effect.path, effect.paneId) }); }
-        catch { this.dispatch({ type: "file-folder", seq: effect.seq, path: null }); }
+        try { dispatch({ type: "file-folder", seq: effect.seq, path: await this.ports.listFolder(effect.machineId, effect.path, effect.paneId) }); }
+        catch { dispatch({ type: "file-folder", seq: effect.seq, path: null }); }
         return;
       case "list-folders": {
         const { slot, seq } = effect;
         try {
           const listed = await this.ports.listFolders(effect.machineId, effect.path, effect.hidden, effect.files);
-          this.dispatch("failure" in listed ? { type: "folders-failed", slot, seq, reason: listed.failure } : { type: "folders-listed", slot, seq, listing: listed });
-        } catch { this.dispatch({ type: "folders-failed", slot, seq, reason: "failed" }); }
+          dispatch("failure" in listed ? { type: "folders-failed", slot, seq, reason: listed.failure } : { type: "folders-listed", slot, seq, listing: listed });
+        } catch { dispatch({ type: "folders-failed", slot, seq, reason: "failed" }); }
         return;
       }
       case "open-pane-socket": {
@@ -444,14 +448,14 @@ export class Mediator {
           disconnected: () => {
             if (this.paneSocket?.seq !== seq) return;
             this.terminal?.disconnected();
-            this.dispatch({ type: "pane-socket-lost" });
-            this.dispatch({ type: "pane-connection", connected: false });
+            dispatch({ type: "pane-socket-lost" });
+            dispatch({ type: "pane-connection", connected: false });
           },
         });
         this.paneSocket = { seq, handle };
         const poll = (): void => {
           if (this.paneSocket?.seq !== seq) return;
-          this.dispatch({ type: "pane-connection", connected: handle.connected });
+          dispatch({ type: "pane-connection", connected: handle.connected });
           this.ports.later(SOCKET_POLL_MS, poll);
         };
         this.ports.later(SOCKET_POLL_MS, poll);
@@ -474,17 +478,17 @@ export class Mediator {
         return;
       }
       case "upload-file":
-        try { this.dispatch({ type: "upload-done", owner: effect.owner, id: effect.id, path: await this.ports.uploadFile(effect.machineId, effect.paneId, effect.file) }); }
-        catch (error) { this.dispatch({ type: "upload-failed", owner: effect.owner, id: effect.id, message: message(error) }); }
+        try { dispatch({ type: "upload-done", owner: effect.owner, id: effect.id, path: await this.ports.uploadFile(effect.machineId, effect.paneId, effect.file) }); }
+        catch (error) { dispatch({ type: "upload-failed", owner: effect.owner, id: effect.id, message: message(error) }); }
         return;
       case "load-commands": {
         let commands: SlashCommand[] = [];
         try { commands = await this.ports.loadCommands(effect.machineId, effect.paneId); } catch { /* none offered */ }
-        this.dispatch({ type: "commands-loaded", machineId: effect.machineId, paneId: effect.paneId, commands });
+        dispatch({ type: "commands-loaded", machineId: effect.machineId, paneId: effect.paneId, commands });
         return;
       }
       case "load-slash-usage":
-        this.dispatch({ type: "slash-usage-loaded", usage: this.ports.loadSlashUsage() });
+        dispatch({ type: "slash-usage-loaded", usage: this.ports.loadSlashUsage() });
         return;
       case "save-slash-usage":
         this.ports.saveSlashUsage(effect.usage);
@@ -492,80 +496,80 @@ export class Mediator {
       case "search-files": {
         let files: string[] = [];
         try { files = await this.ports.searchFiles(effect.machineId, effect.paneId, effect.query); } catch { /* none listed */ }
-        this.dispatch({ type: "files-found", seq: effect.seq, files });
+        dispatch({ type: "files-found", seq: effect.seq, files });
         return;
       }
       case "submit": {
         // never queued: no socket now, and the box keeps its text
         const sent = this.paneSocket?.handle.submit(effect.paneId, effect.text, effect.payload, effect.typed) ?? null;
-        if (sent === null) { this.dispatch({ type: "send-result", id: effect.id, outcome: { kind: "not-sent" } }); return; }
-        this.dispatch({ type: "submit-started", id: effect.id });
+        if (sent === null) { dispatch({ type: "send-result", id: effect.id, outcome: { kind: "not-sent" } }); return; }
+        dispatch({ type: "submit-started", id: effect.id });
         try {
           const result = await sent;
-          this.dispatch({ type: "send-result", id: effect.id, outcome: result.ok ? { kind: "ok" } : { kind: "failed", code: result.code, message: result.message } });
-        } catch { this.dispatch({ type: "send-result", id: effect.id, outcome: { kind: "unconfirmed" } }); }
+          dispatch({ type: "send-result", id: effect.id, outcome: result.ok ? { kind: "ok" } : { kind: "failed", code: result.code, message: result.message } });
+        } catch { dispatch({ type: "send-result", id: effect.id, outcome: { kind: "unconfirmed" } }); }
         return;
       }
       case "answer-prompt":
         try {
           await this.ports.answerPrompt(effect.machineId, { pane_id: effect.paneId, prompt_id: effect.promptId, ...effect.answer });
-          this.dispatch({ type: "answer-result", id: effect.id, outcome: { kind: "ok" } });
+          dispatch({ type: "answer-result", id: effect.id, outcome: { kind: "ok" } });
         } catch (error) {
           const status = typeof (error as { status?: unknown }).status === "number" ? (error as { status: number }).status : null;
           const code = typeof (error as { code?: unknown }).code === "string" ? (error as { code: string }).code : null;
-          this.dispatch({ type: "answer-result", id: effect.id, outcome: { kind: "failed", status, code, message: message(error) } });
+          dispatch({ type: "answer-result", id: effect.id, outcome: { kind: "failed", status, code, message: message(error) } });
         }
         return;
       case "composer-draft-change": {
         const { text, sending, settled } = this.ports.changeComposerDraft(effect.owner, effect.change);
-        this.dispatch({ type: "composer-draft-loaded", owner: effect.owner, text, sending, settled });
+        dispatch({ type: "composer-draft-loaded", owner: effect.owner, text, sending, settled });
         return;
       }
       case "line-draft-change": {
         const { text, sending } = this.ports.changeLineDraft(effect.owner, effect.change);
-        this.dispatch({ type: "line-draft-loaded", owner: effect.owner, text, sending });
+        dispatch({ type: "line-draft-loaded", owner: effect.owner, text, sending });
         return;
       }
       case "queue-change": {
         const { messages, unsaved } = this.ports.changeQueue(effect.owner, effect.change);
-        this.dispatch({ type: "queue-loaded", owner: effect.owner, messages, unsaved });
+        dispatch({ type: "queue-loaded", owner: effect.owner, messages, unsaved });
         return;
       }
       case "read-conversation":
-        this.dispatch({ type: "conversation-read", seq: effect.seq, olderSeq: effect.olderSeq, outcome: await this.ports.readConversation(effect.machineId, effect.paneId, { from: effect.from }) });
+        dispatch({ type: "conversation-read", seq: effect.seq, olderSeq: effect.olderSeq, outcome: await this.ports.readConversation(effect.machineId, effect.paneId, { from: effect.from }) });
         return;
       case "fill-conversation-gap":
-        this.dispatch({ type: "conversation-gap-filled", seq: effect.seq, olderSeq: effect.olderSeq, turns: await this.ports.conversationBetween(effect.machineId, effect.paneId, effect.held, effect.start) });
+        dispatch({ type: "conversation-gap-filled", seq: effect.seq, olderSeq: effect.olderSeq, turns: await this.ports.conversationBetween(effect.machineId, effect.paneId, effect.held, effect.start) });
         return;
       case "read-conversation-scrollback":
         try {
           const { text, truncated } = await this.ports.readScrollback(effect.machineId, effect.paneId, effect.lines);
-          this.dispatch({ type: "conversation-scrollback-read", seq: effect.seq, olderSeq: effect.olderSeq, outcome: { kind: "ok", text, truncated } });
-        } catch (error) { this.dispatch({ type: "conversation-scrollback-read", seq: effect.seq, olderSeq: effect.olderSeq, outcome: { kind: "failed", message: message(error), status: null } }); }
+          dispatch({ type: "conversation-scrollback-read", seq: effect.seq, olderSeq: effect.olderSeq, outcome: { kind: "ok", text, truncated } });
+        } catch (error) { dispatch({ type: "conversation-scrollback-read", seq: effect.seq, olderSeq: effect.olderSeq, outcome: { kind: "failed", message: message(error), status: null } }); }
         return;
       case "read-older-conversation":
-        this.dispatch({ type: "older-conversation-read", olderSeq: effect.olderSeq, before: effect.before, outcome: await this.ports.readConversation(effect.machineId, effect.paneId, { before: effect.before }) });
+        dispatch({ type: "older-conversation-read", olderSeq: effect.olderSeq, before: effect.before, outcome: await this.ports.readConversation(effect.machineId, effect.paneId, { before: effect.before }) });
         return;
       case "load-chat-prompt": {
         const { seq, sent } = effect;
         try {
           const { prompt, suggestion } = await this.ports.loadPromptState(effect.machineId, effect.paneId);
-          this.dispatch({ type: "chat-prompt-read", seq, sent, prompt, suggestion });
-        } catch { this.dispatch({ type: "chat-prompt-failed", seq }); }
+          dispatch({ type: "chat-prompt-read", seq, sent, prompt, suggestion });
+        } catch { dispatch({ type: "chat-prompt-failed", seq }); }
         return;
       }
       case "load-draft":
-        this.dispatch({ type: "draft-loaded", owner: effect.owner, value: this.ports.loadDraft(effect.owner) });
+        dispatch({ type: "draft-loaded", owner: effect.owner, value: this.ports.loadDraft(effect.owner) });
         return;
       case "save-draft":
         this.ports.saveDraft(effect.owner, effect.value);
         return;
       case "send-draft":
         // never queued: a draft the socket does not take stays for the person to send again
-        if (this.paneSocket?.handle.sendInput(effect.paneId, effect.text)) this.dispatch({ type: "draft-sent", owner: effect.owner });
+        if (this.paneSocket?.handle.sendInput(effect.paneId, effect.text)) dispatch({ type: "draft-sent", owner: effect.owner });
         return;
       case "later":
-        this.ports.later(effect.ms, () => this.dispatch(effect.event));
+        this.ports.later(effect.ms, () => dispatch(effect.event));
         return;
     }
   }

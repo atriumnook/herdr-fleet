@@ -33,6 +33,7 @@ function fleet() {
     agents: () => [
       { name: "worker", description: "implements", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" },
       { name: "coordinator", description: "coordinates", agent: "claude", interactive: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" },
+      { name: "lead", description: "leads a thread", agent: "claude", interactive: true, systemPrompt: "", source: "bundled", filePath: "" },
     ],
   });
   let probes = 0;
@@ -99,6 +100,18 @@ describe("fleet API", () => {
     expect(await call("GET", "/threads?caller_run=ghost")).toMatchObject({ status: 404, body: { error: { code: "run_not_found" } } });
     expect(await call("POST", "/projects", { cwd: resultsRoot })).toMatchObject({ status: 400, body: { error: { code: "missing_task" } } });
     expect(await call("POST", "/projects", { task: "t", cwd: 1 })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+  });
+
+  it("marks a thread done and opens it again, and refuses a run that is no thread's lead", async () => {
+    const { call } = fleet();
+    const repo = join(resultsRoot, "repo");
+    Bun.spawnSync(["git", "init", "-q", repo]);
+    const thread = (await call("POST", "/threads", { title: "Fix", task: "t", cwd: repo })).body["run"];
+    expect((await call("POST", `/runs/${thread.id}/resolve`, { group: thread.group })).body["run"].resolvedAt).toBeNumber();
+    expect((await call("POST", `/runs/${thread.id}/resolve`, { resolved: false, group: thread.group })).body["run"].resolvedAt).toBeUndefined();
+    expect(await call("POST", `/runs/${thread.id}/resolve`, { resolved: "yes", group: thread.group })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
+    const worker = (await call("POST", "/spawn", { role: "worker", task: "t", group: "g9" })).body["run"];
+    expect(await call("POST", `/runs/${worker.id}/resolve`, { group: "g9" })).toMatchObject({ status: 409, body: { error: { code: "not_a_thread" } } });
   });
 
   it("answers bad requests with the reason", async () => {

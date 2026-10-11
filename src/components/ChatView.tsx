@@ -10,6 +10,8 @@ import { AgentMark } from "./AgentMark.tsx";
 import { Markdown } from "./Markdown.tsx";
 import { PromptCard, type PromptCardEvent } from "./PromptCard.tsx";
 import { RenderBoundary } from "./RenderBoundary.tsx";
+import { ThreadCard, type ThreadCardEvent } from "./fleet/ThreadCard.tsx";
+import type { ThreadRowModel } from "../ui/fleetView.ts";
 import { turnRevision } from "../lib/turnRevision.ts";
 import { useWholeOutput as useScopedOutput } from "../lib/useWholeOutput.ts";
 import { turnSkills } from "../lib/skillActivity.ts";
@@ -63,10 +65,12 @@ export interface ChatViewModel {
   /** an answer from the prompt's card */
   card: ChatState["card"];
   showThinking: boolean;
+  /** a project conversation's thread cards, by the time of the coordinator's turn that started them */
+  cards?: ReadonlyMap<string, ThreadRowModel[]>;
 }
 
 /** the prompt card's answers, and an earlier page asked for */
-export type ChatViewEvent = PromptCardEvent | Extract<UiEvent, { type: "load-older-conversation" }>;
+export type ChatViewEvent = PromptCardEvent | ThreadCardEvent | Extract<UiEvent, { type: "load-older-conversation" }>;
 
 function formatTime(ts: string | null): string | null {
   if (ts === null) return null;
@@ -378,6 +382,9 @@ interface TurnProps {
 }
 
 // a turn that did not change keeps its object across polls: skip re-rendering it
+/** how the fleet opens what it types into an agent itself (server/fleet/orchestrator.ts) */
+const FLEET_MESSAGE = "[fleet] ";
+
 const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: TurnProps) {
   const time = formatTime(turn.ts);
   const compact = turn.parts.find((part): part is Extract<ConversationPart, { kind: "compact" }> => part.kind === "compact");
@@ -397,6 +404,13 @@ const Turn = memo(function Turn({ paneId, turn, live, last, showThinking }: Turn
   }
   if (turn.role === "user") {
     const text = turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
+    // the fleet spoke, not the person (a thread's question for a coordinator): a quiet divider, the text on request
+    if (text.startsWith(FLEET_MESSAGE)) {
+      return <details className="chat-compact chat-notice">
+        <summary>{t("From the fleet")}{time !== null && <> · <time dateTime={turn.ts ?? undefined}>{time}</time></>}</summary>
+        <pre className="chat-compact-text chat-notice-text">{text}</pre>
+      </details>;
+    }
     return <article className="chat-turn chat-turn-user">
       <UserImages paneId={paneId} parts={turn.parts} text={text} />
       {text.length > 0 && <div className="chat-bubble"><Markdown>{text}</Markdown></div>}
@@ -434,7 +448,7 @@ function FallbackTurn({ paneId, message }: { paneId: string; message: Transcript
  * an unchanged model sits those out (memo).
  */
 export const ChatView = memo(function ChatView({ model, emit }: { model: ChatViewModel; emit: Emit<ChatViewEvent> }) {
-  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking } = model;
+  const { paneId, connected, ended, agent, agentStatus, view, fresh, older, olderCursor, olderState, historyId, error, loaded, abandoned, sentOver, prompt, pendingAnswer, card, showThinking, cards } = model;
   const [newMessages, setNewMessages] = useState(false);
   /** scrolled up from the end: the way back is offered even when nothing new came */
   const [away, setAway] = useState(false);
@@ -544,8 +558,10 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
       {view.source === "conversation"
         ? turns.map((turn, index) => {
             const last = index === turns.length - 1;
+            const started = turn.ts !== null ? cards?.get(turn.ts) : undefined;
             return <RenderBoundary key={`${paneId}:${historyId ?? ""}:${turn.role}:${turn.ts ?? index}`} resetKey={turnRevision(turn)} fallback={() => <p className="chat-inline-state chat-inline-error">{t("This message can't be shown here. The terminal has it.")}</p>}>
               <Turn paneId={paneId} turn={turn} live={isLiveWorkTurn(turn, last, agentStatus, finishedBeforeSend)} last={last} showThinking={showThinking} />
+              {started && <div className="chat-thread-cards">{started.map((thread) => <ThreadCard key={thread.id} thread={thread} emit={emit} />)}</div>}
             </RenderBoundary>;
           })
         : agent !== null

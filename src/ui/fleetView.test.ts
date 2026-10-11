@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun } from "../../shared/fleet.ts";
-import { fleetScreenModel, meterLevel, needsCount } from "./fleetView.ts";
+import { fleetScreenModel, meterLevel, needsCount, projectsOf, threadCards } from "./fleetView.ts";
+import type { ConversationTurn } from "../../shared/protocol.ts";
 import { INITIAL_STATE, type UiState } from "./state.ts";
 
 const NOW = 1_000_000;
@@ -58,13 +59,9 @@ describe("fleet screen model", () => {
     expect(capsules[0]).toMatchObject({ agent: "agy", cooldown: undefined, error: "agy exited with 1", worst: undefined });
   });
 
-  it("opens the detail of the run chosen, and says what the last action's failure was", () => {
-    const state = withRuns([run("a", { skipped: [{ candidate: "claude:sonnet", reason: "claude has used 92% of its 5h limit" }] })], {
-      detail: "a", request: { status: "failed", action: { kind: "interrupt", runId: "a" }, message: "read_only" },
-    });
-    const model = fleetScreenModel(state, NOW);
-    expect(model.detail).toMatchObject({ id: "a", skipped: [{ candidate: "claude:sonnet" }] });
-    expect(model.requestError).toBe("read_only");
+  it("says what the last action's failure was", () => {
+    const state = withRuns([run("a")], { request: { status: "failed", action: { kind: "interrupt", runId: "a" }, message: "read_only" } });
+    expect(fleetScreenModel(state, NOW).requestError).toBe("read_only");
   });
 
   it("offers a watch-only device no button the server would refuse", () => {
@@ -82,5 +79,67 @@ describe("fleet screen model", () => {
 
   it("meters by what is left: plenty from half, getting low from a fifth, low under it", () => {
     expect([0, 49, 50, 79, 80, 100].map(meterLevel)).toEqual(["ok", "ok", "mid", "mid", "low", "low"]);
+  });
+});
+
+describe("the projects, their threads and the run open in the Overview", () => {
+  const lead = (id: string, extra: Partial<AgentRun> = {}) => run(id, { role: "lead", project: "/repo", group: `g-${id}`, interactive: true, branch: `fleet/${id}`, state: "idle", ...extra });
+  const coordinator = (extra: Partial<AgentRun> = {}) => run("co", { role: "coordinator", agent: "claude", project: "/repo", group: "g-co", interactive: true, state: "idle", updatedAt: 10, ...extra });
+
+  it("lists every repository a coordinator or a thread worked for, the latest first, and a folder picked for a new one", () => {
+    const runs = [coordinator(), lead("t1", { project: "/other", updatedAt: 50, state: "blocked" }), run("w")];
+    expect(projectsOf(withRuns(runs)).list.map((p) => [p.name, p.dot, p.selected])).toEqual([["other", "needs", true], ["repo", "idle", false]]);
+    const picked = withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, project: "/new" } });
+    expect(projectsOf(picked)).toMatchObject({ selected: "/new", list: [{ path: "/other" }, { path: "/repo" }, { path: "/new", dot: "none", selected: true }] });
+    // a folder inside a listed repository is that repository
+    expect(projectsOf(withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, project: "/repo/src" } })).selected).toBe("/repo");
+  });
+
+  it("groups the project's threads by what the person has to do, with what each waits on them for", () => {
+    const model = fleetScreenModel(withRuns([
+      coordinator(),
+      lead("ask", { result: "BLOCKED — keep the old API?", updatedAt: 5 }),
+      lead("screen", { state: "blocked", lastError: "Allow bun test?", updatedAt: 6 }),
+      lead("broke", { state: "failed", lastError: "429 rate limit", updatedAt: 4 }),
+      lead("done", { result: "PASS — 12 pass", diff: { added: 24, removed: 9, files: 2 }, contract: [{ id: "A1", state: "met" }] }),
+      lead("busy", { state: "working" }),
+      lead("quiet", { result: "ISSUES — 1 left" }),
+      lead("over", { resolvedAt: 1 }),
+      lead("elsewhere", { project: "/other" }),
+    ]), NOW);
+    expect(model.project).toEqual({ path: "/repo", name: "repo" });
+    expect(model.coordinator).toEqual({ runId: "co", paneId: "w1:co", agent: "claude" });
+    expect(model.threadGroups.map((group) => [group.key, group.rows.map((row) => row.id)])).toEqual([
+      ["needs", ["screen", "ask", "broke"]], ["review", ["done"]], ["working", ["busy"]], ["idle", ["quiet"]],
+    ]);
+    expect(model.needs).toBe(3);
+    expect(model.threadGroups[0]!.rows.map((row) => [row.label, row.question])).toEqual([["Needs you", "Allow bun test?"], ["Needs you", "BLOCKED — keep the old API?"], ["Failed", "429 rate limit"]]);
+    expect(model.threadGroups[1]!.rows[0]).toMatchObject({ label: "Ready for review", badge: "done", diff: { added: 24, removed: 9 }, contract: [{ id: "A1", state: "met" }] });
+    expect(model.resolved.map((row) => row.id)).toEqual(["over"]);
+  });
+
+  it("asks for a project's first message while no coordinator lives there", () => {
+    const model = fleetScreenModel(withRuns([coordinator({ state: "stopped" }), lead("t")]), NOW);
+    expect(model.coordinator).toBeNull();
+    expect(model.project?.path).toBe("/repo");
+  });
+
+  it("keeps the agents outside every thread and project conversation, and opens a thread on its lead or one of its helpers", () => {
+    const helper = run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done" });
+    const runs = [coordinator(), lead("t", { result: "PASS" }), helper, run("loose", { group: "g9" }), run("old", { group: "g8", state: "stopped" })];
+    const open = (member: string | null, expanded = false) => fleetScreenModel(withRuns(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member }, expanded } }), NOW);
+    expect(open(null).agents.map((card) => card.id)).toEqual(["loose"]);
+    expect(open(null).open).toMatchObject({ title: "t", paneId: "w1:t", paneRunId: "t", label: "Ready for review", canResolve: true, members: [{ runId: null, name: "lead", selected: true }, { runId: "rev", name: "rev", selected: false }] });
+    expect(open("rev", true)).toMatchObject({ expanded: true, open: { paneId: "w1:rev", paneRunId: "rev", agent: "cursor", members: [{ selected: false }, { selected: true }] } });
+    expect(open(null).threadGroups[0]!.rows[0]!.selected).toBe(true);
+  });
+
+  it("puts each thread's card under the coordinator's turn it was started in", () => {
+    const turn = (role: "user" | "assistant", ts: string): ConversationTurn => ({ role, ts, parts: [] });
+    const at = (iso: string) => Date.parse(iso);
+    const turns = [turn("user", "2026-10-11T10:00:00Z"), turn("assistant", "2026-10-11T10:00:05Z"), turn("user", "2026-10-11T10:05:00Z"), turn("assistant", "2026-10-11T10:05:02Z")];
+    const model = fleetScreenModel(withRuns([coordinator(), lead("a", { startedAt: at("2026-10-11T10:00:30Z") }), lead("b", { startedAt: at("2026-10-11T10:06:00Z") }), lead("early", { startedAt: at("2026-10-11T09:00:00Z") })]), NOW);
+    const cards = threadCards(turns, model.threads);
+    expect([...cards.entries()].map(([ts, rows]) => [ts, rows.map((row) => row.id)])).toEqual([["2026-10-11T10:00:05Z", ["a"]], ["2026-10-11T10:05:02Z", ["b"]]]);
   });
 });

@@ -54,6 +54,11 @@ export interface PaneTerminalProps {
   agentStatus?: AgentStatus;
   /** the lens over the pane: the chat transcript, or the live xterm grid (App remembers it per pane) */
   view: PaneView;
+  /**
+   * The chat lens may open on the pane: false under the Fleet screen, whose project conversation
+   * holds the state's pane chat then. The lens keeps its place, so the pane is not resized.
+   */
+  chatShown?: boolean;
   /** App selected this pane itself (the selected one closed): switching to it must not take the keyboard */
   autoSelected?: boolean;
   /** xterm font size (settings) */
@@ -103,6 +108,7 @@ export function PaneTerminal({
   agent = null,
   agentStatus,
   view,
+  chatShown = true,
   autoSelected = false,
   terminalFontSize,
   terminalWheelSpeed,
@@ -1210,7 +1216,7 @@ export function PaneTerminal({
       </div>
       <div className="terminal-surface">
         <div className={`pane-terminal${paneId === null ? " is-idle" : ""}`} ref={hostRef} />
-        {paneId !== null && chatView && (
+        {paneId !== null && chatView && chatShown && (
           <RenderBoundary resetKey={paneId} fallback={(retry) => (
             <div className="chat-view"><div className="chat-empty" role="alert">
               <p>{t("The chat can't be shown. The terminal still works.")}</p>
@@ -1223,7 +1229,7 @@ export function PaneTerminal({
       </div>
       {/* the queue is the composer's, so it shows under the chat lens only: there alone is an open
           Codex question known (heldByOpenQueue), and Send now must not type into one */}
-      {queueOwner !== null && <QueuePresenter owner={queueOwner} shown={chatView && !observing && !ended} canSend={connected && !held && !secretActive}
+      {queueOwner !== null && <QueuePresenter owner={queueOwner} shown={chatView && chatShown && !observing && !ended} canSend={connected && !held && !secretActive}
         heldByOpenQueue={heldByOpenQueue} ready={readyForQueue} emit={queueEmit} />}
       {/* the composer belongs to the chat lens: in terminal mode the grid itself is
           the input surface (key bar included), so a second box would only duplicate it */}
@@ -1232,7 +1238,7 @@ export function PaneTerminal({
         onSend={(value) => link.sendSecret(paneId, maskedPrompt, value)}
         onCancel={() => { if (link.connected()) link.sendInput(paneId, "\u0003"); }}
       />}
-      {paneId !== null && chatView && !secretActive && !observing && !ended && (
+      {paneId !== null && chatView && chatShown && !secretActive && !observing && !ended && (
         <ComposerPresenter
           key={paneId}
           paneId={paneId}

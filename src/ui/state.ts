@@ -19,7 +19,7 @@ import { alertPrefs, DEFAULT_SETTINGS, sanitizeSettings, type DefaultView, type 
 
 /**
  * The Root Mediator's state machine. One state with parallel regions (what Main shows, the fleet's
- * runs, the usage, the action in flight, the run whose detail is open, this device's settings and
+ * runs, the usage, the action in flight, what the Fleet screen shows, this device's settings and
  * their dialog), one entry for events, and
  * a pure transition: (state, event) → (next state, effects). The Mediator runs the effects and
  * feeds their outcome back as events.
@@ -38,7 +38,22 @@ export interface Loadable<T> {
 export type RequestAction =
   | { kind: "interrupt"; runId: string }
   | { kind: "close-done"; group: string }
-  | { kind: "clear-cooldown"; key: string };
+  | { kind: "clear-cooldown"; key: string }
+  /** a project's coordinator started (or told the task) in `cwd` */
+  | { kind: "start-project"; task: string; cwd: string }
+  | { kind: "resolve"; runId: string; resolved: boolean };
+
+/**
+ * What the Fleet screen shows: the project (a repository's path, as the runs name it, or a folder
+ * picked for a new one), whether the Overview is open, and the thread or agent opened in it, in the
+ * chat beside (`member`: one of a thread's helpers instead of its lead), large in the middle when expanded.
+ */
+export interface FleetViewState {
+  project: string | null;
+  overview: boolean;
+  open: { kind: "thread" | "agent"; runId: string; member: string | null } | null;
+  expanded: boolean;
+}
 
 export type RequestState =
   | { status: "none" }
@@ -312,7 +327,7 @@ export interface DropletState {
 }
 
 /** Where a folder browser shows: the new session dialog, Files, and a folder opened in the file viewer (above Files). */
-export type FolderSlot = "new-session" | "files" | "viewer";
+export type FolderSlot = "new-session" | "files" | "viewer" | "fleet-project";
 
 /** Why a folder was not listed: a bridge too old to browse, a folder that cannot be opened, or anything else. */
 export type FolderFailure = "unsupported" | "invalid" | "failed";
@@ -422,6 +437,8 @@ export interface ConversationState {
    */
   sentOver: { turn: ConversationTurn; page: ConversationTurn[] } | null;
 }
+
+export const NO_CHAT: ChatState = { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0, card: null };
 
 const NO_OLDER: ConversationState["older"] = { turns: [], cursor: undefined, status: "idle", heldFrom: null };
 export const NO_CONVERSATION: ConversationState = {
@@ -550,8 +567,7 @@ export interface UiState {
   runs: Loadable<AgentRun[]>;
   usage: Loadable<UsageEntry[]> & { refreshing: boolean };
   request: RequestState;
-  /** the run whose detail sheet is open */
-  detail: string | null;
+  fleetView: FleetViewState;
   /** this device may change things (a paired watch-only device may not: the server answers read_only) */
   canAct: boolean;
   /** the pane shown: on which PC, and whether the shell picked it itself (the one selected closed) */
@@ -581,6 +597,8 @@ export interface UiState {
   folders: FoldersState;
   chat: ChatState;
   conversation: ConversationState;
+  /** the chat beside the pane's, with its conversation: the same steps run on it (`lens: "side"`) */
+  side: { chat: ChatState; conversation: ConversationState };
   queue: QueueState;
   drafts: DraftsState;
   sends: SendsState;
@@ -593,7 +611,7 @@ export interface UiState {
   drawerOpen: boolean;
 }
 
-export type UiEvent =
+type BareEvent =
   | { type: "show-screen"; screen: Screen }
   /** the person picked a pane (sidebar, palette, notification, a new session) */
   | { type: "select-pane"; machineId: string; paneId: string | null }
@@ -610,8 +628,16 @@ export type UiEvent =
   | { type: "usage-refresh-failed"; message: string }
   /** ask the CLIs again (runs codex, agy and claude probes on the server) */
   | { type: "refresh-usage" }
-  | { type: "show-run"; runId: string }
-  | { type: "hide-run" }
+  | { type: "fleet-project"; project: string }
+  | { type: "fleet-overview"; open: boolean }
+  /** a thread or an agent opens in the Overview (or, expanded, in the middle) */
+  | { type: "fleet-open"; kind: "thread" | "agent"; runId: string }
+  /** one of the open thread's agents: null is its lead */
+  | { type: "fleet-member"; runId: string | null }
+  | { type: "fleet-close" }
+  | { type: "fleet-expand"; expanded: boolean }
+  | { type: "fleet-start-project"; task: string; cwd: string }
+  | { type: "fleet-resolve"; runId: string; resolved: boolean }
   | { type: "open-pane"; runId: string }
   | { type: "interrupt-run"; runId: string }
   | { type: "close-done"; group: string }
@@ -854,6 +880,15 @@ export type ConnectionEvent =
   | { type: "pane-session-read"; machineId: string; paneId: string; session: SessionSnapshot }
   | { type: "pane-session-failed"; machineId: string; paneId: string };
 
+/**
+ * The chats the state keeps: the pane's (the Pane screen's chat lens, or the Fleet screen's project
+ * conversation) and the one beside it (a thread or an agent opened in the Fleet screen's Overview).
+ */
+export type Lens = "main" | "side";
+
+/** `lens: "side"`: the event is for the chat beside, and runs the same chat, conversation and send steps on it. */
+export type UiEvent = BareEvent & { lens?: Lens };
+
 /** What a PC's session tree sends up; every one names its PC. */
 export type TreeEvent = { machineId: string } & (
   | { type: "tree-start-pane-rename"; paneId: string; label: string }
@@ -877,7 +912,7 @@ export type TreeEvent = { machineId: string } & (
   | { type: "tree-clear-failure"; seq: number }
 );
 
-export type Effect =
+type BareEffect =
   | { kind: "load-runs" }
   | { kind: "load-usage" }
   | { kind: "refresh-usage" }
@@ -958,6 +993,9 @@ export type Effect =
   /** the tab's own alert */
   | { kind: "notify-pane"; machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" };
 
+/** `lens: "side"`: an effect of the chat beside; what it answers goes back to that chat. */
+export type Effect = BareEffect & { lens?: Lens };
+
 export interface Transition { state: UiState; effects: Effect[] }
 
 export const INITIAL_STATE: UiState = {
@@ -965,7 +1003,7 @@ export const INITIAL_STATE: UiState = {
   runs: { status: "idle", data: [], again: false },
   usage: { status: "idle", data: [], again: false, refreshing: false },
   request: { status: "none" },
-  detail: null,
+  fleetView: { project: null, overview: true, open: null, expanded: false },
   selection: { machineId: "local", paneId: null, auto: false },
   canAct: true,
   settings: DEFAULT_SETTINGS,
@@ -985,8 +1023,9 @@ export const INITIAL_STATE: UiState = {
   files: { dialog: false, viewer: null, seq: 0 },
   droplet: { shown: null, phase: "in", next: null, lastShown: {}, count: 0, timerSeq: 0, reducedMotion: false },
   folders: { open: {}, seq: 0 },
-  chat: { open: null, agent: false, prompt: null, suggestion: null, metadata: null, pendingAnswer: null, sent: 0, delivered: 0, promptSeq: 0, card: null },
+  chat: NO_CHAT,
   conversation: NO_CONVERSATION,
+  side: { chat: NO_CHAT, conversation: NO_CONVERSATION },
   queue: { lists: {}, unsaved: {}, sending: null, error: null },
   drafts: { composer: {}, settled: {}, line: {} },
   sends: { seq: 0, pending: {}, outcomes: {}, started: 0 },
@@ -1016,7 +1055,41 @@ function settle<T extends Loadable<unknown>>(region: T, outcome: Partial<T>, eff
 }
 
 export function transition(state: UiState, event: UiEvent): Transition {
-  return followUp(state, transitionOnly(state, event));
+  if (event.lens === "side") {
+    // the steps of the pane's chat, run on the one beside: only the two chats trade places
+    const step = followUp(asSide(state), transitionOnly(asSide(state), event));
+    return { state: step.state === asSide(state) ? state : fromSide(state, step.state), effects: step.effects.map(onSide) };
+  }
+  return followSide(state, followUp(state, transitionOnly(state, event)));
+}
+
+/** The state with the chat beside in the pane's place. */
+function asSide(state: UiState): UiState {
+  return sideViews.get(state) ?? (() => {
+    const view = { ...state, chat: state.side.chat, conversation: state.side.conversation, side: { chat: state.chat, conversation: state.conversation } };
+    sideViews.set(state, view);
+    return view;
+  })();
+}
+const sideViews = new WeakMap<UiState, UiState>();
+
+/** A step run on asSide(before), put back: the chats return to their places, all else as the step left it. */
+function fromSide(before: UiState, after: UiState): UiState {
+  return { ...after, chat: before.chat, conversation: before.conversation, side: { chat: after.chat, conversation: after.conversation } };
+}
+
+/** An effect of the chat beside: what it answers is for that chat (a timer's event too). */
+function onSide(effect: Effect): Effect {
+  return effect.kind === "later" ? { ...effect, lens: "side", event: { ...effect.event, lens: "side" } } : { ...effect, lens: "side" };
+}
+
+/** What a step on the rest of the state means for the chat beside: a status edge, the page back, a pane gone. */
+function followSide(before: UiState, step: Transition): Transition {
+  if (step.state.side === before.side && step.state.connection === before.connection && step.state.machines === before.machines && step.state.pane === before.pane && step.state.sends === before.sends) return step;
+  const effects: Effect[] = [];
+  const lensed = followLens(asSide(before), asSide(step.state), effects);
+  if (lensed === asSide(step.state) && effects.length === 0) return step;
+  return { state: fromSide(step.state, lensed), effects: [...step.effects, ...effects.map(onSide)] };
 }
 
 function transitionOnly(state: UiState, event: UiEvent): Transition {
@@ -1026,9 +1099,9 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     ({ state: (Object.keys(patch) as Array<keyof UiState>).every((key) => patch[key] === state[key]) ? state : { ...state, ...patch }, effects });
   switch (event.type) {
     case "show-screen":
-      return next({ screen: event.screen, detail: event.screen === "pane" ? null : state.detail });
+      return next({ screen: event.screen });
     case "select-pane":
-      return next({ screen: "pane", detail: null, ...pick(state, event.machineId, event.paneId, effects) });
+      return next({ screen: "pane", ...pick(state, event.machineId, event.paneId, effects) });
     case "pane-connection": {
       // the socket's connection is polled: the same answer again changes nothing
       const outputStopped = event.connected ? false : state.pane.outputStopped;
@@ -1102,7 +1175,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return next(state.palette.open && state.palette.machineId === event.machineId ? { palette: { ...state.palette, recent: event.recent } } : {});
     case "palette-pick":
       if (!state.palette.open) return next({});
-      return next({ screen: "pane", detail: null, palette: { open: false }, ...pick(state, state.palette.machineId, event.paneId, effects) });
+      return next({ screen: "pane", palette: { open: false }, ...pick(state, state.palette.machineId, event.paneId, effects) });
     case "droplet-press":
     case "droplet-release":
     case "droplet-dismiss":
@@ -1235,8 +1308,10 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       });
     case "runs-loaded": {
       const runs = settle(state.runs, { status: "ready", data: event.runs, error: undefined }, { kind: "load-runs" }, effects);
-      // a detail whose run the server no longer has closes
-      return next({ runs, detail: state.detail && event.runs.some((run) => run.id === state.detail) ? state.detail : null });
+      // a thread or agent open in the Fleet screen whose run is gone closes
+      const open = state.fleetView.open;
+      const gone = open !== null && !event.runs.some((run) => run.id === open.runId);
+      return next({ runs, fleetView: gone ? { ...state.fleetView, open: null, expanded: false } : state.fleetView });
     }
     case "runs-failed":
       // the runs shown last stay, marked stale by the error
@@ -1256,15 +1331,30 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       if (state.usage.refreshing || !state.canAct) return next({});
       effects.push({ kind: "refresh-usage" });
       return next({ usage: { ...state.usage, refreshing: true } });
-    case "show-run":
-      return next({ detail: state.runs.data.some((run) => run.id === event.runId) ? event.runId : state.detail });
-    case "hide-run":
-      return next({ detail: null });
+    case "fleet-project":
+      return next({ fleetView: { ...state.fleetView, project: event.project, open: null, expanded: false } });
+    case "fleet-overview":
+      return next(state.fleetView.overview === event.open ? {} : { fleetView: { ...state.fleetView, overview: event.open } });
+    case "fleet-open":
+      return next({ fleetView: { ...state.fleetView, overview: true, open: { kind: event.kind, runId: event.runId, member: null } } });
+    case "fleet-member":
+      return next(state.fleetView.open?.kind !== "thread" ? {} : { fleetView: { ...state.fleetView, open: { ...state.fleetView.open, member: event.runId } } });
+    case "fleet-close":
+      return next({ fleetView: { ...state.fleetView, open: null, expanded: false } });
+    case "fleet-expand":
+      return next({ fleetView: { ...state.fleetView, expanded: event.expanded && state.fleetView.open !== null } });
+    case "fleet-start-project": {
+      if (!event.task.trim()) return next({});
+      const asked = request(state, { kind: "start-project", task: event.task, cwd: event.cwd });
+      return asked.state === state ? asked : { state: { ...asked.state, fleetView: { ...state.fleetView, project: event.cwd } }, effects: asked.effects };
+    }
+    case "fleet-resolve":
+      return request(state, { kind: "resolve", runId: event.runId, resolved: event.resolved });
     case "open-pane": {
       const run = state.runs.data.find((candidate) => candidate.id === event.runId);
       if (!run || isEnded(run)) return next({});
       // a fleet run's pane lives on this PC
-      return next({ screen: "pane", detail: null, ...pick(state, "local", run.paneId, effects) });
+      return next({ screen: "pane", ...pick(state, "local", run.paneId, effects) });
     }
     case "interrupt-run":
       return request(state, { kind: "interrupt", runId: event.runId });
@@ -1783,7 +1873,7 @@ function dropletTransition(state: UiState, event: DropletEvent, effects: Effect[
       const there = state.machines.list.find((machine) => machine.id === shown.machineId)?.snapshot?.panes.some((pane) => pane.pane_id === shown.pane.pane_id);
       if (!there) return { state: left, effects };
       // Files lists the pane it was opened on: the card's pane opens in its place, even when it is the same one
-      return { state: { ...left, screen: "pane", detail: null, files: { ...state.files, dialog: false }, ...pick(state, shown.machineId, shown.pane.pane_id, effects) }, effects };
+      return { state: { ...left, screen: "pane", files: { ...state.files, dialog: false }, ...pick(state, shown.machineId, shown.pane.pane_id, effects) }, effects };
     }
   }
 }
@@ -1795,26 +1885,9 @@ function subscriptionKey(state: UiState): string | null {
   return JSON.stringify(alertPrefs(settings));
 }
 
-/**
- * What follows from any step: the event stream runs while this browser is in, and a selected
- * pane the roster no longer lists is looked into (or, with none selected, herdr's focused one taken).
- */
-function followUp(before: UiState, step: Transition): Transition {
-  let { state } = step;
-  const effects = [...step.effects];
-  if (before.connection.locked !== false && state.connection.locked === false) {
-    effects.push({ kind: "open-stream" });
-    // a file restored from history, or shown while locked out, is read as this browser now may
-    state = readFile(state, effects);
-  }
-  if (before.connection.locked === false && state.connection.locked !== false) effects.push({ kind: "close-stream" });
-  // a scanned QR code brings its code along: the gate sends it at once, no typing on the phone
-  if (state.connection.locked === true && before.connection.locked !== true && !state.gate.scannedSent && state.gate.submitting === null) {
-    effects.push({ kind: "gate-pair", code: state.gate.code });
-    state = { ...state, gate: { ...state.gate, scannedSent: true, submitting: "code" } };
-  }
-  // the palette lists the selected PC's panes: another PC's selection takes it down
-  if (state.palette.open && state.selection.machineId !== before.selection.machineId) state = { ...state, palette: { open: false } };
+/** What a step means for the pane's chat and its conversation (and, run on asSide, for the chat beside). */
+function followLens(before: UiState, after: UiState, effects: Effect[]): UiState {
+  let state = after;
   // the conversation follows the chat open on a pane: another pane starts over, a closed chat reads nothing
   if (state.chat.open !== before.chat.open) {
     const opened = state.chat.open;
@@ -1848,6 +1921,30 @@ function followUp(before: UiState, step: Transition): Transition {
   if (!chatAsks(state) && (state.chat.prompt !== null || state.chat.suggestion !== null)) state = { ...state, chat: { ...showPrompt(state.chat, null), suggestion: null } };
   // away from the page, the prompt is not read: it can be answered in the terminal and asked again unseen
   if (!state.connection.visible && state.chat.pendingAnswer !== null) state = { ...state, chat: { ...state.chat, pendingAnswer: null } };
+  return state;
+}
+
+/**
+ * What follows from any step: the event stream runs while this browser is in, and a selected
+ * pane the roster no longer lists is looked into (or, with none selected, herdr's focused one taken).
+ */
+function followUp(before: UiState, step: Transition): Transition {
+  let { state } = step;
+  const effects = [...step.effects];
+  if (before.connection.locked !== false && state.connection.locked === false) {
+    effects.push({ kind: "open-stream" });
+    // a file restored from history, or shown while locked out, is read as this browser now may
+    state = readFile(state, effects);
+  }
+  if (before.connection.locked === false && state.connection.locked !== false) effects.push({ kind: "close-stream" });
+  // a scanned QR code brings its code along: the gate sends it at once, no typing on the phone
+  if (state.connection.locked === true && before.connection.locked !== true && !state.gate.scannedSent && state.gate.submitting === null) {
+    effects.push({ kind: "gate-pair", code: state.gate.code });
+    state = { ...state, gate: { ...state.gate, scannedSent: true, submitting: "code" } };
+  }
+  // the palette lists the selected PC's panes: another PC's selection takes it down
+  if (state.palette.open && state.selection.machineId !== before.selection.machineId) state = { ...state, palette: { open: false } };
+  state = followLens(before, state, effects);
   // Files lists the pane it was opened on, and would open its paths on another
   if (state.files.dialog && (state.selection.machineId !== before.selection.machineId || state.selection.paneId !== before.selection.paneId)) {
     state = { ...state, files: { ...state.files, dialog: false } };
@@ -1904,7 +2001,7 @@ function newSessionTransition(state: UiState, event: NewSessionEvent, effects: E
   if (!dialog.open || ("seq" in event && event.seq !== dialog.seq)) return next({});
   /** the session it started is open: its pane selected, the dialog gone, the PCs read again */
   const opened = (paneId: string): Transition => {
-    const picked = { ...state, screen: "pane" as const, detail: null, ...pick(state, dialog.machineId, paneId, effects), newSession: { open: false } as const };
+    const picked = { ...state, screen: "pane" as const, ...pick(state, dialog.machineId, paneId, effects), newSession: { open: false } as const };
     return connectionTransition(picked, { type: "reload-machines" }, effects);
   };
   switch (event.type) {

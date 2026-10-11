@@ -140,8 +140,5 @@ export const JA: Record<string, string> = {
   "Your own Tailscale devices get in as you; with an access token set, each asks for it once. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "自分の Tailscale の Device は、あなたとして入れます。アクセストークンを設定していれば、Device ごとに一度だけ聞かれます。ほかの人の Device や、LAN・公開アドレスからは、ペアリングが要ります(下の Devices)。",
   // ---- fleet ----
   "Could not load the fleet. {error}": "Fleet を読み込めませんでした。{error}",
-  "Agents started with fleet spawn show here.": "fleet spawn で起動したエージェントがここに出ます。",
   "The last read failed. {error}": "前回の読み取りに失敗しました。{error}",
-  "The fleet never answers a question; only a person does.": "Fleet は質問に答えません。答えるのは人だけです。",
-  "No result yet. When a turn ends, the HANDOFF the agent wrote shows here.": "まだ結果はありません。ターンが終わると、エージェントが書いた HANDOFF がここに出ます。",
 };
