@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ConversationPart, ConversationTurn } from "../../shared/protocol.ts";
-import { fileNames, findPrompts, isPrompt, occurrenceKeys, promptTitle, railEntries, stepFrom, turnLine } from "./promptRail.ts";
+import { entryLine, fileNames, findPrompts, isPrompt, occurrenceKeys, promptTitle, railEntries, stepFrom, turnLine } from "./promptRail.ts";
 
 const user = (ts: string, text: string, extra: ConversationPart[] = []): ConversationTurn => ({ role: "user", ts, parts: [{ kind: "text", text }, ...extra] });
 const tool = (name: string, input: unknown): ConversationPart => ({ kind: "tool", name, summary: "", input: typeof input === "string" ? input : JSON.stringify(input), output: "" });
@@ -37,8 +37,8 @@ describe("railEntries", () => {
       ["2026-10-11T10:03:00Z", 1, "second"],
     ]);
     // the fleet's message is no prompt: the first prompt's turn runs on through it
-    expect(entries[0]!.line).toBe("2m 5s · 1 edit · 1 command · app.ts");
-    expect(entries[1]!.line).toBe("");
+    expect(entryLine(entries[0]!)).toBe("2m 5s · 1 edit · 1 command · app.ts");
+    expect(entryLine(entries[1]!)).toBe("");
   });
 
   it("takes a request sent from a pane as the person's prompt, without the line naming the pane", () => {
@@ -50,6 +50,17 @@ describe("railEntries", () => {
   it("keys each prompt by its time and which of the prompts with that time it is", () => {
     const entries = railEntries([user("t1", "a"), user("t1", "b"), user("t2", "c"), user("t1", "d")]);
     expect(entries.map((entry) => entry.key)).toEqual(["t1#0", "t1#1", "t2#0", "t1#2"]);
+  });
+
+  it("makes a prompt's turn line again once its turn has grown, and keeps it while it holds", () => {
+    const prompt = user("2026-10-11T10:00:00Z", "go");
+    const first = agent("2026-10-11T10:00:05Z", [tool("Bash", { command: "ls" })], "2026-10-11T10:00:10Z");
+    const before = railEntries([prompt, first])[0]!;
+    expect(entryLine(before)).toBe("10s · 1 command");
+    // the next poll reads the same turns: the same line
+    expect(entryLine(railEntries([prompt, first])[0]!)).toBe("10s · 1 command");
+    const second = agent("2026-10-11T10:00:20Z", [tool("Edit", { file_path: "a.ts", old_string: "", new_string: "x" })], "2026-10-11T10:01:00Z");
+    expect(entryLine(railEntries([prompt, first, second])[0]!)).toBe("1m · 1 edit · 1 command · a.ts");
   });
 
   it("is empty with no prompt, and puts a lone prompt at the top", () => {

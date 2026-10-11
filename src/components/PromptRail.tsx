@@ -5,7 +5,7 @@ import { ListOrdered } from "lucide-react";
 import "./PromptRail.css";
 
 import type { Emit } from "../ui/bubble.ts";
-import { promptTitle, type RailEntry } from "../lib/promptRail.ts";
+import { entryLine, promptTitle, type RailEntry } from "../lib/promptRail.ts";
 import { LOCALE, t } from "../lib/i18n.ts";
 
 /** What the rail draws: the prompts read, the one being read, and whether earlier ones are left to load. */
@@ -31,7 +31,7 @@ function formatTime(ts: string): string | null {
 
 /** The time and the turn line of a prompt, for its card and its row. */
 function metaLine(entry: RailEntry): string {
-  return [formatTime(entry.ts), entry.line].filter((item) => item !== null && item.length > 0).join(" · ");
+  return [formatTime(entry.ts), entryLine(entry)].filter((item) => item !== null && item.length > 0).join(" · ");
 }
 
 /**

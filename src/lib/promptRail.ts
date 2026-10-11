@@ -24,8 +24,9 @@ export interface RailEntry {
   at: number;
   /** what the person typed (a request sent from a pane without its `[from pane …]` line); empty for a message of images alone */
   text: string;
-  /** the turn it started on one line: `1m 23s · 2 edits · app.ts, README.md`; empty when nothing is known */
-  line: string;
+  /** the turn that opens the prompt, and the agent's turns that answer it: what entryLine sums up */
+  turn: ConversationTurn;
+  answer: readonly ConversationTurn[];
 }
 
 /** The text a user turn holds, its parts joined as the chat shows them. */
@@ -33,13 +34,27 @@ export function userText(turn: ConversationTurn): string {
   return turn.parts.filter((part): part is Extract<ConversationPart, { kind: "text" }> => part.kind === "text").map((part) => part.text).join("\n\n");
 }
 
+/**
+ * Each turn read, as a prompt: what the person typed, or null for a turn that is no prompt. A turn
+ * that did not change keeps its object across polls, so a long chat reads each turn once.
+ */
+const prompts = new WeakMap<ConversationTurn, string | null>();
+
+function promptText(turn: ConversationTurn): string | null {
+  const known = prompts.get(turn);
+  if (known !== undefined) return known;
+  let text: string | null = null;
+  if (turn.role === "user" && turn.ts !== null && !turn.parts.some((part) => part.kind === "compact" || part.kind === "notice")) {
+    const said = userText(turn);
+    if (!said.startsWith(FLEET_MESSAGE) && (said.trim().length > 0 || turn.parts.some((part) => part.kind === "image"))) text = fromPane(said)?.text ?? said;
+  }
+  prompts.set(turn, text);
+  return text;
+}
+
 /** Whether a turn is a prompt the person typed: a user turn with text or images, not the fleet's message nor the runtime's. */
 export function isPrompt(turn: ConversationTurn): boolean {
-  if (turn.role !== "user" || turn.ts === null) return false;
-  if (turn.parts.some((part) => part.kind === "compact" || part.kind === "notice")) return false;
-  const text = userText(turn);
-  if (text.startsWith(FLEET_MESSAGE)) return false;
-  return text.trim().length > 0 || turn.parts.some((part) => part.kind === "image");
+  return promptText(turn) !== null;
 }
 
 /**
@@ -55,7 +70,7 @@ export function occurrenceKeys(times: readonly string[]): string[] {
   });
 }
 
-/** The prompts among the turns read, in order, each with the turn it started summed up. */
+/** The prompts among the turns read, in order, each with the agent's turns that answer it. */
 export function railEntries(turns: readonly ConversationTurn[]): RailEntry[] {
   const starts = turns.flatMap((turn, index) => (isPrompt(turn) ? [index] : []));
   const keys = occurrenceKeys(starts.map((start) => turns[start]!.ts!));
@@ -63,9 +78,25 @@ export function railEntries(turns: readonly ConversationTurn[]): RailEntry[] {
   return starts.map((start, n) => {
     const turn = turns[start]!;
     const answer = turns.slice(start + 1, starts[n + 1] ?? turns.length).filter((reply) => reply.role === "assistant");
-    const text = userText(turn);
-    return { ts: turn.ts!, key: keys[n]!, at: turns.length === 1 ? 0 : start / last, text: fromPane(text)?.text ?? text, line: turnLine(turn, answer) };
+    return { ts: turn.ts!, key: keys[n]!, at: turns.length === 1 ? 0 : start / last, text: promptText(turn)!, turn, answer };
   });
+}
+
+/** Each prompt's turn line, with the last answering turn it was made from: a turn still running makes it again. */
+const lines = new WeakMap<ConversationTurn, { last: ConversationTurn | undefined; count: number; line: string }>();
+
+/**
+ * The turn a prompt started on one line: `1m 23s · 2 edits · app.ts, README.md`, empty when
+ * nothing is known. It reads every tool call of the turn, so it is made only for a prompt shown
+ * with it (the card pointed at, the sheet, the palette's rows), and kept while the turn holds.
+ */
+export function entryLine(entry: RailEntry): string {
+  const last = entry.answer.at(-1);
+  const known = lines.get(entry.turn);
+  if (known !== undefined && known.last === last && known.count === entry.answer.length) return known.line;
+  const line = turnLine(entry.turn, entry.answer);
+  lines.set(entry.turn, { last, count: entry.answer.length, line });
+  return line;
 }
 
 /** the files a turn line names before it counts the rest */

@@ -579,24 +579,38 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
   const earlier: PromptRailModel["earlier"] = view.source === "conversation" && typeof olderCursor === "string" ? olderState : "none";
   const railShown = entries.length >= 2 || (entries.length === 1 && earlier !== "none");
 
-  /** each prompt's row, by its key (time and occurrence, as the rail keys it), with how far under the top of the view it starts */
-  const promptRows = (node: HTMLDivElement): Map<string, { row: HTMLElement; y: number }> => {
-    const top = node.getBoundingClientRect().top;
+  /** the prompts' rows in the chat, in order, with their keys (time and occurrence, as the rail keys its prompts); nothing is measured */
+  const promptRows = (node: HTMLDivElement): { rows: HTMLElement[]; keys: string[] } => {
     const rows = [...node.querySelectorAll<HTMLElement>(".chat-turn-user[data-turn-ts]")];
-    const keys = occurrenceKeys(rows.map((row) => row.dataset.turnTs!));
-    return new Map(rows.map((row, at) => [keys[at]!, { row, y: row.getBoundingClientRect().top - top }]));
+    return { rows, keys: occurrenceKeys(rows.map((row) => row.dataset.turnTs!)) };
   };
-  /** the prompt being read: the last whose row starts at or above the top of the view; and whether the view is inside its turn */
+  /** how far under the top of the view a row starts */
+  const rowTop = (node: HTMLDivElement, row: HTMLElement): number => row.getBoundingClientRect().top - node.getBoundingClientRect().top;
+  /** a prompt's row, with how far under the top of the view it starts */
+  const promptRow = (node: HTMLDivElement, key: string): { row: HTMLElement; y: number } | undefined => {
+    const { rows, keys } = promptRows(node);
+    const row = rows[keys.indexOf(key)];
+    return row === undefined ? undefined : { row, y: rowTop(node, row) };
+  };
+  /**
+   * The prompt being read: the last whose row starts at or above the top of the view; and whether the
+   * view is inside its turn. The rows go down the chat in order, so a search halving them measures a
+   * few, not all of a long conversation's.
+   */
   const readPlace = (): { index: number; midTurn: boolean } => {
     const node = scroller.current;
     if (node === null) return { index: -1, midTurn: false };
-    const rows = promptRows(node);
-    let index = -1;
+    const { rows, keys } = promptRows(node);
+    let low = 0;
+    let high = rows.length - 1;
+    let found = -1;
     let y = 0;
-    entriesRef.current.forEach((entry, at) => {
-      const row = rows.get(entry.key);
-      if (row !== undefined && row.y <= READ_SLACK_PX) { index = at; y = row.y; }
-    });
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      const top = rowTop(node, rows[middle]!);
+      if (top <= READ_SLACK_PX) { found = middle; y = top; low = middle + 1; } else high = middle - 1;
+    }
+    const index = found < 0 ? -1 : entriesRef.current.findIndex((entry) => entry.key === keys[found]);
     return { index, midTurn: index >= 0 && y < -READ_SLACK_PX };
   };
   function readSoon(): void {
@@ -613,7 +627,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
   const jumpTo = (index: number): void => {
     const node = scroller.current;
     const entry = entriesRef.current[index];
-    const target = node === null || entry === undefined ? undefined : promptRows(node).get(entry.key);
+    const target = node === null || entry === undefined ? undefined : promptRow(node, entry.key);
     if (node === null || target === undefined) return;
     stickToBottom.current = false;
     node.scrollTo({ top: node.scrollTop + target.y - LAND_GAP_PX, behavior: "instant" });
@@ -633,7 +647,7 @@ export const ChatView = memo(function ChatView({ model, emit }: { model: ChatVie
     if (node === null) return;
     // at the end of the chat the newest prompt is often in view below the top: back goes to it first
     const newest = list.at(-1);
-    const newestRow = newest === undefined ? undefined : promptRows(node).get(newest.key);
+    const newestRow = newest === undefined ? undefined : promptRow(node, newest.key);
     if (direction === -1 && stickToBottom.current && newestRow !== undefined && newestRow.y > READ_SLACK_PX) { jumpTo(list.length - 1); return; }
     const { index, midTurn } = readPlace();
     const target = stepFrom(index, list.length, direction, midTurn, earlier !== "none");
