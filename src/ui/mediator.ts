@@ -562,7 +562,7 @@ export class Mediator {
         let outcome: ExplainOutcome;
         try { outcome = await this.ports.explainQuestion(effect.machineId, { pane_id: effect.paneId, ...effect.request }); }
         catch (error) { outcome = { kind: "failed", message: message(error), limited: false }; }
-        dispatch({ type: "explain-result", paneId: effect.paneId, key: effect.key, outcome });
+        dispatch({ type: "explain-result", machineId: effect.machineId, paneId: effect.paneId, key: effect.key, outcome });
         return;
       }
       case "composer-draft-change": {

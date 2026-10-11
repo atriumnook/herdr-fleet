@@ -90,8 +90,8 @@ export function askedKey(question: PlainQuestion, at: { historyId: string | unde
 }
 
 /** A choice picked in the card goes into an empty message box only: text the person is writing stays as it is. */
-export function draftWithChoice(draft: string, choice: string): string | null {
-  return draft.trim().length === 0 ? choice : null;
+export function isEmptyDraft(draft: string): boolean {
+  return draft.trim().length === 0;
 }
 
 /** The person's newest message in the conversation: the text they typed, not a notice or a compaction. */

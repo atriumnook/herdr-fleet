@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef } from "react";
 import type { AgentStatus, ConversationTurn, ExplainRequest, InteractivePrompt } from "../../shared/protocol.ts";
 import { paneStorageId } from "../../shared/machines.ts";
-import { askedKey, draftWithChoice, endingQuestion, lastInstruction } from "../lib/plainQuestion.ts";
+import { askedKey, isEmptyDraft, endingQuestion, lastInstruction } from "../lib/plainQuestion.ts";
 import { ChatView, type ChatViewEvent, type ChatViewModel } from "../components/ChatView.tsx";
 import { useMachineId } from "../lib/machineContext.tsx";
 import { useSettings } from "../lib/settings.ts";
 import { relay, type Emit } from "./bubble.ts";
-import { EMPTY_VIEW, type Explanation, type Lens, type UiEvent, type UiState } from "./state.ts";
+import { EMPTY_VIEW, explanationId, type Lens, type UiEvent, type UiState } from "./state.ts";
 import { threadCards, type ThreadRowModel } from "./fleetView.ts";
 import { fromPane } from "../../shared/fleet.ts";
 import { displayPaneTitle } from "../components/Sidebar.tsx";
@@ -15,8 +15,6 @@ import { useSelected } from "./presenter.ts";
 export type ChatUpEvent = Exclude<ChatViewEvent, { type: "card-answer" | "card-explain" | "asked-explain" | "asked-pick" }>
   | Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "prompt-card-answer" | "explain-question" | "composer-draft" }>;
 
-/** no explanations asked yet: the same empty record each render */
-const NO_EXPLANATIONS: Readonly<Record<string, Explanation>> = {};
 
 /** The question screen's question as one text: its heading, its question and the detail under them. */
 function screenRequest(prompt: InteractivePrompt): Omit<ExplainRequest, "pane_id"> {
@@ -103,7 +101,6 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
   const pendingAnswer = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.pendingAnswer : null));
   const card = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.card : null));
   const seek = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.seek : null));
-  const explanations = useSelected((state) => (lensOf(state).chat.open?.paneId === paneId ? lensOf(state).chat.explanations : NO_EXPLANATIONS));
   const { settings: { showThinking } } = useSettings();
   const cards = useMemo(() => (threads.length === 0 ? undefined : threadCards([...older, ...view.turns], threads)), [threads, older, view.turns]);
   const working = agentStatus === "working" || agentStatus === "blocked";
@@ -116,12 +113,12 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
   const askedId = asked === null ? null : askedKey(asked, { historyId, ts: lastTurn?.ts ?? null, pageStart, index: pageLength - 1 });
   // a choice goes into the message box only while it is empty
   const owner = paneStorageId(machineId, paneId);
-  const draftText = useSelected((state) => state.drafts.composer[owner]?.text ?? "");
+  // only whether the box is empty: what is typed in it re-renders nothing here
+  const boxEmpty = useSelected((state) => isEmptyDraft(state.drafts.composer[owner]?.text ?? ""));
   const promptKey = prompt === null ? null : `screen:${prompt.id}`;
   const instruction = useMemo(() => (prompt === null ? null : lastInstruction([...older, ...view.turns])), [prompt, older, view.turns]);
-  const promptExplanation = promptKey === null ? undefined : explanations[promptKey];
-  const askedExplanation = askedId === null ? undefined : explanations[askedId];
-  const boxEmpty = draftWithChoice(draftText, "") !== null;
+  const promptExplanation = useSelected((state) => (promptKey === null ? undefined : state.explanations[explanationId(machineId, paneId, promptKey)]));
+  const askedExplanation = useSelected((state) => (askedId === null ? undefined : state.explanations[explanationId(machineId, paneId, askedId)]));
   // a pane's name read only for the panes the turns name: other panes' changes re-render nothing.
   // The turns are read inside the selector: one read from outside it would be a render late, while
   // the selector keeps its answer for the state it saw. Turns that did not change keep their ids.
@@ -153,13 +150,12 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
       case "asked-pick": {
         // the choice goes into this pane's empty message box; the person sends it. Text they are writing stays
         const option = asked?.options[event.index];
-        const text = option === undefined ? null : draftWithChoice(draftText, `${event.index + 1}. ${option.label}`);
-        if (text !== null) pass({ type: "composer-draft", owner, change: { kind: "set", text } });
+        if (option !== undefined && boxEmpty) pass({ type: "composer-draft", owner, change: { kind: "set", text: `${event.index + 1}. ${option.label}` } });
         return;
       }
       default:
         pass(event);
     }
-  }), [emit, machineId, paneId, prompt, promptKey, asked, askedId, owner, draftText]);
+  }), [emit, machineId, paneId, prompt, promptKey, asked, askedId, owner, boxEmpty]);
   return <ChatView model={model} emit={relayed} />;
 }

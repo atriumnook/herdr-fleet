@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { ConversationTurn } from "../../shared/protocol.ts";
-import { askedKey, detectPlainQuestion, draftWithChoice, endingQuestion, lastInstruction } from "./plainQuestion.ts";
+import { askedKey, detectPlainQuestion, isEmptyDraft, endingQuestion, lastInstruction } from "./plainQuestion.ts";
 
 const agent = (text: string, extra: ConversationTurn["parts"] = []): ConversationTurn => ({ role: "assistant", ts: "t2", parts: [...extra, { kind: "text", text }] });
 const user = (text: string): ConversationTurn => ({ role: "user", ts: "t1", parts: [{ kind: "text", text }] });
@@ -77,9 +77,9 @@ describe("a written question's key and choice", () => {
   });
 
   it("goes into an empty message box only", () => {
-    expect(draftWithChoice("", "2. SQLite")).toBe("2. SQLite");
-    expect(draftWithChoice("  \n", "2. SQLite")).toBe("2. SQLite");
-    expect(draftWithChoice("use redis but", "2. SQLite")).toBeNull();
+    expect(isEmptyDraft("")).toBe(true);
+    expect(isEmptyDraft("  \n")).toBe(true);
+    expect(isEmptyDraft("use redis but")).toBe(false);
   });
 });
 
