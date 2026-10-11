@@ -147,6 +147,7 @@ export const JA: Record<string, string> = {
   // ---- fleet ----
   "Could not load the fleet. {error}": "Fleet を読み込めませんでした。{error}",
   "The last read failed. {error}": "前回の読み取りに失敗しました。{error}",
+  "Usage refreshes by itself while this screen is open. Cursor is read after its turns, or when you press Refresh usage.": "この画面を開いている間、使用量は自動で更新されます。Cursor は、ターンが終わったとき、または Refresh usage を押したときに読みます。",
   // ---- landing a thread ----
   "Could not read the change. {error}": "変更を読み込めませんでした。{error}",
   "Could not read the checks. {error}": "チェックを読み込めませんでした。{error}",

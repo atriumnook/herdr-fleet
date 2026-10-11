@@ -6,12 +6,13 @@ import type { ProjectModel, UsageCapsuleModel } from "../../ui/fleetView.ts";
 import type { UiEvent } from "../../ui/state.ts";
 import { t } from "../../lib/i18n.ts";
 import { UsageCapsule, type UsageCapsuleEvent } from "./UsageCapsule.tsx";
+import { clock } from "./format.tsx";
 
 export type ProjectRailEvent = Extract<UiEvent, { type: "fleet-project" | "refresh-usage" | "clear-cooldown" | "fleet-settings" }>;
 
 export interface ProjectRailModel {
   projects: ProjectModel[];
-  usage: { capsules: UsageCapsuleModel[]; refreshing: boolean };
+  usage: { capsules: UsageCapsuleModel[]; refreshing: boolean; readAt?: number };
   canAct: boolean;
   now: number;
   /** the Settings page is open */
@@ -52,6 +53,11 @@ export function ProjectRail({ model, browser, emit }: { model: ProjectRailModel;
         {model.usage.capsules.map((capsule) => (
           <UsageCapsule key={capsule.key} capsule={capsule} now={model.now} emit={relay<UsageCapsuleEvent, ProjectRailEvent>(emit, (_, pass) => pass({ type: "clear-cooldown", key: capsule.key }))} />
         ))}
+        {model.usage.readAt !== undefined && (
+          <p className="fleet-rail-note" title={t("Usage refreshes by itself while this screen is open. Cursor is read after its turns, or when you press Refresh usage.")}>
+            {t("Updated {time}", { time: clock(model.usage.readAt, model.now) })}
+          </p>
+        )}
         {model.canAct && (
           <button type="button" className="btn btn-ghost" disabled={model.usage.refreshing} onClick={() => emit({ type: "refresh-usage" })}>
             {model.usage.refreshing ? t("Refreshing…") : t("Refresh usage")}

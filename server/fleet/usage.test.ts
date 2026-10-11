@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { agyProbe, claudeProbe, codexProbe, parseAgyUsage, parseClaudeUsage, parseCodexRateLimits, rateLimitUntil, usageKey, UsageTracker, type UsageReading } from "./usage.ts";
+import { agyProbe, AUTO_REFRESH_MS, BACKOFF_CAP_MS, claudeProbe, codexProbe, defaultProbes, parseAgyUsage, parseClaudeUsage, parseCodexRateLimits, rateLimitUntil, usageKey, UsageTracker, type UsageReading } from "./usage.ts";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -272,6 +272,92 @@ describe("UsageTracker", () => {
     const restarted = new UsageTracker({ file, now: () => now });
     expect(await restarted.unavailable("cursor", undefined, 90)).toContain("cooling down");
     expect(restarted.list().find((e) => e.key === "codex")!.reading).toEqual(reading(50));
+  });
+
+  it("refreshes by itself the CLIs that have a probe (codex, claude, agy) once their last try is old, and never cursor", async () => {
+    let now = NOW;
+    const asked: string[] = [];
+    const probe = (kind: "codex" | "claude" | "agy") => async () => { asked.push(kind); return { [kind]: reading(10) }; };
+    // the probes the server is built with: cursor has none, its `/usage` is typed into a live pane
+    const usage = new UsageTracker({ file: null, now: () => now, probes: { codex: probe("codex"), claude: probe("claude"), agy: probe("agy") } });
+    usage.record("cursor", reading(30));
+    await usage.refresh(false, AUTO_REFRESH_MS);
+    expect(asked.sort()).toEqual(["agy", "claude", "codex"]);
+    now += AUTO_REFRESH_MS - 1;
+    await usage.refresh(false, AUTO_REFRESH_MS);
+    expect(asked).toHaveLength(3);
+    now += 1;
+    await usage.refresh(false, AUTO_REFRESH_MS);
+    expect(asked).toHaveLength(6);
+    expect(usage.list().find((e) => e.key === "cursor")!.reading).toEqual(reading(30));
+  });
+
+  it("never runs two probes of one CLI at once, however many refreshes ask", async () => {
+    let running = 0;
+    let peak = 0;
+    let calls = 0;
+    const release: Array<() => void> = [];
+    const usage = new UsageTracker({ file: null, probes: { claude: async () => {
+      calls += 1; running += 1; peak = Math.max(peak, running);
+      await new Promise<void>((resolve) => release.push(resolve));
+      running -= 1;
+      return { claude: reading(10) };
+    } } });
+    const asks = [usage.refresh(false, AUTO_REFRESH_MS), usage.refresh(true), usage.refresh(false, AUTO_REFRESH_MS), usage.unavailable("claude", undefined, 90)];
+    await Promise.resolve();
+    release.splice(0).forEach((resolve) => resolve());
+    await Promise.all(asks);
+    expect([calls, peak]).toEqual([1, 1]);
+  });
+
+  it("backs off a CLI that keeps failing (not installed, not signed in), up to hourly, until it answers or a person presses refresh", async () => {
+    let now = NOW;
+    let calls = 0;
+    let fail = true;
+    const usage = new UsageTracker({ file: null, now: () => now, probes: { agy: async () => { calls += 1; if (fail) throw new Error("spawn agy ENOENT"); return { "agy:gemini": reading(5) }; } } });
+    const gaps: number[] = [];
+    for (let minute = 0, last = -1; minute < 24 * 60 && gaps.length < 8; minute += 1) {
+      now = NOW + minute * 60_000;
+      const before = calls;
+      await usage.refresh(false, AUTO_REFRESH_MS);
+      if (calls > before) { if (last >= 0) gaps.push(minute - last); last = minute; }
+    }
+    // the wait doubles with each failure and stops at the cap
+    expect(gaps.slice(0, 4)).toEqual([10, 20, 40, 60]);
+    expect(gaps.slice(4)).toEqual([60, 60, 60, 60]);
+    expect(BACKOFF_CAP_MS).toBe(60 * 60_000);
+    const before = calls;
+    await usage.refresh(true);
+    expect(calls).toBe(before + 1);
+    fail = false;
+    await usage.refresh(true);
+    // an answer ends the back-off: the next automatic try is on the ordinary schedule again
+    now += AUTO_REFRESH_MS;
+    await usage.refresh(false, AUTO_REFRESH_MS);
+    expect(calls).toBe(before + 3);
+  });
+
+  it("keeps a spawn's own probe at the plain TTL however often the CLI failed", async () => {
+    let now = NOW;
+    let calls = 0;
+    const usage = new UsageTracker({ file: null, now: () => now, probeTtlMs: 60_000, probes: { agy: async () => { calls += 1; throw new Error("agy exited with 1"); } } });
+    for (let i = 0; i < 4; i += 1) { now += 60_000; await usage.refresh(false, AUTO_REFRESH_MS); now += 24 * 60 * 60_000; await usage.refresh(false, AUTO_REFRESH_MS); }
+    const before = calls;
+    // the automatic refresh is backed off now, but a spawn one minute later still asks
+    now += 60_000;
+    await usage.refresh(false, AUTO_REFRESH_MS);
+    expect(calls).toBe(before);
+    await usage.unavailable("agy", "gemini-pro", 90);
+    expect(calls).toBe(before + 1);
+    await usage.unavailable("agy", "gemini-pro", 90);
+    expect(calls).toBe(before + 1);
+    now += 60_000;
+    await usage.unavailable("agy", "gemini-pro", 90);
+    expect(calls).toBe(before + 2);
+  });
+
+  it("is built with probes for codex, claude and agy only: never cursor", () => {
+    expect(Object.keys(defaultProbes(tempDir())).sort()).toEqual(["agy", "claude", "codex"]);
   });
 
   it("has cursor's screen read only when neither its last reading nor its last try is recent", () => {

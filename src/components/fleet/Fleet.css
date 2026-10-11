@@ -380,6 +380,7 @@
 }
 
 .fleet-rail-usage .fleet-capsule { width: 100%; box-sizing: border-box; }
+.fleet-rail-note { margin: 0 var(--space-2); font-size: var(--fs-xs); color: var(--sub); }
 
 /* the Settings page's entry, above the usage */
 .fleet-rail-settings {

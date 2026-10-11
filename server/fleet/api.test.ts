@@ -8,7 +8,7 @@ import { Orchestrator } from "./orchestrator.ts";
 import { RunRegistry } from "./registry.ts";
 import type { AgentRuntime } from "./runtime.ts";
 import type { AgentState } from "./types.ts";
-import { UsageTracker } from "./usage.ts";
+import { AUTO_REFRESH_MS, UsageTracker } from "./usage.ts";
 import { FleetSettingsStore } from "./settings.ts";
 import { EntranceStore } from "./entrances.ts";
 
@@ -83,8 +83,18 @@ describe("fleet API", () => {
     expect((await call("POST", "/usage/refresh", {})).body["usage"]).toEqual([{ key: "codex", reading: { readAt: 1, windows: [{ name: "5h", usedPercent: 20 }] } }]);
     await call("POST", "/usage/refresh", {});
     expect(probes()).toBe(1);
+    // the Fleet screen's own refresh (no `all`) leaves a reading tried minutes ago alone; the button forces
+    await call("POST", "/usage/refresh", { all: false });
+    expect(probes()).toBe(1);
     await call("POST", "/usage/refresh", { all: true });
     expect(probes()).toBe(2);
+    // without `all` the age limit is AUTO_REFRESH_MS
+    const seen: Array<[boolean, number | undefined]> = [];
+    const real = usage.refresh.bind(usage);
+    usage.refresh = async (force?: boolean, maxAgeMs?: number) => { seen.push([force ?? false, maxAgeMs]); return real(force, maxAgeMs); };
+    await call("POST", "/usage/refresh", { all: false });
+    await call("POST", "/usage/refresh", {});
+    expect(seen).toEqual([[false, AUTO_REFRESH_MS], [false, AUTO_REFRESH_MS]]);
     expect((await call("GET", "/usage")).body["usage"]).toHaveLength(1);
     usage.noteFailure("cursor", undefined, "rate limit", 60);
     expect((await call("POST", "/usage/clear", { key: "cursor" }, {})).status).toBe(403);

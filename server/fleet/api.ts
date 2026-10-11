@@ -7,7 +7,7 @@ import { PLAN_MAX_BYTES } from "./plan.ts";
 import type { Brief } from "./brief.ts";
 import type { FleetSettingsPatch, LandAction, LineComment } from "../../shared/fleet.ts";
 import type { SpawnRequest } from "./types.ts";
-import type { UsageTracker } from "./usage.ts";
+import { AUTO_REFRESH_MS, type UsageTracker } from "./usage.ts";
 import type { FleetSettingsStore } from "./settings.ts";
 import type { EntranceStore } from "./entrances.ts";
 
@@ -37,7 +37,7 @@ import type { EntranceStore } from "./entrances.ts";
  *  POST /api/fleet/runs/:target/plan/answer { answer, group? } -> { run }; the person's answers, sent to the lead
  *  POST /api/fleet/close-done             { group? } -> { runs }
  *  GET  /api/fleet/usage                            -> { usage: UsageEntry[] }; what is known, asking no CLI
- *  POST /api/fleet/usage/refresh          { all? }   -> { usage }; asks the CLIs whose reading is stale (all with all: true).
+ *  POST /api/fleet/usage/refresh          { all? }   -> { usage }; asks the CLIs last tried more than AUTO_REFRESH_MS ago, a failing one after longer (all with all: true).
  *                                                       A POST: it runs CLIs, so it needs the header like every change
  *  POST /api/fleet/usage/clear            { key? }   -> { cleared: string[] }; ends cooldowns: one account, a CLI's, or all
  *  GET  /api/fleet/settings[?cwd=]                  -> { settings: FleetSettings }; the person's fleet.json, as the project in cwd uses it
@@ -97,7 +97,7 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
       if (parts.length === 2 && parts[1] === "refresh" && method === "POST") {
         const all = (await readBody())["all"];
         if (all !== undefined && typeof all !== "boolean") throw new FleetError("invalid_body", "all must be true or false");
-        await usage.refresh(all === true);
+        await usage.refresh(all === true, AUTO_REFRESH_MS);
         return jsonResponse({ usage: usage.list() });
       }
       if (parts.length === 2 && parts[1] === "clear" && method === "POST") {
