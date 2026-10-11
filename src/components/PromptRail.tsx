@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { ListOrdered } from "lucide-react";
 
@@ -23,6 +23,8 @@ export type PromptRailEvent = { type: "rail-jump"; index: number } | { type: "ra
 
 /** space above the first tick and below the last, so neither sits on the rail's end */
 const PAD_PX = 12;
+/** a pointer passing over the ticks changes the card shown only once it rests this long */
+const REST_MS = 120;
 
 function formatTime(ts: string): string | null {
   const date = new Date(ts);
@@ -40,6 +42,7 @@ function metaLine(entry: RailEntry): string {
  * nearest prompt and what its turn did; a click jumps there. The ticks take the keyboard too
  * (↑ ↓ Home End, Enter jumps, Escape leaves). A touch screen has no pointing: a button opens the
  * prompts as a list instead. Which prompt is pointed at, and the list being open, are the view's own.
+ * While a card shows, a pointer passing over other ticks changes it only once the pointer rests.
  */
 export function PromptRail({ model, emit }: { model: PromptRailModel; emit: Emit<PromptRailEvent> }) {
   const { entries, reading, earlier, gutter } = model;
@@ -50,6 +53,9 @@ export function PromptRail({ model, emit }: { model: PromptRailModel; emit: Emit
   const card = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLButtonElement>(null);
   const [cardTop, setCardTop] = useState(0);
+  const cardId = useId();
+  /** the tick the pointer rests on next, once it rests */
+  const resting = useRef<number | null>(null);
   const total = entries.length;
   const shown = peek !== null && peek < total ? peek : null;
 
@@ -74,6 +80,17 @@ export function PromptRail({ model, emit }: { model: PromptRailModel; emit: Emit
     return best;
   };
   const jump = (index: number): void => emit({ type: "rail-jump", index });
+  const stopResting = (): void => {
+    if (resting.current !== null) window.clearTimeout(resting.current);
+    resting.current = null;
+  };
+  useEffect(() => stopResting, []);
+  /** the card for the prompt pointed at: at once for the first, after a rest for another */
+  const point = (index: number | null): void => {
+    stopResting();
+    if (index === null || peek === null) { setPeek(index); return; }
+    if (index !== peek) resting.current = window.setTimeout(() => { resting.current = null; setPeek(index); }, REST_MS);
+  };
 
   const focusTick = (index: number): void => {
     track.current?.querySelector<HTMLButtonElement>(`[data-rail-index="${index}"]`)?.focus();
@@ -101,8 +118,8 @@ export function PromptRail({ model, emit }: { model: PromptRailModel; emit: Emit
         aria-label={t(earlier === "loading" ? "Loading earlier messages…" : earlier === "failed" ? "Couldn't load earlier messages — retry" : "Earlier messages")} />
     )}
     <div ref={track} className="prompt-rail-track" onKeyDown={onKeyDown}
-      onPointerMove={(event) => { if (event.pointerType === "mouse") setPeek(nearest(event)); }}
-      onPointerLeave={(event) => { if (event.pointerType === "mouse" && !track.current?.contains(document.activeElement)) setPeek(null); }}
+      onPointerMove={(event) => { if (event.pointerType === "mouse") point(nearest(event)); }}
+      onPointerLeave={(event) => { if (event.pointerType === "mouse" && !track.current?.contains(document.activeElement)) point(null); }}
       onClick={(event) => { if (event.target === event.currentTarget) { const index = nearest(event as unknown as ReactPointerEvent); if (index !== null) jump(index); } }}
       onBlur={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setPeek(null); }}>
       {entries.map((entry, index) => (
@@ -112,17 +129,18 @@ export function PromptRail({ model, emit }: { model: PromptRailModel; emit: Emit
           tabIndex={index === tabStop ? 0 : -1}
           aria-label={t("Prompt {n} of {total}: {title}", { n: index + 1, total, title: promptTitle(entry) })}
           aria-current={index === reading ? "location" : undefined}
-          onFocus={() => setPeek(index)}
+          aria-describedby={index === shown ? cardId : undefined}
+          onFocus={() => { stopResting(); setPeek(index); }}
           onClick={(event) => { event.stopPropagation(); jump(index); }} />
       ))}
     </div>
     {pointed !== null && (
-      <div ref={card} className="menu prompt-rail-card" role="tooltip" style={{ top: cardTop }}>
+      <div ref={card} id={cardId} className="menu prompt-rail-card" role="tooltip" style={{ top: cardTop }}>
         <p className="prompt-rail-card-text">{pointed.text.length > 0 ? pointed.text : promptTitle(pointed)}</p>
         <p className="prompt-rail-card-meta"><span className="prompt-rail-card-count">{shown! + 1} / {total}</span>{metaLine(pointed).length > 0 && <> · {metaLine(pointed)}</>}</p>
       </div>
     )}
-    <button ref={opener} type="button" className="btn prompt-rail-open" aria-label={t("Prompts")} title={t("Prompts")} onClick={() => setSheet(true)}>
+    <button ref={opener} type="button" className="btn prompt-rail-open" aria-label={t("Show prompts")} title={t("Show prompts")} onClick={() => setSheet(true)}>
       <ListOrdered aria-hidden="true" />
     </button>
     {sheet && <PromptSheet model={model} onJump={(index) => { setSheet(false); jump(index); }} onEarlier={() => emit({ type: "rail-earlier" })}
@@ -134,6 +152,7 @@ export function PromptRail({ model, emit }: { model: PromptRailModel; emit: Emit
 function PromptSheet({ model, onJump, onEarlier, onClose }: { model: PromptRailModel; onJump: (index: number) => void; onEarlier: () => void; onClose: () => void }) {
   const { entries, reading, earlier } = model;
   const list = useRef<HTMLDivElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   // the sheet opens on the prompt being read
@@ -152,9 +171,18 @@ function PromptSheet({ model, onJump, onEarlier, onClose }: { model: PromptRailM
     window.addEventListener("keydown", close, true);
     return () => window.removeEventListener("keydown", close, true);
   }, []);
+  // it is modal: Tab and Shift+Tab go round its buttons and stay inside it
+  const onKeyDown = (event: ReactKeyboardEvent): void => {
+    if (event.key !== "Tab") return;
+    const stops = [...(surface.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? [])];
+    if (stops.length === 0) return;
+    event.preventDefault();
+    const at = stops.indexOf(document.activeElement as HTMLButtonElement);
+    stops[(at + (event.shiftKey ? -1 : 1) + stops.length) % stops.length]!.focus();
+  };
   return createPortal(
     <div className="modal-scrim" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
-      <div className="modal prompt-sheet" role="dialog" aria-modal="true" aria-label={t("Prompts")}>
+      <div ref={surface} className="modal prompt-sheet" role="dialog" aria-modal="true" aria-label={t("Prompts")} onKeyDown={onKeyDown}>
         <span className="row-sheet-grip" aria-hidden="true" />
         <div className="prompt-sheet-head"><span className="prompt-sheet-title">{t("Prompts")}</span><span className="prompt-sheet-count">{entries.length}</span></div>
         <div ref={list} className="prompt-sheet-list">
