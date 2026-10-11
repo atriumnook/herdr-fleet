@@ -83,6 +83,9 @@ describe("fleet API", () => {
     expect((await call("POST", "/usage/refresh", {})).body["usage"]).toEqual([{ key: "codex", reading: { readAt: 1, windows: [{ name: "5h", usedPercent: 20 }] } }]);
     await call("POST", "/usage/refresh", {});
     expect(probes()).toBe(1);
+    // the Fleet screen's own refresh (no `all`) leaves a reading tried minutes ago alone; the button forces
+    await call("POST", "/usage/refresh", { all: false });
+    expect(probes()).toBe(1);
     await call("POST", "/usage/refresh", { all: true });
     expect(probes()).toBe(2);
     expect((await call("GET", "/usage")).body["usage"]).toHaveLength(1);
