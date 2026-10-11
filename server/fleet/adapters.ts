@@ -134,6 +134,8 @@ export const piAdapter: AgentAdapter = {
     args.push("--name", `fleet:${name}`, "--append-system-prompt", systemPromptFile);
     return args;
   },
+  // pi's own denylist: it wins over a --tools list, so a role's tools cannot bring edit or write back
+  readOnlyArgs: ["--exclude-tools", "edit,write"],
   startupError(screen) {
     return lastMatch(screen, /^\s*Error: (.+)$/gm);
   },

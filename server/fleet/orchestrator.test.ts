@@ -517,6 +517,16 @@ describe("usage routing", () => {
     expect(runtime.instructions[0]).toContain("your file-editing tools are off: write your result file with a shell command");
   });
 
+  it("holds a pi role that edits nothing with pi's own denylist, whatever tools the role lists", async () => {
+    const { fleet, runtime } = setup({ agents: [role("keeper", { agent: "pi", model: "p/primary", tools: ["read", "bash", "edit", "write"], edits: false, interactive: true, spawning: true })] });
+    const run = await spawn(fleet, { role: "keeper" });
+    expect(run).toMatchObject({ agent: "pi", interactive: true });
+    const args = runtime.starts[0]!.args;
+    expect(args.join(" ")).toContain("--exclude-tools edit,write");
+    expect(args.indexOf("--exclude-tools")).toBeGreaterThan(args.indexOf("--tools"));
+    expect(runtime.instructions[0]).toContain("your file-editing tools are off");
+  });
+
   it("refuses a role that edits nothing when no candidate CLI can be held to that", async () => {
     const { fleet, runtime } = setup({ agents: [role("auditor", { model: "codex:gpt-6", fallbackModels: ["cursor:auto"], edits: false })] });
     const error = await spawn(fleet, { role: "auditor" }).catch((e) => e);
