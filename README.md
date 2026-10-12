@@ -101,15 +101,24 @@ Fleet 画面を開いている間は、codex・claude・agy の使用量を 5 �
 
 OpenCode は、モデルを `opencode:<プロバイダ>/<モデル>` の形で指定します(末尾に `#variant` を付けると、そのまま OpenCode に渡します。TUI が適用するかは未確認です。thinking の段階の指定は渡しません)。対象は OpenCode 2(`@opencode/cli`。確認したのは 2.0.26)だけで、1.x は使えません。ほかの CLI と違う点は次のとおりです。
 
-- herdr は、実行ファイル名 `opencode` を起動します。`opencode --version` が 2 を返すことを確かめてください(`@opencode/cli` は `opencode` と `opencode2` の両方を入れます)。1.x のままだと、fleet は起動の失敗として扱います。herdr が OpenCode 2 の状態を受け取るには、一度 `opencode2` を起動してから `herdr integration install opencode`(v13)を実行します。
-- ペインでは `opencode --standalone` で起動します。サーバーを TUI のプロセスの中で動かすので、ペインごとの設定が届きます。付けない TUI は、利用者が共用するバックグラウンドのサービスにつながり、ペインの環境変数は使われません。fleet はそのサービスを起動も変更もしません。TUI に `--model` と `--agent` はないので、モデル、エージェント、規則は環境変数 `OPENCODE_CONFIG_CONTENT` で渡します。セッションの共有と自己更新も、その設定で止めます。
-- fleet は、承認を求める `ask` の規則を一つも書きません。承認画面の「Always allow」は、`ls *` のような広い許可をプロジェクトごとに保存し、利用者自身の OpenCode と共有するためです。fleet が承認の画面に頼ると、その許可が残って、あとの run や利用者の使い方を変えてしまいます。代わりに、役割で次のように分けます。
-- `edits: false` の役割(coordinator、architect など)は、fleet が定義するエージェント `fleet-readonly` で起動します。規則は「すべて拒否」から始め、次だけ通します。ファイルの読み取りと検索、短いシェルのコマンド(`git status`、`git ls-files`、`ls`、`pwd`)、fleet のコマンド、`git diff` / `git log` / `git show`(`--no-ext-diff --no-textconv` を先頭に付けた形だけ)、`gh pr view` / `gh pr list` / `gh pr checks` / `gh run view`、その run の結果フォルダへの編集です。それ以外のコマンドと Web の取得は拒否されます。指示文にもこの一覧を書くので、エージェントは別の形を試さずに、coordinator や使う人へ頼みます。coordinator だけは、Fleet 画面でマージを押されたときの `gh pr merge <番号> --merge`、`git pull --ff-only`、`git merge --no-ff <ブランチ>`、`git merge --abort` も通ります。
-- コマンド名のない行(`> ~/x`、`>> ~/.bashrc`、`<ファイル`)は、OpenCode が権限の確認を一度も呼ばずに実行します。規則では防げないので、`edits: false` の役割のペインにだけ、リポジトリの `opencode/fleet-guard`(プラグイン)を読み込み、`<`、`>`、バックスラッシュを含むシェルのコマンドを拒否します。クォートの中の `>` も拒否します。バックスラッシュは、OpenCode が `/` に直してから規則に当てるので、規則では見えないためです。
-- 編集する役割(lead、worker など)は、pi と同じく承認なしで動かします。すべてを許可する規則は足しません(利用者自身の deny を上書きするため)。足すのは次の拒否だけです。force push(`--force*`、`--mirror`、`-f`、`+refspec`)、作業フォルダの外へのファイル編集(その run の結果フォルダを除く)。fleet のコマンドは、利用者が `shell` を ask にしていても止まらないよう、許可します。シェルのコマンドは制限しません。テストの実行はプログラムの実行なので、規則は境界にならないためです。
-- 利用者の設定にあるプラグイン(herdr の状態用を含む)と、リポジトリの `.opencode/` の設定、MCP の項目は、起動のときに読み込まれます。fleet の規則は利用者の設定のあとに読まれるので、同じ対象では fleet の規則が勝ちます。編集しない役割の「すべて拒否」は、利用者の許可も覆います。
+- herdr は、実行ファイル名 `opencode` を起動します。PATH の `opencode` が OpenCode 2 であることを確かめてください(`opencode --version`。`@opencode/cli` は `opencode` と `opencode2` の両方を入れます。fleet は `opencode` だけを使います)。1.x のままだと、fleet は起動の失敗として扱います。herdr が OpenCode 2 の状態を受け取るには、一度 `opencode2` を起動してから `herdr integration install opencode`(v13)を実行します。
+- ペインでは `opencode --standalone` で起動します。サーバーを TUI のプロセスの中で動かすので、ペインごとの設定が届きます。付けない TUI は、利用者が共用するバックグラウンドのサービスにつながり、ペインの環境変数は使われません。fleet はそのサービスを起動も変更もしません。TUI に `--model` と `--agent` はないので、モデル、エージェント、規則、プラグインは環境変数 `OPENCODE_CONFIG_CONTENT` で渡します。セッションの共有と自己更新も、その設定で止めます。
+- fleet は、承認を求める `ask` の規則を一つも書きません。承認画面の「Always allow」は、`ls *` のような広い許可をプロジェクトごとに保存し、利用者自身の OpenCode と共有するためです。代わりに、役割で次のように分けます。
+- `edits: false` の役割(coordinator、architect など)は、fleet が定義するエージェント `fleet-readonly` で起動します。シェルのコマンドは、行全体が次の決まった形のどれかに一致するときだけ通します。それ以外はすべて拒否します。
+  - fleet のコマンド(引数は、平文の語、`'単一引用符'`、`$` とバッククォートとバックスラッシュを含まない `"二重引用符"`)
+  - `git status`、`git ls-files`、`ls`、`pwd`(引数なし)
+  - `git diff` / `git log` / `git show`(先頭に `--no-ext-diff --no-textconv`。あとは許可したフラグ、リビジョン、リポジトリの中の相対パスだけ。絶対パス、`~`、`..`、`.env` は拒否)
+  - `gh pr view <番号>`、`gh pr checks <番号>`、`gh pr list`、`gh run view <番号>`(許可したフラグだけ。`--web` や `-R` は拒否)
+  - coordinator だけ、Fleet 画面でマージを押されたときの `gh pr merge <番号> --merge`、`git pull --ff-only`、`git merge --no-ff <fleet か agents のブランチ>`、`git merge --abort`
+
+  この判定は、OpenCode の権限の規則ではなく、リポジトリの `opencode/fleet-guard`(プラグイン)がします。OpenCode の規則は、シェルの行の中の「コマンド」だけを確認の対象にします。`> ~/x`、`x=1`、`export A=1; git status`(宣言で環境変数を作り、許可済みの `git status` に任意のプログラムを動かさせる)のような、コマンド名のない行は、一度も確認されずに実行されるためです。権限の規則(読み取りと検索、上の形、その run の結果フォルダへの編集だけを許可し、あとは拒否)は、その内側の 2 層目として残します。指示文にも使える形の一覧を書くので、エージェントは別の形を試さずに、coordinator や使う人へ頼みます。
+- 編集する役割(lead、worker など)は、pi と同じく承認なしで動かします。すべてを許可する規則は足しません(利用者自身の deny を上書きするため)。足すのは次の拒否だけです。force push と削除(`--force`、`--mirror`、`--delete`、`-f`、束ねた `-vuf`、`:ブランチ`、`+refspec` など)、作業フォルダの外へのファイル編集(その run の結果フォルダを除く)。fleet のコマンドは、利用者が `shell` を ask にしていても止まらないよう、許可します。**これらの拒否はベストエフォートです。** 編集とテストの実行ができるエージェントは何でも実行できるので(`env git push -f`、`bash -c`、alias)、規則は普通の綴りの打ち間違いを止めるだけで、pi と同じです。
+- OpenCode のすべてのペインで、環境変数により git の `core.fsmonitor=false` を設定します(`git status` などが、リポジトリの設定の指すプログラムを動かさないため)。消せないものが一つあります。利用者自身の git の設定にある `filter.<名前>.clean` のプログラムを `.gitattributes` が選ぶ場合です。編集しない役割のエージェントは `.git/config` も `.gitattributes` も書けないので、動くのは利用者自身の設定が指すプログラムだけです。
+- 規則で防げないもの: `grep` の権限は検索のパターンを対象にするので、`.env` の読み取り禁止は `grep` には当たりません。作業フォルダの中の symlink が外を指すと、OpenCode は外のパスとして扱いません。どちらも作業フォルダの中の話です。
+- 利用者の設定にあるプラグイン(herdr の状態用を含む)と、リポジトリの `.opencode/` の設定、MCP の項目は、起動のときに読み込まれ、編集しない役割のペインでも規則とは別に動きます。fleet の規則は利用者の設定のあとに読まれるので、同じ対象では fleet の規則が勝ちます。編集しない役割の「すべて拒否」は、利用者の許可も覆います。
 - 指示文は、設定ではなく最初のプロンプトの先頭に付けます。
-- モデルの一覧は `opencode models --standalone` で取得します(1.x の `opencode` ではエラーになり、一覧は空です)(共用のサービスには触れません)。接続済みのプロバイダのモデルだけが載り、OpenCode のプロバイダが出す無料のモデルは載らないので、載っていないモデルも拒否はしません。
+- モデルの一覧は、fleet が自分で起動する `opencode serve`(共用のサービスには触れません)から取得します。起動したばかりのサーバーは、プロバイダの読み込みが済むまで空の一覧を返すので、一覧が揃うまで数秒待ちます。TUI は任意の `プロバイダ/モデル` を受け付けるので、一覧にないモデルも拒否はしません。
+- `bun scripts/opencode-live-check.ts` は、実物の OpenCode 2 に、この規則とプラグインをモデルなしで通して確かめます(HOME を空にし、HTTP の応答をスクリプトが受け持つので、外には何も送りません)。単体テストには入っていません。
 
 役割の `fallbackModels` には、同じ CLI のモデルのほかに、`<agent>:<model>` の形で別の CLI を並べられます(例: `["codex:gpt-6", "claude:claude-sonnet-5-5"]`)。fleet は、最初に使える候補で起動します。どの候補も使えなければ、理由を並べて起動を断ります。`fleet spawn --model codex:gpt-6` のように、呼び出し側から別の CLI を指定することもできます。
 
