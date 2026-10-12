@@ -1,7 +1,7 @@
 /**
  * Each agent CLI's own list of the models it offers. Every command here answers from the CLI's
  * catalog or its account, none calls a model: `codex app-server` `model/list`, `agy models`,
- * `cursor-agent models`, `pi --list-models`, `opencode models --standalone`. Claude Code has no such command, so its aliases are
+ * `cursor-agent models`, `pi --list-models`, `opencode serve` of its own. Claude Code has no such command, so its aliases are
  * the list (`claude --help` names them).
  */
 
@@ -81,24 +81,60 @@ export const listPiModels = async (options: ListOptions): Promise<ModelEntry[]> 
   parsePiModels(await run([options.command ?? "pi", "--list-models"], options, childEnv(options.env ?? process.env, ["PI_CODING_AGENT_DIR"])));
 
 /**
- * `opencode models`: one `provider/model` per line, for the providers that are signed in. A model
- * can be run with `#variant` after it, which this list does not name. It lists what the catalog
- * knows, not everything the TUI accepts (free models of the OpenCode provider are missing), so it
- * is not a complete list.
+ * OpenCode 2's `GET /api/model`: the models of the providers that are signed in, `provider/model` each
+ * (a `#variant` after a model name runs it and is not listed here). Not a complete list: it is what the
+ * server has loaded when it is asked, and the TUI accepts any `provider/model` text (an unknown one fails at the first prompt).
  */
-export function parseOpencodeModels(output: string): ModelEntry[] {
-  return output.split("\n").flatMap((line) => {
-    const id = line.replace(invisible, "").trim();
-    return /^[^\s/#]+\/\S+$/.test(id) && !id.includes("#") ? [{ id }] : [];
-  });
+export function parseOpencodeModels(body: unknown): ModelEntry[] {
+  const data = (body as { data?: unknown } | null)?.data;
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((model: { providerID?: unknown; id?: unknown }) =>
+    typeof model?.providerID === "string" && typeof model.id === "string" && /^[^\s/#]+$/.test(model.providerID) && /^\S+$/.test(model.id) && !model.id.includes("#") ? [{ id: `${model.providerID}/${model.id}` }] : []);
 }
 
 /**
- * `--standalone` keeps the command in a private server of its own: without it `models` goes to the
- * person's shared background service, and starts it when it is not running. Updating itself is off.
+ * Asks a private `opencode serve` of its own, not the person's shared background service (which any command
+ * without --standalone would start). `opencode models --standalone` asks once, and a server that has just
+ * started answers `[]` until its providers have loaded (seen on 2.0.26), so this polls (the free models of the OpenCode provider show up too, after a second).
+ * A 1.x opencode is refused by its version first: its `serve` would answer in another shape.
  */
-export const listOpencodeModels = async (options: ListOptions): Promise<ModelEntry[]> =>
-  parseOpencodeModels(await run([options.command ?? "opencode", "models", "--standalone"], options, { ...childEnv(options.env ?? process.env), OPENCODE_DISABLE_AUTOUPDATE: "true" }));
+export async function listOpencodeModels(options: ListOptions): Promise<ModelEntry[]> {
+  emptyWorkDir(options.workDir);
+  const command = options.command ?? "opencode";
+  const env = { ...childEnv(options.env ?? process.env), OPENCODE_DISABLE_AUTOUPDATE: "true" };
+  const version = Bun.spawnSync([command, "--version"], { cwd: options.workDir, env, stdout: "pipe", stderr: "ignore", stdin: "ignore", timeout: 10_000 });
+  if (!/(?:^|\s)v?2\.\d+\.\d+/.test(version.stdout.toString())) throw new Error(`${command} is not OpenCode 2`);
+  const child = Bun.spawn([command, "serve", "--hostname", "127.0.0.1", "--port", "0"], { cwd: options.workDir, env, stdin: "ignore", stdout: "pipe", stderr: "ignore" });
+  const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
+  try {
+    const reader = child.stdout.getReader();
+    const decoder = new TextDecoder();
+    let seen = "";
+    let found: RegExpExecArray | null = null;
+    while (!found) {
+      const { value, done } = await reader.read();
+      if (done) throw new Error(`${command} serve quit before it listened`);
+      seen += decoder.decode(value, { stream: true });
+      found = /server listening on (http:\/\/127\.0\.0\.1:\d+)\s+server password (\S+)/.exec(seen);
+    }
+    const [, url, password] = found as unknown as [string, string, string];
+    const headers = { authorization: `Basic ${btoa(`opencode:${password}`)}` };
+    let models: ModelEntry[] = [];
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const response = await fetch(`${url}/api/model?location%5Bdirectory%5D=${encodeURIComponent(options.workDir)}`, { headers });
+      if (!response.ok) throw new Error(`${command} serve answered ${response.status}`);
+      const asked = parseOpencodeModels(await response.json());
+      // providers load one after another: the list is taken once two answers in a row agree
+      if (asked.length > 0 && asked.length === models.length) return asked;
+      models = asked;
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+    return models;
+  } finally {
+    clearTimeout(timer);
+    child.kill();
+  }
+}
 
 /** codex's `model/list` result: the models of one page, and where the next begins. */
 export function parseCodexModels(result: unknown): { models: ModelEntry[]; next?: string } {

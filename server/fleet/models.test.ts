@@ -22,10 +22,11 @@ describe("model lists, as each CLI prints them", () => {
     expect(parsePiModels(output)).toEqual([{ id: "openai/gpt-4.1" }]);
   });
 
-  it("reads opencode's provider/model lines, and leaves out what is not one", () => {
-    expect(parseOpencodeModels("github-copilot/claude-opus-5.5\nminimax-coding-plan/MiniMax-M2.5\n\nopencode/big-pickle  \nnot a model\nx/y#high\n")).toEqual([
-      { id: "github-copilot/claude-opus-5.5" }, { id: "minimax-coding-plan/MiniMax-M2.5" }, { id: "opencode/big-pickle" },
-    ]);
+  it("reads opencode's GET /api/model as provider/model, and leaves out what is not one", () => {
+    const body = { data: [{ providerID: "github-copilot", id: "claude-opus-5.5", variants: [] }, { providerID: "opencode", id: "big-pickle" }, { providerID: "x", id: "y#high" }, { providerID: "a b", id: "c" }, { id: "no-provider" }, null] };
+    expect(parseOpencodeModels(body)).toEqual([{ id: "github-copilot/claude-opus-5.5" }, { id: "opencode/big-pickle" }]);
+    expect(parseOpencodeModels({ data: [] })).toEqual([]);
+    expect(parseOpencodeModels("html")).toEqual([]);
   });
 
   it("reads one page of codex's model/list and where the next begins", () => {
@@ -96,7 +97,7 @@ describe("agy's models, listed once per effort", () => {
 });
 
 describe("opencode's models, run with a #variant", () => {
-  const listing = { agent: "opencode" as const, complete: false, models: parseOpencodeModels("github-copilot/claude-opus-5.5\nopencode/big-pickle\n") };
+  const listing = { agent: "opencode" as const, complete: false, models: parseOpencodeModels({ data: [{ providerID: "github-copilot", id: "claude-opus-5.5" }, { providerID: "opencode", id: "big-pickle" }] }) };
 
   it("accepts a listed id with or without its variant, and nothing else", () => {
     expect(modelListed(listing, "github-copilot/claude-opus-5.5")).toBe(true);
@@ -241,24 +242,61 @@ describe("what a model listing's CLI gets", () => {
     expect(envNames(pi)).not.toContain("CODEX_HOME");
   });
 
-  it("opencode lists with its own private server, never the person's shared service, in its own emptied folder and with its self-update held off", async () => {
+  /** a stand-in `opencode`: `--version` answers, `serve` prints where it listens (a server of the test's) and waits */
+  const fakeOpencode = (dir: string, version: string, port: number) => {
+    const file = join(dir, "opencode");
+    writeFileSync(file, `#!/bin/sh\n/usr/bin/env > "${file}.env"\nprintf '%s\\n' "$*" >> "${file}.args"\nif [ "$1" = "--version" ]; then echo '${version}'; exit 0; fi\necho 'server listening on http://127.0.0.1:${port}'\necho 'server password pw'\nexec sleep 30\n`, { mode: 0o755 });
+    return file;
+  };
+
+  it("opencode lists from a private server of its own, which has loaded its providers a moment after it starts, in its own emptied folder", async () => {
     const dir = tempDir();
     const workDir = join(dir, "model-list", "opencode");
     plant(workDir);
-    const opencode = recorder(dir, "opencode", "printf '%s\\n' \"$*\" > \"$0.args\"\nprintf 'anthropic/claude-sonnet-5-5\\nopencode/big-pickle\\n'");
-    expect(await listOpencodeModels({ workDir, command: opencode, env: SERVER_ENV })).toEqual([{ id: "anthropic/claude-sonnet-5-5" }, { id: "opencode/big-pickle" }]);
-    expect(readFileSync(`${opencode}.args`, "utf8")).toBe("models --standalone\n");
-    expectOwnEmptyFolder(opencode, workDir);
-    noSecrets(opencode);
-    expect(readFileSync(`${opencode}.env`, "utf8")).toContain("OPENCODE_DISABLE_AUTOUPDATE=true\n");
+    let asked = 0;
+    let authorization = "" as string | null;
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => {
+      authorization = request.headers.get("authorization");
+      asked += 1;
+      // an answer of [] while it loads, then one provider, then both
+      const data = asked < 3 ? [] : asked === 3 ? [{ providerID: "anthropic", id: "claude-sonnet-5-5" }] : [{ providerID: "anthropic", id: "claude-sonnet-5-5" }, { providerID: "opencode", id: "big-pickle" }];
+      return Response.json({ data });
+    } });
+    try {
+      const opencode = fakeOpencode(dir, "opencode v2.0.26", server.port!);
+      expect(await listOpencodeModels({ workDir, command: opencode, env: SERVER_ENV })).toEqual([{ id: "anthropic/claude-sonnet-5-5" }, { id: "opencode/big-pickle" }]);
+      expect(authorization).toBe(`Basic ${btoa("opencode:pw")}`);
+      // it asked for the version, then started its own server (never `models` without --standalone, which uses the shared service)
+      expect(readFileSync(`${opencode}.args`, "utf8")).toBe("--version\nserve --hostname 127.0.0.1 --port 0\n");
+    } finally {
+      server.stop(true);
+    }
   });
 
-  it("opencode 1.x answers `models --standalone` with its help and a failure: no list, and no TUI started", async () => {
+  it("opencode's private server runs in an emptied folder of its own, without an API key or herdr session, and with its self-update held off", async () => {
     const dir = tempDir();
     const workDir = join(dir, "model-list", "opencode");
-    const old = recorder(dir, "opencode", "printf 'opencode models [provider]\\n\\nlist all available models\\n'\nexit 1");
-    await expect(listOpencodeModels({ workDir, command: old, env: SERVER_ENV })).rejects.toThrow("opencode models failed");
-    expectOwnEmptyFolder(old, workDir);
+    plant(workDir);
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ data: [{ providerID: "a", id: "b" }] }) });
+    try {
+      const opencode = fakeOpencode(dir, "opencode v2.0.26", server.port!);
+      writeFileSync(opencode, readFileSync(opencode, "utf8").replace("exec sleep 30", `pwd > "${opencode}.cwd"; ls -A > "${opencode}.ls"; exec sleep 30`));
+      await listOpencodeModels({ workDir, command: opencode, env: SERVER_ENV });
+      expect(readFileSync(`${opencode}.cwd`, "utf8").trim()).toBe(realpathSync(workDir));
+      expect(readFileSync(`${opencode}.ls`, "utf8")).toBe("");
+      noSecrets(opencode);
+      expect(readFileSync(`${opencode}.env`, "utf8")).toContain("OPENCODE_DISABLE_AUTOUPDATE=true\n");
+    } finally {
+      server.stop(true);
+    }
+  });
+
+  it("opencode 1.x is refused by its version before anything is started: no list, no server, no TUI", async () => {
+    const dir = tempDir();
+    const old = fakeOpencode(dir, "1.19.0", 1);
+    await expect(listOpencodeModels({ workDir: join(dir, "model-list", "opencode"), command: old, env: SERVER_ENV })).rejects.toThrow("is not OpenCode 2");
+    // only `--version` was run
+    expect(readFileSync(`${old}.args`, "utf8")).toBe("--version\n");
   });
 
   it("codex app-server runs in its own emptied folder, with CODEX_HOME and no API key or herdr session", async () => {
