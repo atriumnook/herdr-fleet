@@ -46,8 +46,13 @@
   overflow: auto;
 }
 
+/* a terminal sets every character in its cells: Chrome halves full-width punctuation when it
+   repeats on a lang="ja" page, as in the run xterm measures each character by. xterm then gave
+   。 and 、 the half it measured as letter-spacing, the row drew them full width, and each pushed
+   the rest of its row a few pixels right, past the mount's edge at the end */
 .pane-terminal .xterm {
   padding: var(--space-2) var(--space-2) 0;
+  text-spacing-trim: space-all;
 }
 
 /* the mount's own box: everything that may overlay the pty (the chat lens) is
