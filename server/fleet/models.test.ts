@@ -100,7 +100,7 @@ describe("a CLI that fails or hangs", () => {
     expect(asked).toBe(AGENT_KINDS.length /* codex once, and every other kind once: they share the stub */);
     at = 61_000;
     await models.list("codex");
-    expect(asked).toBe(6);
+    expect(asked).toBe(AGENT_KINDS.length + 1);
   });
 
   it("holds a spawn up for no longer than the wait, then lets the model through", async () => {
