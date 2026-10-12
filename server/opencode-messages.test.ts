@@ -97,10 +97,23 @@ describe("what the runtime says", () => {
     expect(turns.filter((turn) => turn.role === "assistant").every((turn) => turn.parts.every((part) => part.kind !== "notice"))).toBe(true);
   });
 
-  test("a notice with no text shows its description, and one with neither shows nothing", () => {
-    const { turns } = parseOpencodeMessages([{ id: "msg_s", type: "synthetic", time: { created: 1 }, text: "", description: "<described>" }, { id: "msg_e", type: "system", time: { created: 2 }, text: "  " }]);
+  test("a notice shows its description, the summary meant for a transcript, before the text the model was told", () => {
+    const { turns } = parseOpencodeMessages([
+      { id: "msg_s", type: "synthetic", time: { created: 1 }, text: "<what the model was told>", description: "<described>" },
+      { id: "msg_i", type: "system", time: { created: 2 }, text: "<instructions delta>", description: "<Instructions updated: source>" },
+      { id: "msg_t", type: "system", time: { created: 3 }, text: "<only text>" },
+    ]);
+    expect(turns.map((turn) => turn.parts[0])).toEqual([
+      { kind: "notice", text: "<described>" },
+      { kind: "notice", text: "<Instructions updated: source>" },
+      { kind: "notice", text: "<only text>" },
+    ]);
+  });
+
+  test("a notice with neither shows nothing, and a long one is cut", () => {
+    const { turns } = parseOpencodeMessages([{ id: "msg_e", type: "system", time: { created: 2 }, text: "  " }, { id: "msg_l", type: "system", time: { created: 3 }, text: "x".repeat(10_000) }]);
     expect(turns).toHaveLength(1);
-    expect(turns[0]!.parts).toEqual([{ kind: "notice", text: "<described>" }]);
+    expect((turns[0]!.parts[0] as { text: string }).text).toHaveLength(4000);
   });
 
   test("a completed compaction is the summary it left; a running one shows nothing; a failed one says so", () => {
@@ -112,9 +125,10 @@ describe("what the runtime says", () => {
     expect(parseOpencodeMessages([failed]).turns[0]!.parts).toEqual([{ kind: "text", text: "Error: compaction failed: <why>" }]);
   });
 
-  test("a loaded skill is skill activity", () => {
-    const { turns } = parseOpencodeMessages([{ id: "msg_k", type: "skill", skill: "<skill>", name: "<name>", text: "<instructions>", time: { created: 1 } }]);
-    expect(turns[0]!.parts).toEqual([{ kind: "skill", skill: { name: "<skill>", evidence: "instructions", status: "loaded" } }]);
+  test("a loaded skill is skill activity under its name, not its id", () => {
+    const { turns } = parseOpencodeMessages([{ id: "msg_k", type: "skill", skill: "<skill id>", name: "<skill name>", text: "<instructions>", time: { created: 1 } }]);
+    expect(turns[0]!.parts).toEqual([{ kind: "skill", skill: { name: "<skill name>", evidence: "instructions", status: "loaded" } }]);
+    expect(parseOpencodeMessages([{ id: "msg_k", type: "skill", skill: "<skill id>", text: "<i>", time: { created: 1 } }]).turns[0]!.parts[0]).toMatchObject({ skill: { name: "<skill id>" } });
   });
 });
 

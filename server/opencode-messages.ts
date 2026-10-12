@@ -18,6 +18,9 @@ export const OPENCODE_MESSAGE_ID = /^msg_[A-Za-z0-9_-]{1,100}$/;
 /** `<message id>:<index>`: a user image's index in `files`, or a tool's index in `content` (0 for a shell command). */
 export const OPENCODE_REF = /^(msg_[A-Za-z0-9_-]{1,100}):(\d{1,4})$/;
 
+/** a notice is a line the reader opens on request, not the model's whole instructions */
+const NOTICE_CHARS = 4000;
+
 const text = (value: unknown): string => typeof value === "string" ? value : "";
 const iso = (ms: unknown): string | null => typeof ms === "number" && Number.isFinite(ms) ? new Date(ms).toISOString() : null;
 const count = (value: unknown): number => typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
@@ -141,12 +144,14 @@ export function parseOpencodeMessages(messages: readonly unknown[]): ParsedMessa
       }
       case "synthetic":
       case "system": {
-        const body = (text(message["text"]) || text(message["description"])).trim();
+        // `description` is the short summary meant for a transcript; `text` is what the model was told (an instructions delta, whole)
+        const body = (text(message["description"]) || text(message["text"])).trim().slice(0, NOTICE_CHARS);
         if (body.length > 0) userTurn(message, [{ kind: "notice", text: body }]);
         break;
       }
       case "skill": {
-        const name = text(message["skill"]) || text(message["name"]);
+        // `name` is the skill's name as shown; `skill` is its id
+        const name = text(message["name"]) || text(message["skill"]);
         if (name.length > 0) assistantTurn(message).parts.push({ kind: "skill", skill: { name, evidence: "instructions", status: "loaded" } });
         break;
       }
