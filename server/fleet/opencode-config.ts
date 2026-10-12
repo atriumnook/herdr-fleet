@@ -49,7 +49,17 @@ export const OPENCODE_GUARD_PLUGIN = resolve(import.meta.dir, "..", "..", "openc
  * name can be overridden, and the names are not known) that the person's own config defines and a
  * `.gitattributes` selects. The agent of a role that edits nothing cannot write either file.
  */
-export const OPENCODE_GIT_ENV = { GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "core.fsmonitor", GIT_CONFIG_VALUE_0: "false" };
+export function opencodeGitEnv(base: Record<string, string | undefined> = process.env): Record<string, string> {
+  // config the fleet server's own environment already carries is kept: ours is appended after it
+  const count = /^[0-9]{1,3}$/.test(base["GIT_CONFIG_COUNT"] ?? "") ? Number(base["GIT_CONFIG_COUNT"]) : 0;
+  const kept: Record<string, string> = {};
+  for (let i = 0; i < count; i++) {
+    const key = base[`GIT_CONFIG_KEY_${i}`];
+    const value = base[`GIT_CONFIG_VALUE_${i}`];
+    if (key !== undefined && value !== undefined) { kept[`GIT_CONFIG_KEY_${i}`] = key; kept[`GIT_CONFIG_VALUE_${i}`] = value; }
+  }
+  return { ...kept, GIT_CONFIG_COUNT: String(count + 1), [`GIT_CONFIG_KEY_${count}`]: "core.fsmonitor", [`GIT_CONFIG_VALUE_${count}`]: "false" };
+}
 
 /** commands a read-only role runs unasked, each exactly as written */
 const READ_ONLY_COMMANDS = ["git status", "git ls-files", "ls", "pwd"];
@@ -114,15 +124,15 @@ function readOnlyRules({ resultDir, fleetCommand, merges }: OpencodeRole): Rule[
 /**
  * The flags with which a push overwrites or deletes on the remote, as patterns on the text after
  * `git *push*`: `--force*` (also `--force-with-lease`; git takes no shorter prefix of it), `--mi*` and `--de*`
- * (git takes `--mir` and `--del` for `--mirror` and `--delete`), `--prune*`, `-d*`, `-f*`, a one-letter
- * flag of push before an `f` (`-vf`, `-vuf`, `-vunf`: a `?` stands for any letter between, so `-u fork` is
- * refused too), a `:ref` (delete) and a `+ref` (force).
+ * (git takes `--mir` and `--del` for `--mirror` and `--delete`), `--pru*` (`--prun`, `--prune`), `-d*`, `-f*`, up
+ * to two flags of push before an `f` (`-vf`, `-vuf`; `-vunf` is not caught), a `:ref` (delete) and a `+ref` (force).
  */
 function pushFlags(): string[] {
   const letters = [..."unvqd46"];
   return [
-    "--force*", "--mi*", "--de*", "--prune*", "-d*", "-f*", ":*", "+*",
-    ...letters.flatMap((letter) => [`-${letter}f*`, `-${letter}?f*`, `-${letter}??f*`]),
+    "--force*", "--mi*", "--de*", "--pru*", "-d*", "-f*", ":*", "+*",
+    // a bundle of up to two other flags before the f; spelled out, since a `?` between would also take the space of `-u fork`
+    ...letters.flatMap((first) => [`-${first}f*`, ...letters.map((second) => `-${first}${second}f*`)]),
   ];
 }
 
@@ -169,8 +179,9 @@ export function opencodeReadOnlyNote({ merges, fleetCommand }: Pick<OpencodeRole
     `- ${fleetCommand} ... (arguments are plain words, 'single-quoted' text, or "double-quoted" text without $, backticks or backslashes)`,
     "- git status, git ls-files, ls, pwd, each alone",
     "- git diff, git log, git show only as `git diff --no-ext-diff --no-textconv <arguments>` (the same for log and show), the arguments being plain flags (--stat, --name-only, --oneline, -n 20, --format=%h ...), revisions, and relative paths inside the repository after `--`; no quotes, no absolute or ~ or .. paths, no .env files",
-    "- gh pr view <number>, gh pr checks <number>, gh pr list, gh run view <number>, with flags such as --json <fields>",
+    "- gh pr view [<number>], gh pr checks [<number>] (no number: the checked-out branch's pull request), gh pr list, gh run view <number>, with flags such as --json <fields>",
     ...(merges ? ["- for a merge the fleet asks you for: gh pr merge <number> --merge, git pull --ff-only, git merge --no-ff <branch>, git merge --abort"] : []),
+    "In the fleet command, quote any text that holds a `#`, a space or other punctuation: 'single quotes' keep it literal; to put a single quote inside, close the quotes around it: 'don'\"'\"'t'.",
     "No `;`, `&&`, `|`, `$`, redirect (`<`, `>`), variable assignment or `export` outside the quotes of the fleet command. Read files with the read tool and search with grep and glob, not with cat or find.",
     "Do not try other forms of a refused command. If you need one, say so in your reply to the person or your lead, who can run it or widen what you may do.",
   ].join("\n");

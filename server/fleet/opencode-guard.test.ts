@@ -15,12 +15,12 @@ const HIST = "--no-ext-diff --no-textconv";
 const ACCEPTED = [
   "git status", "git ls-files", "ls", "pwd",
   `git diff ${HIST}`, `git diff ${HIST} HEAD`, `git diff ${HIST} main...HEAD`, `git diff ${HIST} main..HEAD`, `git diff ${HIST} HEAD~3 -- src/a.ts`, `git diff ${HIST} --cached --stat`,
-  `git log ${HIST} -n 20 --oneline`, `git log ${HIST} -p --format=%H -5`, `git log ${HIST} --author=a@b.c --since=2.weeks --grep=fix`, `git log ${HIST} -Gfoo -- src`,
+  `git log ${HIST} -n 20 --oneline`, `git log ${HIST} -n20`, `git log ${HIST} --format=%h -- src`, `git log ${HIST} -p --format=%H -5`, `git log ${HIST} --author=a@b.c --since=2.weeks --grep=fix`, `git log ${HIST} -Gfoo -- src`,
   `git show ${HIST} HEAD`, `git show ${HIST} HEAD:src/a.ts`, `git show ${HIST} --stat HEAD^`, `git show ${HIST} v1.2.3:README.md`,
-  "gh pr view 12", "gh pr view 12 --json title,body --comments", "gh pr checks 12", "gh pr checks 12 --json name,state", "gh pr list", "gh pr list --state all -L 100",
+  "gh pr view 12", "gh pr view", "gh pr view --json title", "gh pr checks", "gh run view 9 --job 3", "gh pr view 12 --json title,body --comments", "gh pr checks 12", "gh pr checks 12 --json name,state", "gh pr list", "gh pr list --state all -L 100",
   "gh run view 9", "gh run view 9 --log-failed", "gh run view 9 --exit-status",
   FLEET, `${FLEET} list`, `${FLEET} send lead 'go'`, `${FLEET} send lead "done; see src/a.ts"`, `${FLEET} send lead 'a -> b, Map<K,V>, C:\\dir, $HOME, \`x\`; "q"'`,
-  `${FLEET} send lead "a -> b"`, `${FLEET} thread --title 'fix x' --goal "one two" --write src/a.ts --done 'tests pass'`, `${FLEET} send lead 'line one\nline two'`, `${FLEET} send lead 'multi\nline'`,
+  `${FLEET} send lead "a -> b"`, `${FLEET} thread --title 'fix x' --goal "one two" --write src/a.ts --done 'tests pass'`, `${FLEET} send lead 'line one\nline two'`, `${FLEET} send lead 'multi\nline'`, `${FLEET} send lead 'PR#12 and C#'`, `${FLEET} send lead 'don'"'"'t'`, `${FLEET} send lead ~/x`,
 ];
 
 const REFUSED = [
@@ -43,18 +43,18 @@ const REFUSED = [
   `git diff ${HIST} HEAD:../x`, `git diff ${HIST} --stat=/x`, `git diff ${HIST} -O/etc/passwd`, `git diff ${HIST} --no-index a b`, `git diff ${HIST} --no-ind /etc/passwd /dev/null`, `git diff ${HIST} --no-i a b`,
   `git diff ${HIST} --output x`, `git diff ${HIST} --outpu=x`, `git diff ${HIST} HEAD --ext-diff`, `git diff ${HIST} HEAD --ext`, `git diff ${HIST} HEAD --textconv`, `git diff ${HIST} HEAD --no-ext-diff --ext-diff`,
   `git diff ${HIST} HEAD -c core.pager=id`, `git diff ${HIST} HEAD --open-files-in-pager=id`, `git diff ${HIST} HEAD --exit-code`, `git diff ${HIST} --ignore-submodules=none`, `git diff ${HIST} HEAD --submodule=diff`,
-  `git log ${HIST} --show-signature`, `git log ${HIST} --exec=id`, `git log ${HIST} -G x --pickaxe-regex`, `git log ${HIST} -C`, `git log ${HIST} -c`, `git log ${HIST} --git-dir=/x`, `git log ${HIST} --work-tree=/x`,
+  `git log ${HIST} --format=%GK`, `git log ${HIST} --pretty=format:%h%GS`, `git log ${HIST} --format=%G?`, `git log ${HIST} --format=%GG`, `git log ${HIST} --show-signature`, `git log ${HIST} --exec=id`, `git log ${HIST} -G x --pickaxe-regex`, `git log ${HIST} -C`, `git log ${HIST} -c`, `git log ${HIST} --git-dir=/x`, `git log ${HIST} --work-tree=/x`,
   "git diff", "git log", "git show HEAD", "git diff --no-ext-diff HEAD", `git diff --no-textconv --no-ext-diff HEAD`, `git -c core.pager=id log ${HIST}`, `git --no-pager diff ${HIST}`,
   // secrets in the repository that read denies cannot cover through git
   `git show ${HIST} HEAD:.env`, `git show ${HIST} HEAD:config/.env.local`, `git log ${HIST} -p -- .env`, `git diff ${HIST} -- apps/web/.env.production`,
   // gh
-  "gh pr view 1 --web", "gh pr view --repo evil/x 1", "gh pr view 1 --json body --jq .body", "gh pr view 1 -R x/y", "gh pr list --search x", "gh pr checks 1 --watch", "gh pr view", "gh pr view main", "gh pr view 1; gh api -X DELETE repos/x/y",
+  "gh pr view 1 --web", "gh pr view --repo evil/x 1", "gh pr view 1 --json body --jq .body", "gh pr view 1 -R x/y", "gh pr list --search x", "gh pr checks 1 --watch", "gh pr view main", "gh run view", "gh run view --log", "gh pr view 1; gh api -X DELETE repos/x/y",
   "gh api repos/x/y", "gh run view 1 --web", "gh run view 1 --log --exit-status --web", "gh pr create", "gh pr view 1 --json",
   // the merge forms belong to the coordinator
   "gh pr merge 12 --merge", "git pull --ff-only", "git merge --no-ff fleet/x", "git merge --abort",
   // the fleet command: no unquoted shell syntax
   `${FLEET} send lead "$(id)"`, `${FLEET} send lead "\`id\`"`, `${FLEET} send lead "a\\nb"`, `${FLEET} send lead $HOME`, `${FLEET} send lead x > f`, `${FLEET} send lead x; id`, `${FLEET} send lead 'unclosed`, `${FLEET} send lead "unclosed`,
-  `${FLEET} send lead x | cat`, `${FLEET} send lead x && id`, `${FLEET} send lead x\nid`, `${FLEET}x`, `${FLEET}; id`, `${FLEET} send lead *`, `${FLEET} send lead {a,b}`, `${FLEET} send lead !x`, `${FLEET} send lead (x)`,
+  `${FLEET} send lead x | cat`, `${FLEET} send lead x && id`, `${FLEET} send lead x\nid`, `${FLEET}x`, `${FLEET}; id`, `${FLEET} send lead *`, `${FLEET} send lead PR#12`, `${FLEET} send lead {a,b}`, `${FLEET} send lead !x`, `${FLEET} send lead (x)`,
   `cd /tmp && ${FLEET} list`, `FOO=1 ${FLEET} list`, `/usr/bin/bun /opt/fleet/bin/other.ts list`,
 ];
 

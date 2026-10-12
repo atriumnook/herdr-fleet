@@ -2,7 +2,7 @@ import { dirname } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { AgentKind, ThinkingLevel } from "./types.ts";
 import { CLAUDE_ALIASES, listAgyModels, listCodexModels, listCursorModels, listOpencodeModels, listPiModels, type ListOptions, type ModelEntry } from "./model-lists.ts";
-import { OPENCODE_GIT_ENV, opencodeConfig, opencodeReadOnlyNote } from "./opencode-config.ts";
+import { opencodeConfig, opencodeGitEnv, opencodeReadOnlyNote } from "./opencode-config.ts";
 import type { UsageReading } from "./usage.ts";
 
 export interface LaunchOptions {
@@ -377,7 +377,7 @@ export const opencodeAdapter: AgentAdapter = {
   env(context) {
     const { model } = splitThinking(context.model);
     const config = opencodeConfig({ ...context, ...(model ? { model } : {}) });
-    return { OPENCODE_DISABLE_AUTOUPDATE: "true", ...OPENCODE_GIT_ENV, OPENCODE_CONFIG_CONTENT: JSON.stringify(config) };
+    return { OPENCODE_DISABLE_AUTOUPDATE: "true", ...opencodeGitEnv(), OPENCODE_CONFIG_CONTENT: JSON.stringify(config) };
   },
   launchArgs() {
     return ["--standalone"];

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
+import { opencodeGitEnv } from "./opencode-config.ts";
 import { adapterFor, cursorUsage, type PaneContext, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
 
 const base = { name: "impl", systemPromptFile: "/tmp/i.md", systemPrompt: "Be brief.\nSay \"done\".", resultDir: "/state/results/r1" };
@@ -296,6 +297,11 @@ describe("opencode adapter", () => {
     expect(env["OPENCODE_DISABLE_AUTOUPDATE"]).toBe("true");
     // every git of the agent runs without the repository's fsmonitor program (environment config beats the repository's: checked with git 2.55)
     expect([env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]]).toEqual(["1", "core.fsmonitor", "false"]);
+    // config the server's own environment carries stays, and ours comes after it
+    expect(opencodeGitEnv({ GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "a.b", GIT_CONFIG_VALUE_0: "1", GIT_CONFIG_KEY_1: "c.d", GIT_CONFIG_VALUE_1: "2" })).toEqual({
+      GIT_CONFIG_KEY_0: "a.b", GIT_CONFIG_VALUE_0: "1", GIT_CONFIG_KEY_1: "c.d", GIT_CONFIG_VALUE_1: "2", GIT_CONFIG_COUNT: "3", GIT_CONFIG_KEY_2: "core.fsmonitor", GIT_CONFIG_VALUE_2: "false",
+    });
+    expect(opencodeGitEnv({ GIT_CONFIG_COUNT: "x" })["GIT_CONFIG_COUNT"]).toBe("1");
     expect(JSON.parse(env["OPENCODE_CONFIG_CONTENT"]!)).toMatchObject({ model: "anthropic/claude-sonnet-5-5", share: "disabled", update: "disable" });
     // a #variant stays with the model; none given, none set
     expect(configOf({ ...pane, model: "p/m#high" }).model).toBe("p/m#high");
@@ -416,10 +422,10 @@ describe("opencode adapter", () => {
       for (const text of [
         "git push --force", "git push --force origin main", "git push origin main --force", "git push --force-with-lease", "git push --force-if-includes origin x", "git push origin x --force-with-lease=x:abc",
         "git push -f", "git push -f origin main", "git push origin main -f", "git push -fu origin main", "git push -uf origin main", "git push -nf origin x",
-        "git push -vuf origin x", "git push -vunf origin x", "git push --mir", "git push --mirror", "git push --del origin main", "git push --delete origin main", "git push -d origin main", "git push origin :main", "git push --prune origin",
+        "git push -vuf origin x", "git push -nvf origin x", "git push --mir", "git push --pru origin", "git push --prun origin", "git push --mirror", "git push --del origin main", "git push --delete origin main", "git push -d origin main", "git push origin :main", "git push --prune origin",
         "git push origin +main", "git push +main", "git push origin +HEAD:main", "git -C ../wt push -f", "git -c push.default=current push --force",
       ]) expect([text, shell(rules, text)]).toEqual([text, "deny"]);
-      for (const text of ["git push", "git push origin main", "git push -u origin fix-foo", "git push origin HEAD:refs/heads/a-f", "git push --follow-tags", "git push origin feat/x-fix", "git stash push", "git push -u origin feat/x", "git push --dry-run origin x"]) expect([text, shell(rules, text)]).toEqual([text, "allow"]);
+      for (const text of ["git push", "git push origin main", "git push -u origin fix-foo", "git push origin HEAD:refs/heads/a-f", "git push --follow-tags", "git push origin feat/x-fix", "git stash push", "git push -u origin feat/x", "git push --dry-run origin x", "git push -u fork feat/x", "git push -u fork", "git push -v fork main", "git push -n fork main"]) expect([text, shell(rules, text)]).toEqual([text, "allow"]);
     });
 
     it("edits inside its work folder and its result folder, and nowhere else", () => {

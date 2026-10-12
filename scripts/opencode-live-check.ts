@@ -38,7 +38,7 @@ const sh = (command: string, cwd = root) => {
 writeFileSync(join(root, "fsmonitor.sh"), `#!/bin/sh\necho ran >> ${marks}/fsmonitor\nexit 0\n`);
 chmodSync(join(root, "fsmonitor.sh"), 0o755);
 sh(`git init -q --bare ${remote} && git init -q ${repo}`);
-sh(`git config user.email t@example.com && git config user.name t && echo one > a.txt && git add a.txt && git commit -qm one && git branch -M main && git remote add origin ${remote} && git push -q -u origin main && echo two >> a.txt && git commit -qam two && git config core.fsmonitor ${root}/fsmonitor.sh`, repo);
+sh(`git config user.email t@example.com && git config user.name t && echo one > a.txt && git add a.txt && git commit -qm one && git branch -M main && git remote add origin ${remote} && git remote add fork ${remote} && git push -q -u origin main && echo two >> a.txt && git commit -qam two && git config core.fsmonitor ${root}/fsmonitor.sh`, repo);
 writeFileSync(join(root, "outside.txt"), "SECRET=1\n");
 
 type Expect = "guard" | "rules" | "ran";
@@ -62,6 +62,8 @@ const readOnlyCases: Call[] = [
   shell("rm -rf nothing", "guard"),
   shell(`${FLEET} send lead "a -> b, Map<K,V>"`, "ran", { contains: "a -> b, Map<K,V>" }),
   shell(`${FLEET} send lead 'x'; touch ${marks}/PWN_SEP`, "guard", { file: [join(marks, "PWN_SEP"), false] }),
+  shell("git log --no-ext-diff --no-textconv --format=%GK -n 1", "guard"), // a signature placeholder runs gpg.program
+  shell("gh pr view", "ran"), // gh's own answer: not signed in
   shell("git merge --abort", "guard"), // not the coordinator
   { tool: "write", input: { path: join(results, "handoff.md"), content: "HANDOFF\nPASS\n" }, expect: "ran", file: [join(results, "handoff.md"), true] },
   { tool: "write", input: { path: join(repo, "NOT_ALLOWED.txt"), content: "x" }, expect: "rules", file: [join(repo, "NOT_ALLOWED.txt"), false] },
@@ -108,6 +110,7 @@ const editorCases: Call[] = [
     "git push origin +main", `git -C ${repo} push --force-with-lease origin main`, "git push --prune origin"].map((command) => shell(command, "rules")),
   shell("git push origin main", "ran", { contains: "main -> main" }),
   shell("git push -u origin main", "ran"),
+  shell("git push -u fork main", "ran"), // an ordinary push to a remote whose name starts with f
   shell(`echo run > ran.txt && cat ran.txt`, "ran", { contains: "run" }), // an editing role's shell is open
 ];
 

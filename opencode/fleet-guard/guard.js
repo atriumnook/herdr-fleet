@@ -21,7 +21,7 @@
  *   `git merge --no-ff <fleet or agents branch>`, `git merge --abort`.
  */
 
-/** characters of a plain word; `~` only after its first character, so nothing expands */
+/** characters of a plain word; `~` only after its first character, so nothing expands (in the fleet command's arguments an unquoted `~` expands to $HOME: harmless, an absolute path is allowed there anyway) */
 const WORD = /^(?!~)[A-Za-z0-9_.,:@%+=\/^~-]+$/;
 const PLAIN = /[A-Za-z0-9_.,:@%+=\/^~-]/;
 const DIGITS = /^[0-9]{1,9}$/;
@@ -36,7 +36,7 @@ const GIT_FLAGS = new Set([
   "--ignore-space-change", "--check", "--minimal", "--patience", "--histogram", "-p", "-u", "-s", "-w", "-b", "-M",
 ]);
 const GIT_VALUED = /^--(?:abbrev|max-count|skip|stat|diff-filter|since|until|after|before|author|committer|grep|format|pretty|date|unified)=(.+)$/;
-const GIT_SHORT = /^(?:-[0-9]{1,6}|-U[0-9]{1,4}|-[SG][A-Za-z0-9_.,:@%+=\/^~-]+)$/;
+const GIT_SHORT = /^(?:-[0-9]{1,6}|-n[0-9]{1,6}|-U[0-9]{1,4}|-[SG][A-Za-z0-9_.,:@%+=\/^~-]+)$/;
 
 /** a revision or a path handed to git: inside the repository, and not a secret file */
 function inside(word) {
@@ -54,6 +54,8 @@ function gitHistory(words) {
   for (let i = 0; i < rest.length; i++) {
     const word = rest[i];
     if (!inside(word)) return false;
+    // %GK, %GS, %GG and the rest of the %G placeholders verify a signature, which runs the gpg.program of the repository's config
+    if (/%G/.test(word)) return false;
     if (paths) continue;
     if (word === "--") { paths = true; continue; }
     if (!word.startsWith("-")) continue;
@@ -77,15 +79,17 @@ function ghFlags(rest, flags) {
 const PR_VIEW = { "--json": "value", "--comments": "bool", "-c": "bool" };
 const PR_CHECKS = { "--json": "value", "--required": "bool" };
 const PR_LIST = { "--json": "value", "--state": "value", "-s": "value", "--limit": "number", "-L": "number" };
-const RUN_VIEW = { "--json": "value", "--log": "bool", "--log-failed": "bool", "--exit-status": "bool" };
+const RUN_VIEW = { "--json": "value", "--log": "bool", "--log-failed": "bool", "--exit-status": "bool", "--job": "number" };
 
 function github(words) {
   const [, group, verb, ...rest] = words;
   if (group === "pr" && verb === "list") return ghFlags(rest, PR_LIST);
-  if (!DIGITS.test(rest[0] ?? "")) return false;
-  if (group === "pr" && verb === "view") return ghFlags(rest.slice(1), PR_VIEW);
-  if (group === "pr" && verb === "checks") return ghFlags(rest.slice(1), PR_CHECKS);
-  if (group === "run" && verb === "view") return ghFlags(rest.slice(1), RUN_VIEW);
+  const numbered = DIGITS.test(rest[0] ?? "");
+  const flags = numbered ? rest.slice(1) : rest;
+  // without a number, view and checks read the pull request of the checked-out branch; a run needs its number
+  if (group === "pr" && verb === "view") return ghFlags(flags, PR_VIEW);
+  if (group === "pr" && verb === "checks") return ghFlags(flags, PR_CHECKS);
+  if (group === "run" && verb === "view") return numbered && ghFlags(flags, RUN_VIEW);
   return false;
 }
 
