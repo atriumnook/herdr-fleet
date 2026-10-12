@@ -89,6 +89,25 @@ function storedDirectTyping(): boolean {
   try { return window.localStorage.getItem(DIRECT_TYPING_KEY) === "1"; } catch { return false; }
 }
 
+/**
+ * Puts xterm's input (the textarea the IME writes in, and places its window by) on the cursor's
+ * cell. xterm moves it only when the cursor moves: after a font change it stayed where the old
+ * cell size put it, below a smaller grid, and a mount that scrolls (a grid this view does not
+ * size) scrolled down to it, onto empty space. This is what xterm itself does on a cursor move.
+ */
+function placeInputAtCursor(term: Terminal): void {
+  const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
+  const input = term.textarea;
+  const buffer = term.buffer.active;
+  if (!screen || !input || term.cols === 0 || term.rows === 0 || buffer.viewportY !== buffer.baseY) return;
+  const cellWidth = screen.offsetWidth / term.cols;
+  const cellHeight = screen.offsetHeight / term.rows;
+  input.style.left = `${Math.min(buffer.cursorX, term.cols - 1) * cellWidth}px`;
+  input.style.top = `${buffer.cursorY * cellHeight}px`;
+  input.style.width = `${cellWidth}px`;
+  input.style.height = input.style.lineHeight = `${cellHeight}px`;
+}
+
 /** A touch screen as the main pointer: its soft keyboard is what the input line is for. */
 function useCoarsePointer(): boolean {
   const query = "(pointer: coarse)";
@@ -976,6 +995,7 @@ export function PaneTerminal({
       if (term.options.fontSize === terminalFontSize && term.options.fontFamily === fontFamily) return;
       term.options.fontSize = terminalFontSize;
       term.options.fontFamily = fontFamily;
+      placeInputAtCursor(term);
       if (!drives()) {
         fitViewRef.current?.();
         return;
@@ -985,6 +1005,7 @@ export function PaneTerminal({
       } catch {
         return;
       }
+      placeInputAtCursor(term);
       const pane = paneRef.current;
       if (pane) command({ kind: "resize", paneId: pane, cols: term.cols, rows: term.rows, force: true });
     };
