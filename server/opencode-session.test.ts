@@ -126,6 +126,18 @@ describe("the newest page", () => {
     expect(await wholeConversation(reader)).toEqual(parseOpencodeMessages(messages).turns);
   });
 
+  test("a turn longer than a page is cut into pages, its newest steps first, and the older ones join it exactly", async () => {
+    const messages = [user("msg_first"), ...Array.from({ length: 700 }, (_, k) => step(`msg_s${k}`))];
+    const { service, reader } = withService(messages);
+    const page = await reader.page(SID, false);
+    expect(page.turns).toHaveLength(1);
+    expect(page.turns[0]!.parts.length).toBeLessThanOrEqual(300);
+    expect(page.cursor).toBe("msg_s400");
+    expect(service.listCalls).toBeLessThanOrEqual(3);
+    const steps = (turns: ConversationTurn[]): number => turns.flatMap((turn) => turn.parts).length;
+    expect(steps(await wholeConversation(reader))).toBe(steps(parseOpencodeMessages(messages).turns));
+  });
+
   test("a turn longer than a fetch is read whole, back to the prompt that began it", async () => {
     const messages = [user("msg_first"), ...Array.from({ length: 250 }, (_, k) => step(`msg_s${k}`))];
     const { reader } = withService(messages);
@@ -300,6 +312,39 @@ describe("what costs a call", () => {
     service.messages[service.messages.length - 1] = { ...running, status: "completed", summary: "<summary>" };
     const second = await reader.page(SID, false);
     expect(second.turns.at(-1)!.parts).toEqual([{ kind: "compact", text: "<summary>" }]);
+  });
+
+  test("a long turn that is still going is joined to what is held, not walked again from its start", async () => {
+    const messages = [user("msg_first"), ...Array.from({ length: 250 }, (_, k) => step(`msg_s${k}`))];
+    const { service, reader } = withService(messages);
+    await reader.page(SID, true);
+    const calls = service.listCalls;
+    service.messages.push(step("msg_more"));
+    const next = await reader.page(SID, true);
+    expect(service.listCalls).toBe(calls + 1);
+    expect(next.turns[1]!.parts).toHaveLength(251);
+    // a step that changed in place inside the newest hundred is the new one
+    service.messages[service.messages.length - 1] = step("msg_more", { content: [{ type: "text", text: "<changed>" }] });
+    expect(JSON.stringify((await reader.page(SID, true)).turns)).toContain("<changed>");
+  });
+
+  test("what is held stays bounded however long the turn goes", async () => {
+    const { service, reader } = withService([user("msg_first")]);
+    for (let round = 0; round < 8; round += 1) {
+      service.messages.push(...Array.from({ length: 90 }, (_, k) => step(`msg_r${round}_${k}`)));
+      await reader.page(SID, true);
+    }
+    const held = (reader as unknown as { newest: Map<string, { messages: unknown[] }> }).newest.get(SID)!.messages;
+    expect(held.length).toBeLessThanOrEqual(400);
+    expect((await reader.page(SID, true)).turns.at(-1)!.parts.length).toBeGreaterThan(0);
+  });
+
+  test("a pasted image's bytes are not kept between polls", async () => {
+    const png = Buffer.from("<png bytes>").toString("base64");
+    const { reader } = withService([{ ...user("msg_u"), files: [{ data: png, mime: "image/png", source: { type: "inline" } }] }, step("msg_a")]);
+    await reader.page(SID, false);
+    const held = (reader as unknown as { newest: Map<string, { messages: { files?: { data: string; mime: string }[] }[] }> }).newest.get(SID)!.messages;
+    expect(held[0]!.files![0]).toMatchObject({ data: "", mime: "image/png" });
   });
 
   test("a pane that is working is read at every poll: the service does not say what another server runs", async () => {
