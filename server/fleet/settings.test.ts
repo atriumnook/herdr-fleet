@@ -48,6 +48,13 @@ describe("fleet settings", () => {
     expect(settings.roles[1]!.defaults).toEqual({ candidates: [{ agent: "claude" }, { agent: "codex" }], thinking: "high" });
   });
 
+  it("list the roles in the order work passes between them, then the others by name", () => {
+    const { userDir, repo } = setup();
+    const names = ["worker", "planner", "zeta", "reviewer", "alpha", "scout", "lead", "architect", "coordinator"];
+    const store = new FleetSettingsStore({ agents: () => names.map((name) => role(name)), userDir });
+    expect(store.read(repo).roles.map((each) => each.name)).toEqual(["coordinator", "lead", "architect", "scout", "worker", "reviewer", "planner", "alpha", "zeta"]);
+  });
+
   it("write a role's candidates into fleet.json, keeping what the page does not set, and the fleet starts the role on them", async () => {
     const { store, repo, file, userDir, written } = setup();
     mkdirSync(userDir, { recursive: true });
