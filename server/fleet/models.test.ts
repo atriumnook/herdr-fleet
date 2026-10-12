@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT_KINDS, type AgentAdapter } from "./adapters.ts";
-import { listAgyModels, listCodexModels, listCursorModels, listPiModels, parseAgyModels, parseCodexModels, parseCursorModels, parsePiModels } from "./model-lists.ts";
+import { listAgyModels, listCodexModels, listCursorModels, listOpencodeModels, listPiModels, parseAgyModels, parseCodexModels, parseCursorModels, parseOpencodeModels, parsePiModels } from "./model-lists.ts";
 import { modelListed } from "../../shared/fleet.ts";
 import { ModelCatalog } from "./models.ts";
 
@@ -20,6 +20,12 @@ describe("model lists, as each CLI prints them", () => {
   it("reads pi's table as provider/model", () => {
     const output = "provider  model    context  max-out  thinking  images\nopenai    gpt-4.1  1.0M     32.8K    no        yes\n";
     expect(parsePiModels(output)).toEqual([{ id: "openai/gpt-4.1" }]);
+  });
+
+  it("reads opencode's provider/model lines, and leaves out what is not one", () => {
+    expect(parseOpencodeModels("github-copilot/claude-opus-5.5\nminimax-coding-plan/MiniMax-M2.5\n\nopencode/big-pickle  \nnot a model\nx/y#high\n")).toEqual([
+      { id: "github-copilot/claude-opus-5.5" }, { id: "minimax-coding-plan/MiniMax-M2.5" }, { id: "opencode/big-pickle" },
+    ]);
   });
 
   it("reads one page of codex's model/list and where the next begins", () => {
@@ -86,6 +92,19 @@ describe("agy's models, listed once per effort", () => {
     expect(modelListed(listing, "gemini-9")).toBe(false);
     // another CLI's names keep their ending
     expect(modelListed({ ...listing, agent: "cursor" }, "gemini-3.1-pro")).toBe(false);
+  });
+});
+
+describe("opencode's models, run with a #variant", () => {
+  const listing = { agent: "opencode" as const, complete: false, models: parseOpencodeModels("github-copilot/claude-opus-5.5\nopencode/big-pickle\n") };
+
+  it("accepts a listed id with or without its variant, and nothing else", () => {
+    expect(modelListed(listing, "github-copilot/claude-opus-5.5")).toBe(true);
+    expect(modelListed(listing, "github-copilot/claude-opus-5.5#high")).toBe(true);
+    expect(modelListed(listing, "github-copilot/claude-opus-5.5#high:low")).toBe(true);
+    expect(modelListed(listing, "github-copilot/claude-opus-9#high")).toBe(false);
+    // only opencode names a variant that way
+    expect(modelListed({ ...listing, agent: "pi" }, "github-copilot/claude-opus-5.5#high")).toBe(false);
   });
 });
 
@@ -220,6 +239,18 @@ describe("what a model listing's CLI gets", () => {
     noSecrets(pi);
     expect(envNames(pi)).toContain("PI_CODING_AGENT_DIR");
     expect(envNames(pi)).not.toContain("CODEX_HOME");
+  });
+
+  it("opencode lists with its own private server, never the person's shared service, in its own emptied folder and with its self-update held off", async () => {
+    const dir = tempDir();
+    const workDir = join(dir, "model-list", "opencode");
+    plant(workDir);
+    const opencode = recorder(dir, "opencode2", "printf '%s\\n' \"$*\" > \"$0.args\"\nprintf 'anthropic/claude-sonnet-5-5\\nopencode/big-pickle\\n'");
+    expect(await listOpencodeModels({ workDir, command: opencode, env: SERVER_ENV })).toEqual([{ id: "anthropic/claude-sonnet-5-5" }, { id: "opencode/big-pickle" }]);
+    expect(readFileSync(`${opencode}.args`, "utf8")).toBe("models --standalone\n");
+    expectOwnEmptyFolder(opencode, workDir);
+    noSecrets(opencode);
+    expect(readFileSync(`${opencode}.env`, "utf8")).toContain("OPENCODE_DISABLE_AUTOUPDATE=true\n");
   });
 
   it("codex app-server runs in its own emptied folder, with CODEX_HOME and no API key or herdr session", async () => {

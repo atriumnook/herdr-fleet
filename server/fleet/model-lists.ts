@@ -1,7 +1,7 @@
 /**
  * Each agent CLI's own list of the models it offers. Every command here answers from the CLI's
  * catalog or its account, none calls a model: `codex app-server` `model/list`, `agy models`,
- * `cursor-agent models`, `pi --list-models`. Claude Code has no such command, so its aliases are
+ * `cursor-agent models`, `pi --list-models`, `opencode2 models --standalone`. Claude Code has no such command, so its aliases are
  * the list (`claude --help` names them).
  */
 
@@ -79,6 +79,26 @@ export function parsePiModels(output: string): ModelEntry[] {
 /** pi keeps its sign-in under PI_CODING_AGENT_DIR, which passes when set. */
 export const listPiModels = async (options: ListOptions): Promise<ModelEntry[]> =>
   parsePiModels(await run([options.command ?? "pi", "--list-models"], options, childEnv(options.env ?? process.env, ["PI_CODING_AGENT_DIR"])));
+
+/**
+ * `opencode2 models`: one `provider/model` per line, for the providers that are signed in. A model
+ * can be run with `#variant` after it, which this list does not name. It lists what the catalog
+ * knows, not everything the TUI accepts (free models of the OpenCode provider are missing), so it
+ * is not a complete list.
+ */
+export function parseOpencodeModels(output: string): ModelEntry[] {
+  return output.split("\n").flatMap((line) => {
+    const id = line.replace(invisible, "").trim();
+    return /^[^\s/#]+\/\S+$/.test(id) && !id.includes("#") ? [{ id }] : [];
+  });
+}
+
+/**
+ * `--standalone` keeps the command in a private server of its own: without it `models` goes to the
+ * person's shared background service, and starts it when it is not running. Updating itself is off.
+ */
+export const listOpencodeModels = async (options: ListOptions): Promise<ModelEntry[]> =>
+  parseOpencodeModels(await run([options.command ?? "opencode2", "models", "--standalone"], options, { ...childEnv(options.env ?? process.env), OPENCODE_DISABLE_AUTOUPDATE: "true" }));
 
 /** codex's `model/list` result: the models of one page, and where the next begins. */
 export function parseCodexModels(result: unknown): { models: ModelEntry[]; next?: string } {
