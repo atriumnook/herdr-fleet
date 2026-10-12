@@ -5,7 +5,7 @@ import { join } from "node:path";
 import type { ConversationTurn } from "../shared/protocol.ts";
 import { ConversationUnavailable, HistoryChanged } from "./conversation-errors.ts";
 import { parseOpencodeMessages } from "./opencode-messages.ts";
-import { OpencodeConversations, OpencodeHttpError, opencodeCli, type OpencodeApi } from "./opencode-session.ts";
+import { OpencodeConversations, OpencodeHttpError, opencodeCli, type CliOptions, type OpencodeApi } from "./opencode-session.ts";
 
 type Row = Record<string, unknown>;
 const SID = "ses_testsession0001";
@@ -22,8 +22,10 @@ class Service implements OpencodeApi {
   calls: string[] = [];
   async serviceRunning(): Promise<boolean> { return this.running; }
 
-  /** the message lists asked for */
-  get listCalls(): number { return this.calls.filter((path) => path.includes("/message?")).length; }
+  /** the message lists asked for, but the one-message look at the newest */
+  get listCalls(): number { return this.calls.filter((path) => path.includes("/message?") && !path.includes("limit=1&")).length; }
+  /** the one-message looks at the newest */
+  get probes(): number { return this.calls.filter((path) => path.includes("limit=1&")).length; }
 
   touch(): void {
     const time = this.session!["time"] as { updated: number };
@@ -256,16 +258,6 @@ describe("a staged revert", () => {
 });
 
 describe("what costs a call", () => {
-  test("an unchanged session at rest is read once, not at every poll", async () => {
-    const { service, reader } = withService(chat(3));
-    const first = await reader.page(SID, false);
-    const calls = service.listCalls;
-    const second = await reader.page(SID, false);
-    expect(service.listCalls).toBe(calls);
-    expect(second.version).toBe(first.version);
-    expect(second.turns).toEqual(first.turns);
-  });
-
   test("a session that was written to is read again", async () => {
     const { service, reader } = withService(chat(3));
     const first = await reader.page(SID, false);
@@ -274,6 +266,16 @@ describe("what costs a call", () => {
     const second = await reader.page(SID, false);
     expect(second.turns).toHaveLength(first.turns.length + 1);
     expect(second.version).not.toBe(first.version);
+  });
+
+  test("an unchanged session at rest is read once, not at every poll", async () => {
+    const { service, reader } = withService(chat(3));
+    const first = await reader.page(SID, false);
+    const calls = service.listCalls;
+    const second = await reader.page(SID, false);
+    expect(service.listCalls).toBe(calls);
+    expect(second.version).toBe(first.version);
+    expect(second.turns).toEqual(first.turns);
   });
 
   test("a pane that is working is read at every poll: the service does not say what another server runs", async () => {
@@ -405,6 +407,10 @@ if [ "$1" = api ]; then
     */big) cat ${JSON.stringify(join(root, "big.json"))};;
     */cut) n=$(cat ${JSON.stringify(join(root, "attempts"))}); echo $((n+1)) > ${JSON.stringify(join(root, "attempts"))}
            if [ "$n" -lt 1 ]; then cat ${JSON.stringify(join(root, "cut.json"))}; else cat ${JSON.stringify(join(root, "ok.json"))}; fi;;
+    */hang) trap '' TERM; sleep 5; cat ${JSON.stringify(join(root, "ok.json"))};;
+    */fail) echo "boom: \\"quoted\\" detail" >&2; exit 3;;
+    */huge) head -c 5000 /dev/zero | tr '\\0' a;;
+    */slow) echo start >> ${JSON.stringify(join(root, "overlap"))}; sleep 0.3; echo end >> ${JSON.stringify(join(root, "overlap"))}; cat ${JSON.stringify(join(root, "ok.json"))};;
     */alwayscut) cat ${JSON.stringify(join(root, "cut.json"))};;
     */missing) echo '{"_tag":"SessionNotFoundError","message":"x"}'; echo "HTTP 404 Not Found" >&2; exit 1;;
     *) cat ${JSON.stringify(join(root, "ok.json"))};;
@@ -419,17 +425,54 @@ exit 2
   });
   afterAll(() => rmSync(root, { recursive: true, force: true }));
 
-  const cli = (extra: Record<string, string> = {}) => opencodeCli({ workDir: join(root, "work"), command: fake, env: { PATH: process.env["PATH"], HOME: root, HERDR_PANE_ID: "p", OPENAI_API_KEY: "sk", OPENCODE_PASSWORD: "pw", ...extra } });
+  const cli = (extra: Record<string, string> = {}, options: Partial<CliOptions> = {}) => opencodeCli({ workDir: join(root, "work"), command: fake, env: { PATH: process.env["PATH"], HOME: root, HERDR_PANE_ID: "p", OPENAI_API_KEY: "sk", OPENCODE_PASSWORD: "pw", ...extra }, ...options });
   const calls = (): string[] => readFileSync(log, "utf8").trim().split("\n");
 
-  test("a reply of hundreds of kilobytes through a pipe arrives whole", async () => {
+  test("a reply of hundreds of kilobytes arrives whole at the reading end (the writer's own cut is not reproducible here)", async () => {
     const body = await cli().get("/api/session/big") as { data: { text: string }[] };
     expect(body.data[0]!.text).toHaveLength(400_000);
   });
 
-  test("a cut reply is read again; one that stays cut is a failed read, not a crash", async () => {
+  test("a reply cut short (a file standing in for the cut) is read again; one that stays cut is a failed read, not a crash", async () => {
     expect(await cli().get("/api/session/cut")).toEqual({ data: { id: SID } });
     await expect(cli().get("/api/session/alwayscut")).rejects.toThrow("no JSON");
+  });
+
+  test("a CLI that ignores SIGTERM is killed, and the read ends with a timeout that is not tried again", async () => {
+    const before = calls().filter((line) => line.includes("/api/session/hang")).length;
+    const started = Date.now();
+    await expect(cli({}, { timeoutMs: 300, killGraceMs: 200 }).get("/api/session/hang")).rejects.toThrow("timed out");
+    expect(Date.now() - started).toBeLessThan(2_500);
+    expect(calls().filter((line) => line.includes("/api/session/hang")).length - before).toBe(1);
+  });
+
+  test("an error exit with nothing to read is not tried again, and keeps what the CLI said", async () => {
+    const before = calls().filter((line) => line.includes("/api/session/fail")).length;
+    const error = (await cli().get("/api/session/fail").catch((reason: unknown) => reason)) as Error;
+    expect(error.message).toContain("exit 3");
+    expect(error.message).toContain('boom: "quoted" detail');
+    expect(calls().filter((line) => line.includes("/api/session/fail")).length - before).toBe(1);
+  });
+
+  test("a reply past the limit is dropped, not held", async () => {
+    await expect(cli({}, { maxReplyBytes: 1000 }).get("/api/session/huge")).rejects.toThrow("more than 1000 bytes");
+  });
+
+  test("no more CLIs run at once than allowed, however many ask", async () => {
+    rmSync(join(root, "overlap"), { force: true });
+    const api = cli({}, { maxChildren: 2 });
+    await Promise.all(Array.from({ length: 6 }, () => api.get("/api/session/slow")));
+    let open = 0;
+    let most = 0;
+    for (const line of readFileSync(join(root, "overlap"), "utf8").trim().split("\n")) { open += line === "start" ? 1 : -1; most = Math.max(most, open); }
+    expect(most).toBe(2);
+  });
+
+  test("panels asking whether the service runs share one question", async () => {
+    const before = calls().filter((line) => line.startsWith("service status")).length;
+    const api = cli();
+    await Promise.all([api.serviceRunning(), api.serviceRunning(), api.serviceRunning()]);
+    expect(calls().filter((line) => line.startsWith("service status")).length - before).toBe(1);
   });
 
   test("an HTTP error carries its status and tag", async () => {

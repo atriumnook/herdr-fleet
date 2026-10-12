@@ -33,8 +33,13 @@ const PAGE_MESSAGES = 100;
 /** A session this long is read no further back in one page: the rest is a page of its own. */
 const MAX_FETCHES = 30;
 const CLI_TIMEOUT_MS = 20_000;
-/** `opencode2 service status` is asked at most this often */
-const SERVICE_TTL_MS = 2_000;
+/** after SIGTERM a CLI has this long before SIGKILL, and then as long again before the read is given up */
+const KILL_GRACE_MS = 2_000;
+/** a reply larger than this is no reply: 100 messages with a few large outputs is a few MB */
+const MAX_REPLY_BYTES = 32 * 1024 * 1024;
+const MAX_CHILDREN = 4;
+/** `opencode2 service status` is asked at most this often: under the chat's own poll interval */
+const SERVICE_TTL_MS = 1_000;
 const MODEL_TTL_MS = 10 * 60_000;
 const MODEL_RETRY_MS = 30_000;
 const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
@@ -60,35 +65,101 @@ export interface CliOptions {
   command?: string;
   /** the server's environment; process.env when left out */
   env?: Record<string, string | undefined>;
-  /** how often a cut reply is read again */
+  /** how often a reply that exited 0 but was cut is read again */
   attempts?: number;
+  timeoutMs?: number;
+  killGraceMs?: number;
+  maxReplyBytes?: number;
+  /** CLIs running at once, whatever the number of panels and panes asking */
+  maxChildren?: number;
+}
+
+/** The head of what a CLI said on stderr, as one printable line */
+const head = (text: string): string => text.replace(/[^\x20-\x7e]+/g, " ").trim().slice(0, 200);
+
+/** Reads a stream to its end, keeping `limit` bytes; `over` says it held more (the reader then stops). */
+async function readUpTo(stream: ReadableStream<Uint8Array>, limit: number): Promise<{ text: string; over: boolean }> {
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const reader = stream.getReader();
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > limit) return { text: "", over: true };
+      chunks.push(value);
+    }
+  } finally {
+    reader.cancel().catch(() => {});
+  }
+  return { text: Buffer.concat(chunks).toString("utf8"), over: false };
 }
 
 /**
  * `opencode2 api GET <path>` and `opencode2 service status`, run as a usage probe is: in a folder
- * of ours, with only the environment the CLI needs to find its service (HOME, XDG_*).
+ * of ours, with only the environment the CLI needs to find its service (HOME, XDG_*). Not
+ * OPENCODE_*: a person who moves OpenCode's state with those would have this look at another
+ * service than their pane uses, and read "stopped" (the pane stays on its scrollback).
  *
  * The CLI writes its reply and exits without waiting for the pipe to drain, so a large reply to a
- * pipe can arrive cut (seen with Python's pipes; Bun's reads whole). A cut reply is not JSON: it
- * is read again rather than taken for an answer.
+ * pipe can arrive cut. A reply that exited 0 and is not JSON is read again. A CLI that timed out,
+ * exited with an error, or answered too much is not: the same call would take as long again.
  */
 export function opencodeCli(options: CliOptions): OpencodeApi {
   const command = options.command ?? "opencode2";
   const attempts = options.attempts ?? 3;
+  const timeoutMs = options.timeoutMs ?? CLI_TIMEOUT_MS;
+  const grace = options.killGraceMs ?? KILL_GRACE_MS;
+  const maxBytes = options.maxReplyBytes ?? MAX_REPLY_BYTES;
+  const limit = options.maxChildren ?? MAX_CHILDREN;
   let prepared = false;
+  let running = 0;
+  const waiting: (() => void)[] = [];
   let service: { at: number; running: boolean } | null = null;
+  let asking: Promise<boolean> | null = null;
 
-  async function run(args: string[]): Promise<{ stdout: string; stderr: string; code: number }> {
-    // once: a second read must not empty the folder under a first one still running
-    if (!prepared) { emptyWorkDir(options.workDir); prepared = true; }
-    const child = Bun.spawn([command, ...args], { cwd: options.workDir, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: childEnv(options.env ?? process.env) });
-    const timer = setTimeout(() => child.kill(), CLI_TIMEOUT_MS);
-    try {
-      const [stdout, stderr] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text()]);
-      return { stdout, stderr, code: await child.exited };
-    } finally {
-      clearTimeout(timer);
+  async function slot<T>(work: () => Promise<T>): Promise<T> {
+    if (running >= limit) await new Promise<void>((resolve) => waiting.push(resolve));
+    running += 1;
+    try { return await work(); } finally {
+      running -= 1;
+      waiting.shift()?.();
     }
+  }
+
+  type Ran = { stdout: string; stderr: string; code: number };
+  function run(args: string[]): Promise<Ran> {
+    return slot(async () => {
+      // once: a second read must not empty the folder under a first one still running
+      if (!prepared) { emptyWorkDir(options.workDir); prepared = true; }
+      const child = Bun.spawn([command, ...args], { cwd: options.workDir, stdin: "ignore", stdout: "pipe", stderr: "pipe", env: childEnv(options.env ?? process.env) });
+      let timedOut = false;
+      let giveUp: (error: Error) => void = () => {};
+      const abandoned = new Promise<never>((_, reject) => { giveUp = reject; });
+      const timers: ReturnType<typeof setTimeout>[] = [];
+      timers.push(setTimeout(() => {
+        timedOut = true;
+        child.kill("SIGTERM");
+        // a CLI that ignores SIGTERM, or a launcher whose child holds the pipe, must not hold a read for ever
+        timers.push(setTimeout(() => {
+          child.kill("SIGKILL");
+          timers.push(setTimeout(() => giveUp(new Error(`opencode ${args[0]} timed out`)), grace));
+        }, grace));
+      }, timeoutMs));
+      try {
+        const [out, err, code] = await Promise.race([
+          Promise.all([readUpTo(child.stdout, maxBytes), readUpTo(child.stderr, 4096).then((read) => read.text, () => ""), child.exited]),
+          abandoned,
+        ]);
+        if (out.over) { child.kill("SIGKILL"); throw new Error(`opencode ${args[0]} answered more than ${maxBytes} bytes`); }
+        if (timedOut) throw new Error(`opencode ${args[0]} timed out`);
+        return { stdout: out.text, stderr: err, code };
+      } finally {
+        for (const timer of timers) clearTimeout(timer);
+        child.kill("SIGKILL");
+      }
+    });
   }
 
   return {
@@ -97,24 +168,28 @@ export function opencodeCli(options: CliOptions): OpencodeApi {
         const { stdout, stderr, code } = await run(["api", "GET", path]);
         let body: unknown;
         try { body = JSON.parse(stdout); } catch {
-          if (attempt < attempts) continue;
-          throw new Error("opencode api returned no JSON");
+          if (code === 0 && attempt < attempts) continue;
+          throw new Error(`opencode api returned no JSON (exit ${code}${stderr.trim() ? `: ${head(stderr)}` : ""})`);
         }
         if (code === 0) return body;
         const status = /HTTP (\d{3})/.exec(stderr)?.[1];
         throw new OpencodeHttpError(status === undefined ? 0 : Number(status), String(record(body)["_tag"] ?? ""));
       }
     },
-    async serviceRunning() {
+    serviceRunning() {
       const now = Date.now();
-      if (service !== null && now - service.at < SERVICE_TTL_MS) return service.running;
-      let running = false;
-      try {
-        const { stdout, code } = await run(["service", "status"]);
-        running = code === 0 && /^https?:\/\//.test(stdout.trim());
-      } catch { /* a status that cannot be asked is a service not known to run */ }
-      service = { at: now, running };
-      return running;
+      if (service !== null && now - service.at < SERVICE_TTL_MS) return Promise.resolve(service.running);
+      // one question at a time: panels asking together share the answer
+      asking ??= (async () => {
+        let answer = false;
+        try {
+          const { stdout, code } = await run(["service", "status"]);
+          answer = code === 0 && /^https?:\/\//.test(stdout.trim());
+        } catch { /* a status that cannot be asked is a service not known to run */ }
+        service = { at: Date.now(), running: answer };
+        return answer;
+      })().finally(() => { asking = null; });
+      return asking;
     },
   };
 }
