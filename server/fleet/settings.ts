@@ -17,6 +17,13 @@ import type { UsageTracker } from "./usage.ts";
 const MAX_CANDIDATES = 8;
 const KINDS: readonly FleetAgentKind[] = ["claude", "codex", "cursor", "agy", "opencode", "pi"];
 const MAX_SETUP_CHARS = 2000;
+/**
+ * The bundled roles in the order work passes between them: the coordinator starts threads, a
+ * thread's lead asks an architect how to build, and hands an investigation to a scout, a part to a
+ * worker and every change to a reviewer. The planner, which neither asks for, comes after them, and
+ * the person's own roles follow by name.
+ */
+const ROLE_FLOW = ["coordinator", "lead", "architect", "scout", "worker", "reviewer", "planner"];
 const LIMITS = {
   maxUsedPercent: [1, 100], rateLimitCooldownMinutes: [1, 24 * 60], maxConcurrent: [1, 32],
 } as const satisfies Record<string, readonly [number, number]>;
@@ -49,7 +56,7 @@ export class FleetSettingsStore {
     const projectConfig = mergeConfig(user, { roles: projectRoles });
     const userRoles = isObject(raw["roles"]) ? raw["roles"] : {};
     const readOnlyAgents = KINDS.filter((kind) => adapterFor(kind).readOnlyArgs);
-    const roles = this.deps.agents(cwd).map((definition): RoleSettings => {
+    const roles = byFlow(this.deps.agents(cwd)).map((definition): RoleSettings => {
       const readOnly = definition.edits === false;
       const own = candidatesOf(definition, {}, DEFAULT_CONFIG);
       const chosen = candidatesOf(definition, user.roles[definition.name] ?? {}, user);
@@ -93,6 +100,12 @@ export class FleetSettingsStore {
 const ROLE_KEYS = ["agent", "model", "fallbackModels", "thinking"] as const;
 
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
+
+/** The roles in ROLE_FLOW's order, then the others by name: the folders are read in no fixed order. */
+function byFlow(definitions: AgentDefinition[]): AgentDefinition[] {
+  const rank = (name: string) => { const at = ROLE_FLOW.indexOf(name); return at === -1 ? ROLE_FLOW.length : at; };
+  return [...definitions].sort((a, b) => rank(a.name) - rank(b.name) || a.name.localeCompare(b.name));
+}
 
 /**
  * A role's candidates in the order the orchestrator tries them (its spawnWithFallbacks): the
