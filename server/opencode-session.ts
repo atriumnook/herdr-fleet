@@ -34,8 +34,8 @@ const PAGE_MESSAGES = 100;
 const MAX_PAGE_MESSAGES = 300;
 /** The messages kept of a session between polls; a poll reads the newest hundred and joins them to these. */
 const KEEP_MESSAGES = 400;
-/** A session this long is read no further back in one page: the rest is a page of its own. */
-const MAX_FETCHES = 30;
+/** Reads one walk makes at most: a gap or a revert deeper than this is a changed history, not a longer wait. */
+const MAX_FETCHES = 15;
 const SESSIONS_KEPT = 4;
 const CLI_TIMEOUT_MS = 20_000;
 /** after SIGTERM a CLI has this long before SIGKILL, and then as long again before the read is given up */
@@ -225,6 +225,8 @@ interface Walk {
   /** the session's first message is among them */
   end: boolean;
   sinceFound: boolean;
+  /** the staged revert's message was not reached: everything read is hidden by it */
+  stillHidden: boolean;
   hidden: Set<string>;
   /** the newest message the service listed, hidden or not */
   newestId: string;
@@ -363,6 +365,8 @@ export class OpencodeConversations {
     let end: boolean;
     if (page.before !== undefined) {
       if (page.since === page.before) return this.answer(sessionId, page, [], page.since, { model: null, reasoning_effort: null });
+      // a `since` the service does not have is a changed history at once, not after the whole walk
+      if (page.since !== undefined && (await this.message(sessionId, page.since)) === null) throw new HistoryChanged();
       const walk = await this.walk(sessionId, { before: page.before, since: page.since, revert });
       if (page.since !== undefined && !walk.sinceFound) throw new HistoryChanged();
       messages = walk.messages;
@@ -425,6 +429,7 @@ export class OpencodeConversations {
       if (join >= 0) return settle([...cached.messages.slice(0, join), ...data], cached.end, new Set(), newestId);
     }
     const walk = await this.walk(sessionId, { revert });
+    if (walk.stillHidden && !walk.end) throw new ConversationUnavailable("opencode_revert_too_deep");
     return settle(walk.messages, walk.end, walk.hidden, walk.newestId);
   }
 
@@ -479,12 +484,12 @@ export class OpencodeConversations {
       const next = record(body["cursor"])["next"];
       // fewer than asked for is the last page
       if (data.length < FETCH_MESSAGES || typeof next !== "string") { end = true; break; }
-      if (sinceFound) break;
-      if (collected.length >= MAX_PAGE_MESSAGES || (collected.length >= PAGE_MESSAGES && collected.some(startsTurn))) break;
+      if (options.since !== undefined) { if (sinceFound) break; }
+      else if (collected.length >= MAX_PAGE_MESSAGES || (collected.length >= PAGE_MESSAGES && collected.some(startsTurn))) break;
       if (fetched >= MAX_FETCHES) break;
       cursor = next;
     }
-    return { messages: collected.reverse(), end, sinceFound, hidden, newestId };
+    return { messages: collected.reverse(), end, sinceFound, stillHidden: reverting, hidden, newestId };
   }
 
   /**
@@ -493,11 +498,12 @@ export class OpencodeConversations {
    * the list; two stamped alike are taken as not hidden, and the next read corrects it.
    */
   private async requireVisible(sessionId: string, revert: string, anchor: string): Promise<void> {
+    if (anchor === revert) throw new HistoryChanged();
     const [reverted, held] = await Promise.all([this.message(sessionId, revert), this.message(sessionId, anchor)]);
     if (held === null) throw new HistoryChanged();
     if (reverted === null) return;
     const created = (message: Row): number => { const at = record(message["time"])["created"]; return typeof at === "number" ? at : 0; };
-    if (created(held) >= created(reverted)) throw new HistoryChanged();
+    if (created(held) > created(reverted)) throw new HistoryChanged();
   }
 }
 

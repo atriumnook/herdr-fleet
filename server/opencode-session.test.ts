@@ -174,6 +174,31 @@ describe("older pages", () => {
     expect(none.cursor).toBe(newest.cursor);
   });
 
+  test("a gap of more than a fetch is read on until `since`, not answered as a changed history", async () => {
+    const { reader } = withService(chat(80, 3));
+    const newest = await reader.page(SID, false);
+    // about 180 messages back: the tab was in the background while more than a page arrived
+    const gap = await reader.page(SID, false, { before: newest.cursor!, since: "msg_u10" });
+    expect(gap.turns.length).toBeGreaterThan(0);
+    expect(JSON.stringify(gap.turns)).toContain("msg_u10");
+    expect(JSON.stringify(gap.turns)).not.toContain("msg_u9>");
+  });
+
+  test("a `since` the service does not have costs one look, not a walk", async () => {
+    const { service, reader } = withService(chat(80, 3));
+    const newest = await reader.page(SID, false);
+    const calls = service.calls.length;
+    await expect(reader.page(SID, false, { before: newest.cursor!, since: "msg_forged" })).rejects.toBeInstanceOf(HistoryChanged);
+    expect(service.calls.slice(calls).filter((path) => path.includes("cursor="))).toEqual([]);
+  });
+
+  test("a gap longer than a walk may read is a changed history", async () => {
+    const messages = [user("msg_a"), ...Array.from({ length: 1700 }, (_, k) => step(`msg_s${k}`)), user("msg_z"), step("msg_t")];
+    const { service, reader } = withService(messages);
+    await expect(reader.page(SID, false, { before: "msg_z", since: "msg_a" })).rejects.toBeInstanceOf(HistoryChanged);
+    expect(service.listCalls).toBeLessThanOrEqual(15);
+  });
+
   test("a `since` the walk never meets means the history changed", async () => {
     const { reader } = withService(chat(3));
     await expect(reader.page(SID, false, { before: "msg_u2", since: "msg_gone" })).rejects.toBeInstanceOf(HistoryChanged);
@@ -259,6 +284,25 @@ describe("a staged revert", () => {
     revertTo(service, "msg_u70");
     // the anchor is older than the revert: untouched
     expect((await reader.page(SID, false, { before: newest.cursor! })).turns).toEqual(older.turns);
+  });
+
+  test("an anchor stamped like the revert's message is not taken for hidden, but the revert's own message is", async () => {
+    const { service, reader } = withService(chat(80, 3));
+    const newest = await reader.page(SID, false);
+    const at = (service.messages.find((m) => m["id"] === "msg_u70")!["time"] as { created: number }).created;
+    const sibling = service.messages.find((m) => m["id"] === "msg_a70_0")!;
+    (sibling["time"] as { created: number }).created = at;
+    revertTo(service, "msg_u70");
+    await expect(reader.page(SID, false, { before: "msg_u70" })).rejects.toBeInstanceOf(HistoryChanged);
+    const equal = await reader.page(SID, false, { before: "msg_a70_0" });
+    expect(equal.turns.length).toBeGreaterThan(0);
+    expect(newest.turns.length).toBeGreaterThan(0);
+  });
+
+  test("a revert deeper than a walk reads is no empty chat: the pane stays on its scrollback", async () => {
+    const { service, reader } = withService([user("msg_first"), ...Array.from({ length: 1700 }, (_, k) => step(`msg_s${k}`))]);
+    revertTo(service, "msg_first");
+    await expect(reader.page(SID, false)).rejects.toBeInstanceOf(ConversationUnavailable);
   });
 
   test("a held start the revert hides means the history changed", async () => {
