@@ -776,14 +776,33 @@ describe("agent kinds", () => {
     expect(runtime.prompts[1]!.text).toBe("next");
   });
 
-  it("starts opencode with the fleet's permission rules and update guard in its pane, and holds a read-only role to its result file", async () => {
+  it("starts opencode standalone with its config in the pane, and holds a read-only role to its result file and its commands", async () => {
     const { fleet, runtime, root } = setup({ agents: [role("auditor", { agent: "opencode", model: "p/m", edits: false, interactive: true })] });
     const run = await spawn(fleet, { role: "auditor" });
     const env = runtime.locations[0]!.env;
-    expect(env).toMatchObject({ HERDR_FLEET_GROUP: "g1", HERDR_FLEET_URL: "http://127.0.0.1:1", OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_SHARE: "true", OPENCODE_DISABLE_LSP_DOWNLOAD: "true" });
-    expect(JSON.parse(env["OPENCODE_PERMISSION"]!).external_directory).toEqual({ [`${join(root, "results")}/${run.id}/*`]: "allow" });
-    expect(runtime.starts[0]).toMatchObject({ kind: "opencode", args: ["--model", "p/m", "--agent", "fleet-readonly"] });
+    expect(env).toMatchObject({ HERDR_FLEET_GROUP: "g1", HERDR_FLEET_URL: "http://127.0.0.1:1", OPENCODE_DISABLE_AUTOUPDATE: "true" });
+    const config = JSON.parse(env["OPENCODE_CONFIG_CONTENT"]!);
+    expect(config).toMatchObject({ model: "p/m", share: "disabled", update: "disable", default_agent: "fleet-readonly" });
+    expect(config.agents["fleet-readonly"].permissions).toContainEqual({ action: "edit", resource: `${join(root, "results")}/${run.id}/*`, effect: "allow" });
+    expect(runtime.starts[0]).toMatchObject({ kind: "opencode", args: ["--standalone"] });
     expect(runtime.prompts[0]!.text).toContain("write that with your file-editing tool");
+    expect(runtime.prompts[0]!.text).toContain("git diff --no-ext-diff --no-textconv");
+    expect(runtime.prompts[0]!.text).not.toContain("gh pr merge");
+  });
+
+  it("gives opencode's editing roles no read-only agent, and only the project's coordinator the merge commands", async () => {
+    const editing = setup({ agents: [role("worker", { agent: "opencode", model: "p/m" })] });
+    await spawn(editing.fleet);
+    const config = JSON.parse(editing.runtime.locations[0]!.env["OPENCODE_CONFIG_CONTENT"]!);
+    expect(config.default_agent).toBeUndefined();
+    expect(config.agents).toBeUndefined();
+    expect(config.permissions).toContainEqual({ action: "shell", resource: "git *push* --force*", effect: "deny" });
+    expect(editing.runtime.prompts[0]!.text).not.toContain("Your shell runs only");
+    const merging = setup({ agents: [role("coordinator", { agent: "opencode", model: "p/m", edits: false, interactive: true })] });
+    await spawn(merging.fleet, { role: "coordinator" });
+    const rules = JSON.parse(merging.runtime.locations[0]!.env["OPENCODE_CONFIG_CONTENT"]!).agents["fleet-readonly"].permissions;
+    expect(rules).toContainEqual({ action: "shell", resource: "git pull --ff-only", effect: "allow" });
+    expect(merging.runtime.prompts[0]!.text).toContain("gh pr merge <number> --merge");
   });
 
   it("waits for a CLI herdr calls ready too early to draw its input, and blocks on a question it draws instead", async () => {

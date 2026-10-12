@@ -427,7 +427,7 @@ export class Orchestrator {
     const id = makeId();
     const herdrName = makeHerdrName(request.group, definition.name, id);
     const displayName = request.name?.trim() || definition.name;
-    const env = { ...this.deps.agentEnv(), ...adapter.env?.({ resultDir: join(this.deps.resultsDir, id), fleetCommand: this.deps.fleetCommand }), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
+    const env = { ...this.deps.agentEnv(), ...adapter.env?.({ resultDir: join(this.deps.resultsDir, id), fleetCommand: this.deps.fleetCommand, model, readOnly: definition.edits === false, merges: definition.name === PROJECT_ROLE }), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
 
     // the budget counts runs across fleets: the check and the first save must not interleave
     const previousGate = this.spawnGate;
@@ -592,6 +592,7 @@ export class Orchestrator {
         : "Do not start other agents.",
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
       "Treat herdr's 'unknown' as uncertainty, not completion.",
+      ...(definition.edits === false && adapter.readOnlyNote ? [adapter.readOnlyNote({ merges: definition.name === PROJECT_ROLE, fleetCommand: fleet })] : []),
       ...(resultFile ? [
         `Your result file is ${resultFile}.`,
         ...(definition.edits === false
