@@ -152,8 +152,8 @@ export function PaneTerminal({
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
-  /** shows a grid this view does not size anew in the mount, with the cursor's row in sight */
-  const fitViewRef = useRef<(() => void) | null>(null);
+  /** brings the cursor's row of a grid this view does not size into sight, as if the user never panned */
+  const followCursorRef = useRef<(() => void) | null>(null);
   const paneRef = useRef<string | null>(paneId);
   const emitRef = useRef(emit);
   emitRef.current = emit;
@@ -389,7 +389,7 @@ export function PaneTerminal({
       const max = host.scrollHeight - host.clientHeight;
       host.scrollTop = cursorBottom <= host.clientHeight ? 0 : cursorBottom - row >= max ? max : cursorBottom - host.clientHeight;
     };
-    fitViewRef.current = (): void => {
+    followCursorRef.current = (): void => {
       panned = false;
       followCursor();
     };
@@ -716,7 +716,7 @@ export function PaneTerminal({
         // another device that sized the pane let go while this window kept the focus: it takes the
         // pane again (a grid another device takes is followed, never fought over)
         if (message.free && drives()) refit();
-        else fitViewRef.current?.();
+        else followCursorRef.current?.();
       } else if (message.type === "error") {
         // the state says these (Mediator); the grid writes an error it knows nothing of
         if (message.code === "input_not_ready" || message.code === "input_failed") return;
@@ -849,7 +849,7 @@ export function PaneTerminal({
         // a grid this view does not size (herdr's, another device's, or a mirror's) stays: only its
         // font and the view move (a soft keyboard opening must not leave the prompt under it)
         if (adopted()) {
-          fitViewRef.current?.();
+          followCursorRef.current?.();
           return;
         }
         try {
@@ -928,7 +928,7 @@ export function PaneTerminal({
       const current = paneRef.current;
       if (current) command({ kind: "keep-size", paneId: current });
       // the server says nothing when the pane's own grid is the one this view had
-      fitViewRef.current?.();
+      followCursorRef.current?.();
     };
     const onVisible = (): void => {
       if (document.visibilityState === "visible") return refit();
@@ -997,7 +997,7 @@ export function PaneTerminal({
       term.options.fontFamily = fontFamily;
       placeInputAtCursor(term);
       if (!drives()) {
-        fitViewRef.current?.();
+        followCursorRef.current?.();
         return;
       }
       try {
@@ -1031,7 +1031,7 @@ export function PaneTerminal({
     }
     if (!drives()) {
       adopt();
-      fitViewRef.current?.();
+      followCursorRef.current?.();
       if (!autoSelected && !coarseRef.current) grid?.focus();
       return;
     }

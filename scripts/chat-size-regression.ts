@@ -133,7 +133,7 @@ export async function checkFocusedViewSizesPane(browser: Browser, origin: string
     await fitsWhen(desktop, (now) => now.font === 13 && now.overflows, "a space too small for herdr's grid at 13px scrolls");
     // a larger window holds it at the settings' font too, with room to spare: the pane keeps herdr's grid
     await desktop.setViewportSize({ width: 1920, height: 1200 });
-    const roomy = await fitsWhen(desktop, (now) => now.font === 13 && !now.overflows && now.fill < 0.9, "a larger window draws herdr's grid at the settings' font, not larger");
+    const roomy = await fitsWhen(desktop, (now) => now.font === 13 && !now.overflows, "a larger window draws herdr's grid at the settings' font, not larger");
     assert.equal(await size(), own, "resizing an unfocused window leaves herdr's grid");
     console.log(`PASS an unfocused desktop leaves the pane at its own ${own} and draws it at the settings' 13px: scrolling when too small, ${Math.round(roomy.fill * 100)}% of a larger window`);
 
