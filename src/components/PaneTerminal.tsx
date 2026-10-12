@@ -89,6 +89,27 @@ function storedDirectTyping(): boolean {
   try { return window.localStorage.getItem(DIRECT_TYPING_KEY) === "1"; } catch { return false; }
 }
 
+/**
+ * Puts xterm's input (the textarea the IME writes in, and places its window by) on the cursor's
+ * cell. xterm moves it only when the cursor moves: after a font change it stayed where the old
+ * cell size put it, below a smaller grid, and a mount that scrolls (a grid this view does not
+ * size) scrolled down to it, onto empty space. This is what xterm itself does on a cursor move,
+ * also while the view is scrolled back, where the input waits for the view to come back down.
+ */
+function placeInputAtCursor(term: Terminal): void {
+  const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
+  const input = term.textarea;
+  const buffer = term.buffer.active;
+  // a hidden mount (the chat lens, a page in the background) has no cells to measure
+  if (!screen || !input || term.cols === 0 || term.rows === 0 || screen.offsetWidth === 0 || screen.offsetHeight === 0) return;
+  const cellWidth = screen.offsetWidth / term.cols;
+  const cellHeight = screen.offsetHeight / term.rows;
+  input.style.left = `${Math.min(buffer.cursorX, term.cols - 1) * cellWidth}px`;
+  input.style.top = `${buffer.cursorY * cellHeight}px`;
+  input.style.width = `${cellWidth}px`;
+  input.style.height = input.style.lineHeight = `${cellHeight}px`;
+}
+
 /** A touch screen as the main pointer: its soft keyboard is what the input line is for. */
 function useCoarsePointer(): boolean {
   const query = "(pointer: coarse)";
@@ -132,13 +153,9 @@ export function PaneTerminal({
   wheelSpeedRef.current = terminalWheelSpeed;
   const hostRef = useRef<HTMLDivElement | null>(null);
   const termRef = useRef<Terminal | null>(null);
-  /** sizes the grid to the mount at the settings' font: the grid this view sizes */
-  const fitRef = useRef<{ fit(): void } | null>(null);
-  /** fits a grid this view does not size to the mount (the font size), keeping the cursor's row in sight */
-  const fitViewRef = useRef<(() => void) | null>(null);
-  /** the font a grid this view sizes is drawn at, and the smallest one a grid it does not size is fitted at */
-  const fontSizeRef = useRef(terminalFontSize);
-  fontSizeRef.current = terminalFontSize;
+  const fitRef = useRef<FitAddon | null>(null);
+  /** brings the cursor's row of a grid this view does not size into sight, as if the user never panned */
+  const followCursorRef = useRef<(() => void) | null>(null);
   const paneRef = useRef<string | null>(paneId);
   const emitRef = useRef(emit);
   emitRef.current = emit;
@@ -178,7 +195,8 @@ export function PaneTerminal({
   // in front and its window has the focus, and lets go when either leaves (keep-size). herdr's
   // own screen, looked at meanwhile, then lays the pane out again, and a window left open must
   // not hold the pane at its size, or herdr's screen shows the top left of a larger grid and
-  // loses the prompt under its bottom edge. A grid this view does not size is fitted to it.
+  // loses the prompt under its bottom edge. A grid this view does not size keeps the settings'
+  // font, and the mount scrolls where it is larger.
   const drives = (): boolean => !observeRef.current && !fixedGridRef.current
     && !chatViewRef.current && document.visibilityState === "visible" && document.hasFocus();
   const { settings, update: updateSettings } = useSettings();
@@ -256,15 +274,8 @@ export function PaneTerminal({
       // Option+drag selects on macOS, as Shift+drag does elsewhere; a plain drag is forced below
       macOptionClickForcesSelection: true,
     });
-    const addon = new FitAddon();
-    term.loadAddon(addon);
-    // a grid fitted while this view did not size it is drawn in another font: its own is measured in the settings' one
-    const fit = {
-      fit: (): void => {
-        if (term.options.fontSize !== fontSizeRef.current) term.options.fontSize = fontSizeRef.current;
-        addon.fit();
-      },
-    };
+    const fit = new FitAddon();
+    term.loadAddon(fit);
     matchHerdrWidths(term);
     // an address in the terminal opens in a new tab; the page never navigates away from the pane
     term.loadAddon(new WebLinksAddon((_event, uri) => { window.open(uri, "_blank", "noopener,noreferrer"); }));
@@ -380,32 +391,7 @@ export function PaneTerminal({
       const max = host.scrollHeight - host.clientHeight;
       host.scrollTop = cursorBottom <= host.clientHeight ? 0 : cursorBottom - row >= max ? max : cursorBottom - host.clientHeight;
     };
-    // A grid this view does not size is drawn as large as the mount holds it, by the font size in
-    // half pixels, but never smaller than the settings' font: then the mount scrolls. Glyph widths
-    // round, so the size scaled to the space is tried, then stepped down while the grid overflows.
-    const fitGrid = (): void => {
-      const element = term.element;
-      const screen = element?.querySelector<HTMLElement>(".xterm-screen");
-      // a hidden mount (the chat lens, a page not laid out) has no space to fit to
-      if (drives() || !element || !screen || host.clientWidth === 0 || host.clientHeight === 0) return;
-      const padding = getComputedStyle(element);
-      const width = host.clientWidth - parseFloat(padding.paddingLeft) - parseFloat(padding.paddingRight);
-      const height = host.clientHeight - parseFloat(padding.paddingTop) - parseFloat(padding.paddingBottom);
-      const least = fontSizeRef.current;
-      let size = term.options.fontSize ?? least;
-      for (let tries = 0; tries < 3 && screen.offsetWidth > 0 && screen.offsetHeight > 0; tries += 1) {
-        const scaled = Math.max(least, Math.floor(size * Math.min(width / screen.offsetWidth, height / screen.offsetHeight) * 2) / 2);
-        if (scaled === size) break;
-        size = scaled;
-        term.options.fontSize = size;
-      }
-      while (size > least && (screen.offsetWidth > width || screen.offsetHeight > height)) {
-        size = Math.max(least, size - 0.5);
-        term.options.fontSize = size;
-      }
-    };
-    fitViewRef.current = (): void => {
-      fitGrid();
+    followCursorRef.current = (): void => {
       panned = false;
       followCursor();
     };
@@ -732,7 +718,7 @@ export function PaneTerminal({
         // another device that sized the pane let go while this window kept the focus: it takes the
         // pane again (a grid another device takes is followed, never fought over)
         if (message.free && drives()) refit();
-        else fitViewRef.current?.();
+        else followCursorRef.current?.();
       } else if (message.type === "error") {
         // the state says these (Mediator); the grid writes an error it knows nothing of
         if (message.code === "input_not_ready" || message.code === "input_failed") return;
@@ -865,7 +851,7 @@ export function PaneTerminal({
         // a grid this view does not size (herdr's, another device's, or a mirror's) stays: only its
         // font and the view move (a soft keyboard opening must not leave the prompt under it)
         if (adopted()) {
-          fitViewRef.current?.();
+          followCursorRef.current?.();
           return;
         }
         try {
@@ -929,7 +915,7 @@ export function PaneTerminal({
     // The window with the focus sizes the pane: coming back (another device may have taken the
     // pane meanwhile, and this viewport never changed, so the ResizeObserver above stays silent) it
     // takes it again, and leaving (herdr's own terminal window, another app, the screen locked)
-    // it lets go at once. The grid it gets back is herdr's, or another device's, and is fitted.
+    // it lets go at once. The grid it gets back is herdr's, or another device's.
     const refit = (): void => {
       const current = paneRef.current;
       if (!current || !drives()) return;
@@ -944,7 +930,7 @@ export function PaneTerminal({
       const current = paneRef.current;
       if (current) command({ kind: "keep-size", paneId: current });
       // the server says nothing when the pane's own grid is the one this view had
-      fitViewRef.current?.();
+      followCursorRef.current?.();
     };
     const onVisible = (): void => {
       if (document.visibilityState === "visible") return refit();
@@ -1011,8 +997,10 @@ export function PaneTerminal({
       if (term.options.fontSize === terminalFontSize && term.options.fontFamily === fontFamily) return;
       term.options.fontSize = terminalFontSize;
       term.options.fontFamily = fontFamily;
+      // after xterm has measured the new cells and drawn the grid in them
+      requestAnimationFrame(() => { if (termRef.current === term) placeInputAtCursor(term); });
       if (!drives()) {
-        fitViewRef.current?.();
+        followCursorRef.current?.();
         return;
       }
       try {
@@ -1045,7 +1033,7 @@ export function PaneTerminal({
     }
     if (!drives()) {
       adopt();
-      fitViewRef.current?.();
+      followCursorRef.current?.();
       if (!autoSelected && !coarseRef.current) grid?.focus();
       return;
     }
