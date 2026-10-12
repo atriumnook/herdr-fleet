@@ -11,8 +11,8 @@ import { herdrRpc, paneRead, paneSendKeys, paneSendText, workspaceClose, workspa
  * leaves (herdr's own terminal window), when the chat lens covers it, when the page leaves the
  * screen, and when it closes: a browser left open must not hold it at another size, or herdr's
  * own screen shows the top left of a larger grid and loses the prompt under its bottom edge. A
- * grid a browser does not size is drawn as large as its space holds it, never in a font smaller
- * than its settings' one. The size is the one the pane's own shell reports (`stty size`), not
+ * grid a browser does not size is drawn in its settings' font too, and scrolls where it is larger
+ * than the space. The size is the one the pane's own shell reports (`stty size`), not
  * what either browser thinks.
  */
 export async function checkFocusedViewSizesPane(browser: Browser, origin: string): Promise<void> {
@@ -124,20 +124,18 @@ export async function checkFocusedViewSizesPane(browser: Browser, origin: string
     await fitsWhen(desktop, (now) => now.font === 13 && !now.overflows, "the desktop's own grid is drawn at the settings' font");
     console.log(`PASS the focused desktop sizes the pane to itself: ${desktopSize}`);
 
-    // herdr's terminal takes the focus: the pane is herdr's again, and the desktop fits herdr's
-    // grid to its space; herdr lays a lone pane out at 120x40, which a 1280x800 window holds only
-    // in a font smaller than 13px, so it scrolls
+    // herdr's terminal takes the focus: the pane is herdr's again, and the desktop draws herdr's
+    // grid at the settings' font; herdr lays a lone pane out at 120x40, which a 1280x800 window
+    // holds only in a font smaller than 13px, so it scrolls
     await focus(desktop, false);
     await sizeBecomes((now) => now === own, "a desktop that loses the focus gives the pane back");
     await drawsGrid(desktop, ownRows, "the unfocused desktop draws herdr's grid");
     await fitsWhen(desktop, (now) => now.font === 13 && now.overflows, "a space too small for herdr's grid at 13px scrolls");
-    // a larger window holds it larger, a narrower one smaller: the pane keeps herdr's grid
+    // a larger window holds it at the settings' font too, with room to spare: the pane keeps herdr's grid
     await desktop.setViewportSize({ width: 1920, height: 1200 });
-    const roomy = await fitsWhen(desktop, (now) => now.fill >= 0.9 && now.fill <= 1.001 && !now.overflows && now.font > 13, "a larger window draws herdr's grid as large as it holds it");
-    await desktop.setViewportSize({ width: 1600, height: 1000 });
-    const narrow = await fitsWhen(desktop, (now) => now.fill >= 0.9 && now.fill <= 1.001 && !now.overflows && now.font < roomy.font, "a narrower window draws it smaller");
+    const roomy = await fitsWhen(desktop, (now) => now.font === 13 && !now.overflows && now.fill < 0.9, "a larger window draws herdr's grid at the settings' font, not larger");
     assert.equal(await size(), own, "resizing an unfocused window leaves herdr's grid");
-    console.log(`PASS an unfocused desktop leaves the pane at its own ${own} and fits it: ${roomy.font}px, ${narrow.font}px narrower, 13px and scrolling when too small`);
+    console.log(`PASS an unfocused desktop leaves the pane at its own ${own} and draws it at the settings' 13px: scrolling when too small, ${Math.round(roomy.fill * 100)}% of a larger window`);
 
     // the desktop gets the focus back: it sizes the pane again, at its new size
     await focus(desktop, true);
