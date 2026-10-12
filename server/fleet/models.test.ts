@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT_KINDS, type AgentAdapter } from "./adapters.ts";
+import { opencodeApiGet } from "../opencode-cli.ts";
 import { listAgyModels, listCodexModels, listCursorModels, listOpencodeModels, listPiModels, parseAgyModels, parseCodexModels, parseCursorModels, parseOpencodeModels, parsePiModels } from "./model-lists.ts";
 import { modelListed } from "../../shared/fleet.ts";
 import { ModelCatalog } from "./models.ts";
@@ -242,61 +243,59 @@ describe("what a model listing's CLI gets", () => {
     expect(envNames(pi)).not.toContain("CODEX_HOME");
   });
 
-  /** a stand-in `opencode`: `--version` answers, `serve` prints where it listens (a server of the test's) and waits */
-  const fakeOpencode = (dir: string, version: string, port: number) => {
+  /**
+   * A stand-in `opencode`: `service status` says where the service is (or nothing, or fails as 1.x does for a command it
+   * does not know), `api GET` answers an empty list the first time and the models after, like a place the service has not loaded.
+   */
+  const fakeOpencode = (dir: string, behaviour: "running" | "stopped" | "v1") => {
     const file = join(dir, "opencode");
-    writeFileSync(file, `#!/bin/sh\n/usr/bin/env > "${file}.env"\nprintf '%s\\n' "$*" >> "${file}.args"\nif [ "$1" = "--version" ]; then echo '${version}'; exit 0; fi\necho 'server listening on http://127.0.0.1:${port}'\necho 'server password pw'\nexec sleep 30\n`, { mode: 0o755 });
+    const status = behaviour === "running" ? "echo http://127.0.0.1:49374; exit 0" : behaviour === "stopped" ? "exit 0" : "echo 'opencode [project]  start opencode tui'; exit 1";
+    writeFileSync(file, [
+      "#!/bin/sh", `/usr/bin/env > "${file}.env"`, `pwd > "${file}.cwd"`, `ls -A > "${file}.ls"`, `printf '%s\\n' "$*" >> "${file}.args"`,
+      `if [ "$1" = service ]; then ${status}; fi`,
+      `if [ "$1" = api ]; then n=$(cat "${file}.n" 2>/dev/null || echo 0); echo $((n+1)) > "${file}.n"; if [ "$n" = 0 ]; then echo '{"data":[]}'; else echo '{"data":[{"providerID":"anthropic","id":"claude-sonnet-5-5"},{"providerID":"opencode","id":"big-pickle"}]}'; fi; exit 0; fi`,
+      "exit 1", "",
+    ].join("\n"), { mode: 0o755 });
     return file;
   };
 
-  it("opencode lists from a private server of its own, which has loaded its providers a moment after it starts, in its own emptied folder", async () => {
+  it("opencode lists from the running service by `opencode api`, asking again once for a place the service has not loaded, in its own emptied folder", async () => {
     const dir = tempDir();
     const workDir = join(dir, "model-list", "opencode");
     plant(workDir);
-    let asked = 0;
-    let authorization = "" as string | null;
-    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => {
-      authorization = request.headers.get("authorization");
-      asked += 1;
-      // an answer of [] while it loads, then one provider, then both
-      const data = asked < 3 ? [] : asked === 3 ? [{ providerID: "anthropic", id: "claude-sonnet-5-5" }] : [{ providerID: "anthropic", id: "claude-sonnet-5-5" }, { providerID: "opencode", id: "big-pickle" }];
-      return Response.json({ data });
-    } });
-    try {
-      const opencode = fakeOpencode(dir, "opencode v2.0.26", server.port!);
-      expect(await listOpencodeModels({ workDir, command: opencode, env: SERVER_ENV })).toEqual([{ id: "anthropic/claude-sonnet-5-5" }, { id: "opencode/big-pickle" }]);
-      expect(authorization).toBe(`Basic ${btoa("opencode:pw")}`);
-      // it asked for the version, then started its own server (never `models` without --standalone, which uses the shared service)
-      expect(readFileSync(`${opencode}.args`, "utf8")).toBe("--version\nserve --hostname 127.0.0.1 --port 0\n");
-    } finally {
-      server.stop(true);
-    }
+    const opencode = fakeOpencode(dir, "running");
+    expect(await listOpencodeModels({ workDir, command: opencode, env: SERVER_ENV, retryAfterMs: 1 })).toEqual([{ id: "anthropic/claude-sonnet-5-5" }, { id: "opencode/big-pickle" }]);
+    // the status is a read; no `serve`, no `models`, nothing that would start a server
+    expect(readFileSync(`${opencode}.args`, "utf8")).toBe("service status\napi GET /api/model\nservice status\napi GET /api/model\n");
+    expect(readFileSync(`${opencode}.cwd`, "utf8").trim()).toBe(realpathSync(workDir));
+    noSecrets(opencode);
+    expect(envNames(opencode)).toEqual(expect.arrayContaining(["PATH", "HOME", "LANG"]));
+    expect(readFileSync(`${opencode}.env`, "utf8")).toContain("OPENCODE_DISABLE_AUTOUPDATE=true\n");
+    expect(statSync(workDir).mode & 0o777).toBe(0o700);
   });
 
-  it("opencode's private server runs in an emptied folder of its own, without an API key or herdr session, and with its self-update held off", async () => {
+  it("opencode with no service running gives no list and starts nothing: `api` is never run", async () => {
     const dir = tempDir();
-    const workDir = join(dir, "model-list", "opencode");
-    plant(workDir);
-    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => Response.json({ data: [{ providerID: "a", id: "b" }] }) });
-    try {
-      const opencode = fakeOpencode(dir, "opencode v2.0.26", server.port!);
-      writeFileSync(opencode, readFileSync(opencode, "utf8").replace("exec sleep 30", `pwd > "${opencode}.cwd"; ls -A > "${opencode}.ls"; exec sleep 30`));
-      await listOpencodeModels({ workDir, command: opencode, env: SERVER_ENV });
-      expect(readFileSync(`${opencode}.cwd`, "utf8").trim()).toBe(realpathSync(workDir));
-      expect(readFileSync(`${opencode}.ls`, "utf8")).toBe("");
-      noSecrets(opencode);
-      expect(readFileSync(`${opencode}.env`, "utf8")).toContain("OPENCODE_DISABLE_AUTOUPDATE=true\n");
-    } finally {
-      server.stop(true);
-    }
+    const opencode = fakeOpencode(dir, "stopped");
+    await expect(listOpencodeModels({ workDir: join(dir, "model-list", "opencode"), command: opencode, env: SERVER_ENV })).rejects.toThrow("no OpenCode service is running");
+    expect(readFileSync(`${opencode}.args`, "utf8")).toBe("service status\n");
   });
 
-  it("opencode 1.x is refused by its version before anything is started: no list, no server, no TUI", async () => {
+  it("opencode 1.x, which does not know `service`, fails the same way before anything else is run", async () => {
     const dir = tempDir();
-    const old = fakeOpencode(dir, "1.19.0", 1);
-    await expect(listOpencodeModels({ workDir: join(dir, "model-list", "opencode"), command: old, env: SERVER_ENV })).rejects.toThrow("is not OpenCode 2");
-    // only `--version` was run
-    expect(readFileSync(`${old}.args`, "utf8")).toBe("--version\n");
+    const old = fakeOpencode(dir, "v1");
+    await expect(listOpencodeModels({ workDir: join(dir, "model-list", "opencode"), command: old, env: SERVER_ENV })).rejects.toThrow("no OpenCode service is running");
+    expect(readFileSync(`${old}.args`, "utf8")).toBe("service status\n");
+  });
+
+  it("opencode's reply is bounded in size and in time", async () => {
+    const dir = tempDir();
+    const opencode = fakeOpencode(dir, "running");
+    writeFileSync(`${opencode}.n`, "1\n");
+    await expect(opencodeApiGet({ workDir: join(dir, "w"), command: opencode, env: SERVER_ENV, maxReplyBytes: 30 }, "/api/model")).rejects.toThrow("more than 30 bytes");
+    const slow = join(dir, "slow");
+    writeFileSync(slow, "#!/bin/sh\nif [ \"$1\" = service ]; then echo http://127.0.0.1:1; exit 0; fi\nexec sleep 30\n", { mode: 0o755 });
+    await expect(opencodeApiGet({ workDir: join(dir, "w2"), command: slow, env: SERVER_ENV, timeoutMs: 300 }, "/api/model")).rejects.toThrow();
   });
 
   it("codex app-server runs in its own emptied folder, with CODEX_HOME and no API key or herdr session", async () => {

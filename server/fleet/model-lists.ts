@@ -1,12 +1,13 @@
 /**
  * Each agent CLI's own list of the models it offers. Every command here answers from the CLI's
  * catalog or its account, none calls a model: `codex app-server` `model/list`, `agy models`,
- * `cursor-agent models`, `pi --list-models`, `opencode serve` of its own. Claude Code has no such command, so its aliases are
+ * `cursor-agent models`, `pi --list-models`, the running `opencode` service. Claude Code has no such command, so its aliases are
  * the list (`claude --help` names them).
  */
 
 import type { ModelListing } from "../../shared/fleet.ts";
 import { childEnv, emptyWorkDir } from "../cli-child.ts";
+import { opencodeApiGet } from "../opencode-cli.ts";
 
 export type ModelEntry = ModelListing["models"][number];
 
@@ -22,6 +23,8 @@ export interface ListOptions {
   command?: string;
   /** the server's environment; process.env when left out */
   env?: Record<string, string | undefined>;
+  /** how long opencode waits before it asks a service again that answered an empty list (for a test to shorten) */
+  retryAfterMs?: number;
 }
 
 async function run(argv: string[], options: ListOptions, env: Record<string, string>): Promise<string> {
@@ -83,7 +86,7 @@ export const listPiModels = async (options: ListOptions): Promise<ModelEntry[]> 
 /**
  * OpenCode 2's `GET /api/model`: the models of the providers that are signed in, `provider/model` each
  * (a `#variant` after a model name runs it and is not listed here). Not a complete list: it is what the
- * server has loaded when it is asked, and the TUI accepts any `provider/model` text (an unknown one fails at the first prompt).
+ * service has loaded when it is asked, and the TUI accepts any `provider/model` text (an unknown one fails at the first prompt).
  */
 export function parseOpencodeModels(body: unknown): ModelEntry[] {
   const data = (body as { data?: unknown } | null)?.data;
@@ -93,47 +96,17 @@ export function parseOpencodeModels(body: unknown): ModelEntry[] {
 }
 
 /**
- * Asks a private `opencode serve` of its own, not the person's shared background service (which any command
- * without --standalone would start). `opencode models --standalone` asks once, and a server that has just
- * started answers `[]` until its providers have loaded (seen on 2.0.26), so this polls (the free models of the OpenCode provider show up too, after a second).
- * A 1.x opencode is refused by its version first: its `serve` would answer in another shape.
+ * Asks the person's running background service, through `opencode api` (server/opencode-cli.ts), which
+ * starts no server of ours: no service running is no list, and a 1.x opencode, which does not know the
+ * `service` command, fails the same way. A service that has just started answers `[]` until its providers
+ * have loaded; that is no list for now, and the catalog asks again after its failure interval.
  */
 export async function listOpencodeModels(options: ListOptions): Promise<ModelEntry[]> {
-  emptyWorkDir(options.workDir);
-  const command = options.command ?? "opencode";
-  const env = { ...childEnv(options.env ?? process.env), OPENCODE_DISABLE_AUTOUPDATE: "true" };
-  const version = Bun.spawnSync([command, "--version"], { cwd: options.workDir, env, stdout: "pipe", stderr: "ignore", stdin: "ignore", timeout: 10_000 });
-  if (!/(?:^|\s)v?2\.\d+\.\d+/.test(version.stdout.toString())) throw new Error(`${command} is not OpenCode 2`);
-  const child = Bun.spawn([command, "serve", "--hostname", "127.0.0.1", "--port", "0"], { cwd: options.workDir, env, stdin: "ignore", stdout: "pipe", stderr: "ignore" });
-  const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
-  try {
-    const reader = child.stdout.getReader();
-    const decoder = new TextDecoder();
-    let seen = "";
-    let found: RegExpExecArray | null = null;
-    while (!found) {
-      const { value, done } = await reader.read();
-      if (done) throw new Error(`${command} serve quit before it listened`);
-      seen += decoder.decode(value, { stream: true });
-      found = /server listening on (http:\/\/127\.0\.0\.1:\d+)\s+server password (\S+)/.exec(seen);
-    }
-    const [, url, password] = found as unknown as [string, string, string];
-    const headers = { authorization: `Basic ${btoa(`opencode:${password}`)}` };
-    let models: ModelEntry[] = [];
-    for (let attempt = 0; attempt < 10; attempt++) {
-      const response = await fetch(`${url}/api/model?location%5Bdirectory%5D=${encodeURIComponent(options.workDir)}`, { headers });
-      if (!response.ok) throw new Error(`${command} serve answered ${response.status}`);
-      const asked = parseOpencodeModels(await response.json());
-      // providers load one after another: the list is taken once two answers in a row agree
-      if (asked.length > 0 && asked.length === models.length) return asked;
-      models = asked;
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-    }
-    return models;
-  } finally {
-    clearTimeout(timer);
-    child.kill();
-  }
+  const first = parseOpencodeModels(await opencodeApiGet(options, "/api/model"));
+  if (first.length > 0) return first;
+  // a place the service has not loaded yet answers [] to the first question (seen on 2.0.26: 0 models, then 56 three seconds later)
+  await new Promise((resolve) => setTimeout(resolve, options.retryAfterMs ?? 2000));
+  return parseOpencodeModels(await opencodeApiGet(options, "/api/model"));
 }
 
 /** codex's `model/list` result: the models of one page, and where the next begins. */
