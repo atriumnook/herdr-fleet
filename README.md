@@ -53,7 +53,7 @@ bun run start
 
 ペインを Chat 表示にしたときと、Fleet 画面の会話(coordinator の会話と、Overview で開いたスレッドのチャット)に共通の機能です。
 
-OpenCode 2 のペインの会話は、OpenCode 自身の API(`opencode2 api`)から読みます。データベースのファイルや認証情報には触りません。OpenCode のバックグラウンドのサービスが動いていないときは、会話の代わりにペインの画面(scrollback)を出します。fleet が読むために、サービスを起動することはしません。
+OpenCode 2 のペインの会話は、OpenCode 自身の API(`opencode2 api`)から読みます。データベースのファイルや認証情報には触りません。OpenCode のバックグラウンドのサービスが動いていないときは、会話の代わりにペインの画面(scrollback)を出します。読む前に `opencode2 service status` で確かめ、サービスを起動させないようにしていますが、完全には防げません。確かめた直後にサービスが止まったとき、サービスの応答が遅いとき、OpenCode の設定でサービスを無効にしているときは、`opencode2 api` が OpenCode のサーバーを起動することがあります。
 
 ### プロンプトのレール
 
