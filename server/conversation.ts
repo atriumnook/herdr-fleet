@@ -29,6 +29,7 @@ import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
+import { ConversationUnavailable, HistoryChanged } from "./conversation-errors.ts";
 import { piTranscriptPath } from "./pi.ts";
 import { piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
 import { trimOutput } from "./tool-output.ts";
@@ -215,20 +216,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
 /** Re-parse on file changes, including replacement and same-size rewrites. */
 const cache = new Map<string, { signature: string; turns: ConversationTurn[]; metadata: ConversationMetadata; cursor: string | null; abandoned?: { count: number; branches: number; summary: string | null } }>();
 
-export class ConversationUnavailable extends Error {
-  constructor(reason: string) {
-    super(reason);
-    this.name = "ConversationUnavailable";
-  }
-}
-
-/** A cursor from another transcript: the pane started a new session, or a Codex backtrack replaced the file. */
-export class HistoryChanged extends Error {
-  constructor() {
-    super("the conversation's transcript changed; reload it from its newest turns");
-    this.name = "HistoryChanged";
-  }
-}
+export { ConversationUnavailable, HistoryChanged };
 
 /** What paneConversation resolved: which store the turns came from, and where they start. */
 export type RecognizedConversation = {
