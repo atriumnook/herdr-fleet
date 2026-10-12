@@ -258,6 +258,17 @@ describe("a staged revert", () => {
 });
 
 describe("what costs a call", () => {
+  test("an unchanged session at rest costs a look at its newest message, not a read", async () => {
+    const { service, reader } = withService(chat(3));
+    const first = await reader.page(SID, false);
+    const calls = service.listCalls;
+    const second = await reader.page(SID, false);
+    expect(service.listCalls).toBe(calls);
+    expect(service.probes).toBe(1);
+    expect(second.version).toBe(first.version);
+    expect(second.turns).toEqual(first.turns);
+  });
+
   test("a session that was written to is read again", async () => {
     const { service, reader } = withService(chat(3));
     const first = await reader.page(SID, false);
@@ -268,14 +279,27 @@ describe("what costs a call", () => {
     expect(second.version).not.toBe(first.version);
   });
 
-  test("an unchanged session at rest is read once, not at every poll", async () => {
+  test("a message that leaves the session's time as it was is seen all the same: a shell command, a skill, a synthetic message", async () => {
+    // OpenCode stamps the session's `time.updated` for a step, not for these
     const { service, reader } = withService(chat(3));
     const first = await reader.page(SID, false);
-    const calls = service.listCalls;
+    const shell = { id: "msg_h", type: "shell", shellID: "sh_1", command: "<cmd>", status: "exited", exit: 0, output: { output: "<out>" }, time: { created: clock++, completed: clock } };
+    service.messages.push(shell);
     const second = await reader.page(SID, false);
-    expect(service.listCalls).toBe(calls);
-    expect(second.version).toBe(first.version);
-    expect(second.turns).toEqual(first.turns);
+    expect(second.turns.at(-1)!.parts.at(-1)).toMatchObject({ kind: "tool", name: "bash", output: "<out>" });
+    expect(second.version).not.toBe(first.version);
+    service.messages.push({ id: "msg_k", type: "skill", skill: "id", name: "<name>", text: "<t>", time: { created: clock++ } }, { id: "msg_s", type: "synthetic", text: "<note>", time: { created: clock++ } });
+    expect((await reader.page(SID, false)).turns.at(-1)!.parts[0]).toEqual({ kind: "notice", text: "<note>" });
+  });
+
+  test("a compaction that ends in place, with no new message, is seen to end", async () => {
+    const running = { id: "msg_c", type: "compaction", status: "running", reason: "auto", time: { created: clock++ } };
+    const { service, reader } = withService([...chat(2), running]);
+    const first = await reader.page(SID, false);
+    expect(first.turns.some((turn) => turn.parts.some((part) => part.kind === "compact"))).toBe(false);
+    service.messages[service.messages.length - 1] = { ...running, status: "completed", summary: "<summary>" };
+    const second = await reader.page(SID, false);
+    expect(second.turns.at(-1)!.parts).toEqual([{ kind: "compact", text: "<summary>" }]);
   });
 
   test("a pane that is working is read at every poll: the service does not say what another server runs", async () => {

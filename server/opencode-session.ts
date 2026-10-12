@@ -217,6 +217,8 @@ interface Walk {
   start: number;
   sinceFound: boolean;
   hidden: Set<string>;
+  /** the newest message the service listed, hidden or not */
+  newestId: string;
 }
 
 interface Newest { marker: string; walk: Walk; writing: boolean }
@@ -309,6 +311,17 @@ export class OpencodeConversations {
     return windows;
   }
 
+  /**
+   * The newest message's id. A shell command, a compaction, a skill and a synthetic message are
+   * written without the session's `time.updated` moving, so the session alone does not say that
+   * the messages changed; a new message does change this.
+   */
+  private async newestId(sessionId: string): Promise<string> {
+    const body = record(await this.api.get(`/api/session/${encoded(sessionId)}/message?limit=1&order=desc`));
+    const first = record(Array.isArray(body["data"]) ? body["data"][0] : undefined);
+    return typeof first["id"] === "string" ? first["id"] : "";
+  }
+
   private async read(sessionId: string, working: boolean, page: ConversationPage): Promise<RecognizedConversation> {
     await this.requireService();
     const anchored = page.before !== undefined || page.since !== undefined || page.from !== undefined;
@@ -337,10 +350,10 @@ export class OpencodeConversations {
     } else {
       const cached = this.newest.get(sessionId);
       let entry: Newest;
-      if (cached !== undefined && cached.marker === marker && !working && !cached.writing) entry = cached;
+      if (cached !== undefined && !working && !cached.writing && cached.marker === `${marker}:${await this.newestId(sessionId)}`) entry = cached;
       else {
         const walk = await this.walk(sessionId, { revert, need: PAGE_MESSAGES });
-        entry = { marker, walk, writing: stillWriting(walk.messages, this.now()) };
+        entry = { marker: `${marker}:${walk.newestId}`, walk, writing: stillWriting(walk.messages, this.now()) };
         this.newest.delete(sessionId);
         this.newest.set(sessionId, entry);
         if (this.newest.size > 8) this.newest.delete(this.newest.keys().next().value!);
@@ -394,6 +407,7 @@ export class OpencodeConversations {
     }
     let sinceFound = false;
     let end = false;
+    let newestId = "";
     for (let fetched = 1; ; fetched += 1) {
       const path = `/api/session/${encoded(sessionId)}/message?limit=${FETCH_MESSAGES}${cursor === undefined ? "&order=desc" : `&cursor=${encoded(cursor)}`}`;
       let body: Row;
@@ -402,6 +416,7 @@ export class OpencodeConversations {
         throw error;
       }
       const data = Array.isArray(body["data"]) ? body["data"] : [];
+      if (fetched === 1 && cursor === undefined) newestId = typeof record(data[0])["id"] === "string" ? record(data[0])["id"] as string : "";
       for (const value of data) {
         const message = record(value);
         const id = typeof message["id"] === "string" ? message["id"] : "";
@@ -424,7 +439,7 @@ export class OpencodeConversations {
     const messages = collected.reverse();
     const since = sinceFound ? messages.findIndex((message) => message["id"] === options.since) : -1;
     const turnStart = end ? 0 : messages.findIndex(startsTurn);
-    return { messages, end, start: since >= 0 ? since : Math.max(turnStart, 0), sinceFound, hidden };
+    return { messages, end, start: since >= 0 ? since : Math.max(turnStart, 0), sinceFound, hidden, newestId };
   }
 
   /** A staged revert hides its own message and every later one: an anchor among them is gone from the history. Times only grow along the list. */
