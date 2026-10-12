@@ -32,14 +32,16 @@ export async function checkTerminalFontChange(browser: Browser, origin: string):
     await paneSendKeys(paneId, ["Enter"]);
     await page.waitForFunction(() => /\b200\b/.test(document.querySelector(".pane-terminal .xterm-rows")?.textContent ?? ""));
 
+    const fontOf = () => page.evaluate(() => parseFloat(getComputedStyle(document.querySelector(".pane-terminal .xterm-rows")!).fontSize));
+    const before = await fontOf();
     await page.getByRole("button", { name: "Settings" }).click();
     const smaller = page.getByRole("button", { name: "Decrease terminal font size" });
-    for (let step = 0; step < 3; step += 1) await smaller.click();
+    for (let step = 0; step < 3 && await smaller.isEnabled(); step += 1) await smaller.click();
     await page.keyboard.press("Escape");
-    await page.waitForFunction(() => getComputedStyle(document.querySelector(".pane-terminal .xterm-rows")!).fontSize === "10px");
-    await page.waitForTimeout(300);
+    await page.waitForFunction((before) => parseFloat(getComputedStyle(document.querySelector(".pane-terminal .xterm-rows")!).fontSize) <= before - 2, before);
+    const after = await fontOf();
 
-    const placed = await page.evaluate(() => {
+    const measure = () => page.evaluate(() => {
       const host = document.querySelector<HTMLElement>(".pane-terminal")!;
       const screen = host.querySelector<HTMLElement>(".xterm-screen")!;
       const input = host.querySelector<HTMLElement>(".xterm-helper-textarea")!;
@@ -51,13 +53,18 @@ export async function checkTerminalFontChange(browser: Browser, origin: string):
         scrollHeight: host.scrollHeight,
         // a mount scrolls as far as the larger of itself and the grid
         reach: Math.max(host.clientHeight, host.querySelector<HTMLElement>(".xterm")!.offsetHeight),
+        rows: host.querySelectorAll(".xterm-rows > div").length,
       };
     });
-    assert.ok(placed.cursorRow >= 0, "the cursor is drawn on a row");
+    const onCursor = (now: Awaited<ReturnType<typeof measure>>) => now.cursorRow >= 0 && Math.abs(now.inputTop - now.cursorRow * now.rowHeight) <= 1;
+    let placed = await measure();
+    for (const deadline = Date.now() + 5_000; !onCursor(placed) && Date.now() < deadline; placed = await measure()) await Bun.sleep(100);
+    // the cursor's row low in the grid, where a smaller cell moves it furthest
+    assert.ok(placed.cursorRow >= placed.rows - 3, `the prompt is on the grid's last rows (row ${placed.cursorRow} of ${placed.rows})`);
     assert.ok(Math.abs(placed.inputTop - placed.cursorRow * placed.rowHeight) <= 1,
       `after a font change the input sits on the cursor's row (${placed.inputTop}px, the row at ${placed.cursorRow * placed.rowHeight}px)`);
     assert.ok(placed.scrollHeight <= placed.reach + 1, `the mount scrolls no further than the grid (${placed.scrollHeight}px, the grid or the mount ${placed.reach}px)`);
-    console.log("PASS a font change keeps the terminal's input on the cursor, and the mount scrolls no further than the grid");
+    console.log(`PASS a font change (${before}px to ${after}px) keeps the terminal's input on the cursor, and the mount scrolls no further than the grid`);
   } finally {
     await context.close();
     await workspaceClose(created.workspace.workspace_id).catch(() => undefined);

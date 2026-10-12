@@ -93,13 +93,15 @@ function storedDirectTyping(): boolean {
  * Puts xterm's input (the textarea the IME writes in, and places its window by) on the cursor's
  * cell. xterm moves it only when the cursor moves: after a font change it stayed where the old
  * cell size put it, below a smaller grid, and a mount that scrolls (a grid this view does not
- * size) scrolled down to it, onto empty space. This is what xterm itself does on a cursor move.
+ * size) scrolled down to it, onto empty space. This is what xterm itself does on a cursor move,
+ * also while the view is scrolled back, where the input waits for the view to come back down.
  */
 function placeInputAtCursor(term: Terminal): void {
   const screen = term.element?.querySelector<HTMLElement>(".xterm-screen");
   const input = term.textarea;
   const buffer = term.buffer.active;
-  if (!screen || !input || term.cols === 0 || term.rows === 0 || buffer.viewportY !== buffer.baseY) return;
+  // a hidden mount (the chat lens, a page in the background) has no cells to measure
+  if (!screen || !input || term.cols === 0 || term.rows === 0 || screen.offsetWidth === 0 || screen.offsetHeight === 0) return;
   const cellWidth = screen.offsetWidth / term.cols;
   const cellHeight = screen.offsetHeight / term.rows;
   input.style.left = `${Math.min(buffer.cursorX, term.cols - 1) * cellWidth}px`;
@@ -995,7 +997,8 @@ export function PaneTerminal({
       if (term.options.fontSize === terminalFontSize && term.options.fontFamily === fontFamily) return;
       term.options.fontSize = terminalFontSize;
       term.options.fontFamily = fontFamily;
-      placeInputAtCursor(term);
+      // after xterm has measured the new cells and drawn the grid in them
+      requestAnimationFrame(() => { if (termRef.current === term) placeInputAtCursor(term); });
       if (!drives()) {
         followCursorRef.current?.();
         return;
@@ -1005,7 +1008,6 @@ export function PaneTerminal({
       } catch {
         return;
       }
-      placeInputAtCursor(term);
       const pane = paneRef.current;
       if (pane) command({ kind: "resize", paneId: pane, cols: term.cols, rows: term.rows, force: true });
     };
