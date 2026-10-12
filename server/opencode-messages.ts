@@ -227,12 +227,25 @@ export function opencodeMetadata(messages: readonly unknown[], windowOf: (provid
   return metadata;
 }
 
-/** Whether a step is still being written: the newest assistant message has no end, or a tool has not finished. */
-export function stillWriting(messages: readonly unknown[]): boolean {
+/** A step with no end older than this was cut off (the server died), not written still. */
+const STALE_MS = 10 * 60_000;
+
+/**
+ * Whether the end of the list is still being written: the newest assistant message has no end, a
+ * tool has not finished, a shell command runs, or a compaction does (it changes in place, with no
+ * new message and no change to the session).
+ */
+export function stillWriting(messages: readonly unknown[], now = Date.now()): boolean {
+  const fresh = (message: Row): boolean => {
+    const created = record(message["time"])["created"];
+    return typeof created !== "number" || now - created < STALE_MS;
+  };
   for (let index = messages.length - 1; index >= 0; index -= 1) {
     const message = record(messages[index]);
-    if (message["type"] === "shell") return message["status"] === "running";
+    if (message["type"] === "shell") return message["status"] === "running" && fresh(message);
+    if (message["type"] === "compaction") return message["status"] === "running" && fresh(message);
     if (message["type"] !== "assistant") continue;
+    if (!fresh(message)) return false;
     if (record(message["time"])["completed"] === undefined && Object.keys(record(message["error"])).length === 0) return true;
     return (Array.isArray(message["content"]) ? message["content"] : []).some((value) => {
       const status = record(record(value)["state"])["status"];

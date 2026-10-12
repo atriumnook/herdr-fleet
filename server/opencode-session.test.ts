@@ -81,7 +81,7 @@ function chat(count: number, steps = 3): Row[] {
 const withService = (messages: Row[]): { service: Service; reader: OpencodeConversations } => {
   const service = new Service();
   service.messages = messages;
-  return { service, reader: new OpencodeConversations(service) };
+  return { service, reader: new OpencodeConversations(service, () => 100) };
 };
 
 /** every page back to the beginning, newest page last */

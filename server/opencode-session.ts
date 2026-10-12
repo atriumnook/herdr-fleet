@@ -156,7 +156,7 @@ export class OpencodeConversations {
   private models: { at: number; windows: Models } | null = null;
   private readonly processVersion = randomUUID();
 
-  constructor(private readonly api: OpencodeApi) {}
+  constructor(private readonly api: OpencodeApi, private readonly now: () => number = Date.now) {}
 
   /**
    * One page, as paneConversation says: the newest without `before`, with `from` kept while it is
@@ -265,7 +265,7 @@ export class OpencodeConversations {
       if (cached !== undefined && cached.marker === marker && !working && !cached.writing) entry = cached;
       else {
         const walk = await this.walk(sessionId, { revert, need: PAGE_MESSAGES });
-        entry = { marker, walk, writing: stillWriting(walk.messages) };
+        entry = { marker, walk, writing: stillWriting(walk.messages, this.now()) };
         this.newest.delete(sessionId);
         this.newest.set(sessionId, entry);
         if (this.newest.size > 8) this.newest.delete(this.newest.keys().next().value!);

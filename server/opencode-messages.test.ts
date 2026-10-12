@@ -22,6 +22,8 @@ const assistant = (id: string, content: unknown[], extra: Record<string, unknown
   const created = next();
   return { id, type: "assistant", agent: "build", model, time: { created, completed: created + 500 }, finish: "tool-calls", cost: 0, tokens: { input: 10, output: 5, reasoning: 1, cache: { read: 100, write: 0 } }, content, ...extra };
 };
+/** a moment after every time these messages carry */
+const NOW = 100_000;
 const text = (value: string) => ({ type: "text", text: value });
 
 const tools = (parts: ConversationPart[]) => parts.filter((part): part is Extract<ConversationPart, { kind: "tool" }> => part.kind === "tool");
@@ -238,33 +240,43 @@ describe("a step that did not finish", () => {
     const active = { ...assistant("msg_a", [text("<partial>")]), time: { created: 1 } };
     delete (active as Record<string, unknown>)["finish"];
     expect(parseOpencodeMessages([user("msg_u"), active]).turns[1]!.parts).toEqual([{ kind: "text", text: "<partial>" }]);
-    expect(stillWriting([user("msg_u"), active])).toBe(true);
+    expect(stillWriting([user("msg_u"), active], NOW)).toBe(true);
   });
 });
 
 describe("whether the end of the list is still being written", () => {
   test("an ended step is not", () => {
-    expect(stillWriting([user("msg_u"), assistant("msg_a", [text("<a>")])])).toBe(false);
-    expect(stillWriting([])).toBe(false);
+    expect(stillWriting([user("msg_u"), assistant("msg_a", [text("<a>")])], NOW)).toBe(false);
+    expect(stillWriting([], NOW)).toBe(false);
   });
 
   test("a step that ended with a tool still running is", () => {
-    expect(stillWriting([assistant("msg_a", [tool("c", { status: "running", input: {}, metadata: {} })])])).toBe(true);
-    expect(stillWriting([assistant("msg_a", [tool("c", { status: "streaming", input: "" })])])).toBe(true);
+    expect(stillWriting([assistant("msg_a", [tool("c", { status: "running", input: {}, metadata: {} })])], NOW)).toBe(true);
+    expect(stillWriting([assistant("msg_a", [tool("c", { status: "streaming", input: "" })])], NOW)).toBe(true);
   });
 
   test("an errored step with no end is not: it was cut off", () => {
     const cut = { ...assistant("msg_a", []), time: { created: 1 }, error: { type: "aborted", message: "<m>" } };
-    expect(stillWriting([cut])).toBe(false);
+    expect(stillWriting([cut], NOW)).toBe(false);
   });
 
-  test("a shell command is while it runs", () => {
-    expect(stillWriting([{ id: "msg_h", type: "shell", status: "running", command: "<c>", time: { created: 1 } }])).toBe(true);
+  test("a shell command is while it runs, and so is a compaction: both change in place", () => {
+    expect(stillWriting([{ id: "msg_h", type: "shell", status: "running", command: "<c>", time: { created: 1 } }], NOW)).toBe(true);
+    expect(stillWriting([{ id: "msg_c", type: "compaction", status: "running", reason: "auto", time: { created: 1 } }], NOW)).toBe(true);
+    expect(stillWriting([{ id: "msg_c", type: "compaction", status: "completed", reason: "auto", time: { created: 1 }, summary: "<s>" }], NOW)).toBe(false);
+  });
+
+  test("a step left unfinished for ten minutes was cut off, not written still", () => {
+    const active = { ...assistant("msg_a", [text("<partial>")]), time: { created: 1 } };
+    delete (active as Record<string, unknown>)["finish"];
+    expect(stillWriting([active], 1 + 9 * 60_000)).toBe(true);
+    expect(stillWriting([active], 1 + 11 * 60_000)).toBe(false);
+    expect(stillWriting([{ id: "msg_h", type: "shell", status: "running", command: "<c>", time: { created: 1 } }], 1 + 11 * 60_000)).toBe(false);
   });
 
   test("the newest step decides, not an older one", () => {
     const old = { ...assistant("msg_a1", []), time: { created: 1 } };
-    expect(stillWriting([old, assistant("msg_a2", [text("<a>")])])).toBe(false);
+    expect(stillWriting([old, assistant("msg_a2", [text("<a>")])], NOW)).toBe(false);
   });
 });
 
