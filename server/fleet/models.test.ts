@@ -245,12 +245,20 @@ describe("what a model listing's CLI gets", () => {
     const dir = tempDir();
     const workDir = join(dir, "model-list", "opencode");
     plant(workDir);
-    const opencode = recorder(dir, "opencode2", "printf '%s\\n' \"$*\" > \"$0.args\"\nprintf 'anthropic/claude-sonnet-5-5\\nopencode/big-pickle\\n'");
+    const opencode = recorder(dir, "opencode", "printf '%s\\n' \"$*\" > \"$0.args\"\nprintf 'anthropic/claude-sonnet-5-5\\nopencode/big-pickle\\n'");
     expect(await listOpencodeModels({ workDir, command: opencode, env: SERVER_ENV })).toEqual([{ id: "anthropic/claude-sonnet-5-5" }, { id: "opencode/big-pickle" }]);
     expect(readFileSync(`${opencode}.args`, "utf8")).toBe("models --standalone\n");
     expectOwnEmptyFolder(opencode, workDir);
     noSecrets(opencode);
     expect(readFileSync(`${opencode}.env`, "utf8")).toContain("OPENCODE_DISABLE_AUTOUPDATE=true\n");
+  });
+
+  it("opencode 1.x answers `models --standalone` with its help and a failure: no list, and no TUI started", async () => {
+    const dir = tempDir();
+    const workDir = join(dir, "model-list", "opencode");
+    const old = recorder(dir, "opencode", "printf 'opencode models [provider]\\n\\nlist all available models\\n'\nexit 1");
+    await expect(listOpencodeModels({ workDir, command: old, env: SERVER_ENV })).rejects.toThrow("opencode models failed");
+    expectOwnEmptyFolder(old, workDir);
   });
 
   it("codex app-server runs in its own emptied folder, with CODEX_HOME and no API key or herdr session", async () => {
