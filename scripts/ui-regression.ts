@@ -22,6 +22,7 @@ import { checkDefaultView } from "./default-view-regression.ts";
 import { checkComposerReconnect } from "./composer-reconnect-regression.ts";
 import { checkDroplet } from "./droplet-regression.ts";
 import { checkFocusedViewSizesPane } from "./chat-size-regression.ts";
+import { checkTerminalCjkWidths } from "./terminal-cjk-width-regression.ts";
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
 import { checkFleetScreen } from "./fleet-screen-regression.ts";
 import { checkDirectoryBrowser } from "./directory-browser-regression.ts";
@@ -362,6 +363,7 @@ try {
   await checkComposerAttachment(browser, origin);
   await checkFleetScreen(browser);
   await checkFocusedViewSizesPane(browser, origin);
+  await checkTerminalCjkWidths(browser, origin);
 
   const report = (state: string) => herdrRpc("pane.report_agent", {
     pane_id: paneA, source: "manual", agent: "claude", state,
