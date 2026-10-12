@@ -1,6 +1,5 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
-import { refusal } from "../../opencode/fleet-guard/guard.js";
 import { adapterFor, cursorUsage, type PaneContext, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
 
 const base = { name: "impl", systemPromptFile: "/tmp/i.md", systemPrompt: "Be brief.\nSay \"done\".", resultDir: "/state/results/r1" };
@@ -226,7 +225,7 @@ describe("opencode adapter", () => {
   const readOnlyPane = { ...pane, readOnly: true };
   const coordinatorPane = { ...readOnlyPane, merges: true };
   const configOf = (context: typeof pane) => JSON.parse(opencode.env!(context)["OPENCODE_CONFIG_CONTENT"]!) as {
-    model?: string; share?: string; update?: string; default_agent?: string; plugins?: string[];
+    model?: string; share?: string; update?: string; default_agent?: string; plugins?: Array<{ package: string; options: unknown }>;
     permissions?: Rule[]; agents?: Record<string, { mode: string; permissions: Rule[] }>;
   };
   type Rule = { action: string; resource: string; effect: string };
@@ -293,8 +292,10 @@ describe("opencode adapter", () => {
 
   it("gives the pane the model, no self-update and no sharing, and none of the switches version 2 dropped", () => {
     const env = opencode.env!({ ...pane, model: "anthropic/claude-sonnet-5-5:low" });
-    expect(Object.keys(env).sort()).toEqual(["OPENCODE_CONFIG_CONTENT", "OPENCODE_DISABLE_AUTOUPDATE"]);
+    expect(Object.keys(env).sort()).toEqual(["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "OPENCODE_CONFIG_CONTENT", "OPENCODE_DISABLE_AUTOUPDATE"]);
     expect(env["OPENCODE_DISABLE_AUTOUPDATE"]).toBe("true");
+    // every git of the agent runs without the repository's fsmonitor program (environment config beats the repository's: checked with git 2.55)
+    expect([env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]]).toEqual(["1", "core.fsmonitor", "false"]);
     expect(JSON.parse(env["OPENCODE_CONFIG_CONTENT"]!)).toMatchObject({ model: "anthropic/claude-sonnet-5-5", share: "disabled", update: "disable" });
     // a #variant stays with the model; none given, none set
     expect(configOf({ ...pane, model: "p/m#high" }).model).toBe("p/m#high");
@@ -321,8 +322,11 @@ describe("opencode adapter", () => {
       expect(config.permissions).toBeUndefined();
       expect(config.agents!["fleet-readonly"]!.permissions[0]).toEqual({ action: "*", resource: "*", effect: "deny" });
       expect(config.plugins).toHaveLength(1);
-      expect(config.plugins![0]!.endsWith("/opencode/fleet-guard")).toBe(true);
-      expect(existsSync(`${config.plugins![0]}/index.js`)).toBe(true);
+      expect(config.plugins![0]!.package.endsWith("/opencode/fleet-guard")).toBe(true);
+      expect(existsSync(`${config.plugins![0]!.package}/index.js`)).toBe(true);
+      // the guard is told the fleet command, and whether this role merges
+      expect(config.plugins![0]!.options).toEqual({ fleetCommand: fleet, merges: false });
+      expect(configOf(coordinatorPane).plugins![0]!.options).toEqual({ fleetCommand: fleet, merges: true });
       const editing = configOf(pane);
       expect(editing.default_agent).toBeUndefined();
       expect(editing.agents).toBeUndefined();
@@ -353,8 +357,10 @@ describe("opencode adapter", () => {
       const rules = readOnlyRules();
       expect(shell(rules, "ls", "rm -rf ~")).toBe("deny"); // ls; rm -rf ~   (also &&, ||, |, &, a newline, (..), {..;})
       expect(shell(rules, "ls $(rm x)", "rm x")).toBe("deny");
-      for (const text of ["ls > ~/y", "ls >> f", "ls >| f", "ls 3>f", "ls 2>&1", "git status > f", "git show HEAD:f > ~/.bashrc", `${fleet} send lead "x" > ~/x`, "cat < /etc/passwd", "gh pr view 5 --json a > f", "git log --no-ext-diff --no-textconv > f"]) expect(shell(rules, text)).toBe("deny");
-      // a redirect with no command in it is not checked at all by OpenCode: the guard plugin refuses it
+      for (const text of ["ls > ~/y", "ls >> f", "ls >| f", "ls 3>f", "ls 2>&1", "git status > f", "git show HEAD:f > ~/.bashrc", "cat < /etc/passwd", "gh pr view 5 --json a > f", "git log --no-ext-diff --no-textconv > f"]) expect(shell(rules, text)).toBe("deny");
+      // the fleet command takes quoted text that may hold < and >, so the rules let it through; the guard parses its quotes
+      expect(shell(rules, `${fleet} send lead "a -> b"`)).toBe("allow");
+      // a redirect with no command in it, an assignment and a declaration are not checked at all by OpenCode: the guard refuses them (opencode-guard.test.ts)
     });
 
     it("lets git history through only in the form that runs no helper and writes no file", () => {
@@ -362,6 +368,8 @@ describe("opencode adapter", () => {
       const history = (tail: string) => shell(rules, `git diff --no-ext-diff --no-textconv ${tail}`);
       expect(history("main...HEAD")).toBe("allow");
       expect(history("HEAD~3 -- src")).toBe("allow");
+      // two paths outside the repository make git diff an implicit --no-index
+      for (const tail of ["/dev/null /etc/passwd", "~/.ssh/id_ed25519", "../outside", "..", "--stat=/x", "HEAD -- ../x"]) expect([tail, history(tail)]).toEqual([tail, "deny"]);
       for (const flag of ["--output=/tmp/x", "--output /tmp/x", "--no-index a b", "--ext-diff", "--textconv"]) expect(history(flag)).toBe("deny");
       // the shell drops quotes, backslashes and expansions before git reads the line
       for (const tail of [`--ex""t-diff`, `--ex''t-diff`, "--ext$X-diff", "--ext`true`-diff", "--ext{-diff,}", `"--output=/tmp/x"`]) expect(history(tail)).toBe("deny");
@@ -388,7 +396,7 @@ describe("opencode adapter", () => {
         expect(shell(readOnlyRules(), text)).toBe("deny");
       }
       const rules = readOnlyRules(coordinatorPane);
-      for (const text of ["gh pr merge 12 --merge --admin", "gh pr merge --admin --merge", "gh pr merge -d --merge", "gh pr merge 12 -d --merge", "gh pr merge 12 --squash", "gh pr merge 12", "git pull", "git pull --ff-only origin x", "git merge main", "git merge --no-ff main", "git push", "git merge --no-ff fleet/x > f", `git merge --no-ff fleet/x"y"`, "git checkout main"]) expect(shell(rules, text)).toBe("deny");
+      for (const text of ["gh pr merge 12 --merge --admin", "gh pr merge --admin --merge", "gh pr merge -d --merge", "gh pr merge 12 -d --merge", "gh pr merge 12 --squash", "gh pr merge 12", "git pull", "git pull --ff-only origin x", "git merge main", "git merge --no-ff main", "git merge --no-ff fleet/x main", "git merge --no-ff fleet/x -s ours", "git merge --no-ff fleet/x -F /etc/passwd", "git push", "git merge --no-ff fleet/x > f", `git merge --no-ff fleet/x"y"`, "git checkout main"]) expect(shell(rules, text)).toBe("deny");
     });
   });
 
@@ -408,9 +416,10 @@ describe("opencode adapter", () => {
       for (const text of [
         "git push --force", "git push --force origin main", "git push origin main --force", "git push --force-with-lease", "git push --force-if-includes origin x", "git push origin x --force-with-lease=x:abc",
         "git push -f", "git push -f origin main", "git push origin main -f", "git push -fu origin main", "git push -uf origin main", "git push -nf origin x",
-        "git push origin +main", "git push +main", "git push origin +HEAD:main", "git push --mirror", "git -C ../wt push -f", "git -c push.default=current push --force",
+        "git push -vuf origin x", "git push -vunf origin x", "git push --mir", "git push --mirror", "git push --del origin main", "git push --delete origin main", "git push -d origin main", "git push origin :main", "git push --prune origin",
+        "git push origin +main", "git push +main", "git push origin +HEAD:main", "git -C ../wt push -f", "git -c push.default=current push --force",
       ]) expect([text, shell(rules, text)]).toEqual([text, "deny"]);
-      for (const text of ["git push", "git push origin main", "git push -u origin fix-foo", "git push origin HEAD:refs/heads/a-f", "git push --follow-tags", "git push origin feat/x-fix", "git stash push"]) expect([text, shell(rules, text)]).toEqual([text, "allow"]);
+      for (const text of ["git push", "git push origin main", "git push -u origin fix-foo", "git push origin HEAD:refs/heads/a-f", "git push --follow-tags", "git push origin feat/x-fix", "git stash push", "git push -u origin feat/x", "git push --dry-run origin x"]) expect([text, shell(rules, text)]).toEqual([text, "allow"]);
     });
 
     it("edits inside its work folder and its result folder, and nowhere else", () => {
@@ -449,7 +458,7 @@ describe("opencode adapter", () => {
     expect(opencode.question!(declined)).toBeUndefined();
     expect(opencode.draft!(declined)).toBe(false);
     expect(opencode.draft!(typed)).toBe(true);
-    expect(opencode.turnError(retrying)).toBe("Connection lost while reading the response: Simulated model provider");
+    expect(opencode.turnError(retrying)).toBe("Connection lost while reading the response: Simulated model provider disconnected");
     expect(opencode.draft!(retrying)).toBe(false);
   });
 
@@ -468,6 +477,8 @@ describe("opencode adapter", () => {
     expect(opencode.turnError("   ⚠ Retry due · attempt 2 · Provider overloaded")).toBe("Provider overloaded");
     expect(opencode.turnError("     Error: Model exo-free has been deprecated.\n\n     Fleet-Readonly · Exo Free · 595ms")).toBe("Model exo-free has been deprecated.");
     expect(opencode.turnError("HANDOFF\nPASS\nError: quoted in the evidence")).toBeUndefined();
+    // an Error: line of a tool's output is not a failed turn
+    expect(opencode.turnError("  ┃  $ bun test\n  ┃  Error: 3 tests failed\n  ┃  exit 1\n")).toBeUndefined();
     expect(opencode.turnError("done")).toBeUndefined();
   });
 
@@ -476,53 +487,15 @@ describe("opencode adapter", () => {
     expect(opencode.startupError('Ask anything… "What is the tech stack of this project?"')).toBeUndefined();
   });
 
-  it("refuses to run on an opencode that is not version 2: it would ignore the rules", () => {
-    // 1.19.0 answers `--standalone` with its help text; its TUI hints `tab agents`, 2.0.26's `shift+tab agents`
+  it("refuses to run on an opencode that is not version 2: it answers --standalone with its help", () => {
+    // 1.19.0, run in a terminal-less pane: the help text and exit code 1, no TUI
     const help = "Commands:\n  opencode completion          generate shell completion script\n  opencode [project]           start opencode tui                                          [default]\n";
     expect(opencode.startupError(help)).toContain("not OpenCode 2");
-    expect(opencode.readyError!("   tab agents  ctrl+p commands")).toContain("not OpenCode 2");
-    expect(opencode.readyError!("  /tmp/work   shift+tab agents  ctrl+p commands")).toBeUndefined();
-    expect(opencode.readyError!("")).toBeUndefined();
+    expect(opencode.readyError).toBeUndefined();
   });
 
-  it("leaves a model its list lacks to the TUI: the list holds what the catalog knows, not the free models of the OpenCode provider", () => {
+  it("leaves a model its list lacks to the TUI: the list holds what the catalog knows, but not every text the TUI accepts", () => {
     expect(opencode.models!.complete).toBe(false);
-  });
-});
-
-describe("the guard plugin of a read-only pane", () => {
-  it("refuses a shell line with a redirect, a here-string, a process substitution or a backslash, quoted or not", () => {
-    for (const command of ["> ~/x", ">~/x", ">> ~/.bashrc", "<f", "<<<hi", "ls > f", "cat < f", "ls 2>&1", "echo '>' f", "echo \"a < b\"", "cat <(ls)", "git diff --o\\utput=f", "ls \\"]) expect([command, refusal("shell", { command })?.startsWith("herdr-fleet:")]).toEqual([command, true]);
-  });
-
-  it("lets the commands of its rules through, and every tool but the shell", () => {
-    for (const command of ["ls", "git status", "git diff --no-ext-diff --no-textconv HEAD~1", `${"/usr/bin/bun /opt/fleet/bin/fleet.ts"} send lead "done; see $HOME"`, "gh pr view 5 --json title,url"]) expect(refusal("shell", { command })).toBeUndefined();
-    expect(refusal("edit", { path: "/state/fleet-results/r1/handoff.md", oldString: "<", newString: ">" })).toBeUndefined();
-    expect(refusal("read", { path: "a>b" })).toBeUndefined();
-  });
-
-  it("refuses a shell call whose command is not text", () => {
-    for (const input of [undefined, null, {}, { command: 5 }, { command: ["ls"] }, "ls"]) expect(refusal("shell", input)).toContain("text");
-  });
-
-  it("registers a tool.execute.before hook that fails with a Tool.Error", async () => {
-    // the host provides `effect` and @opencode/plugin to a plugin; stand-ins record how they are used
-    const failures: unknown[] = [];
-    mock.module("effect", () => ({ Effect: { fail: (error: unknown) => { failures.push(error); return { failed: error }; }, void: { ok: true }, asVoid: Symbol("asVoid") } }));
-    class ToolError { constructor(readonly fields: { message: string }) {} }
-    mock.module("@opencode/plugin/promise/tool", () => ({ Error: ToolError }));
-    const entry = "../../opencode/fleet-guard/index.js";
-    const plugin = (await import(entry)).default as { id: string; effect: (ctx: unknown) => { pipe: (...fns: unknown[]) => unknown } };
-    expect(plugin.id).toBe("herdr-fleet.guard");
-    const registered: Array<{ name: string; callback: (event: unknown) => unknown }> = [];
-    const registration = { pipe: (...fns: unknown[]) => fns };
-    plugin.effect({ tool: { hook: (name: string, callback: (event: unknown) => unknown) => { registered.push({ name, callback }); return registration; } } });
-    expect(registered.map((hook) => hook.name)).toEqual(["execute.before"]);
-    const refused = registered[0]!.callback({ tool: "shell", input: { command: "> ~/x" } }) as { failed: ToolError };
-    expect(refused.failed).toBeInstanceOf(ToolError);
-    expect(refused.failed.fields.message).toContain("redirect");
-    expect(registered[0]!.callback({ tool: "shell", input: { command: "ls" } })).toEqual({ ok: true });
-    expect(failures).toHaveLength(1);
   });
 });
 

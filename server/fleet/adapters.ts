@@ -2,7 +2,7 @@ import { dirname } from "node:path";
 import { stripVTControlCharacters } from "node:util";
 import type { AgentKind, ThinkingLevel } from "./types.ts";
 import { CLAUDE_ALIASES, listAgyModels, listCodexModels, listCursorModels, listOpencodeModels, listPiModels, type ListOptions, type ModelEntry } from "./model-lists.ts";
-import { opencodeConfig, opencodeReadOnlyNote } from "./opencode-config.ts";
+import { OPENCODE_GIT_ENV, opencodeConfig, opencodeReadOnlyNote } from "./opencode-config.ts";
 import type { UsageReading } from "./usage.ts";
 
 export interface LaunchOptions {
@@ -332,6 +332,29 @@ export const agyAdapter: AgentAdapter = {
   },
 };
 
+/**
+ * While it retries a failed request: `⚠ Retrying in 12s · attempt 2 · <reason>` (`⚠ Retry due · ...` once
+ * the wait is over), the reason wrapping onto the next line on a narrow pane. A request it gives up on
+ * ends in `Error: <reason>`, a blank line and the agent, model and time of the turn (`... · 595ms`):
+ * an `Error:` line in a tool's output is not that.
+ */
+export function opencodeTurnError(output: string | undefined): string | undefined {
+  if (!output) return undefined;
+  const lines = output.split(/\r?\n/).map((line) => line.trim());
+  let found: string | undefined;
+  lines.forEach((line, at) => {
+    const retry = /^⚠ Retry(?:ing in \S+| due) · attempt \d+ · (.+)$/.exec(line);
+    if (retry) {
+      const next = lines[at + 1];
+      found = next && !next.includes(" · ") && !next.startsWith("┃") ? `${retry[1]} ${next}` : retry[1];
+      return;
+    }
+    const error = /^Error: (.+)$/.exec(line);
+    if (error && !/HANDOFF/.test(output) && /^(?:.+ · )?\d[\d.]*m?s$/.test(lines[at + 1] === "" ? lines[at + 2] ?? "" : lines[at + 1] ?? "")) found = error[1];
+  });
+  return found?.trim() || undefined;
+}
+
 const NOT_OPENCODE_2 = "The opencode that herdr starts is not OpenCode 2 (check `opencode --version`); the fleet's rules for it need version 2.";
 
 /**
@@ -354,7 +377,7 @@ export const opencodeAdapter: AgentAdapter = {
   env(context) {
     const { model } = splitThinking(context.model);
     const config = opencodeConfig({ ...context, ...(model ? { model } : {}) });
-    return { OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_CONFIG_CONTENT: JSON.stringify(config) };
+    return { OPENCODE_DISABLE_AUTOUPDATE: "true", ...OPENCODE_GIT_ENV, OPENCODE_CONFIG_CONTENT: JSON.stringify(config) };
   },
   launchArgs() {
     return ["--standalone"];
@@ -376,14 +399,9 @@ export const opencodeAdapter: AgentAdapter = {
       return text !== undefined && !text.startsWith("Ask anything…");
     });
   },
-  // herdr starts the executable named `opencode`, which may still be 1.x: it answers --standalone with its help text (v1.19.0, run without a terminal), or starts a TUI that ignores this config's rules
+  // herdr starts the executable named `opencode`, which may still be 1.x: it answers --standalone with its help text and exit code 1 (v1.19.0; its TUI is not started, so the screen is that help)
   startupError(screen) {
     return /opencode \[project\]\s+start opencode tui/.test(screen) ? NOT_OPENCODE_2 : lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
-  },
-  readyError(screen) {
-    // 1.x hints `tab agents`, 2.x `shift+tab agents`
-    const plain = stripVTControlCharacters(screen);
-    return /\btab agents\b/.test(plain) && !/shift\+tab agents/.test(plain) ? NOT_OPENCODE_2 : undefined;
   },
   question(screen) {
     // the permission request replaces the input; once answered it leaves the screen. Its title is shortened to `Permission` on a narrow pane
@@ -391,8 +409,7 @@ export const opencodeAdapter: AgentAdapter = {
     return /△ Permission/.test(plain) && /Allow once/.test(plain) && /Reject/.test(plain) ? "OpenCode asks for permission." : undefined;
   },
   turnError(output) {
-    // while it retries a failed request: `⚠ Retrying in 12s · attempt 2 · <reason>` (`⚠ Retry due · attempt 2 · <reason>` once the wait is over); a request it gives up on ends in `Error: <reason>`
-    return lastMatch(output, /^\s*⚠ Retry(?:ing in \S+| due) · attempt \d+ · (.+?)\s*$/gm) ?? piTurnError(output);
+    return opencodeTurnError(output);
   },
 };
 
