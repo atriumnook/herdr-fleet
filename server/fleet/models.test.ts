@@ -3,7 +3,8 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AGENT_KINDS, type AgentAdapter } from "./adapters.ts";
-import { listAgyModels, listCodexModels, listCursorModels, listPiModels, parseAgyModels, parseCodexModels, parseCursorModels, parsePiModels } from "./model-lists.ts";
+import { opencodeApiGet } from "../opencode-cli.ts";
+import { listAgyModels, listCodexModels, listCursorModels, listOpencodeModels, listPiModels, parseAgyModels, parseCodexModels, parseCursorModels, parseOpencodeModels, parsePiModels } from "./model-lists.ts";
 import { modelListed } from "../../shared/fleet.ts";
 import { ModelCatalog } from "./models.ts";
 
@@ -20,6 +21,13 @@ describe("model lists, as each CLI prints them", () => {
   it("reads pi's table as provider/model", () => {
     const output = "provider  model    context  max-out  thinking  images\nopenai    gpt-4.1  1.0M     32.8K    no        yes\n";
     expect(parsePiModels(output)).toEqual([{ id: "openai/gpt-4.1" }]);
+  });
+
+  it("reads opencode's GET /api/model as provider/model, and leaves out what is not one", () => {
+    const body = { data: [{ providerID: "github-copilot", id: "claude-opus-5.5", variants: [] }, { providerID: "opencode", id: "big-pickle" }, { providerID: "x", id: "y#high" }, { providerID: "a b", id: "c" }, { id: "no-provider" }, null] };
+    expect(parseOpencodeModels(body)).toEqual([{ id: "github-copilot/claude-opus-5.5" }, { id: "opencode/big-pickle" }]);
+    expect(parseOpencodeModels({ data: [] })).toEqual([]);
+    expect(parseOpencodeModels("html")).toEqual([]);
   });
 
   it("reads one page of codex's model/list and where the next begins", () => {
@@ -86,6 +94,19 @@ describe("agy's models, listed once per effort", () => {
     expect(modelListed(listing, "gemini-9")).toBe(false);
     // another CLI's names keep their ending
     expect(modelListed({ ...listing, agent: "cursor" }, "gemini-3.1-pro")).toBe(false);
+  });
+});
+
+describe("opencode's models, run with a #variant", () => {
+  const listing = { agent: "opencode" as const, complete: false, models: parseOpencodeModels({ data: [{ providerID: "github-copilot", id: "claude-opus-5.5" }, { providerID: "opencode", id: "big-pickle" }] }) };
+
+  it("accepts a listed id with or without its variant, and nothing else", () => {
+    expect(modelListed(listing, "github-copilot/claude-opus-5.5")).toBe(true);
+    expect(modelListed(listing, "github-copilot/claude-opus-5.5#high")).toBe(true);
+    expect(modelListed(listing, "github-copilot/claude-opus-5.5#high:low")).toBe(true);
+    expect(modelListed(listing, "github-copilot/claude-opus-9#high")).toBe(false);
+    // only opencode names a variant that way
+    expect(modelListed({ ...listing, agent: "pi" }, "github-copilot/claude-opus-5.5#high")).toBe(false);
   });
 });
 
@@ -220,6 +241,61 @@ describe("what a model listing's CLI gets", () => {
     noSecrets(pi);
     expect(envNames(pi)).toContain("PI_CODING_AGENT_DIR");
     expect(envNames(pi)).not.toContain("CODEX_HOME");
+  });
+
+  /**
+   * A stand-in `opencode`: `service status` says where the service is (or nothing, or fails as 1.x does for a command it
+   * does not know), `api GET` answers an empty list the first time and the models after, like a place the service has not loaded.
+   */
+  const fakeOpencode = (dir: string, behaviour: "running" | "stopped" | "v1") => {
+    const file = join(dir, "opencode");
+    const status = behaviour === "running" ? "echo http://127.0.0.1:49374; exit 0" : behaviour === "stopped" ? "exit 0" : "echo 'opencode [project]  start opencode tui'; exit 1";
+    writeFileSync(file, [
+      "#!/bin/sh", `/usr/bin/env > "${file}.env"`, `pwd > "${file}.cwd"`, `ls -A > "${file}.ls"`, `printf '%s\\n' "$*" >> "${file}.args"`,
+      `if [ "$1" = service ]; then ${status}; fi`,
+      `if [ "$1" = api ]; then n=$(cat "${file}.n" 2>/dev/null || echo 0); echo $((n+1)) > "${file}.n"; if [ "$n" = 0 ]; then echo '{"data":[]}'; else echo '{"data":[{"providerID":"anthropic","id":"claude-sonnet-5-5"},{"providerID":"opencode","id":"big-pickle"}]}'; fi; exit 0; fi`,
+      "exit 1", "",
+    ].join("\n"), { mode: 0o755 });
+    return file;
+  };
+
+  it("opencode lists from the running service by `opencode api`, asking again once for a place the service has not loaded, in its own emptied folder", async () => {
+    const dir = tempDir();
+    const workDir = join(dir, "model-list", "opencode");
+    plant(workDir);
+    const opencode = fakeOpencode(dir, "running");
+    expect(await listOpencodeModels({ workDir, command: opencode, env: SERVER_ENV, retryAfterMs: 1 })).toEqual([{ id: "anthropic/claude-sonnet-5-5" }, { id: "opencode/big-pickle" }]);
+    // the status is a read; no `serve`, no `models`, nothing that would start a server
+    expect(readFileSync(`${opencode}.args`, "utf8")).toBe("service status\napi GET /api/model\nservice status\napi GET /api/model\n");
+    expect(readFileSync(`${opencode}.cwd`, "utf8").trim()).toBe(realpathSync(workDir));
+    noSecrets(opencode);
+    expect(envNames(opencode)).toEqual(expect.arrayContaining(["PATH", "HOME", "LANG"]));
+    expect(readFileSync(`${opencode}.env`, "utf8")).toContain("OPENCODE_DISABLE_AUTOUPDATE=true\n");
+    expect(statSync(workDir).mode & 0o777).toBe(0o700);
+  });
+
+  it("opencode with no service running gives no list and starts nothing: `api` is never run", async () => {
+    const dir = tempDir();
+    const opencode = fakeOpencode(dir, "stopped");
+    await expect(listOpencodeModels({ workDir: join(dir, "model-list", "opencode"), command: opencode, env: SERVER_ENV })).rejects.toThrow("no OpenCode service is running");
+    expect(readFileSync(`${opencode}.args`, "utf8")).toBe("service status\n");
+  });
+
+  it("opencode 1.x, which does not know `service`, fails the same way before anything else is run", async () => {
+    const dir = tempDir();
+    const old = fakeOpencode(dir, "v1");
+    await expect(listOpencodeModels({ workDir: join(dir, "model-list", "opencode"), command: old, env: SERVER_ENV })).rejects.toThrow("no OpenCode service is running");
+    expect(readFileSync(`${old}.args`, "utf8")).toBe("service status\n");
+  });
+
+  it("opencode's reply is bounded in size and in time", async () => {
+    const dir = tempDir();
+    const opencode = fakeOpencode(dir, "running");
+    writeFileSync(`${opencode}.n`, "1\n");
+    await expect(opencodeApiGet({ workDir: join(dir, "w"), command: opencode, env: SERVER_ENV, maxReplyBytes: 30 }, "/api/model")).rejects.toThrow("more than 30 bytes");
+    const slow = join(dir, "slow");
+    writeFileSync(slow, "#!/bin/sh\nif [ \"$1\" = service ]; then echo http://127.0.0.1:1; exit 0; fi\nexec sleep 30\n", { mode: 0o755 });
+    await expect(opencodeApiGet({ workDir: join(dir, "w2"), command: slow, env: SERVER_ENV, timeoutMs: 300 }, "/api/model")).rejects.toThrow();
   });
 
   it("codex app-server runs in its own emptied folder, with CODEX_HOME and no API key or herdr session", async () => {

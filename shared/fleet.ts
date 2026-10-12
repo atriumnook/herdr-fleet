@@ -299,12 +299,14 @@ export interface ModelListing {
 }
 
 /**
- * Whether `model` is one the listing names. A `:level` suffix is not part of a name, and cursor's
- * bracketed parameters (`gpt-5[effort=high]`) belong to one model.
+ * Whether `model` is one the listing names. A `:level` suffix is not part of a name, cursor's
+ * bracketed parameters (`gpt-5[effort=high]`) belong to one model, and opencode's `#variant` is a
+ * way to run the model the listing names without it.
  */
 export function modelListed(listing: ModelListing, model: string): boolean {
   const bare = (name: string) => name.replace(/\[.*\]$/, "");
-  const name = bare(model.replace(/:(off|minimal|low|medium|high|xhigh|max)$/, ""));
+  const unsuffixed = model.replace(/:(off|minimal|low|medium|high|xhigh|max)$/, "");
+  const name = bare(listing.agent === "opencode" ? unsuffixed.replace(/#[^#]+$/, "") : unsuffixed);
   // agy lists a model once per effort (`gemini-3.1-pro-high`) and takes the effort apart, by `--effort`
   const base = (id: string) => (listing.agent === "agy" ? id.replace(/-(low|medium|high|xhigh|max)$/, "") : id);
   return listing.models.some((each) => each.id === name || bare(each.id) === name || base(each.id) === name);

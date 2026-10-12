@@ -1,12 +1,13 @@
 /**
  * Each agent CLI's own list of the models it offers. Every command here answers from the CLI's
  * catalog or its account, none calls a model: `codex app-server` `model/list`, `agy models`,
- * `cursor-agent models`, `pi --list-models`. Claude Code has no such command, so its aliases are
+ * `cursor-agent models`, `pi --list-models`, the running `opencode` service. Claude Code has no such command, so its aliases are
  * the list (`claude --help` names them).
  */
 
 import type { ModelListing } from "../../shared/fleet.ts";
 import { childEnv, emptyWorkDir } from "../cli-child.ts";
+import { opencodeApiGet } from "../opencode-cli.ts";
 
 export type ModelEntry = ModelListing["models"][number];
 
@@ -22,6 +23,8 @@ export interface ListOptions {
   command?: string;
   /** the server's environment; process.env when left out */
   env?: Record<string, string | undefined>;
+  /** how long opencode waits before it asks a service again that answered an empty list (for a test to shorten) */
+  retryAfterMs?: number;
 }
 
 async function run(argv: string[], options: ListOptions, env: Record<string, string>): Promise<string> {
@@ -79,6 +82,32 @@ export function parsePiModels(output: string): ModelEntry[] {
 /** pi keeps its sign-in under PI_CODING_AGENT_DIR, which passes when set. */
 export const listPiModels = async (options: ListOptions): Promise<ModelEntry[]> =>
   parsePiModels(await run([options.command ?? "pi", "--list-models"], options, childEnv(options.env ?? process.env, ["PI_CODING_AGENT_DIR"])));
+
+/**
+ * OpenCode 2's `GET /api/model`: the models of the providers that are signed in, `provider/model` each
+ * (a `#variant` after a model name runs it and is not listed here). Not a complete list: it is what the
+ * service has loaded when it is asked, and the TUI accepts any `provider/model` text (an unknown one fails at the first prompt).
+ */
+export function parseOpencodeModels(body: unknown): ModelEntry[] {
+  const data = (body as { data?: unknown } | null)?.data;
+  if (!Array.isArray(data)) return [];
+  return data.flatMap((model: { providerID?: unknown; id?: unknown }) =>
+    typeof model?.providerID === "string" && typeof model.id === "string" && /^[^\s/#]+$/.test(model.providerID) && /^\S+$/.test(model.id) && !model.id.includes("#") ? [{ id: `${model.providerID}/${model.id}` }] : []);
+}
+
+/**
+ * Asks the person's running background service, through `opencode api` (server/opencode-cli.ts), which
+ * starts no server of ours: no service running is no list, and a 1.x opencode, which does not know the
+ * `service` command, fails the same way. A service that has just started answers `[]` until its providers
+ * have loaded; that is no list for now, and the catalog asks again after its failure interval.
+ */
+export async function listOpencodeModels(options: ListOptions): Promise<ModelEntry[]> {
+  const first = parseOpencodeModels(await opencodeApiGet(options, "/api/model"));
+  if (first.length > 0) return first;
+  // a place the service has not loaded yet answers [] to the first question (seen on 2.0.26: 0 models, then 56 three seconds later)
+  await new Promise((resolve) => setTimeout(resolve, options.retryAfterMs ?? 2000));
+  return parseOpencodeModels(await opencodeApiGet(options, "/api/model"));
+}
 
 /** codex's `model/list` result: the models of one page, and where the next begins. */
 export function parseCodexModels(result: unknown): { models: ModelEntry[]; next?: string } {

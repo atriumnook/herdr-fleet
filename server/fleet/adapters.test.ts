@@ -1,5 +1,7 @@
 import { describe, expect, it } from "bun:test";
-import { adapterFor, cursorUsage, isAgentKind, opencodePermission, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
+import { existsSync } from "node:fs";
+import { opencodeGitEnv } from "./opencode-config.ts";
+import { adapterFor, cursorUsage, type PaneContext, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
 
 const base = { name: "impl", systemPromptFile: "/tmp/i.md", systemPrompt: "Be brief.\nSay \"done\".", resultDir: "/state/results/r1" };
 
@@ -218,123 +220,288 @@ describe("agy adapter", () => {
 
 describe("opencode adapter", () => {
   const opencode = adapterFor("opencode");
-  const pane = { resultDir: "/state/fleet-results/r1", fleetCommand: "/usr/bin/bun /opt/fleet/bin/fleet.ts" };
+  const fleet = "/usr/bin/bun /opt/fleet/bin/fleet.ts";
+  const resultDir = "/state/fleet-results/r1";
+  const pane: PaneContext = { resultDir, fleetCommand: fleet, readOnly: false, merges: false };
+  const readOnlyPane = { ...pane, readOnly: true };
+  const coordinatorPane = { ...readOnlyPane, merges: true };
+  const configOf = (context: typeof pane) => JSON.parse(opencode.env!(context)["OPENCODE_CONFIG_CONTENT"]!) as {
+    model?: string; share?: string; update?: string; default_agent?: string; plugins?: Array<{ package: string; options: unknown }>;
+    permissions?: Rule[]; agents?: Record<string, { mode: string; permissions: Rule[] }>;
+  };
+  type Rule = { action: string; resource: string; effect: string };
 
-  it("sees a draft in its input box, but not the placeholder there (opencode 1.19, read with colors)", () => {
-    const bar = "\x1b[38;5;75m\x1b[48;5;232m┃\x1b[0m";
-    const screen = (text: string, extra = "") => [
-      "   \x1b[38;5;255m█▀▀█ █▀▀█\x1b[0m", `             ${bar}\x1b[48;5;234m${" ".repeat(70)}\x1b[0m`, `             ${bar}\x1b[48;5;234m  \x1b[0m${text}`, ...(extra ? [`             ${bar}  ${extra}`] : []),
-      `             ${bar}\x1b[48;5;234m${" ".repeat(70)}\x1b[0m`, `             ${bar}  \x1b[38;5;75mBuild\x1b[0m · Big Pickle OpenCode Zen`, `             ╹${"▀".repeat(60)}`, "   tab agents  ctrl+p commands", "",
+  /**
+   * OpenCode 2.0.26, packages/core/src: `Wildcard.match` (util/wildcard.ts) and `Permission.evaluate`
+   * (permission.ts), as they are. A request is denied when any of its resources is denied by the last
+   * rule that matches it (`denied`); else it asks if any resource has no allow as its last match.
+   */
+  const wildcard = (input: string, pattern: string) => {
+    let source = pattern.replaceAll("\\", "/").replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
+    if (source.endsWith(" .*")) source = `${source.slice(0, -3)}( .*)?`;
+    return new RegExp(`^${source}$`, "s").test(input.replaceAll("\\", "/"));
+  };
+  const evaluate = (action: string, resource: string, rules: Rule[]) =>
+    [...rules].reverse().find((rule) => wildcard(action, rule.action) && wildcard(resource, rule.resource))?.effect ?? "ask";
+  const decide = (rules: Rule[], action: string, ...resources: string[]) => {
+    if (resources.some((resource) => evaluate(action, resource, rules) === "deny")) return "deny";
+    return resources.some((resource) => evaluate(action, resource, rules) === "ask") ? "ask" : "allow";
+  };
+  /** what OpenCode puts before a config's rules for a primary agent of the config (read from /api/agent of the real binary) */
+  const SCHEMA_DEFAULT: Rule[] = [
+    { action: "*", resource: "*", effect: "allow" },
+    { action: "read", resource: "*.env", effect: "ask" },
+    { action: "read", resource: "*.env.*", effect: "ask" },
+    { action: "read", resource: "*.env.example", effect: "allow" },
+  ];
+  const readOnlyRules = (context = readOnlyPane) => [...SCHEMA_DEFAULT, ...configOf(context).agents!["fleet-readonly"]!.permissions];
+  const editorRules = (before: Rule[] = []) => [...SCHEMA_DEFAULT, ...before, ...configOf(pane).permissions!];
+  /** the verdict for a shell line, given the commands the scanner finds in it (tree-sitter, one resource each; a redirected one as the whole statement) */
+  const shell = (rules: Rule[], ...commands: string[]) => decide(rules, "shell", ...commands);
+
+  it("sees a draft in its input box, but not the placeholder, a toast drawn over the box, or the agent row (v2.0.26, read with colors)", () => {
+    const row = (inner: string) => `\x1b[48;5;232m  \x1b[38;5;75m┃\x1b[38;5;15m\x1b[48;5;234m${inner}`;
+    const box = (...text: string[]) => [
+      "  ╹ New session",
+      row(" ".repeat(60)),
+      ...text.map((each) => row(`  \x1b[38;5;255m${each}\x1b[38;5;15m${" ".repeat(40)}`)),
+      row(" ".repeat(60)),
+      row("  \x1b[38;5;75mFleet-Readonly\x1b[38;5;15m \x1b[38;5;8m·\x1b[38;5;15m \x1b[38;5;255mExo Free\x1b[38;5;15m \x1b[38;5;8mOpenCode Zen"),
+      `\x1b[48;5;232m  \x1b[38;5;75m╹\x1b[38;5;234m${"▀".repeat(60)}`,
+      "  /tmp/work   shift+tab agents  ctrl+p commands",
     ].join("\r\n");
-    expect(opencode.draft!(screen("\x1b[38;5;255mhello draft\x1b[0m"))).toBe(true);
-    expect(opencode.draft!(screen("\x1b[38;5;255mあいう\x1b[0m"))).toBe(true);
-    expect(opencode.draft!(screen("\x1b[38;5;255mfirst\x1b[0m", "second"))).toBe(true);
-    expect(opencode.draft!(screen('\x1b[38;5;8mAsk anything… "Fix broken tests"\x1b[0m'))).toBe(false);
-    expect(opencode.draft!(screen(""))).toBe(false);
-    // the agent and model row is not a draft
-    expect(opencode.draft!("┃  Build · Big Pickle\n╹▀▀▀\n")).toBe(false);
+    expect(opencode.draft!(box("hello draft"))).toBe(true);
+    expect(opencode.draft!(box("あいう"))).toBe(true);
+    expect(opencode.draft!(box("hello draft", "second line"))).toBe(true);
+    expect(opencode.draft!(box('\x1b[38;5;8mAsk anything… "What is the tech stack of this project?"'))).toBe(false);
+    // the "Getting started" toast is drawn over the right of the box's rows
+    const toast = ["┃" + " ".repeat(100) + "Claude, GPT, Gemini etc", "┃", "┃" + " ".repeat(100) + "Connect provider", "┃  Fleet-Readonly · Exo Free OpenCode Zen", `╹${"▀".repeat(60)}`].join("\n");
+    expect(opencode.draft!(toast)).toBe(false);
+    expect(opencode.draft!("┃  Fleet-Readonly · Exo Free OpenCode Zen\n╹▀▀▀\n")).toBe(false);
+    // a message above the box is separated from it by a row with no bar
+    expect(opencode.draft!("  ┃  $ echo final\n  ┃\n  ┃  final\n  ┃\n\n  ┃\n  ┃\n  ┃  Fleet-Readonly · Exo Free OpenCode Zen\n  ╹▀▀▀\n")).toBe(false);
     expect(opencode.draft!("$ opencode\n")).toBe(false);
   });
 
-  it("takes the model as provider/model, no thinking level, no approve-everything flag, and instructions in the first prompt", () => {
-    expect(opencode.launchArgs({ ...base, model: "anthropic/claude-sonnet-5-5", thinking: "high" })).toEqual(["--model", "anthropic/claude-sonnet-5-5"]);
-    expect(opencode.launchArgs({ ...base, model: "p/m:low" })).toEqual(["--model", "p/m"]);
-    expect(opencode.launchArgs(base)).toEqual([]);
+  it("starts the TUI standalone and takes everything else in its config: no model flag, no thinking level, instructions in the first prompt", () => {
+    expect(opencode.launchArgs({ ...base, model: "anthropic/claude-sonnet-5-5", thinking: "high" })).toEqual(["--standalone"]);
+    expect(opencode.launchArgs(base)).toEqual(["--standalone"]);
     expect(opencode.instructionsInPrompt).toBe(true);
-    expect(opencode.readOnlyArgs).toEqual(["--agent", "fleet-readonly"]);
+    expect(opencode.readOnlyArgs).toEqual([]);
+    expect(opencode.readOnlyEditsResult).toBe(true);
   });
 
-  it("turns off its self-update, session sharing and language-server downloads in the pane", () => {
-    expect(opencode.env?.(pane)).toMatchObject({ OPENCODE_DISABLE_AUTOUPDATE: "true", OPENCODE_DISABLE_SHARE: "true", OPENCODE_DISABLE_LSP_DOWNLOAD: "true" });
+  it("gives the pane the model, no self-update and no sharing, and none of the switches version 2 dropped", () => {
+    const env = opencode.env!({ ...pane, model: "anthropic/claude-sonnet-5-5:low" });
+    expect(Object.keys(env).sort()).toEqual(["GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0", "OPENCODE_CONFIG_CONTENT", "OPENCODE_DISABLE_AUTOUPDATE"]);
+    expect(env["OPENCODE_DISABLE_AUTOUPDATE"]).toBe("true");
+    // every git of the agent runs without the repository's fsmonitor program (environment config beats the repository's: checked with git 2.55)
+    expect([env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]]).toEqual(["1", "core.fsmonitor", "false"]);
+    // config the server's own environment carries stays, and ours comes after it
+    expect(opencodeGitEnv({ GIT_CONFIG_COUNT: "2", GIT_CONFIG_KEY_0: "a.b", GIT_CONFIG_VALUE_0: "1", GIT_CONFIG_KEY_1: "c.d", GIT_CONFIG_VALUE_1: "2" })).toEqual({
+      GIT_CONFIG_KEY_0: "a.b", GIT_CONFIG_VALUE_0: "1", GIT_CONFIG_KEY_1: "c.d", GIT_CONFIG_VALUE_1: "2", GIT_CONFIG_COUNT: "3", GIT_CONFIG_KEY_2: "core.fsmonitor", GIT_CONFIG_VALUE_2: "false",
+    });
+    expect(opencodeGitEnv({ GIT_CONFIG_COUNT: "x" })["GIT_CONFIG_COUNT"]).toBe("1");
+    expect(JSON.parse(env["OPENCODE_CONFIG_CONTENT"]!)).toMatchObject({ model: "anthropic/claude-sonnet-5-5", share: "disabled", update: "disable" });
+    // a #variant stays with the model; none given, none set
+    expect(configOf({ ...pane, model: "p/m#high" }).model).toBe("p/m#high");
+    expect(configOf(pane).model).toBeUndefined();
+    // the config text is read with {env:...} and {file:...} substituted
+    expect(opencode.env!(pane)["OPENCODE_CONFIG_CONTENT"]).not.toMatch(/\{(env|file):/);
   });
 
-  it("asks before any shell command that is not on its short read-only list, and never allows everything", () => {
-    const permission = opencodePermission(pane) as { bash: Record<string, string>; edit: Record<string, string>; external_directory: Record<string, string> };
-    expect(Object.entries(permission.bash)[0]).toEqual(["*", "ask"]);
-    expect(permission.bash["/usr/bin/bun /opt/fleet/bin/fleet.ts *"]).toBe("allow");
-    expect(permission.bash["git status"]).toBe("allow");
-    expect(permission.bash["git push *"]).toBeUndefined();
-    // a pattern ending in `*` also matches arguments (`git diff --output=f`): only the fleet command has one
-    const wild = Object.keys(permission.bash).filter((pattern) => permission.bash[pattern] === "allow" && pattern.endsWith("*"));
-    expect(wild).toEqual(["/usr/bin/bun /opt/fleet/bin/fleet.ts *"]);
-    // the asks come last, so they win over every allow
-    const rules = Object.entries(permission.bash);
-    expect(rules.slice(rules.findIndex(([, action], i) => i > 0 && action === "ask")).every(([, action]) => action === "ask")).toBe(true);
-    // only this run's result folder is opened to edits and to paths outside the workspace
-    expect(permission.edit).toEqual({ "*/fleet-results/r1/*": "allow" });
-    expect(permission.external_directory).toEqual({ "/state/fleet-results/r1/*": "allow" });
-    const sent = JSON.parse(opencode.env!(pane)["OPENCODE_PERMISSION"]!);
-    expect(sent).toEqual(permission);
-    expect(Object.values(sent).includes("allow")).toBe(false);
+  it("never writes an ask, and never allows everything", () => {
+    for (const context of [pane, readOnlyPane, coordinatorPane]) {
+      const config = configOf(context);
+      const rules = [...(config.permissions ?? []), ...Object.values(config.agents ?? {}).flatMap((agent) => agent.permissions)];
+      expect(rules.length).toBeGreaterThan(0);
+      expect(rules.some((rule) => rule.effect === "ask")).toBe(false);
+      expect(rules.some((rule) => rule.effect === "allow" && rule.action === "*")).toBe(false);
+    }
   });
 
-  /**
-   * opencode 1.19.0 (the bundled JS of the binary, read with `strings`), the parts this follows:
-   * - shell tool, `collect`: every `command` node under the parsed input is looked at on its own
-   *   (`vi(c)` = `descendantsOfType("command")`, so `;`, `&&`, `|` and `$(...)` yield several),
-   *   and each one that is not exempt adds `Pi(U)` to the patterns it asks about;
-   * - `Pi(o)`: `o.parent?.type === "redirected_statement" ? o.parent.text : o.text` - a command with
-   *   a redirect is asked about as the text of the whole statement, redirect included;
-   * - `Wildcard.match` (`JH`): `*` becomes `.*`, `?` becomes `.`, a trailing ` *` is optional,
-   *   anchored, flag `s`;
-   * - `Permission.evaluate` (`c`): `findLast` over the merged rules, `ask` when none matches.
-   * The tool asks when any of its patterns evaluates to ask.
-   */
-  describe("under opencode's matching", () => {
-    const rules = Object.entries((opencodePermission(pane) as { bash: Record<string, string> }).bash);
-    const match = (text: string, pattern: string) => {
-      let source = pattern.replaceAll("\\", "/").replace(/[.+^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".");
-      if (source.endsWith(" .*")) source = `${source.slice(0, -3)}( .*)?`;
-      return new RegExp(`^${source}$`, "s").test(text.replaceAll("\\", "/"));
-    };
-    const action = (text: string) => [...rules].reverse().find(([pattern]) => match(text, pattern))?.[1] ?? "ask";
-    /** what the tool decides for a command line, given the statements it parses out of it */
-    const verdict = (...patterns: string[]) => (patterns.every((pattern) => action(pattern) === "allow") ? "allow" : "ask");
-    const fleet = "/usr/bin/bun /opt/fleet/bin/fleet.ts";
-
-    it("lets the listed commands and the fleet command through", () => {
-      for (const text of ["ls", "pwd", "git status", "git ls-files", `${fleet} list`, `${fleet} send lead "go"`]) expect(verdict(text)).toBe("allow");
+  describe("a role that edits nothing", () => {
+    it("is the default agent, with its rules and the guard plugin of this pane alone", () => {
+      const config = configOf(readOnlyPane);
+      expect(config.default_agent).toBe("fleet-readonly");
+      expect(config.agents!["fleet-readonly"]!.mode).toBe("primary");
+      expect(config.permissions).toBeUndefined();
+      expect(config.agents!["fleet-readonly"]!.permissions[0]).toEqual({ action: "*", resource: "*", effect: "deny" });
+      expect(config.plugins).toHaveLength(1);
+      expect(config.plugins![0]!.package.endsWith("/opencode/fleet-guard")).toBe(true);
+      expect(existsSync(`${config.plugins![0]!.package}/index.js`)).toBe(true);
+      // the guard is told the fleet command, and whether this role merges
+      expect(config.plugins![0]!.options).toEqual({ fleetCommand: fleet, merges: false });
+      expect(configOf(coordinatorPane).plugins![0]!.options).toEqual({ fleetCommand: fleet, merges: true });
+      const editing = configOf(pane);
+      expect(editing.default_agent).toBeUndefined();
+      expect(editing.agents).toBeUndefined();
+      expect(editing.plugins).toBeUndefined();
     });
 
-    it("asks when a redirect, a second command or a substitution comes with one", () => {
-      expect(verdict("ls > ~/y")).toBe("ask");
-      expect(verdict("git show HEAD:f > ~/.bashrc")).toBe("ask");
-      expect(verdict(`${fleet} send lead "x" > ~/x`)).toBe("ask");
-      expect(verdict("cat < /etc/passwd")).toBe("ask");
-      expect(verdict("ls", "rm -rf ~")).toBe("ask"); // ls; rm -rf ~
-      expect(verdict("ls", "git push")).toBe("ask"); // ls && git push
-      expect(verdict("ls $(rm x)", "rm x")).toBe("ask"); // ls $(rm x)
+    it("reads, searches and runs the short list of read-only commands and the fleet command", () => {
+      const rules = readOnlyRules();
+      for (const action of ["read", "glob", "grep"]) expect(decide(rules, action, "src/a.ts")).toBe("allow");
+      for (const text of ["ls", "pwd", "git status", "git ls-files", `${fleet} list`, `${fleet} send lead "go"`, `${fleet} send lead 'a; b'`, "gh pr view 5 --json title", "gh pr list", "gh pr checks 5", "gh run view 99 --log-failed"]) expect(shell(rules, text)).toBe("allow");
+      for (const command of ["diff", "log", "show"]) expect(shell(rules, `git ${command} --no-ext-diff --no-textconv HEAD~1 -- src/a.ts`)).toBe("allow");
+      // comments and trailing separators leave the same command nodes
+      expect(shell(rules, "ls")).toBe("allow");
     });
 
-    it("asks for the arguments that write or run helpers, and for anything not listed", () => {
-      for (const text of ["git diff --output=/tmp/x", "git diff --no-index a b", "git log --ext-diff", "git show --textconv x", "git diff", "git log", "git show", "git diff HEAD~1", "git log -1", "rm -rf build", `${fleet} send lead x --output=y`]) expect(verdict(text)).toBe("ask");
+    it("refuses what it does not list, the web, a subagent, and a .env file", () => {
+      const rules = readOnlyRules();
+      for (const text of ["rm -rf build", "cat src/a.ts", "ls -la", "git status --short", "git push", "git commit -m x", "git diff", "git log", "git show HEAD", "git diff HEAD~1", "git log -1", "bun test", "FOO=1 ls", "env ls", "bash -c ls", "eval ls", "xargs rm", "git -C /etc status", "gh pr merge 5 --merge", "gh pr create", "gh api /user"]) expect(shell(rules, text)).toBe("deny");
+      for (const action of ["webfetch", "websearch", "subagent", "skill", "execute", "task", "lsp"]) expect(decide(rules, action, "*")).toBe("deny");
+      expect(decide(rules, "read", ".env")).toBe("deny");
+      expect(decide(rules, "read", "config/.env.local")).toBe("deny");
+      expect(decide(rules, "read", ".env.example")).toBe("allow");
+      // a file outside the work folder is asked as an external directory first
+      expect(decide(rules, "external_directory", "/etc/*")).toBe("deny");
+    });
+
+    it("refuses a second command, a substitution or a redirect that comes with a listed one", () => {
+      const rules = readOnlyRules();
+      expect(shell(rules, "ls", "rm -rf ~")).toBe("deny"); // ls; rm -rf ~   (also &&, ||, |, &, a newline, (..), {..;})
+      expect(shell(rules, "ls $(rm x)", "rm x")).toBe("deny");
+      for (const text of ["ls > ~/y", "ls >> f", "ls >| f", "ls 3>f", "ls 2>&1", "git status > f", "git show HEAD:f > ~/.bashrc", "cat < /etc/passwd", "gh pr view 5 --json a > f", "git log --no-ext-diff --no-textconv > f"]) expect(shell(rules, text)).toBe("deny");
+      // the fleet command takes quoted text that may hold < and >, so the rules let it through; the guard parses its quotes
+      expect(shell(rules, `${fleet} send lead "a -> b"`)).toBe("allow");
+      // a redirect with no command in it, an assignment and a declaration are not checked at all by OpenCode: the guard refuses them (opencode-guard.test.ts)
+    });
+
+    it("lets git history through only in the form that runs no helper and writes no file", () => {
+      const rules = readOnlyRules();
+      const history = (tail: string) => shell(rules, `git diff --no-ext-diff --no-textconv ${tail}`);
+      expect(history("main...HEAD")).toBe("allow");
+      expect(history("HEAD~3 -- src")).toBe("allow");
+      // two paths outside the repository make git diff an implicit --no-index
+      for (const tail of ["/dev/null /etc/passwd", "~/.ssh/id_ed25519", "../outside", "..", "--stat=/x", "HEAD -- ../x"]) expect([tail, history(tail)]).toEqual([tail, "deny"]);
+      for (const flag of ["--output=/tmp/x", "--output /tmp/x", "--no-index a b", "--ext-diff", "--textconv"]) expect(history(flag)).toBe("deny");
+      // the shell drops quotes, backslashes and expansions before git reads the line
+      for (const tail of [`--ex""t-diff`, `--ex''t-diff`, "--ext$X-diff", "--ext`true`-diff", "--ext{-diff,}", `"--output=/tmp/x"`]) expect(history(tail)).toBe("deny");
+      // git takes no abbreviation of those options (checked: git 2.x refuses `--ext-d`, `--outp`), so the plain spellings are what to deny
+      expect(shell(readOnlyRules(), "git log --no-ext-diff --no-textconv --oneline -n 20")).toBe("allow");
+      expect(shell(readOnlyRules(), "git show --no-ext-diff --no-textconv HEAD:src/a.ts")).toBe("allow");
+    });
+
+    it("edits only its result file: that path, and its folder as an external directory", () => {
+      const rules = readOnlyRules();
+      expect(decide(rules, "edit", `${resultDir}/handoff.md`)).toBe("allow");
+      expect(decide(rules, "external_directory", `${resultDir}/*`)).toBe("allow");
+      expect(decide(rules, "edit", "src/a.ts")).toBe("deny");
+      expect(decide(rules, "edit", "/etc/passwd")).toBe("deny");
+      // the folder of another run
+      expect(decide(rules, "edit", "/state/fleet-results/r10/handoff.md")).toBe("deny");
+      expect(decide(rules, "external_directory", "/state/fleet-results/r10/*")).toBe("deny");
+    });
+
+    it("merges only when it is the project's coordinator, and only the forms the fleet asks for", () => {
+      const merges = ["gh pr merge 12 --merge", "git pull --ff-only", "git merge --no-ff fleet/ab12cd", "git merge --no-ff agents/worker-ab12", "git merge --abort"];
+      for (const text of merges) {
+        expect(shell(readOnlyRules(coordinatorPane), text)).toBe("allow");
+        expect(shell(readOnlyRules(), text)).toBe("deny");
+      }
+      const rules = readOnlyRules(coordinatorPane);
+      for (const text of ["gh pr merge 12 --merge --admin", "gh pr merge --admin --merge", "gh pr merge -d --merge", "gh pr merge 12 -d --merge", "gh pr merge 12 --squash", "gh pr merge 12", "git pull", "git pull --ff-only origin x", "git merge main", "git merge --no-ff main", "git merge --no-ff fleet/x main", "git merge --no-ff fleet/x -s ours", "git merge --no-ff fleet/x -F /etc/passwd", "git push", "git merge --no-ff fleet/x > f", `git merge --no-ff fleet/x"y"`, "git checkout main"]) expect(shell(rules, text)).toBe("deny");
     });
   });
 
-  it("defines the read-only agent with a deny that its allowance for the result file follows", () => {
-    const config = JSON.parse(opencode.env!(pane)["OPENCODE_CONFIG_CONTENT"]!);
-    const edit = config.agent["fleet-readonly"].permission.edit;
-    expect(Object.entries(edit)).toEqual([["*", "deny"], ["*/fleet-results/r1/*", "allow"]]);
-    expect(config.agent["fleet-readonly"].mode).toBe("primary");
+  describe("a role that edits", () => {
+    it("keeps the defaults, and the person's own denies", () => {
+      const rules = editorRules();
+      for (const text of ["bun test", "git commit -m x", "git push origin feat/x", "git push -u origin feat/x", "rm -rf build"]) expect(shell(rules, text)).toBe("allow");
+      const personal: Rule[] = [{ action: "shell", resource: "*", effect: "ask" }, { action: "shell", resource: "rm *", effect: "deny" }];
+      expect(shell(editorRules(personal), "rm -rf x")).toBe("deny");
+      expect(shell(editorRules(personal), "bun test")).toBe("ask");
+      // its fleet command still gets through a shell that asks
+      expect(shell(editorRules(personal), `${fleet} send architect "q"`)).toBe("allow");
+    });
+
+    it("refuses a push that overwrites the remote, in the forms git takes it", () => {
+      const rules = editorRules();
+      for (const text of [
+        "git push --force", "git push --force origin main", "git push origin main --force", "git push --force-with-lease", "git push --force-if-includes origin x", "git push origin x --force-with-lease=x:abc",
+        "git push -f", "git push -f origin main", "git push origin main -f", "git push -fu origin main", "git push -uf origin main", "git push -nf origin x",
+        "git push -vuf origin x", "git push -nvf origin x", "git push --mir", "git push --pru origin", "git push --prun origin", "git push --mirror", "git push --del origin main", "git push --delete origin main", "git push -d origin main", "git push origin :main", "git push --prune origin",
+        "git push origin +main", "git push +main", "git push origin +HEAD:main", "git -C ../wt push -f", "git -c push.default=current push --force",
+      ]) expect([text, shell(rules, text)]).toEqual([text, "deny"]);
+      for (const text of ["git push", "git push origin main", "git push -u origin fix-foo", "git push origin HEAD:refs/heads/a-f", "git push --follow-tags", "git push origin feat/x-fix", "git stash push", "git push -u origin feat/x", "git push --dry-run origin x", "git push -u fork feat/x", "git push -u fork", "git push -v fork main", "git push -n fork main"]) expect([text, shell(rules, text)]).toEqual([text, "allow"]);
+    });
+
+    it("edits inside its work folder and its result folder, and nowhere else", () => {
+      const rules = editorRules();
+      expect(decide(rules, "edit", "src/a.ts")).toBe("allow");
+      expect(decide(rules, "edit", "a/b/c.ts")).toBe("allow");
+      expect(decide(rules, "edit", "/etc/passwd")).toBe("deny");
+      expect(decide(rules, "edit", "/home/x/other/a.ts")).toBe("deny");
+      expect(decide(rules, "edit", "../other.ts")).toBe("deny");
+      expect(decide(rules, "edit", `${resultDir}/handoff.md`)).toBe("allow");
+      expect(decide(rules, "edit", "/state/fleet-results/r10/handoff.md")).toBe("deny");
+      // a person's external_directory ask does not stop the result file
+      expect(decide([...SCHEMA_DEFAULT, { action: "external_directory", resource: "*", effect: "ask" }, ...configOf(pane).permissions!], "external_directory", `${resultDir}/*`)).toBe("allow");
+    });
+  });
+
+  it("tells a role that edits nothing what its shell allows, and the coordinator what a merge is", () => {
+    const note = opencode.readOnlyNote!({ merges: false, fleetCommand: fleet });
+    expect(note).toContain("git diff --no-ext-diff --no-textconv");
+    expect(note).toContain(fleet);
+    expect(note).not.toContain("gh pr merge");
+    const merging = opencode.readOnlyNote!({ merges: true, fleetCommand: fleet });
+    expect(merging).toContain("gh pr merge <number> --merge");
+    expect(merging).toContain("git merge --no-ff <branch>");
+  });
+
+  it("reads the screens a v2.0.26 session drew (captured from the TUI attached to a simulated server)", () => {
+    const permission = [
+      "  ┃  go", "  ┃", "  ┃  ⠙ ls -la", "  ┃", "     Press ctrl+b to move running work to the background", "  ┃", "  ┃  △ Permission required", "  ┃", "  ┃  $ ls -la", "  ┃", "  ┃",
+      "  ┃   Allow once   Always allow   Reject                               ctrl+f fullscreen  ⇆ select  enter confirm", "  ┃                                         /tmp/sp/pr1/work",
+    ].join("\n");
+    const declined = ["  ┃  $ ls -la", "  ┃", "  ┃  The user declined this tool call", "  ┃", "     Fleet-Readonly · Sim one · 41.2s · interrupted", "  ┃", "  ┃", "  ┃", "  ┃  Fleet-Readonly · Sim one Sim", `  ╹${"▀".repeat(60)}`, "  /tmp/sp/pr1/work    shift+tab agents  ctrl+p commands"].join("\n");
+    const typed = declined.replace("  ┃\n  ┃\n  ┃\n  ┃  Fleet-Readonly · Sim one Sim", "  ┃\n  ┃  draft here\n  ┃\n  ┃  Fleet-Readonly · Sim one Sim");
+    const retrying = ["  ┃  go", "  ┃", "     ⚠ Retrying in 2s · attempt 4 · Connection lost while reading the response: Simulated model provider", "     disconnected", "     Fleet-Readonly · Sim one", "  ┃", "  ┃", "  ┃", "  ┃  Fleet-Readonly · Sim one Sim", `  ╹${"▀".repeat(60)}`].join("\n");
+    expect(opencode.question!(permission)).toContain("permission");
+    expect(opencode.question!(declined)).toBeUndefined();
+    expect(opencode.draft!(declined)).toBe(false);
+    expect(opencode.draft!(typed)).toBe(true);
+    expect(opencode.turnError(retrying)).toBe("Connection lost while reading the response: Simulated model provider disconnected");
+    expect(opencode.draft!(retrying)).toBe(false);
   });
 
   it("blocks on a permission request and not once it is answered", () => {
-    const asked = "  △ Permission required\n    # Shell command\n    $ rm -rf build\n\n  Allow once   Allow always   Reject";
+    const asked = "  △ Permission required\n    # Shell command\n    $ rm -rf build\n\n  Allow once   Always allow   Reject";
     expect(opencode.question?.(asked)).toContain("permission");
-    expect(opencode.question?.("\x1b[1m△ Permission required\x1b[0m\n Allow\x1b[2m once\x1b[0m")).toContain("permission");
-    expect(opencode.question?.("Ask anything… \"Fix broken tests\"\n  Build · Big Pickle")).toBeUndefined();
-    expect(opencode.question?.("The docs call it a Permission required screen.")).toBeUndefined();
+    expect(opencode.question?.("\x1b[1m△ Permission required\x1b[0m\n Allow\x1b[2m once\x1b[0m  Always allow  Reject")).toContain("permission");
+    // a narrow pane shortens the title
+    expect(opencode.question?.("△ Permission\n Allow once  Always allow  Reject")).toContain("permission");
+    expect(opencode.question?.('┃  Ask anything… "What is the tech stack of this project?"\n┃  Fleet-Readonly · Exo Free OpenCode Zen')).toBeUndefined();
+    expect(opencode.question?.("The docs call it a Permission required screen with Allow once.")).toBeUndefined();
   });
 
-  it("reads a failed request from its retry line", () => {
-    expect(opencode.turnError("working\nRate limit exceeded [retrying in 12s attempt #3]\n")).toBe("Rate limit exceeded");
-    expect(opencode.turnError("Provider overloaded [retrying attempt #2]")).toBe("Provider overloaded");
-    expect(opencode.turnError("HANDOFF\nPASS")).toBeUndefined();
+  it("reads a failed request from its retry line, and a given-up one from its Error line", () => {
+    expect(opencode.turnError("working\n⚠ Retrying in 12s · attempt 3 · Rate limit exceeded\n")).toBe("Rate limit exceeded");
+    expect(opencode.turnError("   ⚠ Retry due · attempt 2 · Provider overloaded")).toBe("Provider overloaded");
+    expect(opencode.turnError("     Error: Model exo-free has been deprecated.\n\n     Fleet-Readonly · Exo Free · 595ms")).toBe("Model exo-free has been deprecated.");
+    expect(opencode.turnError("HANDOFF\nPASS\nError: quoted in the evidence")).toBeUndefined();
+    // an Error: line of a tool's output is not a failed turn
+    expect(opencode.turnError("  ┃  $ bun test\n  ┃  Error: 3 tests failed\n  ┃  exit 1\n")).toBeUndefined();
+    expect(opencode.turnError("done")).toBeUndefined();
   });
 
   it("reads the error line of a CLI that quit while starting", () => {
     expect(opencode.startupError("Error: Unexpected error")).toBe("Unexpected error");
-    expect(opencode.startupError("Ask anything…")).toBeUndefined();
+    expect(opencode.startupError('Ask anything… "What is the tech stack of this project?"')).toBeUndefined();
+  });
+
+  it("refuses to run on an opencode that is not version 2: it answers --standalone with its help", () => {
+    // 1.19.0, run in a terminal-less pane: the help text and exit code 1, no TUI
+    const help = "Commands:\n  opencode completion          generate shell completion script\n  opencode [project]           start opencode tui                                          [default]\n";
+    expect(opencode.startupError(help)).toContain("not OpenCode 2");
+    expect(opencode.readyError).toBeUndefined();
+  });
+
+  it("leaves a model its list lacks to the TUI: the list holds what the catalog knows, but not every text the TUI accepts", () => {
+    expect(opencode.models!.complete).toBe(false);
   });
 });
 
