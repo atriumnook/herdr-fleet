@@ -6,7 +6,7 @@ import { conversationImage, ConversationUnavailable, paneConversation, toolOutpu
 
 /**
  * paneConversation, conversationImage and toolOutput for an OpenCode 2 pane, through a herdr that
- * answers from memory and an `opencode2` that answers from files: no herdr, no OpenCode, no model.
+ * answers from memory and an `opencode` that answers from files: no herdr, no OpenCode, no model.
  * Nothing here is a real conversation.
  */
 const SID = "ses_wiringtest0001";
@@ -41,8 +41,8 @@ case "$3" in
   /api/session/*) cat ${root}/session.json;;
 esac
 `;
-  writeFileSync(join(bin, "opencode2"), script);
-  chmodSync(join(bin, "opencode2"), 0o755);
+  writeFileSync(join(bin, "opencode"), script);
+  chmodSync(join(bin, "opencode"), 0o755);
   process.env["PATH"] = `${bin}:${saved.path ?? ""}`;
   process.env["HERDR_FLEET_STATE_DIR"] = root;
   process.env["HERDR_SOCKET"] = socket;

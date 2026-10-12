@@ -494,13 +494,13 @@ describe("on demand", () => {
   });
 });
 
-/** The real CLI path, with a stand-in `opencode2` that records what it was asked and answers from files. */
+/** The real CLI path, with a stand-in `opencode` that records what it was asked and answers from files. */
 describe("the CLI", () => {
   const root = mkdtempSync(join(tmpdir(), "opencode-cli-"));
   const log = join(root, "log");
   const state = join(root, "state");
   const bin = join(root, "bin");
-  const fake = join(bin, "opencode2");
+  const fake = join(bin, "opencode");
 
   beforeAll(() => {
     writeFileSync(state, "running");
@@ -508,7 +508,7 @@ describe("the CLI", () => {
     writeFileSync(join(root, "big.json"), JSON.stringify({ data: [{ id: "msg_big", type: "user", text: "x".repeat(400_000) }] }));
     writeFileSync(join(root, "ok.json"), JSON.stringify({ data: { id: SID } }));
     writeFileSync(join(root, "cut.json"), '{"data":{"id":"ses_te');
-    // stands in for opencode2: `service status` answers from the state file, `api GET <path>` from a file named by the path
+    // stands in for opencode: `service status` answers from the state file, `api GET <path>` from a file named by the path
     const script = `#!/bin/sh
 echo "$@ | cwd=$(pwd) | env=$(env | grep -c '^HERDR\\|API_KEY\\|OPENCODE_')" >> ${JSON.stringify(log)}
 if [ "$1" = service ] && [ "$2" = status ]; then
@@ -520,6 +520,7 @@ if [ "$1" = api ]; then
     */big) cat ${JSON.stringify(join(root, "big.json"))};;
     */cut) n=$(cat ${JSON.stringify(join(root, "attempts"))}); echo $((n+1)) > ${JSON.stringify(join(root, "attempts"))}
            if [ "$n" -lt 1 ]; then cat ${JSON.stringify(join(root, "cut.json"))}; else cat ${JSON.stringify(join(root, "ok.json"))}; fi;;
+    */oldcli) echo "must never be asked" >> ${JSON.stringify(join(root, "oldcli"))};;
     */hang) trap '' TERM; sleep 5; cat ${JSON.stringify(join(root, "ok.json"))};;
     */fail) echo "boom: \\"quoted\\" detail" >&2; exit 3;;
     */huge) head -c 5000 /dev/zero | tr '\\0' a;;
@@ -599,6 +600,17 @@ exit 2
     const last = calls().at(-1)!;
     expect(last).toContain(`cwd=${join(root, "work")}`);
     expect(last).toEndWith("env=0");
+  });
+
+  test("an OpenCode without `service` and `api` (1.x) leaves the pane on its scrollback and is asked nothing more", async () => {
+    // what 1.19 does with `opencode service status`: its help on stderr, nothing on stdout, exit 1
+    const old = join(root, "old-bin");
+    mkdirSync(old);
+    writeFileSync(join(old, "opencode"), `#!/bin/sh\necho "$@" >> ${JSON.stringify(join(root, "old-log"))}\necho "Commands: opencode [project]" >&2\nexit 1\n`);
+    chmodSync(join(old, "opencode"), 0o755);
+    const reader = new OpencodeConversations(opencodeCli({ workDir: join(root, "work"), command: join(old, "opencode"), env: { PATH: process.env["PATH"], HOME: root } }));
+    await expect(reader.page(SID, false)).rejects.toBeInstanceOf(ConversationUnavailable);
+    expect(readFileSync(join(root, "old-log"), "utf8").trim().split("\n")).toEqual(["service status"]);
   });
 
   test("whether the service runs is asked, not assumed, and a stopped one is never asked anything else", async () => {

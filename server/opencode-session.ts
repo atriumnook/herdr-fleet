@@ -1,13 +1,13 @@
 /**
- * An OpenCode 2 pane's conversation, read through the CLI's own `opencode2 api` and never from
+ * An OpenCode 2 pane's conversation, read through the CLI's own `opencode api` and never from
  * its database: the CLI finds the background service and signs in to it, so this process holds
- * no credential. A fleet pane runs `opencode2 --standalone`, a private server of its own, over the
+ * no credential. A fleet pane runs `opencode --standalone`, a private server of its own, over the
  * same data directory as the service; the service reads the sessions that server wrote (the
  * database is shared), but its `/api/session/active` lists only what it runs itself, so whether
  * the pane is working comes from herdr's status instead.
  *
- * `opencode2 api` starts the service when none runs, which would launch the person's daemon from a
- * poll: `opencode2 service status` (a read) asks first, and a stopped service leaves the pane on
+ * `opencode api` starts the service when none runs, which would launch the person's daemon from a
+ * poll: `opencode service status` (a read) asks first, and a stopped service leaves the pane on
  * its scrollback.
  */
 import { createHash, randomUUID } from "node:crypto";
@@ -43,7 +43,7 @@ const KILL_GRACE_MS = 2_000;
 /** a reply larger than this is no reply: 100 messages with a few large outputs is a few MB */
 const MAX_REPLY_BYTES = 32 * 1024 * 1024;
 const MAX_CHILDREN = 4;
-/** `opencode2 service status` is asked at most this often: under the chat's own poll interval */
+/** `opencode service status` is asked at most this often: under the chat's own poll interval */
 const SERVICE_TTL_MS = 1_000;
 const MODEL_TTL_MS = 10 * 60_000;
 const MODEL_RETRY_MS = 30_000;
@@ -102,7 +102,7 @@ async function readUpTo(stream: ReadableStream<Uint8Array>, limit: number): Prom
 }
 
 /**
- * `opencode2 api GET <path>` and `opencode2 service status`, run as a usage probe is: in a folder
+ * `opencode api GET <path>` and `opencode service status`, run as a usage probe is: in a folder
  * of ours, with only the environment the CLI needs to find its service (HOME, XDG_*). Not
  * OPENCODE_*: a person who moves OpenCode's state with those would have this look at another
  * service than their pane uses, and read "stopped" (the pane stays on its scrollback).
@@ -112,7 +112,7 @@ async function readUpTo(stream: ReadableStream<Uint8Array>, limit: number): Prom
  * exited with an error, or answered too much is not: the same call would take as long again.
  */
 export function opencodeCli(options: CliOptions): OpencodeApi {
-  const command = options.command ?? "opencode2";
+  const command = options.command ?? "opencode";
   const attempts = options.attempts ?? 3;
   const timeoutMs = options.timeoutMs ?? CLI_TIMEOUT_MS;
   const grace = options.killGraceMs ?? KILL_GRACE_MS;
