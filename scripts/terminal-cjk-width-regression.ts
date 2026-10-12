@@ -31,15 +31,18 @@ export async function checkTerminalCjkWidths(browser: Browser, origin: string): 
       const rows = [...document.querySelectorAll<HTMLElement>(".pane-terminal .xterm-rows > div")];
       const answer = rows.map((row) => /^cols=(\d+) n=(\d+)/.exec(row.textContent ?? "")).find(Boolean);
       const line = rows.find((row) => /^(あa。、)+Z/.test(row.textContent ?? ""));
-      const z = line && [...line.querySelectorAll("span")].reverse().find((span) => span.textContent?.includes("Z"));
-      if (!answer || !z) return null;
+      if (!answer || !line) return null;
+      // the text node that holds Z, however the row's spans are split
+      const walker = document.createTreeWalker(line, NodeFilter.SHOW_TEXT);
+      let z: Text | null = null;
+      for (let node = walker.nextNode(); node; node = walker.nextNode()) if (node.textContent?.includes("Z")) z = node as Text;
+      if (!z) return null;
       const range = document.createRange();
-      const text = z.firstChild ?? z;
-      const at = (text.textContent ?? "").indexOf("Z");
-      range.setStart(text, at);
-      range.setEnd(text, at + 1);
-      const screen = document.querySelector<HTMLElement>(".pane-terminal .xterm-screen")!;
-      return { cols: Number(answer[1]), pairs: Number(answer[2]), right: range.getBoundingClientRect().right - screen.getBoundingClientRect().left, width: screen.offsetWidth };
+      const at = z.data.lastIndexOf("Z");
+      range.setStart(z, at);
+      range.setEnd(z, at + 1);
+      const screen = document.querySelector<HTMLElement>(".pane-terminal .xterm-screen")!.getBoundingClientRect();
+      return { cols: Number(answer[1]), pairs: Number(answer[2]), right: range.getBoundingClientRect().right - screen.left, width: screen.width };
     }, undefined, { timeout: 15_000 });
     const drawn = (await handle.jsonValue())!;
     const cell = drawn.width / drawn.cols;
