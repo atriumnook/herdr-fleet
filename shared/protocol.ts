@@ -235,7 +235,7 @@ export interface ConversationMetadata {
 export interface ConversationResponse {
   /** Stable across appends; changes on transcript replacement or native context clear. */
   history_id?: string;
-  source: "claude-transcript" | "omp-transcript" | "pi-transcript" | "codex-transcript" | "scrollback";
+  source: "claude-transcript" | "omp-transcript" | "pi-transcript" | "codex-transcript" | "opencode-session" | "scrollback";
   turns: ConversationTurn[];
   metadata?: ConversationMetadata;
   /**
