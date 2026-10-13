@@ -453,7 +453,7 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
         )}
         {projects.map((project) => {
           // a project with one workspace draws just that workspace: a heading names a group of two or more
-          if (project.repo === null || project.workspaces.length === 1) return project.workspaces.map(renderWorkspace);
+          if (project.repo === null || project.workspaces.length === 1) return renderWorkspace(project.workspaces[0]!);
           const { name, root } = project.repo;
           const collapsed = collapsedGroups.has(project.key);
           return <section className={`project-group${collapsed ? " is-collapsed" : ""}`} key={project.key} data-project={root}>
