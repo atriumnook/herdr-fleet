@@ -1,6 +1,7 @@
 /**
  * The sidebar's projects in a real browser against an isolated herdr. Run after `bun run build`.
- * HERDR_TEST_SESSION picks the herdr session (default herdr-fleet-test); CHROME_PATH the browser.
+ * HERDR_TEST_SESSION picks the herdr session (default herdr-fleet-test); CHROME_PATH the browser;
+ * UI_EVIDENCE_DIR keeps a screenshot of the sidebar.
  */
 import assert from "node:assert/strict";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
@@ -79,6 +80,11 @@ try {
   assert.equal(await project.locator(".project-toggle .workspace-number").textContent(), "3");
   assert.equal(await project.locator(`.worktree-mark[title=${JSON.stringify(`Worktree ${join(app, ".herdr-fleet", "worktrees", "regression")}`)}]`).count(), 1, "the thread's worktree is marked");
   assert.equal(await page.getByRole("button", { name: "Sidebar grouping" }).count(), 0);
+  const evidence = process.env.UI_EVIDENCE_DIR;
+  if (evidence) {
+    mkdirSync(evidence, { recursive: true });
+    await page.locator(".sidebar-list").first().screenshot({ path: join(evidence, "project-groups.png"), animations: "disabled" });
+  }
   console.log("PASS a repository's workspaces, its subfolder and worktree too, share one project heading");
 
   // When the project is folded and the page reloads, Then the fold stays; selecting a pane in it
