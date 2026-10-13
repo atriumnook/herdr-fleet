@@ -50,6 +50,23 @@ export class WorkspaceProjects {
   }
 }
 
+/**
+ * herdr adds a workspace at the end. One made from the browser goes right after the last
+ * workspace of its repository instead, so herdr's own list keeps a project's workspaces together.
+ * `insertIndex` is the place it ends up at, as `workspace.move` takes it.
+ */
+export async function placeWithProject(workspaceId: string, snapshot: SessionSnapshot, move: (workspaceId: string, insertIndex: number) => Promise<void>): Promise<void> {
+  const ids = snapshot.workspaces.map((workspace) => workspace.workspace_id);
+  const from = ids.indexOf(workspaceId);
+  const key = snapshot.workspaces[from]?.worktree?.repo_key;
+  if (from < 0 || !key) return;
+  let last = -1;
+  snapshot.workspaces.forEach((workspace, index) => { if (index !== from && workspace.worktree?.repo_key === key) last = index; });
+  if (last < 0) return;
+  const to = last < from ? last + 1 : last;
+  if (to !== from) await move(workspaceId, to);
+}
+
 function worktreeOf(workspaceId: string, list: WorktreeList): WorkspaceWorktreeInfo {
   const own = list.worktrees.find((worktree) => worktree.open_workspace_id === workspaceId);
   return {

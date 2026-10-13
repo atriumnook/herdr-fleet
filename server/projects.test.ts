@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { PaneInfo, SessionSnapshot, WorkspaceInfo } from "../shared/protocol.ts";
 import { HerdrError } from "./herdr/client.ts";
-import { WorkspaceProjects, type WorktreeList } from "./projects.ts";
+import { placeWithProject, WorkspaceProjects, type WorktreeList } from "./projects.ts";
 
 const workspace = (id: string, worktree?: WorkspaceInfo["worktree"]): WorkspaceInfo => ({ workspace_id: id, label: id, number: 1, active_tab_id: `${id}:t1`, agent_status: "idle", focused: false, pane_count: 1, tab_count: 1, ...(worktree ? { worktree } : {}) });
 const pane = (id: string, workspaceId: string, cwd: string): PaneInfo => ({ pane_id: id, workspace_id: workspaceId, cwd, tab_id: `${workspaceId}:t1`, terminal_id: id, revision: 1, focused: false, agent_status: "idle" });
@@ -55,5 +55,24 @@ describe("WorkspaceProjects", () => {
     await projects.attach(snapshot([], []));
     await projects.attach(snapshot([workspace("w1")], [pane("p1", "w1", "/r")]));
     expect(asked).toBe(3);
+  });
+});
+
+describe("placeWithProject", () => {
+  const at = (key: string | null) => (key ? { repo_key: key, repo_name: key, repo_root: key, checkout_path: key, is_linked_worktree: false } : undefined);
+  const moves = async (keys: Array<string | null>, id: string) => {
+    const done: Array<[string, number]> = [];
+    await placeWithProject(id, snapshot(keys.map((key, index) => workspace(`w${index}`, at(key))), []), async (workspaceId, index) => { done.push([workspaceId, index]); });
+    return done;
+  };
+
+  it("moves a new workspace right after the last one of its repository", async () => {
+    expect(await moves(["/a", "/b", "/a", "/c", "/a"], "w4")).toEqual([["w4", 3]]);
+  });
+
+  it("leaves it where it is when it is already there, alone in its repository, or outside Git", async () => {
+    expect(await moves(["/b", "/a", "/a"], "w2")).toEqual([]);
+    expect(await moves(["/a", "/b"], "w1")).toEqual([]);
+    expect(await moves(["/a", null], "w1")).toEqual([]);
   });
 });

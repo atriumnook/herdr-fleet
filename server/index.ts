@@ -17,7 +17,7 @@ import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
-import { WorkspaceProjects } from "./projects.ts";
+import { placeWithProject, WorkspaceProjects } from "./projects.ts";
 import { EXPLAIN_MODEL, ExplainCalls, ExplainError, explainQuestion, explainRequest, type ExplainDeps } from "./explain.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { listDirectories } from "./directories.ts";
@@ -1186,6 +1186,8 @@ export function createServer(
             ...(cwd === undefined || cwd === null ? {} : { cwd }),
             ...(typeof payload.label === "string" ? { label: payload.label } : {}),
           });
+          // best effort: a workspace left at the end is still shown in its project
+          await clientSnapshot().then((snapshot) => placeWithProject(created.workspace.workspace_id, snapshot, workspaceMove)).catch(() => undefined);
           if (!payload.agent) {
             return jsonResponse({ workspace_id: created.workspace.workspace_id, pane_id: created.root_pane.pane_id, agent_started: false });
           }
