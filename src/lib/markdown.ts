@@ -57,16 +57,19 @@ export function webLikeHref(target: string): string | null {
  * The file a link names, when its target is a path rather than an address: agents link
  * files they wrote (`[report](/repo/out/REPORT.md)`, `[x](src/x.ts#L12)`, `[x](x.ts:12)`).
  * A line anchor (`#L12`, `:12`) is dropped; the viewer opens the file. A line after a bare
- * word is a scheme's (`tel:123`), not a file's.
+ * word is a scheme's (`tel:123`), not a file's. A target is written as a URL is: a space in it
+ * is `%20`, or the whole target is in `<…>` (CommonMark), and either reads as the name on disk.
  */
 export function markdownFileTarget(href: string): string | null {
-  const value = href.trim();
+  let value = href.trim();
   if (/^file:\/\/\//i.test(value)) return fileUriPath(value);
+  if (value.startsWith("<") && value.endsWith(">")) value = value.slice(1, -1).trim();
   if (value === "" || value.startsWith("#")) return null;
   const withoutAnchor = value.replace(/#.*$/, "");
   const path = withoutAnchor.replace(/(?::\d+){1,2}$/, "");
   if (path === "" || /^[a-z][a-z0-9+.-]*:/i.test(path) || (path !== withoutAnchor && !/[./]/.test(path))) return null;
-  return path;
+  if (!/%[0-9a-f]{2}/i.test(path)) return path;
+  try { return decodeURIComponent(path); } catch { return path; }
 }
 
 /** A bare URL without the punctuation that closes the sentence around it (GFM's autolink rule). */
@@ -92,7 +95,7 @@ export function parseInline(source: string, links = true): InlineNode[] {
   // rendering exactly as it appears in the terminal and native transcript.
   // a bare or <angle> http(s) URL is a link too; it stops at the first non-ASCII character,
   // so `…/pull/36에서` links the address and leaves the Korean after it as text
-  const marker = /(`[^`\n]+`|\\\(.+?\\\)|\[[^\]\n]+\]\([^\s)]+\)|<https?:\/\/[^\s<>]+>|file:\/\/\/[!#-;=?-_a-~]+|https?:\/\/[!-;=?-~]+|(?<![\w.@/-])www\.[!-;=?-~]+|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}\p{M}_])__(?=\S)[^\n]*?\S__(?![\p{L}\p{N}\p{M}_])|~~[^~\n]+~~|(?<!\*)\*[^*\n]+\*(?!\*)|(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_]))/gu;
+  const marker = /(`[^`\n]+`|\\\(.+?\\\)|\[[^\]\n]+\]\((?:<[^<>\n]+>|[^\s)]+)\)|<https?:\/\/[^\s<>]+>|file:\/\/\/[!#-;=?-_a-~]+|https?:\/\/[!-;=?-~]+|(?<![\w.@/-])www\.[!-;=?-~]+|\*\*[^*\n]+\*\*|(?<![\p{L}\p{N}\p{M}_])__(?=\S)[^\n]*?\S__(?![\p{L}\p{N}\p{M}_])|~~[^~\n]+~~|(?<!\*)\*[^*\n]+\*(?!\*)|(?<![\p{L}\p{N}\p{M}_])_(?=\S)[^\n]*?\S_(?![\p{L}\p{N}\p{M}_]))/gu;
   let offset = 0;
   for (const match of source.matchAll(marker)) {
     const index = match.index ?? 0;

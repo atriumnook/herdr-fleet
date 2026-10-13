@@ -79,6 +79,18 @@ describe("inline markdown", () => {
     }
   });
 
+  it("reads a target written as a URL is as the name on disk: in <angle brackets> or with %20", () => {
+    expect(parseInline("[shot](</tmp/a b.png>) [log](/tmp/run%20log.txt) [x](<~/結果 1.md#L3>)")).toMatchObject([
+      { type: "file", path: "/tmp/a b.png" },
+      { type: "text", value: " " },
+      { type: "file", path: "/tmp/run log.txt" },
+      { type: "text", value: " " },
+      { type: "file", path: "~/結果 1.md" },
+    ]);
+    // a % that encodes nothing stays as written
+    expect(parseInline("[x](/tmp/100%.txt)")).toMatchObject([{ type: "file", path: "/tmp/100%.txt" }]);
+  });
+
   it("links an address written without its scheme, and leaves files and non-addresses alone", () => {
     expect(parseInline("[docs](www.example.com/x)")).toEqual([{ type: "link", href: "https://www.example.com/x", children: [{ type: "text", value: "docs" }] }]);
     expect(parseInline("[guide](docs.example.com/guide)")).toMatchObject([{ type: "link", href: "https://docs.example.com/guide" }]);
