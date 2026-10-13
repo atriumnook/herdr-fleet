@@ -237,9 +237,9 @@ interface PaneAttachment {
   relookup?: ReturnType<typeof setTimeout>;
 }
 
-/** A file outside the pane's folder and the temp folder (see fileRoots). */
+/** A file outside the pane's folder, the temp folder and the fleet's results (see fileRoots). */
 function outsideRoots(): Response {
-  return jsonResponse({ error: { code: "outside_roots", message: "only files in the pane's folder or the temp folder open here" } }, 403);
+  return jsonResponse({ error: { code: "outside_roots", message: "only files in the pane's folder, the temp folder or the fleet's results open here" } }, 403);
 }
 
 function send(client: Client, message: ServerMessage): number {
@@ -480,11 +480,13 @@ export function createServer(
     probes: defaultProbes(options.stateDir ?? defaultStateDir()),
   });
   const models = options.fleet?.models ?? new ModelCatalog({ workDir: join(options.stateDir ?? defaultStateDir(), "model-list") });
+  // where runs hand their results in: chats link to them, so the file viewer opens them too
+  const resultsDir = join(options.stateDir ?? defaultStateDir(), "fleet-results");
   const fleet = new Orchestrator({
     models,
     runtime: options.fleet?.runtime ?? new HerdrRuntime(),
     registry: new RunRegistry(join(options.stateDir ?? defaultStateDir(), "fleet-runs.json")),
-    resultsDir: join(options.stateDir ?? defaultStateDir(), "fleet-results"),
+    resultsDir,
     plansDir: join(options.stateDir ?? defaultStateDir(), "fleet-plans"),
     instructionsDir: join(options.stateDir ?? defaultStateDir(), "fleet-instructions"),
     config: options.fleet?.config ?? ((cwd) => loadConfig(cwd)),
@@ -1129,7 +1131,7 @@ export function createServer(
         }
         const found = locateFile(url.searchParams.get("path") ?? "", cwd);
         if (found === null) return jsonResponse({ error: { code: "not_found", message: "no readable file at that path" } }, 404);
-        const roots = fileRoots(cwd);
+        const roots = fileRoots(cwd, resultsDir);
         // several files end in that name: the viewer lists them to choose from
         if ("candidates" in found) {
           const candidates = found.candidates.filter((path) => withinRoots(path, roots));

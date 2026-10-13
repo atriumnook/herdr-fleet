@@ -37,7 +37,7 @@ export const JA: Record<string, string> = {
   "Folders could not be loaded.": "フォルダーを読み込めませんでした。",
   // ---- files ----
   "Showing the first {shown} of {total}.": "{total} 件のうち、最初の {shown} 件を表示しています。",
-  "Only files in the pane's folder or the temp folder open here.": "ここで開けるのは、Pane のフォルダーと一時フォルダーの中のファイルだけです。",
+  "Only files in the pane's folder, the temp folder or the fleet's results open here.": "ここで開けるのは、Pane のフォルダー、一時フォルダー、fleet の結果フォルダーの中のファイルだけです。",
   "No readable file at this path.": "このパスには、読めるファイルがありません。",
   "Several files are named {name}.": "{name} という名前のファイルが複数あります。",
   "The file could not be opened.": "ファイルを開けませんでした。",

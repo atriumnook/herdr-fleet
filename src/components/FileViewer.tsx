@@ -55,7 +55,7 @@ export function FileViewer({ model, browser, emit }: FileViewerProps) {
       case "folder":
         return <Fragment key={content.path}>{browser(content.path, (next) => emit({ type: "viewer-open", path: next }))}</Fragment>;
       case "failed":
-        return <p className="file-viewer-note" role="alert">{content.reason === "outside" ? t("Only files in the pane's folder or the temp folder open here.")
+        return <p className="file-viewer-note" role="alert">{content.reason === "outside" ? t("Only files in the pane's folder, the temp folder or the fleet's results open here.")
           : content.reason === "missing" ? t("No readable file at this path.") : t("The file could not be opened.")}</p>;
       case "candidates":
         return <div className="file-viewer-choices">

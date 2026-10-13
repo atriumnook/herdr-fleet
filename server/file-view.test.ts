@@ -92,9 +92,9 @@ describe("withinRoots", () => {
     expect(withinRoots(join(outside, "id_ed25519"), [pane, outside])).toBe(true);
   });
 
-  it("lets a file open from the temp folder without a pane, and from the pane's folder with one", async () => {
+  it("lets a file open from the temp folder and the fleet's results without a pane, and from the pane's folder with one", async () => {
     const { fileRoots } = await import("./file-view.ts");
-    expect(fileRoots(null)).toEqual([tmpdir()]);
-    expect(fileRoots("/work/app")).toEqual(["/work/app", tmpdir()]);
+    expect(fileRoots(null, "/state/fleet-results")).toEqual([tmpdir(), "/state/fleet-results"]);
+    expect(fileRoots("/work/app", "/state/fleet-results")).toEqual(["/work/app", tmpdir(), "/state/fleet-results"]);
   });
 });

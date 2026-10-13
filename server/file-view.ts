@@ -14,13 +14,17 @@ import { filesNamed } from "./files.ts";
  * plays and seeks without the server holding more than its socket buffers. Only the
  * first bytes of a file are read, to tell text from binary.
  *
- * Only files under the pane's folder or the system temp folder open (fileRoots): the rest of
- * the home folder holds sign-ins and keys the viewer has no reason to see.
+ * Only files under the pane's folder, the system temp folder or the fleet's results folder open
+ * (fileRoots): the rest of the home folder holds sign-ins and keys the viewer has no reason to see,
+ * and the rest of the state folder holds this server's own (paired devices, push subscriptions).
  */
 
-/** Where files may open from: the pane's folder, when there is a pane, and the temp folder. */
-export function fileRoots(cwd: string | null): string[] {
-  return cwd === null ? [tmpdir()] : [cwd, tmpdir()];
+/**
+ * Where files may open from: the pane's folder, when there is a pane, the temp folder, and the
+ * folder fleet runs hand their results in (`<stateDir>/fleet-results`), which chats link to.
+ */
+export function fileRoots(cwd: string | null, resultsDir: string): string[] {
+  return cwd === null ? [tmpdir(), resultsDir] : [cwd, tmpdir(), resultsDir];
 }
 
 /** Whether `path`, symlinks resolved, lies inside one of `roots`. A path that cannot be resolved is outside. */

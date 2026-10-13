@@ -1,5 +1,5 @@
 import { expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DeviceStore } from "./devices.ts";
@@ -94,6 +94,37 @@ it("a corrupt device registry refuses strangers while keeping local recovery and
     expect(await response.json()).toMatchObject({ error: { code: "device_store_unavailable" } });
     expect(readFileSync(path, "utf8")).toBe("{broken registry");
   } finally { server.stop(); rmSync(root, { recursive: true, force: true }); }
+});
+
+it("opens a fleet run's results, and no other file of the state folder", async () => {
+  // the state folder outside the temp folder, as it is in use (~/.local/state): the temp folder would let anything in it open
+  const base = mkdtempSync(join(tmpdir(), "herdr-results-access-"));
+  const root = join(base, "state");
+  const temp = join(base, "tmp");
+  mkdirSync(temp);
+  const before = process.env["TMPDIR"];
+  process.env["TMPDIR"] = temp;
+  const server = createServer({ port: 0, stateDir: root, token: "test-results", tailscaleOwner: null, machines: false });
+  // after the server started: it drops the results of runs it does not know
+  mkdirSync(join(root, "fleet-results", "r1"), { recursive: true });
+  writeFileSync(join(root, "fleet-results", "r1", "handoff.md"), "# done");
+  writeFileSync(join(root, "devices.json"), "{}");
+  symlinkSync(join(root, "devices.json"), join(root, "fleet-results", "r1", "link-out"));
+  const base_ = `http://127.0.0.1:${server.port}`;
+  const admin = { ...guard, authorization: "Bearer test-results" };
+  const read = (path: string) => fetch(`${base_}/api/fs/file?path=${encodeURIComponent(path)}`, { headers: admin });
+  try {
+    const handoff = await read(join(root, "fleet-results", "r1", "handoff.md"));
+    expect(handoff.status).toBe(200);
+    expect(await handoff.text()).toBe("# done");
+    expect((await read(join(root, "devices.json"))).status).toBe(403);
+    expect((await read(join(root, "fleet-results", "..", "devices.json"))).status).toBe(403);
+    expect((await read(join(root, "fleet-results", "r1", "link-out"))).status).toBe(403);
+  } finally {
+    server.stop();
+    if (before === undefined) delete process.env["TMPDIR"]; else process.env["TMPDIR"] = before;
+    rmSync(base, { recursive: true, force: true });
+  }
 });
 
 it("watch credentials cannot mutate HTTP state, read credential files, or elevate terminals", async () => {
