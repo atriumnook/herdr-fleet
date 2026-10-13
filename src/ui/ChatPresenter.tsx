@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import type { AgentStatus, ConversationTurn, ExplainRequest, InteractivePrompt } from "../../shared/protocol.ts";
 import { paneStorageId } from "../../shared/machines.ts";
 import { askedKey, isEmptyDraft, endingQuestion, lastInstruction } from "../lib/plainQuestion.ts";
 import { ChatView, type ChatViewEvent, type ChatViewModel } from "../components/ChatView.tsx";
+import { OpenFileContext } from "../lib/filePaths.ts";
 import { useMachineId } from "../lib/machineContext.tsx";
 import { useSettings } from "../lib/settings.ts";
 import { relay, type Emit } from "./bubble.ts";
@@ -13,7 +14,7 @@ import { displayPaneTitle } from "../components/Sidebar.tsx";
 import { useSelected } from "./presenter.ts";
 
 export type ChatUpEvent = Exclude<ChatViewEvent, { type: "card-answer" | "card-explain" | "asked-explain" | "asked-pick" }>
-  | Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "prompt-card-answer" | "explain-question" | "composer-draft" }>;
+  | Extract<UiEvent, { type: "chat-open" | "chat-close" | "chat-agent" | "prompt-card-answer" | "explain-question" | "composer-draft" | "open-file" }>;
 
 
 /** The question screen's question as one text: its heading, its question and the detail under them. */
@@ -157,5 +158,7 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
         pass(event);
     }
   }), [emit, machineId, paneId, prompt, promptKey, asked, askedId, owner, boxEmpty]);
-  return <ChatView model={model} emit={relayed} />;
+  // a path in this chat is read from this chat's pane: on the Fleet screen that is not the selected one
+  const openFile = useCallback((path: string) => emit({ type: "open-file", path, pane: { machineId, paneId } }), [emit, machineId, paneId]);
+  return <OpenFileContext.Provider value={openFile}><ChatView model={model} emit={relayed} /></OpenFileContext.Provider>;
 }
