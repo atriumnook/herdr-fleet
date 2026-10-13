@@ -45,15 +45,28 @@
   transition: opacity var(--dur-fast) var(--ease-out);
 }
 
-.directory-group {
+.project-group {
   margin-bottom: var(--space-3);
 }
 
-.directory-header {
+.project-header {
   display: flex;
   align-items: center;
+  gap: var(--space-1);
+  border-radius: var(--radius-md);
+}
+
+.project-header:hover,
+.project-header:focus-within {
+  background: var(--field-hover);
+}
+
+.project-toggle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
   gap: var(--space-2);
-  width: 100%;
+  min-width: 0;
   min-height: var(--row-h);
   padding: var(--space-2) var(--space-1);
   border: 0;
@@ -64,46 +77,63 @@
   cursor: pointer;
 }
 
-.directory-header:hover,
-.directory-header:focus-visible {
-  background: var(--field-hover);
-}
-
-.directory-header > svg {
+.project-toggle > svg {
   flex: 0 0 auto;
   width: var(--icon-size);
   height: var(--icon-size);
 }
 
-.directory-copy {
+.project-add {
+  flex: 0 0 auto;
+}
+
+.project-copy {
   display: flex;
   flex-direction: column;
   flex: 1 1 auto;
   min-width: 0;
 }
 
-.directory-name,
-.directory-path {
+.project-name,
+.project-path {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.directory-name {
+.project-name {
   color: var(--ink-strong);
   font-size: var(--fs-sm);
   font-weight: var(--fw-semibold);
 }
 
-.directory-path {
+.project-path {
   font-family: var(--font-mono);
   font-size: var(--fs-2xs);
 }
 
-.directory-contents {
+.project-contents {
   margin-left: var(--space-3);
   border-left: var(--hairline) solid var(--line);
   padding-left: var(--space-1);
+}
+
+/* a workspace in a linked worktree: a branch mark after its name */
+.worktree-mark {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  color: var(--sub);
+}
+
+.worktree-mark > svg {
+  width: calc(var(--icon-size) - 4px);
+  height: calc(var(--icon-size) - 4px);
+}
+
+.pane-subtitle .worktree-mark {
+  margin-right: var(--space-1);
+  vertical-align: middle;
 }
 
 .workspace.is-dragging {

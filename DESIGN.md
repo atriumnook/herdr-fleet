@@ -327,21 +327,24 @@ One set for both themes: the card is island black wherever it shows.
   connected, a pulsing working dot = connecting or reconnecting, needs = error), then a `+` that starts a
   session on that PC (disabled while it is offline). Connected says nothing more; every other state
   is written under the name, with the server's error clamped to two lines and complete in the tooltip.
-- Appearance's **Sidebar grouping** is **By workspace** by default, with numbered, foldable
-  workspace headers and merged single-pane rows. **By folder** opts into the grouping below.
-  The choice applies immediately and persists in the browser's existing Settings record. Workspace
-  and folder fold keys remain independent when switching modes; original workspace keys are retained.
-- In folder mode, within each PC, panes with the same full cwd share a folder group, including panes from
-  different workspaces. Trailing separators and Windows slash styles are normalized; case and
-  symlinks are not resolved. Unknown cwd stays with its workspace rather than merging unrelated sessions.
-- Every folder has a caret, folder glyph, basename, full-path subtitle and pane count, even for
-  one pane. Its indented contents use the existing spacing and border tokens. Folder folds are
-  remembered per PC and path; opening a pane unfolds its folder, but status updates do not.
-- Folder order follows the first workspace in server order; workspace handles still reorder
-  workspaces, not filesystem directories. Workspace names and rename actions remain inside the group.
+- Workspaces are grouped by Git repository: herdr's `repo_key`, so a linked worktree (a fleet
+  thread's) joins its main checkout's project. A project with two or more workspaces gets a heading:
+  caret, folder glyph, repository name over the root path (mono), the workspace count, then a `+` that
+  starts a session at the root. A project with one workspace, and a workspace outside Git, draw with
+  no project heading. There is no grouping setting.
+- A workspace belongs to the repository it was first found in (the server asks herdr's
+  `worktree.list` once): a pane that changes folder stays where it is. A workspace outside Git is
+  asked again when its panes' folders change.
+- A project sits where its first workspace is drawn; inside, workspaces keep that order. Project
+  folds are remembered per PC and repository; selecting a pane unfolds its project and workspace once,
+  and status updates do not. A session started from the browser lands right after its project's
+  last workspace in herdr's own order too; when its folder's project already has workspaces, the
+  dialog's name hint asks for a name.
+- A workspace in a linked worktree carries a branch mark after its name (in a merged row, before its
+  place), with the checkout path in the tooltip.
 - A workspace header shows drag handle, number, editable label and roll-up status dot; its menu
   opens from the header itself, like a row's. Drag and drop reorders; `Alt+↑/↓` on the handle is the
-  keyboard equivalent.
+  keyboard equivalent, stepping past a sibling inside a project and past a whole project outside one.
 - Every pane row is a `--field` face at `--row-h`, `--radius-md`, `--space-1` apart: a 28px agent or
   shell mark, the editable title (`--fs-md`, `--ink`) over the pane's place (mono, `--sub`), then the
   state at the right end as the badge's dot alone. A pane with no agent has no dot. The selected row
@@ -351,12 +354,11 @@ One set for both themes: the card is island black wherever it shows.
   a `⋯`: its menu opens from the row. Inline server failures stay beside their row.
 - A title that is a working directory written out (`/home/me/dev/api`, `~/dev/api`, `C:\work\api`)
   shows as its last folder, here, in the header, the palette and every alert; the full path stays
-  in the row's tooltip. Line two names what the group header does not: the folder under a
-  workspace header (nothing when the title or the workspace is already that folder), the workspace under a folder
-  header. A merged single-pane row in the workspace view has no header: it names the workspace
+  in the row's tooltip. Line two names what the workspace header does not: the folder (nothing when
+  the title or the workspace is already that folder). A merged single-pane row has no header: it names the workspace
   and the folder, each only when the title or the other does not already say it. The palette,
   which has no header, names the workspace and the folder, once when they are the same.
-- Single-pane workspaces merge their workspace handle into the pane row, in both groupings: one
+- Single-pane workspaces merge their workspace handle into the pane row: one
   row, no header, number or fold. A fold stored for such a workspace is ignored until it has a
   header again.
 - The footer holds the contextual **Install app** action, **Settings**, and the product name with the
@@ -490,7 +492,7 @@ One set for both themes: the card is island black wherever it shows.
   is a Japanese sentence at `--fs-sm` `--sub` under it. A toggle that is on is an `--accent` track
   with an `--on-accent` knob at the right; off, a `--field` track with a `--control-edge` edge and a
   `--sub` knob at the left.
-- Sections: **Appearance** (theme, density, sidebar grouping, terminal font size and font, terminal
+- Sections: **Appearance** (theme, density, terminal font size and font, terminal
   input, wheel scroll speed), **Composer** (Enter sends, suggestion chip), **Chat** (panes open in,
   show thinking, chat font size and font), **Alerts** (Needs you, Done, In the app, a test
   notification), **Quick replies**, **Shortcuts** (the complete platform-resolved table), **Phone**

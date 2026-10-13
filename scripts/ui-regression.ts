@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
-import { herdrRpc, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
+import { herdrRpc, sessionSnapshot, workspaceCreate, workspaceClose } from "../server/herdr/client.ts";
 import type { WorkspaceCreated } from "../shared/protocol.ts";
 import { checkDevices } from "./devices-regression.ts";
 import { checkPushSettings } from "./push-settings-regression.ts";
@@ -501,30 +501,30 @@ try {
   await composer.fill("draft for A");
   console.log("PASS successful sends settle after switching panes and preserve edits made after returning");
 
-  // Every directory has a fold caret, even with one pane; opening a pane reveals its folder.
+  // A workspace with several panes has a fold caret, a lone pane none; opening a pane reveals its workspace.
   const split = await herdrRpc<{ pane: { pane_id: string } }>("pane.split", { target_pane_id: paneB, direction: "down", focus: false });
-  await page.getByRole("button", { name: "Settings", exact: true }).click();
-  await page.locator('.segmented[aria-label="Sidebar grouping"]').getByRole("button", { name: "By folder", exact: true }).click();
-  await page.getByRole("button", { name: "Close settings", exact: true }).click();
-  const sectionB = page.locator(`.directory-group[data-directory="${join(root, "b")}"]`);
-  const toggleB = sectionB.locator(".directory-header");
+  const rosterB = await sessionSnapshot();
+  const workspaceIdB = rosterB.panes.find((pane) => pane.pane_id === split.pane.pane_id)?.workspace_id;
+  const labelB = rosterB.workspaces.find((workspace) => workspace.workspace_id === workspaceIdB)?.label;
+  assert.ok(labelB, "the split pane's workspace is in the snapshot");
+  const sectionB = page.locator(".workspace", { has: page.getByRole("button", { name: `Reorder workspace ${labelB}`, exact: true }) });
+  const toggleB = sectionB.locator(".workspace-toggle");
   await toggleB.waitFor();
-  assert.equal(await page.locator(".directory-group", { has: page.locator(`.pane-select[title^="${paneA} —"]`) }).locator(".directory-header").count(), 1, "a lone pane keeps its folder header");
+  assert.equal(await page.locator(".workspace", { has: page.locator(`.pane-select[title^="${paneA} —"]`) }).locator(".workspace-toggle").count(), 0, "a lone pane is its workspace's one row, with no caret");
   await toggleB.click();
-  await sectionB.locator(".directory-contents").waitFor({ state: "detached" });
+  await sectionB.locator(".pane-list").waitFor({ state: "detached" });
   assert.equal(await toggleB.getAttribute("aria-expanded"), "false");
   await page.reload();
   await page.locator(".conn-live").waitFor();
-  const foldedB = page.locator(".directory-group.is-collapsed", { has: page.locator(".directory-header[aria-expanded='false']") });
-  await foldedB.waitFor();
-  assert.equal(await foldedB.locator(`.pane-select[title^="${paneB} —"]`).count(), 0, "the fold survives a reload");
+  await sectionB.locator(".workspace-toggle[aria-expanded='false']").waitFor();
+  assert.equal(await sectionB.locator(`.pane-select[title^="${paneB} —"]`).count(), 0, "the fold survives a reload");
   await page.goto(`${origin}/?pane=${encodeURIComponent(split.pane.pane_id)}`);
   await page.locator(".conn-live").waitFor();
   await page.locator(`.pane-item.is-selected .pane-select[title^="${split.pane.pane_id} —"]`).waitFor();
-  assert.equal(await page.locator(".directory-group.is-collapsed").count(), 0);
-  // Status snapshots do not undo a deliberate fold of the selected folder.
+  assert.equal(await page.locator(".workspace.is-collapsed").count(), 0);
+  // Status snapshots do not undo a deliberate fold of the selected workspace.
   await toggleB.click();
-  await sectionB.locator(".directory-contents").waitFor({ state: "detached" });
+  await sectionB.locator(".pane-list").waitFor({ state: "detached" });
   await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "blocked" });
   await page.locator(`.pane-item:has(.pane-select[title^="${paneA} —"]) .badge[data-status="blocked"]`).waitFor();
   await herdrRpc("pane.report_agent", { pane_id: paneA, source: "manual", agent: "claude", state: "idle" });
@@ -532,12 +532,12 @@ try {
   assert.equal(await sectionB.locator(".pane-list").count(), 0, "a snapshot update keeps the selected pane's workspace folded");
   assert.equal(await toggleB.getAttribute("aria-expanded"), "false");
   await toggleB.click();
-  await sectionB.locator(".directory-contents").waitFor();
+  await sectionB.locator(".pane-list").waitFor();
   await herdrRpc("pane.close", { pane_id: split.pane.pane_id });
   await page.locator(`.pane-select[title^="${split.pane.pane_id} —"]`).waitFor({ state: "detached" });
   await selectPane(paneA);
   await composer.fill("draft for A");
-  console.log("PASS a folder folds from its caret, stays folded across reloads, and unfolds for a pane opened inside it");
+  console.log("PASS a workspace folds from its caret, stays folded across reloads, and unfolds for a pane opened inside it");
 
   let releaseImage!: () => void;
   const imageGate = new Promise<void>((resolve) => { releaseImage = resolve; });

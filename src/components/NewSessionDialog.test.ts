@@ -7,7 +7,7 @@ import { t } from "../lib/i18n.ts";
 
 const model = (extra: Partial<NewSessionModel> = {}): NewSessionModel => ({
   open: true, machineId: "local", machineName: "omarchy", seq: 1, agents: [{ kind: "claude", label: "Claude Code" }] as never,
-  agentKind: "claude", agentPicked: false, cwd: "/w/api", name: "", status: "editing", error: null, createdPaneId: null, ...extra,
+  agentKind: "claude", agentPicked: false, cwd: "/w/api", name: "", status: "editing", error: null, createdPaneId: null, project: null, ...extra,
 });
 
 /** English, as under the app's own provider with an English browser */
@@ -21,6 +21,13 @@ describe("New session dialog view", () => {
     expect(html).toContain("New session · omarchy");
     expect(html).toContain('value="/w/api"');
     expect(html).toContain('placeholder="api"');
+  });
+
+  it("asks for a name when the folder's project already has workspaces, until one is typed", () => {
+    const hint = t("{project} already has {n} workspaces. A name tells this one apart.", { project: "app", n: 2 });
+    expect(render(model({ project: { name: "app", workspaces: 2 } }))).toContain(hint);
+    expect(render(model({ project: { name: "app", workspaces: 2 }, name: "review" }))).not.toContain(hint);
+    expect(render(model())).toContain(t("Optional workspace label"));
   });
 
   it("says the agent is starting, and holds every button meanwhile", () => {

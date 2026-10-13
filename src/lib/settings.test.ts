@@ -19,13 +19,8 @@ it("keeps the screen wake lock off until this device explicitly enables it", () 
   expect(sanitizeSettings({ terminalWheelSpeed: "3" }).terminalWheelSpeed).toBe(1);
 });
 
-it("defaults legacy records to workspace grouping and accepts only supported modes", () => {
-  expect(sanitizeSettings({}).sidebarGrouping).toBe("workspace");
-  expect(sanitizeSettings({ sidebarGrouping: "workspace" }).sidebarGrouping).toBe("workspace");
-  expect(sanitizeSettings({ sidebarGrouping: "directory" }).sidebarGrouping).toBe("directory");
-  for (const sidebarGrouping of [null, true, "folder", 1]) {
-    expect(sanitizeSettings({ sidebarGrouping }).sidebarGrouping).toBe("workspace");
-  }
+it("drops the sidebar grouping a record stored before the sidebar grouped by project", () => {
+  for (const sidebarGrouping of ["workspace", "directory"]) expect("sidebarGrouping" in sanitizeSettings({ sidebarGrouping })).toBe(false);
 });
 
 describe("chat font size", () => {

@@ -30,6 +30,7 @@ export const JA: Record<string, string> = {
   "Could not reorder. {reason}": "並べ替えられませんでした。{reason}",
   // ---- new session and folders ----
   "This folder does not exist.": "このフォルダーはありません。",
+  "{project} already has {n} workspaces. A name tells this one apart.": "{project} にはすでに {n} 個の Workspace があります。名前を付けると見分けられます。",
   "Showing the first {n} folders; type the rest of the path to go further.": "最初の {n} 個のフォルダーだけを表示しています。先へ進むには、残りのパスを入力してください。",
   "This PC's bridge cannot browse folders yet. Type the path instead.": "この PC のブリッジは、まだフォルダーを一覧できません。パスを入力してください。",
   "This folder cannot be opened.": "このフォルダーは開けません。",
@@ -86,7 +87,6 @@ export const JA: Record<string, string> = {
   // ---- settings ----
   "Choose the app color scheme.": "アプリの配色を選びます。",
   "Adjust spacing throughout the interface.": "画面全体の余白の大きさを選びます。",
-  "Group sessions by workspace or by full folder path on each PC.": "PC ごとの Session を、Workspace ごとか、フォルダーのフルパスごとにまとめます。",
   "Applied to every terminal pane.": "すべての Terminal に効きます。",
   "Comma-separated, tried in order. A font this device does not have falls back to the default.": "カンマで区切り、先頭から順に使います。この Device にないフォントは、Default のフォントになります。",
   "How far one turn of the wheel scrolls the terminal.": "ホイールを 1 段回したときに、Terminal がスクロールする量です。",

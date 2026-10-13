@@ -14,7 +14,7 @@ const snapshot = { workspaces: [workspace("w1", "api", 1), workspace("w2", "web"
 
 /** English, as under the app's own provider with an English browser */
 function render(tree: Partial<TreeState> = {}, extra: Partial<SidebarModel> = {}): string {
-  const model: SidebarModel = { machineId: "local", snapshot, selectedPaneId: null, grouping: "workspace", workspaceOrder: ["w1", "w2"], tree: { ...EMPTY_TREE, ...tree }, ...extra };
+  const model: SidebarModel = { machineId: "local", snapshot, selectedPaneId: null, workspaceOrder: ["w1", "w2"], tree: { ...EMPTY_TREE, ...tree }, ...extra };
   return renderBare(createElement(SettingsProvider, { settings: DEFAULT_SETTINGS, onChange: () => {}, children: createElement(Sidebar, { model, emit: () => {} }) }));
 }
 
@@ -43,6 +43,46 @@ describe("Session tree view", () => {
 
   it("notes a refused change beside its pane's row, in words", () => {
     expect(render({ failure: { kind: "close", reason: "pane is busy", paneId: "w1:p1", seq: 1 } })).toContain(t("Could not close. {reason}", { reason: "pane is busy" }));
+  });
+});
+
+describe("projects in the session tree", () => {
+  const inRepo = (each: WorkspaceInfo, root: string, checkout = root): WorkspaceInfo => ({ ...each, worktree: { repo_key: `${root}/.git`, repo_name: root.split("/").pop()!, repo_root: root, checkout_path: checkout, is_linked_worktree: checkout !== root } });
+  const three = {
+    ...snapshot,
+    workspaces: [inRepo(workspace("w1", "api", 1), "/git/app"), workspace("w2", "web", 2), inRepo(workspace("w3", "thread", 3), "/git/app", "/git/app/.herdr-fleet/worktrees/a")],
+    panes: [pane("w1:p1", "w1", "build"), pane("w2:p1", "w2"), pane("w3:p1", "w3", "lead")],
+  } as unknown as SessionSnapshot;
+
+  it("heads the workspaces of one repository with the project, in the place of its first one", () => {
+    const html = render({}, { snapshot: three, workspaceOrder: ["w1", "w2", "w3"] });
+    expect(html.match(/class="project-group/g)).toHaveLength(1);
+    expect(html).toContain('data-project="/git/app"');
+    expect(html).toContain('aria-label="New session in app"');
+    // the project draws first, both its workspaces inside, then the workspace outside Git
+    const contents = html.slice(html.indexOf('class="project-contents"'));
+    expect(contents.indexOf(">build<")).toBeLessThan(contents.indexOf(">lead<"));
+    expect(contents.indexOf(">lead<")).toBeLessThan(contents.indexOf(">web<"));
+    expect(html.slice(html.indexOf(">web<")).includes("project-group")).toBe(false);
+  });
+
+  it("draws a lone workspace of a repository without a project heading, and marks a linked worktree", () => {
+    const lone = { ...three, workspaces: [three.workspaces[2]!, three.workspaces[1]!], panes: [pane("w3:p1", "w3", "lead"), pane("w2:p1", "w2")] } as unknown as SessionSnapshot;
+    const html = render({}, { snapshot: lone, workspaceOrder: ["w3", "w2"] });
+    expect(html).not.toContain("project-group");
+    expect(html).toContain('title="Worktree /git/app/.herdr-fleet/worktrees/a"');
+  });
+
+  it("folds a project to its heading, as stored for this PC and repository", () => {
+    // bun has no localStorage: one key stored, as the browser keeps it
+    const stored = new Map([["herdr-fleet:project-collapsed:local:/git/app/.git", "1"]]);
+    Object.assign(globalThis, { localStorage: { getItem: (key: string) => stored.get(key) ?? null } });
+    try {
+      const html = render({}, { snapshot: three, workspaceOrder: ["w1", "w2", "w3"] });
+      expect(html).toContain('class="project-group is-collapsed"');
+      expect(html).not.toContain(">build<");
+      expect(html).toContain(">web<");
+    } finally { delete (globalThis as { localStorage?: unknown }).localStorage; }
   });
 });
 

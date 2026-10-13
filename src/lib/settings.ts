@@ -13,7 +13,6 @@ import { chatFontStack, sanitizeFontFamily } from "./fontFamily.ts";
 export type ThemeSetting = "dark" | "light" | "system";
 export type ResolvedTheme = "dark" | "light";
 export type Density = "compact" | "comfortable";
-export type SidebarGrouping = "workspace" | "directory";
 /** the lens a pane opens in until it is switched there: auto is chat for an agent on a touch screen, else terminal */
 export type DefaultView = "auto" | "chat" | "terminal";
 
@@ -24,8 +23,6 @@ export interface Settings {
   shortcutOverrides: ShortcutOverrides;
   theme: ThemeSetting;
   density: Density;
-  /** The sidebar's display grouping; workspaces themselves remain independent. */
-  sidebarGrouping: SidebarGrouping;
   /** xterm font size in px */
   terminalFontSize: number;
   /** mouse reports sent to herdr per wheel event in the terminal: 1 is what xterm sends by itself */
@@ -65,7 +62,6 @@ export const DEFAULT_SETTINGS: Settings = {
   shortcutOverrides: {},
   theme: "dark",
   density: "comfortable",
-  sidebarGrouping: "workspace",
   terminalFontSize: 13,
   terminalWheelSpeed: 1,
   terminalFontFamily: "",
@@ -130,7 +126,6 @@ export function sanitizeSettings(raw: unknown): Settings {
     shortcutOverrides: sanitizeShortcutOverrides(record["shortcutOverrides"]),
     theme: theme === "dark" || theme === "light" || theme === "system" ? theme : DEFAULT_SETTINGS.theme,
     density: density === "compact" || density === "comfortable" ? density : DEFAULT_SETTINGS.density,
-    sidebarGrouping: record["sidebarGrouping"] === "workspace" || record["sidebarGrouping"] === "directory" ? record["sidebarGrouping"] : DEFAULT_SETTINGS.sidebarGrouping,
     terminalFontSize: typeof font === "number" && Number.isFinite(font) ? clampFont(font) : DEFAULT_SETTINGS.terminalFontSize,
     terminalWheelSpeed: typeof record["terminalWheelSpeed"] === "number" && Number.isFinite(record["terminalWheelSpeed"])
       ? Math.min(TERMINAL_WHEEL_SPEED_MAX, Math.max(TERMINAL_WHEEL_SPEED_MIN, Math.round(record["terminalWheelSpeed"])))
