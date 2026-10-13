@@ -30,6 +30,7 @@ export const JA: Record<string, string> = {
   "Could not reorder. {reason}": "並べ替えられませんでした。{reason}",
   // ---- new session and folders ----
   "This folder does not exist.": "このフォルダーはありません。",
+  "{project} already has {n} workspaces. A name tells this one apart.": "{project} にはすでに {n} 個の Workspace があります。名前を付けると見分けられます。",
   "Showing the first {n} folders; type the rest of the path to go further.": "最初の {n} 個のフォルダーだけを表示しています。先へ進むには、残りのパスを入力してください。",
   "This PC's bridge cannot browse folders yet. Type the path instead.": "この PC のブリッジは、まだフォルダーを一覧できません。パスを入力してください。",
   "This folder cannot be opened.": "このフォルダーは開けません。",

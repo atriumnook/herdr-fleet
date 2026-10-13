@@ -8,8 +8,8 @@ import { t } from "../lib/i18n.ts";
 import type { Emit } from "../ui/bubble.ts";
 import type { NewSessionState, UiEvent } from "../ui/state.ts";
 
-/** What the dialog draws: the dialog's region while it is open, and the PC's name. */
-export type NewSessionModel = Extract<NewSessionState, { open: true }> & { machineName: string };
+/** What the dialog draws: the dialog's region while it is open, the PC's name, and the project the folder lies in. */
+export type NewSessionModel = Extract<NewSessionState, { open: true }> & { machineName: string; project: { name: string; workspaces: number } | null };
 
 export type NewSessionEvent = Extract<UiEvent, { type: "close-new-session" | "edit-new-session" | "submit-new-session" }>;
 
@@ -100,7 +100,9 @@ export function NewSessionDialog({ model, browser, emit }: NewSessionDialogProps
               placeholder={directoryBasename(cwd)}
               onChange={(event) => edit("name", event.target.value)}
             />
-            <span className="field-hint">{t("Optional workspace label")}</span>
+            <span className="field-hint">{model.project && !name.trim()
+              ? t("{project} already has {n} workspaces. A name tells this one apart.", { project: model.project.name, n: model.project.workspaces })
+              : t("Optional workspace label")}</span>
           </label>
           {pending && <p className="new-session-note" role="status">{pendingLabel}</p>}
           {error && <p className="notice new-session-error" role="alert">{error}</p>}
