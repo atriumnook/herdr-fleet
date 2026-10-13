@@ -3,7 +3,7 @@ import { Check, Copy } from "lucide-react";
 import katex from "katex";
 
 import { foldCode, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
-import { codeIsFilePath, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
+import { codeIsFilePath, FileUrlContext, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
 import { fileUriPath } from "../lib/terminalFileLinks.ts";
 import { t } from "../lib/i18n.ts";
 
@@ -23,12 +23,18 @@ function FilePath({ path, code, open }: { path: string; code: boolean; open: (pa
   return <button type="button" className={`markdown-file${code ? " is-code" : ""}`} title={t("Open {path}", { path })} onClick={() => open(path)}>{label}</button>;
 }
 
+/** A label's text, for an image's alt text. */
+function plainText(nodes: InlineNode[]): string {
+  return nodes.map((node) => (node.type === "text" || node.type === "code" || node.type === "math" ? node.value : plainText(node.children))).join("");
+}
+
 /** Text written for the person by a model (a question's explanation): its links and paths show as text, never to click. */
 const PlainContext = createContext(false);
 
 /** `interactive` is false inside a link or file label: nothing clickable nests in another. */
 function Inline({ nodes, interactive: nested = true }: { nodes: InlineNode[]; interactive?: boolean }) {
   const context = useContext(OpenFileContext);
+  const fileUrl = useContext(FileUrlContext);
   const plain = useContext(PlainContext);
   const interactive = nested && !plain;
   const open = interactive ? context : null;
@@ -55,6 +61,12 @@ function Inline({ nodes, interactive: nested = true }: { nodes: InlineNode[]; in
       // the label opens the file; where nothing can open one, the path shows after it, as Codex's terminal does
       case "file": {
         const label = <Inline nodes={node.children} interactive={false} />;
+        // an image the chat names shows where its pane serves it; it opens in the viewer
+        if (node.image && open !== null && fileUrl !== null) {
+          return <button key={key} type="button" className="markdown-image" title={t("Open {path}", { path: node.path })} onClick={() => open(node.path)}>
+            <img src={fileUrl(node.path)} alt={plainText(node.children) || node.path} loading="lazy" />
+          </button>;
+        }
         return open !== null
           ? <button key={key} type="button" className="markdown-file" title={t("Open {path}", { path: node.path })} onClick={() => open(node.path)}>{label}</button>
           : <span key={key}>{label} (<code>{node.path}</code>)</span>;

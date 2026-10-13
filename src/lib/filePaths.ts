@@ -47,3 +47,10 @@ export function codeIsFilePath(code: string): boolean {
 /** Opens a path in the file viewer; null where nothing can open one (paths stay text). */
 export const OpenFileContext = createContext<((path: string) => void) | null>(null);
 
+/** Where a chat's pane serves a path, to show an image the chat names; null where none is served. */
+export const FileUrlContext = createContext<((path: string) => string) | null>(null);
+
+/** A file a browser shows as an image, by its name: the kinds the server serves as images. */
+export function isImagePath(path: string): boolean {
+  return /\.(?:png|jpe?g|gif|webp|avif|bmp|svg)$/i.test(path);
+}

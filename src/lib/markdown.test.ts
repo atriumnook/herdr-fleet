@@ -91,6 +91,16 @@ describe("inline markdown", () => {
     expect(parseInline("[x](/tmp/100%.txt)")).toMatchObject([{ type: "file", path: "/tmp/100%.txt" }]);
   });
 
+  it("shows an image of a file, and links one on the web without loading it", () => {
+    expect(parseInline("見て: ![画面](docs/shot.png)")).toEqual([
+      { type: "text", value: "見て: " },
+      { type: "file", path: "docs/shot.png", children: [{ type: "text", value: "画面" }], image: true },
+    ]);
+    // written as an image but not one: a file link, with no stray "!"
+    expect(parseInline("![report](out/REPORT.md)")).toEqual([{ type: "file", path: "out/REPORT.md", children: [{ type: "text", value: "report" }] }]);
+    expect(parseInline("![logo](https://example.com/logo.png)")).toEqual([{ type: "link", href: "https://example.com/logo.png", children: [{ type: "text", value: "logo" }] }]);
+  });
+
   it("links an address written without its scheme, and leaves files and non-addresses alone", () => {
     expect(parseInline("[docs](www.example.com/x)")).toEqual([{ type: "link", href: "https://www.example.com/x", children: [{ type: "text", value: "docs" }] }]);
     expect(parseInline("[guide](docs.example.com/guide)")).toMatchObject([{ type: "link", href: "https://docs.example.com/guide" }]);

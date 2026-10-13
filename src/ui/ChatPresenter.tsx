@@ -3,7 +3,8 @@ import type { AgentStatus, ConversationTurn, ExplainRequest, InteractivePrompt }
 import { paneStorageId } from "../../shared/machines.ts";
 import { askedKey, isEmptyDraft, endingQuestion, lastInstruction } from "../lib/plainQuestion.ts";
 import { ChatView, type ChatViewEvent, type ChatViewModel } from "../components/ChatView.tsx";
-import { OpenFileContext } from "../lib/filePaths.ts";
+import { FileUrlContext, OpenFileContext } from "../lib/filePaths.ts";
+import { fileUrl } from "../lib/api.ts";
 import { useMachineId } from "../lib/machineContext.tsx";
 import { useSettings } from "../lib/settings.ts";
 import { relay, type Emit } from "./bubble.ts";
@@ -160,5 +161,8 @@ export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, le
   }), [emit, machineId, paneId, prompt, promptKey, asked, askedId, owner, boxEmpty]);
   // a path in this chat is read from this chat's pane: on the Fleet screen that is not the selected one
   const openFile = useCallback((path: string) => emit({ type: "open-file", path, pane: { machineId, paneId } }), [emit, machineId, paneId]);
-  return <OpenFileContext.Provider value={openFile}><ChatView model={model} emit={relayed} /></OpenFileContext.Provider>;
+  const urlOf = useCallback((path: string) => fileUrl(path, paneId, machineId), [paneId, machineId]);
+  return <OpenFileContext.Provider value={openFile}><FileUrlContext.Provider value={urlOf}>
+    <ChatView model={model} emit={relayed} />
+  </FileUrlContext.Provider></OpenFileContext.Provider>;
 }

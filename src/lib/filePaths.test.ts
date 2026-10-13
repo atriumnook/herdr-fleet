@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { codeIsFilePath, splitFilePaths } from "./filePaths.ts";
+import { codeIsFilePath, isImagePath, splitFilePaths } from "./filePaths.ts";
 
 const paths = (text: string) => splitFilePaths(text).filter((part) => typeof part !== "string").map((part) => (part as { path: string }).path);
 
@@ -31,5 +31,12 @@ describe("file paths in chat text", () => {
     expect(codeIsFilePath("1.2.3")).toBe(false);
     // a file of any language still opens: what is refused above is known code, not an unknown extension
     for (const code of ["main.c", "util.h", "App.vue", "go.mod", "Cargo.lock", "nginx.conf", "config.env", "src/process.env", "os.py", "std.rs", "tool.ts", "fmt.go", "app.dev", "tool.vue", "std.lock", "os.conf", "Math.js", "process.yml", "README.org", "notes.io", "example.com"]) expect(codeIsFilePath(code)).toBe(true);
+  });
+});
+
+describe("image files", () => {
+  it("knows the images a browser shows by their extension", () => {
+    for (const path of ["a.png", "b.JPG", "c.jpeg", "d.gif", "e.webp", "f.avif", "g.bmp", "h.svg"]) expect(isImagePath(path)).toBe(true);
+    for (const path of ["a.pdf", "b.mp4", "png", "c.png.txt"]) expect(isImagePath(path)).toBe(false);
   });
 });
