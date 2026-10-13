@@ -17,6 +17,7 @@ import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
 import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, toolOutput } from "./conversation.ts";
 import { CompletionTracker } from "./completion.ts";
+import { WorkspaceProjects } from "./projects.ts";
 import { EXPLAIN_MODEL, ExplainCalls, ExplainError, explainQuestion, explainRequest, type ExplainDeps } from "./explain.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { listDirectories } from "./directories.ts";
@@ -460,8 +461,10 @@ export function createServer(
 
   /** `done` for agents herdr loses track of (server/completion.ts), kept across restarts */
   const completions = new CompletionTracker(join(options.stateDir ?? defaultStateDir(), "completions.json"));
-  /** the snapshot clients get: finishes settled */
-  const clientSnapshot = (): Promise<SessionSnapshot> => completions.readSnapshot(sessionSnapshot);
+  /** each workspace's repository, for the sidebar's projects */
+  const projects = new WorkspaceProjects();
+  /** the snapshot clients get: finishes settled, workspaces with their repository */
+  const clientSnapshot = async (): Promise<SessionSnapshot> => projects.attach(await completions.readSnapshot(sessionSnapshot));
   const machines = options.machines === false ? null : new MachineManager(completions, clientSnapshot);
   /** agents started on callers' behalf (server/fleet): told of herdr's status events by the collector below */
   let listeningPort = 0;
