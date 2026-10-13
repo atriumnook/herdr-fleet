@@ -11,12 +11,11 @@ export function shownOrder(snapshot: SessionSnapshot | null, order: ShownOrder |
   return order !== null && order.basis.join("\u0000") === herdr.join("\u0000") ? order.order : herdr;
 }
 
-/** A PC's session tree: its sessions from the shell, its tree region and the grouping from the Mediator. */
+/** A PC's session tree: its sessions from the shell, its tree region from the Mediator. */
 export function SidebarPresenter({ machineId, snapshot, selectedPaneId, emit }: { machineId: string; snapshot: SessionSnapshot | null; selectedPaneId: string | null; emit: Emit<SidebarEvent> }) {
   const tree = useSelected((state) => treeOf(state, machineId));
-  const grouping = useSelected((state) => state.settings.sidebarGrouping);
   const model = useMemo<SidebarModel>(() => ({
-    machineId, snapshot, selectedPaneId, grouping, tree, workspaceOrder: shownOrder(snapshot, tree.order),
-  }), [machineId, snapshot, selectedPaneId, grouping, tree]);
+    machineId, snapshot, selectedPaneId, tree, workspaceOrder: shownOrder(snapshot, tree.order),
+  }), [machineId, snapshot, selectedPaneId, tree]);
   return <Sidebar model={model} emit={emit} />;
 }

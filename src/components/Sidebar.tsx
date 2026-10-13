@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent } from "react";
-import { ChevronDown, ChevronRight, Folder, GripVertical, Pencil, Plus, Terminal, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Folder, GitBranch, GripVertical, Pencil, Plus, Terminal, X } from "lucide-react";
 
 import "./Sidebar.css";
 
@@ -15,20 +15,30 @@ import { RowMenu, type RowMenuItem } from "./RowMenu.tsx";
 import { focusWorkspaceListToggle } from "../lib/focus.ts";
 import { folderName, placeLine, shortPathTitle } from "../lib/paneName.ts";
 import { t } from "../lib/i18n.ts";
-import { groupDirectories } from "../lib/directoryGroups.ts";
-import type { SidebarGrouping } from "../lib/settings.ts";
+import { groupProjects } from "../lib/projectGroups.ts";
 
-/** Folder folds belong to a PC and full path, not an individual workspace. */
+/** A fold belongs to a PC and a workspace (`workspace:<id>`) or a repository (`project:<repo_key>`). */
 const collapsedKey = (machineId: string, groupKey: string) => {
-  const workspace = groupKey.startsWith("workspace:");
-  return `herdr-fleet:${workspace ? "workspace" : "directory"}-collapsed:${machineId}:${groupKey.slice(workspace ? "workspace:".length : "folder:".length)}`;
+  const [kind, ...rest] = groupKey.split(":");
+  return `herdr-fleet:${kind}-collapsed:${machineId}:${rest.join(":")}`;
 };
-function storedCollapsed(machineId: string, directoryKeys: string[]): Set<string> {
+function storedCollapsed(machineId: string, groupKeys: string[]): Set<string> {
   const collapsed = new Set<string>();
   try {
-    for (const id of directoryKeys) if (localStorage.getItem(collapsedKey(machineId, id)) === "1") collapsed.add(id);
+    for (const id of groupKeys) if (localStorage.getItem(collapsedKey(machineId, id)) === "1") collapsed.add(id);
   } catch { /* storage denied: nothing is folded */ }
   return collapsed;
+}
+/** every fold a snapshot can show: its workspaces' and its projects' */
+function foldKeys(snapshot: SessionSnapshot): string[] {
+  return [...snapshot.workspaces.map((workspace) => `workspace:${workspace.workspace_id}`), ...groupProjects(snapshot.workspaces).filter((group) => group.repo !== null).map((group) => group.key)];
+}
+
+/** a workspace in a linked worktree (a fleet thread's, or one herdr made): its checkout on hover */
+function WorktreeMark({ workspace }: { workspace: WorkspaceInfo }) {
+  if (!workspace.worktree?.is_linked_worktree) return null;
+  const title = t("Worktree {path}", { path: workspace.worktree.checkout_path });
+  return <span className="worktree-mark" title={title}><GitBranch aria-hidden="true" /><span className="visually-hidden">{title}</span></span>;
 }
 
 /** shell prompt titles: `user@host:` is chrome, the path after it is the information */
@@ -78,8 +88,8 @@ function cwdBasename(cwd: string | null | undefined): string {
 
 /** The row whose ⋯ menu is open: a pane's row, or the header of a workspace with several panes. */
 type MenuState =
-  | { kind: "pane"; anchor: HTMLElement; at: PressPoint | null; pane: PaneInfo; workspace: WorkspaceInfo; scope: string; title: string; place: string }
-  | { kind: "workspace"; anchor: HTMLElement; at: PressPoint | null; workspace: WorkspaceInfo; scope: string };
+  | { kind: "pane"; anchor: HTMLElement; at: PressPoint | null; pane: PaneInfo; workspace: WorkspaceInfo; title: string; place: string }
+  | { kind: "workspace"; anchor: HTMLElement; at: PressPoint | null; workspace: WorkspaceInfo };
 
 /**
  * Closing a pane, as herdr's `ui.confirm_close` has it: the workspace's last pane takes the
@@ -103,14 +113,13 @@ export interface SidebarModel {
   machineId: string;
   snapshot: SessionSnapshot | null;
   selectedPaneId: string | null;
-  grouping: SidebarGrouping;
   /** the workspaces in the order drawn: a reorder herdr has not taken yet, else herdr's */
   workspaceOrder: string[];
   tree: TreeState;
 }
 
-/** What the tree sends up: its own changes, a pane picked, a new session (the shell's). */
-export type SidebarEvent = TreeEvent | { type: "select-pane"; machineId: string; paneId: string } | { type: "new-session"; machineId: string };
+/** What the tree sends up: its own changes, a pane picked, a new session (the shell's; in a project, at its root). */
+export type SidebarEvent = TreeEvent | { type: "select-pane"; machineId: string; paneId: string } | { type: "new-session"; machineId: string; cwd?: string };
 
 /** what a refused change says, beside its row */
 export const FAILED: Record<NonNullable<TreeState["failure"]>["kind"], string> = {
@@ -125,7 +134,6 @@ export const FAILED: Record<NonNullable<TreeState["failure"]>["kind"], string> =
  */
 export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<SidebarEvent> }) {
   const { machineId, snapshot, selectedPaneId, workspaceOrder, tree } = model;
-  const byFolder = model.grouping === "directory";
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [dragWorkspaceId, setDragWorkspaceId] = useState<string | null>(null);
   const editingPaneId = tree.paneRename?.paneId ?? null;
@@ -135,8 +143,8 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
   const inlineError = tree.failure === null ? null : { paneId: tree.failure.paneId, message: t(FAILED[tree.failure.kind], { reason: tree.failure.reason }) };
   const confirm = tree.confirm;
   const on = { machineId };
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => storedCollapsed(machineId, snapshot ? [...snapshot.workspaces.map((workspace) => `workspace:${workspace.workspace_id}`), ...groupDirectories(snapshot.workspaces, snapshot.panes).map((group) => `folder:${group.key}`)] : []));
-  const unfoldedFor = useRef<Partial<Record<SidebarGrouping, string>>>({});
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(() => storedCollapsed(machineId, snapshot ? foldKeys(snapshot) : []));
+  const unfoldedFor = useRef<string | null>(null);
 
   const setGroupCollapsed = (groupKey: string, collapsed: boolean): void => {
     setCollapsedGroups((current) => {
@@ -160,35 +168,33 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
 
   useEffect(() => {
     if (!snapshot) return;
-    const serverOrder = snapshot.workspaces.map((workspace) => workspace.workspace_id);
-    // New folders bring their stored fold state after reconnecting or creating a session.
+    // New workspaces and projects bring their stored fold state after reconnecting or creating a session.
     setCollapsedGroups((current) => {
-      const keys = [...serverOrder.map((id) => `workspace:${id}`), ...groupDirectories(snapshot.workspaces, snapshot.panes).map((group) => `folder:${group.key}`)];
-      const stored = storedCollapsed(machineId, keys.filter((id) => !current.has(id)));
+      const stored = storedCollapsed(machineId, foldKeys(snapshot).filter((id) => !current.has(id)));
       return stored.size === 0 ? current : new Set([...current, ...stored]);
     });
   }, [snapshot, machineId]);
 
-  // Reveal a newly selected pane once per mode; toggling back preserves its deliberate fold.
+  // Reveal a newly selected pane once: its project and its workspace open. A fold made after
+  // that, while the pane stays selected, stays.
   useEffect(() => {
     if (!selectedPaneId || !snapshot) return;
     const pane = snapshot.panes.find((pane) => pane.pane_id === selectedPaneId);
     if (!pane) return;
-    const directory = byFolder ? groupDirectories(snapshot.workspaces, snapshot.panes).find((group) => group.workspaces.some((entry) => entry.panes.some((pane) => pane.pane_id === selectedPaneId))) : null;
-    if (byFolder && !directory) return;
-    const groupKey = directory ? `folder:${directory.key}` : `workspace:${pane.workspace_id}`;
-    const opened = JSON.stringify([machineId, selectedPaneId, groupKey]);
-    if (unfoldedFor.current[model.grouping] === opened) return;
-    unfoldedFor.current[model.grouping] = opened;
-    setGroupCollapsed(groupKey, false);
-  }, [selectedPaneId, snapshot, machineId, model.grouping, byFolder]);
+    const project = groupProjects(snapshot.workspaces).find((group) => group.workspaces.some((workspace) => workspace.workspace_id === pane.workspace_id));
+    const opened = JSON.stringify([machineId, selectedPaneId]);
+    if (unfoldedFor.current === opened) return;
+    unfoldedFor.current = opened;
+    setGroupCollapsed(`workspace:${pane.workspace_id}`, false);
+    if (project && project.workspaces.length > 1) setGroupCollapsed(project.key, false);
+  }, [selectedPaneId, snapshot, machineId]);
 
   const orderedWorkspaces = useMemo(() => {
     if (!snapshot) return [];
     const byId = new Map(snapshot.workspaces.map((workspace) => [workspace.workspace_id, workspace]));
     return workspaceOrder.map((id) => byId.get(id)).filter((workspace): workspace is WorkspaceInfo => workspace !== undefined);
   }, [snapshot, workspaceOrder]);
-  const directories = useMemo(() => groupDirectories(orderedWorkspaces, snapshot?.panes ?? []), [orderedWorkspaces, snapshot?.panes]);
+  const projects = useMemo(() => groupProjects(orderedWorkspaces), [orderedWorkspaces]);
   const workspacePaneCounts = useMemo(() => {
     const counts = new Map<string, number>();
     for (const pane of snapshot?.panes ?? []) counts.set(pane.workspace_id, (counts.get(pane.workspace_id) ?? 0) + 1);
@@ -207,7 +213,7 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
     // what an item does follows the latest snapshot, not what the row showed at the click
     const workspace = snapshot?.workspaces.find((candidate) => candidate.workspace_id === state.workspace.workspace_id) ?? state.workspace;
     const paneCount = workspacePaneCounts.get(workspace.workspace_id) ?? 1;
-    const renameWorkspaceItem: RowMenuItem = { id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace, state.scope) };
+    const renameWorkspaceItem: RowMenuItem = { id: "rename-workspace", label: t("Rename workspace"), icon: Pencil, run: () => beginWorkspaceRename(workspace) };
     if (state.kind === "workspace") {
       return [
         renameWorkspaceItem,
@@ -235,10 +241,8 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
 
   const beginPaneRename = (pane: PaneInfo): void => emit({ type: "tree-start-pane-rename", ...on, paneId: pane.pane_id, label: pane.label ?? "" });
 
-  // By folder, one workspace can show under several folders: only the copy that was clicked edits.
-  // Two mounted inputs would take the focus from each other, and the blur closes both.
-  const beginWorkspaceRename = (workspace: WorkspaceInfo, scope: string): void =>
-    emit({ type: "tree-start-workspace-rename", ...on, key: `${scope}\u0000${workspace.workspace_id}`, workspaceId: workspace.workspace_id, label: workspace.label });
+  const beginWorkspaceRename = (workspace: WorkspaceInfo): void =>
+    emit({ type: "tree-start-workspace-rename", ...on, key: workspace.workspace_id, workspaceId: workspace.workspace_id, label: workspace.label });
 
   const reorderWorkspace = (workspaceId: string, insertIndex: number): void =>
     emit({ type: "tree-move-workspace", ...on, workspaceId, insertIndex, shown: workspaceOrder, herdr: snapshot?.workspaces.map((workspace) => workspace.workspace_id) ?? [] });
@@ -259,11 +263,22 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
     reorderWorkspace(sourceId, workspaceOrder.indexOf(targetWorkspaceId));
   };
 
+  // Alt+arrow steps past the neighbour as drawn: a sibling inside a project, a whole project
+  // outside one. A workspace in a project stays in it: its repository decides where it is drawn.
   const onHandleKeyDown = (event: KeyboardEvent<HTMLButtonElement>, workspaceId: string): void => {
     if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
     event.preventDefault();
-    const current = workspaceOrder.indexOf(workspaceId);
-    reorderWorkspace(workspaceId, current + (event.key === "ArrowUp" ? -1 : 1));
+    const up = event.key === "ArrowUp";
+    const group = projects.find((candidate) => candidate.workspaces.some((workspace) => workspace.workspace_id === workspaceId));
+    if (!group) return;
+    let past: WorkspaceInfo | undefined;
+    if (group.workspaces.length > 1) {
+      past = group.workspaces[group.workspaces.findIndex((workspace) => workspace.workspace_id === workspaceId) + (up ? -1 : 1)];
+    } else {
+      const neighbour = projects[projects.indexOf(group) + (up ? -1 : 1)];
+      past = neighbour && (up ? neighbour.workspaces[0] : neighbour.workspaces[neighbour.workspaces.length - 1]);
+    }
+    if (past) reorderWorkspace(workspaceId, workspaceOrder.indexOf(past.workspace_id));
   };
 
   const dragHandle = (workspace: WorkspaceInfo, draggable: boolean) => (
@@ -281,16 +296,15 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
     </button>
   );
 
-  const renderWorkspace = (workspace: WorkspaceInfo, visiblePanes: PaneInfo[], scope = "") => {
+  const renderWorkspace = (workspace: WorkspaceInfo) => {
+    const visiblePanes = snapshot?.panes.filter((pane) => pane.workspace_id === workspace.workspace_id) ?? [];
     if (visiblePanes.length === 0) return null;
-    // A single pane is its workspace: one row, no heading above it. Count the whole
-    // workspace: a folder can show one pane of a workspace that has more, and that
-    // heading is the only place to rename the workspace.
-    const merged = (workspacePaneCounts.get(workspace.workspace_id) ?? visiblePanes.length) === 1;
+    // A single pane is its workspace: one row, no heading above it.
+    const merged = visiblePanes.length === 1;
     const groupKey = `workspace:${workspace.workspace_id}`;
     // A merged row has no toggle: a fold stored while it had a heading (0.3.44) must not hide it.
-    const collapsed = !byFolder && !merged && collapsedGroups.has(groupKey);
-    const workspaceMenuOpen = menu?.kind === "workspace" && menu.workspace.workspace_id === workspace.workspace_id && menu.scope === scope;
+    const collapsed = !merged && collapsedGroups.has(groupKey);
+    const workspaceMenuOpen = menu?.kind === "workspace" && menu.workspace.workspace_id === workspace.workspace_id;
     return (
       <section
         className={`workspace${dragWorkspaceId === workspace.workspace_id ? " is-dragging" : ""}${collapsed ? " is-collapsed" : ""}`}
@@ -304,17 +318,17 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
         {!merged && (
           <header
             className={`workspace-header${workspaceMenuOpen ? " has-menu" : ""}`}
-            {...press((at, row) => setMenu({ kind: "workspace", anchor: rowFocus(row, ".workspace-toggle, .sidebar-drag-handle"), at, workspace, scope }))}
+            {...press((at, row) => setMenu({ kind: "workspace", anchor: rowFocus(row, ".workspace-toggle, .sidebar-drag-handle"), at, workspace }))}
             draggable
             onDragStart={(event) => onDragStart(event, workspace.workspace_id)}
             onDragEnd={() => setDragWorkspaceId(null)}
           >
             {dragHandle(workspace, false)}
-            {!byFolder && <button type="button" className="workspace-toggle" aria-expanded={!collapsed} aria-label={collapsed ? t("Expand workspace {name}", { name: workspace.label }) : t("Collapse workspace {name}", { name: workspace.label })} title={collapsed ? t("Show panes") : t("Hide panes")} onClick={(event) => { event.stopPropagation(); setGroupCollapsed(groupKey, !collapsed); }}>
+            <button type="button" className="workspace-toggle" aria-expanded={!collapsed} aria-label={collapsed ? t("Expand workspace {name}", { name: workspace.label }) : t("Collapse workspace {name}", { name: workspace.label })} title={collapsed ? t("Show panes") : t("Hide panes")} onClick={(event) => { event.stopPropagation(); setGroupCollapsed(groupKey, !collapsed); }}>
               {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
-            </button>}
+            </button>
             <span className="workspace-number">{workspace.number}</span>
-            {editingWorkspaceId === `${scope}\u0000${workspace.workspace_id}` ? (
+            {editingWorkspaceId === workspace.workspace_id ? (
               <input
                 className="input workspace-rename-input"
                 aria-label={t("Workspace name")}
@@ -328,10 +342,11 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
                 }}
               />
             ) : (
-              <span className="workspace-label" title={workspace.label} onDoubleClick={() => beginWorkspaceRename(workspace, scope)}>
+              <span className="workspace-label" title={workspace.label} onDoubleClick={() => beginWorkspaceRename(workspace)}>
                 {workspace.label}
               </span>
             )}
+            <WorktreeMark workspace={workspace} />
             <StatusBadge status={workspace.agent_status} dot />
           </header>
         )}
@@ -340,14 +355,12 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
           {visiblePanes.map((pane) => {
             const fullTitle = paneTitle(pane);
             const displayTitle = displayPaneTitle(pane);
-            // The group header already names one of the two: a workspace's rows name the folder, a
-            // folder's rows the workspace. A workspace is usually named after its folder, and a shell
-            // titled by it: the folder shows only when neither already says it. A merged row has no
-            // workspace header, so it names the workspace too, unless the title already is that name.
+            // A workspace's rows name the folder. A workspace is usually named after its folder, and a
+            // shell titled by it: the folder shows only when neither already says it. A merged row has
+            // no workspace header, so it names the workspace too, unless the title already is that name.
             const folder = cwdBasename(pane.cwd);
             const said = folder === displayTitle || folder === workspace.label;
-            const place = byFolder ? workspace.label
-              : merged ? placeLine(workspace.label === displayTitle ? "" : workspace.label, said ? "" : folder)
+            const place = merged ? placeLine(workspace.label === displayTitle ? "" : workspace.label, said ? "" : folder)
               : said ? "" : folder;
             const selected = pane.pane_id === selectedPaneId;
             const editing = editingPaneId === pane.pane_id;
@@ -356,7 +369,7 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
               <li className={`pane-item${selected ? " is-selected" : ""}`} key={pane.pane_id}>
                 <div
                   className={`pane-row${paneMenuOpen ? " has-menu" : ""}`}
-                  {...press((at, row) => setMenu({ kind: "pane", anchor: rowFocus(row, ".pane-select"), at, pane, workspace, scope, title: displayTitle, place: place || workspace.label }))}
+                  {...press((at, row) => setMenu({ kind: "pane", anchor: rowFocus(row, ".pane-select"), at, pane, workspace, title: displayTitle, place: place || workspace.label }))}
                 >
                   {merged && dragHandle(workspace, true)}
                   <div
@@ -396,7 +409,7 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
                           <span className="pane-title">{displayTitle}</span>
                         )}
                       </span>
-                      {merged && editingWorkspaceId === `${scope}\u0000${workspace.workspace_id}` ? (
+                      {merged && editingWorkspaceId === workspace.workspace_id ? (
                         <input
                           className="input pane-rename-input workspace-rename-input"
                           aria-label={t("Workspace name")}
@@ -412,7 +425,7 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
                           }}
                         />
                       ) : (
-                        place && <span className="pane-subtitle">{place}</span>
+                        (place || (merged && workspace.worktree?.is_linked_worktree)) && <span className="pane-subtitle">{merged && <WorktreeMark workspace={workspace} />}{place}</span>
                       )}
                     </span>
                     {/* a pane with no agent has no state to tell: no badge, not a "—" one */}
@@ -438,21 +451,26 @@ export function Sidebar({ model, emit }: { model: SidebarModel; emit: Emit<Sideb
             <button type="button" className="btn" onClick={() => emit({ type: "new-session", ...on })}><Plus aria-hidden="true" />{t("New session")}</button>
           </div>
         )}
-        {byFolder ? directories.map((directory) => {
-          const collapsed = collapsedGroups.has(`folder:${directory.key}`);
-          const name = directory.path ? cwdBasename(directory.path) : directory.workspaces[0]?.workspace.label;
-          return <section className={`directory-group${collapsed ? " is-collapsed" : ""}`} key={directory.key} data-directory={directory.path ?? directory.key}>
-            <button type="button" className="directory-header" aria-expanded={!collapsed} aria-label={collapsed ? t("Expand folder {name}", { name: directory.path ?? name ?? "" }) : t("Collapse folder {name}", { name: directory.path ?? name ?? "" })} title={directory.path ?? name} onClick={() => setGroupCollapsed(`folder:${directory.key}`, !collapsed)}>
-              {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
-              <Folder aria-hidden="true" />
-              <span className="directory-copy"><span className="directory-name">{name}</span>{directory.path && <span className="directory-path">{directory.path}</span>}</span>
-              <span className="workspace-number">{directory.paneCount}</span>
-            </button>
-            {!collapsed && <div className="directory-contents">{directory.workspaces.map(({ workspace, panes: visiblePanes }) => {
-              return renderWorkspace(workspace, visiblePanes, directory.key);
-        })}</div>}
+        {projects.map((project) => {
+          // a project with one workspace draws just that workspace: a heading names a group of two or more
+          if (project.repo === null || project.workspaces.length === 1) return project.workspaces.map(renderWorkspace);
+          const { name, root } = project.repo;
+          const collapsed = collapsedGroups.has(project.key);
+          return <section className={`project-group${collapsed ? " is-collapsed" : ""}`} key={project.key} data-project={root}>
+            <div className="project-header">
+              <button type="button" className="project-toggle" aria-expanded={!collapsed} aria-label={collapsed ? t("Expand project {name}", { name }) : t("Collapse project {name}", { name })} title={root} onClick={() => setGroupCollapsed(project.key, !collapsed)}>
+                {collapsed ? <ChevronRight aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+                <Folder aria-hidden="true" />
+                <span className="project-copy"><span className="project-name">{name}</span><span className="project-path">{root}</span></span>
+                <span className="workspace-number" title={t("{n} workspaces", { n: project.workspaces.length })}>{project.workspaces.length}</span>
+              </button>
+              <button type="button" className="icon-button project-add" aria-label={t("New session in {name}", { name })} title={t("New session")} onClick={() => emit({ type: "new-session", ...on, cwd: root })}>
+                <Plus aria-hidden="true" />
+              </button>
+            </div>
+            {!collapsed && <div className="project-contents">{project.workspaces.map(renderWorkspace)}</div>}
           </section>;
-        }) : orderedWorkspaces.map((workspace) => renderWorkspace(workspace, snapshot?.panes.filter((pane) => pane.workspace_id === workspace.workspace_id) ?? []))}
+        })}
         {inlineError && inlineError.paneId === undefined && (
           <p className="sidebar-inline-error" role="alert">{inlineError.message}</p>
         )}

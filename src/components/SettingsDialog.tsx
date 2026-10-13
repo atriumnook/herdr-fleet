@@ -118,16 +118,6 @@ export function SettingsDialog({ model, install, alerts, devices, emit }: Settin
               </Segmented>
             </div>
             <div className="settings-row">
-              <div><span className="settings-label">{t("Sidebar grouping")}</span><span className="settings-description">{t("Group sessions by workspace or by full folder path on each PC.")}</span></div>
-              <Segmented label={t("Sidebar grouping")}>
-                {(["workspace", "directory"] as const).map((grouping) => (
-                  <button key={grouping} type="button" aria-pressed={settings.sidebarGrouping === grouping} onClick={() => update({ sidebarGrouping: grouping })}>
-                    {t(grouping === "workspace" ? "By workspace" : "By folder")}
-                  </button>
-                ))}
-              </Segmented>
-            </div>
-            <div className="settings-row">
               <div><span className="settings-label">{t("Terminal font size")}</span><span className="settings-description">{t("Applied to every terminal pane.")}</span></div>
               <div className="settings-stepper" aria-label={t("Terminal font size")}>
                 <button type="button" className="icon-button" aria-label={t("Decrease terminal font size")} disabled={settings.terminalFontSize <= TERMINAL_FONT_MIN} onClick={() => update({ terminalFontSize: settings.terminalFontSize - 1 })}><Minus /></button>

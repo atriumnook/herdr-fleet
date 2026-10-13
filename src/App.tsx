@@ -153,9 +153,10 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
     paneLayerRef.current?.toggleAttribute("inert", screen === "fleet");
   }, [screen]);
 
-  // a new session on a PC: this shell adds the folder it starts in (the selected pane's, on its PC)
-  const openNewSession = useCallback((machineId: string) => {
-    emitRef.current({ type: "open-new-session", machineId, defaultCwd: machineId === selectedMachineRef.current ? selectedCwdRef.current : null });
+  // a new session on a PC: this shell adds the folder it starts in (a project's root when started
+  // from its heading, else the selected pane's, on its PC)
+  const openNewSession = useCallback((machineId: string, cwd?: string) => {
+    emitRef.current({ type: "open-new-session", machineId, defaultCwd: cwd ?? (machineId === selectedMachineRef.current ? selectedCwdRef.current : null) });
   }, []);
   // the sidebar: a new session and the install prompt are this shell's
   const sidebarEmit = useMemo(() => relay<MachineSidebarEvent, UiEvent>(emit, (event, pass) => {
@@ -267,7 +268,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   );
   // a connected PC's sessions: a new session is this shell's; the rest goes up as it is
   const treeEmit = useMemo(() => relay<SidebarEvent, UiEvent>(emit, (event, pass) => {
-    if (event.type === "new-session") openNewSession(event.machineId);
+    if (event.type === "new-session") openNewSession(event.machineId, event.cwd);
     else pass(event);
   }), [emit, openNewSession]);
   const machineTree = useCallback((machine: Machine) => (

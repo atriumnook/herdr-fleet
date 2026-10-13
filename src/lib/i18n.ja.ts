@@ -86,7 +86,6 @@ export const JA: Record<string, string> = {
   // ---- settings ----
   "Choose the app color scheme.": "アプリの配色を選びます。",
   "Adjust spacing throughout the interface.": "画面全体の余白の大きさを選びます。",
-  "Group sessions by workspace or by full folder path on each PC.": "PC ごとの Session を、Workspace ごとか、フォルダーのフルパスごとにまとめます。",
   "Applied to every terminal pane.": "すべての Terminal に効きます。",
   "Comma-separated, tried in order. A font this device does not have falls back to the default.": "カンマで区切り、先頭から順に使います。この Device にないフォントは、Default のフォントになります。",
   "How far one turn of the wheel scrolls the terminal.": "ホイールを 1 段回したときに、Terminal がスクロールする量です。",
