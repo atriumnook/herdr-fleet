@@ -1227,6 +1227,15 @@ describe("Files and the file viewer", () => {
     expect(effects).toContainEqual({ kind: "load-file", machineId: "local", paneId: "w1:p1", path: "notes.txt", seq: state.files.seq });
   });
 
+  it("opens a file a chat names from that chat's pane, not the selected one (a Fleet screen chat)", () => {
+    const { state, effects } = play([{ type: "open-file", path: "notes.txt", pane: { machineId: "local", paneId: "w2:p3" } }], onPane);
+    const preview = { path: "notes.txt", paneId: "w2:p3", machineId: "local" };
+    expect(state.files.viewer?.preview).toEqual(preview);
+    expect(effects).toContainEqual({ kind: "load-file", machineId: "local", paneId: "w2:p3", path: "notes.txt", seq: state.files.seq });
+    // with no pane selected at all, as on the Fleet screen before any was
+    expect(play([{ type: "open-file", path: "notes.txt", pane: { machineId: "local", paneId: "w2:p3" } }], inside).state.files.viewer?.preview).toEqual(preview);
+  });
+
   it("reads the start of a text file once its kind is known, from the path found", () => {
     const { state } = opened();
     const { seq } = state.files;

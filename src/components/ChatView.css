@@ -822,6 +822,26 @@
   object-fit: cover;
 }
 
+/* an image a reply names (`![screen](shot.png)`): shown at the width of the text, opened in the viewer */
+.markdown-image {
+  display: block;
+  max-width: 100%;
+  margin: var(--space-2) 0;
+  padding: 0;
+  overflow: hidden;
+  border: var(--hairline) solid var(--line);
+  border-radius: var(--radius-lg);
+  background: var(--field);
+  cursor: zoom-in;
+}
+
+.markdown-image img {
+  display: block;
+  max-width: 100%;
+  max-height: 24rem;
+  object-fit: contain;
+}
+
 /* where a compaction folded the conversation: a quiet divider, its summary on request */
 .chat-compact {
   margin: var(--space-4) 0;

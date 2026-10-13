@@ -974,8 +974,11 @@ type BareEvent =
   | { type: "older-conversation-read"; olderSeq: number; before: string; outcome: ConversationOutcome }
   | { type: "open-files" }
   | { type: "close-files" }
-  /** a file named in the selected pane (its chat, its terminal, Files): `path` is read from the pane's folder */
-  | { type: "open-file"; path: string }
+  /**
+   * a file named in a pane (its chat, its terminal, Files): `path` is read from that pane's folder.
+   * A chat names its own pane (a Fleet screen chat is not the selected pane's); the rest, the selected one
+   */
+  | { type: "open-file"; path: string; pane?: { machineId: string; paneId: string } }
   /** a file chosen in the viewer's folder listing: in place of the entry, on the viewer's own pane */
   | { type: "viewer-open"; path: string }
   /** one of several files of the name asked for */
@@ -3138,7 +3141,7 @@ function filesTransition(state: UiState, event: FilesEvent, effects: Effect[]): 
       if (event.type === "viewer-open" && viewer === null) return same;
       const preview = event.type === "viewer-open" && viewer !== null
         ? { ...viewer.preview, path: event.path }
-        : { path: event.path, paneId: state.selection.paneId, machineId: state.selection.machineId };
+        : { path: event.path, ...(event.type === "open-file" && event.pane ? event.pane : { paneId: state.selection.paneId, machineId: state.selection.machineId }) };
       effects.push({ kind: "history-preview", preview, replace: viewer !== null });
       return read(preview, event.path);
     }

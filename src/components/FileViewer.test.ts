@@ -41,7 +41,7 @@ describe("File viewer view", () => {
     expect(several).toContain(t("Several files are named {name}.", { name: "notes.txt" }));
     expect(several).toContain(">/w/b/notes.txt</button>");
     expect(viewer(model({ kind: "folder", path: "/w/src" }, "src"))).toContain("browsing /w/src");
-    expect(viewer(model({ kind: "failed", reason: "outside" }))).toContain(t("Only files in the pane's folder or the temp folder open here."));
+    expect(viewer(model({ kind: "failed", reason: "outside" }))).toContain(t("Only files in the pane's folder, the temp folder or the fleet's results open here."));
     expect(viewer(model({ kind: "failed", reason: "missing" }))).toContain(t("No readable file at this path."));
   });
 });
