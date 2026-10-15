@@ -33,7 +33,7 @@ export interface FileViewerProps {
 
 /**
  * A file an agent wrote, opened in the browser: images, video and audio (streamed, so they
- * play and seek at once), PDFs, and the start of a text file. Anything can be downloaded.
+ * play and seek at once), PDFs, HTML pages (sandboxed, without their scripts), and the start of a text file. Anything can be downloaded.
  */
 export function FileViewer({ model, browser, emit }: FileViewerProps) {
   const { path, content, url, downloadUrl } = model;
@@ -77,6 +77,9 @@ export function FileViewer({ model, browser, emit }: FileViewerProps) {
         return <audio className="file-viewer-audio" src={url} controls preload="metadata" />;
       case "pdf":
         return <iframe className="file-viewer-pdf" src={url} title={info.name} />;
+      case "html":
+        // the server sandboxes the page too; this keeps it from scripts, forms and popups if that header is lost
+        return <iframe className="file-viewer-html" src={url} title={info.name} sandbox="" />;
       case "text":
         return text === null ? <p className="file-viewer-note">{t("Opening…")}</p> : <>
           <pre className="file-viewer-text">{text}</pre>

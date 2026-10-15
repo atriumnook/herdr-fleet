@@ -280,7 +280,7 @@ export interface DirectoryListing {
 }
 
 /** How the file viewer shows a file. */
-export type FileKind = "image" | "video" | "audio" | "pdf" | "text" | "binary";
+export type FileKind = "image" | "video" | "audio" | "pdf" | "html" | "text" | "binary";
 
 /** GET /api/fs/stat: a file the viewer can open (GET /api/fs/file streams it). */
 export interface FileInfo {
