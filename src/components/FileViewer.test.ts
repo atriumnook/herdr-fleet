@@ -34,6 +34,7 @@ describe("File viewer view", () => {
 
   it("draws media from where the file is served", () => {
     expect(viewer(model({ kind: "file", info: info({ kind: "video", name: "a.webm" }), text: null }))).toContain('<video class="file-viewer-media" src="/api/fs/file?path=x"');
+    expect(viewer(model({ kind: "file", info: info({ kind: "html", name: "a.html" }), text: null }))).toContain('<iframe class="file-viewer-html" src="/api/fs/file?path=x" title="a.html" sandbox=""');
   });
 
   it("offers each of several files of the name, lists a folder, and says why a file did not open", () => {

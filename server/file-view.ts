@@ -57,6 +57,7 @@ function kindOf(mime: string, path: string): FileKind {
   if (mime.startsWith("video/")) return "video";
   if (mime.startsWith("audio/")) return "audio";
   if (mime === "application/pdf") return "pdf";
+  if (mime === "text/html") return "html";
   if (TEXT_TYPES.test(mime)) return "text";
   // no known type (a .log, a dotfile, source without a registered extension): text when
   // its first bytes hold no NUL
@@ -107,8 +108,9 @@ export function fileInfo(path: string): FileInfo | null {
 
 /**
  * The file itself. `download` asks the browser to save it. Answers are sandboxed (an HTML
- * or SVG file opened from this origin must not run script with the app's access), and
- * text is served as plain text whatever its extension says it runs as.
+ * or SVG file opened from this origin must not run script with the app's access): an HTML
+ * page is drawn without its scripts, and text is served as plain text whatever its
+ * extension says it runs as.
  */
 export function fileResponse(info: FileInfo, download: boolean): Response {
   const name = encodeURIComponent(info.name);

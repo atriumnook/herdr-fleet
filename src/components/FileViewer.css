@@ -79,7 +79,8 @@
   width: min(100%, 480px);
 }
 
-.file-viewer-pdf {
+.file-viewer-pdf,
+.file-viewer-html {
   width: 100%;
   height: 78vh;
   border: 0;
@@ -124,7 +125,7 @@
   }
 
   .file-viewer-media { max-height: calc(100dvh - 120px); }
-  .file-viewer-pdf { height: calc(100dvh - 120px); }
+  .file-viewer-pdf, .file-viewer-html { height: calc(100dvh - 120px); }
 }
 
 .file-viewer-choices ul {

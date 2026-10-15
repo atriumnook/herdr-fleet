@@ -32,14 +32,26 @@ describe("file view", () => {
     expect(fileInfo(join(root, "missing"))).toBeNull();
   });
 
-  it("serves HTML as sandboxed plain text, and a download as an attachment", async () => {
+  it("serves HTML as a sandboxed page without scripts, and a download as an attachment", async () => {
     const root = temp();
     writeFileSync(join(root, "page.html"), "<script>alert(1)</script>");
-    const response = fileResponse(fileInfo(join(root, "page.html"))!, true);
-    expect(response.headers.get("content-type")).toStartWith("text/plain");
-    expect(response.headers.get("content-security-policy")).toStartWith("sandbox");
+    const info = fileInfo(join(root, "page.html"))!;
+    expect(info.kind).toBe("html");
+    const response = fileResponse(info, true);
+    expect(response.headers.get("content-type")).toStartWith("text/html");
+    const policy = response.headers.get("content-security-policy")!;
+    expect(policy).toStartWith("sandbox;");
+    expect(policy).not.toContain("allow-");
+    expect(policy).toContain("default-src 'none'");
+    expect(policy).not.toContain("script-src");
     expect(response.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''page.html");
     expect(await response.text()).toBe("<script>alert(1)</script>");
+  });
+
+  it("serves script as plain text", () => {
+    const root = temp();
+    writeFileSync(join(root, "run.js"), "alert(1)");
+    expect(fileResponse(fileInfo(join(root, "run.js"))!, false).headers.get("content-type")).toStartWith("text/plain");
   });
 });
 
