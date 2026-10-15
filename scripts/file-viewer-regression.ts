@@ -163,6 +163,15 @@ try {
   assert.equal(await report.locator("#said").innerText(), "static");
   await page.getByText(t("Scripts on this page do not run, and nothing loads from the internet."), { exact: true }).waitFor();
   if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "mobile-html-report.png") });
+  // its source, and back to the page
+  const showSource = page.getByRole("button", { name: "Show source", exact: true });
+  await showSource.click();
+  assert.match(await page.locator(".file-viewer-text").innerText(), /<h1>Report<\/h1>/);
+  assert.equal(await showSource.getAttribute("aria-pressed"), "true");
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "mobile-html-source.png") });
+  await showSource.click();
+  await report.locator("h1").waitFor();
+  assert.equal(await page.locator(".file-viewer-text").count(), 0);
   assert.deepEqual(errors, []);
   console.log("PASS an HTML report draws with its own stylesheet and image, and its script does not run");
 

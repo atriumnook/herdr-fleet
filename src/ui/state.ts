@@ -3167,8 +3167,9 @@ function filesTransition(state: UiState, event: FilesEvent, effects: Effect[]): 
       const { outcome } = event;
       switch (outcome.kind) {
         case "info":
-          // only the first part of a text file travels, from the file found (a bare name may be deeper in the folder)
-          if (outcome.info.kind === "text") effects.push({ kind: "load-file-text", machineId, paneId, path: outcome.info.path, seq: event.seq });
+          // only the first part of a text file travels, from the file found (a bare name may be deeper in the folder);
+          // an HTML page's too, for its source
+          if (outcome.info.kind === "text" || outcome.info.kind === "html") effects.push({ kind: "load-file-text", machineId, paneId, path: outcome.info.path, seq: event.seq });
           return shown({ kind: "file", info: outcome.info, text: null });
         case "candidates":
           return shown({ kind: "candidates", candidates: outcome.candidates });

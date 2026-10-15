@@ -570,7 +570,8 @@ button {
 }
 
 .icon-button:active,
-.icon-button[aria-expanded="true"] {
+.icon-button[aria-expanded="true"],
+.icon-button[aria-pressed="true"] {
   background: var(--field);
   border-color: var(--accent);
   color: var(--ink-strong);
