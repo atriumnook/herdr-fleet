@@ -107,23 +107,68 @@ export function fileInfo(path: string): FileInfo | null {
 }
 
 /**
+ * Where an HTML page is drawn from: `/api/fs/view/<pane id, or ->/<absolute path>`. The file is a
+ * path here, not a query, so the images, stylesheets and pages it names relative to itself
+ * resolve to their files; the pane keeps the files under its folder open to them.
+ */
+export const FILE_VIEW_PREFIX = "/api/fs/view/";
+
+/** The pane and the file a `/api/fs/view/…` path names, or null when it names none. */
+export function parseViewPath(pathname: string): { paneId: string | null; path: string } | null {
+  if (!pathname.startsWith(FILE_VIEW_PREFIX)) return null;
+  const [pane = "", ...rest] = pathname.slice(FILE_VIEW_PREFIX.length).split("/");
+  let segments: string[];
+  let paneId: string;
+  try {
+    paneId = decodeURIComponent(pane);
+    segments = rest.map(decodeURIComponent);
+  } catch {
+    return null;
+  }
+  if (paneId === "" || segments.length === 0 || segments.some((segment) => segment === "" || segment.includes("\0"))) return null;
+  return { paneId: paneId === "-" ? null : paneId, path: resolve("/", ...segments) };
+}
+
+/** A Host header as a CSP source may hold it: a name or a bracketed address, and a port. */
+const CSP_HOST = /^(?:\[[0-9a-f:.]+\]|[a-z0-9.-]+)(?::\d{1,5})?$/i;
+
+/**
+ * What an HTML page may load: the files of its pane's `/api/fs/view/` path, which the file
+ * reads' own checks still decide, and nothing from elsewhere. The page keeps this origin, so
+ * the browser sends those reads the app's cookies (a sandboxed page without it is an origin of
+ * its own, and SameSite=Strict holds them back from a paired phone), and still runs no script
+ * and sends no form.
+ */
+function pagePolicy(host: string | null, paneId: string | null): string {
+  const files = host !== null && CSP_HOST.test(host) ? ` ${host}${FILE_VIEW_PREFIX}${paneId === null ? "-" : encodeURIComponent(paneId)}/` : "";
+  return `sandbox allow-same-origin; default-src 'none'; img-src data:${files}; media-src${files || " 'none'"}; style-src 'unsafe-inline'${files}; font-src data:${files}`;
+}
+
+/**
  * The file itself. `download` asks the browser to save it. Answers are sandboxed (an HTML
  * or SVG file opened from this origin must not run script with the app's access): an HTML
- * page is drawn without its scripts, and text is served as plain text whatever its
- * extension says it runs as.
+ * page served as one (`page`, from its `/api/fs/view/` path) is drawn without its scripts,
+ * and the stylesheets it names keep their type; any other HTML file and text are served as
+ * plain text whatever their extension says they run as.
  */
-export function fileResponse(info: FileInfo, download: boolean): Response {
+export function fileResponse(info: FileInfo, download: boolean, page?: { host: string | null; paneId: string | null }): Response {
   const name = encodeURIComponent(info.name);
   const headers = new Headers({
     "content-disposition": `${download ? "attachment" : "inline"}; filename*=UTF-8''${name}`,
     "x-content-type-options": "nosniff",
     "cache-control": "private, no-store",
   });
+  const asPage = info.kind === "html" && page !== undefined && !download;
+  if (asPage) {
+    headers.set("content-security-policy", pagePolicy(page.host, page.paneId));
+    // the page's links name its pane and folder: a site it links to is not told them
+    headers.set("referrer-policy", "no-referrer");
   // a PDF is drawn by the browser's own viewer, which refuses a sandboxed document; its
   // scripts stay inside that viewer, never on this origin
-  if (info.kind !== "pdf") headers.set("content-security-policy", "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'");
-  // text shows as text, whatever its extension says it runs as
-  const type = info.kind === "text" && info.mime !== "image/svg+xml" ? "text/plain; charset=utf-8" : info.mime;
+  } else if (info.kind !== "pdf") headers.set("content-security-policy", "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'");
+  // text shows as text, whatever its extension says it runs as; a page's stylesheet stays one, or the browser ignores it
+  const ownType = asPage || page !== undefined && info.mime === "text/css" || info.mime === "image/svg+xml";
+  const type = !ownType && (info.kind === "text" || info.kind === "html") ? "text/plain; charset=utf-8" : info.mime;
   const file = Bun.file(info.path, { type });
   return new Response(file, { headers });
 }

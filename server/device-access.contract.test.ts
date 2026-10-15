@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { DeviceStore } from "./devices.ts";
 import { loopbackPush, startFakePushService } from "./push.fake.ts";
 import { createServer } from "./index.ts";
+import { fileViewUrl } from "../src/lib/api.ts";
 import { workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import type { ServerMessage } from "../shared/protocol.ts";
 
@@ -120,6 +121,17 @@ it("opens a fleet run's results, and no other file of the state folder", async (
     expect((await read(join(root, "devices.json"))).status).toBe(403);
     expect((await read(join(root, "fleet-results", "..", "devices.json"))).status).toBe(403);
     expect((await read(join(root, "fleet-results", "r1", "link-out"))).status).toBe(403);
+    // an HTML page's files are read through the same checks
+    const view = (path: string) => fetch(`${base_}${fileViewUrl(path, null)}`, { headers: admin });
+    writeFileSync(join(root, "fleet-results", "r1", "report.html"), "<p>done</p>");
+    const page = await view(join(root, "fleet-results", "r1", "report.html"));
+    expect(page.status).toBe(200);
+    expect(page.headers.get("content-security-policy")).toStartWith("sandbox allow-same-origin;");
+    expect((await view(join(root, "fleet-results", "r1", "handoff.md"))).status).toBe(200);
+    expect((await view(join(root, "devices.json"))).status).toBe(403);
+    expect((await view(join(root, "fleet-results", "r1", "link-out"))).status).toBe(403);
+    expect((await fetch(`${base_}/api/fs/view/-/${encodeURIComponent(join(root, "fleet-results", "..", "devices.json").slice(1))}`, { headers: admin })).status).toBe(403);
+    expect((await fetch(`${base_}${fileViewUrl(join(root, "fleet-results", "r1", "report.html"), null)}`, { method: "POST", headers: admin })).status).toBe(400);
   } finally {
     server.stop();
     if (before === undefined) delete process.env["TMPDIR"]; else process.env["TMPDIR"] = before;
@@ -142,6 +154,8 @@ it("watch credentials cannot mutate HTTP state, read credential files, or elevat
       expect((await fetch(`${base}/api/${path}`, { method: "POST", headers, body: "{}" })).status).toBe(403);
     }
     expect((await fetch(`${base}/api/fs/file?path=${encodeURIComponent(join(root, "devices.json"))}`, { headers })).status).toBe(403);
+    writeFileSync(join(root, "page.html"), "<p>hi</p>");
+    expect((await fetch(`${base}${fileViewUrl(join(root, "page.html"), null)}`, { headers })).status).toBe(403);
     // an empty segment must not turn a file read into "some other route" (the PC proxy drops it)
     for (const path of ["api//fs/file", "api/machines/pc1//fs/file", "api/machines/pc1/fs//file"]) {
       expect((await fetch(`${base}/${path}?path=${encodeURIComponent(join(root, "devices.json"))}`, { headers })).status).toBe(404);

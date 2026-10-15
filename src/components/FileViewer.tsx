@@ -78,8 +78,12 @@ export function FileViewer({ model, browser, emit }: FileViewerProps) {
       case "pdf":
         return <iframe className="file-viewer-pdf" src={url} title={info.name} />;
       case "html":
-        // the server sandboxes the page too; this keeps it from scripts, forms and popups if that header is lost
-        return <iframe className="file-viewer-html" src={url} title={info.name} sandbox="" />;
+        // the server sandboxes the page too; this keeps it from scripts, forms and popups if that header is lost.
+        // It keeps this origin, so the files it names are read with the app's cookies
+        return <>
+          <iframe className="file-viewer-html" src={url} title={info.name} sandbox="allow-same-origin" />
+          <p className="file-viewer-note">{t("Scripts on this page do not run, and nothing loads from the internet.")}</p>
+        </>;
       case "text":
         return text === null ? <p className="file-viewer-note">{t("Opening…")}</p> : <>
           <pre className="file-viewer-text">{text}</pre>
