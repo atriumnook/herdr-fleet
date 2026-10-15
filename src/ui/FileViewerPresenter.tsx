@@ -1,5 +1,5 @@
 import { FileViewer, type FileViewerEvent } from "../components/FileViewer.tsx";
-import { fileUrl } from "../lib/api.ts";
+import { fileUrl, fileViewUrl } from "../lib/api.ts";
 import { MachineContext } from "../lib/machineContext.tsx";
 import type { Emit } from "./bubble.ts";
 import { DirectoryBrowserPresenter, type FolderBrowserUpEvent } from "./DirectoryBrowserPresenter.tsx";
@@ -12,7 +12,9 @@ export function FileViewerPresenter({ emit }: { emit: Emit<FileViewerEvent | Fol
   const { path, content, preview: { paneId, machineId } } = viewer;
   // the file found (a bare name may have been found deeper in the folder), else as asked
   const found = content.kind === "file" ? content.info.path : path;
-  const model = { path, content, url: fileUrl(found, paneId, machineId), downloadUrl: fileUrl(found, paneId, machineId, true) };
+  // an HTML page is served at a path of its own, so the files it names relative to itself load
+  const url = content.kind === "file" && content.info.kind === "html" ? fileViewUrl(found, paneId, machineId) : fileUrl(found, paneId, machineId);
+  const model = { path, content, url, downloadUrl: fileUrl(found, paneId, machineId, true) };
   // each file its entry keeps is a viewer of its own (scrolled to its top); the folder browser reads the viewer's PC
   return (
     <MachineContext.Provider value={machineId}>

@@ -3,7 +3,8 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { fileInfo, fileResponse, resolveFilePath } from "./file-view.ts";
+import { fileViewUrl } from "../src/lib/api.ts";
+import { fileInfo, fileResponse, parseViewPath, resolveFilePath } from "./file-view.ts";
 
 describe("file view", () => {
   const roots: string[] = [];
@@ -32,26 +33,52 @@ describe("file view", () => {
     expect(fileInfo(join(root, "missing"))).toBeNull();
   });
 
-  it("serves HTML as a sandboxed page without scripts, and a download as an attachment", async () => {
+  it("draws an HTML page without its scripts, loading only its pane's files, and shows any other HTML as text", async () => {
     const root = temp();
     writeFileSync(join(root, "page.html"), "<script>alert(1)</script>");
     const info = fileInfo(join(root, "page.html"))!;
     expect(info.kind).toBe("html");
-    const response = fileResponse(info, true);
-    expect(response.headers.get("content-type")).toStartWith("text/html");
-    const policy = response.headers.get("content-security-policy")!;
-    expect(policy).toStartWith("sandbox;");
-    expect(policy).not.toContain("allow-");
-    expect(policy).toContain("default-src 'none'");
-    expect(policy).not.toContain("script-src");
-    expect(response.headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''page.html");
-    expect(await response.text()).toBe("<script>alert(1)</script>");
+
+    const page = fileResponse(info, false, { host: "127.0.0.1:8787", paneId: "w1:p1" });
+    expect(page.headers.get("content-type")).toStartWith("text/html");
+    expect(page.headers.get("content-security-policy")).toBe("sandbox allow-same-origin; default-src 'none'; img-src data: 127.0.0.1:8787/api/fs/view/w1%3Ap1/; "
+      + "media-src 127.0.0.1:8787/api/fs/view/w1%3Ap1/; style-src 'unsafe-inline' 127.0.0.1:8787/api/fs/view/w1%3Ap1/; font-src data: 127.0.0.1:8787/api/fs/view/w1%3Ap1/");
+    expect(page.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(await page.text()).toBe("<script>alert(1)</script>");
+
+    // a Host that is no plain authority is never written into the policy: the page loads no files
+    const odd = fileResponse(info, false, { host: "a.example; script-src *", paneId: null }).headers.get("content-security-policy");
+    expect(odd).toBe("sandbox allow-same-origin; default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline'; font-src data:");
+
+    for (const response of [fileResponse(info, false), fileResponse(info, true, { host: "127.0.0.1:8787", paneId: null })]) {
+      expect(response.headers.get("content-type")).toStartWith("text/plain");
+      expect(response.headers.get("content-security-policy")).toStartWith("sandbox;");
+    }
+    expect(fileResponse(info, true).headers.get("content-disposition")).toBe("attachment; filename*=UTF-8''page.html");
   });
 
-  it("serves script as plain text", () => {
+  it("reads the pane and the file from an /api/fs/view/ path, as the viewer writes it", () => {
+    const url = fileViewUrl("/work/my docs/report.html", "w1:p1");
+    expect(url).toBe("/api/fs/view/w1%3Ap1/work/my%20docs/report.html");
+    expect(parseViewPath(url)).toEqual({ paneId: "w1:p1", path: "/work/my docs/report.html" });
+    // a file the page names relative to itself, as the browser resolves it
+    expect(parseViewPath(new URL("img/a%20b.png", `http://h${url}`).pathname)).toEqual({ paneId: "w1:p1", path: "/work/my docs/img/a b.png" });
+    expect(parseViewPath(fileViewUrl("/tmp/x.html", null))).toEqual({ paneId: null, path: "/tmp/x.html" });
+    expect(parseViewPath("/api/fs/view/w1%3Ap1/work/..%2F..%2Fetc/passwd")).toEqual({ paneId: "w1:p1", path: "/etc/passwd" });
+    for (const bad of ["/api/fs/view/", "/api/fs/view/w1", "/api/fs/view//etc/passwd", "/api/fs/view/-/a/%E0", "/api/fs/view/-/a%00b", "/api/fs/file"]) expect(parseViewPath(bad)).toBeNull();
+  });
+
+  it("serves script as plain text, and a stylesheet as one only to a page", () => {
     const root = temp();
     writeFileSync(join(root, "run.js"), "alert(1)");
-    expect(fileResponse(fileInfo(join(root, "run.js"))!, false).headers.get("content-type")).toStartWith("text/plain");
+    writeFileSync(join(root, "style.css"), "h1 { color: red }");
+    const page = { host: "127.0.0.1:8787", paneId: null };
+    for (const response of [fileResponse(fileInfo(join(root, "run.js"))!, false), fileResponse(fileInfo(join(root, "run.js"))!, false, page), fileResponse(fileInfo(join(root, "style.css"))!, false)]) {
+      expect(response.headers.get("content-type")).toStartWith("text/plain");
+    }
+    const style = fileResponse(fileInfo(join(root, "style.css"))!, false, page);
+    expect(style.headers.get("content-type")).toStartWith("text/css");
+    expect(style.headers.get("content-security-policy")).toStartWith("sandbox;");
   });
 });
 

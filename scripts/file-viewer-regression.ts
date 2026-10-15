@@ -8,6 +8,7 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { createServer } from "../server/index.ts";
 import { herdrRpc, workspaceClose, workspaceCreate } from "../server/herdr/client.ts";
+import { t } from "../src/lib/i18n.ts";
 
 const root = mkdtempSync(join(tmpdir(), "herdr-fleet-file-back-"));
 const codexHome = join(root, "codex-home");
@@ -17,7 +18,7 @@ const transcript = join(codexHome, "sessions", `rollout-2026-09-28T00-00-00-${th
 writeFileSync(transcript, [
   { type: "session_meta", payload: { id: thread, cwd: root } },
   { type: "response_item", payload: { type: "message", role: "user", content: [{ type: "input_text", text: "Show me the demo video." }] } },
-  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Open [demo video](./preview.webm) or [notes](./notes.txt) or [file URI notes](${new URL(`file://${join(root, "notes.txt")}`).href}) or [folder](${new URL(`file://${root}`).href}).\n\n${new URL(`file://${join(root, "notes.txt")}`).href}` }] } },
+  { type: "response_item", payload: { type: "message", role: "assistant", phase: "final_answer", content: [{ type: "output_text", text: `Open [demo video](./preview.webm) or [notes](./notes.txt) or [report](./report/index.html) or [file URI notes](${new URL(`file://${join(root, "notes.txt")}`).href}) or [folder](${new URL(`file://${root}`).href}).\n\n${new URL(`file://${join(root, "notes.txt")}`).href}` }] } },
 ].map((row) => JSON.stringify(row)).join("\n"));
 const db = new Database(join(codexHome, "state_5.sqlite"));
 db.exec("CREATE TABLE threads (id TEXT, rollout_path TEXT, cwd TEXT, archived INTEGER, agent_role TEXT, created_at INTEGER, updated_at INTEGER, source TEXT, first_user_message TEXT)");
@@ -28,6 +29,12 @@ writeFileSync(standIn, "#!/bin/sh\nsleep 600\n");
 chmodSync(standIn, 0o755);
 copyFileSync(join(import.meta.dir, "fixtures", "file-preview.webm"), join(root, "preview.webm"));
 writeFileSync(join(root, "notes.txt"), "File preview history regression\n");
+// an HTML report that names its stylesheet and image relative to itself, and has a script that must not run
+mkdirSync(join(root, "report", "img"), { recursive: true });
+writeFileSync(join(root, "report", "index.html"), `<!doctype html><link rel="stylesheet" href="style.css"><h1>Report</h1><p id="said">static</p><img id="shot" src="img/shot.png">
+<script>document.getElementById("said").textContent = "script ran";</script>`);
+writeFileSync(join(root, "report", "style.css"), "h1 { color: rgb(200, 30, 30); }");
+writeFileSync(join(root, "report", "img", "shot.png"), Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=", "base64"));
 let workspace: string | undefined;
 let server: ReturnType<typeof createServer> | undefined;
 let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
@@ -141,6 +148,32 @@ try {
   await page.locator(".file-viewer-text").waitFor();
   assert.match(await page.locator(".file-viewer-text").innerText(), /File preview history regression/);
   console.log("PASS Chat plain file URI opens content through touch");
+
+  await page.getByRole("button", { name: "Close file", exact: true }).click();
+  await page.locator(".file-viewer").waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "report", exact: true }).tap();
+  const report = page.frameLocator(".file-viewer-html");
+  await report.locator("h1").waitFor();
+  await page.waitForFunction(() => {
+    const image = document.querySelector<HTMLIFrameElement>(".file-viewer-html")?.contentDocument?.querySelector<HTMLImageElement>("#shot");
+    return image?.complete === true;
+  });
+  assert.equal(await report.locator("#shot").evaluate((image: HTMLImageElement) => image.naturalWidth), 1);
+  assert.equal(await report.locator("h1").evaluate((heading) => getComputedStyle(heading).color), "rgb(200, 30, 30)");
+  assert.equal(await report.locator("#said").innerText(), "static");
+  await page.getByText(t("Scripts on this page do not run, and nothing loads from the internet."), { exact: true }).waitFor();
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "mobile-html-report.png") });
+  // its source, and back to the page
+  const showSource = page.getByRole("button", { name: "Show source", exact: true });
+  await showSource.click();
+  assert.match(await page.locator(".file-viewer-text").innerText(), /<h1>Report<\/h1>/);
+  assert.equal(await showSource.getAttribute("aria-pressed"), "true");
+  if (process.env.UI_EVIDENCE_DIR) await page.screenshot({ path: join(process.env.UI_EVIDENCE_DIR, "mobile-html-source.png") });
+  await showSource.click();
+  await report.locator("h1").waitFor();
+  assert.equal(await page.locator(".file-viewer-text").count(), 0);
+  assert.deepEqual(errors, []);
+  console.log("PASS an HTML report draws with its own stylesheet and image, and its script does not run");
 
   // Files: the pane's folder; a file opens above it, and Escape closes the topmost one first
   await page.getByRole("button", { name: "Close file", exact: true }).click();

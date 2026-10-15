@@ -36,6 +36,7 @@ export const JA: Record<string, string> = {
   "This folder cannot be opened.": "このフォルダーは開けません。",
   "Folders could not be loaded.": "フォルダーを読み込めませんでした。",
   // ---- files ----
+  "Scripts on this page do not run, and nothing loads from the internet.": "このページのスクリプトは実行されず、インターネット上のファイルも読み込まれません。",
   "Showing the first {shown} of {total}.": "{total} 件のうち、最初の {shown} 件を表示しています。",
   "Only files in the pane's folder, the temp folder or the fleet's results open here.": "ここで開けるのは、Pane のフォルダー、一時フォルダー、fleet の結果フォルダーの中のファイルだけです。",
   "No readable file at this path.": "このパスには、読めるファイルがありません。",

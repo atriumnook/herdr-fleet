@@ -21,7 +21,7 @@ import { placeWithProject, WorkspaceProjects } from "./projects.ts";
 import { EXPLAIN_MODEL, ExplainCalls, ExplainError, explainQuestion, explainRequest, type ExplainDeps } from "./explain.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { listDirectories } from "./directories.ts";
-import { fileResponse, fileRoots, locateFile, withinRoots } from "./file-view.ts";
+import { FILE_VIEW_PREFIX, fileInfo, fileResponse, fileRoots, locateFile, parseViewPath, withinRoots } from "./file-view.ts";
 import {
   agentManifests,
   agentPrompt,
@@ -1140,6 +1140,20 @@ export function createServer(
         }
         if (!withinRoots(found.info.path, roots)) return outsideRoots();
         return pathname === "/api/fs/stat" ? jsonResponse(found.info) : fileResponse(found.info, url.searchParams.get("download") === "1");
+      }
+
+      // an HTML page, and the files it names relative to itself
+      if (pathname.startsWith(FILE_VIEW_PREFIX)) {
+        if (request.method !== "GET" && request.method !== "HEAD") return badRequest("method_not_allowed", "use GET");
+        const view = parseViewPath(pathname);
+        const info = view === null ? null : fileInfo(view.path);
+        if (view === null || info === null) return jsonResponse({ error: { code: "not_found", message: "no readable file at that path" } }, 404);
+        let cwd: string | null = null;
+        if (view.paneId !== null) {
+          try { cwd = (await paneContext(view.paneId)).cwd; } catch { /* the temp and results folders still open */ }
+        }
+        if (!withinRoots(info.path, fileRoots(cwd, resultsDir))) return outsideRoots();
+        return fileResponse(info, false, { host: request.headers.get("host"), paneId: view.paneId });
       }
 
       if (pathname === "/api/workspace/directories") {

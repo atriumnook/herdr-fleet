@@ -1245,6 +1245,9 @@ describe("Files and the file viewer", () => {
     expect(play([{ type: "file-text", seq, text: "hello" }], read.state).state.files.viewer?.content).toEqual({ kind: "file", info: info(), text: "hello" });
     const image = play([{ type: "file-loaded", seq, outcome: { kind: "info", info: info({ kind: "image" }) } }], state);
     expect(image.effects).toEqual([]);
+    // an HTML page is drawn from its own path; its source is read as text is
+    const page = play([{ type: "file-loaded", seq, outcome: { kind: "info", info: info({ kind: "html", path: "/w/a.html" }) } }], state);
+    expect(page.effects).toEqual([{ kind: "load-file-text", machineId: "local", paneId: "w1:p1", path: "/w/a.html", seq }]);
   });
 
   it("drops what an earlier load answers", () => {

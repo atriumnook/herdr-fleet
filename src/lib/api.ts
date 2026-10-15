@@ -300,6 +300,15 @@ export function fileUrl(path: string, paneId: string | null, machineId = "local"
   return machinePath(machineId, `fs/file?${fileQuery(path, paneId)}${download ? "&download=1" : ""}`);
 }
 
+/**
+ * GET /api/fs/view/<pane>/<path>: an HTML page, at a path its relative links (images,
+ * stylesheets, other pages) resolve against. `path` is absolute.
+ */
+export function fileViewUrl(path: string, paneId: string | null, machineId = "local"): string {
+  const segments = path.split("/").filter((segment) => segment !== "").map(encodeURIComponent);
+  return machinePath(machineId, `fs/view/${paneId === null ? "-" : encodeURIComponent(paneId)}/${segments.join("/")}`);
+}
+
 /** Text shows its first part: the rest is a download away. */
 export const TEXT_PREVIEW_BYTES = 256 * 1024;
 
