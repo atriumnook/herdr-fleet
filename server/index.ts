@@ -397,7 +397,8 @@ export function createServer(
   async function blockedOnlyByCodexQueue(paneId: string): Promise<boolean> {
     const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
     if ((pane?.agent ?? pane?.agent_session?.agent) !== "codex") return false;
-    return codexQuestionsCollapsed((await paneRead({ paneId, source: "visible", format: "text" })).text);
+    // a collapsed queue in scrollback must not let a message past an approval on the live screen
+    return codexQuestionsCollapsed((await paneRead({ paneId, source: "detection", format: "text" })).text);
   }
 
   function stopSlowClient(client: Client): void {
@@ -1793,7 +1794,8 @@ export function createServer(
                 if (!attachment.ready || attachment.held) { result(false, "input_not_ready"); break; }
                 if (paneQueues.has(message.pane_id)) { result(false, "pane_busy"); break; }
                 await serialize(message.pane_id, async () => {
-                  const screen = await paneRead({ paneId: message.pane_id, source: "visible", format: "text" });
+                  // a viewport scrolled into history can still show an old password prompt: check the live screen
+                  const screen = await paneRead({ paneId: message.pane_id, source: "detection", format: "text" });
                   if (client.data.closing || client.data.mode === "observe") { result(false, "read_only"); return; }
                   authorizeSocket(client);
                   if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment) { result(false, "not_attached"); return; }

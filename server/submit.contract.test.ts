@@ -1,9 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer, SUBMIT_DELAY_MS } from "./index.ts";
 import { herdrRpc } from "./herdr/client.ts";
+import * as herdr from "./herdr/client.ts";
 
 /**
  * Contract test for the composer's "submit" frame, against the real herdr server.
@@ -95,6 +96,7 @@ class Socket {
 }
 
 const paste = (text: string) => `\u001b[200~${text}\u001b[201~`;
+const collapsedCodexScreen = "\n• Queued follow-up inputs\n  ? 1 question\n    alt+↑ to answer\n› Ask Codex to do anything\n";
 
 beforeAll(async () => {
   server = createServer({ port: 0, stateDir: join(root, "push") });
@@ -225,6 +227,46 @@ describe("WebSocket submit", () => {
         expect(chunks(recorder).slice(from)).toEqual([]);
       }
     } finally {
+      socket.close();
+    }
+  }, 30_000);
+
+  it("regression: ignores a collapsed Codex queue in scrollback while a live approval waits", async () => {
+    const socket = await Socket.connect();
+    const originalRead = herdr.paneRead;
+    const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
+      const result = await originalRead(options, socketPath);
+      // the pane really waits at an approval; its scrolled viewport shows an older queue
+      return options.paneId === codexApproval.pane && options.source === "visible" ? { ...result, text: collapsedCodexScreen } : result;
+    });
+    try {
+      const from = chunks(codexApproval).length;
+      socket.send({ type: "submit", id: 20, pane_id: codexApproval.pane, text: "y", payload: "y" });
+      expect(await socket.result(20)).toMatchObject({ ok: false, code: "agent_blocked" });
+      expect(chunks(codexApproval).slice(from)).toEqual([]);
+      expect(read.mock.calls.filter(([options]) => options.paneId === codexApproval.pane).map(([options]) => options.source)).toEqual(["detection"]);
+    } finally {
+      read.mockRestore();
+      socket.close();
+    }
+  }, 30_000);
+
+  it("allows a live collapsed Codex queue even when the viewport shows earlier output", async () => {
+    const socket = await Socket.connect();
+    const originalRead = herdr.paneRead;
+    const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
+      const result = await originalRead(options, socketPath);
+      return options.paneId === codex.pane && options.source === "visible" ? { ...result, text: "Earlier output" } : result;
+    });
+    try {
+      const from = chunks(codex).length;
+      socket.send({ type: "submit", id: 21, pane_id: codex.pane, text: "follow up", payload: paste("follow up") });
+      expect(await socket.result(21)).toMatchObject({ ok: true });
+      await received(codex, from, 1);
+      expect(typed(codex, from)).toBe(`${paste("follow up")}\r`);
+      expect(read.mock.calls.filter(([options]) => options.paneId === codex.pane).map(([options]) => options.source)).toEqual(["detection"]);
+    } finally {
+      read.mockRestore();
       socket.close();
     }
   }, 30_000);
