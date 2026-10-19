@@ -44,7 +44,7 @@ import {
   workspaceRename,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { codexQuestionsCollapsed, handlePromptRequest } from "./prompt.ts";
+import { codexQuestionsCollapsed, handlePromptRequest, liveScreen } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -398,7 +398,7 @@ export function createServer(
     const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
     if ((pane?.agent ?? pane?.agent_session?.agent) !== "codex") return false;
     // a collapsed queue in scrollback must not let a message past an approval on the live screen
-    return codexQuestionsCollapsed((await paneRead({ paneId, source: "detection", format: "text" })).text);
+    return codexQuestionsCollapsed(await liveScreen(paneId));
   }
 
   function stopSlowClient(client: Client): void {
@@ -633,6 +633,7 @@ export function createServer(
           attachment.rows = rows;
           broadcast(paneId, { type: "pane-geometry", pane_id: paneId, cols, rows, fixed: true });
         },
+        // the mirror draws what the pane's own terminal shows, its viewport included
         read: async () => (await paneRead({ paneId, source: "visible", format: "ansi" })).text,
         write: (data) => paneSendText(paneId, data),
         onData: (frame) => {
@@ -1795,12 +1796,12 @@ export function createServer(
                 if (paneQueues.has(message.pane_id)) { result(false, "pane_busy"); break; }
                 await serialize(message.pane_id, async () => {
                   // a viewport scrolled into history can still show an old password prompt: check the live screen
-                  const screen = await paneRead({ paneId: message.pane_id, source: "detection", format: "text" });
+                  const screen = await liveScreen(message.pane_id);
                   if (client.data.closing || client.data.mode === "observe") { result(false, "read_only"); return; }
                   authorizeSocket(client);
                   if (!attachment.clients.has(client) || attachments.get(message.pane_id) !== attachment) { result(false, "not_attached"); return; }
                   if (!attachment.ready || attachment.held) { result(false, "input_not_ready"); return; }
-                  if (secretPrompt(screen.text, attachment.cols) !== message.prompt) { result(false, "prompt_changed"); return; }
+                  if (secretPrompt(screen, attachment.cols) !== message.prompt) { result(false, "prompt_changed"); return; }
                   if (attachment.mirror) {
                     // A mirrored pane has no pty to type into: the secret is herdr's text, then the
                     // Enter key (a `\r` inside the text is not Enter to every shell). Both are awaited,

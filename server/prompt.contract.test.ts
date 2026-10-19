@@ -3,7 +3,7 @@ import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync,
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "./index.ts";
-import { herdrRpc } from "./herdr/client.ts";
+import { herdrRpc, paneScroll } from "./herdr/client.ts";
 
 /**
  * Answers to Claude's unnumbered menus (the folder-trust check among them), against the real
@@ -179,7 +179,7 @@ describe("answers to Claude's unnumbered menus", () => {
 const PI_MENU = `
 const { appendFileSync, writeFileSync } = require("node:fs");
 const [out, spec] = process.argv.slice(2);
-const { title, rows } = JSON.parse(spec);
+const { title, rows, history } = JSON.parse(spec);
 let cursor = 0;
 const draw = () => process.stdout.write("\\u001b[2J\\u001b[H" + [
   ...Array.from({ length: 10 }, (_, i) => "earlier line " + i), "",
@@ -197,17 +197,19 @@ process.stdin.on("data", (chunk) => {
   if (data.includes("\\r")) appendFileSync(out, rows[cursor] + "\\n");
   draw();
 });
+// earlier output in the pane's history, for its viewport to scroll back to
+if (history) process.stdout.write(" earlier output\\r\\n".repeat(80));
 draw();
 writeFileSync(out, "");
 `;
 
-async function piMenu(label: string, title: string, rows: string[]): Promise<Menu> {
+async function piMenu(label: string, title: string, rows: string[], history = false): Promise<Menu> {
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
     "workspace.create", { label: `herdr-fleet-test-prompt-${label}`, cwd: root, focus: false },
   );
   workspaces.push(created.workspace.workspace_id);
   const log = join(root, `${label}.log`);
-  await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, "pi")}' '${join(root, "pi-menu.js")}' '${log}' '${JSON.stringify({ title, rows })}'\n` });
+  await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, "pi")}' '${join(root, "pi-menu.js")}' '${log}' '${JSON.stringify({ title, rows, history })}'\n` });
   for (let i = 0; i < 200 && !existsSync(log); i++) await Bun.sleep(50);
   expect(existsSync(log)).toBe(true);
   // pi reports idle while one of its dialogs is open, and the card still has to be offered
@@ -218,6 +220,7 @@ async function piMenu(label: string, title: string, rows: string[]): Promise<Men
 describe("answers to pi's dialogs", () => {
   let select: Menu;
   let confirm: Menu;
+  let scrolled: Menu;
 
   beforeAll(async () => {
     writeFileSync(join(root, "pi-menu.js"), PI_MENU);
@@ -225,6 +228,7 @@ describe("answers to pi's dialogs", () => {
     chmodSync(join(root, "pi"), 0o755);
     select = await piMenu("pi-select", "Allow dangerous command?", ["Allow once", "Always allow", "Block"]);
     confirm = await piMenu("pi-confirm", "Clear session?", ["Yes", "No"]);
+    scrolled = await piMenu("pi-scrolled", "Allow dangerous command?", ["Allow once", "Always allow", "Block"], true);
   }, 30_000);
 
   it("offers the card while pi reports the pane idle, and answers the row it showed", async () => {
@@ -241,5 +245,16 @@ describe("answers to pi's dialogs", () => {
     expect((await answer(confirm, prompt.id, 1)).status).toBe(200);
     // pi's own Yes/No: pressing the row answers the question false, where Escape leaves it open
     expect(await confirmed(confirm)).toEqual(["No"]);
+  });
+
+  it("regression: offers the card and answers it while the pane's terminal is scrolled up into its history", async () => {
+    // a drag or the wheel in the terminal leaves the viewport on old output; the dialog is drawn at the bottom
+    const scroll = await paneScroll(scrolled.pane, 40);
+    expect(scroll?.offset_from_bottom ?? 0).toBeGreaterThan(0);
+    const prompt = await card(scrolled);
+    expect(prompt.fallback).toBeUndefined();
+    expect(prompt.options.map((option) => option.label)).toEqual(["Allow once", "Always allow", "Block"]);
+    expect((await answer(scrolled, prompt.id, 1)).status).toBe(200);
+    expect(await confirmed(scrolled)).toEqual(["Always allow"]);
   });
 });
