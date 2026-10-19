@@ -45,3 +45,20 @@ describe("HerdrRuntime locations", () => {
     expect(existsSync(join(path, ".git"))).toBe(true);
   });
 });
+
+describe("HerdrRuntime screen", () => {
+  it("regression: reads the live bottom with its colors while the pane is scrolled up into its history", async () => {
+    const created = await workspaceCreate({ cwd: "/tmp", label: "fleet-contract-screen" });
+    opened.push(created.workspace.workspace_id);
+    const pane = created.root_pane.pane_id;
+    // a CLI on the normal screen, with its input at the bottom and a dim placeholder in it
+    await herdrRpc("pane.send_text", { pane_id: pane, text: "for i in $(seq 1 80); do echo line $i; done; printf '\\033[2mdim placeholder\\033[0m\\n'\n" });
+    await herdrRpc("pane.report_agent", { pane_id: pane, source: "manual", agent: "pi", state: "idle" });
+    const runtime = new HerdrRuntime();
+    for (let i = 0; i < 40 && !(await runtime.screen(pane)).includes("line 80"); i++) await Bun.sleep(50);
+    // a drag or the wheel in the web terminal leaves the viewport on old output
+    await herdrRpc("pane.scroll", { pane_id: pane, offset_from_bottom: 40 });
+    const screen = await runtime.screen(pane);
+    expect(screen).toContain("\u001b[2mdim placeholder");
+  });
+});
