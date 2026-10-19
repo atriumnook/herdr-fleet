@@ -994,6 +994,7 @@ export function createServer(
         forwarded: cameThroughProxy(request.headers),
         funnel: request.headers.has("tailscale-funnel-request"),
         tailscaleLogin: request.headers.get("tailscale-user-login"),
+        forwardedFor: request.headers.get("x-forwarded-for"),
         tokenMatched: token !== "" && isAuthenticated(request, token),
         device: devices.match(parseCookies(request.headers.get("cookie")).get(DEVICE_COOKIE)),
         ...identityOf(),

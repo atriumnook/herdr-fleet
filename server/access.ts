@@ -7,6 +7,10 @@
  * Tailscale login included: a plain local connection, since the remote-PC bridge runs on a
  * loopback port of a PC other people may use, and the login, since any other proxy on this PC
  * (nginx, Caddy, a tunnel) passes a visitor's copy of that header on unless told to drop it.
+ * Without a token, the login counts only with the one tailnet X-Forwarded-For address that
+ * tailscale serve sends. A proxy that sets or appends X-Forwarded-For (nginx's usual
+ * `$proxy_add_x_forwarded_for`, Caddy) sends another address or a chain; one that passes the
+ * visitor's headers on untouched and adds none passes the visitor's forged address too.
  * Without a token, and until the first device is paired, anything that reaches the server is
  * let in as it always was, except through a proxy
  * on a PC whose Tailscale login is known: there, a request with no login header is a tagged
@@ -19,6 +23,7 @@
  * that sends neither (nginx's bare `proxy_pass` rewrites Host to the upstream address and adds
  * nothing) cannot be told from a local client: only a token closes that setup.
  */
+import { BlockList, isIP } from "node:net";
 import type { AccessRefusal, AccessVia, DeviceRole } from "../shared/protocol.ts";
 import type { DeviceMatch } from "./devices.ts";
 
@@ -31,6 +36,8 @@ export interface AccessInput {
   funnel: boolean;
   /** Tailscale-User-Login: set by tailscale serve for a person's device, absent for tagged nodes */
   tailscaleLogin: string | null;
+  /** X-Forwarded-For: tailscale serve replaces it with the one address the request came from, never a chain */
+  forwardedFor: string | null;
   /** the shared token matched (cookie or bearer) */
   tokenMatched: boolean;
   /** the device the cookie belongs to */
@@ -80,6 +87,22 @@ export function cameThroughProxy(headers: Headers): boolean {
   return host === null || !isLoopbackHost(host);
 }
 
+// Tailscale v1.102.3: ipn/ipnlocal/serve.go:1068-1106 sets X-Forwarded-For to the source address
+// (netip.Addr.String: no port, IPv6 unbracketed) and strips identity headers a visitor sent;
+// net/tsaddr/tsaddr.go names the tailnet ranges. This stops a proxy on this PC that sets or
+// appends X-Forwarded-For from passing a visitor's own login header through. One that forwards
+// the visitor's headers untouched, or a raw tunnel, can still carry both: only a token closes that.
+const tailnetIpv4 = new BlockList();
+tailnetIpv4.addSubnet("100.64.0.0", 10, "ipv4");
+const tailnetIpv6 = new BlockList();
+tailnetIpv6.addSubnet("fd7a:115c:a1e0::", 48, "ipv6");
+
+function fromTailnet(forwardedFor: string | null): boolean {
+  const address = forwardedFor ?? "";
+  const family = isIP(address);
+  return family === 4 ? tailnetIpv4.check(address, "ipv4") : family === 6 && tailnetIpv6.check(address, "ipv6");
+}
+
 export function decideAccess(input: AccessInput): Access {
   if (input.tokenMatched) return { level: "full", via: "token", role: "drive" };
   if (input.device !== null) return { level: "full", via: "device", role: input.device.role, device: input.device };
@@ -87,6 +110,7 @@ export function decideAccess(input: AccessInput): Access {
   if (input.tokenConfigured) return { level: "none", reason: "token_required" };
   // the identity header is only worth something from the local tailscaled, never from a LAN client
   if (input.loopback && input.tailscaleLogin !== null && input.owner !== null) {
+    if (!fromTailnet(input.forwardedFor)) return { level: "none", reason: "pairing_required" };
     if (input.tailscaleLogin.toLowerCase() === input.owner.toLowerCase()) return { level: "full", via: "tailscale", role: "drive", login: input.tailscaleLogin };
     return { level: "none", reason: "other_user" };
   }

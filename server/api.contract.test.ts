@@ -1324,6 +1324,16 @@ describe("pairing and identity", () => {
     expect(((await refused.json()) as ApiError).error.code).toBe("other_user");
   });
 
+  it("regression: refuses the owner's login unless one tailnet address forwarded it", async () => {
+    // another proxy on this PC that passes a visitor's headers through: tailscale serve always sends one tailnet address
+    for (const forwardedFor of [null, "127.0.0.1", "203.0.113.50", "100.64.0.9, 100.64.0.10"]) {
+      const headers = { "tailscale-user-login": OWNER, ...(forwardedFor === null ? {} : { "x-forwarded-for": forwardedFor }) };
+      expect((await fetch(`${base()}/api/session`, { headers })).status).toBe(401);
+      expect(await auth(headers)).toMatchObject({ authenticated: false, reason: "pairing_required" });
+    }
+    expect((await fetch(`${base()}/api/session`, { headers: proxied(OWNER, { "x-forwarded-for": "fd7a:115c:a1e0::1" }) })).status).toBe(200);
+  });
+
   it("takes the login named in HERDR_FLEET_TAILSCALE_OWNER for the PC's own, as a tagged node needs", async () => {
     const state = mkdtempSync(join(tmpdir(), "herdr-named-owner-"));
     const before = process.env["HERDR_FLEET_TAILSCALE_OWNER"];

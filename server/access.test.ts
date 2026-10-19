@@ -2,10 +2,22 @@ import { describe, expect, it } from "bun:test";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackHost, type AccessInput } from "./access.ts";
 
 const device = { id: "d1", label: "Phone", role: "drive" as const };
-const base: AccessInput = { loopback: true, forwarded: false, funnel: false, tailscaleLogin: null, tokenMatched: false, device: null, owner: null, tagged: false, tokenConfigured: false, gated: false };
+const base: AccessInput = { loopback: true, forwarded: false, funnel: false, tailscaleLogin: null, forwardedFor: "100.64.0.9", tokenMatched: false, device: null, owner: null, tagged: false, tokenConfigured: false, gated: false };
 const via = (input: Partial<AccessInput>) => { const a = decideAccess({ ...base, ...input }); return a.level === "full" ? a.via : `refused:${a.reason}`; };
 
 describe("decideAccess", () => {
+  for (const forwardedFor of [null, "127.0.0.1", "203.0.113.50", "100.101.102.103, 100.64.0.9", "100.63.255.255", "100.128.0.0", "fd7a:115c:a1e1::1", "100.64.0.999", "::ffff:100.64.0.9"]) {
+    it(`regression: refuses a login forwarded for ${forwardedFor}`, () => {
+      expect(via({ forwarded: true, tailscaleLogin: "me@example.com", owner: "me@example.com", forwardedFor })).toBe("refused:pairing_required");
+    });
+  }
+
+  for (const forwardedFor of ["100.101.102.103", "100.64.0.0", "100.127.255.255", "fd7a:115c:a1e0::1", "FD7A:115C:A1E0:0:0:0:0:1"]) {
+    it(`accepts a login forwarded for ${forwardedFor}`, () => {
+      expect(via({ forwarded: true, tailscaleLogin: "me@example.com", owner: "me@example.com", forwardedFor })).toBe("tailscale");
+    });
+  }
+
   it("lets this PC in without a token, but not through a proxy", () => {
     expect(via({})).toBe("local");
     expect(via({ forwarded: true, gated: true })).toBe("refused:pairing_required");
