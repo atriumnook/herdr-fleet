@@ -709,6 +709,121 @@ cancel
   });
 });
 
+describe("a question under a numbered message sent earlier", () => {
+  // live-captured from Claude Code in a 120-column herdr pane (shortened): the message sent before,
+  // "1. …", stays on screen after the prompt mark, above the panel and the session's titled rule
+  const claude = `
+❯ 1. 로그인해서 커넥트 눌럿어
+
+⏺ Tailscale 로그인은 완료됐습니다.
+
+  Ran 1 shell command
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Buzz 공개
+
+│ Buzz를 Tailscale 없이 인터넷에서 쓰도록 공개할까요?
+
+❯ 1. 공개 진행 (추천)
+     Cloudflare Tunnel로 buzz.kilpenguin.com을 엽니다. 인바운드 포트는 열지 않습니다. relay는 닫힌 모드(멤버 키 서명만
+     허용)이고 relay와 /pair만 노출합니다.
+  2. Tailscale 유지
+     지금 구성 그대로 갑니다(이미 동작 중).
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+─────────────────────────────────────────────────────────────────────────────────────────────── Buzz 슬랙 대체 AI 조사 ─
+`;
+
+  test("reads Claude's question, not the sent message, as the menu, with a description wrapped over two lines", () => {
+    const prompt = parseInteractivePrompt("claude", claude);
+    expect(prompt).toMatchObject({ kind: "question", title: "Buzz 공개", question: "Buzz를 Tailscale 없이 인터넷에서 쓰도록 공개할까요?", custom_option_index: 2 });
+    expect(labels(prompt)).toEqual(["공개 진행 (추천)", "Tailscale 유지"]);
+    expect(prompt?.options.map((option) => option.description)).toEqual([
+      "Cloudflare Tunnel로 buzz.kilpenguin.com을 엽니다. 인바운드 포트는 열지 않습니다. relay는 닫힌 모드(멤버 키 서명만 허용)이고 relay와 /pair만 노출합니다.",
+      "지금 구성 그대로 갑니다(이미 동작 중).",
+    ]);
+    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+  });
+
+  test("does not start the menu at a numbered line in the first option's description", () => {
+    const prompt = parseInteractivePrompt("claude", `
+ ☐ Setup
+
+How should we set up?
+
+  1. Script
+     Runs these steps:
+     1. Install deps
+❯ 2. Manual
+     Follow the guide.
+  3. Type something.
+────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
+`);
+    expect(prompt).toMatchObject({ kind: "question", question: "How should we set up?", custom_option_index: 2 });
+    expect(labels(prompt)).toEqual(["Script", "Manual"]);
+    expect(answerKeys(prompt!, { option_index: 0 })).toEqual([{ keys: ["up"] }, { keys: ["enter"] }]);
+  });
+
+  test("does not take the menu's column from a numbered line under its last option", () => {
+    const prompt = parseInteractivePrompt("codex", `
+› 1. 먼저 이것부터 해줘
+
+✨ Update available! 0.146.0 -> 0.146.1
+
+› 1. Update now
+  2. Skip
+  3. Skip until next version
+     1. Asks again at the next release.
+
+Press enter to continue
+`);
+    expect(prompt).toMatchObject({ kind: "menu", question: "Choose how to continue" });
+    expect(labels(prompt)).toEqual(["Update now", "Skip", "Skip until next version"]);
+  });
+
+  test("reads Codex's open question without the queue header under a sent message", () => {
+    const prompt = parseInteractivePrompt("codex", `
+› 1. 먼저 이것부터 해줘
+
+• 알겠습니다.
+
+Which accelerator?
+
+› 1. CUDA
+  2. CPU
+  3. Other
+
+enter submit   ctrl + ] skip
+option 1/3   shift + → main prompt
+`);
+    expect(prompt).toMatchObject({ kind: "question", question: "Which accelerator?", custom_option_index: 2 });
+    expect(labels(prompt)).toEqual(["CUDA", "CPU"]);
+  });
+
+  test("reads Codex's question under its own sent message", () => {
+    const prompt = parseInteractivePrompt("codex", `
+› 1. 먼저 이것부터 해줘
+
+• 알겠습니다.
+
+Which backend?
+
+› 1. CUDA
+  2. CPU
+  3. None of the above  Add details in notes (tab).
+
+tab to add notes | enter to submit answer | esc to interrupt
+`);
+    expect(prompt).toMatchObject({ kind: "question", question: "Which backend?", custom_option_index: 2 });
+    expect(labels(prompt)).toEqual(["CUDA", "CPU"]);
+  });
+});
+
 describe("Claude's question with option previews", () => {
   // live-captured from Claude Code 2.1.288 in a 120-column herdr pane: the selected option's
   // preview is boxed to the right of the options, and the form has no "Type something" row
@@ -760,6 +875,58 @@ Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questi
 
   test("does not take an answered form above later output for an open one", () => {
     expect(parseInteractivePrompt("claude", withPreview + "\n● Done.\n\n> ")).toBeNull();
+  });
+
+  // live-captured from Claude Code 2.1.290 in a 120-column herdr pane, asked with a long description
+  // for every option: the form draws none, so nothing under an option is joined into one
+  const described = (cursorOn: 0 | 1) => cursorOn === 0 ? `────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Layout
+
+Which layout should the report use?
+
+❯ 1. Single Column                ┌──────────────────────────────────────────┐
+  2. Two Column                   │ ┌──────────────────┐                     │
+  3. Dashboard Grid               │ │     HEADER       │                     │
+                                  │ ├──────────────────┤                     │
+                                  │ │   Content here   │                     │
+                                  │ │   More content   │                     │
+                                  │ └──────────────────┘                     │
+                                  └──────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel
+` : `────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+ ☐ Layout
+
+Which layout should the report use?
+
+  1. Single Column                ┌──────────────────────────────────────────┐
+❯ 2. Two Column                   │ ┌─────┬──────────┐                       │
+  3. Dashboard Grid               │ │ KEY │ CONTENT  │                       │
+                                  │ │ INF │ CONTENT  │                       │
+                                  │ │ O   │ CONTENT  │                       │
+                                  │ │     │ CONTENT  │                       │
+                                  │ └─────┴──────────┘                       │
+                                  └──────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Esc to cancel
+`;
+
+  test("draws no option descriptions though the question gave them, and keeps its id as the cursor moves", () => {
+    const first = parseInteractivePrompt("claude", described(0));
+    const second = parseInteractivePrompt("claude", described(1));
+    expect(labels(first)).toEqual(["Single Column", "Two Column", "Dashboard Grid"]);
+    expect(first?.options.map((option) => option.description)).toEqual([null, null, null]);
+    expect(second?.id).toBe(first!.id);
   });
 });
 

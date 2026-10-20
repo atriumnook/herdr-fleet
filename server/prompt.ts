@@ -163,14 +163,31 @@ function parseNumberedRows(lines: string[], start: number, end: number): Numbere
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index]!;
     const nextLineIndex = rows[index + 1]?.lineIndex ?? end;
+    // a description a narrow pane wraps goes on to the next blank line or rule
+    const description: string[] = [];
     for (let lineIndex = row.lineIndex + 1; lineIndex < nextLineIndex; lineIndex += 1) {
-      const description = cleanLine(lines[lineIndex]!);
-      if (!description || isDivider(description)) continue;
-      row.description = description;
-      break;
+      const line = cleanLine(lines[lineIndex]!);
+      if (line && !isDivider(line)) description.push(line);
+      else if (description.length > 0) break;
     }
+    if (description.length > 0) row.description = normalizeText(description.join(" "));
   }
   return rows;
+}
+
+/**
+ * A menu's rows among numbered lines read from well above it: the last run that counts up from 1,
+ * among the lines numbered in the column of the row the cursor is on. What is above a menu can hold
+ * a numbered line of its own, such as a message sent before ("❯ 1. …", "› 1. …") still on screen;
+ * a numbered line in an option's description is indented further.
+ */
+function menuRows(lines: string[], start: number, end: number): NumberedRow[] {
+  const rows = parseNumberedRows(lines, start, end);
+  const column = (row: NumberedRow): number => lines[row.lineIndex]!.replace(ANSI_RE, "").search(/\d/);
+  // the cursor's row is the menu's (a sent message after the same mark lines up with it); without one, the last row
+  const anchor = [...rows].reverse().find((row) => row.selected) ?? rows.at(-1);
+  const menu = anchor === undefined ? rows : rows.filter((row) => column(row) === column(anchor));
+  return menu.slice(Math.max(0, menu.map((row) => row.number).lastIndexOf(1)));
 }
 
 function sequentialRows(rows: NumberedRow[]): boolean {
@@ -240,7 +257,7 @@ function parseCodexContinueMenu(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const hintIndex = findLastIndex(lines, (_, index) => CODEX_CONTINUE_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
-  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), hintIndex);
+  const rows = menuRows(lines, Math.max(0, hintIndex - 64), hintIndex);
   if (!sequentialRows(rows) || rows.length < 2 || rows.filter((row) => row.selected).length !== 1) return null;
   const body = lines.slice(Math.max(0, rows[0]!.lineIndex - 16), rows[0]!.lineIndex)
     .map(cleanLine).filter((line) => line && !isDivider(line)).join("\n");
@@ -259,7 +276,7 @@ function parseCodexQuestion(screen: string): ParsedPrompt | null {
   const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
   const hintIndex = findLastIndex(lines, (_, index) => CODEX_ASK_HINT_RE.test(wrapped(lines, index)));
   if (hintIndex < 0) return null;
-  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 48), hintIndex);
+  const rows = menuRows(lines, Math.max(0, hintIndex - 48), hintIndex);
   if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
   const customIndex = rows.findIndex((row) => /^None of the above\b/i.test(row.label));
   if (customIndex !== rows.length - 1 || customIndex < 1) return null;
@@ -294,7 +311,8 @@ function parseCodexAsyncQuestion(screen: string): ParsedPrompt | null {
   if (hintIndex < 0) return null;
   const header = findLastIndex(lines.slice(Math.max(0, hintIndex - 48), hintIndex), (line) => CODEX_QUEUE_HEADER_RE.test(cleanLine(line)));
   const top = header < 0 ? Math.max(0, hintIndex - 48) : Math.max(0, hintIndex - 48) + header + 1;
-  const rows = parseNumberedRows(lines, top, hintIndex);
+  // without the header the rows are read from well above: a message sent before can be there too
+  const rows = menuRows(lines, top, hintIndex);
   const text = (from: number, to: number) => lines.slice(from, to).map(cleanLine).filter((line) => line && !isDivider(line));
   let position: RegExpMatchArray | null = null;
   const questionLines = (to: number): string[] => {
@@ -429,7 +447,7 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   const lines = preview ? withoutPreview(raw, Math.max(0, hintIndex - 64), hintIndex) : raw;
   // with a preview the options end at the rule above "Chat about this": nothing under it is theirs
   const end = preview ? findLastIndex(lines.slice(0, hintIndex), (line) => isDivider(line)) : hintIndex;
-  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), end);
+  const rows = menuRows(lines, Math.max(0, hintIndex - 64), end);
   if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
   const chatIndex = rows.findIndex((row) => row.label === "Chat about this");
   const customIndex = rows.findIndex((row) => /^Type something\.?$/i.test(row.label));
