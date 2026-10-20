@@ -158,8 +158,9 @@ function parseNumberedRows(lines: string[], start: number, end: number): Numbere
     const match = lines[index]!.replace(ANSI_RE, "").trim().match(NUMBERED_OPTION_RE);
     if (!match) continue;
     let label = match[3]!.trim();
-    const checked = /^\[[xX✓]\]/.test(label);
-    label = label.replace(/^\[[ xX✓]\]\s*/, "").trim();
+    // Claude Code 2.1.296 ticks a row with ✔, older ones with ✓
+    const checked = /^\[[xX✓✔]\]/.test(label);
+    label = label.replace(/^\[[ xX✓✔]\]\s*/, "").trim();
     rows.push({ number: Number.parseInt(match[2]!, 10), label, selected: Boolean(match[1]), checked, lineIndex: index });
   }
   for (let index = 0; index < rows.length; index += 1) {
@@ -450,7 +451,12 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   // with a preview the options end at the rule above "Chat about this": nothing under it is theirs
   const end = preview ? findLastIndex(lines.slice(0, hintIndex), (line) => isDivider(line)) : hintIndex;
   const rows = menuRows(lines, Math.max(0, hintIndex - 64), end);
-  if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
+  // a multiple choice draws an unnumbered Submit row between the typed answer and "Chat about
+  // this", which the cursor moves through like any other row
+  const submitLine = rows.length < 2 ? undefined
+    : lines.slice(rows.at(-2)!.lineIndex + 1, rows.at(-1)!.lineIndex).map(cleanLine).find((line) => /^(?:[›>❯]\s*)?Submit$/.test(line));
+  const onSubmit = submitLine !== undefined && SELECTED_RE.test(submitLine);
+  if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== (onSubmit ? 0 : 1)) return null;
   const chatIndex = rows.findIndex((row) => row.label === "Chat about this");
   let customIndex = rows.findIndex((row) => /^Type something\.?$/i.test(row.label));
   // typed into, the row shows the draft instead of "Type something.", with the cursor on it or
@@ -469,7 +475,12 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   const chip = tabs === null ? claudeChip(lines, rows[0]!.lineIndex) : null;
   if (!question) return null;
   const optionRows = preview ? rows : rows.slice(0, customIndex);
-  const multiSelect = optionRows.some((row) => /^\s*(?:[›>❯]\s*)?\d+\.\s+\[[ xX✓]\]/.test(lines[row.lineIndex]!));
+  const multiSelect = optionRows.some((row) => /^\s*(?:[›>❯]\s*)?\d+\.\s+\[[ xX✓✔]\]/.test(lines[row.lineIndex]!));
+  if (onSubmit && !multiSelect) return null;
+  const submit = multiSelect && submitLine !== undefined;
+  const rowAt = rows.findIndex((row) => row.selected);
+  // the cursor's place among the rows it moves through, Submit counted before the last one
+  const selectedIndex = onSubmit ? rows.length - 1 : submit && rowAt === rows.length - 1 ? rowAt + 1 : rowAt;
   const current = tabs?.tabs.findIndex((tab) => !tab.answered) ?? -1;
   // a bar cut off by a narrow pane does not show how many questions there are
   const title = tabs && current >= 0 ? `${tabs.tabs[current]!.label}${tabs.whole && tabs.tabs.length > 1 ? ` · ${current + 1} of ${tabs.tabs.length}` : ""}`
@@ -479,8 +490,9 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
     options: optionRows.map((row) => ({ label: row.label, description: row.description ?? null })),
     multi_select: multiSelect, custom_option_index: multiSelect || preview ? null : customIndex,
   }, {
-    responder: "claude-question", menuLabels: rows.map((row) => row.label),
-    selectedIndex: rows.findIndex((row) => row.selected),
+    responder: "claude-question",
+    menuLabels: submit ? [...rows.slice(0, -1).map((row) => row.label), "Submit", rows.at(-1)!.label] : rows.map((row) => row.label),
+    selectedIndex,
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
     customMenuIndex: preview ? null : customIndex, rejectWithEscapeIndex: null,
     // an answer typed into the draft would join it, so once the cursor is in the row it is
