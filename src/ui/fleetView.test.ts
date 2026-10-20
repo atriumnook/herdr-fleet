@@ -72,15 +72,6 @@ describe("fleet screen model", () => {
     expect(fleetScreenModel(state, NOW).requestError).toBe("read_only");
   });
 
-  it("offers a watch-only device no button the server would refuse", () => {
-    const state = withRuns([run("w"), run("d", { state: "done" })], { canAct: false, usage: { status: "ready", again: false, refreshing: false, data: [{ key: "cursor", cooldown: { until: NOW + 1, reason: "r", since: 1 } }] } });
-    const model = fleetScreenModel(state, NOW);
-    expect(model.canAct).toBe(false);
-    expect(model.sections.flatMap((s) => s.runs).map((r) => [r.canInterrupt, r.canOpenPane])).toEqual([[false, true], [false, true]]);
-    expect(model.closableGroups).toEqual([]);
-    expect(model.usage.capsules[0]!.canClear).toBe(false);
-  });
-
   it("counts the runs waiting on the person for the Fleet button", () => {
     expect(needsCount(withRuns([run("a", { state: "blocked" }), run("b"), run("c", { state: "blocked" })]))).toBe(2);
   });
@@ -164,10 +155,9 @@ describe("the projects, their threads and the run open in the Overview", () => {
     expect(opened("pr")).toMatchObject({ stage: "landing", offers: { createPr: false, mergeLocal: false, discard: false, mergePr: true }, mergePrReady: false });
     expect(opened("red")).toMatchObject({ offers: { fixCi: true }, attention: true });
     expect(opened("red").checks.pr.map((check) => [check.kind, check.tone])).toEqual([["pr", "ok"], ["ci", "bad"]]);
-    // a step under way holds the next one; a watch-only device or an action in flight presses nothing
+    // a step under way holds the next one; an action in flight presses nothing
     const asked = { ...runs[1]!, landing: { action: "pr" as const, at: 1, sent: true } };
     expect(fleetScreenModel(withRuns([coordinator(), asked], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null } } }), NOW).open!.landing).toMatchObject({ pending: "pr", can: { lead: false, merge: false, discard: true } });
-    expect(opened("t", { canAct: false }).can).toEqual({ lead: false, merge: false, discard: false });
     expect(opened("t", { request: { status: "pending", action: { kind: "resolve", runId: "x", resolved: true } } }).can.discard).toBe(false);
   });
 
@@ -225,9 +215,8 @@ describe("the projects, their threads and the run open in the Overview", () => {
     expect(closed.threads[0]!.plan).toBeUndefined();
     expect(closed.threads[0]!.state).toBe("review");
     expect(closed.open!.plan).toMatchObject({ closedAt: 4, toAnswer: [], canRespond: false });
-    // the lead at work, or a watch-only device: nothing to send
+    // the lead at work: nothing to send
     expect(fleetScreenModel(withRuns([coordinator(), { ...runs[1]!, state: "working" }], { fleetView: state.fleetView, plan }), NOW).open!.plan!.canRespond).toBe(false);
-    expect(fleetScreenModel({ ...state, canAct: false }, NOW).open!.plan!.canRespond).toBe(false);
   });
 
   it("draws the Settings page in place of the project, with each project's setup command and how full each account is", () => {
@@ -243,7 +232,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
       fleetEntrances: { status: "ready", data: { entrances: [{ id: "agents", file: "/h/.agents/skills/herdr-fleet/SKILL.md", readers: ["pi", "codex", "cursor"], state: "outdated" }], tokenRequired: true }, busy: "agents" },
     }), NOW);
     expect(model.open).toBeNull();
-    expect(model.settings).toMatchObject({ status: "ready", saving: true, canAct: true, settings });
+    expect(model.settings).toMatchObject({ status: "ready", saving: true, settings });
     expect(model.settings!.projects).toEqual([{ path: "/repo", name: "repo", setup: "bun install" }, { path: "/kept", name: "kept", setup: "make" }]);
     // a window that reset no longer counts
     expect(model.settings!.accounts).toEqual([{ key: "claude", usedPercent: 30, skipped: false }, { key: "codex", usedPercent: 85, skipped: true }]);

@@ -123,13 +123,13 @@ function Conversation({ model, conversation, emit }: { model: FleetScreenModel; 
       {model.status === "error" && <div className="notice fleet-notice" role="alert">{t("Could not load the fleet. {error}", { error: model.error ?? "" })}</div>}
       {project === null
         ? <div className="fleet-empty"><h2>{t("No projects yet")}</h2><p>{t("Start one from New project")}</p></div>
-        : model.coordinator ? conversation : <AskProject key={project.path} name={project.name} cwd={project.path} busy={model.busy} canAct={model.canAct} emit={emit} />}
+        : model.coordinator ? conversation : <AskProject key={project.path} name={project.name} cwd={project.path} busy={model.busy} emit={emit} />}
     </>
   );
 }
 
 /** The first message to a project with no coordinator: sending it starts one. */
-function AskProject({ name, cwd, busy, canAct, emit }: { name: string; cwd: string; busy: boolean; canAct: boolean; emit: Emit<FleetScreenEvent> }) {
+function AskProject({ name, cwd, busy, emit }: { name: string; cwd: string; busy: boolean; emit: Emit<FleetScreenEvent> }) {
   // what is typed: the box's own until it is sent
   const [text, setText] = useState("");
   const send = () => { if (text.trim()) emit({ type: "fleet-start-project", task: text.trim(), cwd }); };
@@ -140,10 +140,10 @@ function AskProject({ name, cwd, busy, canAct, emit }: { name: string; cwd: stri
         <p>{busy ? t("Starting the coordinator…") : t("No coordinator yet")}</p>
       </div>
       <div className="composer-box fleet-ask-box">
-        <textarea className="fleet-ask-input" rows={3} value={text} placeholder={t("Ask {name}", { name })} aria-label={t("Ask {name}", { name })} disabled={!canAct || busy}
+        <textarea className="fleet-ask-input" rows={3} value={text} placeholder={t("Ask {name}", { name })} aria-label={t("Ask {name}", { name })} disabled={busy}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => { if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); send(); } }} />
-        <button type="button" className="btn btn-primary" disabled={!canAct || busy || !text.trim()} onClick={send}>{t("Send")}</button>
+        <button type="button" className="btn btn-primary" disabled={busy || !text.trim()} onClick={send}>{t("Send")}</button>
       </div>
     </div>
   );

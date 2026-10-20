@@ -24,7 +24,7 @@
  * nothing) cannot be told from a local client: only a token closes that setup.
  */
 import { BlockList, isIP } from "node:net";
-import type { AccessRefusal, AccessVia, DeviceRole } from "../shared/protocol.ts";
+import type { AccessRefusal, AccessVia } from "../shared/protocol.ts";
 import type { DeviceMatch } from "./devices.ts";
 
 export interface AccessInput {
@@ -52,7 +52,7 @@ export interface AccessInput {
 }
 
 export type Access =
-  | { level: "full"; via: AccessVia; role: DeviceRole; device?: DeviceMatch; login?: string }
+  | { level: "full"; via: AccessVia; device?: DeviceMatch; login?: string }
   | { level: "none"; reason: AccessRefusal };
 
 export function isLoopbackAddress(address: string): boolean {
@@ -104,17 +104,17 @@ function fromTailnet(forwardedFor: string | null): boolean {
 }
 
 export function decideAccess(input: AccessInput): Access {
-  if (input.tokenMatched) return { level: "full", via: "token", role: "drive" };
-  if (input.device !== null) return { level: "full", via: "device", role: input.device.role, device: input.device };
+  if (input.tokenMatched) return { level: "full", via: "token" };
+  if (input.device !== null) return { level: "full", via: "device", device: input.device };
   // before the login header: a token must hold against a header a visitor can send through another proxy
   if (input.tokenConfigured) return { level: "none", reason: "token_required" };
   // the identity header is only worth something from the local tailscaled, never from a LAN client
   if (input.loopback && input.tailscaleLogin !== null && input.owner !== null) {
     if (!fromTailnet(input.forwardedFor)) return { level: "none", reason: "pairing_required" };
-    if (input.tailscaleLogin.toLowerCase() === input.owner.toLowerCase()) return { level: "full", via: "tailscale", role: "drive", login: input.tailscaleLogin };
+    if (input.tailscaleLogin.toLowerCase() === input.owner.toLowerCase()) return { level: "full", via: "tailscale", login: input.tailscaleLogin };
     return { level: "none", reason: "other_user" };
   }
-  if (input.loopback && !input.forwarded) return { level: "full", via: "local", role: "drive" };
+  if (input.loopback && !input.forwarded) return { level: "full", via: "local" };
   // Everything else needs a token or a paired device, paired or not yet. A loopback request
   // under a foreign Host (a DNS-rebound page, a proxy) is not "this PC".
   return { level: "none", reason: "pairing_required" };

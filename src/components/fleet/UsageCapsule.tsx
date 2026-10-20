@@ -35,7 +35,7 @@ export function UsageCapsule({ capsule, now, emit }: { capsule: UsageCapsuleMode
           <span className="fleet-capsule-sub">{t(capsule.error ? "Last read failed" : "No reading yet")}</span>
         )}
       </span>
-      {capsule.cooldown && capsule.canClear && (
+      {capsule.cooldown && (
         <button type="button" className="btn" disabled={capsule.busy} onClick={() => emit({ type: "clear-cooldown" })}>{t("Clear")}</button>
       )}
     </div>

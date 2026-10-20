@@ -21,7 +21,7 @@ const label = (candidate: RoleCandidate): string => (candidate.model ? `${candid
 
 /**
  * The Settings page: the person's fleet.json, by section. Each change is saved at once; a text
- * field is saved when it is left or on Enter. A watch-only device sees it and changes nothing.
+ * field is saved when it is left or on Enter.
  */
 export function FleetSettingsPage({ model, emit }: { model: FleetSettingsModel; emit: Emit<FleetSettingsEvent> }) {
   // purely visual: the section shown
@@ -48,13 +48,12 @@ export function FleetSettingsPage({ model, emit }: { model: FleetSettingsModel; 
         <div className="fleet-settings-column">
           {model.status === "error" && <div className="notice" role="alert">{t("Could not load the settings. {error}", { error: model.error ?? "" })}</div>}
           {model.saveError && <div className="notice" role="alert">{t("Could not save. {error}", { error: model.saveError })}</div>}
-          {!model.canAct && <p className="fleet-settings-intro">{t("This device can only watch, so the settings cannot be changed here.")}</p>}
           {!settings ? (model.status !== "error" && <p className="fleet-quiet">{t("Loading settings…")}</p>) : (
             <>
-              {section === "roles" && <RolesSection settings={settings} models={model.models} canAct={model.canAct} change={change} />}
+              {section === "roles" && <RolesSection settings={settings} models={model.models} change={change} />}
               {section === "usage" && <UsageSection settings={settings} model={model} change={change} />}
               {section === "projects" && <ProjectsSection model={model} change={change} />}
-              {section === "limits" && <LimitsSection settings={settings} canAct={model.canAct} change={change} />}
+              {section === "limits" && <LimitsSection settings={settings} change={change} />}
               {section === "entrances" && <EntrancesSection model={model} emit={emit} />}
               {/* Entrances writes into the CLIs' skill folders, not fleet.json */}
               {section !== "entrances" && <p className="fleet-settings-file">{t("Changes are saved to {file} as you make them.", { file: settings.file })}</p>}
@@ -70,7 +69,7 @@ const SECTION_LABEL: Record<Section, string> = { roles: "Roles", usage: "Usage",
 
 type Change = (patch: Extract<FleetSettingsEvent, { type: "fleet-settings-change" }>["patch"]) => void;
 
-function RolesSection({ settings, models, canAct, change }: { settings: FleetSettings; models: FleetSettingsModel["models"]; canAct: boolean; change: Change }) {
+function RolesSection({ settings, models, change }: { settings: FleetSettings; models: FleetSettingsModel["models"]; change: Change }) {
   // purely visual: the role whose candidates are being edited
   const [open, setOpen] = useState<string | null>(null);
   return (
@@ -79,7 +78,7 @@ function RolesSection({ settings, models, canAct, change }: { settings: FleetSet
       <p className="fleet-settings-intro">{t("Each role tries its candidates from the top and starts on the first one whose account has usage left.")}</p>
       <div className="fleet-roles">
         {settings.roles.map((role) => (
-          <RoleRow key={role.name} role={role} models={models} readOnlyAgents={settings.readOnlyAgents} open={open === role.name} canAct={canAct}
+          <RoleRow key={role.name} role={role} models={models} readOnlyAgents={settings.readOnlyAgents} open={open === role.name}
             toggle={() => setOpen(open === role.name ? null : role.name)} change={change} />
         ))}
       </div>
@@ -87,7 +86,7 @@ function RolesSection({ settings, models, canAct, change }: { settings: FleetSet
   );
 }
 
-function RoleRow({ role, models, readOnlyAgents, open, canAct, toggle, change }: { role: RoleSettings; models: FleetSettingsModel["models"]; readOnlyAgents: FleetAgentKind[]; open: boolean; canAct: boolean; toggle: () => void; change: Change }) {
+function RoleRow({ role, models, readOnlyAgents, open, toggle, change }: { role: RoleSettings; models: FleetSettingsModel["models"]; readOnlyAgents: FleetAgentKind[]; open: boolean; toggle: () => void; change: Change }) {
   const now = role.candidates.find((candidate) => !candidate.skip);
   const save = (candidates: RoleCandidate[], thinking?: ThinkingLevel | null) => change({ roles: { [role.name]: { candidates: candidates.map(({ agent, model }) => (model ? { agent, model } : { agent })), ...(thinking !== undefined ? { thinking } : {}) } } });
   const list = role.candidates.map(({ agent, model }) => (model ? { agent, model } : { agent }));
@@ -121,18 +120,18 @@ function RoleRow({ role, models, readOnlyAgents, open, canAct, toggle, change }:
               return (
               <li key={`${index}-${label(candidate)}`} className="fleet-candidate-row">
                 <span className="fleet-candidate-number mono">{index + 1}</span>
-                <select className="input" aria-label={t("CLI of candidate {n}", { n: index + 1 })} value={candidate.agent} disabled={!canAct}
+                <select className="input" aria-label={t("CLI of candidate {n}", { n: index + 1 })} value={candidate.agent}
                   onChange={(event) => save(list.map((each, at) => (at === index ? { agent: event.target.value as FleetAgentKind, ...(each.model ? { model: each.model } : {}) } : each)))}>
                   {KINDS.map((kind) => <option key={kind} value={kind} disabled={!allowed(kind)}>{kind}</option>)}
                 </select>
-                <ModelField value={candidate.model ?? ""} index={index} options={models.options[candidate.agent] ?? []} disabled={!canAct}
+                <ModelField value={candidate.model ?? ""} index={index} options={models.options[candidate.agent] ?? []}
                   commit={(model) => save(list.map((each, at) => (at === index ? (model ? { agent: each.agent, model } : { agent: each.agent }) : each)))} />
                 <span className="fleet-candidate-actions">
-                  <button type="button" className="icon-button" aria-label={t("Move candidate {n} up", { n: index + 1 })} disabled={!canAct || index === 0}
+                  <button type="button" className="icon-button" aria-label={t("Move candidate {n} up", { n: index + 1 })} disabled={index === 0}
                     onClick={() => save(list.map((each, at) => (at === index - 1 ? list[index]! : at === index ? list[index - 1]! : each)))}><ArrowUp aria-hidden="true" /></button>
-                  <button type="button" className="icon-button" aria-label={t("Move candidate {n} down", { n: index + 1 })} disabled={!canAct || index === list.length - 1}
+                  <button type="button" className="icon-button" aria-label={t("Move candidate {n} down", { n: index + 1 })} disabled={index === list.length - 1}
                     onClick={() => save(list.map((each, at) => (at === index + 1 ? list[index]! : at === index ? list[index + 1]! : each)))}><ArrowDown aria-hidden="true" /></button>
-                  <button type="button" className="icon-button" aria-label={t("Remove candidate {n}", { n: index + 1 })} disabled={!canAct || list.length === 1}
+                  <button type="button" className="icon-button" aria-label={t("Remove candidate {n}", { n: index + 1 })} disabled={list.length === 1}
                     onClick={() => save(list.filter((_, at) => at !== index))}><X aria-hidden="true" /></button>
                 </span>
                 <span className={`fleet-candidate-hint${hint ? " is-skipped" : ""}`}>{hint}</span>
@@ -141,17 +140,17 @@ function RoleRow({ role, models, readOnlyAgents, open, canAct, toggle, change }:
             })}
           </ol>
           <div className="fleet-role-footer">
-            <button type="button" className="btn" disabled={!canAct || !unused || list.length >= MAX_CANDIDATES} onClick={() => unused && save([...list, { agent: unused }])}><Plus aria-hidden="true" />{t("Add candidate")}</button>
+            <button type="button" className="btn" disabled={!unused || list.length >= MAX_CANDIDATES} onClick={() => unused && save([...list, { agent: unused }])}><Plus aria-hidden="true" />{t("Add candidate")}</button>
             <label className="fleet-role-thinking">
               <span>{t("Thinking")}</span>
-              <select className="input" value={role.changed && role.thinking !== role.defaults.thinking ? role.thinking ?? "" : ""} disabled={!canAct}
+              <select className="input" value={role.changed && role.thinking !== role.defaults.thinking ? role.thinking ?? "" : ""}
                 onChange={(event) => save(list, event.target.value ? event.target.value as ThinkingLevel : null)}>
                 <option value="">{role.defaults.thinking ? t("Role default ({level})", { level: role.defaults.thinking }) : t("Role default")}</option>
                 {LEVELS.map((level) => <option key={level} value={level}>{level}</option>)}
               </select>
             </label>
             <span className="fleet-grow" />
-            {role.changed && <button type="button" className="btn btn-ghost" disabled={!canAct} onClick={() => change({ roles: { [role.name]: null } })}>{t("Reset to default")}</button>}
+            {role.changed && <button type="button" className="btn btn-ghost" onClick={() => change({ roles: { [role.name]: null } })}>{t("Reset to default")}</button>}
           </div>
         </div>
       )}
@@ -160,7 +159,7 @@ function RoleRow({ role, models, readOnlyAgents, open, canAct, toggle, change }:
 }
 
 /** A model name, saved when the field is left or on Enter; empty is the CLI's own default. The CLI's own models are offered; any other name can still be typed. */
-function ModelField({ value, index, options, disabled, commit }: { value: string; index: number; options: Array<{ id: string; label?: string }>; disabled: boolean; commit: (model: string) => void }) {
+function ModelField({ value, index, options, commit }: { value: string; index: number; options: Array<{ id: string; label?: string }>; commit: (model: string) => void }) {
   // what is typed: the field's own until it is saved
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
@@ -168,7 +167,7 @@ function ModelField({ value, index, options, disabled, commit }: { value: string
   const listId = useId();
   return (
     <>
-      <input className="input mono" aria-label={t("Model of candidate {n}", { n: index + 1 })} placeholder={t("CLI default")} value={draft} disabled={disabled} spellCheck={false} list={options.length ? listId : undefined}
+      <input className="input mono" aria-label={t("Model of candidate {n}", { n: index + 1 })} placeholder={t("CLI default")} value={draft} spellCheck={false} list={options.length ? listId : undefined}
         onChange={(event) => setDraft(event.target.value.replace(/\s/g, ""))} onBlur={save} onKeyDown={(event) => { if (event.key === "Enter") save(); }} />
       {options.length > 0 && <datalist id={listId}>{options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</datalist>}
     </>
@@ -184,7 +183,7 @@ function UsageSection({ settings, model, change }: { settings: FleetSettings; mo
           <b>{t("Skip an account at")}</b>
           <span>{t("The fleet passes over a candidate whose account has used this share of any limit window (5 hours, a week, and so on).")}</span>
         </div>
-        <Stepper value={settings.maxUsedPercent} unit="%" min={50} max={100} step={5} canAct={model.canAct} label={t("Usage limit")} set={(maxUsedPercent) => change({ maxUsedPercent })} />
+        <Stepper value={settings.maxUsedPercent} unit="%" min={50} max={100} step={5} label={t("Usage limit")} set={(maxUsedPercent) => change({ maxUsedPercent })} />
         {model.accounts.length > 0 && (
           <div className="fleet-accounts">
             {model.accounts.map((account) => (
@@ -198,7 +197,7 @@ function UsageSection({ settings, model, change }: { settings: FleetSettings; mo
           <b>{t("Sit out after a rate limit")}</b>
           <span>{t("When a CLI stops at a rate limit and gives no time to resume, the fleet does not use its account for this long.")}</span>
         </div>
-        <Stepper value={settings.rateLimitCooldownMinutes} unit={` ${t("min")}`} min={5} max={24 * 60} step={5} canAct={model.canAct} label={t("Cooldown")} set={(rateLimitCooldownMinutes) => change({ rateLimitCooldownMinutes })} />
+        <Stepper value={settings.rateLimitCooldownMinutes} unit={` ${t("min")}`} min={5} max={24 * 60} step={5} label={t("Cooldown")} set={(rateLimitCooldownMinutes) => change({ rateLimitCooldownMinutes })} />
       </div>
     </section>
   );
@@ -213,25 +212,25 @@ function ProjectsSection({ model, change }: { model: FleetSettingsModel; change:
       {model.projects.map((project) => (
         <div key={project.path} className="fleet-setting fleet-setting-project">
           <div className="fleet-setting-text"><b>{project.name}</b><span className="mono">{project.path}</span></div>
-          <SetupField value={project.setup} name={project.name} disabled={!model.canAct} commit={(setup) => change({ projects: { [project.path]: { setup } } })} />
+          <SetupField value={project.setup} name={project.name} commit={(setup) => change({ projects: { [project.path]: { setup } } })} />
         </div>
       ))}
     </section>
   );
 }
 
-function SetupField({ value, name, disabled, commit }: { value: string; name: string; disabled: boolean; commit: (setup: string) => void }) {
+function SetupField({ value, name, commit }: { value: string; name: string; commit: (setup: string) => void }) {
   // what is typed: the field's own until it is saved
   const [draft, setDraft] = useState(value);
   useEffect(() => setDraft(value), [value]);
   const save = () => { if (draft.trim() !== value) commit(draft.trim()); };
   return (
-    <input className="input mono" aria-label={t("Setup command for {name}", { name })} placeholder={t("No setup command")} value={draft} disabled={disabled} spellCheck={false}
+    <input className="input mono" aria-label={t("Setup command for {name}", { name })} placeholder={t("No setup command")} value={draft} spellCheck={false}
       onChange={(event) => setDraft(event.target.value)} onBlur={save} onKeyDown={(event) => { if (event.key === "Enter") save(); }} />
   );
 }
 
-function LimitsSection({ settings, canAct, change }: { settings: FleetSettings; canAct: boolean; change: Change }) {
+function LimitsSection({ settings, change }: { settings: FleetSettings; change: Change }) {
   return (
     <section aria-label={t("Limits")}>
       <h2 className="fleet-settings-heading">{t("Limits")}</h2>
@@ -240,14 +239,14 @@ function LimitsSection({ settings, canAct, change }: { settings: FleetSettings; 
           <b>{t("Agents at once")}</b>
           <span>{t("The most agents that start or work at the same time. Agents that wait for you or have finished do not count.")}</span>
         </div>
-        <Stepper value={settings.maxConcurrent} unit="" min={1} max={32} step={1} canAct={canAct} label={t("Agents at once")} set={(maxConcurrent) => change({ maxConcurrent })} />
+        <Stepper value={settings.maxConcurrent} unit="" min={1} max={32} step={1} label={t("Agents at once")} set={(maxConcurrent) => change({ maxConcurrent })} />
       </div>
       <div className="fleet-setting">
         <div className="fleet-setting-text">
           <b>{t("Close a helper's pane when it finishes")}</b>
           <span>{t("When a helper's turn ends, the fleet closes its pane. It does not close the panes of leads and coordinators.")}</span>
         </div>
-        <button type="button" className="settings-toggle" role="switch" aria-checked={settings.closeOnSettle} aria-label={t("Close a helper's pane when it finishes")} disabled={!canAct}
+        <button type="button" className="settings-toggle" role="switch" aria-checked={settings.closeOnSettle} aria-label={t("Close a helper's pane when it finishes")}
           onClick={() => change({ closeOnSettle: !settings.closeOnSettle })}><span className="settings-toggle-thumb" /></button>
       </div>
     </section>
@@ -269,7 +268,7 @@ function EntrancesSection({ model, emit }: { model: FleetSettingsModel; emit: Em
       {entrances.list.length === 0 && entrances.status !== "error" && <p className="fleet-quiet">{t("Loading settings…")}</p>}
       {entrances.list.map((entrance) => {
         const busy = entrances.busy === entrance.id;
-        const off = !model.canAct || entrances.busy !== null;
+        const off = entrances.busy !== null;
         return (
           <div key={entrance.id} className="fleet-setting fleet-setting-entrance">
             <div className="fleet-setting-text">
@@ -293,12 +292,12 @@ function EntrancesSection({ model, emit }: { model: FleetSettingsModel; emit: Em
   );
 }
 
-function Stepper({ value, unit, min, max, step, canAct, label, set }: { value: number; unit: string; min: number; max: number; step: number; canAct: boolean; label: string; set: (value: number) => void }) {
+function Stepper({ value, unit, min, max, step, label, set }: { value: number; unit: string; min: number; max: number; step: number; label: string; set: (value: number) => void }) {
   return (
     <div className="settings-stepper" role="group" aria-label={label}>
-      <button type="button" className="icon-button" aria-label={t("Decrease {label}", { label })} disabled={!canAct || value <= min} onClick={() => set(Math.max(min, value - step))}><Minus aria-hidden="true" /></button>
+      <button type="button" className="icon-button" aria-label={t("Decrease {label}", { label })} disabled={value <= min} onClick={() => set(Math.max(min, value - step))}><Minus aria-hidden="true" /></button>
       <output aria-live="polite">{value}{unit}</output>
-      <button type="button" className="icon-button" aria-label={t("Increase {label}", { label })} disabled={!canAct || value >= max} onClick={() => set(Math.min(max, value + step))}><Plus aria-hidden="true" /></button>
+      <button type="button" className="icon-button" aria-label={t("Increase {label}", { label })} disabled={value >= max} onClick={() => set(Math.min(max, value + step))}><Plus aria-hidden="true" /></button>
     </div>
   );
 }

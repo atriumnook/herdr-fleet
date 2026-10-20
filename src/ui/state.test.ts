@@ -52,12 +52,11 @@ describe("usage refreshing by itself", () => {
     expect(transition(back.state, tick(2)).effects).toEqual([{ kind: "auto-refresh-usage" }, later(2)]);
   });
 
-  it("does not ask while the page is hidden, a button refresh runs, or this device may only watch, but keeps ticking", () => {
+  it("does not ask while the page is hidden or a button refresh runs, but keeps ticking", () => {
     const shown = play([{ type: "show-screen", screen: "fleet" }]).state;
     const hidden = { ...shown, connection: { ...shown.connection, visible: false } };
     expect(transition(hidden, tick(1)).effects).toEqual([later(1)]);
     expect(transition({ ...shown, usage: { ...shown.usage, refreshing: true } }, tick(1)).effects).toEqual([later(1)]);
-    expect(transition({ ...shown, canAct: false }, tick(1)).effects).toEqual([later(1)]);
   });
 
   it("takes the answer without touching a button refresh's own state", () => {
@@ -153,8 +152,6 @@ describe("screens and the Fleet screen's view", () => {
     expect(started.state.fleetView.project).toBe("/repo");
     expect(play([{ type: "fleet-start-project", task: " ", cwd: "/repo" }], withRuns).effects).toEqual([]);
     expect(play([{ type: "fleet-resolve", runId: "a", resolved: true }], withRuns).effects).toEqual([{ kind: "request", action: { kind: "resolve", runId: "a", resolved: true } }]);
-    const watching = { ...withRuns, canAct: false };
-    expect(play([{ type: "fleet-start-project", task: "t", cwd: "/repo" }], watching).effects).toEqual([]);
     expect(play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-project", project: "/other" }], withRuns).state.fleetView).toMatchObject({ project: "/other", open: null });
   });
 
@@ -208,7 +205,6 @@ describe("screens and the Fleet screen's view", () => {
     expect(failed.landing.confirm).toEqual({ runId: "a", action: "discard", status: "asking", error: "The lead of Fix is working." });
     expect(failed.request).toEqual({ status: "none" });
     expect(play([{ type: "landing-confirm" }, { type: "request-done" }], failed).state.landing.confirm).toBeNull();
-    expect(play([{ type: "fleet-land", runId: "a", action: "merge" }], { ...withRuns, canAct: false }).state.landing.confirm).toBeNull();
   });
 
   it("reads the open thread's plan when its tab shows, again when the lead hands over another, and keeps the answers until they go out after a yes", () => {
@@ -258,8 +254,6 @@ describe("screens and the Fleet screen's view", () => {
     // with nothing written to the older version, nothing was lost: no word of it
     const untouched = play([{ type: "runs-loaded", runs: [run("a", { state: "idle", plan: { version: 2, asks: 1 } })] }, { type: "plan-loaded", runId: "a", seq: 2, plan: plan(2) }], ready).state;
     expect(untouched.plan.dropped).toBeNull();
-    // a watch-only device sends nothing
-    expect(play([{ type: "plan-respond", runId: "a" }], { ...answered, canAct: false }).state.plan.confirm).toBeNull();
   });
 
   it("drops a yes asked for a plan that changed or a thread left, and an older read's answer", () => {
@@ -324,8 +318,6 @@ describe("screens and the Fleet screen's view", () => {
     expect(play([{ type: "fleet-project", project: "/other" }], failed).state.fleetView.settings).toBe(false);
     expect(play([{ type: "fleet-open", kind: "thread", runId: "a" }], failed).state.fleetView.settings).toBe(false);
     expect(play([{ type: "fleet-settings", open: false }], failed).state.fleetView.settings).toBe(false);
-    // a watch-only device saves nothing
-    expect(play([{ type: "fleet-settings-change", patch: { maxConcurrent: 3 } }], { ...failed, canAct: false }).effects).toEqual([]);
   });
 
   it("puts the fleet skill into one skill folder at a time, and keeps the folders' last answer", () => {
@@ -340,7 +332,6 @@ describe("screens and the Fleet screen's view", () => {
     expect(installed.fleetEntrances).toMatchObject({ busy: null, data: { entrances: [{ state: "installed" }] } });
     const refused = play([{ type: "fleet-entrance", id: "claude", action: "remove" }, { type: "fleet-entrance-failed", message: "not written by herdr-fleet" }], installed).state;
     expect(refused.fleetEntrances).toMatchObject({ busy: null, changeError: "not written by herdr-fleet", data: { entrances: [{ state: "installed" }] } });
-    expect(play([{ type: "fleet-entrance", id: "claude", action: "remove" }], { ...refused, canAct: false }).effects).toEqual([]);
   });
 
   it("selects a live run's pane on this PC, again when asked again, and not an ended run's", () => {
@@ -406,15 +397,6 @@ describe("actions", () => {
     expect(transition(failed, { type: "dismiss-error" }).state.request).toEqual({ status: "none" });
     // an outcome with nothing pending changes nothing
     expect(transition(INITIAL_STATE, { type: "request-done" }).state).toBe(INITIAL_STATE);
-  });
-});
-
-describe("a watch-only device", () => {
-  it("changes nothing: no action and no refresh leave it", () => {
-    const watching = transition(INITIAL_STATE, { type: "access-loaded", auth: { required: true, authenticated: true, via: "device", role: "watch" } }).state;
-    for (const event of [{ type: "interrupt-run", runId: "a" }, { type: "close-done", group: "g1" }, { type: "clear-cooldown", key: "cursor" }, { type: "refresh-usage" }] as UiEvent[]) {
-      expect(transition(watching, event)).toEqual({ state: watching, effects: [] });
-    }
   });
 });
 
@@ -517,7 +499,7 @@ describe("settings", () => {
 });
 
 describe("paired devices", () => {
-  const device = (id: string, label = id): PairedDevice => ({ id, label, role: "drive", created_at: "2026-10-01T00:00:00Z", last_seen_at: null, current: false });
+  const device = (id: string, label = id): PairedDevice => ({ id, label, created_at: "2026-10-01T00:00:00Z", last_seen_at: null, current: false });
   const code = { code: "123456", expires_at: "2026-10-05T10:10:00Z" };
   const AT = Date.parse("2026-10-05T10:00:00Z");
   // the first opening of Settings is session 1: what its effects answer carries it

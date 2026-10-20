@@ -13,7 +13,6 @@ export type ProjectRailEvent = Extract<UiEvent, { type: "fleet-project" | "refre
 export interface ProjectRailModel {
   projects: ProjectModel[];
   usage: { capsules: UsageCapsuleModel[]; refreshing: boolean; readAt?: number };
-  canAct: boolean;
   now: number;
   /** the Settings page is open */
   settings: boolean;
@@ -43,7 +42,7 @@ export function ProjectRail({ model, browser, emit }: { model: ProjectRailModel;
       {picking
         ? <div className="fleet-rail-browser">{browser((path) => { setPicking(false); emit({ type: "fleet-project", project: path }); })}
             <button type="button" className="btn btn-ghost" onClick={() => setPicking(false)}>{t("Cancel")}</button></div>
-        : <button type="button" className="btn fleet-new-project" disabled={!model.canAct} onClick={() => setPicking(true)}><FolderPlus aria-hidden="true" />{t("New project")}</button>}
+        : <button type="button" className="btn fleet-new-project" onClick={() => setPicking(true)}><FolderPlus aria-hidden="true" />{t("New project")}</button>}
       <button type="button" className={`fleet-rail-settings${model.settings ? " is-selected" : ""}`} aria-current={model.settings ? "page" : undefined}
         onClick={() => emit(model.settings ? { type: "fleet-settings", open: false } : { type: "fleet-settings", open: true, cwd: model.projects.find((project) => project.selected)?.path ?? null })}>
         <Settings aria-hidden="true" />{t("Fleet settings")}
@@ -58,11 +57,9 @@ export function ProjectRail({ model, browser, emit }: { model: ProjectRailModel;
             {t("Updated {time}", { time: clock(model.usage.readAt, model.now) })}
           </p>
         )}
-        {model.canAct && (
-          <button type="button" className="btn btn-ghost" disabled={model.usage.refreshing} onClick={() => emit({ type: "refresh-usage" })}>
-            {model.usage.refreshing ? t("Refreshing…") : t("Refresh usage")}
-          </button>
-        )}
+        <button type="button" className="btn btn-ghost" disabled={model.usage.refreshing} onClick={() => emit({ type: "refresh-usage" })}>
+          {model.usage.refreshing ? t("Refreshing…") : t("Refresh usage")}
+        </button>
       </section>
     </nav>
   );

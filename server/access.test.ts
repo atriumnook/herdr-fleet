@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { cameThroughProxy, decideAccess, isLoopbackAddress, isLoopbackHost, type AccessInput } from "./access.ts";
 
-const device = { id: "d1", label: "Phone", role: "drive" as const };
+const device = { id: "d1", label: "Phone" };
 const base: AccessInput = { loopback: true, forwarded: false, funnel: false, tailscaleLogin: null, forwardedFor: "100.64.0.9", tokenMatched: false, device: null, owner: null, tagged: false, tokenConfigured: false, gated: false };
 const via = (input: Partial<AccessInput>) => { const a = decideAccess({ ...base, ...input }); return a.level === "full" ? a.via : `refused:${a.reason}`; };
 
@@ -78,9 +78,9 @@ describe("decideAccess", () => {
     expect(via({ tokenConfigured: true, device, forwarded: true, tailscaleLogin: "me@example.com", owner: "me@example.com" })).toBe("device");
   });
 
-  it("a paired device gets in from anywhere, with its role", () => {
-    const access = decideAccess({ ...base, loopback: false, gated: true, device: { ...device, role: "watch" } });
-    expect(access).toEqual({ level: "full", via: "device", role: "watch", device: { ...device, role: "watch" } });
+  it("a paired device gets in from anywhere", () => {
+    const access = decideAccess({ ...base, loopback: false, gated: true, device });
+    expect(access).toEqual({ level: "full", via: "device", device });
   });
 
   it("knows a name for this machine from a proxied Host", () => {

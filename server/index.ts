@@ -183,7 +183,6 @@ async function paneContext(paneId: string): Promise<{ agent: string | null; cwd:
 
 interface SocketData {
   deviceId?: string;
-  readOnly?: boolean;
   revoked?: boolean;
   unwatchDevice?: () => void;
   attached: Set<string>;
@@ -390,7 +389,7 @@ export function createServer(
 
   function authorizeSocket(client: Client): void {
     if (client.data.revoked) throw new HerdrError("device_revoked", "this device's access was revoked");
-    if (client.data.readOnly || client.data.mode === "observe") throw new HerdrError("read_only", "this connection can only watch");
+    if (client.data.mode === "observe") throw new HerdrError("read_only", "this connection can only watch");
   }
 
   /** Is this pane's agent Codex, blocked only by questions waiting collapsed in its queue (codexQuestionsCollapsed)? */
@@ -1010,20 +1009,13 @@ export function createServer(
         return pathname === "/ws" ? new Response("unauthorized", { status: 401 }) : unauthorizedJson(access.level === "none" ? access.reason : "token_required");
       }
 
-      const readOnly = access.level === "full" && access.role === "watch";
       const mutating = !["GET", "HEAD", "OPTIONS"].includes(request.method);
       if (pathname.startsWith("/api/") && mutating && !sameOrigin(request)) {
         return jsonResponse({ error: { code: "invalid_origin", message: "Use controls from this app" } }, 403);
       }
-      // An empty segment ("//") reads as another route to the checks below, while the PC proxy
-      // drops it before forwarding: `/api/machines/<id>//fs/file` would pass as not a file read.
+      // No route has an empty segment ("//"). Refusing it here keeps a check on the path, now or
+      // later, from reading `/api/machines/<id>//fs/file` as another route than the one that serves it.
       if (pathname.startsWith("/api/") && pathname.includes("//")) return jsonResponse({ error: { code: "not_found", message: "not found" } }, 404);
-      // Watching a terminal grants no arbitrary filesystem access: those files include credentials.
-      const fileRead = /^\/api\/(?:machines\/[^/]+\/)?fs\//.test(pathname);
-      const ownPreferences = pathname === "/api/auth" || pathname === "/api/push/subscribe" || pathname === "/api/push/test";
-      if (readOnly && (fileRead || mutating && !ownPreferences)) {
-        return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
-      }
 
       if (pathname === "/api/fleet" || pathname.startsWith("/api/fleet/")) {
         // a spawn waits for the agent to start, a wait for its turn: Bun's 10 s idle limit is too short
@@ -1051,7 +1043,7 @@ export function createServer(
         const deviceId = access.level === "full" ? access.device?.id : undefined;
         const machineId = url.searchParams.get("machine_id");
         if (machineId && machineId !== "local") return jsonResponse({ error: { code: "not_found", message: "unknown PC" } }, 404);
-        const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: readOnly ? "observe" : "interact", output: new Map(), closing: false, deviceId, readOnly } });
+        const upgraded = bunServer.upgrade(request, { data: { attached: new Set<string>(), mode: "interact", output: new Map(), closing: false, deviceId } });
         if (upgraded) return undefined as unknown as Response;
         return new Response("websocket upgrade required", { status: 426 });
       }
@@ -1083,7 +1075,7 @@ export function createServer(
 
       if (pathname === "/api/health") {
         const auth: HealthAuth = access.level === "full"
-          ? { required: false, authenticated: true, via: access.via, role: access.role }
+          ? { required: false, authenticated: true, via: access.via }
           : { required: true, authenticated, ...(authenticated ? {} : { reason: access.reason }) };
         if (url.searchParams.get("scope") === "bridge") return jsonResponse({ ok: true, auth, bridge_protocol: BRIDGE_PROTOCOL });
         try {
@@ -1857,7 +1849,6 @@ export function createServer(
                 send(client, { type: "error", code: "invalid_role", message: "mode must be interact or observe" });
                 break;
               }
-              if (client.data.readOnly) message.mode = "observe";
               client.data.mode = message.mode;
               send(client, { type: "role-ack", mode: message.mode });
               if (message.mode === "observe") {

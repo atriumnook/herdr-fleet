@@ -192,7 +192,7 @@ describe("Fleet screen views", () => {
 
   it("lists the projects with what their threads ask of the person, and a new one from a folder", () => {
     const projects = [{ path: "/repo", name: "repo", dot: "needs" as const, selected: true }, { path: "/new", name: "new", dot: "none" as const, selected: false }];
-    const html = renderToStaticMarkup(createElement(ProjectRail, { model: { projects, usage: { capsules: [], refreshing: false }, canAct: true, now: NOW, settings: false }, browser: () => null, emit: noop }));
+    const html = renderToStaticMarkup(createElement(ProjectRail, { model: { projects, usage: { capsules: [], refreshing: false }, now: NOW, settings: false }, browser: () => null, emit: noop }));
     expect(html).toContain('aria-current="true"');
     expect(html).toContain("fleet-project-dot dot-needs");
     expect(html).toContain("New project");

@@ -8,7 +8,7 @@ import { NO_DEVICES, type DevicesState } from "../ui/state.ts";
 import { DevicesPanel } from "./DevicesPanel.tsx";
 import { t } from "../lib/i18n.ts";
 
-const device: PairedDevice = { id: "a", label: "iPhone", role: "drive", created_at: "2026-10-01T00:00:00Z", last_seen_at: null, current: true };
+const device: PairedDevice = { id: "a", label: "iPhone", created_at: "2026-10-01T00:00:00Z", last_seen_at: null, current: true };
 const code = { code: "123456", expires_at: new Date(Date.now() + 600_000).toISOString() };
 
 /** English, as under the app's own provider with an English browser */

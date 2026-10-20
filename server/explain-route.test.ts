@@ -3,8 +3,6 @@ import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ApiError, ConversationTurn, ExplainResponse } from "../shared/protocol.ts";
-import { DEVICE_COOKIE } from "./auth.ts";
-import { DeviceStore } from "./devices.ts";
 import { createServer } from "./index.ts";
 
 /**
@@ -16,17 +14,12 @@ const gate = join(root, "go");
 const turns: ConversationTurn[] = [{ role: "user", ts: null, parts: [{ kind: "text", text: "pick a store" }] }];
 let limited: string | undefined;
 let server: { port: number; stop: () => void };
-let watchCookie = "";
 
 beforeAll(() => {
   // a fake claude that answers once the test lets it (the gate file), or after a while on its own
   const fake = join(root, "claude");
   writeFileSync(fake, `#!/bin/sh\ncat > /dev/null\nwhile [ ! -e ${JSON.stringify(gate)} ]; do sleep 0.1; done\necho '{"result":"### 推奨\\n→ 1. Redis","usage":{"input_tokens":10,"output_tokens":5}}'\n`);
   chmodSync(fake, 0o755);
-  // a device that may only watch
-  const devices = new DeviceStore(root);
-  const { code } = devices.startPairing();
-  watchCookie = `${DEVICE_COOKIE}=${devices.pair(code, "phone", "watch")!.token}`;
   server = createServer({
     port: 0, hostname: "127.0.0.1", stateDir: root, tailscaleOwner: null,
     explain: { command: fake, conversation: async () => turns, unavailable: async () => limited, env: { PATH: process.env["PATH"] } },
@@ -38,21 +31,15 @@ afterAll(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const ask = (question: string, headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${server.port}/api/pane/explain`, {
+const ask = (question: string) => fetch(`http://127.0.0.1:${server.port}/api/pane/explain`, {
   method: "POST",
-  headers: { "content-type": "application/json", "x-herdr-machine": "1", ...headers },
+  headers: { "content-type": "application/json", "x-herdr-machine": "1" },
   body: JSON.stringify({ pane_id: "w1:p1", kind: "plain", question, options: [{ label: "Redis", description: null }] }),
 });
 const open = (): void => writeFileSync(gate, "");
 const shut = (): void => rmSync(gate, { force: true });
 
 describe("POST /api/pane/explain", () => {
-  it("refuses a device that may only watch", async () => {
-    const response = await ask("Which store?", { cookie: watchCookie });
-    expect(response.status).toBe(403);
-    expect(((await response.json()) as ApiError).error.code).toBe("read_only");
-  });
-
   it("says Claude was not asked while its account is at its limit", async () => {
     limited = "claude has used 95% of its 5h limit";
     try {

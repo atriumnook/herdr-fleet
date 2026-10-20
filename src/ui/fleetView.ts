@@ -5,7 +5,7 @@ import { isEnded, planDraft, type ConfirmedStep, type PlanDraft, type ThreadTab,
 import { numberClaims, planAsks, planOpen, type PlanAnswer, type PlanClaim, type PlanExhibit } from "../../shared/plan.ts";
 
 /** The regions the Fleet screen draws: its Presenter re-renders when one of them changes. */
-export const FLEET_REGIONS = ["runs", "usage", "request", "canAct", "fleetView", "landing", "plan", "fleetSettings", "fleetEntrances", "fleetModels"] as const;
+export const FLEET_REGIONS = ["runs", "usage", "request", "fleetView", "landing", "plan", "fleetSettings", "fleetEntrances", "fleetModels"] as const;
 export type FleetState = Pick<UiState, (typeof FLEET_REGIONS)[number]>;
 
 /**
@@ -51,8 +51,6 @@ export interface UsageCapsuleModel {
   level: "ok" | "mid" | "low";
   windows: UsageWindow[];
   cooldown?: { until: number; reason: string };
-  /** the cooldown can be ended from here */
-  canClear: boolean;
   readAt?: number;
   error?: string;
   busy: boolean;
@@ -273,7 +271,6 @@ export interface FleetSettingsModel {
   };
   /** each CLI's models to offer (none where it has no list), and the candidates (`<role>:<index>`) whose model their CLI does not offer */
   models: { options: Partial<Record<FleetAgentKind, Array<{ id: string; label?: string }>>>; unlisted: string[] };
-  canAct: boolean;
 }
 
 /** The app's one badge look, by its state class. */
@@ -308,8 +305,6 @@ export interface FleetScreenModel {
   /** the last action failed: what to tell the person */
   requestError?: string;
   busy: boolean;
-  /** this device may change things: a watch-only one gets no buttons that would be refused */
-  canAct: boolean;
 }
 
 const KINDS: readonly FleetAgentKind[] = ["pi", "claude", "codex", "cursor", "agy", "opencode"];
@@ -353,7 +348,7 @@ function card(run: AgentRun, runs: AgentRun[], state: FleetState): RunCardModel 
     skipped: run.skipped ?? [],
     result: run.result,
     canOpenPane: !isEnded(run),
-    canInterrupt: state.canAct && (tone === "working" || tone === "needs"),
+    canInterrupt: tone === "working" || tone === "needs",
     busy: pending?.kind === "interrupt" && pending.runId === run.id,
   };
 }
@@ -370,7 +365,6 @@ function capsule(entry: UsageEntry, state: FleetState, now: number): UsageCapsul
     level: worst ? meterLevel(worst.usedPercent) : "ok",
     windows,
     cooldown: entry.cooldown && entry.cooldown.until > now ? { until: entry.cooldown.until, reason: entry.cooldown.reason } : undefined,
-    canClear: state.canAct,
     readAt: entry.reading?.readAt,
     error: entry.error,
     busy: pending?.kind === "clear-cooldown" && pending.key === entry.key,
@@ -390,7 +384,7 @@ export function fleetScreenModel(state: FleetState, now: number): FleetScreenMod
     { tone: "working", runs: of("working").sort(byTree) },
     { tone: "done", runs: of("done").sort(byNewest) },
   ] as const).filter((section) => section.runs.length > 0).map((section) => ({ tone: section.tone, runs: [...section.runs] }));
-  const closableGroups = !state.canAct ? [] : [...new Set(runs.filter((run) => !run.interactive && run.state === "done").map((run) => run.group))].sort();
+  const closableGroups = [...new Set(runs.filter((run) => !run.interactive && run.state === "done").map((run) => run.group))].sort();
   const project = projectsOf(state);
   const view = state.fleetView;
   const threadRuns = project.selected === null ? [] : runs.filter((run) => run.role === THREAD_ROLE && run.project === project.selected);
@@ -427,7 +421,6 @@ export function fleetScreenModel(state: FleetState, now: number): FleetScreenMod
     },
     requestError: state.request.status === "failed" ? state.request.message : undefined,
     busy: state.request.status === "pending",
-    canAct: state.canAct,
   };
 }
 
@@ -552,7 +545,7 @@ function planModel(run: AgentRun, fleet: FleetState): PlanModel {
     ...(plan ? { title: plan.title } : {}), why: plan?.why ?? [], claims,
     ...(plan?.shared ? { shared: { id: "shared", level: 1, text: plan.shared.text, ...(plan.shared.exhibit ? { exhibit: plan.shared.exhibit } : {}), comment: draft.comments["shared"] ?? "", children: [] } } : {}),
     scope: plan?.scope ?? [], toAnswer: open ? toAnswer : [], note: draft.note, comments,
-    canRespond: plan !== null && open && fleet.canAct && fleet.request.status !== "pending" && (run.state === "idle" || run.state === "done"),
+    canRespond: plan !== null && open && fleet.request.status !== "pending" && (run.state === "idle" || run.state === "done"),
     confirm: confirm && plan ? {
       running: confirm.status === "running", ...(confirm.error ? { error: confirm.error } : {}),
       decisions: asks.map(({ number, ask }) => {
@@ -574,7 +567,7 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
   const prOpen = run.pr?.state === "OPEN";
   const stage = run.landed ? "landed" : prOpen ? "landing" : "review";
   const pending = run.landing && !run.landing.error ? run.landing.action : undefined;
-  const free = fleet.canAct && fleet.request.status !== "pending" && !run.landed;
+  const free = fleet.request.status !== "pending" && !run.landed;
   const settled = free && pending === undefined;
   const changed = (run.diff?.files ?? 0) > 0 || (checks?.ahead ?? 0) > 0;
   const files = read && landing.diff.data ? parseDiff(landing.diff.data.diff).map((file) => {
@@ -648,7 +641,6 @@ function settingsModel(state: FleetState, projectPaths: string[], now: number): 
       busy: entrances.busy, ...(entrances.changeError ? { changeError: entrances.changeError } : {}),
     },
     models: modelsModel(settings, state.fleetModels.data ?? []),
-    canAct: state.canAct,
   };
 }
 

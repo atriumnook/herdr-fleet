@@ -677,8 +677,6 @@ export interface UiState {
   fleetSettings: FleetSettingsState;
   fleetEntrances: FleetEntrancesState;
   fleetModels: FleetModelsState;
-  /** this device may change things (a paired watch-only device may not: the server answers read_only) */
-  canAct: boolean;
   /** the pane shown: on which PC, and whether the shell picked it itself (the one selected closed) */
   selection: Selection;
   /** this device's preferences, kept in localStorage */
@@ -1192,7 +1190,6 @@ export const INITIAL_STATE: UiState = {
   fleetEntrances: { status: "idle", data: null, busy: null },
   fleetModels: { status: "idle", data: null },
   selection: { machineId: "local", paneId: null, auto: false },
-  canAct: true,
   settings: DEFAULT_SETTINGS,
   settingsDialog: { open: false },
   remoteAccess: { status: "idle", data: null, again: false },
@@ -1332,9 +1329,9 @@ function followSide(before: UiState, step: Transition): Transition {
   return { state: fromSide(step.state, lensed), effects: [...step.effects, ...effects.map(onSide)] };
 }
 
-/** the Fleet screen's own refresh: not while the page is hidden, a button refresh is running, or this device may not act */
+/** the Fleet screen's own refresh: not while the page is hidden or a button refresh is running */
 function autoUsage(state: UiState): Effect[] {
-  return state.connection.visible && state.canAct && !state.usage.refreshing ? [{ kind: "auto-refresh-usage" }] : [];
+  return state.connection.visible && !state.usage.refreshing ? [{ kind: "auto-refresh-usage" }] : [];
 }
 
 function transitionOnly(state: UiState, event: UiEvent): Transition {
@@ -1604,7 +1601,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "usage-refresh-failed":
       return next({ usage: { ...state.usage, refreshing: false, error: event.message, status: state.usage.status === "loading" ? "loading" : "error" } });
     case "refresh-usage":
-      if (state.usage.refreshing || !state.canAct) return next({});
+      if (state.usage.refreshing) return next({});
       effects.push({ kind: "refresh-usage" });
       return next({ usage: { ...state.usage, refreshing: true } });
     case "fleet-project":
@@ -1630,7 +1627,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return next({ fleetEntrances: { ...state.fleetEntrances, status: "error", error: event.message } });
     case "fleet-entrance": {
       // one folder at a time: a second press waits for the first answer
-      if (!state.canAct || state.fleetEntrances.busy !== null) return next({});
+      if (state.fleetEntrances.busy !== null) return next({});
       effects.push({ kind: "change-fleet-entrance", id: event.id, action: event.action });
       return next({ fleetEntrances: { ...state.fleetEntrances, busy: event.id, changeError: undefined } });
     }
@@ -1643,7 +1640,6 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "fleet-settings-failed":
       return next({ fleetSettings: { ...state.fleetSettings, status: "error", error: event.message } });
     case "fleet-settings-change": {
-      if (!state.canAct) return next({});
       const seq = state.fleetSettings.seq + 1;
       effects.push({ kind: "save-fleet-settings", cwd: state.fleetSettings.cwd, patch: event.patch, seq });
       return next({ fleetSettings: { ...state.fleetSettings, seq, saving: state.fleetSettings.saving + 1, saveError: undefined } });
@@ -1702,7 +1698,7 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     }
     case "plan-respond": {
       const plan = state.plan.reading.data;
-      if (!state.canAct || state.plan.runId !== event.runId || !plan || !planOpen(plan) || state.plan.confirm?.status === "running") return next({});
+      if (state.plan.runId !== event.runId || !plan || !planOpen(plan) || state.plan.confirm?.status === "running") return next({});
       return next({ plan: { ...state.plan, confirm: { runId: event.runId, version: plan.version, status: "asking" } } });
     }
     case "plan-confirm": {
@@ -1734,7 +1730,6 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return next({ landing: { ...state.landing, comments } });
     }
     case "fleet-land": {
-      if (!state.canAct) return next({});
       if (CONFIRMED_STEPS.includes(event.action)) {
         if (state.landing.confirm?.status === "running") return next({});
         return next({ landing: { ...state.landing, confirm: { runId: event.runId, action: event.action as ConfirmedStep, status: "asking" } } });
@@ -2136,8 +2131,7 @@ function connectionTransition(state: UiState, event: ConnectionEvent, effects: E
         pairing = "asked";
         effects.push({ kind: "pair-from-address", code: connection.pairCode });
       }
-      // a paired watch-only device sees the fleet but changes nothing in it
-      return next({ connection: { ...connection, auth, locked, reason: auth.reason ?? null, pairing }, canAct: auth.role !== "watch" });
+      return next({ connection: { ...connection, auth, locked, reason: auth.reason ?? null, pairing } });
     }
     case "health-loaded":
       return next({ connection: { ...connection, health: same(connection.health, event.health) } });
@@ -3245,6 +3239,6 @@ function change(state: UiState, patch: Partial<Settings>, effects: Effect[], dia
 
 /** One action at a time: another one while it runs is ignored, as its button is disabled. */
 function request(state: UiState, action: RequestAction): Transition {
-  if (state.request.status === "pending" || !state.canAct) return { state, effects: [] };
+  if (state.request.status === "pending") return { state, effects: [] };
   return { state: { ...state, request: { status: "pending", action } }, effects: [{ kind: "request", action }] };
 }
