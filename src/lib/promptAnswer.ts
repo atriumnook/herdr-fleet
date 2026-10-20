@@ -34,8 +34,12 @@ export function answerFromText(prompt: InteractivePrompt, text: string): TypedAn
     return valid.includes(index) ? index : null;
   };
   if (prompt.multi_select) {
-    const indices = value.split(/[\s,]+/).filter(Boolean).map(byNumber);
+    const tokens = value.split(/[\s,]+/).filter(Boolean);
+    const indices = tokens.map(byNumber);
     if (indices.every((index) => index !== null)) return { option_indices: [...new Set(indices as number[])] };
+    // a number among the words was meant as a pick: a wrong one is refused, never typed in and
+    // submitted as the typed answer, which no confirmation stands before
+    if (tokens.some((token) => /^\d+$/.test(token))) return null;
     return prompt.custom_option_index !== null ? { custom_text: value } : null;
   }
   const numbered = byNumber(value);

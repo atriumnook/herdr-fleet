@@ -57,5 +57,7 @@ describe("answering a prompt from the chat", () => {
     const open = prompt(["Manzana", "Pera"], 2, true);
     expect(answerFromText(open, "1 2")).toEqual({ option_indices: [0, 1] });
     expect(answerFromText(open, "Kiwi")).toEqual({ custom_text: "Kiwi" });
+    // regression: numbers meant as a pick, one of them wrong, are refused, never typed in and submitted
+    for (const typo of ["3", "1 5", "1,2,x", "1 and 2"]) expect(answerFromText(open, typo)).toBeNull();
   });
 });
