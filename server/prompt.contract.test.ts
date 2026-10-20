@@ -67,6 +67,7 @@ let trust: Menu;
 let guessed: Menu;
 let drifting: Menu;
 let ticking: Menu;
+let twin: Menu;
 
 async function menu(label: string, head: string[], rows: string[], drift = false, script = "menu.js"): Promise<Menu> {
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
@@ -119,6 +120,7 @@ beforeAll(async () => {
   guessed = await menu("guessed", ["─".repeat(35), " Trust?"], ["Yes, trust and enable all hooks", "Yes, trust this folder", "No, exit"]);
   drifting = await menu("drifting", [" Accessing workspace:", "", " Quick safety check: Is this a project you created or one you trust?"], ["No, exit", "Yes, I trust this folder", "Yes, and enable its hooks"], true);
   ticking = await menu("ticking", [], [], false, "tick.js");
+  twin = await menu("twin", [" Run the migration again?"], ["Yes, run it", "No, stop"]);
 }, 30_000);
 
 afterAll(async () => {
@@ -152,6 +154,20 @@ describe("answers to Claude's unnumbered menus", () => {
     expect(response.status).toBe(409);
     await Bun.sleep(300);
     expect(chosen(drifting)).toEqual([]);
+  });
+
+  it("refuses the id of a menu already answered once the same menu is asked again", async () => {
+    const prompt = await card(twin);
+    expect((await answer(twin, prompt.id, 0)).status).toBe(200);
+    expect(await confirmed(twin)).toEqual(["Yes, run it"]);
+    // the menu is drawn again as it was: the same question, asked a second time
+    const again = await card(twin);
+    expect(again.options).toEqual(prompt.options);
+    expect(again.id).not.toBe(prompt.id);
+    // the first asking's card, still open on another device
+    expect((await answer(twin, prompt.id, 0)).status).toBe(409);
+    await Bun.sleep(300);
+    expect(chosen(twin)).toEqual(["Yes, run it"]);
   });
 
   it("takes an answer to a fallback card whose screen only ticked since it was read", async () => {
@@ -256,5 +272,148 @@ describe("answers to pi's dialogs", () => {
     expect(prompt.options.map((option) => option.label)).toEqual(["Allow once", "Always allow", "Block"]);
     expect((await answer(scrolled, prompt.id, 1)).status).toBe(200);
     expect(await confirmed(scrolled)).toEqual(["Always allow"]);
+  });
+});
+
+/**
+ * The answers that had no second look before their Enter (a Codex menu, omp's permission), against
+ * the real server. A pane draws screens the way those agents draw them and logs
+ * every key it is sent: `{n}` in a line is row n's cursor. `swap`: on that key the next screen
+ * takes the first one's place, as when the menu is answered in the terminal at that moment.
+ * `hold`: after a key the screen is drawn again only once `<log>.go` exists.
+ */
+const SCREENS = String.raw`
+const { appendFileSync, existsSync, readFileSync, writeFileSync } = require("node:fs");
+const [out, specFile] = process.argv.slice(2);
+const spec = JSON.parse(readFileSync(specFile, "utf8"));
+let frame = spec.frames[0];
+let swap = spec.swap;
+let cursor = 0;
+const rows = () => frame.lines.join("\n").match(/\{\d+\}/g).length;
+const draw = () => process.stdout.write("\u001b[2J\u001b[H" + frame.lines.map((line) => line.replace(/\{(\d+)\}/, (_, row) => Number(row) === cursor ? frame.mark : " ")).join("\r\n"));
+const later = () => { if (existsSync(out + ".go")) draw(); else setTimeout(later, 20); };
+process.stdin.setRawMode(true);
+process.stdin.resume();
+process.stdin.on("data", (chunk) => {
+  const data = chunk.toString("utf8");
+  const key = /\u001b[\[O]B/.test(data) ? "down" : /\u001b[\[O]A/.test(data) ? "up" : data === "\r" ? "enter" : data === "\t" ? "tab" : "text:" + data;
+  if (key === "down") cursor = Math.min(rows() - 1, cursor + 1);
+  if (key === "up") cursor = Math.max(0, cursor - 1);
+  if (swap && key.split(":")[0] === swap) { frame = spec.frames[1]; swap = null; cursor = 0; }
+  appendFileSync(out, key + "\n");
+  if (spec.hold) later(); else draw();
+});
+draw();
+writeFileSync(out, "");
+`;
+
+interface Frame { lines: string[]; mark: string }
+
+async function screens(label: string, agent: string, spec: { frames: Frame[]; swap?: string; hold?: boolean }): Promise<Menu> {
+  const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
+    "workspace.create", { label: `herdr-web-ui-test-prompt-${label}`, cwd: root, focus: false },
+  );
+  workspaces.push(created.workspace.workspace_id);
+  const log = join(root, `${label}.log`);
+  writeFileSync(join(root, `${label}.json`), JSON.stringify(spec));
+  if (!existsSync(join(root, agent))) { copyFileSync(process.execPath, join(root, agent)); chmodSync(join(root, agent), 0o755); }
+  await herdrRpc("pane.send_text", { pane_id: created.root_pane.pane_id, text: `exec '${join(root, agent)}' '${join(root, "screens.js")}' '${log}' '${join(root, `${label}.json`)}'\n` });
+  for (let i = 0; i < 200 && !existsSync(log); i++) await Bun.sleep(50);
+  expect(existsSync(log)).toBe(true);
+  await herdrRpc("pane.report_agent", { pane_id: created.root_pane.pane_id, source: "manual", agent, state: "blocked" });
+  return { pane: created.root_pane.pane_id, log };
+}
+
+async function send(target: Menu, promptId: string, choice: Record<string, unknown>): Promise<Response> {
+  return fetch(`${base()}/api/pane/prompt/answer`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ pane_id: target.pane, prompt_id: promptId, ...choice }),
+  });
+}
+
+/** the keys the pane was sent, once nothing more arrives for a moment */
+async function keys(target: Menu): Promise<string[]> {
+  let seen = chosen(target);
+  for (let i = 0; i < 20; i++) {
+    await Bun.sleep(100);
+    const now = chosen(target);
+    if (now.length === seen.length) return now;
+    seen = now;
+  }
+  return seen;
+}
+
+describe("an answer whose menu changes under it", () => {
+  const continueMenu = (title: string, rows: string[]): Frame => ({
+    mark: "›", lines: [title, "", ...rows.map((row, index) => `{${index}} ${index + 1}. ${row}`), "", "Press enter to continue"],
+  });
+  const resume = continueMenu("Conversation interrupted", ["Resume the task", "Start over", "Quit"]);
+  const cleanup = continueMenu("Branch cleanup", ["Keep the branch", "Delete the branch", "Quit"]);
+  const permission: Frame = { mark: "❯", lines: ["╭─ Permission ────────────╮", "│ Allow tool: bash", "│ rm -rf build", "│{0} Approve", "│{1} Deny", "╰─────────────────────────╯"] };
+  let steady: Menu;
+  let replaced: Menu;
+  let ended: Menu;
+  let denied: Menu;
+
+  beforeAll(async () => {
+    writeFileSync(join(root, "screens.js"), SCREENS);
+    steady = await screens("codex-steady", "codex", { frames: [resume] });
+    replaced = await screens("codex-replaced", "codex", { frames: [resume, cleanup], swap: "down" });
+    ended = await screens("codex-ended", "codex", { frames: [resume], hold: true });
+    denied = await screens("omp-denied", "omp", { frames: [permission] });
+  }, 60_000);
+
+  it("moves to the row of a Codex menu and confirms it", async () => {
+    const prompt = await card(steady);
+    expect(prompt.options.map((option) => option.label)).toEqual(["Resume the task", "Start over", "Quit"]);
+    expect((await send(steady, prompt.id, { option_index: 2 })).status).toBe(200);
+    expect(await keys(steady)).toEqual(["down", "down", "enter"]);
+  });
+
+  it("moves to Deny on omp's permission and presses it", async () => {
+    const prompt = await card(denied);
+    expect(prompt.options.map((option) => option.label)).toEqual(["Approve", "Deny"]);
+    // the move draws the last row as the selected one, and the card must still be that menu's
+    expect((await send(denied, prompt.id, { option_index: 1 })).status).toBe(200);
+    expect(await keys(denied)).toEqual(["down", "enter"]);
+  });
+
+  it("presses no Enter into the menu that took a Codex menu's place under its move", async () => {
+    const prompt = await card(replaced);
+    const response = await send(replaced, prompt.id, { option_index: 1 });
+    expect(response.status).toBe(409);
+    expect(((await response.json()) as { error: { code: string } }).error.code).toBe("prompt_changed");
+    // the Enter would have deleted the branch
+    expect(await keys(replaced)).toEqual(["down"]);
+    expect((await card(replaced)).options.map((option) => option.label)).toEqual(["Keep the branch", "Delete the branch", "Quit"]);
+  });
+
+  it("presses no Enter once herdr reports the agent back at work under its move", async () => {
+    const prompt = await card(ended);
+    const socket = new WebSocket(`ws://localhost:${server.port}/ws`);
+    const working = new Promise<void>((resolve) => socket.addEventListener("message", (event) => {
+      const message = JSON.parse(String(event.data)) as { type?: string; pane_id?: string; agent_status?: string };
+      if (message.type === "pane-status" && message.pane_id === ended.pane && message.agent_status === "working") resolve();
+    }));
+    await new Promise((resolve) => socket.addEventListener("open", resolve));
+    try {
+      const response = send(ended, prompt.id, { option_index: 1 });
+      // the ↓ has gone out and the answer waits for the menu to show the cursor on its row
+      for (let i = 0; i < 100 && !chosen(ended).includes("down"); i++) await Bun.sleep(20);
+      const waiting = performance.now();
+      expect(chosen(ended)).toEqual(["down"]);
+      // answered in the terminal: herdr says the agent works again, and the server has heard it
+      await herdrRpc("pane.report_agent", { pane_id: ended.pane, source: "manual", agent: "codex", state: "working" });
+      await working;
+      // the same menu, asked again, with its cursor on the very row the Enter was for
+      await herdrRpc("pane.report_agent", { pane_id: ended.pane, source: "manual", agent: "codex", state: "blocked" });
+      // well inside the answer's own wait (1.5 s) for the cursor: the refusal below is for the
+      // asking that ended, not for a menu that never showed the move
+      expect(performance.now() - waiting).toBeLessThan(600);
+      writeFileSync(`${ended.log}.go`, "");
+      expect((await response).status).toBe(409);
+      expect(await keys(ended)).toEqual(["down"]);
+    } finally { socket.close(); }
   });
 });

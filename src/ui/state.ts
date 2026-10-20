@@ -444,8 +444,6 @@ export interface FoldersState {
 
 /** how often the chat reads the pane's waiting prompt */
 export const CHAT_POLL_MS = 2000;
-/** how long the card says the prompt changed under its answer */
-export const CARD_CHANGED_MS = 2000;
 
 /** The chat lens on a pane, and what it shares with the composer below it: the waiting prompt, the agent's suggestion, the settings in use. */
 export interface ChatState {
@@ -468,7 +466,7 @@ export interface ChatState {
   /** the prompt read chain running: one at a time */
   promptSeq: number;
   /** an answer from the prompt's card: on its way, refused (`changed`: the prompt moved on under it), or none */
-  card: { promptId: string; status: "pending" } | { promptId: string; status: "changed"; seq: number } | { promptId: string; status: "failed"; message: string } | null;
+  card: { promptId: string; status: "pending" } | { promptId: string; status: "changed" } | { promptId: string; status: "failed"; message: string } | null;
   /** a prompt of the conversation asked for (a step back or on, or the one picked in the palette): the chat scrolls to it once per `seq` */
   seek: { to: -1 | 1 | { key: string }; seq: number } | null;
 }
@@ -949,8 +947,6 @@ type BareEvent =
   | { type: "answer-result"; id: number; outcome: { kind: "ok" } | { kind: "failed"; status: number | null; code: string | null; message: string } }
   /** an option, options or a reply picked in the prompt's card; `typed`: the Confirm of a pick typed in the composer */
   | { type: "prompt-card-answer"; machineId: string; paneId: string; promptId: string; answer: TypedAnswer; typed: boolean }
-  /** what the card said of a changed prompt has been shown long enough */
-  | { type: "prompt-card-clear"; seq: number }
   /** `owner`: the pane's storage id */
   | { type: "composer-draft"; owner: string; change: ComposerDraftChange }
   | { type: "composer-draft-loaded"; owner: string; text: string; sending: boolean; settled: { text: string; edited: boolean } | null }
@@ -1488,10 +1484,6 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "answer-result":
     case "prompt-card-answer":
       return sendTransition(state, event, effects);
-    case "prompt-card-clear": {
-      const { card } = state.chat;
-      return next(card?.status === "changed" && card.seq === event.seq ? { chat: { ...state.chat, card: null } } : {});
-    }
     case "composer-draft":
       effects.push({ kind: "composer-draft-change", owner: event.owner, change: event.change });
       return next({});
@@ -2993,12 +2985,13 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
       const answered: UiState = { ...next, chat: { ...showPrompt({ ...chat, pendingAnswer: null }, null), card: null } };
       return { state: answered, effects };
     }
-    if (event.outcome.status === 409 && event.outcome.code === "prompt_changed") {
-      const seq = event.id;
-      const changed: UiState = { ...next, chat: { ...chat, pendingAnswer, card: { promptId: pending.promptId, status: "changed", seq } } };
-      const reread = chatReads(changed) ? { ...changed, chat: readChatPrompt(changed, effects) } : changed;
-      effects.push({ kind: "later", ms: CARD_CHANGED_MS, event: { type: "prompt-card-clear", seq } });
-      return { state: reread, effects };
+    // a card read before the question moved on: refused as changed (409), or as an answer it no
+    // longer fits (400). The word stays until the card is replaced or answered again, so its
+    // buttons never look dead
+    const { status, code } = event.outcome;
+    if (status === 409 && code === "prompt_changed" || status === 400 && code === "invalid_answer") {
+      const changed: UiState = { ...next, chat: { ...chat, pendingAnswer, card: { promptId: pending.promptId, status: "changed" } } };
+      return { state: chatReads(changed) ? { ...changed, chat: readChatPrompt(changed, effects) } : changed, effects };
     }
     return { state: { ...next, chat: { ...chat, pendingAnswer, card: { promptId: pending.promptId, status: "failed", message: event.outcome.message } } }, effects };
   }

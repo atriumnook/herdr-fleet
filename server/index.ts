@@ -44,7 +44,7 @@ import {
   workspaceRename,
 } from "./herdr/client.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
-import { codexQuestionsCollapsed, handlePromptRequest, liveScreen } from "./prompt.ts";
+import { codexQuestionsCollapsed, handlePromptRequest, liveScreen, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
@@ -953,6 +953,10 @@ export function createServer(
       fleet.onPaneStatus(paneId);
       // read back from a snapshot around a gap between subscriptions
       if (replay && !completions.replayed(paneId, raw, replay)) return;
+      // back at work, the agent has had its answer, maybe from a terminal: the same prompt on
+      // its screen after this is another asking, which an answer to the old card must not take.
+      // Only for a status that counts: a replay that changed nothing ends no asking
+      if (raw === "working") promptWaitEnded(paneId);
       // an agent herdr lost on the way still works and finishes as such (server/completion.ts)
       const status = completions.observe(paneId, raw, agent);
       broadcastAll({ type: "pane-status", pane_id: paneId, agent_status: status });

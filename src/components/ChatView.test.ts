@@ -47,7 +47,7 @@ describe("Chat view", () => {
     const prompt: InteractivePrompt = { id: "p", agent: "claude", kind: "approval", title: "Allow?", question: "Edit?", body: null, options: [{ label: "Yes", description: null }], multi_select: false, custom_option_index: null };
     expect(render(model({ prompt, card: { promptId: "p", status: "pending" } }))).toContain('aria-busy="true"');
     expect(render(model({ prompt, card: { promptId: "p", status: "failed", message: "boom" } }))).toContain(">boom</p>");
-    expect(render(model({ prompt, card: { promptId: "p", status: "changed", seq: 1 } }))).toContain("the prompt changed — re-read");
+    expect(render(model({ prompt, card: { promptId: "p", status: "changed" } }))).toContain(t("The question on screen changed; check it and answer again."));
     // an answer for the prompt before says nothing of this one
     const other = render(model({ prompt, card: { promptId: "q", status: "failed", message: "boom" } }));
     expect(other).not.toContain("boom");
