@@ -4,12 +4,12 @@
  * that lives ten minutes; the device sends the code once and receives a token of its own
  * in an HttpOnly cookie. Only a hash of that token is stored, so devices.json in the state
  * dir (0600, written whole) reveals nothing if read. Revocation also closes that device's
- * active streams. A device is either allowed to drive (type, answer, manage) or only to watch.
+ * active streams. A paired device may do everything this PC may.
  */
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { DeviceRole, PairedDevice } from "../shared/protocol.ts";
+import type { PairedDevice } from "../shared/protocol.ts";
 import type { Access } from "./access.ts";
 import { deviceCookie, isSecureRequest, noContent } from "./auth.ts";
 import { badRequest, isJsonObject, jsonResponse, sameOrigin } from "./http.ts";
@@ -22,7 +22,8 @@ const LABEL_MAX = 48;
 interface StoredDevice {
   id: string;
   label: string;
-  role: DeviceRole;
+  /** every device may drive; the field stays so that an entry without it reads as damaged, as before */
+  role: "drive";
   token_hash: string;
   created_at: string;
   last_seen_at: string | null;
@@ -37,7 +38,6 @@ export interface PairingCode {
 export interface DeviceMatch {
   id: string;
   label: string;
-  role: DeviceRole;
 }
 
 const hash = (token: string) => createHash("sha256").update(token).digest("hex");
@@ -50,10 +50,6 @@ const same = (left: string, right: string) => {
 export function normalizeLabel(value: unknown, fallback: string): string {
   const label = typeof value === "string" ? value.replace(/\s+/g, " ").trim().slice(0, LABEL_MAX) : "";
   return label || fallback;
-}
-
-export function isDeviceRole(value: unknown): value is DeviceRole {
-  return value === "drive" || value === "watch";
 }
 
 /** Owner-only, and written whole: a crash mid-write must not leave half a device list. */
@@ -80,13 +76,25 @@ export class DeviceStore {
       if (!isJsonObject(parsed) || !Array.isArray(parsed.devices)
         || !(parsed.gate_closed_at === null || typeof parsed.gate_closed_at === "string")
         || !parsed.devices.every((d) => isJsonObject(d) && typeof d.id === "string"
-          && typeof d.token_hash === "string" && isDeviceRole(d.role)
+          && typeof d.token_hash === "string" && (d.role === "drive" || d.role === "watch")
           && typeof d.label === "string" && typeof d.created_at === "string"
           && (d.last_seen_at === null || typeof d.last_seen_at === "string"))) {
         throw new Error("invalid device registry");
       }
       this.gateClosedAt = parsed.gate_closed_at;
-      this.devices = parsed.devices as StoredDevice[];
+      // an older version could pair a device to only watch: it must pair again, not come back able to type
+      const stored = parsed.devices as Array<Omit<StoredDevice, "role"> & { role: "drive" | "watch" }>;
+      this.devices = stored.filter((d): d is StoredDevice => d.role === "drive");
+      if (this.devices.length < stored.length) {
+        const dropped = stored.length - this.devices.length;
+        try {
+          this.save();
+          console.warn(`Removed ${dropped} device(s) paired to only watch from ${this.path}: pair them again.`);
+        } catch (error) {
+          // still refused here; the next save that works writes the list without them
+          console.warn(`Refusing ${dropped} device(s) paired to only watch, but ${this.path} could not be written: ${(error as Error).message}`);
+        }
+      }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
       // A damaged registry is not a first installation. Keep it intact for recovery and
@@ -121,7 +129,7 @@ export class DeviceStore {
   }
 
   list(currentId: string | null): PairedDevice[] {
-    return this.devices.map((d) => ({ id: d.id, label: d.label, role: d.role, created_at: d.created_at, last_seen_at: d.last_seen_at, current: d.id === currentId }));
+    return this.devices.map((d) => ({ id: d.id, label: d.label, created_at: d.created_at, last_seen_at: d.last_seen_at, current: d.id === currentId }));
   }
 
   /** A fresh six-digit code, replacing any code still pending. */
@@ -133,7 +141,7 @@ export class DeviceStore {
   }
 
   /** `{ token }` when the code is right; null when it is wrong, spent or expired. */
-  pair(code: string, label: string, role: DeviceRole, now = Date.now()): { token: string; device: DeviceMatch } | null {
+  pair(code: string, label: string, now = Date.now()): { token: string; device: DeviceMatch } | null {
     this.assertWritable();
     const pending = this.pending;
     if (pending === null || now > pending.expires) { this.pending = null; return null; }
@@ -143,14 +151,14 @@ export class DeviceStore {
       return null;
     }
     const token = randomBytes(32).toString("hex");
-    const device: StoredDevice = { id: randomBytes(8).toString("hex"), label, role, token_hash: hash(token), created_at: new Date(now).toISOString(), last_seen_at: null };
+    const device: StoredDevice = { id: randomBytes(8).toString("hex"), label, role: "drive", token_hash: hash(token), created_at: new Date(now).toISOString(), last_seen_at: null };
     const next = [...this.devices, device];
     const gate = this.gateClosedAt ?? device.created_at;
     this.save(next, gate);
     this.devices = next;
     this.gateClosedAt = gate;
     this.pending = null;
-    return { token, device: { id: device.id, label: device.label, role: device.role } };
+    return { token, device: { id: device.id, label: device.label } };
   }
 
   /** The device a cookie token belongs to, noting when it was last seen (at most once a minute on disk). */
@@ -167,20 +175,20 @@ export class DeviceStore {
           this.devices = next;
         } catch { /* last-seen telemetry must not deny an otherwise valid credential */ }
       }
-      return { id: device.id, label: device.label, role: device.role };
+      return { id: device.id, label: device.label };
     }
     return null;
   }
 
-  update(id: string, patch: { label?: string; role?: DeviceRole }): PairedDevice | null {
+  update(id: string, patch: { label: string }): PairedDevice | null {
     this.assertWritable();
     const device = this.devices.find((d) => d.id === id);
     if (!device) return null;
-    const updated = { ...device, ...(patch.label === undefined ? {} : { label: patch.label }), ...(patch.role === undefined ? {} : { role: patch.role }) };
+    const updated = { ...device, label: patch.label };
     const next = this.devices.map((d) => d === device ? updated : d);
     this.save(next);
     this.devices = next;
-    return { id: updated.id, label: updated.label, role: updated.role, created_at: updated.created_at, last_seen_at: updated.last_seen_at, current: false };
+    return { id: updated.id, label: updated.label, created_at: updated.created_at, last_seen_at: updated.last_seen_at, current: false };
   }
 
   revoke(id: string): boolean {
@@ -220,7 +228,7 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
     const body = await json();
     if (body instanceof Response) return body;
     if (typeof body["code"] !== "string") return badRequest("missing_code", "code is required");
-    const paired = store.pair(body["code"], normalizeLabel(body["label"], "Device"), "drive");
+    const paired = store.pair(body["code"], normalizeLabel(body["label"], "Device"));
     if (paired === null) return jsonResponse({ error: { code: "invalid_code", message: "the code is wrong, spent or expired; start a new pairing on the PC" } }, 401);
     return noContent(deviceCookie(paired.token, isSecureRequest(request)));
   }
@@ -229,7 +237,6 @@ export async function handleDeviceRequest(request: Request, pathname: string, st
     return jsonResponse({ devices: store.list(access.level === "full" ? access.device?.id ?? null : null) }, 200, { "cache-control": "no-store" });
   }
   if (!sameOrigin(request) || request.headers.get("x-herdr-machine") !== "1") return jsonResponse({ error: { code: "invalid_origin", message: "Manage devices from this app" } }, 403);
-  if (access.level === "full" && access.role === "watch") return jsonResponse({ error: { code: "read_only", message: "this device can only watch" } }, 403);
   if (pathname === "/api/devices/pair/start") {
     if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
     return jsonResponse(store.startPairing(), 200, { "cache-control": "no-store" });

@@ -18,7 +18,7 @@ describe("a Presenter's selection", () => {
 
   it("keeps the regions it reads when another region changes, and takes them anew when one of them does", () => {
     const typing = transition(transition(INITIAL_STATE, { type: "open-settings" }).state, { type: "edit-font", field: "chatFontFamily", text: "Menlo" }).state;
-    const fleet = regions("runs", "usage", "request", "canAct", "fleetView");
+    const fleet = regions("runs", "usage", "request", "fleetView");
     const [before, whileTyping] = reads([INITIAL_STATE, typing], fleet, sameRegions);
     expect(whileTyping).toBe(before!);
     const loaded = transition(typing, { type: "runs-loaded", runs: [] }).state;

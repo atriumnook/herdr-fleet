@@ -139,45 +139,16 @@ it("opens a fleet run's results, and no other file of the state folder", async (
   }
 });
 
-it("watch credentials cannot mutate HTTP state, read credential files, or elevate terminals", async () => {
-  const root = mkdtempSync(join(tmpdir(), "herdr-watch-access-"));
-  const store = new DeviceStore(root);
-  const watch = store.pair(store.startPairing().code, "Watch", "watch")!;
-  const server = createServer({ port: 0, stateDir: root, token: "test-watch", tailscaleOwner: null, machines: false });
+it("an empty segment in the path names no route", async () => {
+  const root = mkdtempSync(join(tmpdir(), "herdr-empty-segment-"));
+  const server = createServer({ port: 0, stateDir: root, token: "test-segment", tailscaleOwner: null, machines: false });
   const base = `http://127.0.0.1:${server.port}`;
-  const cookie = `herdr_fleet_device=${watch.token}`;
-  const headers = { ...guard, cookie };
-  const sockets: WebSocket[] = [];
   try {
-    expect((await fetch(`${base}/api/session`, { headers })).status).toBe(200);
-    for (const path of ["pane/input", "workspace/create", "machines/setup", "updates/install", "herdr/update"]) {
-      expect((await fetch(`${base}/api/${path}`, { method: "POST", headers, body: "{}" })).status).toBe(403);
-    }
-    expect((await fetch(`${base}/api/fs/file?path=${encodeURIComponent(join(root, "devices.json"))}`, { headers })).status).toBe(403);
-    writeFileSync(join(root, "page.html"), "<p>hi</p>");
-    expect((await fetch(`${base}${fileViewUrl(join(root, "page.html"), null)}`, { headers })).status).toBe(403);
-    // an empty segment must not turn a file read into "some other route" (the PC proxy drops it)
     for (const path of ["api//fs/file", "api/machines/pc1//fs/file", "api/machines/pc1/fs//file"]) {
-      expect((await fetch(`${base}/${path}?path=${encodeURIComponent(join(root, "devices.json"))}`, { headers })).status).toBe(404);
+      const response = await fetch(`${base}/${path}?path=${encodeURIComponent(join(root, "devices.json"))}`, { headers: { authorization: "Bearer test-segment" } });
+      expect(response.status).toBe(404);
     }
-    for (const origin of [base]) {
-      const client = await connect(`${origin.replace("http:", "ws:")}/ws`, cookie); sockets.push(client.socket);
-      client.socket.send(JSON.stringify({ type: "role", mode: "interact" }));
-      await until(() => client.messages.some((m) => m.type === "role-ack" && m.mode === "observe"));
-      for (const frame of [{ type: "input", text: "must not type" }, { type: "keys", keys: ["Enter"] }, { type: "resize", cols: 40, rows: 10 }]) {
-        const before = client.messages.filter((m) => m.type === "error").length;
-        client.socket.send(JSON.stringify({ ...frame, pane_id: "absent" }));
-        await until(() => client.messages.filter((m) => m.type === "error").length > before);
-        expect(client.messages.filter((m) => m.type === "error").at(-1)).toMatchObject({ code: "read_only" });
-      }
-      client.socket.send(JSON.stringify({ type: "submit", id: 1, pane_id: "absent", text: "no", payload: "no" }));
-      await until(() => client.messages.some((m) => m.type === "submit-result"));
-      expect(client.messages.find((m) => m.type === "submit-result")).toMatchObject({ ok: false, code: "read_only" });
-    }
-  } finally {
-    for (const socket of sockets) socket.close();
-    server.stop(); rmSync(root, { recursive: true, force: true });
-  }
+  } finally { server.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
 it("revoking a paired device removes its persistent push subscription", async () => {
@@ -205,7 +176,7 @@ it("revoking a paired device removes its persistent push subscription", async ()
 it("returns an error when revocation cannot be persisted, then allows a successful retry", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-device-write-"));
   const store = new DeviceStore(root);
-  const paired = store.pair(store.startPairing().code, "Phone", "drive")!;
+  const paired = store.pair(store.startPairing().code, "Phone")!;
   const server = createServer({ port: 0, stateDir: root, token: "test-write", tailscaleOwner: null, machines: false });
   const base = `http://127.0.0.1:${server.port}`;
   const blocked = join(root, `devices.json.${process.pid}.tmp`);

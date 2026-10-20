@@ -109,22 +109,18 @@ export interface ApiError {
 export type AccessVia = "local" | "tailscale" | "device" | "token";
 /** Why a request did not. */
 export type AccessRefusal = "other_user" | "pairing_required" | "token_required";
-/** What a paired device may do: drive (type, answer, manage) or only watch. */
-export type DeviceRole = "drive" | "watch";
 
 /** GET /api/health `auth`: `authenticated` is whether this request got in; `required` is the opposite, kept for older clients. */
 export interface HealthAuth {
   readonly required: boolean;
   readonly authenticated: boolean;
   readonly via?: AccessVia;
-  readonly role?: DeviceRole;
   readonly reason?: AccessRefusal;
 }
 
 export interface PairedDevice {
   readonly id: string;
   readonly label: string;
-  readonly role: DeviceRole;
   readonly created_at: string;
   readonly last_seen_at: string | null;
   /** the device this request came from */

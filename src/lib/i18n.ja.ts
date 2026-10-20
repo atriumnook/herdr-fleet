@@ -185,7 +185,6 @@ export const JA: Record<string, string> = {
   "Changes are saved to {file} as you make them.": "変更するたびに {file} に保存します。",
   "Could not load the settings. {error}": "設定を読み込めませんでした。{error}",
   "Could not save. {error}": "保存できませんでした。{error}",
-  "This device can only watch, so the settings cannot be changed here.": "この端末は閲覧専用なので、ここでは設定を変えられません。",
   // ---- entrances ----
   "Lets the conversation of an agent CLI in a herdr pane hand work to the fleet. The fleet puts its skill, herdr-fleet, into a folder the CLI reads skills from. When you say \"ask the fleet\" in that conversation, the CLI sends the request to the coordinator of its repository.": "herdr のペインで動いているエージェント CLI の会話から、fleet に仕事を頼めるようにします。fleet は、自分のスキル herdr-fleet を、CLI がスキルを読むフォルダに置きます。その会話で「fleet に頼んで」と言うと、CLI がそのリポジトリの coordinator に頼みごとを送ります。",
   "Could not read the skill folders. {error}": "スキルのフォルダを読めませんでした。{error}",

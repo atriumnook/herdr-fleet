@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, it } from "bun:test";
+import { createHash } from "node:crypto";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -29,10 +30,37 @@ describe("DeviceStore", () => {
     expect(fresh.gated).toBe(false);
   });
 
+  it("regression: drops a device an older version paired to only watch, rather than let it type", () => {
+    const root = mkdtempSync(join(dir, "older-"));
+    const stored = (id: string, token: string, role: string) => ({ id, label: id, role, token_hash: createHash("sha256").update(token).digest("hex"), created_at: "2026-10-01T00:00:00.000Z", last_seen_at: null });
+    writeFileSync(join(root, "devices.json"), JSON.stringify({ gate_closed_at: "2026-10-01T00:00:00.000Z", devices: [stored("phone", "drive-token", "drive"), stored("tablet", "watch-token", "watch")] }));
+    const store = new DeviceStore(root);
+    expect(store.error).toBeNull();
+    // nor is it left in the file, for an older version to let in again
+    expect(readFileSync(join(root, "devices.json"), "utf8")).not.toContain("tablet");
+    expect(store.match("watch-token")).toBeNull();
+    expect(store.match("drive-token")).toEqual({ id: "phone", label: "phone" });
+    expect(store.list(null).map((d) => d.id)).toEqual(["phone"]);
+    // the gate stays closed, though it may have been only a watching device that closed it
+    expect(store.gated).toBe(true);
+    expect(new DeviceStore(root).match("drive-token")).toEqual({ id: "phone", label: "phone" });
+  });
+
+  it("reads an entry without a role as damaged, and writes the role it reads", () => {
+    const root = mkdtempSync(join(dir, "roleless-"));
+    const contents = JSON.stringify({ gate_closed_at: null, devices: [{ id: "x", label: "x", token_hash: "h", created_at: "2026-10-01T00:00:00.000Z", last_seen_at: null }] });
+    writeFileSync(join(root, "devices.json"), contents);
+    expect(new DeviceStore(root).error).toContain("Restore a valid devices.json");
+    const fresh = mkdtempSync(join(dir, "written-"));
+    const store = new DeviceStore(fresh);
+    const paired = store.pair(store.startPairing().code, "Phone")!;
+    expect(new DeviceStore(fresh).match(paired.token)).toEqual(paired.device);
+  });
+
   it("closes only the revoked device's listeners, including late registrations", () => {
     const store = new DeviceStore(mkdtempSync(join(dir, "listeners-")));
-    const a = store.pair(store.startPairing().code, "A", "drive")!;
-    const b = store.pair(store.startPairing().code, "B", "drive")!;
+    const a = store.pair(store.startPairing().code, "A")!;
+    const b = store.pair(store.startPairing().code, "B")!;
     const closed: string[] = [];
     store.onRevoke(a.device.id, () => closed.push("a"));
     store.onRevoke(b.device.id, () => closed.push("b"));
@@ -49,15 +77,15 @@ describe("DeviceStore", () => {
     expect(store.gated).toBe(false);
     const { code } = store.startPairing();
     expect(code).toMatch(/^\d{6}$/);
-    expect(store.pair("000000".replace(/./g, (c) => c === code[0] ? "1" : c), "x", "drive")).toBeNull(); // a wrong code
-    const paired = store.pair(code.slice(0, 3) + " " + code.slice(3), "My phone", "drive");
+    expect(store.pair("000000".replace(/./g, (c) => c === code[0] ? "1" : c), "x")).toBeNull(); // a wrong code
+    const paired = store.pair(code.slice(0, 3) + " " + code.slice(3), "My phone");
     expect(paired).not.toBeNull();
-    expect(store.pair(code, "again", "drive")).toBeNull(); // spent
+    expect(store.pair(code, "again")).toBeNull(); // spent
     expect(store.gated).toBe(true);
     const file = readFileSync(join(dir, "devices.json"), "utf8");
     expect(file).not.toContain(paired!.token);
     expect((statSync(join(dir, "devices.json")).mode & 0o777)).toBe(0o600);
-    expect(store.match(paired!.token)).toEqual({ id: paired!.device.id, label: "My phone", role: "drive" });
+    expect(store.match(paired!.token)).toEqual({ id: paired!.device.id, label: "My phone" });
     expect(store.match("not-a-token")).toBeNull();
     // and a second store reading the same file knows the device
     expect(new DeviceStore(dir).match(paired!.token)?.label).toBe("My phone");
@@ -67,16 +95,16 @@ describe("DeviceStore", () => {
     const store = new DeviceStore(mkdtempSync(join(dir, "s-")));
     const started = Date.now();
     const { code } = store.startPairing(started);
-    expect(store.pair(code, "late", "drive", started + 10 * 60_000 + 1)).toBeNull();
+    expect(store.pair(code, "late", started + 10 * 60_000 + 1)).toBeNull();
     const second = store.startPairing().code;
-    for (let i = 0; i < 5; i++) expect(store.pair("999999" === second ? "000000" : "999999", "x", "drive")).toBeNull();
-    expect(store.pair(second, "x", "drive")).toBeNull();
+    for (let i = 0; i < 5; i++) expect(store.pair("999999" === second ? "000000" : "999999", "x")).toBeNull();
+    expect(store.pair(second, "x")).toBeNull();
   });
 
   it("renames, revokes, and marks the caller's device", () => {
     const store = new DeviceStore(mkdtempSync(join(dir, "r-")));
-    const a = store.pair(store.startPairing().code, "A", "drive")!;
-    const b = store.pair(store.startPairing().code, "B", "drive")!;
+    const a = store.pair(store.startPairing().code, "A")!;
+    const b = store.pair(store.startPairing().code, "B")!;
     expect(store.list(a.device.id).map((d) => [d.label, d.current])).toEqual([["A", true], ["B", false]]);
     expect(store.update(b.device.id, { label: "Bee" })?.label).toBe("Bee");
     expect(store.revoke(a.device.id)).toBe(true);
@@ -118,13 +146,13 @@ describe("labels and owner", () => {
 it("reports failed registry writes without committing a pair, rename or revocation in memory", () => {
   const root = mkdtempSync(join(dir, "write-failure-"));
   const store = new DeviceStore(root);
-  const first = store.pair(store.startPairing().code, "Original", "drive")!;
+  const first = store.pair(store.startPairing().code, "Original")!;
   let closed = false;
   store.onRevoke(first.device.id, () => { closed = true; });
   const blocked = join(root, `devices.json.${process.pid}.tmp`);
   mkdirSync(blocked);
   const code = store.startPairing().code;
-  expect(() => store.pair(code, "Failed pair", "drive")).toThrow();
+  expect(() => store.pair(code, "Failed pair")).toThrow();
   expect(() => store.update(first.device.id, { label: "Failed rename" })).toThrow();
   expect(() => store.revoke(first.device.id)).toThrow();
   expect(closed).toBe(false);
@@ -132,7 +160,7 @@ it("reports failed registry writes without committing a pair, rename or revocati
   expect(store.match(first.token)?.label).toBe("Original");
   expect(new DeviceStore(root).match(first.token)?.label).toBe("Original");
   rmSync(blocked, { recursive: true });
-  expect(store.pair(code, "Retry", "drive")).not.toBeNull();
+  expect(store.pair(code, "Retry")).not.toBeNull();
   expect(store.revoke(first.device.id)).toBe(true);
   expect(closed).toBe(true);
   expect(new DeviceStore(root).match(first.token)).toBeNull();
