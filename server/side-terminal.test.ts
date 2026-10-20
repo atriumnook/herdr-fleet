@@ -13,10 +13,14 @@ function herdr(panes: PaneInfo[], tabs: TabInfo[]) {
     created,
     deps: {
       snapshot: async () => ({ panes, tabs }),
+      // as herdr does: the new tab and its shell are in the next snapshot
       createTab: async (workspaceId: string, cwd: string | undefined, label: string) => {
         created.push({ workspaceId, cwd, label });
         await Promise.resolve();
-        return pane(`w1:p${10 + created.length}`, { tab_id: "w1:t9", agent: null });
+        const shell = pane(`w1:p${10 + created.length}`, { tab_id: `w1:t${10 + created.length}`, agent: null });
+        tabs.push(tab(shell.tab_id, label));
+        panes.push(shell);
+        return shell;
       },
     },
   };
