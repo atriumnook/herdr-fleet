@@ -39,9 +39,17 @@ export function splitFilePaths(text: string): (string | { path: string })[] {
   return parts;
 }
 
-/** A code span that is a single file name or path (`README.md`, `src/app.ts`). */
-export function codeIsFilePath(code: string): boolean {
-  return CODE_PATH.test(code) && !isCodeName(code) && /\p{L}/u.test(code.replace(/\.[A-Za-z0-9]{1,8}$/, "")) && !/^\d+(?:\.\d+)+$/.test(code);
+/** A line an agent points at after a path: `:12`, `:12:5`, `:12-20`, `#L12`, `#L12-L20`. */
+const LINE_REF = /(?::\d+(?:[:-]\d+)?|#L\d+(?:-L?\d+)?)$/;
+
+/**
+ * The file a code span names, when it is a single file name or path (`README.md`, `src/app.ts`),
+ * or one with the line it points at (`src/app.ts:12`); null when it is anything else. The line
+ * is dropped: the viewer opens the file.
+ */
+export function codeFilePath(code: string): string | null {
+  const path = code.replace(LINE_REF, "");
+  return CODE_PATH.test(path) && !isCodeName(path) && /\p{L}/u.test(path.replace(/\.[A-Za-z0-9]{1,8}$/, "")) && !/^\d+(?:\.\d+)+$/.test(path) ? path : null;
 }
 
 /** Opens a path in the file viewer; null where nothing can open one (paths stay text). */

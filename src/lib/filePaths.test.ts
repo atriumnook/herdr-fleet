@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { codeIsFilePath, isImagePath, splitFilePaths } from "./filePaths.ts";
+import { codeFilePath, isImagePath, splitFilePaths } from "./filePaths.ts";
 
 const paths = (text: string) => splitFilePaths(text).filter((part) => typeof part !== "string").map((part) => (part as { path: string }).path);
 
@@ -25,12 +25,21 @@ describe("file paths in chat text", () => {
   });
 
   it("takes a code span that is one file name or path", () => {
-    for (const code of ["README.md", "src/app.ts", "~/x/y.png", "/tmp/a.log", "docs/demo.mp4"]) expect(codeIsFilePath(code)).toBe(true);
-    for (const code of ["bun test", "1.2.3", "git log --oneline", "a/b", "foo()", "x.y()", "tool.monitor", "Math.random", "process.env", "os.path", "process.env.HOME", "console.log", "JSON.parse"]) expect(codeIsFilePath(code)).toBe(false);
-    for (const code of ["結果.md", "~/Pictures/スクリーンショット.png", "docs/画面.png"]) expect(codeIsFilePath(code)).toBe(true);
-    expect(codeIsFilePath("1.2.3")).toBe(false);
+    for (const code of ["README.md", "src/app.ts", "~/x/y.png", "/tmp/a.log", "docs/demo.mp4"]) expect(codeFilePath(code)).toBe(code);
+    for (const code of ["bun test", "1.2.3", "git log --oneline", "a/b", "foo()", "x.y()", "tool.monitor", "Math.random", "process.env", "os.path", "process.env.HOME", "console.log", "JSON.parse"]) expect(codeFilePath(code)).toBeNull();
+    for (const code of ["結果.md", "~/Pictures/スクリーンショット.png", "docs/画面.png"]) expect(codeFilePath(code)).toBe(code);
+    expect(codeFilePath("1.2.3")).toBeNull();
     // a file of any language still opens: what is refused above is known code, not an unknown extension
-    for (const code of ["main.c", "util.h", "App.vue", "go.mod", "Cargo.lock", "nginx.conf", "config.env", "src/process.env", "os.py", "std.rs", "tool.ts", "fmt.go", "app.dev", "tool.vue", "std.lock", "os.conf", "Math.js", "process.yml", "README.org", "notes.io", "example.com"]) expect(codeIsFilePath(code)).toBe(true);
+    for (const code of ["main.c", "util.h", "App.vue", "go.mod", "Cargo.lock", "nginx.conf", "config.env", "src/process.env", "os.py", "std.rs", "tool.ts", "fmt.go", "app.dev", "tool.vue", "std.lock", "os.conf", "Math.js", "process.yml", "README.org", "notes.io", "example.com"]) expect(codeFilePath(code)).toBe(code);
+  });
+
+  it("opens the file a code span points into, as agents write `path:line`", () => {
+    for (const [code, path] of [["src/app.ts:12", "src/app.ts"], ["src/app.ts:12:5", "src/app.ts"], ["server/x.ts:1125-1142", "server/x.ts"],
+      ["README.md:3", "README.md"], ["src/app.ts#L12", "src/app.ts"], ["src/app.ts#L12-L20", "src/app.ts"], ["docs/画面.md:4", "docs/画面.md"]]) {
+      expect(codeFilePath(code!)).toBe(path!);
+    }
+    // a line after something that is not a file stays code
+    for (const code of ["process.env:12", "1.2.3:4", "localhost:3000", "a/b:12", "src/app.ts:", "src/app.ts:x"]) expect(codeFilePath(code)).toBeNull();
   });
 });
 
