@@ -34,7 +34,10 @@ const RESULT_FILE = "handoff.md";
 
 /** A spawn whose configured fallbacks (candidate entries) are still untried: consulted if its first turn fails. */
 /** A spawn with its brief turned into the task and the paths it may write, ready to try candidates for. */
-type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[]; thread?: ThreadPlace };
+type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[]; thread?: ThreadPlace; sideChat?: SideChatPlace };
+
+/** What a side chat is about: the pane whose conversation it answers on, and that conversation as text for it to read. */
+interface SideChatPlace { paneId: string; context: string }
 
 /** Where a thread works (the repository its worktree comes from, or none outside one), and the run that owns it. */
 interface ThreadPlace { repo: string | null; owner?: string; base?: string; baseBranch?: string }
@@ -63,6 +66,23 @@ export interface ProjectRequest {
 
 
 const PROJECT_ROLE = "coordinator";
+
+/** A side chat to start: questions on the side about a pane, answered by an agent that reads its conversation and edits nothing. */
+export interface SideChatRequest {
+  /** the pane the questions are about; the side chat opens in a tab of its workspace */
+  paneId: string;
+  question: string;
+  /** the pane's folder: the side chat reads the code there */
+  cwd: string;
+  /** the pane's conversation (or its screen) as text */
+  context: string;
+}
+
+const SIDE_CHAT_ROLE = "side-chat";
+/** where a side chat finds the conversation it is about: in its result folder, written before it starts */
+const CONTEXT_FILE = "context.md";
+/** the roles that talk with the person, who reads their replies: no agent reads a handoff of theirs */
+const PERSON_ROLES = new Set([PROJECT_ROLE, SIDE_CHAT_ROLE]);
 /** where a thread lead writes its acceptance contract: beside its result file (agents/lead.md) */
 const CONTRACT_FILE = "contract.md";
 interface SpawnPlan { request: PlannedSpawn; fallbacks: string[] }
@@ -193,6 +213,8 @@ export class Orchestrator {
   private readonly generations = new Map<string, number>();
   private readonly reconcileLocks = new Map<string, Promise<void>>();
   private readonly projectStarts = new Map<string, Promise<AgentRun>>();
+  /** the side chats being started, by the pane they are about: two starts at once must not both find none */
+  private readonly sideChatStarts = new Map<string, Promise<AgentRun>>();
   private readonly delivering = new Set<string>();
   private readonly draftRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
@@ -328,6 +350,29 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * A side chat about a pane: one per pane, in a tab of the pane's workspace. A second start for the
+   * same pane asks the live one; the conversation it read first stays as it was then.
+   */
+  async startSideChat(request: SideChatRequest, signal?: AbortSignal): Promise<AgentRun> {
+    if (!request.question.trim()) throw new FleetError("missing_question", "question is required");
+    const previous = this.sideChatStarts.get(request.paneId) ?? Promise.resolve();
+    const started = previous.catch(() => {}).then(async () => {
+      const live = this.deps.registry.all().find((run) => run.sideChatOf === request.paneId && isLive(run));
+      if (live) return this.send(live.id, request.question, undefined, signal);
+      return this.launch({
+        role: SIDE_CHAT_ROLE, name: "side chat", task: request.question, cwd: request.cwd, depth: 0,
+        group: makeGroupId(), worktree: false, interactive: true, callerPaneId: request.paneId,
+      }, signal, undefined, { paneId: request.paneId, context: request.context });
+    });
+    this.sideChatStarts.set(request.paneId, started);
+    try {
+      return await started;
+    } finally {
+      if (this.sideChatStarts.get(request.paneId) === started) this.sideChatStarts.delete(request.paneId);
+    }
+  }
+
   /** The threads of the caller's project (the calling run's, or the repository `cwd` lies in), oldest first. */
   async threads(request: { callerRun?: string; cwd?: string }): Promise<ThreadSummary[]> {
     const caller = request.callerRun ? this.deps.registry.get(request.callerRun) : undefined;
@@ -341,7 +386,7 @@ export class Orchestrator {
     });
   }
 
-  private async launch(request: SpawnRequest, signal?: AbortSignal, thread?: ThreadPlace): Promise<AgentRun> {
+  private async launch(request: SpawnRequest, signal?: AbortSignal, thread?: ThreadPlace, sideChat?: SideChatPlace): Promise<AgentRun> {
     const group = request.group ?? makeGroupId();
     if (!/^[a-z0-9][a-z0-9_-]{0,47}$/i.test(group)) throw new FleetError("invalid_group", "group must be letters, digits, - and _ (up to 48)");
     const depth = request.depth ?? 0;
@@ -353,7 +398,7 @@ export class Orchestrator {
     const task = brief ? renderBrief(brief, request.task) : request.task ?? "";
     if (!task.trim()) throw new FleetError("missing_task", "task is required");
     const write = brief && !request.worktree ? writeScope(resolve(request.cwd ?? process.cwd()), brief.write) : undefined;
-    return this.spawnWithFallbacks({ ...rest, group, task, ...(write ? { write } : {}), ...(thread ? { thread } : {}) }, signal);
+    return this.spawnWithFallbacks({ ...rest, group, task, ...(write ? { write } : {}), ...(thread ? { thread } : {}), ...(sideChat ? { sideChat } : {}) }, signal);
   }
 
   /**
@@ -460,6 +505,7 @@ export class Orchestrator {
         ...(worktree && request.thread?.base ? { base: request.thread.base } : {}),
         ...(worktree && request.thread?.baseBranch ? { baseBranch: request.thread.baseBranch } : {}),
         ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
+        ...(request.sideChat ? { sideChatOf: request.sideChat.paneId } : {}),
       };
       this.save(run);
     } finally {
@@ -470,8 +516,15 @@ export class Orchestrator {
     const resultDir = join(this.deps.resultsDir, run.id);
     mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
     mkdirSync(resultDir, { mode: 0o700 });
-    // a project's coordinator talks with the person, who reads its reply: no agent reads a handoff of it
-    const resultFile = definition.name === PROJECT_ROLE ? undefined : join(resultDir, RESULT_FILE);
+    // a project's coordinator and a side chat talk with the person, who reads their replies: no agent reads a handoff of them
+    const resultFile = PERSON_ROLES.has(definition.name) ? undefined : join(resultDir, RESULT_FILE);
+    // the conversation a side chat is about, there before it starts; its first prompt names the file
+    let task = request.task;
+    if (request.sideChat) {
+      const contextFile = join(resultDir, CONTEXT_FILE);
+      writeFileSync(contextFile, request.sideChat.context, { mode: 0o600 });
+      task = `The conversation I am asking about is in ${contextFile}. Read it first.\n\n${request.task}`;
+    }
     const instructions = this.instructions(definition, displayName, request.group, canSpawn, resultFile, adapter, this.deps.standingOrders?.(request.cwd) ?? "");
     if (adapter.instructionsInPrompt) {
       mkdirSync(this.deps.instructionsDir, { recursive: true, mode: 0o700 });
@@ -534,7 +587,7 @@ export class Orchestrator {
       if (fallbacks.length) this.spawnPlans.set(run.id, { request, fallbacks });
       // returns once the task is handed over: the budget counts working runs, and a run still
       // `starting` would let the next spawn past the limit
-      await this.submit(run, request.task, signal);
+      await this.submit(run, task, signal);
       return run;
     } catch (error) {
       if (isAbortError(error)) await this.abandonSpawn(run);

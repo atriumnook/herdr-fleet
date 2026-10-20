@@ -1637,3 +1637,38 @@ describe("plans", () => {
     fleet.stop();
   });
 });
+
+describe("side chats", () => {
+  const sideChat = role("side-chat", { agent: "claude", interactive: true, edits: false });
+  const ask = (fleet: Orchestrator, question: string, paneId = "w1:p9") => fleet.startSideChat({ paneId, question, cwd: "/repo", context: "# The conversation\n\n## Person\n\nfix it" });
+
+  it("start beside the pane they are about, with its conversation written for them first, editing nothing", async () => {
+    const { fleet, runtime, root } = setup({ agents: [sideChat] });
+    const run = await ask(fleet, "Why did it pick that design?");
+    expect(run).toMatchObject({ role: "side-chat", name: "side chat", agent: "claude", sideChatOf: "w1:p9", interactive: true, worktree: false, cwd: "/repo" });
+    expect(runtime.locations[0]).toMatchObject({ cwd: "/repo", callerPaneId: "w1:p9", worktree: false });
+    expect(runtime.starts[0]!.args.join(" ")).toContain("--disallowedTools Edit,Write,NotebookEdit");
+    const context = join(root, "results", run.id, "context.md");
+    expect(readFileSync(context, "utf8")).toContain("## Person\n\nfix it");
+    expect(runtime.prompts[0]!.text).toBe(`The conversation I am asking about is in ${context}. Read it first.\n\nWhy did it pick that design?`);
+    // the person reads its reply: it writes no handoff
+    expect(runtime.instructions[0]).not.toContain("HANDOFF");
+  });
+
+  it("keep one per pane: a second start asks the live one, even when both come at once", async () => {
+    const { fleet, runtime, registry } = setup({ agents: [sideChat] });
+    const [first, again] = await Promise.all([ask(fleet, "one"), ask(fleet, "two")]);
+    expect(again.id).toBe(first.id);
+    expect(runtime.locations).toHaveLength(1);
+    expect(runtime.prompts.map((p) => p.text.split("\n").at(-1))).toEqual(["one", "two"]);
+    // another pane has its own; one that ended is replaced
+    expect((await ask(fleet, "three", "w1:p8")).id).not.toBe(first.id);
+    registry.upsert({ ...registry.get(first.id)!, state: "stopped" });
+    expect((await ask(fleet, "four")).id).not.toBe(first.id);
+  });
+
+  it("need a question", async () => {
+    const { fleet } = setup({ agents: [sideChat] });
+    await expect(ask(fleet, " ")).rejects.toMatchObject({ code: "missing_question" });
+  });
+});

@@ -12,6 +12,11 @@ import type { FleetSettingsStore } from "./settings.ts";
 import type { EntranceStore } from "./entrances.ts";
 import type { ModelCatalog } from "./models.ts";
 
+/** What a side chat is handed about a pane: the pane's folder, and its conversation (or screen) as text. */
+export interface SideChatSource {
+  about(paneId: string): Promise<{ cwd: string; context: string }>;
+}
+
 /**
  * Fleet HTTP API, behind the same gate as the rest of /api. Changes need X-Herdr-Fleet: 1: a page
  * on another site cannot send that header without a CORS preflight this server never answers.
@@ -22,6 +27,7 @@ import type { ModelCatalog } from "./models.ts";
  *  POST /api/fleet/threads       { title, task|brief, cwd?, depth?, caller_run? } -> 201 { run }
  *  GET  /api/fleet/threads[?caller_run=&cwd=]        -> { threads: ThreadSummary[] }; the caller's project's
  *  POST /api/fleet/projects      { task, cwd?, from_pane? } -> 201 { run }; the project's coordinator, started or told the task
+ *  POST /api/fleet/side-chats    { pane_id, question }  -> 201 { run }; a side chat about the pane, started or asked the question
  *                                                       (from_pane: the herdr pane whose conversation sent it)
  *  GET  /api/fleet/runs/:target[?group=]             -> { run }
  *  POST /api/fleet/runs/:target/send   { message, group? }     -> { run }
@@ -47,7 +53,7 @@ import type { ModelCatalog } from "./models.ts";
  *  GET  /api/fleet/entrances                        -> FleetEntrances; the skill folders and whether the fleet skill is in each
  *  POST /api/fleet/entrances     { id, action: "install" | "remove" } -> FleetEntrances
  */
-export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator, usage?: Pick<UsageTracker, "list" | "refresh" | "clearCooldown">, settings?: Pick<FleetSettingsStore, "read" | "update">, entrances?: Pick<EntranceStore, "list" | "install" | "remove">, models?: Pick<ModelCatalog, "listAll">): Promise<Response> {
+export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator, usage?: Pick<UsageTracker, "list" | "refresh" | "clearCooldown">, settings?: Pick<FleetSettingsStore, "read" | "update">, entrances?: Pick<EntranceStore, "list" | "install" | "remove">, models?: Pick<ModelCatalog, "listAll">, sideChats?: SideChatSource): Promise<Response> {
   const parts = url.pathname.slice("/api/fleet".length).split("/").filter(Boolean).map(decodeURIComponent);
   const method = request.method;
   try {
@@ -87,6 +93,16 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
       // the pane id goes into the coordinator's input as written: nothing but an id's characters
       if (fromPane !== undefined && (typeof fromPane !== "string" || !/^[\w:.-]{1,64}$/.test(fromPane))) throw new FleetError("invalid_body", "from_pane must be a herdr pane id");
       const run = await fleet.startProject({ task, ...(cwd ? { cwd } : {}), ...(fromPane ? { fromPane } : {}) }, request.signal);
+      return jsonResponse({ run }, 201);
+    }
+    if (parts[0] === "side-chats" && parts.length === 1 && method === "POST" && sideChats) {
+      const body = await readBody();
+      const paneId = body["pane_id"];
+      const question = body["question"];
+      if (typeof paneId !== "string" || !/^[\w:.-]{1,64}$/.test(paneId)) throw new FleetError("invalid_body", "pane_id must be a herdr pane id");
+      if (typeof question !== "string" || !question.trim()) throw new FleetError("missing_question", "question is required");
+      const { cwd, context } = await sideChats.about(paneId);
+      const run = await fleet.startSideChat({ paneId, question, cwd, context }, request.signal);
       return jsonResponse({ run }, 201);
     }
     if (parts[0] === "spawn" && parts.length === 1 && method === "POST") {
@@ -279,7 +295,7 @@ function briefOf(value: unknown): Partial<Brief> | undefined {
 }
 
 const STATUS: Record<string, number> = {
-  run_not_found: 404, unknown_role: 404, no_plan: 404, plan_unreadable: 409, agent_blocked: 409, answer_not_delivered: 502, plan_outdated: 409, plan_answered: 409, plan_closed: 409, not_a_thread: 409, thread_landed: 409, landing_busy: 409, run_busy: 409, no_pull_request: 409, diff_unavailable: 409, settings_unreadable: 409, unknown_entrance: 404, entrance_taken: 409, entrance_unreadable: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
+  run_not_found: 404, pane_not_found: 404, unknown_role: 404, no_plan: 404, plan_unreadable: 409, agent_blocked: 409, answer_not_delivered: 502, plan_outdated: 409, plan_answered: 409, plan_closed: 409, not_a_thread: 409, thread_landed: 409, landing_busy: 409, run_busy: 409, no_pull_request: 409, diff_unavailable: 409, settings_unreadable: 409, unknown_entrance: 404, entrance_taken: 409, entrance_unreadable: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
   agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429, scope_conflict: 409, setup_failed: 502,
 };
 

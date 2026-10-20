@@ -45,6 +45,7 @@ import {
   workspaceRename,
 } from "./herdr/client.ts";
 import { openSideTerminal, SideTerminalError } from "./side-terminal.ts";
+import { conversationContext, screenContext } from "./side-chat-context.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
 import { codexQuestionsCollapsed, handlePromptRequest, liveScreen, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
@@ -60,7 +61,8 @@ import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { MachineManager } from "./machines.ts";
 import { discoverAgents } from "./fleet/agents.ts";
-import { handleFleetRequest } from "./fleet/api.ts";
+import { handleFleetRequest, type SideChatSource } from "./fleet/api.ts";
+import { FleetError } from "./fleet/runtime.ts";
 import { FleetSettingsStore } from "./fleet/settings.ts";
 import { EntranceStore } from "./fleet/entrances.ts";
 import { ModelCatalog } from "./fleet/models.ts";
@@ -119,6 +121,9 @@ const ATTACH_HELD_MESSAGE = "Another web bridge has this pane open. It connects 
  */
 const ATTACH_RELOOKUP_FOR_MS = 5_000;
 const ATTACH_RELOOKUP_MS = 100;
+/** the lines of a pane's screen a side chat reads when the pane keeps no conversation */
+const SIDE_CHAT_SCREEN_LINES = 400;
+
 /** How often the panes attached here are looked up in herdr's layout, for a rect that changed (regrid). */
 const LAYOUT_POLL_MS = 1000;
 /** How often the threads' open pull requests are read again from GitHub, for their checks and a merge made there. */
@@ -507,6 +512,23 @@ export function createServer(
   const settings = new FleetSettingsStore({ agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)), usage, userDir: options.fleet?.userDir });
   /** the fleet skill in the person's skill folders, put there from the Settings page */
   const entrances = new EntranceStore({ command: FLEET_COMMAND, url: () => `http://127.0.0.1:${listeningPort}`, tokenRequired: token !== "", home: options.fleet?.homeDir });
+  /** what a side chat reads of the pane it is about: its conversation, else its screen */
+  const sideChats: SideChatSource = {
+    about: async (paneId) => {
+      const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+      if (!pane) throw new FleetError("pane_not_found", `herdr knows no pane ${paneId}.`);
+      const cwd = pane.cwd ?? pane.foreground_cwd ?? homedir();
+      const described = { title: pane.label?.trim() || pane.title?.trim() || pane.terminal_title_stripped?.trim() || pane.pane_id, agent: pane.agent ?? null, cwd };
+      try {
+        const { turns } = await paneConversation(paneId, options.codexHome);
+        if (turns.length > 0) return { cwd, context: conversationContext(described, turns) };
+      } catch (error) {
+        if (!(error instanceof ConversationUnavailable)) throw error;
+      }
+      const screen = await paneRead({ paneId, source: "recent", lines: SIDE_CHAT_SCREEN_LINES });
+      return { cwd, context: screenContext(described, screen.text) };
+    },
+  };
 
   function broadcast(paneId: string, message: ServerMessage): void {
     const attachment = attachments.get(paneId);
@@ -1026,7 +1048,7 @@ export function createServer(
       if (pathname === "/api/fleet" || pathname.startsWith("/api/fleet/")) {
         // a spawn waits for the agent to start, a wait for its turn: Bun's 10 s idle limit is too short
         bunServer.timeout(request, 0);
-        return handleFleetRequest(request, url, fleet, usage, settings, entrances, models);
+        return handleFleetRequest(request, url, fleet, usage, settings, entrances, models, sideChats);
       }
       if (pathname === "/api/machines" || pathname.startsWith("/api/machines/")) {
         if (!machines) return jsonResponse({ error: { code: "bridge_only", message: "Manage PCs on the connection server" } }, 404);
