@@ -517,7 +517,8 @@ export function createServer(
     about: async (paneId) => {
       const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
       if (!pane) throw new FleetError("pane_not_found", `herdr knows no pane ${paneId}.`);
-      const cwd = pane.cwd ?? pane.foreground_cwd ?? homedir();
+      const cwd = pane.cwd ?? pane.foreground_cwd;
+      if (!cwd) throw new FleetError("pane_without_folder", `herdr knows no folder for pane ${paneId}.`);
       const described = { title: pane.label?.trim() || pane.title?.trim() || pane.terminal_title_stripped?.trim() || pane.pane_id, agent: pane.agent ?? null, cwd };
       try {
         const { turns } = await paneConversation(paneId, options.codexHome);

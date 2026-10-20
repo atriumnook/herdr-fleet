@@ -101,8 +101,7 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
       const question = body["question"];
       if (typeof paneId !== "string" || !/^[\w:.-]{1,64}$/.test(paneId)) throw new FleetError("invalid_body", "pane_id must be a herdr pane id");
       if (typeof question !== "string" || !question.trim()) throw new FleetError("missing_question", "question is required");
-      const { cwd, context } = await sideChats.about(paneId);
-      const run = await fleet.startSideChat({ paneId, question, cwd, context }, request.signal);
+      const run = await fleet.startSideChat({ paneId, question, about: () => sideChats.about(paneId) }, request.signal);
       return jsonResponse({ run }, 201);
     }
     if (parts[0] === "spawn" && parts.length === 1 && method === "POST") {

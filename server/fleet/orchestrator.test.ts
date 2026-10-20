@@ -1640,7 +1640,9 @@ describe("plans", () => {
 
 describe("side chats", () => {
   const sideChat = role("side-chat", { agent: "claude", interactive: true, edits: false });
-  const ask = (fleet: Orchestrator, question: string, paneId = "w1:p9") => fleet.startSideChat({ paneId, question, cwd: "/repo", context: "# The conversation\n\n## Person\n\nfix it" });
+  const ask = (fleet: Orchestrator, question: string, paneId = "w1:p9") => fleet.startSideChat({ paneId, question, about: async () => { reads.push(paneId); return { cwd: "/repo", context: "# The conversation\n\n## Person\n\nfix it" }; } });
+  const reads: string[] = [];
+  afterEach(() => { reads.length = 0; });
 
   it("start beside the pane they are about, with its conversation written for them first, editing nothing", async () => {
     const { fleet, runtime, root } = setup({ agents: [sideChat] });
@@ -1661,6 +1663,8 @@ describe("side chats", () => {
     expect(again.id).toBe(first.id);
     expect(runtime.locations).toHaveLength(1);
     expect(runtime.prompts.map((p) => p.text.split("\n").at(-1))).toEqual(["one", "two"]);
+    // the conversation is read for the one that started, not for the question asked of it
+    expect(reads).toEqual(["w1:p9"]);
     // another pane has its own; one that ended is replaced
     expect((await ask(fleet, "three", "w1:p8")).id).not.toBe(first.id);
     registry.upsert({ ...registry.get(first.id)!, state: "stopped" });

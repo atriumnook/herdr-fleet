@@ -72,10 +72,8 @@ export interface SideChatRequest {
   /** the pane the questions are about; the side chat opens in a tab of its workspace */
   paneId: string;
   question: string;
-  /** the pane's folder: the side chat reads the code there */
-  cwd: string;
-  /** the pane's conversation (or its screen) as text */
-  context: string;
+  /** the pane's folder, where the side chat reads the code, and its conversation (or its screen) as text: read only for a side chat that starts */
+  about(): Promise<{ cwd: string; context: string }>;
 }
 
 const SIDE_CHAT_ROLE = "side-chat";
@@ -360,10 +358,11 @@ export class Orchestrator {
     const started = previous.catch(() => {}).then(async () => {
       const live = this.deps.registry.all().find((run) => run.sideChatOf === request.paneId && isLive(run));
       if (live) return this.send(live.id, request.question, undefined, signal);
+      const { cwd, context } = await request.about();
       return this.launch({
-        role: SIDE_CHAT_ROLE, name: "side chat", task: request.question, cwd: request.cwd, depth: 0,
+        role: SIDE_CHAT_ROLE, name: "side chat", task: request.question, cwd, depth: 0,
         group: makeGroupId(), worktree: false, interactive: true, callerPaneId: request.paneId,
-      }, signal, undefined, { paneId: request.paneId, context: request.context });
+      }, signal, undefined, { paneId: request.paneId, context });
     });
     this.sideChatStarts.set(request.paneId, started);
     try {
