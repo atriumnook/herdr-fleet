@@ -44,6 +44,11 @@ describe("DeviceStore", () => {
     // the gate stays closed, though it may have been only a watching device that closed it
     expect(store.gated).toBe(true);
     expect(new DeviceStore(root).match("drive-token")).toEqual({ id: "phone", label: "phone" });
+    // a device that was let in keeps the gate closed, though it is dropped and no gate was written
+    const only = mkdtempSync(join(dir, "only-watch-"));
+    writeFileSync(join(only, "devices.json"), JSON.stringify({ gate_closed_at: null, devices: [stored("tablet", "watch-token", "watch")] }));
+    expect(new DeviceStore(only).gated).toBe(true);
+    expect(new DeviceStore(only).gated).toBe(true);
   });
 
   it("reads an entry without a role as damaged, and writes the role it reads", () => {

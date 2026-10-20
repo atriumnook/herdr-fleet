@@ -87,6 +87,8 @@ export class DeviceStore {
       this.devices = stored.filter((d): d is StoredDevice => d.role === "drive");
       if (this.devices.length < stored.length) {
         const dropped = stored.length - this.devices.length;
+        // they were let in once: the gate stays closed without them
+        this.gateClosedAt ??= new Date().toISOString();
         try {
           this.save();
           console.warn(`Removed ${dropped} device(s) paired to only watch from ${this.path}: pair them again.`);
