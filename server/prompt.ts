@@ -1699,6 +1699,8 @@ export interface PromptRequestOptions {
 
 export async function handlePromptRequest(request: Request, url: URL, options: PromptRequestOptions = {}): Promise<Response | null> {
   if (url.pathname !== "/api/pane/prompt" && url.pathname !== "/api/pane/prompt/answer") return null;
+  // the answer being handled, once its body was read: what the log line says even when the handling throws
+  let answerLog: { paneId: string; matched: boolean } | null = null;
   try {
     if (url.pathname === "/api/pane/prompt") {
       if (request.method !== "GET") return badRequest("method_not_allowed", "GET is required.");
@@ -1731,11 +1733,14 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
     // read, checked and answered in the pane's turn: a message still in flight goes first, and
     // one sent meanwhile waits until the queue is opened, answered and closed again
     const serialize = options.serialize ?? (<T>(_paneId: string, task: () => Promise<T>) => task());
+    const log = { paneId: body.pane_id, matched: false };
+    answerLog = log;
     const response = await serialize(body.pane_id, async () => {
       // given up while it waited its turn: nothing is read, opened or sent for it
       if (request.signal.aborted) return promptChanged();
       const { prompt, agent, pane } = await readPrompt(body.pane_id, options.codexHome);
       if (!prompt || prompt.id !== body.prompt_id) return promptChanged();
+      log.matched = true;
       // checked against the card before anything is sent: an invalid answer never opens the queue
       let steps: AnswerStep[];
       try {
@@ -1866,8 +1871,22 @@ export async function handlePromptRequest(request: Request, url: URL, options: P
       }
       return jsonResponse({ ok: true });
     });
+    await logAnswer(log, response);
     return response;
   } catch (error) {
-    return errorResponse(error);
+    // a read or a send that threw (a herdr timeout, 502) is an outcome too
+    const response = errorResponse(error);
+    if (answerLog !== null) await logAnswer(answerLog, response);
+    return response;
   }
+}
+
+/** One line per answer that got as far as the pane: the pane, whether the card's prompt still stood, and the
+ * refusal's own code (prompt_changed, invalid_answer, agent_blocked, a herdr error...). Never the answer. The pane
+ * id is the client's until the snapshot has checked it, so it is logged as a JSON string: one field, whatever it holds. */
+async function logAnswer(log: { paneId: string; matched: boolean }, response: Response): Promise<void> {
+  const outcome = response.ok ? "ok" : ((await response.clone().json().catch(() => null)) as { error?: { code?: string } } | null)?.error?.code ?? `status_${response.status}`;
+  // quoted as JSON: a space or a newline in the client's id cannot pass for a field of the line
+  const pane = JSON.stringify(log.paneId.slice(0, 80));
+  console.log(`[prompt/answer] pane=${pane} prompt_matched=${log.matched} outcome=${outcome}`);
 }

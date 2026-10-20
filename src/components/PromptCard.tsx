@@ -31,7 +31,7 @@ export function PromptCard({ prompt, typedAnswer = null, card, instruction = nul
   const [custom, setCustom] = useState("");
   const answering = card !== null && card.promptId === prompt.id ? card : null;
   const pending = answering?.status === "pending";
-  const error = answering?.status === "changed" ? "the prompt changed — re-read" : answering?.status === "failed" ? answering.message : null;
+  const error = answering?.status === "changed" ? t("The question on screen changed; check it and answer again.") : answering?.status === "failed" ? answering.message : null;
   const confirmRef = useRef<HTMLDivElement | null>(null);
 
   // the question to confirm comes into view, clear of the chat's floating buttons
