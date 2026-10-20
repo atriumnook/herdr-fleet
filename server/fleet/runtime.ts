@@ -1,4 +1,4 @@
-import { HerdrError, herdrRpc } from "../herdr/client.ts";
+import { HerdrError, herdrRpc, paneScrollInfo } from "../herdr/client.ts";
 import type { AgentKind, AgentState } from "./types.ts";
 
 export interface RuntimeLocation { paneId: string; workspaceId?: string; cwd: string }
@@ -76,7 +76,7 @@ export function toAgentState(status: unknown): AgentState {
   return status === "working" || status === "idle" || status === "done" || status === "blocked" ? status : "unknown";
 }
 
-interface AgentInfo { agent_status?: string; interactive_ready?: boolean; launch_pending?: boolean; agent?: string | null }
+interface AgentInfo { agent_status?: string; interactive_ready?: boolean; launch_pending?: boolean; agent?: string | null; pane_id?: string }
 interface PaneInfo { pane_id: string; workspace_id?: string; agent?: string | null }
 
 const START_TIMEOUT_MS = 30_000;
@@ -215,8 +215,23 @@ export class HerdrRuntime implements AgentRuntime {
     return result.read?.text ?? "";
   }
 
+  /**
+   * The live screen with its colors, for a draft in the input (dim placeholder or typed text).
+   * herdr's live-screen read gives text only, so this is the viewport, unless the pane is scrolled
+   * up into its history (a drag or the wheel in the web terminal): then the bottom of the output,
+   * as many lines as the viewport shows. Only a CLI on the normal screen keeps a history to scroll
+   * into; an alternate screen (Claude Code, opencode) never scrolls, and the output's bottom read
+   * does not show it.
+   */
   async screen(name: string): Promise<string> {
-    const result = await this.rpc<{ read?: { text?: string } }>("agent.read", { target: name, source: "visible", format: "ansi", strip_ansi: false });
+    // where the viewport sits only picks the read: a failed lookup reads the viewport, as before
+    const scroll = await this.rpc<{ agent?: AgentInfo }>("agent.get", { target: name })
+      .then((result) => (result.agent?.pane_id ? paneScrollInfo(result.agent.pane_id, this.socketPath) : null))
+      .catch(() => null);
+    const params = scroll && scroll.offset_from_bottom > 0
+      ? { source: "recent", lines: scroll.viewport_rows }
+      : { source: "visible" };
+    const result = await this.rpc<{ read?: { text?: string } }>("agent.read", { target: name, ...params, format: "ansi", strip_ansi: false });
     return result.read?.text ?? "";
   }
 

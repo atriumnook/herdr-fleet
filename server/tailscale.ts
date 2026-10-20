@@ -34,6 +34,15 @@ function parseJson<T>(text: string | null): T | null {
   try { return JSON.parse(text) as T; } catch { return null; }
 }
 
+/**
+ * `tailscale status --json` with every `UserID` kept as the digits written. Tailscale's user ids
+ * pass 2^53, so as a double an id stops matching its key in `User`. Every reader of the status
+ * goes through this one, so none of them sees a rounded id.
+ */
+function parseStatus(status: string | null): StatusJson | null {
+  return parseJson<StatusJson>(status === null ? null : status.replace(/("UserID"\s*:\s*)(\d+)/g, '$1"$2"'));
+}
+
 /** Does this `serve` proxy target point at the web ui on this machine, at its root? */
 function proxiesTo(target: string | undefined, port: number): boolean {
   if (!target) return false;
@@ -51,7 +60,7 @@ function httpsUrl(host: string, port: number): string {
 /** Pure: the two commands' output (or their absence) to what the phone panel needs. */
 export function parseTailscale(output: TailscaleOutput | null, port: number): TailscaleAccess {
   if (output === null) return NONE;
-  const status = parseJson<StatusJson>(output.status);
+  const status = parseStatus(output.status);
   if (status === null || status.BackendState !== "Running") return { ...NONE, state: "stopped" };
   const dns = status.Self?.DNSName?.replace(/\.$/, "") || null;
   const serve = parseJson<ServeJson>(output.serve);
@@ -104,12 +113,12 @@ export async function remoteAccess(port: number): Promise<RemoteAccess> {
 
 /** A tagged node belongs to no person: its `User` entry is the node itself, named by its MagicDNS name. */
 export function isTaggedNode(status: string | null): boolean {
-  return (parseJson<StatusJson>(status)?.Self?.Tags?.length ?? 0) > 0;
+  return (parseStatus(status)?.Self?.Tags?.length ?? 0) > 0;
 }
 
 /** The login this PC's Tailscale node belongs to, from `tailscale status --json`; null when it does not say, or the node is tagged. */
 export function parseTailscaleOwner(status: string | null): string | null {
-  const parsed = parseJson<StatusJson>(status);
+  const parsed = parseStatus(status);
   const id = parsed?.Self?.UserID;
   if (id === undefined || id === null || isTaggedNode(status)) return null;
   return parsed?.User?.[String(id)]?.LoginName || null;
@@ -117,7 +126,7 @@ export function parseTailscaleOwner(status: string | null): string | null {
 
 /** This PC's IPv4 address on the tailnet (100.x.y.z), from `tailscale status --json`; null when it has none. */
 export function parseTailscaleIp(status: string | null): string | null {
-  return parseJson<StatusJson>(status)?.Self?.TailscaleIPs?.find((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip)) ?? null;
+  return parseStatus(status)?.Self?.TailscaleIPs?.find((ip) => /^\d+\.\d+\.\d+\.\d+$/.test(ip)) ?? null;
 }
 
 const OWNER_TTL_MS = 5 * 60_000;
