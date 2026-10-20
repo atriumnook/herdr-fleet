@@ -709,6 +709,122 @@ cancel
   });
 });
 
+describe("Claude's question with option previews", () => {
+  // live-captured from Claude Code 2.1.288 in a 120-column herdr pane: the selected option's
+  // preview is boxed to the right of the options, and the form has no "Type something" row
+  const withPreview = `────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ Layout  ☐ Features  ✔ Submit  →
+
+Which layout?
+
+❯ 1. Grid                         ┌──────────────────────────────────────────┐
+  2. List                         │ ┌──┐ ┌──┐                                │
+                                  │ │  │ │  │                                │
+                                  │ └──┘ └──┘                                │
+                                  │ ┌──┐ ┌──┐                                │
+                                  └──────────────────────────────────────────┘
+
+                                  Notes: press n to add notes
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Chat about this
+
+Enter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel
+`;
+
+  test("reads the options without the preview box and offers no typed answer", () => {
+    const prompt = parseInteractivePrompt("claude", withPreview);
+    expect(prompt).toMatchObject({
+      kind: "question", title: "Layout · 1 of 2", question: "Which layout?",
+      options: [{ label: "Grid", description: null }, { label: "List", description: null }],
+      multi_select: false, custom_option_index: null,
+    });
+    expect(answerKeys(prompt!, { option_index: 1 })).toEqual([{ keys: ["down"] }, { keys: ["enter"] }]);
+    expect(() => answerKeys(prompt!, { custom_text: "x" })).toThrow();
+  });
+
+  test("cuts the box off at its own column only: a bar inside an option's text stays", () => {
+    // the same screen with qualifiers after a bar, padded so the box keeps its column
+    // padded by display width, so the box keeps its terminal column: a wide character takes two
+    const relabel = (screen: string, from: string, to: string) => { expect(screen).toContain(from); return screen.replace(from, to + " ".repeat(Bun.stringWidth(from) - Bun.stringWidth(to))); };
+    const screen = relabel(relabel(withPreview, "❯ 1. Grid                         ", "❯ 1. Grid  │ compact"), "  2. List                         ", "  2. List  │ spacious");
+    const labelsOf = (prompt: InteractivePrompt | null) => prompt?.kind === "question" ? prompt.options.map((option) => `${option.label}${option.description === null ? "" : ` / ${option.description}`}`) : prompt;
+    expect(labelsOf(parseInteractivePrompt("claude", screen))).toEqual(["Grid  │ compact", "List  │ spacious"]);
+    // an option in wide characters: its box edge stands at the same column, at a smaller string index
+    const wide = relabel(relabel(withPreview, "❯ 1. Grid                         ", "❯ 1. 격자 보기"), "  2. List                         ", "  2. 目录列表  │ 宽");
+    expect(labelsOf(parseInteractivePrompt("claude", wide))).toEqual(["격자 보기", "目录列表  │ 宽"]);
+    // a joined emoji is one grapheme two columns wide, not the sum of its code points
+    const emoji = relabel(withPreview, "❯ 1. Grid                         ", "❯ 1. 👩‍💻 Code");
+    expect(labelsOf(parseInteractivePrompt("claude", emoji))).toEqual(["👩‍💻 Code", "List"]);
+  });
+
+  test("does not take an answered form above later output for an open one", () => {
+    expect(parseInteractivePrompt("claude", withPreview + "\n● Done.\n\n> ")).toBeNull();
+  });
+});
+
+describe("Claude's question over its task list", () => {
+  // live-captured shape from Claude Code 2.1.289: the task list stays under the open panel,
+  // after a rule that carries the session's name
+  const question = `────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☐ 방향 검토  ☐ 문구  ✔ Submit  →
+
+검토용 목업 페이지를 만들까요?
+
+❯ 1. 만들지 않음 (Recommended)
+     조건과 문구만 바뀌어 테스트로 확인 가능.
+  2. 만듦
+     목업으로 먼저 보고 확정한 뒤 구현.
+  3. Type something.
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+`;
+  const tasks = (rows: string) => `──────────────────────────────────────────────────────────────────────────────────────────────── 세션 이름 ─
+
+${rows}
+`;
+
+  test("reads the question under the session's rule, with or without the task list", () => {
+    for (const rows of [
+      "",
+      "  3 tasks (0 done, 3 open)\n  ◻ 준비\n  ◻ 구현\n  ◻ 검증",
+      "  5 tasks (1 done, 1 in progress, 3 open)\n  ◼ 구현\n    Running tests…\n  ✔ 준비\n  ◻ 검증\n   … +2 pending",
+    ]) {
+      expect(parseInteractivePrompt("claude", question + tasks(rows))).toMatchObject({
+        kind: "question", title: "방향 검토 · 1 of 2", question: "검토용 목업 페이지를 만들까요?",
+        options: [{ label: "만들지 않음 (Recommended)" }, { label: "만듦" }], custom_option_index: 2,
+      });
+    }
+  });
+
+  test("does not take an answered form above later output and the task list for an open one", () => {
+    const later = question + "\n⏺ 만들지 않음으로 진행합니다.\n\n────────\n❯ \n────────\n  ⏵⏵ bypass permissions on\n" + tasks("  3 tasks (0 done, 3 open)\n  ◻ 준비");
+    expect(parseInteractivePrompt("claude", later)).toBeNull();
+  });
+
+  test("keeps output that ends in … after the list: only an in-progress task's activity is the list's", () => {
+    const after = question + tasks("  3 tasks (0 done, 3 open)\n  ◻ 준비") + "⏺ Done…\n";
+    expect(parseInteractivePrompt("claude", after)).toBeNull();
+  });
+
+  test("does not take an answered form for an open one when the agent's own lines follow the task header", () => {
+    // the old panel is still in the buffer; the agent went on and the input line is the user's again
+    const after = question + "\n  3 tasks (0 done, 3 open)\n● Continuing with the first option…\n❯ Explain the remaining work…\n";
+    expect(parseInteractivePrompt("claude", after)).toBeNull();
+  });
+
+  test("does not take an answered form for an open one when output sits between the panel and the task list", () => {
+    const after = question + "\n⏺ 만들지 않음으로 진행합니다.\n" + tasks("  3 tasks (0 done, 3 open)\n  ◻ 준비");
+    expect(parseInteractivePrompt("claude", after)).toBeNull();
+  });
+
+  test("does not take a rule of another program under the panel for Claude's own", () => {
+    expect(parseInteractivePrompt("claude", question + "\n⏺ Done.\n──── user@host:~/project ─\n")).toBeNull();
+  });
+});
+
 describe("Claude's unnumbered menus", () => {
   // Claude Code 2.1.285 on a folder it has not seen, as herdr's pane read shows it (live)
   const trust = (selected: 0 | 1 = 0, after = "") => `
@@ -1524,6 +1640,24 @@ describe("an answer and the menu it was made for", () => {
       expect(labels(prompt)).toEqual(RESUME);
       expect(await answer(prompt.id, { option_index: 2 })).toEqual({ status: 200, code: undefined });
       expect(pane.sent).toEqual(["down", "down", "enter"]);
+    });
+  });
+
+  /** Claude's question with option previews, its cursor on `at`: the box is redrawn for the option under it */
+  const previewQuestion = (at: number): string => {
+    const rows = ["Grid", "List"];
+    const box = ["┌──────────────────┐", `│ ${rows[at]!.padEnd(16)} │`, "└──────────────────┘"];
+    const option = (row: string, index: number) => `${index === at ? "❯" : " "} ${index + 1}. ${row.padEnd(20)}${box[index] ?? ""}`;
+    return `${"─".repeat(80)}\n←  ☐ Layout  ✔ Submit  →\n\nWhich layout?\n\n${rows.map(option).join("\n")}\n${" ".repeat(25)}${box[2]}\n\n${" ".repeat(25)}Notes: press n to add notes\n\n${"─".repeat(80)}\n  Chat about this\n\nEnter to select · ↑/↓ to navigate · n to add notes · Tab to switch questions · Esc to cancel\n`;
+  };
+
+  test("moves to a previewed option and confirms it while the box is redrawn for it", async () => {
+    await withPane("claude", "blocked", previewQuestion(0), async (pane) => {
+      moving(pane, ["Grid", "List"], previewQuestion);
+      const prompt = (await card())!;
+      expect(labels(prompt)).toEqual(["Grid", "List"]);
+      expect(await answer(prompt.id, { option_index: 1 })).toEqual({ status: 200, code: undefined });
+      expect(pane.sent).toEqual(["down", "enter"]);
     });
   });
 

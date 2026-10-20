@@ -384,20 +384,64 @@ function queuedPrompt(count: number, unanswered: QueuedQuestion[], front: QueueF
   });
 }
 
+/**
+ * A question whose options carry a preview (AskUserQuestion's `preview`): the selected option's
+ * preview is drawn in a box to the right of the options, "Notes: press n to add notes" under it,
+ * with no "Type something" row and an unnumbered "Chat about this" (Claude Code 2.1.288).
+ * The box and the notes line are cut off each line, leaving the options as in the plain form.
+ * The box stands in one column on every line (its top corner names it), so only what sits in
+ * that column goes: a `│` inside an option's own text stays.
+ */
+const CLAUDE_PREVIEW_HINT_RE = /\bn to add notes\b/i;
+const PREVIEW_EDGE = "┌│└├╭╰┐┘╮╯";
+/** where the terminal column `column` begins in `line`: a wide character takes two columns and a joined
+ * emoji is one grapheme of two, so the index may be smaller; -1 when no grapheme starts there */
+const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
+function indexAtColumn(line: string, column: number): number {
+  let width = 0;
+  for (const { segment, index } of GRAPHEMES.segment(line)) {
+    if (width === column) return index;
+    width += Bun.stringWidth(segment);
+  }
+  return width === column ? line.length : -1;
+}
+function withoutPreview(lines: string[], from: number, to: number): string[] {
+  let column = -1;
+  for (let index = from; index <= to && column < 0; index += 1) {
+    const line = lines[index] ?? "";
+    const corner = /\s{2,}[┌╭]/.exec(line);
+    if (corner !== null) column = Bun.stringWidth(line.slice(0, corner.index + corner[0].length - 1));
+  }
+  return lines.map((line) => {
+    const at = column >= 2 ? indexAtColumn(line, column) : -1;
+    const edge = at >= 0 ? line[at] : undefined;
+    const boxed = edge !== undefined && PREVIEW_EDGE.includes(edge) && line.slice(Math.max(0, at - 2), at) === "  ";
+    // only the preview's own notes line goes: a question may begin with "Notes:" too
+    return (boxed ? line.slice(0, at).trimEnd() : line).replace(/^\s*Notes:\s+press n to add notes\b.*$/i, "");
+  });
+}
+
 function parseClaudeQuestion(screen: string): ParsedPrompt | null {
-  const lines = screen.replace(ANSI_RE, "").split(/\r?\n/);
-  const hintIndex = findLastIndex(lines, (_, index) => CLAUDE_ASK_HINT_RE.test(wrapped(lines, index)));
+  const raw = screen.replace(ANSI_RE, "").split(/\r?\n/);
+  const hintIndex = findLastIndex(raw, (_, index) => CLAUDE_ASK_HINT_RE.test(wrapped(raw, index)));
   if (hintIndex < 0) return null;
-  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), hintIndex);
+  const preview = CLAUDE_PREVIEW_HINT_RE.test(wrapped(raw, hintIndex));
+  const lines = preview ? withoutPreview(raw, Math.max(0, hintIndex - 64), hintIndex) : raw;
+  // with a preview the options end at the rule above "Chat about this": nothing under it is theirs
+  const end = preview ? findLastIndex(lines.slice(0, hintIndex), (line) => isDivider(line)) : hintIndex;
+  const rows = parseNumberedRows(lines, Math.max(0, hintIndex - 64), end);
   if (!sequentialRows(rows) || rows.filter((row) => row.selected).length !== 1) return null;
   const chatIndex = rows.findIndex((row) => row.label === "Chat about this");
   const customIndex = rows.findIndex((row) => /^Type something\.?$/i.test(row.label));
-  if (chatIndex !== rows.length - 1 || customIndex !== chatIndex - 1 || customIndex < 1) return null;
+  if (preview) {
+    // its notes are no answer of their own: no typed-answer row, the options are the menu
+    if (customIndex >= 0 || chatIndex >= 0) return null;
+  } else if (chatIndex !== rows.length - 1 || customIndex !== chatIndex - 1 || customIndex < 1) return null;
   const tabs = claudeTabs(lines, rows[0]!.lineIndex);
   const question = claudeQuestionText(lines, tabs?.index ?? -1, rows[0]!.lineIndex) ?? nearestQuestion(lines, rows[0]!.lineIndex);
   const chip = tabs === null ? claudeChip(lines, rows[0]!.lineIndex) : null;
   if (!question) return null;
-  const optionRows = rows.slice(0, customIndex);
+  const optionRows = preview ? rows : rows.slice(0, customIndex);
   const multiSelect = optionRows.some((row) => /^\s*(?:[›>❯]\s*)?\d+\.\s+\[[ xX✓]\]/.test(lines[row.lineIndex]!));
   const current = tabs?.tabs.findIndex((tab) => !tab.answered) ?? -1;
   // a bar cut off by a narrow pane does not show how many questions there are
@@ -406,12 +450,12 @@ function parseClaudeQuestion(screen: string): ParsedPrompt | null {
   return finishPrompt("claude", {
     kind: "question", title, question, body: null,
     options: optionRows.map((row) => ({ label: row.label, description: row.description ?? null })),
-    multi_select: multiSelect, custom_option_index: multiSelect ? null : customIndex,
+    multi_select: multiSelect, custom_option_index: multiSelect || preview ? null : customIndex,
   }, {
     responder: "claude-question", menuLabels: rows.map((row) => row.label),
     selectedIndex: rows.findIndex((row) => row.selected),
     checkedOptionIndices: optionRows.flatMap((row, index) => row.checked ? [index] : []),
-    customMenuIndex: customIndex, rejectWithEscapeIndex: null,
+    customMenuIndex: preview ? null : customIndex, rejectWithEscapeIndex: null,
   });
 }
 
@@ -652,9 +696,48 @@ function parseClaudeConfirm(screen: string): ParsedPrompt | null {
   });
 }
 
+/**
+ * Claude Code keeps its task list under an open panel (2.1.289): a rule with the session's name
+ * on it, `3 tasks (0 done, 1 in progress, 2 open)`, a row per task (◻ ◼ ✔), an in-progress task's
+ * activity (`…`) and `… +2 pending`. Cut off, the panel is the last thing on screen again.
+ *
+ * Only Claude's own footer goes, and only where it sits directly under the panel's hint: the
+ * list holds task rows, the activity under a task in progress and the pending count, nothing
+ * else. The agent's answer to the question, a shell's prompt or a rule of another program under
+ * the hint keep the panel what it is then: answered, with its keys owed to no one.
+ */
+const CLAUDE_TASKS_HEAD_RE = /^(\d+) tasks \(\d+ done, (?:\d+ in progress, )?\d+ open\)$/;
+const CLAUDE_TASK_ROW_RE = /^[◻◼✔]\s/;
+const CLAUDE_TASKS_MORE_RE = /^…\s\+\d+ pending$/;
+const LABELED_RULE_RE = /^─{3,}\s.*─$/;
+const CLAUDE_HINT_TAIL_RE = /\besc to (?:cancel|exit|go back)\b/i;
+function withoutClaudeTasks(shown: string[]): string[] {
+  let end = shown.length;
+  const head = findLastIndex(shown, (line) => CLAUDE_TASKS_HEAD_RE.test(line));
+  if (head >= 0) {
+    const total = Number(CLAUDE_TASKS_HEAD_RE.exec(shown[head]!)![1]);
+    let rows = 0;
+    let inProgress = false;
+    let list = true;
+    for (let index = head + 1; index < shown.length && list; index += 1) {
+      const line = shown[index]!;
+      if (CLAUDE_TASK_ROW_RE.test(line)) { rows += 1; inProgress = line.startsWith("◼"); }
+      else if (CLAUDE_TASKS_MORE_RE.test(line)) list = index === shown.length - 1;
+      // the activity under the task in progress: one line, ending in an ellipsis, no prompt or bullet of its own
+      else if (inProgress && line.endsWith("…") && !/^[❯>›●⏺]/.test(line)) inProgress = false;
+      else list = false;
+    }
+    if (list && rows > 0 && rows <= total) end = head;
+  }
+  // the session's rule is drawn above the list, and with no task list too
+  if (LABELED_RULE_RE.test(shown[end - 1] ?? "")) end -= 1;
+  return end < shown.length && CLAUDE_HINT_TAIL_RE.test(shown[end - 1] ?? "") ? shown.slice(0, end) : shown;
+}
+
 function promptTailIsActive(prompt: ParsedPrompt, screen: string): boolean {
   const cleanLines = screen.replace(ANSI_RE, "").split(/\r?\n/).map(cleanLine);
-  const shown = cleanLines.filter((line) => line && !isDivider(line));
+  const visible = cleanLines.filter((line) => line && !isDivider(line));
+  const shown = prompt.responder.startsWith("claude-") ? withoutClaudeTasks(visible) : visible;
   const last = shown.at(-1) ?? "";
   // The menu is still at the bottom. A narrow pane wraps its hint, so the last line alone can
   // be the hint's tail (`cancel`): the lines before it count only when the match runs into
