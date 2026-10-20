@@ -8,7 +8,7 @@ import { fileUrl } from "../lib/api.ts";
 import { useMachineId } from "../lib/machineContext.tsx";
 import { useSettings } from "../lib/settings.ts";
 import { relay, type Emit } from "./bubble.ts";
-import { EMPTY_VIEW, explanationId, type Lens, type UiEvent, type UiState } from "./state.ts";
+import { EMPTY_VIEW, explanationId, lensed, type Lens, type UiEvent, type UiState } from "./state.ts";
 import { threadCards, type ThreadRowModel } from "./fleetView.ts";
 import { fromPane } from "../../shared/fleet.ts";
 import { displayPaneTitle } from "../components/Sidebar.tsx";
@@ -77,10 +77,10 @@ export interface ChatPresenterProps {
 export function ChatPresenter({ paneId, connected, ended, agent, agentStatus, lens = "main", threads = NO_THREADS, emit: up }: ChatPresenterProps) {
   const machineId = useMachineId();
   // what this chat says goes to its own chat in the state
-  const emit = useMemo<Emit<ChatUpEvent>>(() => (lens === "side" ? (event) => up({ ...event, lens: "side" }) : up), [lens, up]);
+  const emit = useMemo<Emit<ChatUpEvent>>(() => (lens === "main" ? up : (event) => up({ ...event, lens })), [lens, up]);
   const emitRef = useRef(emit);
   emitRef.current = emit;
-  const lensOf = (state: UiState) => (lens === "side" ? state.side : state);
+  const lensOf = (state: UiState) => lensed(state, lens);
   useEffect(() => {
     emitRef.current({ type: "chat-open", machineId, paneId });
     return () => emitRef.current({ type: "chat-close", machineId, paneId });

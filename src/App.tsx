@@ -35,7 +35,7 @@ import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
 import { useSelected } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
-import type { Lens, UiEvent } from "./ui/state.ts";
+import { SIDE_LENSES, type Lens, type UiEvent } from "./ui/state.ts";
 
 const APP_TITLE = "herdr fleet";
 /**
@@ -62,9 +62,10 @@ function storedView(paneId: string, machineId: string, hasAgent: boolean | null,
   return hasAgent !== false && window.matchMedia?.("(pointer: coarse)").matches === true ? "chat" : "terminal";
 }
 
-/** The chat that holds the focus: the one beside on the Fleet screen, else the pane's (the keys and the palette's prompts go to it). */
+/** The chat that holds the focus: the one beside on the Fleet screen or the side chat, else the pane's (the keys and the palette's prompts go to it). */
 function focusedChat(): Lens {
-  return document.activeElement?.closest('[data-chat-lens="side"]') != null ? "side" : "main";
+  const lens = document.activeElement?.closest("[data-chat-lens]")?.getAttribute("data-chat-lens");
+  return lens === "side" || lens === "side-chat" ? lens : "main";
 }
 
 function Brand() {
@@ -232,7 +233,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   // a chat shows and has its conversation open: the Pane screen's chat lens, the Fleet screen's
   // project conversation or the thread beside it (a chat opens itself while it is mounted). The
   // Fleet screen with no conversation open has no prompt to step to.
-  const chatShows = useSelected((state) => state.chat.open !== null || state.side.chat.open !== null);
+  const chatShows = useSelected((state) => state.chat.open !== null || SIDE_LENSES.some((lens) => state.lenses[lens].chat.open !== null));
   const actions = useMemo<AppActions>(
     () => ({
       selectPane,
@@ -244,7 +245,8 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         if (next) selectPane(next.pane_id);
       },
       stepPrompt: chatShows ? (direction) => {
-        emitRef.current({ type: "prompt-rail-step", direction, ...(focusedChat() === "side" ? { lens: "side" as const } : {}) });
+        const lens = focusedChat();
+        emitRef.current({ type: "prompt-rail-step", direction, ...(lens === "main" ? {} : { lens }) });
       } : null,
       setView,
       toggleView: () => setView(view === "chat" ? "terminal" : "chat"),

@@ -702,8 +702,8 @@ export interface UiState {
   folders: FoldersState;
   chat: ChatState;
   conversation: ConversationState;
-  /** the chat beside the pane's, with its conversation: the same steps run on it (`lens: "side"`) */
-  side: { chat: ChatState; conversation: ConversationState };
+  /** the panes shown beside the pane's, each with its chat and its terminal: the same steps run on each (`lens`) */
+  lenses: Record<SideLens, LensView>;
   /** explanations of agents' questions, for both chats, by explanationId */
   explanations: Readonly<Record<string, Explanation>>;
   queue: QueueState;
@@ -1041,12 +1041,26 @@ export type ConnectionEvent =
   | { type: "pane-session-failed"; machineId: string; paneId: string };
 
 /**
- * The chats the state keeps: the pane's (the Pane screen's chat lens, or the Fleet screen's project
- * conversation) and the one beside it (a thread or an agent opened in the Fleet screen's Overview).
+ * The panes the state keeps a view of: the pane's (the Pane screen's pane, or the Fleet screen's
+ * project conversation), the one beside it (a thread or an agent opened in the Fleet screen's
+ * Overview), and the side panel's side chat and terminal, on either screen.
  */
-export type Lens = "main" | "side";
+export type Lens = "main" | "side" | "side-chat" | "side-terminal";
 
-/** `lens: "side"`: the event is for the chat beside, and runs the same chat, conversation and send steps on it. */
+/** The lenses beside the pane's. */
+export type SideLens = Exclude<Lens, "main">;
+
+export const SIDE_LENSES: readonly SideLens[] = ["side", "side-chat", "side-terminal"];
+
+/** What a lens beside keeps of its pane: the chat with its conversation, and the terminal's session with the input held for it. */
+export interface LensView {
+  chat: ChatState;
+  conversation: ConversationState;
+  session: PaneSession;
+  draft: PaneState["draft"];
+}
+
+/** `lens`: the event is for that lens beside, and runs the same chat, conversation, terminal and send steps on it. */
 export type UiEvent = BareEvent & { lens?: Lens };
 
 /** What a PC's session tree sends up; every one names its PC. */
@@ -1163,7 +1177,7 @@ type BareEffect =
   /** the tab's own alert */
   | { kind: "notify-pane"; machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" };
 
-/** `lens: "side"`: an effect of the chat beside; what it answers goes back to that chat. */
+/** `lens`: an effect of a lens beside; what it answers goes back to that lens. */
 export type Effect = BareEffect & { lens?: Lens };
 
 export interface Transition { state: UiState; effects: Effect[] }
@@ -1173,6 +1187,9 @@ const NO_LANDING: LandingState = { runId: null, diff: { status: "idle", data: nu
 
 /** No plan read, no answer written, nothing asked. */
 const NO_PLAN: PlanState = { runId: null, reading: { status: "idle", data: null }, drafts: {}, confirm: null, dropped: null, seq: 0 };
+
+/** A lens beside with no pane open. */
+const NO_LENS: LensView = { chat: NO_CHAT, conversation: NO_CONVERSATION, session: NO_SESSION, draft: { owner: null, value: EMPTY_DRAFT } };
 
 export const INITIAL_STATE: UiState = {
   screen: "pane",
@@ -1205,7 +1222,7 @@ export const INITIAL_STATE: UiState = {
   folders: { open: {}, seq: 0 },
   chat: NO_CHAT,
   conversation: NO_CONVERSATION,
-  side: { chat: NO_CHAT, conversation: NO_CONVERSATION },
+  lenses: { side: NO_LENS, "side-chat": NO_LENS, "side-terminal": NO_LENS },
   explanations: {},
   queue: { lists: {}, unsaved: {}, sending: null, error: null },
   drafts: { composer: {}, settled: {}, line: {} },
@@ -1288,41 +1305,69 @@ function settle<T extends Loadable<unknown>>(region: T, outcome: Partial<T>, eff
 }
 
 export function transition(state: UiState, event: UiEvent): Transition {
-  if (event.lens === "side") {
-    // the steps of the pane's chat, run on the one beside: only the two chats trade places
-    const step = followUp(asSide(state), transitionOnly(asSide(state), event));
-    return { state: step.state === asSide(state) ? state : fromSide(state, step.state), effects: step.effects.map(onSide) };
+  const lens = event.lens;
+  if (lens !== undefined && lens !== "main") {
+    // the steps of the pane's view, run on the lens beside: only the two views trade places
+    const view = asLens(state, lens);
+    const step = followUp(view, transitionOnly(view, event));
+    return { state: step.state === view ? state : fromLens(state, lens, step.state), effects: step.effects.map((effect) => onLens(effect, lens)) };
   }
-  return followSide(state, followUp(state, transitionOnly(state, event)));
+  return followLenses(state, followUp(state, transitionOnly(state, event)));
 }
 
-/** The state with the chat beside in the pane's place. */
-function asSide(state: UiState): UiState {
-  return sideViews.get(state) ?? (() => {
-    const view = { ...state, chat: state.side.chat, conversation: state.side.conversation, side: { chat: state.chat, conversation: state.conversation } };
-    sideViews.set(state, view);
-    return view;
-  })();
+/** The state with a lens beside in the pane's place: its chat, its conversation, its terminal's session and held input. */
+export function asLens(state: UiState, lens: SideLens): UiState {
+  let views = lensViews.get(state);
+  if (!views) lensViews.set(state, views = new Map());
+  let view = views.get(lens);
+  if (!view) {
+    const beside = state.lenses[lens];
+    const own: LensView = { chat: state.chat, conversation: state.conversation, session: state.pane.session, draft: state.pane.draft };
+    view = {
+      ...state, chat: beside.chat, conversation: beside.conversation, pane: { ...state.pane, session: beside.session, draft: beside.draft },
+      lenses: { ...state.lenses, [lens]: own },
+    };
+    views.set(lens, view);
+  }
+  return view;
 }
-const sideViews = new WeakMap<UiState, UiState>();
+const lensViews = new WeakMap<UiState, Map<SideLens, UiState>>();
 
-/** A step run on asSide(before), put back: the chats return to their places, all else as the step left it. */
-function fromSide(before: UiState, after: UiState): UiState {
-  return { ...after, chat: before.chat, conversation: before.conversation, side: { chat: after.chat, conversation: after.conversation } };
+/** The state a selector reads for a lens: the pane's own, or a lens beside in its place. */
+export function lensed(state: UiState, lens: Lens): UiState {
+  return lens === "main" ? state : asLens(state, lens);
 }
 
-/** An effect of the chat beside: what it answers is for that chat (a timer's event too). */
-function onSide(effect: Effect): Effect {
-  return effect.kind === "later" ? { ...effect, lens: "side", event: { ...effect.event, lens: "side" } } : { ...effect, lens: "side" };
+/** A step run on asLens(before, lens), put back: the views return to their places, all else as the step left it. */
+function fromLens(before: UiState, lens: SideLens, after: UiState): UiState {
+  const view = asLens(before, lens);
+  const same = after.chat === view.chat && after.conversation === view.conversation && after.pane.session === view.pane.session && after.pane.draft === view.pane.draft;
+  // the rest of the pane as the step left it: the socket, its connection and the role are shared
+  const pane = after.pane === view.pane ? before.pane : { ...after.pane, session: before.pane.session, draft: before.pane.draft };
+  const others = after.lenses === view.lenses ? before.lenses : after.lenses;
+  const lenses = same && others === before.lenses ? before.lenses
+    : { ...others, [lens]: same ? before.lenses[lens] : { chat: after.chat, conversation: after.conversation, session: after.pane.session, draft: after.pane.draft } };
+  return { ...after, chat: before.chat, conversation: before.conversation, pane, lenses };
 }
 
-/** What a step on the rest of the state means for the chat beside: a status edge, the page back, a pane gone. */
-function followSide(before: UiState, step: Transition): Transition {
-  if (step.state.side === before.side && step.state.connection === before.connection && step.state.machines === before.machines && step.state.pane === before.pane && step.state.sends === before.sends) return step;
-  const effects: Effect[] = [];
-  const lensed = followLens(asSide(before), asSide(step.state), effects);
-  if (lensed === asSide(step.state) && effects.length === 0) return step;
-  return { state: fromSide(step.state, lensed), effects: [...step.effects, ...effects.map(onSide)] };
+/** An effect of a lens beside: what it answers is for that lens (a timer's event too). */
+function onLens(effect: Effect, lens: SideLens): Effect {
+  return effect.kind === "later" ? { ...effect, lens, event: { ...effect.event, lens } } : { ...effect, lens };
+}
+
+/** What a step on the rest of the state means for each lens beside: a status edge, the page back, a pane gone. */
+function followLenses(before: UiState, step: Transition): Transition {
+  if (step.state.lenses === before.lenses && step.state.connection === before.connection && step.state.machines === before.machines && step.state.pane === before.pane && step.state.sends === before.sends) return step;
+  let { state, effects } = step;
+  for (const lens of SIDE_LENSES) {
+    const added: Effect[] = [];
+    const after = asLens(state, lens);
+    const followed = followLens(asLens(before, lens), after, added);
+    if (followed === after && added.length === 0) continue;
+    state = fromLens(state, lens, followed);
+    effects = [...effects, ...added.map((effect) => onLens(effect, lens))];
+  }
+  return state === step.state && effects === step.effects ? step : { state, effects };
 }
 
 /** the Fleet screen's own refresh: not while the page is hidden or a button refresh is running */
@@ -1431,7 +1476,10 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "palette-pick-prompt":
       if (!state.palette.open) return next({});
       // the prompt is the searched chat's: the pane's, or the one beside
-      if (state.palette.chat === "side") return next({ palette: { open: false }, side: { ...state.side, chat: seekPrompt(state.side.chat, { key: event.key }) } });
+      if (state.palette.chat !== "main") {
+        const lens = state.palette.chat;
+        return next({ palette: { open: false }, lenses: { ...state.lenses, [lens]: { ...state.lenses[lens], chat: seekPrompt(state.lenses[lens].chat, { key: event.key }) } } });
+      }
       return next({ palette: { open: false }, chat: seekPrompt(state.chat, { key: event.key }) });
     case "prompt-rail-step":
       return next({ chat: seekPrompt(state.chat, event.direction) });
@@ -2308,7 +2356,7 @@ function subscriptionKey(state: UiState): string | null {
   return JSON.stringify(alertPrefs(settings));
 }
 
-/** What a step means for the pane's chat and its conversation (and, run on asSide, for the chat beside). */
+/** What a step means for the pane's chat and its conversation (and, run on asLens, for a lens beside). */
 function followLens(before: UiState, after: UiState, effects: Effect[]): UiState {
   let state = after;
   // the conversation follows the chat open on a pane: another pane starts over, a closed chat reads nothing

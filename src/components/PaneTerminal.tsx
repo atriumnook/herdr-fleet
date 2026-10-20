@@ -1,4 +1,4 @@
-import { useCallback, useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -18,7 +18,7 @@ import { paneStorageId } from "../../shared/machines.ts";
 import { KeyBar, type KeyBarEvent } from "./KeyBar.tsx";
 import type { Emit } from "../ui/bubble.ts";
 import { useSelected, useTerminal } from "../ui/presenter.ts";
-import { NO_SESSION, type PaneCommand, type PaneSessionEvent, type UiEvent } from "../ui/state.ts";
+import { lensed, NO_SESSION, type Lens, type PaneCommand, type PaneSessionEvent, type UiEvent, type UiState } from "../ui/state.ts";
 import { QueuePresenter, type QueueUpEvent } from "../ui/QueuePresenter.tsx";
 import type { TerminalInputEvent } from "./TerminalInput.tsx";
 import { TerminalInputPresenter } from "../ui/TerminalInputPresenter.tsx";
@@ -71,6 +71,11 @@ export interface PaneTerminalProps {
   theme: ResolvedTheme;
   /** The connection's desired role; changes are sent to the server, its ack goes up as role-ack. */
   role?: ClientRole;
+  /**
+   * Which of the state's views of a pane this terminal is: the pane's own (default), which opens and
+   * closes its PC's socket, or the side panel's, which shows another pane through the same socket.
+   */
+  lens?: Lens;
   /** Fires with the server-confirmed role (the header toggle shows it). */
   /** Fires on every change of the socket's connected state (the header shows it). */
   /** Every server frame also reaches App: it merges pane-status and schedules refetches. */
@@ -136,8 +141,11 @@ export function PaneTerminal({
   terminalFontFamily,
   theme,
   role = "interact",
-  emit,
+  lens = "main",
+  emit: up,
 }: PaneTerminalProps) {
+  // what this terminal says goes to its own view in the state
+  const emit = useMemo<PaneTerminalProps["emit"]>(() => (lens === "main" ? up : (event) => up({ ...event, lens } as typeof event)), [lens, up]);
   const openFile = useContext(OpenFileContext);
   const openFileRef = useRef(openFile);
   openFileRef.current = openFile;
@@ -146,6 +154,8 @@ export function PaneTerminal({
   const uploadFileRef = useRef(uploadPaneImage);
   uploadFileRef.current = uploadPaneImage;
   const chatView = view === "chat";
+  // the side panel's grid takes the keyboard from a click only: the pane's own keeps it as panes change
+  const quiet = autoSelected || lens !== "main";
   const chatViewRef = useRef(chatView);
   chatViewRef.current = chatView;
   /** read by the wheel handler, which is attached once for the terminal's life */
@@ -164,7 +174,7 @@ export function PaneTerminal({
   /** what the grid asks of its socket: the pane shown, its size, the role */
   const command = useCallback((asked: PaneCommand) => emitRef.current({ type: "pane-command", machineId, command: asked }), [machineId]);
   // the attached pane as its socket told the Mediator; until it attached, nothing of it is known
-  const told = useSelected((state) => state.pane.session);
+  const told = useSelected((state) => lensed(state, lens).pane.session);
   const { outputReady, ended, inputError, inputReady, outputError, unsupported, held } = told.paneId === paneId ? told : NO_SESSION;
   const connected = useSelected((state) => state.pane.connected);
   const observing = useSelected((state) => state.pane.role === "observe");
@@ -207,7 +217,7 @@ export function PaneTerminal({
   const inputLineRef = useRef(inputLine);
   inputLineRef.current = inputLine;
   // input typed while the terminal could not take it, held for the user to review and send (the Mediator keeps it)
-  const heldInput = useSelected((state) => state.pane.draft);
+  const heldInput = useSelected((state) => lensed(state, lens).pane.draft);
   const draft = paneId !== null && heldInput.owner === paneStorageId(machineId, paneId) ? heldInput.value : EMPTY_DRAFT;
   // transient OSC 52 feedback ("copied") — a pill in the banner column
   const [clipboardNote, setClipboardNote] = useState<string | null>(null);
@@ -215,10 +225,11 @@ export function PaneTerminal({
   // what the chat lens shares with the composer (the Mediator keeps it): the prompt waiting on this pane, a pick
   // typed for it, the agent's suggestion and the settings the conversation reported
   // each one apart: the chat region changes with every read, which must not re-render the terminal
-  const chatPrompt = useSelected((state) => (paneId !== null && state.chat.open?.paneId === paneId ? state.chat.prompt : null));
-  const pendingAnswer = useSelected((state) => (paneId !== null && state.chat.open?.paneId === paneId ? state.chat.pendingAnswer : null));
-  const chatSuggestion = useSelected((state) => (paneId !== null && state.chat.open?.paneId === paneId ? state.chat.suggestion : null));
-  const chatMetadata = useSelected((state) => (paneId !== null && state.chat.metadata?.paneId === paneId ? state.chat.metadata.value : null));
+  const chatOf = (state: UiState) => lensed(state, lens).chat;
+  const chatPrompt = useSelected((state) => (paneId !== null && chatOf(state).open?.paneId === paneId ? chatOf(state).prompt : null));
+  const pendingAnswer = useSelected((state) => (paneId !== null && chatOf(state).open?.paneId === paneId ? chatOf(state).pendingAnswer : null));
+  const chatSuggestion = useSelected((state) => (paneId !== null && chatOf(state).open?.paneId === paneId ? chatOf(state).suggestion : null));
+  const chatMetadata = useSelected((state) => (paneId !== null && chatOf(state).metadata?.paneId === paneId ? chatOf(state).metadata!.value : null));
   // back at work, the agent has had its answer, maybe from the terminal: the same prompt asked
   // again before the chat's next read must not bring the pick back either
   useEffect(() => {
@@ -746,8 +757,9 @@ export function PaneTerminal({
       // the reconnect attaches afresh: it says attach_held again if the other bridge still has
       // the pane, and a pane it gets straight away sends no attach-resumed to clear this
       heldRef.current = false;
-    } });
-    emitRef.current({ type: "open-pane-socket", machineId });
+    } }, lens);
+    // the pane's own terminal opens its PC's socket; one beside shares it
+    if (lens === "main") emitRef.current({ type: "open-pane-socket", machineId });
 
     // onKey runs after xterm drains a pending IME commit, immediately before the
     // key's onData. Remap only that CR, preserving composition text and its order.
@@ -966,7 +978,7 @@ export function PaneTerminal({
       osc52.dispose();
       if (clipboardTimerRef.current !== null) window.clearTimeout(clipboardTimerRef.current);
       detachTerminal();
-      emitRef.current({ type: "close-pane-socket", machineId });
+      if (lens === "main") emitRef.current({ type: "close-pane-socket", machineId });
       stopGlyphs();
       host.removeEventListener("compositionstart", compositionStart);
       host.removeEventListener("compositionend", compositionEnd);
@@ -1034,7 +1046,7 @@ export function PaneTerminal({
     if (!drives()) {
       adopt();
       followCursorRef.current?.();
-      if (!autoSelected && !coarseRef.current) grid?.focus();
+      if (!quiet && !coarseRef.current) grid?.focus();
       return;
     }
     const term = termRef.current;
@@ -1045,7 +1057,7 @@ export function PaneTerminal({
     }
     const pane = paneRef.current;
     if (pane && term) command({ kind: "resize", paneId: pane, cols: term.cols, rows: term.rows, force: true });
-    if (!autoSelected && !coarseRef.current) term?.focus();
+    if (!quiet && !coarseRef.current) term?.focus();
   }, [chatView]);
 
   // Reset synchronously on pane changes: old composition timers must never see the new pane.
@@ -1077,7 +1089,7 @@ export function PaneTerminal({
     if (drives()) command({ kind: "resize", paneId, cols: term.cols, rows: term.rows, force: true });
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
-    if (!chatViewRef.current && !autoSelected && !coarseRef.current) term.focus();
+    if (!chatViewRef.current && !quiet && !coarseRef.current) term.focus();
     return () => {
       command({ kind: "detach", paneId });
     };
@@ -1317,7 +1329,7 @@ export function PaneTerminal({
         <ComposerPresenter
           key={paneId}
           paneId={paneId}
-          autoFocus={!autoSelected && !coarse}
+          autoFocus={!quiet && !coarse}
           agent={agent}
           agentStatus={agentStatus}
           emit={composerEmit}

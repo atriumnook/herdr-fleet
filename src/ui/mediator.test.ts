@@ -114,9 +114,9 @@ describe("Mediator", () => {
     const mediator = new Mediator(p);
     mediator.dispatch({ type: "chat-open", machineId: "local", paneId: "w1:p1" });
     mediator.dispatch({ type: "chat-open", machineId: "local", paneId: "w1:p2", lens: "side" });
-    await until(() => mediator.getState().side.conversation.loaded && mediator.getState().conversation.loaded);
+    await until(() => mediator.getState().lenses.side.conversation.loaded && mediator.getState().conversation.loaded);
     expect(mediator.getState().conversation.view.turns[0]!.parts).toEqual([{ kind: "text", text: "w1:p1" }]);
-    expect(mediator.getState().side.conversation.view.turns[0]!.parts).toEqual([{ kind: "text", text: "w1:p2" }]);
+    expect(mediator.getState().lenses.side.conversation.view.turns[0]!.parts).toEqual([{ kind: "text", text: "w1:p2" }]);
     expect(read.sort()).toEqual(["w1:p1", "w1:p2"]);
   });
 
@@ -400,6 +400,37 @@ describe("Mediator", () => {
       expect(seen.at(-1)).toBe("disconnected");
       expect(mediator.getState().pane.connected).toBe(false);
       detach();
+    });
+
+    it("writes each pane's output to the terminal that shows it: the pane's own, or the side panel's", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      const main = sinkFor();
+      const side = sinkFor();
+      mediator.attachTerminal(main.sink);
+      const detachSide = mediator.attachTerminal(side.sink, "side-terminal");
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p9", lens: "side-terminal" });
+      fake.socket.up = true;
+      fake.say({ type: "pty-data", pane_id: "w1:p9", data: "shell" } as ServerMessage);
+      fake.say({ type: "pty-data", pane_id: "w1:p1", data: "agent" } as ServerMessage);
+      expect(main.seen).toEqual(["output agent"]);
+      expect(side.seen).toEqual(["output shell"]);
+      expect(mediator.getState().lenses["side-terminal"].session.inputReady).toBe(true);
+      // what the socket says of a pane goes to the lens that shows it; every grid hears it
+      fake.say({ type: "pty-exit", pane_id: "w1:p9", code: 0 } as ServerMessage);
+      expect(mediator.getState().lenses["side-terminal"].session.ended).toBe(true);
+      expect(mediator.getState().pane.session.ended).toBe(false);
+      expect(side.seen.at(-1)).toBe("pty-exit");
+      expect(main.seen.at(-1)).toBe("pty-exit");
+      fake.drop();
+      expect(side.seen.at(-1)).toBe("disconnected");
+      // with the side panel's grid gone, its pane's output is acknowledged and dropped
+      detachSide();
+      fake.say({ type: "pty-data", pane_id: "w1:p9", data: "late" } as ServerMessage);
+      expect(side.seen).not.toContain("output late");
+      expect(fake.calls.at(-1)).toBe("ack");
     });
 
     it("says an output that stopped, and leaves the connection as the stop left it", () => {

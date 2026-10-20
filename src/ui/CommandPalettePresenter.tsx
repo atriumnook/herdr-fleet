@@ -4,7 +4,7 @@ import { CommandPalette, type CommandPaletteEvent, type CommandPaletteModel } fr
 import type { PaneView } from "../lib/actions.ts";
 import { findPrompts, railEntries, type RailEntry } from "../lib/promptRail.ts";
 import type { Emit } from "./bubble.ts";
-import type { UiState } from "./state.ts";
+import { lensed, type UiState } from "./state.ts";
 import { useSelected } from "./presenter.ts";
 
 export interface CommandPalettePresenterProps {
@@ -31,7 +31,7 @@ export function CommandPalettePresenter({ snapshot, selectedPaneId, view, offers
   const palette = useSelected((state) => state.palette);
   // the searched chat's turns, read from the state alone (a value from outside a selector would be
   // kept with its answer): the pane's chat or the one beside, and none while the palette is closed
-  const conversationOf = (state: UiState) => (!state.palette.open ? null : state.palette.chat === "side" ? state.side.conversation : state.conversation);
+  const conversationOf = (state: UiState) => (!state.palette.open ? null : lensed(state, state.palette.chat).conversation);
   const older = useSelected((state) => {
     const conversation = conversationOf(state);
     return conversation?.open ? conversation.older.turns : NO_TURNS;
