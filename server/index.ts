@@ -38,11 +38,13 @@ import {
   paneSendText,
   ping,
   sessionSnapshot,
+  tabCreate,
   workspaceClose,
   workspaceCreate,
   workspaceMove,
   workspaceRename,
 } from "./herdr/client.ts";
+import { openSideTerminal, SideTerminalError } from "./side-terminal.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
 import { codexQuestionsCollapsed, handlePromptRequest, liveScreen, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
@@ -1506,6 +1508,28 @@ export function createServer(
           await paneClose(payload.pane_id);
           return jsonResponse({ ok: true });
         } catch (error) {
+          return errorResponse(error);
+        }
+      }
+
+      if (pathname === "/api/pane/terminal") {
+        if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
+        let payload: { pane_id?: string };
+        try {
+          payload = (await request.json()) as typeof payload;
+        } catch {
+          return badRequest("invalid_json", "request body must be JSON");
+        }
+        if (!isJsonObject(payload)) return badRequest("invalid_body", "request body must be a JSON object");
+        if (typeof payload.pane_id !== "string" || !payload.pane_id.trim()) return badRequest("missing_pane_id", "pane_id is required");
+        try {
+          const paneId = await openSideTerminal(payload.pane_id, {
+            snapshot: () => sessionSnapshot(),
+            createTab: (workspaceId, cwd, label) => tabCreate({ workspaceId, label, ...(cwd === undefined ? {} : { cwd }) }),
+          });
+          return jsonResponse({ pane_id: paneId });
+        } catch (error) {
+          if (error instanceof SideTerminalError) return jsonResponse({ error: { code: error.code, message: error.message } }, error.code === "pane_not_found" ? 404 : 502);
           return errorResponse(error);
         }
       }
