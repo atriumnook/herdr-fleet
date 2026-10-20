@@ -26,4 +26,10 @@ describe("Markdown files", () => {
     expect(elsewhere).not.toContain("<img");
     expect(elsewhere).toContain("docs/shot.png");
   });
+
+  it("opens the file a `path:line` code span names, still showing the line", () => {
+    const html = render("see `src/app.ts:12`");
+    expect(html).toContain('title="Open src/app.ts"');
+    expect(html).toContain("<code>src/app.ts:12</code>");
+  });
 });

@@ -3,7 +3,7 @@ import { Check, Copy } from "lucide-react";
 import katex from "katex";
 
 import { foldCode, parseMarkdown, type InlineNode, type ListBlock, type MarkdownBlock } from "../lib/markdown.ts";
-import { codeIsFilePath, FileUrlContext, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
+import { codeFilePath, FileUrlContext, OpenFileContext, splitFilePaths } from "../lib/filePaths.ts";
 import { fileUriPath } from "../lib/terminalFileLinks.ts";
 import { t } from "../lib/i18n.ts";
 
@@ -17,9 +17,9 @@ function MathExpression({ value, displayMode = false }: { value: string; display
   }
 }
 
-/** A file path the viewer opens: a button that reads as the text or code it replaced. */
-function FilePath({ path, code, open }: { path: string; code: boolean; open: (path: string) => void }) {
-  const label = code ? <code>{path}</code> : path;
+/** A file path the viewer opens: a button that reads as the text or code it replaced (`shown`, when that is more than the path). */
+function FilePath({ path, shown = path, code, open }: { path: string; shown?: string; code: boolean; open: (path: string) => void }) {
+  const label = code ? <code>{shown}</code> : shown;
   return <button type="button" className={`markdown-file${code ? " is-code" : ""}`} title={t("Open {path}", { path })} onClick={() => open(path)}>{label}</button>;
 }
 
@@ -49,7 +49,8 @@ function Inline({ nodes, interactive: nested = true }: { nodes: InlineNode[]; in
         if (open !== null && file !== null) return <FilePath key={key} path={file} code open={open} />;
         // agents often put an address in backticks: it stays code to the eye, and opens
         if (interactive && /^https?:\/\/\S+$/i.test(node.value)) return <a key={key} className="markdown-code-link" href={node.value} target="_blank" rel="noopener noreferrer"><code>{node.value}</code></a>;
-        return open !== null && codeIsFilePath(node.value) ? <FilePath key={key} path={node.value} code open={open} /> : <code key={key}>{node.value}</code>;
+        const path = open !== null ? codeFilePath(node.value) : null;
+        return open !== null && path !== null ? <FilePath key={key} path={path} shown={node.value} code open={open} /> : <code key={key}>{node.value}</code>;
       }
       case "math": return <MathExpression key={key} value={node.value} />;
       case "strong": return <strong key={key}><Inline nodes={node.children} interactive={interactive} /></strong>;
