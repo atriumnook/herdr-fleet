@@ -222,8 +222,11 @@ export class Mediator {
     const paneId = this.state.pane.session.paneId;
     const connection = (): void => this.dispatch({ type: "pane-connection", connected: handle.connected });
     for (const lens of ["main", ...SIDE_LENSES] as const) {
-      const shown = lensed(this.state, lens).pane.session.paneId;
-      if (shown !== null && (lens === "main" || this.terminals.has(lens))) this.dispatch({ type: "pane-input-ready", paneId: shown, ready: handle.canInput(shown), ...(lens === "main" ? {} : { lens }) });
+      const { session } = lensed(this.state, lens).pane;
+      // asked each message, told only a change: output streams in many messages
+      if (session.paneId !== null && (lens === "main" || this.terminals.has(lens)) && session.inputReady !== handle.canInput(session.paneId)) {
+        this.dispatch({ type: "pane-input-ready", paneId: session.paneId, ready: handle.canInput(session.paneId), ...(lens === "main" ? {} : { lens }) });
+      }
     }
     const about = "pane_id" in message ? message.pane_id : undefined;
     const lens = this.lensOf(about);
@@ -237,8 +240,9 @@ export class Mediator {
       if (message.pane_id === paneId) connection();
       return;
     }
-    // every xterm hears the rest: each acts on its own pane's, and the role is the connection's
-    for (const terminal of this.terminals.values()) terminal.message(message);
+    // what is said of one pane goes to the grid that shows it; the rest (the role, a snapshot) to every grid
+    if (about === undefined) for (const terminal of this.terminals.values()) terminal.message(message);
+    else this.terminals.get(lens)?.message(message);
     const shown = lensed(this.state, lens).pane.session.paneId;
     switch (message.type) {
       case "attach-resumed":

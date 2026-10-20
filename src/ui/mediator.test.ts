@@ -425,7 +425,12 @@ describe("Mediator", () => {
       expect(mediator.getState().lenses["side-terminal"].session.ended).toBe(true);
       expect(mediator.getState().pane.session.ended).toBe(false);
       expect(side.seen.at(-1)).toBe("pty-exit");
-      expect(main.seen.at(-1)).toBe("pty-exit");
+      expect(main.seen).not.toContain("pty-exit");
+      // an error of one pane is its grid's alone; the role is every grid's
+      fake.say({ type: "error", code: "attach_conflict", message: "taken", pane_id: "w1:p9" } as ServerMessage);
+      fake.say({ type: "role-ack", mode: "interact" } as ServerMessage);
+      expect(main.seen.slice(-1)).toEqual(["role-ack"]);
+      expect(side.seen.slice(-2)).toEqual(["error", "role-ack"]);
       fake.drop();
       expect(side.seen.at(-1)).toBe("disconnected");
       // with the side panel's grid gone, its pane's output is acknowledged and dropped

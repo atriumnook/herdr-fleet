@@ -423,7 +423,6 @@ export function fleetScreenModel(state: FleetState, now: number): FleetScreenMod
   };
 }
 
-/** How many runs wait on the person: the count the Fleet button carries. */
 /** A project's coordinator: the newest that has not ended. */
 function coordinatorOf(runs: AgentRun[], project: string | null): AgentRun | undefined {
   return project === null ? undefined
@@ -444,6 +443,7 @@ export function fleetFrontPane(state: Pick<UiState, "runs" | "fleetView">): stri
   return coordinatorOf(runs, projectsOf(state).selected)?.paneId ?? null;
 }
 
+/** How many runs wait on the person: the count the Fleet button carries. */
 export function needsCount(state: Pick<UiState, "runs">): number {
   return state.runs.data.filter((run) => run.state === "blocked").length;
 }
