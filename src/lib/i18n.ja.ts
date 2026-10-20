@@ -145,6 +145,12 @@ export const JA: Record<string, string> = {
   "Tailscale is the shortest route: install it on this PC, run tailscale up, then check again. An SSH tunnel or your own HTTPS proxy work too.": "いちばん手早いのは Tailscale です。この PC に入れて tailscale up を実行してから、もう一度確かめてください。SSH トンネルや自前の HTTPS プロキシでも構いません。",
   "This PC did not say how it can be reached.": "この PC から、つなぎ方の答えがありませんでした。",
   "Your own Tailscale devices get in as you; with an access token set, each asks for it once. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "自分の Tailscale の Device は、あなたとして入れます。アクセストークンを設定していれば、Device ごとに一度だけ聞かれます。ほかの人の Device や、LAN・公開アドレスからは、ペアリングが要ります(下の Devices)。",
+  // ---- side panel ----
+  "Open a pane to ask about it.": "質問するには、Pane を開いてください。",
+  "Open a pane to open a terminal in its folder.": "Pane を開くと、そのフォルダーで Terminal を開けます。",
+  "Ask about this conversation without interrupting it. An agent that changes nothing reads the conversation and the code, and answers here.": "この会話を止めずに、横で質問できます。何も変更しないエージェントが会話とコードを読み、ここで答えます。",
+  "This terminal is the pane open on the Pane screen.": "この Terminal は、Pane 画面で開いている Pane です。",
+  "A shell in this pane's folder, in a tab of its workspace. herdr shows the same tab.": "この Pane のフォルダーで動くシェルを、同じ Workspace のタブとして開きます。herdr にも同じタブが出ます。",
   // ---- fleet ----
   "Could not load the fleet. {error}": "Fleet を読み込めませんでした。{error}",
   "The last read failed. {error}": "前回の読み取りに失敗しました。{error}",

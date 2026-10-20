@@ -1,0 +1,173 @@
+/* The side panel: a column right of the pane on a desktop, a sheet over it on a phone. */
+.side-panel {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 var(--side-panel-w, min(440px, 38vw));
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--surface);
+  padding-right: env(safe-area-inset-right, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.side-panel:has(.composer) {
+  padding-bottom: 0;
+}
+
+.side-panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2);
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+.side-panel-tabs {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.side-panel-about {
+  margin: 0;
+  padding: var(--space-1) var(--space-3);
+  overflow: hidden;
+  color: var(--sub);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  border-bottom: var(--hairline) solid var(--line);
+}
+
+.side-panel-about b {
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+}
+
+.side-panel-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.side-panel-body[hidden] {
+  display: none;
+}
+
+/* the chat and the terminal fill the body; each positions its own overlays against itself */
+.side-panel-chat,
+.side-panel-terminal {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.side-panel-start {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4) var(--space-3);
+  color: var(--sub);
+  font-size: var(--fs-sm);
+}
+
+.side-panel-start p {
+  margin: 0;
+}
+
+.side-panel-start > .btn {
+  align-self: flex-start;
+}
+
+.side-panel-ask {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.side-panel-ask textarea {
+  width: 100%;
+  box-sizing: border-box;
+  resize: vertical;
+  font: inherit;
+  color: var(--ink);
+}
+
+.side-panel-ask .btn {
+  align-self: flex-end;
+}
+
+.side-panel-cwd {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
+.side-panel-error {
+  color: var(--needs-text);
+}
+
+.side-panel-quiet {
+  margin: 0;
+  padding: var(--space-4) var(--space-3);
+  color: var(--sub);
+  font-size: var(--fs-sm);
+}
+
+.side-panel-button.is-on {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+
+/* the scrim is the phone sheet's alone */
+.side-panel-scrim {
+  display: none;
+}
+
+@media (min-width: 1101px) {
+  .side-panel {
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-lg);
+  }
+}
+
+/* a window too narrow for a third column: a sheet over the right of the screen, the whole width on a phone */
+@media (max-width: 1100px) {
+  .side-panel {
+    position: fixed;
+    top: calc(var(--header-h) + env(safe-area-inset-top, 0px));
+    right: 0;
+    bottom: 0;
+    z-index: var(--z-drawer);
+    width: min(100vw, 440px);
+    border-left: var(--hairline) solid var(--line);
+    box-shadow: var(--shadow-drawer);
+  }
+
+  .side-panel-scrim {
+    display: block;
+    position: fixed;
+    inset: calc(var(--header-h) + env(safe-area-inset-top, 0px)) 0 0 0;
+    z-index: var(--z-scrim);
+    border: 0;
+    padding: 0;
+    background: var(--scrim);
+  }
+}
+
+/* a desktop window keeps a margin around the header: the sheet starts below it */
+@media (min-width: 769px) and (max-width: 1100px) {
+  .side-panel,
+  .side-panel-scrim {
+    top: calc(var(--header-h) + 2 * var(--space-2));
+  }
+
+  .side-panel {
+    bottom: var(--space-2);
+    right: var(--space-2);
+    border: var(--hairline) solid var(--line);
+    border-radius: var(--radius-lg);
+  }
+}

@@ -2525,3 +2525,50 @@ describe("the side panel's terminal beside the pane's", () => {
     expect(transition(state, beside({ type: "pane-output", paneId: "w1:p1", secret: null })).state).toBe(state);
   });
 });
+
+describe("the side panel", () => {
+  const panel = (state: UiState) => state.sidePanel;
+
+  it("shows on a tab and goes, closing the phone's drawer as it shows", () => {
+    const shown = play([{ type: "drawer", open: true }, { type: "side-panel", open: true, tab: "terminal" }]).state;
+    expect(panel(shown)).toMatchObject({ open: true, tab: "terminal" });
+    expect(shown.drawerOpen).toBe(false);
+    const gone = play([{ type: "side-panel", open: false }], shown).state;
+    expect(panel(gone)).toMatchObject({ open: false, tab: "terminal" });
+    expect(transition(gone, { type: "side-panel", open: false }).state).toBe(gone);
+  });
+
+  it("opens a pane's terminal once at a time, and says why it did not", () => {
+    const asked = play([{ type: "open-side-terminal", machineId: "local", paneId: "w1:p1" }, { type: "open-side-terminal", machineId: "local", paneId: "w1:p1" }]);
+    expect(asked.effects).toEqual([{ kind: "open-side-terminal", machineId: "local", paneId: "w1:p1", key: "w1:p1" }]);
+    expect(panel(asked.state).terminals["w1:p1"]).toEqual({ status: "opening" });
+    const failed = play([{ type: "side-terminal-failed", key: "w1:p1", message: "herdr is down" }], asked.state).state;
+    expect(panel(failed).terminals["w1:p1"]).toEqual({ status: "failed", message: "herdr is down" });
+    // a failed one is asked again
+    expect(play([{ type: "open-side-terminal", machineId: "local", paneId: "w1:p1" }], failed).effects).toHaveLength(1);
+  });
+
+  it("starts a side chat with its first question once at a time, and reads the runs once it started", () => {
+    const asked = play([{ type: "start-side-chat", paneId: "w1:p1", text: "why?" }, { type: "start-side-chat", paneId: "w1:p1", text: "why?" }]);
+    expect(asked.effects).toEqual([{ kind: "start-side-chat", paneId: "w1:p1", text: "why?", key: "w1:p1" }]);
+    expect(play([{ type: "start-side-chat", paneId: "w1:p2", text: "  " }]).effects).toEqual([]);
+    const started = play([{ type: "side-chat-started", key: "w1:p1", paneId: "w1:p7" }], asked.state);
+    expect(panel(started.state).chats["w1:p1"]).toEqual({ status: "opened", paneId: "w1:p7" });
+    expect(started.effects).toEqual([{ kind: "load-runs" }]);
+  });
+
+  it("leaves what it opened to the runs and the session tree once they list it", () => {
+    const opened = play([
+      { type: "side-chat-started", key: "w1:p1", paneId: "w1:p7" },
+      { type: "side-terminal-opened", key: "w1:p1", paneId: "w1:p8" },
+    ]).state;
+    const listed = play([{ type: "runs-loaded", runs: [run("s1", { role: "side-chat", paneId: "w1:p7", sideChatOf: "w1:p1" })] }], opened).state;
+    expect(panel(listed).chats).toEqual({});
+    expect(panel(listed).terminals["w1:p1"]).toEqual({ status: "opened", paneId: "w1:p8" });
+    const pc = { id: "local", name: "pc", kind: "local", enabled: true, state: "connected", error: null, snapshot: { panes: [{ pane_id: "w1:p8", workspace_id: "w1", tab_id: "w1:t2", focused: false, agent_status: "unknown" }], tabs: [], workspaces: [], agents: [] } } as unknown as Machine;
+    const seen = { ...listed, machines: { ...listed.machines, list: [pc] } };
+    // a step that changed the machines leaves it to the session tree
+    const after = transition(seen, { type: "fleet-changed" }).state;
+    expect(panel(after).terminals).toEqual({});
+  });
+});

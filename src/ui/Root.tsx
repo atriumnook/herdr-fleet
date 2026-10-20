@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, type ReactNode } from "react";
 import { App } from "../App.tsx";
-import { ApiError, answerPanePrompt, explainPaneQuestion, createWorkspace, uploadPaneImage, fetchPaneCommands, fetchPaneFiles, fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetDiff, fetchFleetLanding, fetchFleetPlan, answerFleetPlan, fetchFleetRuns, fetchFleetSettings, fetchFleetEntrances, fetchFleetModels, changeFleetEntrance, landFleetRun, saveFleetSettings, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, resolveFleetRun, startFleetProject, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
+import { ApiError, answerPanePrompt, explainPaneQuestion, createWorkspace, uploadPaneImage, fetchPaneCommands, fetchPaneFiles, fetchPaneConversation, fetchPanePromptState, fetchPaneTranscript, fetchDirectories, fetchFileInfo, fetchFileStart, fetchAgentKinds, sendTestPush, authenticate, fetchBridgeHealth, fetchHealth, fetchMachines, fetchSession, pairDevice, signOut, clearFleetCooldown, closePane, closeWorkspace, moveWorkspace, renamePane, renameWorkspace, closeDoneFleetRuns, fetchDevices, fetchFleetDiff, fetchFleetLanding, fetchFleetPlan, answerFleetPlan, fetchFleetRuns, fetchFleetSettings, fetchFleetEntrances, fetchFleetModels, changeFleetEntrance, landFleetRun, saveFleetSettings, fetchFleetUsage, fetchRemoteAccess, interruptFleetRun, refreshFleetUsage, resolveFleetRun, startFleetProject, startFleetSideChat, openPaneTerminal, renameDevice, revokeDevice, startPairing } from "../lib/api.ts";
 import { forgetPaneViews, loadSettings, PANE_VIEW_KEY_PREFIX, saveSettings, SettingsProvider, type Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts } from "./mediator.ts";
 import { MediatorContext, useSelected } from "./presenter.ts";
@@ -79,6 +79,8 @@ export const FLEET_PORTS: EffectPorts = {
   renameDevice: async (id, label) => { await renameDevice(id, label); },
   revokeDevice,
   later: (ms, then) => { window.setTimeout(then, ms); },
+  openSideTerminal: (machineId, paneId) => openPaneTerminal(paneId, machineId),
+  startSideChat: startFleetSideChat,
   storeSelection,
   // a subscription the server no longer has is what the test is for: it says so, not that it failed
   testPush: () => testDevicePush().catch((error: unknown) => { if (error instanceof ApiError && error.code === "subscription_not_found") return "missing" as const; throw error; }),

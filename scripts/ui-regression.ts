@@ -26,6 +26,7 @@ import { checkTerminalCjkWidths } from "./terminal-cjk-width-regression.ts";
 import { checkTerminalFontChange } from "./terminal-font-regression.ts";
 import { checkCommandBackspace } from "./terminal-command-backspace-regression.ts";
 import { checkFleetScreen } from "./fleet-screen-regression.ts";
+import { checkSidePanel } from "./side-panel-regression.ts";
 import { checkDirectoryBrowser } from "./directory-browser-regression.ts";
 import { checkTerminalSession } from "./terminal-session-regression.ts";
 import { checkTerminalDraft } from "./terminal-draft-regression.ts";
@@ -363,6 +364,7 @@ try {
   await checkComposerCompletion(browser, origin);
   await checkComposerAttachment(browser, origin);
   await checkFleetScreen(browser);
+  await checkSidePanel(browser);
   await checkFocusedViewSizesPane(browser, origin);
   await checkTerminalCjkWidths(browser, origin);
   await checkTerminalFontChange(browser, origin);

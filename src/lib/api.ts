@@ -260,6 +260,12 @@ export async function closePane(paneId: string, machineId = "local"): Promise<vo
   await sendJson(machinePath(machineId, "pane/close"), "POST", { pane_id: paneId });
 }
 
+/** POST /api/pane/terminal: the terminal of the pane's workspace, opened in a tab of its own when there is none; its pane id. */
+export async function openPaneTerminal(paneId: string, machineId = "local"): Promise<string> {
+  const response = await sendJson(machinePath(machineId, "pane/terminal"), "POST", { pane_id: paneId });
+  return ((await response.json()) as { pane_id: string }).pane_id;
+}
+
 /** POST /api/pane/rename: sets the pane's label in herdr (an empty label clears it). */
 export async function renamePane(paneId: string, label: string, machineId = "local"): Promise<void> {
   await sendJson(machinePath(machineId, "pane/rename"), "POST", { pane_id: paneId, label });
@@ -446,6 +452,11 @@ export async function clearFleetCooldown(key: string): Promise<void> {
 /** Starts the coordinator of the project `cwd` lies in, or hands the task to the one there. */
 export async function startFleetProject(task: string, cwd: string): Promise<void> {
   await sendFleet("/projects", { task, cwd });
+}
+
+/** A side chat about a pane, asked `question` first (the live one about it is asked instead); the pane it runs in. */
+export async function startFleetSideChat(paneId: string, question: string): Promise<string> {
+  return (await sendFleet<{ run: AgentRun }>("/side-chats", { pane_id: paneId, question })).run.paneId;
 }
 
 /** A thread's change since it left its base branch, as a unified diff. */

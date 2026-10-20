@@ -17,6 +17,7 @@ describe("matchShortcut", () => {
   it("matches every terminal-safe key", () => {
     expect(matchShortcut(keyEvent("j", { ctrlKey: true }), false)).toBe("toggle-view");
     expect(matchShortcut(keyEvent("B", { ctrlKey: true }), false)).toBe("toggle-sidebar");
+    expect(matchShortcut(keyEvent("L", { ctrlKey: true }), false)).toBe("side-panel");
     expect(matchShortcut(keyEvent("n", { ctrlKey: true }), false)).toBe("new-session");
     expect(matchShortcut(keyEvent("ArrowUp", { ctrlKey: true }), false)).toBe("previous-pane");
     expect(matchShortcut(keyEvent("ArrowDown", { ctrlKey: true }), false)).toBe("next-pane");

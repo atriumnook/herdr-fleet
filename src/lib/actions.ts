@@ -18,6 +18,8 @@ export interface AppActions {
   openPalette: () => void;
   openSettings: () => void;
   toggleSidebar: () => void;
+  /** the side panel (a side chat and a terminal beside the pane shown), on either screen */
+  toggleSidePanel: () => void;
   /** flips dark/light (a `system` setting becomes the opposite of the resolved theme) */
   toggleTheme: () => void;
   /** Sign out of token/device authentication; null for automatic local/Tailscale access. */

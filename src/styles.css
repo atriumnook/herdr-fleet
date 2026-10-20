@@ -384,6 +384,8 @@ button {
 
 .terminal-host {
   position: relative;
+  /* the Fleet screen lays itself out by the width it gets here (Fleet.css) */
+  container: host / inline-size;
   flex: 1 1 auto;
   min-width: 0;
   min-height: 0;

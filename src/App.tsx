@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppWindow, Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
+import { AppWindow, Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, PanelRight, Search, SquareTerminal, X } from "lucide-react";
 
 import { closePaneEvent, displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
@@ -35,6 +35,7 @@ import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
 import { useSelected } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
+import { SidePanelPresenter } from "./ui/SidePanelPresenter.tsx";
 import { SIDE_LENSES, type Lens, type UiEvent } from "./ui/state.ts";
 
 const APP_TITLE = "herdr fleet";
@@ -109,6 +110,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const snapshot = selectedMachine?.snapshot ?? null;
   const canSignOut = auth?.authenticated === true && (auth.via === "token" || auth.via === "device");
   const drawerOpen = useSelected((state) => state.drawerOpen);
+  const sidePanelOpen = useSelected((state) => state.sidePanel.open);
   const drawerOpenRef = useRef(drawerOpen); drawerOpenRef.current = drawerOpen;
   const setDrawerOpen = useCallback((open: boolean) => emitRef.current({ type: "drawer", open }), []);
   const selectionRef = useRef({ machineId: selectedMachineId, paneId: selectedPaneId });
@@ -260,13 +262,14 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         if (window.matchMedia("(max-width: 768px)").matches) emitRef.current({ type: "toggle-drawer" });
         else setSidebarCollapsed((collapsed) => !collapsed);
       },
+      toggleSidePanel: () => emitRef.current({ type: "side-panel", open: !sidePanelOpen }),
       toggleTheme: () => updateSettings({ theme: resolvedTheme === "dark" ? "light" : "dark" }),
       lock: canSignOut ? () => void lock() : null,
       enableNotifications: bellVisible && !bell.on ? () => void enableNotifications() : null,
       refresh: () => emitRef.current({ type: "reload-machines" }),
       openFiles: selectedPaneId !== null ? () => emitRef.current({ type: "open-files" }) : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, chatShows, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, chatShows, sidePanelOpen, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications],
   );
   // a connected PC's sessions: a new session is this shell's; the rest goes up as it is
   const treeEmit = useMemo(() => relay<SidebarEvent, UiEvent>(emit, (event, pass) => {
@@ -438,6 +441,10 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
               <FolderOpen />
             </button>
           )}
+          <button type="button" className={`icon-button side-panel-button${sidePanelOpen ? " is-on" : ""}`} aria-label={t("Side panel")} aria-pressed={sidePanelOpen}
+            title={t("Side chat and terminal (⌘⇧L)")} onClick={() => emit({ type: "side-panel", open: !sidePanelOpen })}>
+            <PanelRight />
+          </button>
           <button type="button" className="icon-button" aria-label={t("Command palette")} title={t("Command palette (⌘⇧K)")} onClick={() => emit({ type: "open-palette" })}>
             <Search />
           </button>
@@ -494,6 +501,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
           </div>
           {screen === "fleet" && <FleetPresenter emit={emit} />}
         </main>
+        <SidePanelPresenter emit={emit} />
         </OpenFileContext.Provider>
       </div>
 

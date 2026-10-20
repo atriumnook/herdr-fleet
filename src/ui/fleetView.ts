@@ -390,8 +390,7 @@ export function fleetScreenModel(state: FleetState, now: number): FleetScreenMod
   const threadRuns = project.selected === null ? [] : runs.filter((run) => run.role === THREAD_ROLE && run.project === project.selected);
   const rows = threadRuns.map((run) => threadRow(run, view.open?.kind === "thread" && view.open.runId === run.id, state));
   const byRecent = (a: ThreadRowModel, b: ThreadRowModel) => b.updatedAt - a.updatedAt;
-  const coordinatorRun = project.selected === null ? undefined
-    : runs.filter((run) => run.role === PROJECT_ROLE && run.project === project.selected && !isEnded(run)).sort((a, b) => b.startedAt - a.startedAt)[0];
+  const coordinatorRun = coordinatorOf(runs, project.selected);
   const inThreads = new Set(runs.filter((run) => run.role === THREAD_ROLE).map((run) => run.group));
   const outside = cards.filter((card) => card.role !== THREAD_ROLE && card.role !== PROJECT_ROLE && !inThreads.has(card.group) && card.tone !== "ended");
   return {
@@ -425,6 +424,26 @@ export function fleetScreenModel(state: FleetState, now: number): FleetScreenMod
 }
 
 /** How many runs wait on the person: the count the Fleet button carries. */
+/** A project's coordinator: the newest that has not ended. */
+function coordinatorOf(runs: AgentRun[], project: string | null): AgentRun | undefined {
+  return project === null ? undefined
+    : runs.filter((run) => run.role === PROJECT_ROLE && run.project === project && !isEnded(run)).sort((a, b) => b.startedAt - a.startedAt)[0];
+}
+
+/**
+ * The pane the Fleet screen shows in front, which its side panel is about: the thread's or the
+ * agent's open beside (the helper picked in it), else the project's coordinator. None on the
+ * Settings page.
+ */
+export function fleetFrontPane(state: Pick<UiState, "runs" | "fleetView">): string | null {
+  const view = state.fleetView;
+  if (view.settings) return null;
+  const runs = state.runs.data;
+  const open = view.open ? runs.find((run) => run.id === view.open!.runId) : undefined;
+  if (open) return (view.open!.member === null ? undefined : runs.find((run) => run.id === view.open!.member))?.paneId ?? open.paneId;
+  return coordinatorOf(runs, projectsOf(state).selected)?.paneId ?? null;
+}
+
 export function needsCount(state: Pick<UiState, "runs">): number {
   return state.runs.data.filter((run) => run.state === "blocked").length;
 }

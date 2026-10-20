@@ -14,6 +14,7 @@ Herdr 上で複数のコーディングエージェント(pi / Claude Code / Cod
   - PaneTerminal: xterm の操作に付随する API 呼び出し(スクロール、選択範囲のテキストの取得、ドロップしたファイルのアップロード)と、秘密の入力の送信の完了待ち
   - ChatView: ツール出力の全文を読む `useWholeOutput`
   - ペインを見る枠(lens)を 4 つ持つ。ペインのもの(`main`: Pane 画面のペイン、または Fleet 画面のプロジェクトの会話)と、横の 3 つ(`lenses` の `side`: Fleet 画面の Overview で開いたスレッドやエージェント、`side-chat` と `side-terminal`: サイドパネルのサイドチャットとターミナル)。枠ごとに、チャット(`chat` と `conversation`)とターミナルのセッション(`pane.session` と、入力できない間に打った文字 `pane.draft`)を持つ。横の枠へのイベントと副作用には `lens` を付け、その枠をペインの位置に入れ替えて同じ遷移を走らせる(`asLens`。Presenter が読むときは `lensed`)。WebSocket とその接続状態は全枠で共有し、Mediator は `pty-data` を、そのペインをつないだ枠の xterm に渡す。Fleet 画面の間、Pane 画面のチャットは開かない(`PaneTerminal` の `chatShown`)
+  - サイドパネル(`SidePanelPresenter`)が扱うのは前に出ているペイン(`sidePanelView.ts`)。開いたサイドチャットとターミナルは状態に持たず、runs(`sideChatOf`)とセッションの一覧(ワークスペースの `terminal` のタブ、`shared/side-terminal.ts`)から見つける。状態に持つのは開閉、タブ、開始中か失敗したかだけ
   - xterm の DOM の振る舞いをモジュールに分けることは見送った
 
 ## 開発コマンド

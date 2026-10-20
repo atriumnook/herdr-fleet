@@ -946,9 +946,11 @@ pre.fleet-plan-code { padding: var(--space-2) var(--space-3); }
 /* the sheet's own scrim and close button show on a narrower screen only */
 .fleet-sheet-scrim, .fleet-sheet-close { display: none; }
 
-/* ---------- a narrower screen: nothing expands, the Overview is a sheet ---------- */
+/* ---------- a narrower screen: nothing expands, the Overview is a sheet ----------
+   measured on the space the screen gets (styles.css .terminal-host), which the side panel narrows
+   too: 720px of it is what a 900px window left beside the sidebar */
 
-@media (max-width: 900px) {
+@container host (max-width: 720px) {
   .fleet-hide-narrow, .fleet-overview-label { display: none; }
   .fleet-screen { gap: 0; }
   .fleet-main { border-radius: 0; border-width: 0; }

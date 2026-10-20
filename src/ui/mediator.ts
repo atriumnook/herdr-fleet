@@ -166,6 +166,10 @@ export interface EffectPorts {
   listFolder(machineId: string, path: string, paneId: string | null): Promise<string>;
   /** runs `then` after `ms`: the clock the state machine's `later` effects wait on */
   later(ms: number, then: () => void): void;
+  /** a terminal for a pane: a shell in its folder, in a tab of its workspace (the one there already, else a new one); its pane id */
+  openSideTerminal(machineId: string, paneId: string): Promise<string>;
+  /** a side chat about a pane on this PC, asked `text` first; the pane it runs in */
+  startSideChat(paneId: string, text: string): Promise<string>;
 }
 
 const message = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -642,6 +646,14 @@ export class Mediator {
         return;
       case "later":
         this.ports.later(effect.ms, () => dispatch(effect.event));
+        return;
+      case "open-side-terminal":
+        try { dispatch({ type: "side-terminal-opened", key: effect.key, paneId: await this.ports.openSideTerminal(effect.machineId, effect.paneId) }); }
+        catch (error) { dispatch({ type: "side-terminal-failed", key: effect.key, message: message(error) }); }
+        return;
+      case "start-side-chat":
+        try { dispatch({ type: "side-chat-started", key: effect.key, paneId: await this.ports.startSideChat(effect.paneId, effect.text) }); }
+        catch (error) { dispatch({ type: "side-chat-failed", key: effect.key, message: message(error) }); }
         return;
     }
   }
