@@ -43,7 +43,7 @@ export function SideChatPresenter({ paneId, emit }: { paneId: string; emit: Emit
   const sideEmit = useCallback<Emit<SideChatEvent>>((event) => emit(event), [emit]);
   return (
     <SideChat
-      model={{ paneId, chat, loaded: side.paneId === paneId && side.loaded, asking: side.asking, error: side.paneId === paneId ? side.error : null, draft: side.paneId === paneId ? side.draft : "", enterSends }}
+      model={{ paneId, chat, loaded: side.paneId === paneId && side.loaded, asking: side.asking, error: side.paneId === paneId ? side.error : null, draft: side.drafts[paneId] ?? "", enterSends }}
       conversation={conversation} emit={sideEmit} />
   );
 }

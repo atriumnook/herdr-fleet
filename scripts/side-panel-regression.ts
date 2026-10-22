@@ -203,7 +203,8 @@ export async function checkSidePanel(browser: Browser): Promise<void> {
     assert.equal(second.filter((line) => line.sent?.type === "user").at(-1)!.sent!.message!.content[0]!.text, "And then?");
     // the terminal kept its screen behind the chat
     await panel.getByRole("button", { name: "Terminal", exact: true }).click();
-    assert.match(await panel.locator(".xterm-rows").textContent() ?? "", /side-42/);
+    // a grid that was hidden draws again once shown
+    await until(async () => (await panel.locator(".xterm-rows").textContent() ?? "").includes("side-42"), "the terminal kept its screen behind the chat");
     await panel.getByRole("button", { name: "Side chat", exact: true }).click();
     await save(page, shots, "side-chat");
     // a reload finds it on the server

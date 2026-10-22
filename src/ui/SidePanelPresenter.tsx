@@ -26,7 +26,7 @@ export function SidePanelPresenter({ emit }: { emit: Emit<UiEvent> }) {
   const watched = model.open && model.chatHere && about !== null ? about.paneId : null;
   useEffect(() => { emit({ type: "side-chat-watch", paneId: watched }); }, [emit, watched]);
 
-  const wantsTerminal = model.open && model.tab === "terminal" && about !== null && terminals.list.length === 0 && !terminals.opening && terminals.failed === null;
+  const wantsTerminal = model.open && model.tab === "terminal" && about !== null && terminals.list.length === 0 && !terminals.opening && terminals.failed === null && !terminals.closed;
   useEffect(() => {
     if (wantsTerminal && about !== null) emit({ type: "open-side-terminal", machineId: about.machineId, paneId: about.paneId });
   }, [emit, wantsTerminal, about]);

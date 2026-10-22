@@ -2582,12 +2582,12 @@ describe("the side panel", () => {
 
   it("asks the open side chat, starts a new one when it has none or it ended, and keeps a question that did not go", () => {
     const watched = play([{ type: "side-chat-watch", paneId: "w1:p1" }, { type: "side-chat-draft", text: "why?" }]).state;
-    expect(chatOf(watched).draft).toBe("why?");
+    expect(chatOf(watched).drafts).toEqual({ "w1:p1": "why?" });
     const first = play([{ type: "side-chat-ask", paneId: "w1:p1", text: " why? " }, { type: "side-chat-ask", paneId: "w1:p1", text: "again" }], watched);
     expect(first.effects).toEqual([{ kind: "ask-side-chat", paneId: "w1:p1", chatId: null, text: "why?" }]);
-    expect(chatOf(first.state)).toMatchObject({ asking: true, draft: "" });
+    expect(chatOf(first.state)).toMatchObject({ asking: true, drafts: {} });
     const failed = play([{ type: "side-chat-ask-failed", paneId: "w1:p1", text: "why?", message: "no pane" }], first.state).state;
-    expect(chatOf(failed)).toMatchObject({ asking: false, error: "no pane", draft: "why?" });
+    expect(chatOf(failed)).toMatchObject({ asking: false, error: "no pane", drafts: { "w1:p1": "why?" } });
     const asked = play([{ type: "side-chat-asked", paneId: "w1:p1", chat: snapshot({ status: "working" }) }], first.state).state;
     expect(chatOf(asked)).toMatchObject({ asking: false, chat: { id: "c1", status: "working" } });
     expect(play([{ type: "side-chat-ask", paneId: "w1:p1", text: "and?" }], asked).effects).toEqual([{ kind: "ask-side-chat", paneId: "w1:p1", chatId: "c1", text: "and?" }]);
@@ -2595,6 +2595,12 @@ describe("the side panel", () => {
     expect(play([{ type: "side-chat-ask", paneId: "w1:p1", text: "and?" }], ended).effects).toEqual([{ kind: "ask-side-chat", paneId: "w1:p1", chatId: null, text: "and?" }]);
     // a question for another pane than the one read waits for that one
     expect(play([{ type: "side-chat-ask", paneId: "w1:p2", text: "x" }], asked).effects).toEqual([]);
+  });
+
+  it("keeps a pane's unsent question while the panel is away", () => {
+    const typed = play([{ type: "side-chat-watch", paneId: "w1:p1" }, { type: "side-chat-draft", text: "half a qu" }, { type: "side-chat-watch", paneId: null }, { type: "side-chat-watch", paneId: "w1:p2" }]).state;
+    expect(chatOf(typed).drafts).toEqual({ "w1:p1": "half a qu" });
+    expect(chatOf(play([{ type: "side-chat-watch", paneId: "w1:p1" }], typed).state).drafts["w1:p1"]).toBe("half a qu");
   });
 
   it("stops a turn under way, and ends the side chat for a new one", () => {
@@ -2625,6 +2631,21 @@ describe("the side panel", () => {
       { type: "composer-send", owner, machineId: "local", paneId: "w1:p1", text: "/btwx", via: "box", bracketedPaste: false, working: false },
     ];
     for (const event of others) expect(panel(play([event]).state).open).toBe(false);
+    // asked while the question before is on its way: it waits in the side chat's box
+    const again = play([{ type: "composer-send", owner, machineId: "local", paneId: "w1:p1", text: "/btw and then?", via: "box", bracketedPaste: false, working: false }], btw.state);
+    expect(again.effects.map((effect) => effect.kind)).not.toContain("ask-side-chat");
+    expect(chatOf(again.state).drafts["w1:p1"]).toBe("and then?");
+  });
+
+  it("opens no terminal by itself once the person closed one, and leaves one the tree lists already to it", () => {
+    const closed = play([{ type: "side-terminal-closed", key: "w1:p1" }]).state;
+    expect(panel(closed).terminals["w1:p1"]).toEqual({ status: "closed" });
+    expect(panel(play([{ type: "open-side-terminal", machineId: "local", paneId: "w1:p1" }], closed).state).terminals["w1:p1"]).toEqual({ status: "opening" });
+    const pc = { id: "local", name: "pc", kind: "local", enabled: true, state: "connected", error: null, snapshot: { panes: [{ pane_id: "w1:p8", workspace_id: "w1", tab_id: "w1:t2", focused: false, agent_status: "unknown" }], tabs: [], workspaces: [], agents: [] } } as unknown as Machine;
+    // the tree listed it before the answer came: nothing is left waiting for it
+    const listed = play([{ type: "open-side-terminal", machineId: "local", paneId: "w1:p1" }, { type: "machines-pushed", machines: [pc] }, { type: "side-terminal-opened", key: "w1:p1", paneId: "w1:p8" }]).state;
+    expect(panel(listed).terminals).toEqual({});
+    expect(panel(listed).shownTerminal).toEqual({ "w1:p1": "w1:p8" });
   });
 
   it("leaves what it opened to the session tree once it lists it", () => {

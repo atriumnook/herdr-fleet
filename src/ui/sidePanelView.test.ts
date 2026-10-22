@@ -25,7 +25,7 @@ describe("the side panel's model", () => {
     const model = sidePanelModel(state([pane("w1:p1")], [tab("w1:t1", "main")], { selection: { machineId: "local", paneId: "w1:p1", auto: false } }));
     expect(model.about).toEqual({ machineId: "local", paneId: "w1:p1", title: "w1:p1", cwd: "/repo", key: "w1:p1" });
     expect(model.chatHere).toBe(true);
-    expect(model.terminals).toEqual({ list: [], shown: null, inPane: false, opening: false, failed: null });
+    expect(model.terminals).toEqual({ list: [], shown: null, inPane: false, opening: false, failed: null, closed: false });
   });
 
   it("is about nothing with no pane shown, and has no side chat for a pane on another PC", () => {
@@ -67,6 +67,9 @@ describe("the side panel's model", () => {
     expect(sidePanelModel(listed).terminals).toMatchObject({ opening: false, shown: "w1:p5" });
     const failed = { ...base, sidePanel: { ...base.sidePanel, terminals: { "w1:p1": { status: "failed" as const, message: "no herdr" } } } };
     expect(sidePanelModel(failed).terminals).toMatchObject({ opening: false, failed: "no herdr" });
+    // the person closed the last one: none opens by itself
+    const closed = { ...base, sidePanel: { ...base.sidePanel, terminals: { "w1:p1": { status: "closed" as const } } } };
+    expect(sidePanelModel(closed).terminals).toMatchObject({ opening: false, closed: true });
   });
 
   it("is about the Fleet screen's open thread, else its project's coordinator", () => {

@@ -20,6 +20,8 @@ export interface SideTerminals {
   /** one asked for is on its way */
   opening: boolean;
   failed: string | null;
+  /** the person closed the last one: the tab opens none by itself */
+  closed: boolean;
 }
 
 export interface SidePanelModel {
@@ -34,7 +36,7 @@ export interface SidePanelModel {
   terminals: SideTerminals;
 }
 
-const NO_TERMINALS: SideTerminals = { list: [], shown: null, inPane: false, opening: false, failed: null };
+const NO_TERMINALS: SideTerminals = { list: [], shown: null, inPane: false, opening: false, failed: null, closed: false };
 
 /** The pane in front: the Pane screen's, or the Fleet screen's thread, agent or coordinator (on this PC). */
 function frontPane(state: SidePanelSource): { machineId: string; paneId: string } | null {
@@ -63,7 +65,7 @@ export function sidePanelModel(state: SidePanelSource): SidePanelModel {
   const shown = picked !== undefined && list.includes(picked) ? picked : list[0] ?? null;
   // one pane has one grid here: a second attach of it would end with the first one's detach
   const inPane = shown !== null && state.selection.machineId === front.machineId && state.selection.paneId === shown;
-  const terminals = { list, shown, inPane, opening, failed: asked?.status === "failed" ? asked.message : null };
+  const terminals = { list, shown, inPane, opening, failed: asked?.status === "failed" ? asked.message : null, closed: asked?.status === "closed" };
 
   return { open, tab, focusSeq, about, chatHere: front.machineId === LOCAL_MACHINE, terminals };
 }

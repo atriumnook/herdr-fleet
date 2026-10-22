@@ -12,6 +12,7 @@ export type SidePanelEvent =
   | { type: "open-side-terminal"; machineId: string; paneId: string; another?: boolean }
   | { type: "show-side-terminal"; key: string; paneId: string }
   | { type: "tree-close-pane"; machineId: string; paneId: string }
+  | { type: "side-terminal-closed"; key: string }
   | { type: "show-screen"; screen: "pane" };
 
 export interface SidePanelProps {
@@ -54,12 +55,17 @@ export function SidePanel({ model, chat, terminal, emit }: SidePanelProps) {
     if (!model.open || model.focusSeq === focused.current) return;
     focused.current = model.focusSeq;
     const take = () => {
-      const input = panel.current?.querySelector<HTMLElement>(`[data-side-tab="${model.tab}"] textarea`);
+      const input = panel.current?.querySelector<HTMLElement>(`[data-side-tab="${model.tab}"] .side-chat-box textarea, [data-side-tab="${model.tab}"] .xterm-helper-textarea`);
       input?.focus({ preventScroll: true });
       return input != null;
     };
-    // a terminal being opened has no grid yet: once more when it may
-    if (!take()) window.setTimeout(take, 600);
+    if (take()) return;
+    // a terminal being opened has no grid yet: once more when it may, unless the keyboard went elsewhere meanwhile
+    const timer = window.setTimeout(() => {
+      const active = document.activeElement;
+      if (active === null || active === document.body || panel.current?.contains(active)) take();
+    }, 600);
+    return () => window.clearTimeout(timer);
   }, [model.open, model.focusSeq, model.tab]);
 
   if (!model.open) return null;
@@ -100,6 +106,7 @@ export function SidePanel({ model, chat, terminal, emit }: SidePanelProps) {
       <button type="button" className="side-panel-scrim" aria-label={t("Close side panel")} onClick={() => emit({ type: "side-panel", open: false })} />
       <aside ref={panel} className="side-panel" aria-label={t("Side panel")} style={width === null ? undefined : { ["--side-panel-w" as string]: `${width}px` }}>
         <div className="side-panel-resize" role="separator" aria-orientation="vertical" aria-label={t("Side panel width")} tabIndex={0}
+          aria-valuemin={MIN_WIDTH} aria-valuemax={Math.round(window.innerWidth * MAX_SHARE)} aria-valuenow={width ?? panel.current?.offsetWidth ?? undefined}
           onPointerDown={resize} onKeyDown={nudge} />
         <header className="side-panel-head">
           <Segmented label={t("Side panel")} className="side-panel-tabs">
@@ -127,7 +134,7 @@ export function SidePanel({ model, chat, terminal, emit }: SidePanelProps) {
 }
 
 function SideTerminals({ model, about, terminal, emit }: { model: SidePanelModel; about: NonNullable<SidePanelModel["about"]>; terminal: ReactNode; emit: Emit<SidePanelEvent> }) {
-  const { list, shown, inPane, opening, failed } = model.terminals;
+  const { list, shown, inPane, opening, failed, closed } = model.terminals;
   const open = (another: boolean) => emit({ type: "open-side-terminal", machineId: about.machineId, paneId: about.paneId, another });
   let body: ReactNode;
   if (inPane) {
@@ -139,6 +146,12 @@ function SideTerminals({ model, about, terminal, emit }: { model: SidePanelModel
     );
   } else if (shown !== null) {
     body = <div className="side-panel-terminal">{terminal}</div>;
+  } else if (closed && !opening) {
+    body = (
+      <div className="side-panel-start">
+        <button type="button" className="btn" onClick={() => open(false)}>{t("Open terminal")}</button>
+      </div>
+    );
   } else if (failed !== null) {
     body = (
       <div className="side-panel-start">
@@ -161,7 +174,7 @@ function SideTerminals({ model, about, terminal, emit }: { model: SidePanelModel
             {/* closing a terminal ends its shell: only the one in front, so the tab names which */}
             {paneId === shown && (
               <button type="button" className="side-terminal-close" aria-label={t("Close terminal")} title={t("Close terminal")}
-                onClick={() => emit({ type: "tree-close-pane", machineId: about.machineId, paneId })}>
+                onClick={() => { emit({ type: "tree-close-pane", machineId: about.machineId, paneId }); emit({ type: "side-terminal-closed", key: about.key }); }}>
                 <X aria-hidden="true" />
               </button>
             )}
