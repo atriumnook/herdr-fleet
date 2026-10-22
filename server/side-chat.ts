@@ -181,6 +181,8 @@ interface Live {
   lines: string[];
   closed: boolean;
   interrupting: boolean;
+  /** questions sent that no result has answered yet: one sent mid-turn waits for the turn before */
+  waiting: number;
   /** when it was last asked or answered, for the one to end when too many are open */
   used: number;
   pushTimer: ReturnType<typeof setTimeout> | null;
@@ -212,17 +214,20 @@ export class SideChats {
   private async open(paneId: string, text: string): Promise<SideChatSnapshot> {
     const plan = await this.deps.plan(paneId);
     const before = this.byPane.get(paneId);
-    if (before !== undefined) this.close(before, false);
-    const open = [...this.chats.values()].filter((live) => live.chat.status !== "ended");
+    // the pane's own goes for the new one: it is no other's room to take
+    const open = [...this.chats.values()].filter((live) => live.chat.status !== "ended" && live.chat.id !== before);
+    let room: Live | undefined;
     if (open.length >= MAX_SIDE_CHATS) {
-      const idle = open.filter((live) => live.chat.status === "idle").sort((a, b) => a.used - b.used)[0];
-      if (!idle) throw new SideChatError("side_chat_busy", `${MAX_SIDE_CHATS} side chats are answering. Wait for one, or close one.`);
-      this.end(idle);
+      room = open.filter((live) => live.chat.status === "idle").sort((a, b) => a.used - b.used)[0];
+      if (!room) throw new SideChatError("side_chat_busy", `${MAX_SIDE_CHATS} side chats are answering. Wait for one, or close one.`);
     }
+    // the side chats there stay until the new one has its process: a start that fails ends nothing
     const process = (this.deps.spawn ?? spawnClaude)(sideChatArgv(plan, this.deps.command), plan.cwd);
+    if (room) this.end(room);
+    if (before !== undefined) this.close(before, false);
     const live: Live = {
       chat: { id: randomUUID().slice(0, 8), paneId, source: plan.kind, status: "working", turns: [], streaming: "", error: null },
-      process, lines: [], closed: false, interrupting: false, used: Date.now(), pushTimer: null,
+      process, lines: [], closed: false, interrupting: false, waiting: 0, used: Date.now(), pushTimer: null,
     };
     this.chats.set(live.chat.id, live);
     this.byPane.set(paneId, live.chat.id);
@@ -292,6 +297,9 @@ export class SideChats {
 
   private ask(live: Live, shown: string, sent: string): void {
     live.used = Date.now();
+    live.waiting += 1;
+    // a stop asked for the turn before is no stop of this one
+    live.interrupting = false;
     this.record(live, { type: "user", message: { role: "user", content: shown } });
     live.chat = { ...live.chat, status: "working", error: null };
     live.process.write(`${JSON.stringify({ type: "user", session_id: "", parent_tool_use_id: null, message: { role: "user", content: [{ type: "text", text: sent }] } })}\n`);
@@ -357,7 +365,10 @@ export class SideChats {
         const failed = event["is_error"] === true && !live.interrupting;
         const error = failed ? (typeof event["result"] === "string" && event["result"] ? event["result"] : String(event["subtype"] ?? "error")) : null;
         live.interrupting = false;
-        live.chat = { ...live.chat, status: "idle", streaming: "", error };
+        live.waiting = Math.max(0, live.waiting - 1);
+        // an ended one stays ended: its process is going
+        const status = live.chat.status === "ended" ? "ended" : live.waiting > 0 ? "working" : "idle";
+        live.chat = { ...live.chat, status, streaming: "", error };
         this.push(live);
         return;
       }

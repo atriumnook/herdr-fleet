@@ -104,10 +104,10 @@ describe("side chats", () => {
     chats.send(chat.id, "And the docs?");
     claude.print({ type: "result", subtype: "success", is_error: false });
     await tick();
-    expect(chats.current("w1:p1")!.status).toBe("idle");
-    claude.print({ type: "stream_event", event: { type: "message_start" } });
-    await tick();
     expect(chats.current("w1:p1")!.status).toBe("working");
+    claude.print({ type: "result", subtype: "success", is_error: false });
+    await tick();
+    expect(chats.current("w1:p1")!.status).toBe("idle");
   });
 
   it("hand a pane without a Claude session its conversation in the first message", async () => {
@@ -128,6 +128,11 @@ describe("side chats", () => {
     claude.print({ type: "result", subtype: "error_during_execution", is_error: true });
     await tick();
     expect(chats.current("w1:p1")).toMatchObject({ status: "idle", error: null });
+    // a stop that came as the turn ended is no stop of the next one: its failure is said
+    chats.send(chat.id, "again");
+    chats.interrupt(chat.id);
+    claude.print({ type: "result", subtype: "success", is_error: false });
+    await tick();
     chats.send(chat.id, "again");
     claude.print({ type: "result", subtype: "success", is_error: true, result: "Not logged in · Please run /login" });
     await tick();
@@ -167,6 +172,38 @@ describe("side chats", () => {
     expect(processes[0]!.killed).toBe(true);
     expect(chats.current("w1:p0")).toMatchObject({ status: "ended", error: null });
     expect(processes.slice(1, MAX_SIDE_CHATS).every((claude) => !claude.killed)).toBe(true);
+  });
+
+  it("keep the pane's side chat when a new one cannot start", async () => {
+    const processes: FakeClaude[] = [];
+    let fail = false;
+    const chats = new SideChats({ plan: async () => FORK, spawn: (argv, cwd) => {
+      if (fail) throw new Error("ENOENT: claude");
+      const claude = new FakeClaude(argv, cwd); processes.push(claude); return claude;
+    } });
+    const first = await chats.start("w1:p1", "q");
+    fail = true;
+    await expect(chats.start("w1:p1", "again")).rejects.toThrow("ENOENT");
+    expect(chats.current("w1:p1")!.id).toBe(first.id);
+    expect(processes[0]!.killed).toBe(false);
+    // and when every other one is answering, the pane's own still gives way to its new one
+    fail = false;
+    for (let index = 2; index <= MAX_SIDE_CHATS; index++) await chats.start(`w1:p${index}`, "q");
+    const replaced = await chats.start("w1:p1", "new");
+    expect(replaced.id).not.toBe(first.id);
+    expect(processes[0]!.killed).toBe(true);
+  });
+
+  it("stay ended when a result comes after the end", async () => {
+    const { chats, processes } = setup();
+    for (let index = 0; index < MAX_SIDE_CHATS; index++) await chats.start(`w1:p${index}`, "q");
+    for (const claude of processes) claude.print({ type: "result", subtype: "success", is_error: false });
+    await tick();
+    await chats.start("w1:p9", "q");
+    // a result line read after the eviction
+    processes[0]!.print({ type: "result", subtype: "success", is_error: false });
+    await tick();
+    expect(chats.current("w1:p0")!.status).toBe("ended");
   });
 
   it("want a question", async () => {
