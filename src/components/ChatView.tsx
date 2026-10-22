@@ -413,6 +413,10 @@ interface TurnProps {
 /** what a runtime notice was: a background result by name, anything else by its own first line */
 function noticeLabel(notice: Extract<ConversationPart, { kind: "notice" }>): string {
   if (notice.source === undefined) return t("Background result delivered");
+  if (notice.source.startsWith("peer:")) {
+    const name = notice.source.slice(5);
+    return name ? t("Message from another session: {name}", { name }) : t("Message from another session");
+  }
   const first = notice.text.split("\n").find((line) => line.trim().length > 0)?.trim() ?? notice.source;
   return first.length > 96 ? `${first.slice(0, 95)}\u2026` : first;
 }

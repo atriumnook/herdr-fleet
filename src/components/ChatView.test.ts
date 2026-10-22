@@ -97,6 +97,12 @@ describe("Chat view", () => {
     expect(render(model({ view: { ...EMPTY_VIEW, turns: [notice("done")] } }))).toContain("<summary>Background result delivered</summary>");
   });
 
+  it("names another Claude session's message by its sender, and an unnamed one as another session", () => {
+    const peer = (source: string): ConversationTurn => ({ role: "user", ts: null, parts: [{ kind: "notice", text: "R18 is ready", source }] });
+    expect(render(model({ view: { ...EMPTY_VIEW, turns: [peer("peer:FUSION")] } }))).toContain("<summary>Message from another session: FUSION</summary>");
+    expect(render(model({ view: { ...EMPTY_VIEW, turns: [peer("peer:")] } }))).toContain("<summary>Message from another session</summary>");
+  });
+
   it("says the pane is reconnecting, and ended", () => {
     expect(render(model({ connected: false }))).toContain("reconnecting…");
     expect(render(model({ ended: true }))).toContain("terminal ended");

@@ -38,7 +38,7 @@ import { parseConversationMetadata } from "./conversation-metadata.ts";
 
 import { invokedSkill } from "./skill-activity.ts";
 import { OPENCODE_REF } from "./opencode-messages.ts";
-import { isContextClear, MAX_TURNS, parseOmpTranscript, piImageBlock, piMessage, piResults, toolSummary } from "./transcript-records.ts";
+import { claudePeerId, claudePeerNotice, isContextClear, MAX_TURNS, parseOmpTranscript, piImageBlock, piMessage, piResults, toolSummary } from "./transcript-records.ts";
 
 /**
  * A transcript is read a page at a time, the newest page re-read on every append
@@ -243,6 +243,9 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
     return turn;
   };
 
+  // another session's deliveries seen in this text, by sender and message id: an echo is no second notice
+  const peersSeen = new Set<string>();
+
   for (const line of text.split("\n")) {
     if (line.trim().length === 0) continue;
     let entry: TranscriptEntry;
@@ -251,7 +254,16 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
     } catch {
       continue; // a torn tail line while Claude is mid-append
     }
-    if (entry === null || typeof entry !== "object" || entry.isMeta) continue;
+    if (entry === null || typeof entry !== "object") continue;
+    // another session's message: its own turn, so the work it started is not appended to the answer before it
+    const peer = claudePeerNotice(entry);
+    if (peer !== null) {
+      const id = claudePeerId(entry);
+      if (id !== null) { if (peersSeen.has(id)) continue; peersSeen.add(id); }
+      turns.push({ role: "user", ts: entry.timestamp ?? null, parts: [peer] });
+      continue;
+    }
+    if (entry.isMeta) continue;
     if (isContextClear(entry, "claude-transcript")) { turns.length = 0; pending.clear(); continue; }
     const content = entry.message?.content;
     // a compaction's summary marks where the conversation was folded, readable on request
@@ -560,6 +572,8 @@ function applyHistoryBoundary(path: string, stream: TranscriptStream, source: Tr
   if (stream.floor > 0) stream.id += `-clear-${stream.floor.toString(36)}`;
 }
 
+/** the mark of another session's message in a Claude record, in either of its forms (claudePeerNotice) */
+const PEER_MARK = Buffer.from('"kind":"peer"');
 /** Bytes that every line opening a turn contains: a cheap filter before JSON.parse. */
 const TURN_MARK: Record<TranscriptSource, Buffer> = {
   "codex-transcript": Buffer.from('"task_started"'),
@@ -583,6 +597,8 @@ function opensTurn(source: TranscriptSource, line: string): boolean {
     const message = piMessage(entry);
     return message?.role === "user" && (message.content as Record<string, unknown>[]).some((part) => part.type === "text" && typeof part.text === "string" && part.text.length > 0);
   }
+  // another session's message opens a turn in either of its forms, the meta entry and the queued attachment
+  if (claudePeerNotice(entry) !== null) return true;
   if (entry.type !== "user" || entry.isMeta || entry.isCompactSummary) return false;
   const content = entry.message?.content;
   if (typeof content === "string") return !isCommandEntry(content);
@@ -596,7 +612,9 @@ function turnStarts(bytes: Buffer, source: TranscriptSource): number[] {
     const newline = bytes.indexOf(0x0a, offset);
     const end = newline === -1 ? bytes.length : newline;
     const line = bytes.subarray(offset, end);
-    if (line.includes(TURN_MARK[source]) && opensTurn(source, line.toString("utf8"))) starts.push(offset);
+    // a queued attachment carrying another session's message has no "user" in it: its own mark
+    const candidate = line.includes(TURN_MARK[source]) || (source === "claude-transcript" && line.includes(PEER_MARK));
+    if (candidate && opensTurn(source, line.toString("utf8"))) starts.push(offset);
     offset = end + 1;
   }
   return starts;
