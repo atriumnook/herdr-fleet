@@ -44,6 +44,121 @@ describe("CODEX_HOME in a ps -E line", () => {
 });
 
 describe("Codex conversation records", () => {
+  it("hides memory citations before pairing display/model answers in either order", () => {
+    const citation = "<oai-mem-citation>\n<citation_entries>\nMEMORY.md:1-2|note=[context]\n</citation_entries>\n<rollout_ids>\nthread-id\n</rollout_ids>\n</oai-mem-citation>";
+    for (const reverse of [false, true]) {
+      const pair = [message("assistant", `Done\n${citation}`, "final_answer"), event({ type: "agent_message", message: "Done" })];
+      if (reverse) pair.reverse();
+      expect(parseCodexTranscript(jsonl(...pair))).toEqual([
+        { role: "assistant", ts, end_ts: ts, parts: [{ kind: "text", text: "Done", phase: "final_answer" }] },
+      ]);
+    }
+  });
+
+  it("hides multiple and unfinished memory blocks without dropping surrounding prose", () => {
+    expect(parseCodexTranscript(jsonl(
+      message("assistant", "Before<oai-mem-citation>one</oai-mem-citation> after<oai-mem-citation>two</oai-mem-citation>", "final_answer"),
+      event({ type: "agent_message", message: "Next\n<oai-mem-citation>unfinished" }),
+      message("assistant", "<oai-mem-citation>metadata only</oai-mem-citation>"),
+    ))[0]?.parts).toEqual([
+      { kind: "text", text: "Before after", phase: "final_answer" },
+      { kind: "text", text: "Next" },
+    ]);
+    expect(parseCodexTranscript(jsonl(message("assistant", "<oai-mem-citation>unfinished")))).toEqual([]);
+  });
+
+  it("preserves memory markup quoted by a user or returned by a tool", () => {
+    const text = "<oai-mem-citation>quoted metadata</oai-mem-citation>";
+    const turns = parseCodexTranscript(jsonl(
+      message("user", text),
+      item({ type: "function_call", call_id: "read", name: "read", arguments: "{}" }),
+      item({ type: "function_call_output", call_id: "read", output: text }),
+    ));
+    expect(turns[0]?.parts).toEqual([{ kind: "text", text }]);
+    expect(turns[1]?.parts[0]).toMatchObject({ kind: "tool", output: text });
+  });
+
+  it("preserves literal memory tags in inline code and code fences", () => {
+    const examples = [
+      "Match the literal tag `<oai-mem-citation>` in the parser.\nKeep this explanatory paragraph.",
+      "The block is `<oai-mem-citation>sample</oai-mem-citation>`.",
+      "Use `` `<oai-mem-citation>` `` to quote the tag.",
+      "A backslash inside code is literal: `<oai-mem-citation>\\` and prose follows.",
+      "Example:\n```xml\n<oai-mem-citation>sample</oai-mem-citation>\n```\nExplanation follows.",
+      "Example:\n  ~~~~xml\n<oai-mem-citation>sample</oai-mem-citation>\n  ~~~\nStill code.\n  ~~~~~\nExplanation follows.",
+      "Example:\n````xml\n<oai-mem-citation>sample</oai-mem-citation>\n```\nStill code.\n````\nExplanation follows.",
+      "An unfinished example:\n```xml\n<oai-mem-citation>literal tag",
+      "An unfinished example:\n~~~xml\n<oai-mem-citation>literal tag",
+    ];
+    for (const text of examples) {
+      expect(parseCodexTranscript(jsonl(message("assistant", text, "final_answer")))[0]?.parts).toEqual([
+        { kind: "text", text, phase: "final_answer" },
+      ]);
+    }
+  });
+
+  it("removes metadata around code examples before pairing their display records", () => {
+    const example = "Before `<oai-mem-citation>` after\n~~~xml\n<oai-mem-citation>sample</oai-mem-citation>\n~~~\nDone";
+    const response = "<oai-mem-citation>first</oai-mem-citation>" + example + "\n<oai-mem-citation>unfinished";
+    for (const reverse of [false, true]) {
+      const pair = [message("assistant", response, "final_answer"), event({ type: "agent_message", message: example })];
+      if (reverse) pair.reverse();
+      expect(parseCodexTranscript(jsonl(...pair))[0]?.parts).toEqual([
+        { kind: "text", text: example, phase: "final_answer" },
+      ]);
+    }
+    const mixed = "Before\n<oai-mem-citation>hidden</oai-mem-citation>\n```xml\n<oai-mem-citation>literal</oai-mem-citation>\n```\n<oai-mem-citation>also hidden</oai-mem-citation>\nAfter";
+    expect(parseCodexTranscript(jsonl(message("assistant", mixed)))[0]?.parts).toEqual([
+      { kind: "text", text: "Before\n\n```xml\n<oai-mem-citation>literal</oai-mem-citation>\n```\n\nAfter" },
+    ]);
+    const payload = "Before<oai-mem-citation>\n~~~xml\n`unclosed\n</oai-mem-citation>After\n<oai-mem-citation>hidden too</oai-mem-citation>";
+    expect(parseCodexTranscript(jsonl(message("assistant", payload)))[0]?.parts).toEqual([{ kind: "text", text: "BeforeAfter" }]);
+  });
+
+  it("preserves fences inside quotes and lists only within their containers", () => {
+    const hidden = "<oai-mem-citation>actual metadata</oai-mem-citation>";
+    const examples = [
+      "> ```xml\n> <oai-mem-citation>literal tag\n> explanation",
+      "> > ~~~xml\n> > <oai-mem-citation>literal tag\n> > explanation",
+      "> > ```xml\n> > <oai-mem-citation>literal tag\n> > ```\n> Quote continues.",
+      "- Example:\n  ```xml\n  <oai-mem-citation>literal tag\n  explanation",
+      "- ~~~xml\n  <oai-mem-citation>literal tag\n  ~~~\n  Item continues.",
+      "1. Example:\n   - ```xml\n     <oai-mem-citation>literal tag\n     explanation",
+      "> - Example:\n>   ```xml\n>   <oai-mem-citation>literal tag\n>   explanation",
+    ];
+    for (const example of examples) {
+      const text = `${example}\nOutside\n${hidden}`;
+      expect(parseCodexTranscript(jsonl(message("assistant", text)))[0]?.parts).toEqual([{ kind: "text", text: `${example}\nOutside` }]);
+    }
+    const nested = "> > ```xml\n> > <oai-mem-citation>literal tag\n> Parent quote\n> " + hidden;
+    expect(parseCodexTranscript(jsonl(message("assistant", nested)))[0]?.parts).toEqual([
+      { kind: "text", text: "> > ```xml\n> > <oai-mem-citation>literal tag\n> Parent quote\n>" },
+    ]);
+    const crlf = "> ```xml\r\n> <oai-mem-citation>literal tag\r\nOutside\r\n" + hidden;
+    expect(parseCodexTranscript(jsonl(message("assistant", crlf)))[0]?.parts).toEqual([
+      { kind: "text", text: "> ```xml\r\n> <oai-mem-citation>literal tag\r\nOutside" },
+    ]);
+  });
+
+  it("does not let escaped, unmatched or cross-paragraph backticks hide metadata", () => {
+    for (const text of [
+      "An unmatched ` delimiter.\n<oai-mem-citation>hidden</oai-mem-citation>",
+      "An escaped \\` delimiter.\n<oai-mem-citation>hidden</oai-mem-citation>\nA second \\` delimiter.",
+      "First `\n\n<oai-mem-citation>hidden</oai-mem-citation>\n\nSecond `",
+    ]) {
+      const expected = text.replace("<oai-mem-citation>hidden</oai-mem-citation>", "").trimEnd();
+      expect(parseCodexTranscript(jsonl(message("assistant", text)))[0]?.parts).toEqual([{ kind: "text", text: expected }]);
+    }
+  });
+
+  it("bounds citation parsing with many unmatched backtick lengths", () => {
+    const text = "Unmatched delimiters: " + Array.from({ length: 1000 }, (_, i) => "`".repeat(i + 1) + " x ").join("");
+    const transcript = jsonl(message("assistant", `${text}<oai-mem-citation>hidden</oai-mem-citation>`));
+    const started = performance.now();
+    expect(parseCodexTranscript(transcript)[0]?.parts).toEqual([{ kind: "text", text: text.trimEnd() }]);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it("hides injected context, metadata and developer messages while preserving the real request", () => {
     const turns = parseCodexTranscript(jsonl(
       { type: "session_meta", payload: { base_instructions: "internal system prompt" } },
@@ -542,6 +657,21 @@ describe("Codex tool calls that failed, and patches", () => {
 });
 
 describe("incremental Codex records", () => {
+  it("pairs citation-bearing answers across writes and previews without changing earlier snapshots", async () => {
+    const { createCodexTranscriptParser } = await import("./codex.ts");
+    const parser = createCodexTranscriptParser();
+    const text = "Match `<oai-mem-citation>` literally.\nThe answer continues.";
+    parser.write(jsonl(event({ type: "agent_message", message: text })));
+    const earlier = parser.snapshot();
+    const response = jsonl(message("assistant", `${text}\n<oai-mem-citation>internal metadata</oai-mem-citation>`, "final_answer"));
+    const expected: ReturnType<typeof parseCodexTranscript> = [{ role: "assistant", ts, end_ts: ts, parts: [{ kind: "text", text, phase: "final_answer" }] }];
+    expect(parser.snapshot(response)).toEqual(expected);
+    expect(earlier[0]?.parts).toEqual([{ kind: "text", text }]);
+    expect(parser.snapshot()).toEqual(earlier);
+    parser.write(response);
+    expect(parser.snapshot()).toEqual(expected);
+  });
+
   it("pairs duplicates and tool results across writes without mutating earlier snapshots", async () => {
     const { createCodexTranscriptParser } = await import("./codex.ts");
     const parser = createCodexTranscriptParser();
