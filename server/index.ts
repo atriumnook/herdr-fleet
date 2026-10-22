@@ -97,13 +97,14 @@ const ATTACH_RETRY_MAX_MS = 500;
 /** a refused attach says so within milliseconds of its first bytes: those are held this long */
 const ATTACH_HOLD_MS = 100;
 /**
- * What `herdr terminal attach` writes itself before herdr has answered: terminal modes set and
- * reset only (mouse reporting off, the alternate screen on; the last one maybe cut short). The
- * answer can come any time after them, later than the hold on a busy PC, so they say nothing
- * about whether the attach took and do not start the hold. A refusal and a screen both begin
- * with something else.
+ * What `herdr terminal attach` writes itself before herdr has answered, and as the teardown of a
+ * refused one: terminal modes set and reset (mouse reporting off, the alternate screen on, then
+ * off) and the cursor style restored (`ESC [ 0 SP q`), the last one maybe cut short. The answer
+ * can come any time after them, later than the hold on a busy PC, and herdr writes its refusal
+ * apart from the teardown before it, so they say nothing about whether the attach took and do
+ * not start the hold. A refusal and a screen both begin with something else.
  */
-const ATTACH_PREAMBLE_RE = /^(?:\x1b\[\?[\d;]+[hl])*(?:\x1b(?:\[(?:\?[\d;]*)?)?)?$/;
+const ATTACH_PREAMBLE_RE = /^(?:\x1b\[(?:\?[\d;]+[hl]|\d* q))*(?:\x1b(?:\[(?:\?[\d;]*|\d+ ?| )?)?)?$/;
 /** how often a terminal another web bridge holds is tried again, while clients here still want it */
 const ATTACH_HELD_RETRY_MS = 3_000;
 /**
