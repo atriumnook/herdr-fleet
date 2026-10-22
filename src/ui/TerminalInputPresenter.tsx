@@ -9,7 +9,7 @@ export interface TerminalInputPresenterProps {
   connected: boolean;
   onComposing: (active: boolean) => void;
   /** an empty line's send: Enter alone, as the terminal sends a keystroke */
-  onEnter: () => boolean;
+  onEnter: () => boolean | string;
   emit: Emit<TerminalInputEvent>;
 }
 

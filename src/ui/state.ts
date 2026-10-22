@@ -10,7 +10,7 @@ import type { FilePreview } from "../lib/fileHistory.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS, dropletAllows, endedTurn, trackTurn, type DropletNotice } from "../lib/droplet.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import { applyPaneStatus } from "../lib/snapshot.ts";
-import { EMPTY_DRAFT, applyToDraft, type InputDraft } from "../lib/draft.ts";
+import { EMPTY_DRAFT, applyToDraft, draftHoldsText, type InputDraft } from "../lib/draft.ts";
 import { answerFromText, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { composerMessage, composerPayload } from "../lib/compose.ts";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
@@ -3195,6 +3195,10 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
       if (busy(owner, "line")) return { state, effects };
       // the line goes into an open menu as typed: only a masked prompt holds it
       if (state.pane.session.secret !== null) return { state: said({ ...state, sends: { ...sends, seq: sends.seq + 1 } }, `line:${owner}`, sends.seq + 1, { kind: "not-sent" }), effects };
+      // the line and its Enter would land beside the held draft, without its start: Send or Discard that first
+      if (state.pane.draft.owner === owner && draftHoldsText(state.pane.draft.value)) {
+        return { state: said({ ...state, sends: { ...sends, seq: sends.seq + 1 } }, `line:${owner}`, sends.seq + 1, { kind: "submit-failed", code: "input_held", message: "" }), effects };
+      }
       const message = composerMessage(text);
       const { id, next } = start({ target: "line", owner });
       lineDraft(owner, { kind: "begin" });

@@ -156,7 +156,7 @@ const TYPED_SETTLE_MS = 300;
  * reaches the pane later.
  */
 export const SUBMIT_DEADLINE_MS = 45_000;
-const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input", "input-ready"];
+const SERVER_FEATURES: ServerFeature[] = ["submit", "secret-input", "input-ready", "ping"];
 
 /** Bind addresses only this machine can reach, so an unset token is nobody else's business. */
 const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "::1"]);
@@ -1686,6 +1686,15 @@ export function createServer(
         }
         try {
           switch (message.type) {
+            // liveness only: any role, no herdr call, nothing to wait behind
+            case "ping": {
+              if (!Number.isSafeInteger(message.id)) {
+                send(client, { type: "error", code: "invalid_ping", message: "id must be an integer" });
+                break;
+              }
+              send(client, { type: "pong", id: message.id });
+              break;
+            }
             case "attach": {
               if (message.flow_control !== undefined && message.flow_control !== "ack") {
                 send(client, { type: "error", code: "invalid_flow_control", message: "flow_control must be ack" });

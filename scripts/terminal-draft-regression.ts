@@ -73,9 +73,20 @@ export async function checkTerminalDraft(browser: Browser, origin: string): Prom
     assert.equal(await held.locator(".draft-text").innerText(), "echo held");
     assert.match(await held.innerText(), /1 special key dropped/);
     assert.deepEqual(sent, [], "nothing is sent by itself once the terminal is back");
+    // typed beside the held start, a line and its Enter would run without it: they join the draft
+    await page.locator(".xterm-screen").click();
+    await page.keyboard.type(" again");
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.querySelector(".terminal-banner-draft .draft-text")?.textContent === "echo held again");
+    assert.deepEqual(sent, [], "typing beside held input sends nothing");
+    // an interrupt still reaches the program
+    await page.keyboard.press("Control+c");
+    for (let wait = 0; wait < 50 && !(sent as string[]).includes("\x03"); wait++) await page.waitForTimeout(20);
+    assert.deepEqual(sent, ["\x03"], "Ctrl+C reaches the program beside held input");
+    console.log("PASS typing beside held input joins it, and an interrupt still goes through");
     await held.getByRole("button", { name: "Send", exact: true }).click();
     await held.waitFor({ state: "detached" });
-    assert.deepEqual(sent, ["echo held"]);
+    assert.deepEqual(sent, ["\x03", "echo held again"]);
     console.log("PASS the held input is sent when the person says so, once");
 
     await page.locator(".xterm-screen").click();
@@ -88,7 +99,7 @@ export async function checkTerminalDraft(browser: Browser, origin: string): Prom
     await page.reload();
     await live.waitFor();
     assert.equal(await held.count(), 0, "a discarded draft stays gone after a reload");
-    assert.deepEqual(sent, ["echo held"]);
+    assert.deepEqual(sent, ["\x03", "echo held again"]);
     assert.deepEqual(errors, []);
     console.log("PASS the held input can be discarded instead");
   } finally {

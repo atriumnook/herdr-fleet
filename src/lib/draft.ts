@@ -34,3 +34,19 @@ export function applyToDraft(draft: InputDraft, data: string): InputDraft {
 export function draftIsEmpty(draft: InputDraft): boolean {
   return draft.text.length === 0 && draft.droppedSpecial === 0;
 }
+
+/**
+ * What a key typed into a pane that holds a draft does. Keys sent beside it would reach the pty
+ * without the start the draft holds (`echo ` held, then `rm -rf build` and Enter typed), so until
+ * Send or Discard text, a paste, Backspace and anything with a line break go to the draft, which
+ * leaves Enter out: a partial command never runs. Other control keys (Ctrl+C, Escape, Tab, arrows)
+ * still reach the program: an interrupt must not wait on the draft.
+ */
+export function besideHeldDraft(input: string): "hold" | "send" {
+  return input.startsWith("\x1b[200~") || /[\r\n\x7f\b]/.test(input) || isPrintableChar(input) ? "hold" : "send";
+}
+
+/** A draft holds the start of a line: what is typed next belongs after it (besideHeldDraft). */
+export function draftHoldsText(draft: InputDraft): boolean {
+  return draft.text.length > 0;
+}

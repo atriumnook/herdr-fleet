@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { applyToDraft, draftIsEmpty, EMPTY_DRAFT } from "./draft.ts";
+import { applyToDraft, besideHeldDraft, draftHoldsText, draftIsEmpty, EMPTY_DRAFT } from "./draft.ts";
 
 describe("applyToDraft", () => {
   it("appends a printable character to the draft", () => {
@@ -46,4 +46,20 @@ it("holds multi-codepoint IME commits without splitting a surrogate at the limit
   for (const text of ["한글", "😀", "e\u0301", "abc"]) expect(applyToDraft(EMPTY_DRAFT, text).text).toBe(text);
   expect(applyToDraft({ text: "a".repeat(1023), droppedSpecial: 0 }, "😀").text).toHaveLength(1023);
   expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~text\x1b[201~").text).toBe("");
+});
+
+describe("besideHeldDraft", () => {
+  it("holds text, a paste, Backspace and line breaks, so nothing runs without the held start", () => {
+    for (const input of ["rm -rf build", "x", "\r", "\n", "\x1b\r", "a\rb", "\x7f", "\b", "\x1b[200~ls\x1b[201~"]) expect(besideHeldDraft(input)).toBe("hold");
+  });
+
+  it("lets an interrupt and other control keys reach the program", () => {
+    for (const input of ["\x03", "\x1b", "\t", "\x1b[A", "\x1b[D"]) expect(besideHeldDraft(input)).toBe("send");
+  });
+
+  it("counts a draft as held only when it holds text: keys left out hold no start", () => {
+    expect(draftHoldsText(EMPTY_DRAFT)).toBe(false);
+    expect(draftHoldsText(applyToDraft(EMPTY_DRAFT, "\r"))).toBe(false);
+    expect(draftHoldsText(applyToDraft(EMPTY_DRAFT, "echo "))).toBe(true);
+  });
 });

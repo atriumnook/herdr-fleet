@@ -38,6 +38,7 @@ afterAll(() => { globals.WebSocket = before.WebSocket; globals.window = before.w
 
 const snapshot = (features: string[]) => ({ type: "snapshot", snapshot: { workspaces: [], panes: [], agents: [], layouts: [] }, features });
 const secrets = (socket: FakeSocket) => socket.sent.filter((frame) => frame.type === "secret");
+const submissions = (socket: FakeSocket) => socket.sent.filter((frame) => ["submit", "input", "keys"].includes(frame.type));
 
 it("sends a secret entered before the reconnect's snapshot arrived, once the snapshot lists masked input", async () => {
   const client = new HerdrSocket("ws://test/ws");
@@ -389,6 +390,398 @@ it("never reconnects from a backoff retry left pending once the server stopped o
     expect(errors).toEqual(["output_stalled"]);
     jest.advanceTimersByTime(10_000);
     expect(FakeSocket.last).toBe(replacement);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+/** An attached, input-ready connection to a bridge listing `features`. */
+function liveClient(features: string[]): { client: HerdrSocket; socket: FakeSocket } {
+  const client = new HerdrSocket("ws://test/ws");
+  client.attach("w1:p1", 100, 30);
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  socket.receive(snapshot(["input-ready", ...features]));
+  socket.receive({ type: "input-ready", pane_id: "w1:p1" });
+  return { client, socket };
+}
+const pings = (socket: FakeSocket) => socket.sent.filter((frame) => frame.type === "ping");
+/** Lets the client's async submit paths run up to their next real wait. */
+const settle = async () => { for (let turn = 0; turn < 20; turn++) await Promise.resolve(); };
+
+it("drops an open socket that answers no ping, reconnects at once and replays the attach", async () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["submit", "ping"]);
+  try {
+    let disconnects = 0;
+    client.onDisconnect(() => { disconnects++; });
+    const result = client.submit("w1:p1", "sent before the wake", "sent before the wake");
+    for (let turn = 0; turn < 10 && submissions(socket).length === 0; turn++) await Promise.resolve();
+    expect(submissions(socket).map((frame) => frame.type)).toEqual(["submit"]);
+    // the page comes back: the socket still reads OPEN, but its network is gone
+    client.wake();
+    expect(pings(socket)).toEqual([{ type: "ping", id: 1 }]);
+    expect(client.state).toBe("probing");
+    expect(client.connected).toBe(true);
+    // a slow link gets a second ping at the first deadline, and is dropped only when that one goes unanswered too
+    jest.advanceTimersByTime(3_000);
+    expect(pings(socket)).toEqual([{ type: "ping", id: 1 }, { type: "ping", id: 2 }]);
+    expect(FakeSocket.last).toBe(socket);
+    jest.advanceTimersByTime(2_999);
+    expect(FakeSocket.last).toBe(socket);
+    jest.advanceTimersByTime(1);
+    // given up without waiting for a close event, and a new attempt started without a backoff
+    expect(socket.readyState).toBe(3);
+    expect(disconnects).toBe(1);
+    expect(await result).toMatchObject({ ok: false, code: "disconnected" });
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(socket);
+    expect(client.state).toBe("connecting");
+    fresh.open();
+    expect(fresh.sent).toEqual([{ type: "role", mode: "interact" }, { type: "attach", pane_id: "w1:p1", cols: 100, rows: 30, flow_control: "ack" }]);
+    expect(client.state).toBe("open");
+    // the dead socket's late close changes nothing
+    socket.disconnect();
+    expect(disconnects).toBe(1);
+    expect(client.connected).toBe(true);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("keeps typing out of the socket while a probe waits, and takes it again only when its pong comes back", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["submit", "ping"]);
+  try {
+    expect(client.sendInput("w1:p1", "a")).toBe(true);
+    client.wake();
+    // refused, so PaneTerminal keeps the keys as a held draft
+    expect(client.canInput("w1:p1")).toBe(false);
+    expect(client.sendInput("w1:p1", "b")).toBe(false);
+    expect(client.sendKeys("w1:p1", ["Enter"])).toBe(false);
+    expect(submissions(socket)).toEqual([{ type: "input", pane_id: "w1:p1", text: "a" }]);
+    // a second wake while one waits sends no second ping
+    client.wake();
+    expect(pings(socket)).toHaveLength(1);
+    // a frame the browser had buffered before the sleep, or a pong to no ping in flight, proves nothing
+    socket.receive({ type: "pane-status", pane_id: "w1:p1", agent_status: "idle" });
+    socket.receive({ type: "pong", id: 99 });
+    expect(client.state).toBe("probing");
+    expect(client.canInput("w1:p1")).toBe(false);
+    socket.receive({ type: "pong", id: 1 });
+    expect(client.state).toBe("open");
+    expect(client.sendInput("w1:p1", "c")).toBe(true);
+    jest.advanceTimersByTime(10_000);
+    expect(FakeSocket.last).toBe(socket);
+    expect(socket.readyState).toBe(FakeSocket.OPEN);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("drops a socket whose only frames during a probe are stale ones", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    client.wake();
+    for (let step = 0; step < 6; step++) {
+      socket.receive({ type: "pane-status", pane_id: "w1:p1", agent_status: "idle" });
+      jest.advanceTimersByTime(1_000);
+    }
+    expect(FakeSocket.last).not.toBe(socket);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("holds a submit and a secret until the probe's pong, then sends each once", async () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["submit", "secret-input", "ping"]);
+  try {
+    client.wake();
+    const submit = client.submit("w1:p1", "later", "later");
+    const secret = client.sendSecret("w1:p1", "Password:", "hunter2");
+    // waiting, not offline: the composer keeps its text and does not say the PC is gone
+    expect(submit).not.toBeNull();
+    expect(secret).not.toBeNull();
+    await settle();
+    const requests = () => socket.sent.filter((frame) => ["submit", "secret"].includes(frame.type));
+    expect(requests()).toEqual([]);
+    socket.receive({ type: "pong", id: 1 });
+    await settle();
+    expect(requests().map((frame) => frame.type)).toEqual(["submit", "secret"]);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("settles a submit that waited on a probe as disconnected when the socket is dropped, having sent nothing", async () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["submit", "secret-input", "ping"]);
+  try {
+    // a submit already on its way when the page comes back, still before its snapshot wait ends
+    const submit = client.submit("w1:p1", "later", "later");
+    client.wake();
+    const secret = client.sendSecret("w1:p1", "Password:", "hunter2");
+    await settle();
+    jest.advanceTimersByTime(6_000);
+    expect(FakeSocket.last).not.toBe(socket);
+    expect(await submit).toMatchObject({ ok: false, code: "disconnected" });
+    expect(await secret).toMatchObject({ ok: false, code: "disconnected" });
+    expect(socket.sent.filter((frame) => ["submit", "secret"].includes(frame.type))).toEqual([]);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("still stops output on a 4008 close that comes after a probe dropped the socket", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    const errors: string[] = [];
+    client.on((message) => { if (message.type === "error") errors.push(message.code); });
+    client.wake();
+    jest.advanceTimersByTime(6_000);
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(socket);
+    fresh.open();
+    socket.closeEvent(OUTPUT_STALLED_CLOSE_CODE);
+    expect(errors).toEqual(["output_stalled"]);
+    expect(client.state).toBe("stopped");
+    expect(fresh.readyState).toBe(3);
+    expect(client.connected).toBe(false);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("does not drop a connection over a probe deadline that ran out while the page was frozen", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    client.wake();
+    // the page froze for a minute: the timers fire at once on resume, before the queued pong is read
+    jest.setSystemTime(Date.now() + 60_000);
+    jest.advanceTimersByTime(3_000);
+    expect(FakeSocket.last).toBe(socket);
+    expect(pings(socket)).toEqual([{ type: "ping", id: 1 }, { type: "ping", id: 2 }]);
+    // the pong to the ping sent before the freeze no longer counts; the fresh one does
+    socket.receive({ type: "pong", id: 1 });
+    expect(client.state).toBe("probing");
+    socket.receive({ type: "pong", id: 2 });
+    expect(client.state).toBe("open");
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("pauses a probe when the page is hidden and pings again when it is shown", () => {
+  jest.useFakeTimers();
+  const listeners = new Map<string, () => void>();
+  const page = { visibilityState: "visible", addEventListener: (type: string, listener: () => void) => { listeners.set(type, listener); }, removeEventListener: () => {} };
+  const globalDocument = globalThis as unknown as { document?: unknown };
+  const previous = globalDocument.document;
+  globalDocument.document = page;
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    client.wake();
+    page.visibilityState = "hidden";
+    listeners.get("visibilitychange")!();
+    // a probe cut short is not an answer: typing stays refused until a pong comes
+    expect(client.state).toBe("probing");
+    expect(client.canInput("w1:p1")).toBe(false);
+    jest.advanceTimersByTime(60_000);
+    expect(FakeSocket.last).toBe(socket);
+    page.visibilityState = "visible";
+    listeners.get("visibilitychange")!();
+    expect(pings(socket)).toEqual([{ type: "ping", id: 1 }, { type: "ping", id: 2 }]);
+    socket.receive({ type: "pong", id: 2 });
+    expect(client.state).toBe("open");
+  } finally {
+    client.close();
+    globalDocument.document = previous;
+    jest.useRealTimers();
+  }
+});
+
+it("probes a reconnected socket whose snapshot never came, on a bridge that listed ping before", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    socket.disconnect();
+    jest.advanceTimersByTime(250);
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(socket);
+    fresh.open();
+    client.wake();
+    expect(pings(fresh)).toHaveLength(1);
+    jest.advanceTimersByTime(6_000);
+    expect(FakeSocket.last).not.toBe(fresh);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("doubles the probe deadline after a probe drop, and starts over once a pong comes back", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    client.wake();
+    jest.advanceTimersByTime(6_000);
+    const second = FakeSocket.last;
+    expect(second).not.toBe(socket);
+    second.open();
+    second.receive(snapshot(["ping"]));
+    client.wake();
+    // 6s per ping now: a link that is just slow is not dropped again at the same deadline
+    jest.advanceTimersByTime(11_999);
+    expect(FakeSocket.last).toBe(second);
+    expect(pings(second)).toHaveLength(2);
+    second.receive({ type: "pong", id: pings(second).at(-1)!.id as number });
+    expect(client.state).toBe("open");
+    client.wake();
+    jest.advanceTimersByTime(6_000);
+    expect(FakeSocket.last).not.toBe(second);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("pings a connection silent for 20s while visible, and not one that keeps receiving", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    for (let second = 0; second < 60; second += 5) {
+      jest.advanceTimersByTime(5_000);
+      socket.receive({ type: "pane-status", pane_id: "w1:p1", agent_status: "working" });
+    }
+    expect(pings(socket)).toEqual([]);
+    jest.advanceTimersByTime(19_999);
+    expect(pings(socket)).toEqual([]);
+    jest.advanceTimersByTime(1);
+    expect(pings(socket)).toEqual([{ type: "ping", id: 1 }]);
+    jest.advanceTimersByTime(6_000);
+    expect(FakeSocket.last).not.toBe(socket);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("never pings a bridge whose snapshot does not list ping, and trusts its connection as before", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["submit"]);
+  try {
+    client.wake();
+    jest.advanceTimersByTime(120_000);
+    expect(pings(socket)).toEqual([]);
+    expect(FakeSocket.last).toBe(socket);
+    expect(client.state).toBe("open");
+    expect(client.sendInput("w1:p1", "x")).toBe(true);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("leaves a socket the server is closing to its close event when a probe times out, so a 4008 still stops output", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    const errors: string[] = [];
+    client.on((message) => { if (message.type === "error") errors.push(message.code); });
+    client.wake();
+    socket.closing();
+    jest.advanceTimersByTime(3_000);
+    expect(FakeSocket.last).toBe(socket);
+    socket.closeEvent(OUTPUT_STALLED_CLOSE_CODE);
+    expect(errors).toEqual(["output_stalled"]);
+    expect(client.state).toBe("stopped");
+    jest.advanceTimersByTime(10_000);
+    expect(FakeSocket.last).toBe(socket);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("keeps a submit and a secret waiting when the page hides during a probe, and sends them after the next pong", async () => {
+  jest.useFakeTimers();
+  const listeners = new Map<string, () => void>();
+  const page = { visibilityState: "visible", addEventListener: (type: string, listener: () => void) => { listeners.set(type, listener); }, removeEventListener: () => {} };
+  const globalDocument = globalThis as unknown as { document?: unknown };
+  const previous = globalDocument.document;
+  globalDocument.document = page;
+  const { client, socket } = liveClient(["submit", "secret-input", "ping"]);
+  try {
+    client.wake();
+    const submit = client.submit("w1:p1", "later", "later");
+    const secret = client.sendSecret("w1:p1", "Password:", "hunter2");
+    await settle();
+    page.visibilityState = "hidden";
+    listeners.get("visibilitychange")!();
+    await settle();
+    const requests = () => socket.sent.filter((frame) => ["submit", "secret"].includes(frame.type));
+    // nothing goes out on a socket no pong has vouched for
+    expect(requests()).toEqual([]);
+    page.visibilityState = "visible";
+    listeners.get("visibilitychange")!();
+    expect(pings(socket)).toEqual([{ type: "ping", id: 1 }, { type: "ping", id: 2 }]);
+    await settle();
+    expect(requests()).toEqual([]);
+    socket.receive({ type: "pong", id: 2 });
+    await settle();
+    expect(requests().map((frame) => frame.type)).toEqual(["submit", "secret"]);
+    expect(submit).not.toBeNull();
+    expect(secret).not.toBeNull();
+  } finally {
+    client.close();
+    globalDocument.document = previous;
+    jest.useRealTimers();
+  }
+});
+
+it("settles a submit waiting on a probe when a CLOSING socket is replaced, and takes input on the new one", async () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["submit", "ping"]);
+  try {
+    let disconnects = 0;
+    client.onDisconnect(() => { disconnects++; });
+    client.wake();
+    let outcome: unknown = null;
+    void client.submit("w1:p1", "later", "later")!.then((result) => { outcome = result; });
+    await settle();
+    // the closing handshake started, and a pane mount connects again before the close event
+    socket.closing();
+    client.connect();
+    const fresh = FakeSocket.last;
+    expect(fresh).not.toBe(socket);
+    await settle();
+    expect(outcome).toMatchObject({ ok: false, code: "disconnected" });
+    expect(disconnects).toBe(1);
+    fresh.open();
+    fresh.receive(snapshot(["input-ready", "submit", "ping"]));
+    fresh.receive({ type: "input-ready", pane_id: "w1:p1" });
+    // the old probe's deadline does not hold the new socket's input
+    expect(client.canInput("w1:p1")).toBe(true);
+    jest.advanceTimersByTime(12_000);
+    expect(FakeSocket.last).toBe(fresh);
+    expect(socket.sent.filter((frame) => frame.type === "submit")).toEqual([]);
+    // its late close changes nothing
+    socket.closeEvent(1000);
+    expect(disconnects).toBe(1);
+    expect(client.connected).toBe(true);
   } finally {
     client.close();
     jest.useRealTimers();
