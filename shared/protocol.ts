@@ -452,9 +452,9 @@ export type ServerMessage =
   | { type: "session-changed" }
   /** a fleet run or the usage the fleet knows changed: refetch /api/fleet/runs and /api/fleet/usage */
   | { type: "fleet-changed" }
-  /** `pane_id` names the pane an error is about, when it is about one (`attach_held`) */
   /** the answer to a `ping`, with its id; only this frame, for a ping in flight, ends the client's liveness probe */
   | { type: "pong"; id: number }
+  /** `pane_id` names the pane an error is about, when it is about one (`attach_held`) */
   | { type: "error"; code: string; message: string; pane_id?: string };
 
 /** herdr's default socket, under XDG_CONFIG_HOME when set, as herdr itself resolves it. */

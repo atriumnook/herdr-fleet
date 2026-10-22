@@ -48,6 +48,15 @@ it("holds multi-codepoint IME commits without splitting a surrogate at the limit
   expect(applyToDraft(EMPTY_DRAFT, "\x1b[200~text\x1b[201~").text).toBe("");
 });
 
+describe("Backspace in a held draft", () => {
+  it("takes back the last character typed, so a typo is fixed without discarding", () => {
+    expect(applyToDraft(applyToDraft(EMPTY_DRAFT, "echo hx"), "\x7f")).toEqual({ text: "echo h", droppedSpecial: 0 });
+    expect(applyToDraft(applyToDraft(EMPTY_DRAFT, "ok 👍"), "\b")).toEqual({ text: "ok ", droppedSpecial: 0 });
+    // with no text there is nothing to take back: it is a key left out
+    expect(applyToDraft(EMPTY_DRAFT, "\x7f")).toEqual({ text: "", droppedSpecial: 1 });
+  });
+});
+
 describe("besideHeldDraft", () => {
   it("holds text, a paste, Backspace and line breaks, so nothing runs without the held start", () => {
     for (const input of ["rm -rf build", "x", "\r", "\n", "\x1b\r", "a\rb", "\x7f", "\b", "\x1b[200~ls\x1b[201~"]) expect(besideHeldDraft(input)).toBe("hold");

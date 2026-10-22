@@ -21,6 +21,8 @@ function isPrintableChar(data: string): boolean {
 
 /** Folds one onData chunk into the draft: printable text accumulates, special keys count. */
 export function applyToDraft(draft: InputDraft, data: string): InputDraft {
+  // Backspace takes back the last character held, so a typo is fixed without discarding it all
+  if ((data === "\x7f" || data === "\b") && draft.text.length > 0) return { ...draft, text: [...draft.text].slice(0, -1).join("") };
   if (!isPrintableChar(data)) {
     // Enter, arrows and bracketed paste frames contain controls; keep only plain text.
     return { ...draft, droppedSpecial: draft.droppedSpecial + 1 };
