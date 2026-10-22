@@ -56,8 +56,6 @@ export interface AgentRun {
   project?: string;
   /** the run that started this thread, a project's coordinator: its results and questions go there */
   owner?: string;
-  /** a side chat's: the pane whose conversation it answers on */
-  sideChatOf?: string;
   /** the paths its brief lets it change, absolute; another run may not write them while it works */
   write?: string[];
   /** a thread's question for the person that its project's coordinator has not been given yet */

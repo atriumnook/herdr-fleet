@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, FleetSettings, UsageEntry } from "../../shared/fleet.ts";
 import type { PairedDevice, RemoteAccess, ServerMessage } from "../../shared/protocol.ts";
+import type { SideChatSnapshot } from "../../shared/side-chat.ts";
 import type { Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts, type PaneSocketHandle, type TerminalSink } from "./mediator.ts";
 import { INITIAL_STATE, type RequestAction } from "./state.ts";
@@ -37,7 +38,10 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     revokeDevice: async () => {},
     later: (ms, then) => { timers.push({ ms, then }); },
     openSideTerminal: async (_machineId, paneId) => `${paneId}-terminal`,
-    startSideChat: async (paneId) => `${paneId}-side-chat`,
+    watchSideChat: () => () => {},
+    askSideChat: async (paneId, chatId) => ({ id: chatId ?? "c1", paneId, source: "fork", status: "working", turns: [], streaming: "", error: null }),
+    interruptSideChat: async () => {},
+    closeSideChat: async () => {},
     testPush: async () => "sent",
     storeSelection: () => {},
     treeRequest: async () => {},
@@ -103,6 +107,28 @@ describe("Mediator", () => {
     await until(() => mediator.getState().runs.status === "ready" && mediator.getState().usage.status === "ready");
     expect(mediator.getState().runs.data).toEqual([run]);
     expect(notified).toBeGreaterThanOrEqual(3);
+  });
+
+  it("reads the side chat of one pane at a time from the server, and asks it", async () => {
+    const watching: string[] = [];
+    const stopped: string[] = [];
+    let push: (chat: SideChatSnapshot | null) => void = () => {};
+    const { ports: p } = ports({
+      watchSideChat: (paneId, changed) => { watching.push(paneId); push = changed; return () => { stopped.push(paneId); }; },
+    });
+    const mediator = new Mediator(p, inside);
+    mediator.dispatch({ type: "side-chat-watch", paneId: "w1:p1" });
+    push({ id: "c1", paneId: "w1:p1", source: "fork", status: "idle", turns: [], streaming: "", error: null });
+    expect(mediator.getState().sidePanel.chat).toMatchObject({ paneId: "w1:p1", loaded: true, chat: { id: "c1" } });
+    mediator.dispatch({ type: "side-chat-ask", paneId: "w1:p1", text: "why?" });
+    await until(() => !mediator.getState().sidePanel.chat.asking);
+    // the stream says what came of it: the answer to the ask is no newer
+    push({ id: "c1", paneId: "w1:p1", source: "fork", status: "working", turns: [], streaming: "", error: null });
+    expect(mediator.getState().sidePanel.chat.chat).toMatchObject({ id: "c1", status: "working" });
+    mediator.dispatch({ type: "side-chat-watch", paneId: "w1:p2" });
+    mediator.dispatch({ type: "side-chat-watch", paneId: null });
+    expect(watching).toEqual(["w1:p1", "w1:p2"]);
+    expect(stopped).toEqual(["w1:p1", "w1:p2"]);
   });
 
   it("brings what the chat beside asked for back to it, and what the pane's asked for to the pane's", async () => {

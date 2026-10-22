@@ -1,6 +1,6 @@
 /** Overrides keep the app's Mod+Shift convention; null returns a key to the terminal. */
 export type ShortcutOverrides = Record<string, string | null>;
-export const CUSTOM_SHORTCUT_IDS = ["palette", "toggle-view", "toggle-sidebar", "side-panel", "new-session", "previous-pane", "next-pane", "previous-prompt", "next-prompt", "settings"];
+export const CUSTOM_SHORTCUT_IDS = ["palette", "toggle-view", "toggle-sidebar", "side-panel", "side-chat", "side-terminal", "new-session", "previous-pane", "next-pane", "previous-prompt", "next-prompt", "settings"];
 export function sanitizeShortcutOverrides(raw: unknown): ShortcutOverrides {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
   const result: ShortcutOverrides = {};

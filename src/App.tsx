@@ -63,10 +63,9 @@ function storedView(paneId: string, machineId: string, hasAgent: boolean | null,
   return hasAgent !== false && window.matchMedia?.("(pointer: coarse)").matches === true ? "chat" : "terminal";
 }
 
-/** The chat that holds the focus: the one beside on the Fleet screen or the side chat, else the pane's (the keys and the palette's prompts go to it). */
+/** The chat that holds the focus: the one beside on the Fleet screen, else the pane's (the keys and the palette's prompts go to it). */
 function focusedChat(): Lens {
-  const lens = document.activeElement?.closest("[data-chat-lens]")?.getAttribute("data-chat-lens");
-  return lens === "side" || lens === "side-chat" ? lens : "main";
+  return document.activeElement?.closest('[data-chat-lens="side"]') != null ? "side" : "main";
 }
 
 function Brand() {
@@ -263,6 +262,8 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         else setSidebarCollapsed((collapsed) => !collapsed);
       },
       toggleSidePanel: () => emitRef.current({ type: "side-panel", open: !sidePanelOpen }),
+      toggleSideChat: () => emitRef.current({ type: "toggle-side-panel-tab", tab: "chat" }),
+      toggleSideTerminal: () => emitRef.current({ type: "toggle-side-panel-tab", tab: "terminal" }),
       toggleTheme: () => updateSettings({ theme: resolvedTheme === "dark" ? "light" : "dark" }),
       lock: canSignOut ? () => void lock() : null,
       enableNotifications: bellVisible && !bell.on ? () => void enableNotifications() : null,

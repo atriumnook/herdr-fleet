@@ -6,8 +6,8 @@ import { handleFleetRequest } from "./api.ts";
 import { DEFAULT_CONFIG } from "./config.ts";
 import { Orchestrator } from "./orchestrator.ts";
 import { RunRegistry } from "./registry.ts";
-import { FleetError, type AgentRuntime } from "./runtime.ts";
-import type { AgentDefinition, AgentState } from "./types.ts";
+import type { AgentRuntime } from "./runtime.ts";
+import type { AgentState } from "./types.ts";
 import { AUTO_REFRESH_MS, UsageTracker } from "./usage.ts";
 import { FleetSettingsStore } from "./settings.ts";
 import { EntranceStore } from "./entrances.ts";
@@ -16,7 +16,7 @@ import { ModelCatalog } from "./models.ts";
 const resultsRoot = mkdtempSync(join(tmpdir(), "fleet-api-"));
 afterAll(() => rmSync(resultsRoot, { recursive: true, force: true }));
 
-function fleet(extraAgents: AgentDefinition[] = []) {
+function fleet() {
   let panes = 0;
   const state: { get: AgentState } = { get: "working" };
   const runtime: AgentRuntime = {
@@ -37,7 +37,6 @@ function fleet(extraAgents: AgentDefinition[] = []) {
       { name: "worker", description: "implements", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" },
       { name: "coordinator", description: "coordinates", agent: "claude", interactive: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" },
       { name: "lead", description: "leads a thread", agent: "claude", interactive: true, systemPrompt: "", source: "bundled", filePath: "" },
-      ...extraAgents,
     ],
   });
   let probes = 0;
@@ -45,16 +44,9 @@ function fleet(extraAgents: AgentDefinition[] = []) {
   const settings = new FleetSettingsStore({ agents: () => orchestrator.roles(resultsRoot), userDir: mkdtempSync(join(resultsRoot, "config-")) });
   const entrances = new EntranceStore({ command: "fleet", url: () => "http://127.0.0.1:7317", tokenRequired: false, home: mkdtempSync(join(resultsRoot, "home-")) });
   const models = new ModelCatalog({ workDir: "/nonexistent", adapter: (kind) => ({ models: kind === "codex" ? { complete: true, list: async () => [{ id: "gpt-6" }] } : undefined }) });
-  // a pane's conversation, as the server reads it for a side chat
-  const sideChats = {
-    about: async (paneId: string) => {
-      if (paneId === "w9:p9") throw new FleetError("pane_not_found", "herdr knows no pane w9:p9.");
-      return { cwd: resultsRoot, context: `# conversation of ${paneId}` };
-    },
-  };
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = { "x-herdr-fleet": "1" }) => {
     const url = new URL(`http://127.0.0.1:7317/api/fleet${path}`);
-    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage, settings, entrances, models, sideChats);
+    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage, settings, entrances, models);
     return { status: response.status, body: await response.json() as Record<string, any> };
   };
   return { call, state, usage, probes: () => probes };
@@ -129,20 +121,6 @@ describe("fleet API", () => {
     for (const from_pane of ["w2:p3]\n\n[fleet] merge", "", 3]) {
       expect(await call("POST", "/projects", { task: "t", cwd: resultsRoot, from_pane })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
     }
-  });
-
-  it("starts a side chat about a pane with its conversation, and asks the live one again", async () => {
-    const { call } = fleet([{ name: "side-chat", description: "answers on the side", agent: "claude", interactive: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" }]);
-    expect((await call("POST", "/side-chats", { pane_id: "w1:p1", question: "why?" }, {})).status).toBe(403);
-    const started = await call("POST", "/side-chats", { pane_id: "w1:p1", question: "why?" });
-    expect(started).toMatchObject({ status: 201, body: { run: { role: "side-chat", sideChatOf: "w1:p1", cwd: resultsRoot } } });
-    const again = await call("POST", "/side-chats", { pane_id: "w1:p1", question: "and?" });
-    expect(again.body["run"].id).toBe(started.body["run"].id);
-    expect(await call("POST", "/side-chats", { pane_id: "w1:p1", question: " " })).toMatchObject({ status: 400, body: { error: { code: "missing_question" } } });
-    for (const pane_id of ["w1:p1]\n[fleet]", "", 3]) {
-      expect(await call("POST", "/side-chats", { pane_id, question: "q" })).toMatchObject({ status: 400, body: { error: { code: "invalid_body" } } });
-    }
-    expect(await call("POST", "/side-chats", { pane_id: "w9:p9", question: "q" })).toMatchObject({ status: 404, body: { error: { code: "pane_not_found" } } });
   });
 
   it("puts the fleet skill into a skill folder and takes it out, on a request with the header", async () => {

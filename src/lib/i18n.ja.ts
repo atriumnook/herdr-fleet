@@ -148,9 +148,13 @@ export const JA: Record<string, string> = {
   // ---- side panel ----
   "Open a pane to ask about it.": "質問するには、Pane を開いてください。",
   "Open a pane to open a terminal in its folder.": "Pane を開くと、そのフォルダーで Terminal を開けます。",
-  "Ask about this conversation without interrupting it. An agent that changes nothing reads the conversation and the code, and answers here.": "この会話を止めずに、横で質問できます。何も変更しないエージェントが会話とコードを読み、ここで答えます。",
+  "Ask about this conversation without interrupting it. The answer changes nothing, and nothing of it goes back into the conversation.": "この会話を止めずに、横で質問できます。答えるときに何も変更せず、やり取りは元の会話に入りません。",
   "This terminal is the pane open on the Pane screen.": "この Terminal は、Pane 画面で開いている Pane です。",
-  "A shell in this pane's folder, in a tab of its workspace. herdr shows the same tab.": "この Pane のフォルダーで動くシェルを、同じ Workspace のタブとして開きます。herdr にも同じタブが出ます。",
+  "A side chat is for a pane on this PC.": "Side chat は、この PC の Pane についてだけ使えます。",
+  "Ends this side chat; nothing of it is kept.": "この Side chat を終えます。やり取りは残りません。",
+  "Knows this Claude session up to when it opened.": "開いた時点までの、この Claude のセッションの内容を知っています。",
+  "Read this pane's conversation when it opened.": "開いたときに、この Pane の会話を読みました。",
+  "This side chat has ended. A question starts a new one.": "この Side chat は終わりました。質問すると、新しい Side chat を始めます。",
   // ---- fleet ----
   "Could not load the fleet. {error}": "Fleet を読み込めませんでした。{error}",
   "The last read failed. {error}": "前回の読み取りに失敗しました。{error}",

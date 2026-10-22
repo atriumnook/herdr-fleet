@@ -27,6 +27,7 @@ import {
   agentPrompt,
   agentStart,
   HerdrError,
+  herdrRpc,
   herdrSocketPath,
   paneClose,
   paneRead,
@@ -45,7 +46,9 @@ import {
   workspaceRename,
 } from "./herdr/client.ts";
 import { openSideTerminal, SideTerminalError } from "./side-terminal.ts";
-import { conversationContext, screenContext } from "./side-chat-context.ts";
+import { SideChats, sideChatPlan, type SideChatDeps } from "./side-chat.ts";
+import { handleSideChatRequest } from "./side-chat-api.ts";
+import { claudeTranscriptFile } from "./claude-store.ts";
 import { type AlertTiming, createPushService, defaultStateDir, handlePushRequest } from "./push.ts";
 import { codexQuestionsCollapsed, handlePromptRequest, liveScreen, promptWaitEnded } from "./prompt.ts";
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
@@ -61,8 +64,7 @@ import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
 import { MachineManager } from "./machines.ts";
 import { discoverAgents } from "./fleet/agents.ts";
-import { handleFleetRequest, type SideChatSource } from "./fleet/api.ts";
-import { FleetError } from "./fleet/runtime.ts";
+import { handleFleetRequest } from "./fleet/api.ts";
 import { FleetSettingsStore } from "./fleet/settings.ts";
 import { EntranceStore } from "./fleet/entrances.ts";
 import { ModelCatalog } from "./fleet/models.ts";
@@ -123,6 +125,10 @@ const ATTACH_RELOOKUP_FOR_MS = 5_000;
 const ATTACH_RELOOKUP_MS = 100;
 /** the lines of a pane's screen a side chat reads when the pane keeps no conversation */
 const SIDE_CHAT_SCREEN_LINES = 400;
+/** how much of a Claude transcript's start and of its end a side chat reads for the session's folder and model */
+const SIDE_CHAT_TRANSCRIPT_END = 256 * 1024;
+/** Claude session ids are uuids */
+const CLAUDE_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** How often the panes attached here are looked up in herdr's layout, for a rect that changed (regrid). */
 const LAYOUT_POLL_MS = 1000;
@@ -300,6 +306,8 @@ export function createServer(
     fleet?: Partial<Pick<OrchestratorDeps, "runtime" | "agents" | "config" | "standingOrders">> & { usage?: UsageTracker; models?: Pick<ModelCatalog, "unknown" | "listAll">; userDir?: string; homeDir?: string };
     /** what an explanation's call uses in place of the real one: tests give a fake claude, a conversation and the account's answer */
     explain?: Partial<Pick<ExplainDeps, "command" | "conversation" | "unavailable" | "timeoutMs" | "killAfterMs" | "env">>;
+    /** what a side chat runs in place of the real claude: tests give a fake one */
+    sideChats?: Pick<SideChatDeps, "command" | "spawn">;
   } = {},
 ): { port: number; hostname: string; stop: () => void } {
   const attachments = new Map<string, PaneAttachment>();
@@ -512,24 +520,34 @@ export function createServer(
   const settings = new FleetSettingsStore({ agents: options.fleet?.agents ?? ((cwd) => discoverAgents(cwd)), usage, userDir: options.fleet?.userDir });
   /** the fleet skill in the person's skill folders, put there from the Settings page */
   const entrances = new EntranceStore({ command: FLEET_COMMAND, url: () => `http://127.0.0.1:${listeningPort}`, tokenRequired: token !== "", home: options.fleet?.homeDir });
-  /** what a side chat reads of the pane it is about: its conversation, else its screen */
-  const sideChats: SideChatSource = {
-    about: async (paneId) => {
-      const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
-      if (!pane) throw new FleetError("pane_not_found", `herdr knows no pane ${paneId}.`);
-      const cwd = pane.cwd ?? pane.foreground_cwd;
-      if (!cwd) throw new FleetError("pane_without_folder", `herdr knows no folder for pane ${paneId}.`);
-      const described = { title: pane.label?.trim() || pane.title?.trim() || pane.terminal_title_stripped?.trim() || pane.pane_id, agent: pane.agent ?? null, cwd };
-      try {
-        const { turns } = await paneConversation(paneId, options.codexHome);
-        if (turns.length > 0) return { cwd, context: conversationContext(described, turns) };
-      } catch (error) {
-        if (!(error instanceof ConversationUnavailable)) throw error;
-      }
-      const screen = await paneRead({ paneId, source: "recent", lines: SIDE_CHAT_SCREEN_LINES });
-      return { cwd, context: screenContext(described, screen.text) };
-    },
-  };
+  /** side chats about a pane: claude processes of the server's, read from herdr and Claude's transcripts */
+  const sideChats = new SideChats({
+    ...options.sideChats,
+    plan: (paneId) => sideChatPlan(paneId, {
+      pane: async (id) => (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === id),
+      claudeSession: async (id) => {
+        const info = await herdrRpc<{ agent: { agent_session?: { value?: unknown } } }>("agent.get", { target: id });
+        const session = info.agent.agent_session?.value;
+        return typeof session === "string" && CLAUDE_SESSION_ID.test(session) ? session : null;
+      },
+      transcriptFile: (session, cwds) => claudeTranscriptFile(process.env["HOME"] ?? "", session, cwds),
+      transcriptEnds: async (path) => {
+        const file = Bun.file(path);
+        const size = file.size;
+        if (size <= 2 * SIDE_CHAT_TRANSCRIPT_END) return file.text();
+        return `${await file.slice(0, SIDE_CHAT_TRANSCRIPT_END).text()}\n${await file.slice(size - SIDE_CHAT_TRANSCRIPT_END).text()}`;
+      },
+      conversation: async (id) => {
+        try {
+          return (await paneConversation(id, options.codexHome)).turns;
+        } catch (error) {
+          if (error instanceof ConversationUnavailable) return [];
+          throw error;
+        }
+      },
+      screen: async (id) => (await paneRead({ paneId: id, source: "recent", lines: SIDE_CHAT_SCREEN_LINES })).text,
+    }),
+  });
 
   function broadcast(paneId: string, message: ServerMessage): void {
     const attachment = attachments.get(paneId);
@@ -1049,7 +1067,13 @@ export function createServer(
       if (pathname === "/api/fleet" || pathname.startsWith("/api/fleet/")) {
         // a spawn waits for the agent to start, a wait for its turn: Bun's 10 s idle limit is too short
         bunServer.timeout(request, 0);
-        return handleFleetRequest(request, url, fleet, usage, settings, entrances, models, sideChats);
+        return handleFleetRequest(request, url, fleet, usage, settings, entrances, models);
+      }
+      if (pathname === "/api/side-chats" || pathname.startsWith("/api/side-chats/")) {
+        // the events stream stays open while the page shows the side chat
+        if (pathname === "/api/side-chats/events") bunServer.timeout(request, 0);
+        const deviceId = access.level === "full" ? access.device?.id : undefined;
+        return handleSideChatRequest(request, url, sideChats, deviceId ? (close) => devices.onRevoke(deviceId, close) : undefined);
       }
       if (pathname === "/api/machines" || pathname.startsWith("/api/machines/")) {
         if (!machines) return jsonResponse({ error: { code: "bridge_only", message: "Manage PCs on the connection server" } }, 404);
@@ -1537,7 +1561,7 @@ export function createServer(
 
       if (pathname === "/api/pane/terminal") {
         if (request.method !== "POST") return badRequest("method_not_allowed", "use POST");
-        let payload: { pane_id?: string };
+        let payload: { pane_id?: string; another?: unknown };
         try {
           payload = (await request.json()) as typeof payload;
         } catch {
@@ -1549,7 +1573,7 @@ export function createServer(
           const paneId = await openSideTerminal(payload.pane_id, {
             snapshot: () => sessionSnapshot(),
             createTab: (workspaceId, cwd, label) => tabCreate({ workspaceId, label, ...(cwd === undefined ? {} : { cwd }) }),
-          });
+          }, payload.another === true);
           return jsonResponse({ pane_id: paneId });
         } catch (error) {
           if (error instanceof SideTerminalError) return jsonResponse({ error: { code: error.code, message: error.message } }, error.code === "pane_not_found" ? 404 : 502);
@@ -1968,6 +1992,7 @@ export function createServer(
       collector.stop();
       machines?.stop();
       fleet.stop();
+      sideChats.stop();
       if (fleetChangedTimer) clearTimeout(fleetChangedTimer);
       for (const paneId of [...attachments.keys()]) closeAttachment(paneId);
       server.stop(true);

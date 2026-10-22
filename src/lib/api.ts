@@ -20,6 +20,7 @@ import type {
 } from "../../shared/protocol.ts";
 import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandAction, LandingChecks, LineComment, ModelListing, UsageEntry } from "../../shared/fleet.ts";
 import type { Plan, PlanAnswer } from "../../shared/plan.ts";
+import type { SideChatEvent, SideChatSnapshot } from "../../shared/side-chat.ts";
 import type { PaneScrollInfo } from "../../shared/herdr-api.generated.ts";
 import type { AlertPrefs } from "../../shared/notify-policy.ts";
 
@@ -260,9 +261,9 @@ export async function closePane(paneId: string, machineId = "local"): Promise<vo
   await sendJson(machinePath(machineId, "pane/close"), "POST", { pane_id: paneId });
 }
 
-/** POST /api/pane/terminal: the terminal of the pane's workspace, opened in a tab of its own when there is none; its pane id. */
-export async function openPaneTerminal(paneId: string, machineId = "local"): Promise<string> {
-  const response = await sendJson(machinePath(machineId, "pane/terminal"), "POST", { pane_id: paneId });
+/** POST /api/pane/terminal: the terminal of the pane's workspace, opened in a tab of its own when there is none (`another`: always); its pane id. */
+export async function openPaneTerminal(paneId: string, machineId = "local", another = false): Promise<string> {
+  const response = await sendJson(machinePath(machineId, "pane/terminal"), "POST", { pane_id: paneId, ...(another ? { another: true } : {}) });
   return ((await response.json()) as { pane_id: string }).pane_id;
 }
 
@@ -454,9 +455,32 @@ export async function startFleetProject(task: string, cwd: string): Promise<void
   await sendFleet("/projects", { task, cwd });
 }
 
-/** A side chat about a pane, asked `question` first (the live one about it is asked instead); the pane it runs in. */
-export async function startFleetSideChat(paneId: string, question: string): Promise<string> {
-  return (await sendFleet<{ run: AgentRun }>("/side-chats", { pane_id: paneId, question })).run.paneId;
+/** The side chat of a pane on this PC, now and after each change (server-sent), until the answer is called. */
+export function watchSideChat(paneId: string, changed: (chat: SideChatSnapshot | null) => void): () => void {
+  const events = new EventSource(`/api/side-chats/events?pane_id=${encodeURIComponent(paneId)}`);
+  events.onmessage = (message) => {
+    let event: SideChatEvent;
+    try { event = JSON.parse(message.data) as SideChatEvent; } catch { return; }
+    changed(event.chat);
+  };
+  return () => events.close();
+}
+
+/** Asks a pane's open side chat (`chatId`), or starts a new one with `text` first; the side chat as it is then. */
+export async function askSideChat(paneId: string, chatId: string | null, text: string): Promise<SideChatSnapshot> {
+  const response = chatId === null
+    ? await sendJson("/api/side-chats", "POST", { pane_id: paneId, text })
+    : await sendJson(`/api/side-chats/${encodeURIComponent(chatId)}/messages`, "POST", { text });
+  return ((await response.json()) as { chat: SideChatSnapshot }).chat;
+}
+
+export async function interruptSideChat(chatId: string): Promise<void> {
+  await sendJson(`/api/side-chats/${encodeURIComponent(chatId)}/interrupt`, "POST", {});
+}
+
+/** Ends a side chat: nothing of it is kept. */
+export async function closeSideChat(chatId: string): Promise<void> {
+  await sendJson(`/api/side-chats/${encodeURIComponent(chatId)}`, "DELETE", {});
 }
 
 /** A thread's change since it left its base branch, as a unified diff. */

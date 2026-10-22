@@ -20,11 +20,10 @@ const MAX_SETUP_CHARS = 2000;
 /**
  * The bundled roles in the order work passes between them: the coordinator starts threads, a
  * thread's lead asks an architect how to build, and hands an investigation to a scout, a part to a
- * worker and every change to a reviewer. The planner, which neither asks for, comes after them, then
- * the side chat, which answers the person apart from all of them, and the person's own roles follow
- * by name.
+ * worker and every change to a reviewer. The planner, which neither asks for, comes after them, and
+ * the person's own roles follow by name.
  */
-const ROLE_FLOW = ["coordinator", "lead", "architect", "scout", "worker", "reviewer", "planner", "side-chat"];
+const ROLE_FLOW = ["coordinator", "lead", "architect", "scout", "worker", "reviewer", "planner"];
 const LIMITS = {
   maxUsedPercent: [1, 100], rateLimitCooldownMinutes: [1, 24 * 60], maxConcurrent: [1, 32],
 } as const satisfies Record<string, readonly [number, number]>;

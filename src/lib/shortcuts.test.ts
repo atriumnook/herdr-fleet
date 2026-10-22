@@ -25,6 +25,22 @@ describe("matchShortcut", () => {
     expect(matchShortcut(keyEvent("<", { ctrlKey: true, code: "Comma" }), false)).toBe("settings");
   });
 
+  it("opens the side chat on Mod+; and the terminal on Ctrl+`, as Claude Code's desktop app does, until Settings moves or turns them off", () => {
+    expect(matchShortcut(keyEvent(";", { ctrlKey: true, shiftKey: false, code: "Semicolon" }), false)).toBe("side-chat");
+    expect(matchShortcut(keyEvent(";", { metaKey: true, shiftKey: false, code: "Semicolon" }), true)).toBe("side-chat");
+    expect(matchShortcut(keyEvent(";", { ctrlKey: true, shiftKey: false }), true)).toBeNull();
+    expect(matchShortcut(keyEvent(":", { ctrlKey: true, code: "Semicolon" }), false)).toBeNull();
+    // Ctrl on every platform; a Japanese layout types the backquote with Shift
+    expect(matchShortcut(keyEvent("`", { ctrlKey: true, shiftKey: false }), false)).toBe("side-terminal");
+    expect(matchShortcut(keyEvent("`", { ctrlKey: true, shiftKey: false }), true)).toBe("side-terminal");
+    expect(matchShortcut(keyEvent("`", { ctrlKey: true }), false)).toBe("side-terminal");
+    expect(matchShortcut(keyEvent("`", { metaKey: true, shiftKey: false }), true)).toBeNull();
+    expect(matchShortcut(keyEvent("`", { ctrlKey: true, shiftKey: false }), false, { "side-terminal": null })).toBeNull();
+    expect(matchShortcut(keyEvent(";", { ctrlKey: true, shiftKey: false }), false, { "side-chat": "y" })).toBeNull();
+    expect(matchShortcut(keyEvent("y", { ctrlKey: true }), false, { "side-chat": "y" })).toBe("side-chat");
+    expect(isAppShortcut(keyEvent("`", { ctrlKey: true, shiftKey: false }))).toBe(true);
+  });
+
   it("requires Shift and rejects extra or competing modifiers", () => {
     expect(matchShortcut(keyEvent("k", { ctrlKey: true, shiftKey: false }), false)).toBeNull();
     expect(matchShortcut(keyEvent("k", { ctrlKey: true, altKey: true }), false)).toBeNull();

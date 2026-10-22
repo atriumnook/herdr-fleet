@@ -1,6 +1,6 @@
 import "./test-herdr.ts"; // a herdr session of its own: nothing shows in the user's
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Browser, Page } from "playwright-core";
@@ -13,12 +13,46 @@ import { UsageTracker } from "../server/fleet/usage.ts";
 
 /**
  * The side panel in a real browser, over a server whose fleet runs on a stand-in runtime (no agent
- * CLI starts) in real herdr panes. On the Pane screen: its terminal opens in a tab labelled
- * terminal in the pane's workspace and takes typing apart from the pane's own grid, and a side
- * chat starts with the pane's screen written for it and shows beside. On the Fleet screen it is
- * about the project's coordinator. On a phone it is a sheet over the screen. With
+ * CLI starts) in real herdr panes, and whose side chats run a stand-in claude that answers in
+ * stream-json. On the Pane screen: a terminal opens by itself in a tab labelled terminal in the
+ * pane's workspace, a second one beside it, each typed into apart from the pane's own grid; a side
+ * chat is handed the pane's screen, asked twice in one process, and started over. The desktop
+ * app's keys put the keyboard in each. On the Fleet screen it is about the project's coordinator,
+ * and `/btw` in the conversation's box asks it. On a phone it is a sheet over the screen. With
  * FLEET_SCREENSHOTS set to a folder, it saves what it saw there.
  */
+
+/** A claude that answers each question in stream-json, and writes what it was given to `log`. */
+function fakeClaude(root: string, log: string): string {
+  const path = join(root, "fake-claude");
+  writeFileSync(path, `#!${process.execPath}
+import { appendFileSync } from "node:fs";
+appendFileSync(${JSON.stringify(log)}, JSON.stringify({ argv: process.argv.slice(2), cwd: process.cwd() }) + "\\n");
+const print = (event) => process.stdout.write(JSON.stringify(event) + "\\n");
+let rest = "";
+for await (const chunk of process.stdin) {
+  rest += chunk;
+  let end;
+  while ((end = rest.indexOf("\\n")) >= 0) {
+    const line = JSON.parse(rest.slice(0, end));
+    rest = rest.slice(end + 1);
+    appendFileSync(${JSON.stringify(log)}, JSON.stringify({ sent: line }) + "\\n");
+    if (line.type !== "user") continue;
+    const question = line.message.content[0].text.split("Question:\\n").at(-1);
+    print({ type: "stream_event", event: { type: "message_start" } });
+    print({ type: "stream_event", event: { type: "content_block_delta", delta: { type: "text_delta", text: "Answer" } } });
+    print({ type: "assistant", message: { role: "assistant", model: "claude-test", content: [{ type: "text", text: "Answer to: " + question }] } });
+    print({ type: "result", subtype: "success", is_error: false, result: "Answer to: " + question });
+  }
+}
+`);
+  chmodSync(path, 0o755);
+  return path;
+}
+
+const logLines = (log: string): Array<{ argv?: string[]; cwd?: string; sent?: { type: string; message?: { content: { text: string }[] } } }> =>
+  existsSync(log) ? readFileSync(log, "utf8").trim().split("\n").map((line) => JSON.parse(line)) : [];
+
 export async function checkSidePanel(browser: Browser): Promise<void> {
   const root = mkdtempSync(join(tmpdir(), "herdr-fleet-side-panel-"));
   const shots = process.env["FLEET_SCREENSHOTS"];
@@ -41,6 +75,7 @@ export async function checkSidePanel(browser: Browser): Promise<void> {
       closePane: async () => {}, interrupt: async () => {}, focus: async () => {}, reportMetadata: async () => {},
     };
     const stateDir = join(root, "state");
+    const log = join(root, "claude.log");
     server = createServer({
       port: 0, hostname: "127.0.0.1", token: "", stateDir,
       fleet: {
@@ -49,9 +84,9 @@ export async function checkSidePanel(browser: Browser): Promise<void> {
         config: () => ({ ...DEFAULT_CONFIG, closeOnSettle: false }),
         agents: () => [
           { name: "coordinator", description: "coordinates", agent: "claude", interactive: true, spawning: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" },
-          { name: "side-chat", description: "answers on the side", agent: "claude", interactive: true, edits: false, systemPrompt: "", source: "bundled", filePath: "" },
         ],
       },
+      sideChats: { command: fakeClaude(root, log) },
     });
     const origin = `http://127.0.0.1:${server.port}`;
 
@@ -85,17 +120,28 @@ export async function checkSidePanel(browser: Browser): Promise<void> {
       return side.left >= host.right - 1 && side.width > 300;
     });
     assert.ok(beside, "on a desktop the side panel stands right of the pane");
+    // its edge is dragged to widen it, and the width stays for the next page
+    const before = await panel.evaluate((node) => node.getBoundingClientRect().width);
+    const edge = await page.locator(".side-panel-resize").boundingBox();
+    await page.mouse.move(edge!.x + 2, edge!.y + 100);
+    await page.mouse.down();
+    await page.mouse.move(edge!.x - 98, edge!.y + 100, { steps: 4 });
+    await page.mouse.up();
+    const widened = await panel.evaluate((node) => node.getBoundingClientRect().width);
+    assert.ok(widened > before + 80, `dragging the edge widens the panel (${before} -> ${widened})`);
 
-    // the terminal: a tab labelled terminal in the pane's workspace, typed into apart from the pane
+    // the terminal: picked, it opens by itself in a tab labelled terminal in the pane's workspace
     await panel.getByRole("button", { name: "Terminal", exact: true }).click();
-    await panel.getByRole("button", { name: "Open terminal" }).click();
     const grid = panel.locator(".side-panel-terminal .xterm-screen");
     await grid.waitFor();
-    const snapshot = await sessionSnapshot();
-    const workspace = snapshot.panes.find((pane) => pane.pane_id === subject)!.workspace_id;
-    const tab = snapshot.tabs.find((each) => each.workspace_id === workspace && each.label === "terminal");
-    assert.ok(tab, "the terminal opens in a tab of the pane's workspace");
-    const terminal = snapshot.panes.find((pane) => pane.tab_id === tab.tab_id)!.pane_id;
+    const terminalsOf = async () => {
+      const snapshot = await sessionSnapshot();
+      const workspace = snapshot.panes.find((pane) => pane.pane_id === subject)!.workspace_id;
+      const tabs = new Set(snapshot.tabs.filter((each) => each.workspace_id === workspace && each.label === "terminal").map((each) => each.tab_id));
+      return snapshot.panes.filter((pane) => tabs.has(pane.tab_id)).map((pane) => pane.pane_id);
+    };
+    const [terminal] = await terminalsOf();
+    assert.ok(terminal, "the terminal opens in a tab of the pane's workspace");
     await Bun.sleep(500);
     await grid.click();
     await page.keyboard.type("echo side-$((40+2))");
@@ -105,6 +151,17 @@ export async function checkSidePanel(browser: Browser): Promise<void> {
     assert.ok(!(await paneRead({ paneId: subject, source: "recent", lines: 20 })).text.includes("side-42"), "what is typed in the side terminal does not reach the pane");
     assert.ok(!(await page.locator(".terminal-host .xterm-rows").textContent() ?? "").includes("side-42"), "the pane's grid does not show the side terminal's output");
     await save(page, shots, "side-terminal");
+    // a second terminal beside it, shown at once; the first comes back with its screen, and the second closes
+    await panel.getByRole("button", { name: "New terminal" }).click();
+    await until(async () => (await terminalsOf()).length === 2, "a second terminal opens in another tab");
+    await panel.getByRole("button", { name: "Terminal 2" }).waitFor();
+    assert.equal(await panel.getByRole("button", { name: "Terminal 2" }).getAttribute("aria-pressed"), "true");
+    await panel.getByRole("button", { name: "Terminal 1" }).click();
+    await until(async () => (await panel.locator(".xterm-rows").textContent() ?? "").includes("side-42"), "the first terminal shows its screen again");
+    await panel.getByRole("button", { name: "Terminal 2" }).click();
+    await panel.getByRole("button", { name: "Close terminal" }).click();
+    await until(async () => (await terminalsOf()).length === 1, "the second terminal closes");
+    await panel.getByRole("button", { name: "Terminal 2" }).waitFor({ state: "detached" });
     // shown again, the side panel's grid does not take the keyboard from the pane's: a click gives it
     await page.locator(".terminal-host .xterm-screen").click();
     await page.keyboard.press("Control+Shift+L");
@@ -113,25 +170,52 @@ export async function checkSidePanel(browser: Browser): Promise<void> {
     await panel.locator(".side-panel-terminal .xterm-screen").waitFor();
     await Bun.sleep(500);
     assert.equal(await page.evaluate(() => document.activeElement?.closest(".terminal-host") != null), true, "the pane's grid keeps the keyboard");
+    // the desktop app's keys: Ctrl+` puts the keyboard in the terminal, and takes the panel away when it shows it
+    await page.keyboard.press("Control+`");
+    await panel.waitFor({ state: "detached" });
+    await page.keyboard.press("Control+`");
+    await panel.locator(".side-panel-terminal .xterm-screen").waitFor();
+    await until(async () => page.evaluate(() => document.activeElement?.closest(".side-panel-terminal") != null), "Ctrl+` puts the keyboard in the side terminal");
+    // Ctrl+; does so for the side chat's box
+    await page.keyboard.press("Control+;");
+    await until(async () => page.evaluate(() => document.activeElement?.closest(".side-chat-box") != null), "Ctrl+; puts the keyboard in the side chat's box");
 
-    // the side chat: started with its first question, the pane's screen written for it
-    await panel.getByRole("button", { name: "Side chat", exact: true }).click();
-    await panel.getByLabel("Ask on the side").fill("What did it print?");
+    // the side chat: a shell keeps no conversation, so it is handed the pane's screen
+    await page.keyboard.type("What did it print?");
+    await page.keyboard.press("Enter");
+    await panel.locator(".side-chat .chat-view").getByText("Answer to: What did it print?").waitFor();
+    const first = logLines(log);
+    assert.equal(first.filter((line) => line.argv).length, 1);
+    const started = first.find((line) => line.argv)!;
+    assert.equal(started.cwd, repo, "the side chat runs in the pane's folder");
+    assert.ok(started.argv!.includes("--no-session-persistence") && started.argv!.join(" ").includes("--setting-sources user"));
+    const asked = first.find((line) => line.sent?.type === "user")!.sent!.message!.content[0]!.text;
+    assert.match(asked, /^\[Side chat\]/);
+    assert.match(asked, /subject-42/, "the side chat is handed the pane's screen");
+    // it says it was handed the pane's conversation, not a session of its own to go on from
+    assert.ok(await panel.locator(".side-chat-source").isVisible());
+    // the next question goes to the same process, as typed
+    await panel.getByLabel("Ask on the side").fill("And then?");
     await panel.getByRole("button", { name: "Ask", exact: true }).click();
-    await panel.locator(".side-panel-chat .fleet-chat").waitFor();
-    const runs = ((await (await fetch(`${origin}/api/fleet/runs`)).json()) as { runs: AgentRun[] }).runs;
-    const sideChat = runs.find((run) => run.role === "side-chat");
-    assert.equal(sideChat?.sideChatOf, subject);
-    const context = join(stateDir, "fleet-results", sideChat.id, "context.md");
-    assert.ok(existsSync(context));
-    assert.match(readFileSync(context, "utf8"), /subject-42/);
+    await panel.getByText("Answer to: And then?").waitFor();
+    const second = logLines(log);
+    assert.equal(second.filter((line) => line.argv).length, 1, "one process answers both");
+    assert.equal(second.filter((line) => line.sent?.type === "user").at(-1)!.sent!.message!.content[0]!.text, "And then?");
     // the terminal kept its screen behind the chat
     await panel.getByRole("button", { name: "Terminal", exact: true }).click();
     assert.match(await panel.locator(".xterm-rows").textContent() ?? "", /side-42/);
     await panel.getByRole("button", { name: "Side chat", exact: true }).click();
     await save(page, shots, "side-chat");
+    // a reload finds it on the server
+    await page.reload();
+    await page.locator(".conn-live").waitFor();
+    await page.keyboard.press("Control+;");
+    await panel.getByText("Answer to: And then?").waitFor();
+    // a new side chat ends this one: nothing of it is kept
+    await panel.getByRole("button", { name: "New side chat" }).click();
+    await panel.getByText("Answer to: And then?").waitFor({ state: "detached" });
 
-    // on the Fleet screen it is about the project's coordinator
+    // on the Fleet screen it is about the project's coordinator, and `/btw` in its box asks it there
     const coordinator = await post(origin, "/projects", { task: "hello", cwd: repo });
     await page.locator(".fleet-button").click();
     await page.locator(".fleet-screen").waitFor();
@@ -140,13 +224,17 @@ export async function checkSidePanel(browser: Browser): Promise<void> {
     // the Fleet screen lays itself out in the room the panel leaves: the Overview becomes its sheet, the conversation keeps its width
     const conversation = await page.evaluate(() => document.querySelector(".fleet-main")!.getBoundingClientRect().width);
     assert.ok(conversation > 500, `the conversation keeps its width beside the side panel (${conversation}px)`);
+    const box = page.locator(".fleet-main .composer-text");
+    await box.fill("/btw what is the plan?");
+    await box.press("Enter");
+    await panel.getByText("Answer to: what is the plan?").waitFor();
+    assert.equal(await box.inputValue(), "", "the box is left as a send leaves it");
     await panel.getByRole("button", { name: "Terminal", exact: true }).click();
-    await panel.getByRole("button", { name: "Open terminal" }).click();
     await panel.locator(".side-panel-terminal .xterm-screen").waitFor();
     const fleetSnapshot = await sessionSnapshot();
     const coordinatorWorkspace = fleetSnapshot.panes.find((pane) => pane.pane_id === coordinator.paneId)!.workspace_id;
-    assert.ok(fleetSnapshot.tabs.some((each) => each.workspace_id === coordinatorWorkspace && each.label === "terminal"), "the Fleet screen's terminal opens in the coordinator's workspace");
-    const fleetTab = fleetSnapshot.tabs.find((each) => each.workspace_id === coordinatorWorkspace && each.label === "terminal")!;
+    const fleetTab = fleetSnapshot.tabs.find((each) => each.workspace_id === coordinatorWorkspace && each.label === "terminal");
+    assert.ok(fleetTab, "the Fleet screen's terminal opens in the coordinator's workspace");
     const fleetTerminal = fleetSnapshot.panes.find((pane) => pane.tab_id === fleetTab.tab_id)!.pane_id;
     await until(async () => (await panel.locator(".xterm-rows").textContent() ?? "").includes("zsh") || (await panel.locator(".xterm-rows").textContent() ?? "").includes("$"), "the Fleet screen's terminal shows its shell");
     await panel.locator(".side-panel-terminal .xterm-screen").click();
@@ -182,7 +270,7 @@ export async function checkSidePanel(browser: Browser): Promise<void> {
     });
     assert.ok(sheet.left <= 1 && sheet.right >= 389, "on a phone the side panel covers the screen's width");
     assert.equal(sheet.sideways, 0);
-    await mobile.locator(".side-panel-chat .fleet-chat").waitFor();
+    await mobile.locator(".side-chat-box textarea").waitFor();
     await save(mobile, shots, "side-phone");
     await mobile.locator(".side-panel-scrim").click({ position: { x: 4, y: 4 }, force: true }).catch(() => undefined);
     assert.deepEqual(mobileErrors, []);

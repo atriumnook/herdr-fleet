@@ -39,6 +39,12 @@ describe("a pane's terminal for the side panel", () => {
     expect(created).toEqual([]);
   });
 
+  it("opens another beside the one there when asked", async () => {
+    const { created, deps } = herdr([pane("w1:p1"), pane("w1:p2", { tab_id: "w1:t2", agent: null })], [tab("w1:t1", "lead"), tab("w1:t2", "terminal")]);
+    expect(await openSideTerminal("w1:p1", deps, true)).toBe("w1:p11");
+    expect(created).toEqual([{ workspaceId: "w1", cwd: "/repo/wt", label: "terminal" }]);
+  });
+
   it("opens one for two asks at once", async () => {
     const { created, deps } = herdr([pane("w1:p1"), pane("w1:p3")], []);
     expect(await Promise.all([openSideTerminal("w1:p1", deps), openSideTerminal("w1:p3", deps)])).toEqual(["w1:p11", "w1:p11"]);

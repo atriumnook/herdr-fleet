@@ -1,5 +1,6 @@
 import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandingChecks, ModelListing, UsageEntry } from "../../shared/fleet.ts";
 import type { Plan } from "../../shared/plan.ts";
+import type { SideChatSnapshot } from "../../shared/side-chat.ts";
 import type { Machine, MachineEvent } from "../../shared/machines.ts";
 import type { BridgeHealth } from "../../shared/machines.ts";
 import type { PairedDevice, PairingCode, RemoteAccess, SessionSnapshot } from "../../shared/protocol.ts";
@@ -166,10 +167,14 @@ export interface EffectPorts {
   listFolder(machineId: string, path: string, paneId: string | null): Promise<string>;
   /** runs `then` after `ms`: the clock the state machine's `later` effects wait on */
   later(ms: number, then: () => void): void;
-  /** a terminal for a pane: a shell in its folder, in a tab of its workspace (the one there already, else a new one); its pane id */
-  openSideTerminal(machineId: string, paneId: string): Promise<string>;
-  /** a side chat about a pane on this PC, asked `text` first; the pane it runs in */
-  startSideChat(paneId: string, text: string): Promise<string>;
+  /** a terminal for a pane: a shell in its folder, in a tab of its workspace (the one there already unless `another`, else a new one); its pane id */
+  openSideTerminal(machineId: string, paneId: string, another: boolean): Promise<string>;
+  /** reads the side chat of a pane on this PC now and after each change, until the answer is called */
+  watchSideChat(paneId: string, changed: (chat: SideChatSnapshot | null) => void): () => void;
+  /** asks a pane's open side chat (`chatId`), or starts a new one with `text` first; the side chat as it is then */
+  askSideChat(paneId: string, chatId: string | null, text: string): Promise<SideChatSnapshot>;
+  interruptSideChat(chatId: string): Promise<void>;
+  closeSideChat(chatId: string): Promise<void>;
 }
 
 const message = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -183,6 +188,8 @@ export class Mediator {
   private state: UiState;
   private readonly listeners = new Set<() => void>();
   private closeStream: (() => void) | null = null;
+  /** the side chat read for the side panel: stops reading it */
+  private unwatchSideChat: (() => void) | null = null;
   /** the terminal's socket open now, by the opening it answers */
   private paneSocket: { seq: number; handle: PaneSocketHandle } | null = null;
   /** each lens's xterm: the pane's terminal, and the side panel's */
@@ -652,12 +659,26 @@ export class Mediator {
         this.ports.later(effect.ms, () => dispatch(effect.event));
         return;
       case "open-side-terminal":
-        try { dispatch({ type: "side-terminal-opened", key: effect.key, paneId: await this.ports.openSideTerminal(effect.machineId, effect.paneId) }); }
+        try { dispatch({ type: "side-terminal-opened", key: effect.key, paneId: await this.ports.openSideTerminal(effect.machineId, effect.paneId, effect.another) }); }
         catch (error) { dispatch({ type: "side-terminal-failed", key: effect.key, message: message(error) }); }
         return;
-      case "start-side-chat":
-        try { dispatch({ type: "side-chat-started", key: effect.key, paneId: await this.ports.startSideChat(effect.paneId, effect.text) }); }
-        catch (error) { dispatch({ type: "side-chat-failed", key: effect.key, message: message(error) }); }
+      case "watch-side-chat": {
+        this.unwatchSideChat?.();
+        this.unwatchSideChat = null;
+        const { paneId } = effect;
+        if (paneId !== null) this.unwatchSideChat = this.ports.watchSideChat(paneId, (chat) => dispatch({ type: "side-chat-pushed", paneId, chat }));
+        return;
+      }
+      case "ask-side-chat":
+        try { dispatch({ type: "side-chat-asked", paneId: effect.paneId, chat: await this.ports.askSideChat(effect.paneId, effect.chatId, effect.text) }); }
+        catch (error) { dispatch({ type: "side-chat-ask-failed", paneId: effect.paneId, text: effect.text, message: message(error) }); }
+        return;
+      // what came of these, the stream says
+      case "interrupt-side-chat":
+        await this.ports.interruptSideChat(effect.chatId).catch(() => {});
+        return;
+      case "close-side-chat":
+        await this.ports.closeSideChat(effect.chatId).catch(() => {});
         return;
     }
   }

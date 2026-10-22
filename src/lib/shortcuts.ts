@@ -9,6 +9,9 @@ export const SHORTCUTS = [
   { id: "toggle-view", label: "Switch chat / terminal", keys: ["Mod", "Shift", "J"] },
   { id: "toggle-sidebar", label: "Toggle sidebar", keys: ["Mod", "Shift", "B"] },
   { id: "side-panel", label: "Side panel", keys: ["Mod", "Shift", "L"] },
+  // the keys of Claude Code's desktop app: the side chat on Mod+;, the terminal on Ctrl+` (Ctrl on a Mac too)
+  { id: "side-chat", label: "Side chat", keys: ["Mod", ";"] },
+  { id: "side-terminal", label: "Terminal", keys: ["Ctrl", "`"] },
   // Mod+Shift+N keeps working where the browser lets it through (the installed app), but Chrome
   // keeps Ctrl+Shift+N for a new incognito window in a tab: O is the one shown, and works in both
   { id: "new-session", label: "New session", keys: ["Mod", "Shift", "O"] },
@@ -46,6 +49,16 @@ const KEY_TO_ID: Readonly<Record<string, ShortcutId>> = {
   ",": "settings",
 };
 
+/**
+ * The shortcuts kept on a desktop app's keys, without Shift: each matches its own chord until
+ * Settings gives it a Mod+Shift key of the app's or turns it off (its keys go to the terminal).
+ */
+const DESKTOP_KEYS: ReadonlyArray<readonly [ShortcutId, (event: ShortcutEventLike, platformIsMac: boolean) => boolean]> = [
+  ["side-chat", (event, mac) => (mac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey) && !event.shiftKey && !event.altKey && (event.key === ";" || event.code === "Semicolon")],
+  // the backquote's own key: a Japanese layout types it with Shift
+  ["side-terminal", (event) => event.ctrlKey && !event.metaKey && !event.altKey && event.key === "`"],
+];
+
 /** Shift turns the bracket keys into braces on common layouts (US and Japanese alike) */
 const SHIFTED: Readonly<Record<string, string>> = { "{": "[", "}": "]" };
 
@@ -59,6 +72,9 @@ export function shortcutConflict(id: ShortcutId, keys: string[], overrides: Shor
 
 export function matchShortcut(event: ShortcutEventLike, platformIsMac: boolean, overrides: ShortcutOverrides = {}): ShortcutId | null {
   if (event.isComposing || event.keyCode === 229) return null;
+  for (const [id, matches] of DESKTOP_KEYS) {
+    if (!Object.hasOwn(overrides, id) && matches(event, platformIsMac)) return id;
+  }
   const hasMod = platformIsMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
   if (!hasMod || !event.shiftKey || event.altKey) return null;
   // Shift+Comma produces "<" on common keyboard layouts.
@@ -146,6 +162,12 @@ export function useShortcuts(actions: AppActions, enabled: boolean): void {
           break;
         case "side-panel":
           actions.toggleSidePanel();
+          break;
+        case "side-chat":
+          actions.toggleSideChat();
+          break;
+        case "side-terminal":
+          actions.toggleSideTerminal();
           break;
         case "new-session":
           actions.openNewSession();

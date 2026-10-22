@@ -20,6 +20,10 @@ export interface AppActions {
   toggleSidebar: () => void;
   /** the side panel (a side chat and a terminal beside the pane shown), on either screen */
   toggleSidePanel: () => void;
+  /** the side panel on its side chat, the keyboard in its box; or away when it shows that already */
+  toggleSideChat: () => void;
+  /** the side panel on its terminal (opened when there is none), the keyboard in it; or away when it shows that already */
+  toggleSideTerminal: () => void;
   /** flips dark/light (a `system` setting becomes the opposite of the resolved theme) */
   toggleTheme: () => void;
   /** Sign out of token/device authentication; null for automatic local/Tailscale access. */
