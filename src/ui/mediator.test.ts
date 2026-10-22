@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, FleetSettings, UsageEntry } from "../../shared/fleet.ts";
 import type { PairedDevice, RemoteAccess, ServerMessage } from "../../shared/protocol.ts";
+import type { SideChatSnapshot } from "../../shared/side-chat.ts";
 import type { Settings } from "../lib/settings.ts";
 import { Mediator, type EffectPorts, type PaneSocketHandle, type TerminalSink } from "./mediator.ts";
 import { INITIAL_STATE, type RequestAction } from "./state.ts";
@@ -36,6 +37,11 @@ function ports(overrides: Partial<EffectPorts> = {}) {
     renameDevice: async () => {},
     revokeDevice: async () => {},
     later: (ms, then) => { timers.push({ ms, then }); },
+    openSideTerminal: async (_machineId, paneId) => `${paneId}-terminal`,
+    watchSideChat: () => () => {},
+    askSideChat: async (paneId, chatId) => ({ id: chatId ?? "c1", paneId, source: "fork", status: "working", turns: [], streaming: "", error: null }),
+    interruptSideChat: async () => {},
+    closeSideChat: async () => {},
     testPush: async () => "sent",
     storeSelection: () => {},
     treeRequest: async () => {},
@@ -103,6 +109,28 @@ describe("Mediator", () => {
     expect(notified).toBeGreaterThanOrEqual(3);
   });
 
+  it("reads the side chat of one pane at a time from the server, and asks it", async () => {
+    const watching: string[] = [];
+    const stopped: string[] = [];
+    let push: (chat: SideChatSnapshot | null) => void = () => {};
+    const { ports: p } = ports({
+      watchSideChat: (paneId, changed) => { watching.push(paneId); push = changed; return () => { stopped.push(paneId); }; },
+    });
+    const mediator = new Mediator(p, inside);
+    mediator.dispatch({ type: "side-chat-watch", paneId: "w1:p1" });
+    push({ id: "c1", paneId: "w1:p1", source: "fork", status: "idle", turns: [], streaming: "", error: null });
+    expect(mediator.getState().sidePanel.chat).toMatchObject({ paneId: "w1:p1", loaded: true, chat: { id: "c1" } });
+    mediator.dispatch({ type: "side-chat-ask", paneId: "w1:p1", text: "why?" });
+    await until(() => !mediator.getState().sidePanel.chat.asking);
+    // the stream says what came of it: the answer to the ask is no newer
+    push({ id: "c1", paneId: "w1:p1", source: "fork", status: "working", turns: [], streaming: "", error: null });
+    expect(mediator.getState().sidePanel.chat.chat).toMatchObject({ id: "c1", status: "working" });
+    mediator.dispatch({ type: "side-chat-watch", paneId: "w1:p2" });
+    mediator.dispatch({ type: "side-chat-watch", paneId: null });
+    expect(watching).toEqual(["w1:p1", "w1:p2"]);
+    expect(stopped).toEqual(["w1:p1", "w1:p2"]);
+  });
+
   it("brings what the chat beside asked for back to it, and what the pane's asked for to the pane's", async () => {
     const read: string[] = [];
     const { ports: p } = ports({
@@ -114,9 +142,9 @@ describe("Mediator", () => {
     const mediator = new Mediator(p);
     mediator.dispatch({ type: "chat-open", machineId: "local", paneId: "w1:p1" });
     mediator.dispatch({ type: "chat-open", machineId: "local", paneId: "w1:p2", lens: "side" });
-    await until(() => mediator.getState().side.conversation.loaded && mediator.getState().conversation.loaded);
+    await until(() => mediator.getState().lenses.side.conversation.loaded && mediator.getState().conversation.loaded);
     expect(mediator.getState().conversation.view.turns[0]!.parts).toEqual([{ kind: "text", text: "w1:p1" }]);
-    expect(mediator.getState().side.conversation.view.turns[0]!.parts).toEqual([{ kind: "text", text: "w1:p2" }]);
+    expect(mediator.getState().lenses.side.conversation.view.turns[0]!.parts).toEqual([{ kind: "text", text: "w1:p2" }]);
     expect(read.sort()).toEqual(["w1:p1", "w1:p2"]);
   });
 
@@ -400,6 +428,42 @@ describe("Mediator", () => {
       expect(seen.at(-1)).toBe("disconnected");
       expect(mediator.getState().pane.connected).toBe(false);
       detach();
+    });
+
+    it("writes each pane's output to the terminal that shows it: the pane's own, or the side panel's", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      const main = sinkFor();
+      const side = sinkFor();
+      mediator.attachTerminal(main.sink);
+      const detachSide = mediator.attachTerminal(side.sink, "side-terminal");
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p9", lens: "side-terminal" });
+      fake.socket.up = true;
+      fake.say({ type: "pty-data", pane_id: "w1:p9", data: "shell" } as ServerMessage);
+      fake.say({ type: "pty-data", pane_id: "w1:p1", data: "agent" } as ServerMessage);
+      expect(main.seen).toEqual(["output agent"]);
+      expect(side.seen).toEqual(["output shell"]);
+      expect(mediator.getState().lenses["side-terminal"].session.inputReady).toBe(true);
+      // what the socket says of a pane goes to the lens that shows it; every grid hears it
+      fake.say({ type: "pty-exit", pane_id: "w1:p9", code: 0 } as ServerMessage);
+      expect(mediator.getState().lenses["side-terminal"].session.ended).toBe(true);
+      expect(mediator.getState().pane.session.ended).toBe(false);
+      expect(side.seen.at(-1)).toBe("pty-exit");
+      expect(main.seen).not.toContain("pty-exit");
+      // an error of one pane is its grid's alone; the role is every grid's
+      fake.say({ type: "error", code: "attach_conflict", message: "taken", pane_id: "w1:p9" } as ServerMessage);
+      fake.say({ type: "role-ack", mode: "interact" } as ServerMessage);
+      expect(main.seen.slice(-1)).toEqual(["role-ack"]);
+      expect(side.seen.slice(-2)).toEqual(["error", "role-ack"]);
+      fake.drop();
+      expect(side.seen.at(-1)).toBe("disconnected");
+      // with the side panel's grid gone, its pane's output is acknowledged and dropped
+      detachSide();
+      fake.say({ type: "pty-data", pane_id: "w1:p9", data: "late" } as ServerMessage);
+      expect(side.seen).not.toContain("output late");
+      expect(fake.calls.at(-1)).toBe("ack");
     });
 
     it("says an output that stopped, and leaves the connection as the stop left it", () => {

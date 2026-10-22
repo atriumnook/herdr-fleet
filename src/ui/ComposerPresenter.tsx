@@ -38,7 +38,7 @@ export interface ComposerPresenterProps {
  */
 export function ComposerPresenter({ paneId, connected, autoFocus, agent, agentStatus, metadata, queueMode, answerHint, suggestion, lens = "main", emit: up }: ComposerPresenterProps) {
   // what this composer sends answers its own chat's prompt
-  const emit = useMemo<Emit<ComposerUpEvent>>(() => (lens === "side" ? (event) => up({ ...event, lens: "side" } as ComposerUpEvent) : up), [lens, up]);
+  const emit = useMemo<Emit<ComposerUpEvent>>(() => (lens === "main" ? up : (event) => up({ ...event, lens } as ComposerUpEvent)), [lens, up]);
   const machineId = useMachineId();
   const owner = paneStorageId(machineId, paneId);
   const emitRef = useRef(emit);

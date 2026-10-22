@@ -1,6 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import type { AgentRun, UsageEntry } from "../../shared/fleet.ts";
 import type { Machine } from "../../shared/machines.ts";
+import type { SideChatSnapshot } from "../../shared/side-chat.ts";
 import type { ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, FileInfo, HealthAuth, InteractivePrompt, PairedDevice, SessionSnapshot } from "../../shared/protocol.ts";
 import { relay, type Emit } from "./bubble.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS } from "../lib/droplet.ts";
@@ -1924,18 +1925,18 @@ describe("the chat beside the pane's", () => {
   it("opens and reads apart from the pane's, and what it asks for answers it alone", () => {
     const { state, effects } = both();
     expect(state.chat.open).toEqual({ machineId: "local", paneId: "w1:p1" });
-    expect(state.side.chat.open).toEqual({ machineId: "local", paneId: "w1:p2" });
-    expect(effects).toContainEqual({ kind: "read-conversation", machineId: "local", paneId: "w1:p2", from: null, seq: state.side.conversation.seq, olderSeq: state.side.conversation.olderSeq, lens: "side" });
-    expect(effects).toContainEqual({ kind: "load-chat-prompt", machineId: "local", paneId: "w1:p2", seq: state.side.chat.promptSeq, sent: 0, lens: "side" });
-    const read = play([side({ type: "conversation-read", seq: state.side.conversation.seq, olderSeq: state.side.conversation.olderSeq, outcome: { kind: "ok", conversation: page([user("thread")]) } })], state);
-    expect(read.state.side.conversation.view.turns).toEqual([user("thread")]);
+    expect(state.lenses.side.chat.open).toEqual({ machineId: "local", paneId: "w1:p2" });
+    expect(effects).toContainEqual({ kind: "read-conversation", machineId: "local", paneId: "w1:p2", from: null, seq: state.lenses.side.conversation.seq, olderSeq: state.lenses.side.conversation.olderSeq, lens: "side" });
+    expect(effects).toContainEqual({ kind: "load-chat-prompt", machineId: "local", paneId: "w1:p2", seq: state.lenses.side.chat.promptSeq, sent: 0, lens: "side" });
+    const read = play([side({ type: "conversation-read", seq: state.lenses.side.conversation.seq, olderSeq: state.lenses.side.conversation.olderSeq, outcome: { kind: "ok", conversation: page([user("thread")]) } })], state);
+    expect(read.state.lenses.side.conversation.view.turns).toEqual([user("thread")]);
     expect(read.state.conversation).toBe(state.conversation);
     // its poll comes back to it
-    expect(read.effects).toEqual([{ kind: "later", ms: CONVERSATION_POLL_MS, lens: "side", event: { type: "poll-conversation", seq: state.side.conversation.seq, lens: "side" } }]);
+    expect(read.effects).toEqual([{ kind: "later", ms: CONVERSATION_POLL_MS, lens: "side", event: { type: "poll-conversation", seq: state.lenses.side.conversation.seq, lens: "side" } }]);
     // the pane's answer leaves it alone
     const main = play([{ type: "conversation-read", seq: state.conversation.seq, olderSeq: state.conversation.olderSeq, outcome: { kind: "ok", conversation: page([user("coordinator")]) } }], read.state).state;
     expect(main.conversation.view.turns).toEqual([user("coordinator")]);
-    expect(main.side).toBe(read.state.side);
+    expect(main.lenses.side).toBe(read.state.lenses.side);
   });
 
   it("is read again on its own pane's status edge, and stops reading once the page is away", () => {
@@ -1947,29 +1948,29 @@ describe("the chat beside the pane's", () => {
     expect(settled.effects).toContainEqual(expect.objectContaining({ kind: "read-conversation", paneId: "w1:p2", lens: "side" }));
     expect(settled.effects).not.toContainEqual(expect.objectContaining({ kind: "read-conversation", paneId: "w1:p1" }));
     const away = play([{ type: "visibility", visible: false }], state).state;
-    expect(away.side.conversation.seq).toBe(state.side.conversation.seq + 1);
+    expect(away.lenses.side.conversation.seq).toBe(state.lenses.side.conversation.seq + 1);
   });
 
   it("answers its own pane's prompt from its composer, and counts the send on itself", () => {
     const { state } = both();
-    const asked = play([side({ type: "chat-prompt-read", seq: state.side.chat.promptSeq, sent: 0, prompt: prompt("p"), suggestion: null })], state).state;
-    expect(asked.side.chat.prompt).toEqual(prompt("p"));
+    const asked = play([side({ type: "chat-prompt-read", seq: state.lenses.side.chat.promptSeq, sent: 0, prompt: prompt("p"), suggestion: null })], state).state;
+    expect(asked.lenses.side.chat.prompt).toEqual(prompt("p"));
     expect(asked.chat.prompt).toBeNull();
     const answered = play([side({ type: "composer-send", owner: "local:w1:p2", machineId: "local", paneId: "w1:p2", text: "Yes", via: "box", bracketedPaste: false, working: false })], asked);
     // an approval is confirmed first: the pick waits on the chat beside, not the pane's
-    expect(answered.state.side.chat.pendingAnswer).toMatchObject({ promptId: "p" });
+    expect(answered.state.lenses.side.chat.pendingAnswer).toMatchObject({ promptId: "p" });
     expect(answered.state.chat.pendingAnswer).toBeNull();
     const sent = play([side({ type: "composer-send", owner: "local:w1:p2", machineId: "local", paneId: "w1:p2", text: "go on", via: "box", bracketedPaste: false, working: false })], state);
     expect(sent.effects).toContainEqual(expect.objectContaining({ kind: "submit", paneId: "w1:p2", text: "go on", lens: "side" }));
     const started = play([side({ type: "submit-started", id: sent.state.sends.seq })], sent.state).state;
-    expect(started.side.chat.sent).toBe(1);
+    expect(started.lenses.side.chat.sent).toBe(1);
     expect(started.chat.sent).toBe(0);
   });
 
   it("closes apart from the pane's, keeping the same state object when nothing changes", () => {
     const { state } = both();
     const closed = play([side({ type: "chat-close", machineId: "local", paneId: "w1:p2" })], state).state;
-    expect(closed.side.chat.open).toBeNull();
+    expect(closed.lenses.side.chat.open).toBeNull();
     expect(closed.chat.open).toEqual({ machineId: "local", paneId: "w1:p1" });
     expect(transition(closed, side({ type: "chat-close", machineId: "local", paneId: "w1:p2" })).state).toBe(closed);
   });
@@ -2445,12 +2446,12 @@ describe("the prompt rail", () => {
     expect(first.effects).toEqual([]);
     const again = play([{ type: "prompt-rail-step", direction: -1 }, { type: "prompt-rail-step", direction: 1 }], first.state).state;
     expect(again.chat.seek).toEqual({ to: 1, seq: 3 });
-    expect(again.side.chat.seek).toBeNull();
+    expect(again.lenses.side.chat.seek).toBeNull();
   });
 
   it("asks the chat beside when the step is for it", () => {
     const { state } = play([side({ type: "prompt-rail-step", direction: 1 })], open());
-    expect(state.side.chat.seek).toEqual({ to: 1, seq: 1 });
+    expect(state.lenses.side.chat.seek).toEqual({ to: 1, seq: 1 });
     expect(state.chat.seek).toBeNull();
   });
 
@@ -2471,7 +2472,7 @@ describe("the prompt rail", () => {
   it("scrolls the chat beside to the prompt picked, when the palette opened from it", () => {
     const { state } = play([{ type: "open-palette", chat: "side" }, { type: "palette-pick-prompt", key: "t3#0" }], open());
     expect(state.palette).toEqual({ open: false });
-    expect(state.side.chat.seek).toEqual({ to: { key: "t3#0" }, seq: 1 });
+    expect(state.lenses.side.chat.seek).toEqual({ to: { key: "t3#0" }, seq: 1 });
     expect(state.chat.seek).toBeNull();
   });
 
@@ -2479,8 +2480,180 @@ describe("the prompt rail", () => {
     const asked = play([{ type: "prompt-rail-step", direction: -1 }, side({ type: "prompt-rail-step", direction: 1 })], open()).state;
     const moved = play([{ type: "chat-open", machineId: "local", paneId: "w1:p3" }, side({ type: "chat-open", machineId: "local", paneId: "w1:p4" })], asked).state;
     expect(moved.chat.seek).toBeNull();
-    expect(moved.side.chat.seek).toBeNull();
+    expect(moved.lenses.side.chat.seek).toBeNull();
     // the same pane opened again keeps what was asked
     expect(play([{ type: "chat-open", machineId: "local", paneId: "w1:p1" }], asked).state.chat.seek).toEqual({ to: -1, seq: 1 });
+  });
+});
+
+describe("the side panel's terminal beside the pane's", () => {
+  const beside = <T extends UiEvent>(event: T): T => ({ ...event, lens: "side-terminal" });
+  /** the pane's terminal on w1:p1, and the side panel's on w1:p9 */
+  const both = () => play([{ type: "pane-attached", paneId: "w1:p1" }, { type: "pane-connection", connected: true }, beside({ type: "pane-attached", paneId: "w1:p9" })]);
+
+  it("keeps a session of its own, apart from the pane's", () => {
+    const { state } = both();
+    expect(state.pane.session.paneId).toBe("w1:p1");
+    expect(state.lenses["side-terminal"].session.paneId).toBe("w1:p9");
+    const exited = play([beside({ type: "pane-exited", paneId: "w1:p9" })], state).state;
+    expect(exited.lenses["side-terminal"].session.ended).toBe(true);
+    expect(exited.pane.session).toBe(state.pane.session);
+    // what is said of it on the pane's own lens is not the pane's
+    expect(play([{ type: "pane-exited", paneId: "w1:p9" }], state).state).toBe(state);
+  });
+
+  it("shares the pane's socket: its connection, and its loss", () => {
+    const { state } = both();
+    const shown = play([beside({ type: "pane-output", paneId: "w1:p9", secret: null })], state).state;
+    const lost = play([{ type: "pane-socket-lost" }, beside({ type: "pane-socket-lost" })], shown).state;
+    expect(lost.lenses["side-terminal"].session.outputReady).toBe(false);
+    expect(lost.pane.connected).toBe(true);
+    expect(lost.pane.socket).toBe(state.pane.socket);
+  });
+
+  it("holds the input typed while it could not take it for its own pane", () => {
+    const { state } = both();
+    const held = play([beside({ type: "draft-open", owner: "local:w1:p9" }), beside({ type: "draft-input", owner: "local:w1:p9", input: "ls" })], state);
+    expect(held.state.lenses["side-terminal"].draft).toEqual({ owner: "local:w1:p9", value: { text: "ls", droppedSpecial: 0 } });
+    expect(held.state.pane.draft).toBe(state.pane.draft);
+    expect(held.effects).toContainEqual({ kind: "save-draft", owner: "local:w1:p9", value: { text: "ls", droppedSpecial: 0 }, lens: "side-terminal" });
+    const sent = play([beside({ type: "send-draft" })], held.state);
+    expect(sent.effects).toEqual([{ kind: "send-draft", owner: "local:w1:p9", paneId: "w1:p9", text: "ls", lens: "side-terminal" }]);
+  });
+
+  it("changes nothing for an event that changes nothing on it", () => {
+    const { state } = both();
+    expect(transition(state, beside({ type: "pane-output", paneId: "w1:p1", secret: null })).state).toBe(state);
+  });
+});
+
+describe("the side panel", () => {
+  const panel = (state: UiState) => state.sidePanel;
+
+  it("shows on a tab and goes, closing the phone's drawer as it shows", () => {
+    const shown = play([{ type: "drawer", open: true }, { type: "side-panel", open: true, tab: "terminal" }]).state;
+    expect(panel(shown)).toMatchObject({ open: true, tab: "terminal" });
+    expect(shown.drawerOpen).toBe(false);
+    const gone = play([{ type: "side-panel", open: false }], shown).state;
+    expect(panel(gone)).toMatchObject({ open: false, tab: "terminal" });
+    expect(transition(gone, { type: "side-panel", open: false }).state).toBe(gone);
+  });
+
+  it("opens a pane's terminal once at a time, shows the one opened, and says why it did not", () => {
+    const asked = play([{ type: "open-side-terminal", machineId: "local", paneId: "w1:p1" }, { type: "open-side-terminal", machineId: "local", paneId: "w1:p1", another: true }]);
+    expect(asked.effects).toEqual([{ kind: "open-side-terminal", machineId: "local", paneId: "w1:p1", key: "w1:p1", another: false }]);
+    expect(panel(asked.state).terminals["w1:p1"]).toEqual({ status: "opening" });
+    const failed = play([{ type: "side-terminal-failed", key: "w1:p1", message: "herdr is down" }], asked.state).state;
+    expect(panel(failed).terminals["w1:p1"]).toEqual({ status: "failed", message: "herdr is down" });
+    // a failed one is asked again; another beside those there is asked so
+    expect(play([{ type: "open-side-terminal", machineId: "local", paneId: "w1:p1", another: true }], failed).effects).toEqual([{ kind: "open-side-terminal", machineId: "local", paneId: "w1:p1", key: "w1:p1", another: true }]);
+    const opened = play([{ type: "side-terminal-opened", key: "w1:p1", paneId: "w1:p8" }], failed).state;
+    expect(panel(opened).shownTerminal).toEqual({ "w1:p1": "w1:p8" });
+    const picked = play([{ type: "show-side-terminal", key: "w1:p1", paneId: "w1:p9" }], opened).state;
+    expect(panel(picked).shownTerminal).toEqual({ "w1:p1": "w1:p9" });
+    expect(transition(picked, { type: "show-side-terminal", key: "w1:p1", paneId: "w1:p9" }).state).toBe(picked);
+  });
+
+  it("puts the keyboard in a tab's input on a shortcut, or goes when it shows that tab already", () => {
+    const chat = play([{ type: "toggle-side-panel-tab", tab: "chat" }]).state;
+    expect(panel(chat)).toMatchObject({ open: true, tab: "chat", focusSeq: 1 });
+    const terminal = play([{ type: "toggle-side-panel-tab", tab: "terminal" }], chat).state;
+    expect(panel(terminal)).toMatchObject({ open: true, tab: "terminal", focusSeq: 2 });
+    expect(panel(play([{ type: "toggle-side-panel-tab", tab: "terminal" }], terminal).state)).toMatchObject({ open: false, focusSeq: 2 });
+    // a tab picked by a click keeps the keyboard where it is
+    expect(panel(play([{ type: "side-panel", open: true, tab: "chat" }], terminal).state).focusSeq).toBe(2);
+  });
+
+  const chatOf = (state: UiState) => panel(state).chat;
+  const snapshot = (fields: Partial<SideChatSnapshot> = {}): SideChatSnapshot => ({ id: "c1", paneId: "w1:p1", source: "fork", status: "idle", turns: [], streaming: "", error: null, ...fields });
+
+  it("reads the side chat of the pane it is about from the server, one pane at a time", () => {
+    const watched = play([{ type: "side-chat-watch", paneId: "w1:p1" }, { type: "side-chat-watch", paneId: "w1:p1" }]);
+    expect(watched.effects).toEqual([{ kind: "watch-side-chat", paneId: "w1:p1" }]);
+    expect(chatOf(watched.state)).toMatchObject({ paneId: "w1:p1", chat: null, loaded: false });
+    const pushed = play([{ type: "side-chat-pushed", paneId: "w1:p1", chat: snapshot() }], watched.state).state;
+    expect(chatOf(pushed)).toMatchObject({ chat: { id: "c1" }, loaded: true });
+    // a late push for the pane read before is not this one's
+    const moved = play([{ type: "side-chat-watch", paneId: "w1:p2" }, { type: "side-chat-pushed", paneId: "w1:p1", chat: snapshot() }], pushed);
+    expect(moved.effects).toEqual([{ kind: "watch-side-chat", paneId: "w1:p2" }]);
+    expect(chatOf(moved.state)).toMatchObject({ paneId: "w1:p2", chat: null, loaded: false });
+    expect(play([{ type: "side-chat-watch", paneId: null }], moved.state).effects).toEqual([{ kind: "watch-side-chat", paneId: null }]);
+  });
+
+  it("asks the open side chat, starts a new one when it has none or it ended, and keeps a question that did not go", () => {
+    const watched = play([{ type: "side-chat-watch", paneId: "w1:p1" }, { type: "side-chat-draft", text: "why?" }]).state;
+    expect(chatOf(watched).drafts).toEqual({ "w1:p1": "why?" });
+    const first = play([{ type: "side-chat-ask", paneId: "w1:p1", text: " why? " }, { type: "side-chat-ask", paneId: "w1:p1", text: "again" }], watched);
+    expect(first.effects).toEqual([{ kind: "ask-side-chat", paneId: "w1:p1", chatId: null, text: "why?" }]);
+    expect(chatOf(first.state)).toMatchObject({ asking: true, drafts: {} });
+    const failed = play([{ type: "side-chat-ask-failed", paneId: "w1:p1", text: "why?", message: "no pane" }], first.state).state;
+    expect(chatOf(failed)).toMatchObject({ asking: false, error: "no pane", drafts: { "w1:p1": "why?" } });
+    const asked = play([{ type: "side-chat-asked", paneId: "w1:p1", chat: snapshot({ status: "working" }) }], first.state).state;
+    expect(chatOf(asked)).toMatchObject({ asking: false, chat: { id: "c1", status: "working" } });
+    expect(play([{ type: "side-chat-ask", paneId: "w1:p1", text: "and?" }], asked).effects).toEqual([{ kind: "ask-side-chat", paneId: "w1:p1", chatId: "c1", text: "and?" }]);
+    const ended = play([{ type: "side-chat-pushed", paneId: "w1:p1", chat: snapshot({ status: "ended" }) }], asked).state;
+    expect(play([{ type: "side-chat-ask", paneId: "w1:p1", text: "and?" }], ended).effects).toEqual([{ kind: "ask-side-chat", paneId: "w1:p1", chatId: null, text: "and?" }]);
+    // a question for another pane than the one read waits for that one
+    expect(play([{ type: "side-chat-ask", paneId: "w1:p2", text: "x" }], asked).effects).toEqual([]);
+  });
+
+  it("keeps a pane's unsent question while the panel is away", () => {
+    const typed = play([{ type: "side-chat-watch", paneId: "w1:p1" }, { type: "side-chat-draft", text: "half a qu" }, { type: "side-chat-watch", paneId: null }, { type: "side-chat-watch", paneId: "w1:p2" }]).state;
+    expect(chatOf(typed).drafts).toEqual({ "w1:p1": "half a qu" });
+    expect(chatOf(play([{ type: "side-chat-watch", paneId: "w1:p1" }], typed).state).drafts["w1:p1"]).toBe("half a qu");
+  });
+
+  it("stops a turn under way, and ends the side chat for a new one", () => {
+    const working = play([{ type: "side-chat-watch", paneId: "w1:p1" }, { type: "side-chat-pushed", paneId: "w1:p1", chat: snapshot({ status: "working" }) }]).state;
+    expect(play([{ type: "side-chat-interrupt" }], working).effects).toEqual([{ kind: "interrupt-side-chat", chatId: "c1" }]);
+    const closed = play([{ type: "side-chat-close" }], working);
+    expect(closed.effects).toEqual([{ kind: "close-side-chat", chatId: "c1" }]);
+    expect(chatOf(closed.state).chat).toBeNull();
+    expect(play([{ type: "side-chat-interrupt" }, { type: "side-chat-close" }], closed.state).effects).toEqual([]);
+  });
+
+  it("asks `/btw <question>` from a pane's box on the side, and leaves the box as a send does", () => {
+    const owner = "w1:p1";
+    const btw = play([{ type: "composer-send", owner, machineId: "local", paneId: "w1:p1", text: "/btw why that design?", via: "box", bracketedPaste: false, working: false }]);
+    expect(btw.effects).toEqual([
+      { kind: "composer-draft-change", owner, change: { kind: "begin", sent: "/btw why that design?" } },
+      { kind: "composer-draft-change", owner, change: { kind: "settle", sent: "/btw why that design?" } },
+      { kind: "composer-draft-change", owner, change: { kind: "end" } },
+      { kind: "watch-side-chat", paneId: "w1:p1" },
+      { kind: "ask-side-chat", paneId: "w1:p1", chatId: null, text: "why that design?" },
+    ]);
+    expect(panel(btw.state)).toMatchObject({ open: true, tab: "chat", focusSeq: 1, chat: { paneId: "w1:p1", asking: true } });
+    // `/btw` alone opens it; a pane on another PC, a quick reply, or another word sends as typed
+    expect(play([{ type: "composer-send", owner, machineId: "local", paneId: "w1:p1", text: "/btw", via: "box", bracketedPaste: false, working: false }]).effects.map((effect) => effect.kind)).not.toContain("ask-side-chat");
+    const others: UiEvent[] = [
+      { type: "composer-send", owner: "pc2:w1:p1", machineId: "pc2", paneId: "w1:p1", text: "/btw x", via: "box", bracketedPaste: false, working: false },
+      { type: "composer-send", owner, machineId: "local", paneId: "w1:p1", text: "/btw x", via: "quick", bracketedPaste: false, working: false },
+      { type: "composer-send", owner, machineId: "local", paneId: "w1:p1", text: "/btwx", via: "box", bracketedPaste: false, working: false },
+    ];
+    for (const event of others) expect(panel(play([event]).state).open).toBe(false);
+    // asked while the question before is on its way: it waits in the side chat's box
+    const again = play([{ type: "composer-send", owner, machineId: "local", paneId: "w1:p1", text: "/btw and then?", via: "box", bracketedPaste: false, working: false }], btw.state);
+    expect(again.effects.map((effect) => effect.kind)).not.toContain("ask-side-chat");
+    expect(chatOf(again.state).drafts["w1:p1"]).toBe("and then?");
+  });
+
+  it("opens no terminal by itself once the person closed one, and leaves one the tree lists already to it", () => {
+    const closed = play([{ type: "side-terminal-closed", key: "w1:p1" }]).state;
+    expect(panel(closed).terminals["w1:p1"]).toEqual({ status: "closed" });
+    expect(panel(play([{ type: "open-side-terminal", machineId: "local", paneId: "w1:p1" }], closed).state).terminals["w1:p1"]).toEqual({ status: "opening" });
+    const pc = { id: "local", name: "pc", kind: "local", enabled: true, state: "connected", error: null, snapshot: { panes: [{ pane_id: "w1:p8", workspace_id: "w1", tab_id: "w1:t2", focused: false, agent_status: "unknown" }], tabs: [], workspaces: [], agents: [] } } as unknown as Machine;
+    // the tree listed it before the answer came: nothing is left waiting for it
+    const listed = play([{ type: "open-side-terminal", machineId: "local", paneId: "w1:p1" }, { type: "machines-pushed", machines: [pc] }, { type: "side-terminal-opened", key: "w1:p1", paneId: "w1:p8" }]).state;
+    expect(panel(listed).terminals).toEqual({});
+    expect(panel(listed).shownTerminal).toEqual({ "w1:p1": "w1:p8" });
+  });
+
+  it("leaves what it opened to the session tree once it lists it", () => {
+    const opened = play([{ type: "side-terminal-opened", key: "w1:p1", paneId: "w1:p8" }]).state;
+    expect(panel(opened).terminals["w1:p1"]).toEqual({ status: "opened", paneId: "w1:p8" });
+    const pc = { id: "local", name: "pc", kind: "local", enabled: true, state: "connected", error: null, snapshot: { panes: [{ pane_id: "w1:p8", workspace_id: "w1", tab_id: "w1:t2", focused: false, agent_status: "unknown" }], tabs: [], workspaces: [], agents: [] } } as unknown as Machine;
+    // a step that changed the machines leaves it to the session tree
+    const after = transition(opened, { type: "machines-pushed", machines: [pc] }).state;
+    expect(panel(after).terminals).toEqual({});
   });
 });

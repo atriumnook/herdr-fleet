@@ -1,5 +1,6 @@
 import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, ModelListing, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
 import { planOpen, type Plan, type PlanAnswer } from "../../shared/plan.ts";
+import type { SideChatSnapshot } from "../../shared/side-chat.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
 import { shouldNotifyStatus, type AlertPrefs } from "../../shared/notify-policy.ts";
 import type { AccessRefusal, AgentKind, AgentStatus, ClientRole, SlashCommand, ConversationMetadata, ConversationResponse, ConversationTurn, DirectoryListing, ExplainRequest, ExplainResponse, FileInfo, InteractivePrompt, HerdrPane, HealthAuth, PairedDevice, PairingCode, RemoteAccess, ServerMessage, SessionSnapshot } from "../../shared/protocol.ts";
@@ -702,8 +703,8 @@ export interface UiState {
   folders: FoldersState;
   chat: ChatState;
   conversation: ConversationState;
-  /** the chat beside the pane's, with its conversation: the same steps run on it (`lens: "side"`) */
-  side: { chat: ChatState; conversation: ConversationState };
+  /** the panes shown beside the pane's, each with its chat and its terminal: the same steps run on each (`lens`) */
+  lenses: Record<SideLens, LensView>;
   /** explanations of agents' questions, for both chats, by explanationId */
   explanations: Readonly<Record<string, Explanation>>;
   queue: QueueState;
@@ -716,6 +717,54 @@ export interface UiState {
   newSessionSeq: number;
   /** the phone's workspace drawer: a pane picked closes it, and an in-app alert shows for the open pane while it is open */
   drawerOpen: boolean;
+  sidePanel: SidePanelState;
+}
+
+export type SidePanelTab = "chat" | "terminal";
+
+/**
+ * A terminal the side panel asked for, by the storage id of the pane it is for: on its way, opened,
+ * why not, or closed by the person (the tab then opens none by itself until asked).
+ */
+export type SideOpening =
+  | { status: "opening" }
+  | { status: "opened"; paneId: string }
+  | { status: "failed"; message: string }
+  | { status: "closed" };
+
+/**
+ * The side chat of the pane the side panel is about (on this PC): the server's, as it last sent it
+ * (server/side-chat.ts). It lives on the server, so a reload or another window finds it again.
+ */
+export interface SideChatState {
+  /** the pane whose side chat is read; null while the panel reads none */
+  paneId: string | null;
+  chat: SideChatSnapshot | null;
+  /** the server sent the pane's side chat (or that it has none) since it was asked */
+  loaded: boolean;
+  /** a question on its way to the server */
+  asking: boolean;
+  /** why the last question did not reach it */
+  error: string | null;
+  /** the question being typed, by the pane it is about: it stays while the panel is away */
+  drafts: Record<string, string>;
+}
+
+/**
+ * The side panel, on both screens, about the pane shown (the Pane screen's pane, or the Fleet
+ * screen's project conversation or the thread open beside it): whether it shows, its tab, its side
+ * chat, and the terminals asked for and shown. A terminal opened before is found again in the
+ * session tree, so a reload finds it too.
+ */
+export interface SidePanelState {
+  open: boolean;
+  tab: SidePanelTab;
+  /** a shortcut asked for the tab's input: the box or the grid takes the keyboard once per seq */
+  focusSeq: number;
+  chat: SideChatState;
+  terminals: Record<string, SideOpening>;
+  /** the terminal picked among a workspace's, by the storage id of the pane the panel is about */
+  shownTerminal: Record<string, string>;
 }
 
 type BareEvent =
@@ -854,6 +903,29 @@ type BareEvent =
   | { type: "choose-lens"; key: string; storageId: string | null; view: PaneView }
   | { type: "drawer"; open: boolean }
   | { type: "toggle-drawer" }
+  /** the side panel shows (on a tab) or goes; a tab picked shows it. `focus`: its input takes the keyboard (a shortcut) */
+  | { type: "side-panel"; open: boolean; tab?: SidePanelTab; focus?: boolean }
+  /** a shortcut: the tab shows with its input taking the keyboard, or the panel goes when it already shows that tab */
+  | { type: "toggle-side-panel-tab"; tab: SidePanelTab }
+  /** a terminal for the pane shown: a shell in its folder, in a tab of its workspace (`another`: a new one beside those there) */
+  | { type: "open-side-terminal"; machineId: string; paneId: string; another?: boolean }
+  | { type: "side-terminal-opened"; key: string; paneId: string }
+  | { type: "side-terminal-failed"; key: string; message: string }
+  /** the person closed a terminal of the pane `key` is the storage id of */
+  | { type: "side-terminal-closed"; key: string }
+  /** `key`: the storage id of the pane the panel is about; `paneId`: its terminal to show */
+  | { type: "show-side-terminal"; key: string; paneId: string }
+  /** the pane whose side chat the panel reads (on this PC), or none */
+  | { type: "side-chat-watch"; paneId: string | null }
+  | { type: "side-chat-pushed"; paneId: string; chat: SideChatSnapshot | null }
+  | { type: "side-chat-draft"; text: string }
+  /** a question about the pane: the next one in its open side chat, else the first of a new one */
+  | { type: "side-chat-ask"; paneId: string; text: string }
+  | { type: "side-chat-asked"; paneId: string; chat: SideChatSnapshot }
+  | { type: "side-chat-ask-failed"; paneId: string; text: string; message: string }
+  | { type: "side-chat-interrupt" }
+  /** ends the side chat: nothing of it is kept, and the next question starts a new one */
+  | { type: "side-chat-close" }
   /** the bell, or a shortcut: ask for the permission, subscribe, confirm with a push */
   | { type: "enable-alerts" }
   | { type: "disable-alerts" }
@@ -1041,12 +1113,26 @@ export type ConnectionEvent =
   | { type: "pane-session-failed"; machineId: string; paneId: string };
 
 /**
- * The chats the state keeps: the pane's (the Pane screen's chat lens, or the Fleet screen's project
- * conversation) and the one beside it (a thread or an agent opened in the Fleet screen's Overview).
+ * The panes the state keeps a view of: the pane's (the Pane screen's pane, or the Fleet screen's
+ * project conversation), the one beside it (a thread or an agent opened in the Fleet screen's
+ * Overview), and the side panel's side chat and terminal, on either screen.
  */
-export type Lens = "main" | "side";
+export type Lens = "main" | "side" | "side-terminal";
 
-/** `lens: "side"`: the event is for the chat beside, and runs the same chat, conversation and send steps on it. */
+/** The lenses beside the pane's. */
+export type SideLens = Exclude<Lens, "main">;
+
+export const SIDE_LENSES: readonly SideLens[] = ["side", "side-terminal"];
+
+/** What a lens beside keeps of its pane: the chat with its conversation, and the terminal's session with the input held for it. */
+export interface LensView {
+  chat: ChatState;
+  conversation: ConversationState;
+  session: PaneSession;
+  draft: PaneState["draft"];
+}
+
+/** `lens`: the event is for that lens beside, and runs the same chat, conversation, terminal and send steps on it. */
 export type UiEvent = BareEvent & { lens?: Lens };
 
 /** What a PC's session tree sends up; every one names its PC. */
@@ -1074,6 +1160,13 @@ export type TreeEvent = { machineId: string } & (
 
 type BareEffect =
   | { kind: "load-runs" }
+  | { kind: "open-side-terminal"; machineId: string; paneId: string; key: string; another: boolean }
+  /** reads the pane's side chat from now on (the one read before stops), or none */
+  | { kind: "watch-side-chat"; paneId: string | null }
+  /** `chatId`: the open side chat to ask; null starts a new one */
+  | { kind: "ask-side-chat"; paneId: string; chatId: string | null; text: string }
+  | { kind: "interrupt-side-chat"; chatId: string }
+  | { kind: "close-side-chat"; chatId: string }
   | { kind: "load-usage" }
   | { kind: "refresh-usage" }
   | { kind: "auto-refresh-usage" }
@@ -1163,7 +1256,7 @@ type BareEffect =
   /** the tab's own alert */
   | { kind: "notify-pane"; machineId: string; machineName: string; pane: HerdrPane; status: "blocked" | "done" | "ended" };
 
-/** `lens: "side"`: an effect of the chat beside; what it answers goes back to that chat. */
+/** `lens`: an effect of a lens beside; what it answers goes back to that lens. */
 export type Effect = BareEffect & { lens?: Lens };
 
 export interface Transition { state: UiState; effects: Effect[] }
@@ -1173,6 +1266,9 @@ const NO_LANDING: LandingState = { runId: null, diff: { status: "idle", data: nu
 
 /** No plan read, no answer written, nothing asked. */
 const NO_PLAN: PlanState = { runId: null, reading: { status: "idle", data: null }, drafts: {}, confirm: null, dropped: null, seq: 0 };
+
+/** A lens beside with no pane open. */
+const NO_LENS: LensView = { chat: NO_CHAT, conversation: NO_CONVERSATION, session: NO_SESSION, draft: { owner: null, value: EMPTY_DRAFT } };
 
 export const INITIAL_STATE: UiState = {
   screen: "pane",
@@ -1198,6 +1294,7 @@ export const INITIAL_STATE: UiState = {
   pane: { connected: false, outputStopped: false, role: "interact", lens: null, session: NO_SESSION, socket: null, socketSeq: 0, draft: { owner: null, value: EMPTY_DRAFT } },
   alerts: { permission: "default", supported: false, push: false, statuses: {}, turnStarts: {}, lastTurns: {}, subscribeSeq: 0 },
   drawerOpen: false,
+  sidePanel: { open: false, tab: "chat", focusSeq: 0, chat: { paneId: null, chat: null, loaded: false, asking: false, error: null, drafts: {} }, terminals: {}, shownTerminal: {} },
   newSession: { open: false },
   palette: { open: false },
   files: { dialog: false, viewer: null, seq: 0 },
@@ -1205,7 +1302,7 @@ export const INITIAL_STATE: UiState = {
   folders: { open: {}, seq: 0 },
   chat: NO_CHAT,
   conversation: NO_CONVERSATION,
-  side: { chat: NO_CHAT, conversation: NO_CONVERSATION },
+  lenses: { side: NO_LENS, "side-terminal": NO_LENS },
   explanations: {},
   queue: { lists: {}, unsaved: {}, sending: null, error: null },
   drafts: { composer: {}, settled: {}, line: {} },
@@ -1288,41 +1385,83 @@ function settle<T extends Loadable<unknown>>(region: T, outcome: Partial<T>, eff
 }
 
 export function transition(state: UiState, event: UiEvent): Transition {
-  if (event.lens === "side") {
-    // the steps of the pane's chat, run on the one beside: only the two chats trade places
-    const step = followUp(asSide(state), transitionOnly(asSide(state), event));
-    return { state: step.state === asSide(state) ? state : fromSide(state, step.state), effects: step.effects.map(onSide) };
+  const lens = event.lens;
+  if (lens !== undefined && lens !== "main") {
+    // the steps of the pane's view, run on the lens beside: only the two views trade places
+    const view = asLens(state, lens);
+    const step = followUp(view, transitionOnly(view, event));
+    return { state: step.state === view ? state : fromLens(state, lens, step.state), effects: step.effects.map((effect) => onLens(effect, lens)) };
   }
-  return followSide(state, followUp(state, transitionOnly(state, event)));
+  return followSidePanel(state, followLenses(state, followUp(state, transitionOnly(state, event))));
 }
 
-/** The state with the chat beside in the pane's place. */
-function asSide(state: UiState): UiState {
-  return sideViews.get(state) ?? (() => {
-    const view = { ...state, chat: state.side.chat, conversation: state.side.conversation, side: { chat: state.chat, conversation: state.conversation } };
-    sideViews.set(state, view);
-    return view;
-  })();
-}
-const sideViews = new WeakMap<UiState, UiState>();
-
-/** A step run on asSide(before), put back: the chats return to their places, all else as the step left it. */
-function fromSide(before: UiState, after: UiState): UiState {
-  return { ...after, chat: before.chat, conversation: before.conversation, side: { chat: after.chat, conversation: after.conversation } };
-}
-
-/** An effect of the chat beside: what it answers is for that chat (a timer's event too). */
-function onSide(effect: Effect): Effect {
-  return effect.kind === "later" ? { ...effect, lens: "side", event: { ...effect.event, lens: "side" } } : { ...effect, lens: "side" };
+/**
+ * A terminal the side panel opened is found in the session tree once it lists it: from then on it
+ * is the tree's, and one closed later is not shown as still opening.
+ */
+function followSidePanel(before: UiState, step: Transition): Transition {
+  const { state } = step;
+  const panel = state.sidePanel;
+  if (state.machines === before.machines) return step;
+  const known = (paneId: string) => state.machines.list.some((machine) => machine.snapshot?.panes.some((pane) => pane.pane_id === paneId) === true);
+  const kept = Object.entries(panel.terminals).filter(([, opening]) => opening.status !== "opened" || !known(opening.paneId));
+  if (kept.length === Object.keys(panel.terminals).length) return step;
+  return { ...step, state: { ...state, sidePanel: { ...panel, terminals: Object.fromEntries(kept) } } };
 }
 
-/** What a step on the rest of the state means for the chat beside: a status edge, the page back, a pane gone. */
-function followSide(before: UiState, step: Transition): Transition {
-  if (step.state.side === before.side && step.state.connection === before.connection && step.state.machines === before.machines && step.state.pane === before.pane && step.state.sends === before.sends) return step;
-  const effects: Effect[] = [];
-  const lensed = followLens(asSide(before), asSide(step.state), effects);
-  if (lensed === asSide(step.state) && effects.length === 0) return step;
-  return { state: fromSide(step.state, lensed), effects: [...step.effects, ...effects.map(onSide)] };
+/** The state with a lens beside in the pane's place: its chat, its conversation, its terminal's session and held input. */
+export function asLens(state: UiState, lens: SideLens): UiState {
+  let views = lensViews.get(state);
+  if (!views) lensViews.set(state, views = new Map());
+  let view = views.get(lens);
+  if (!view) {
+    const beside = state.lenses[lens];
+    const own: LensView = { chat: state.chat, conversation: state.conversation, session: state.pane.session, draft: state.pane.draft };
+    view = {
+      ...state, chat: beside.chat, conversation: beside.conversation, pane: { ...state.pane, session: beside.session, draft: beside.draft },
+      lenses: { ...state.lenses, [lens]: own },
+    };
+    views.set(lens, view);
+  }
+  return view;
+}
+const lensViews = new WeakMap<UiState, Map<SideLens, UiState>>();
+
+/** The state a selector reads for a lens: the pane's own, or a lens beside in its place. */
+export function lensed(state: UiState, lens: Lens): UiState {
+  return lens === "main" ? state : asLens(state, lens);
+}
+
+/** A step run on asLens(before, lens), put back: the views return to their places, all else as the step left it. */
+function fromLens(before: UiState, lens: SideLens, after: UiState): UiState {
+  const view = asLens(before, lens);
+  const same = after.chat === view.chat && after.conversation === view.conversation && after.pane.session === view.pane.session && after.pane.draft === view.pane.draft;
+  // the rest of the pane as the step left it: the socket, its connection and the role are shared
+  const pane = after.pane === view.pane ? before.pane : { ...after.pane, session: before.pane.session, draft: before.pane.draft };
+  const others = after.lenses === view.lenses ? before.lenses : after.lenses;
+  const lenses = same && others === before.lenses ? before.lenses
+    : { ...others, [lens]: same ? before.lenses[lens] : { chat: after.chat, conversation: after.conversation, session: after.pane.session, draft: after.pane.draft } };
+  return { ...after, chat: before.chat, conversation: before.conversation, pane, lenses };
+}
+
+/** An effect of a lens beside: what it answers is for that lens (a timer's event too). */
+function onLens(effect: Effect, lens: SideLens): Effect {
+  return effect.kind === "later" ? { ...effect, lens, event: { ...effect.event, lens } } : { ...effect, lens };
+}
+
+/** What a step on the rest of the state means for each lens beside: a status edge, the page back, a pane gone. */
+function followLenses(before: UiState, step: Transition): Transition {
+  if (step.state.lenses === before.lenses && step.state.connection === before.connection && step.state.machines === before.machines && step.state.pane === before.pane && step.state.sends === before.sends) return step;
+  let { state, effects } = step;
+  for (const lens of SIDE_LENSES) {
+    const added: Effect[] = [];
+    const after = asLens(state, lens);
+    const followed = followLens(asLens(before, lens), after, added);
+    if (followed === after && added.length === 0) continue;
+    state = fromLens(state, lens, followed);
+    effects = [...effects, ...added.map((effect) => onLens(effect, lens))];
+  }
+  return state === step.state && effects === step.effects ? step : { state, effects };
 }
 
 /** the Fleet screen's own refresh: not while the page is hidden or a button refresh is running */
@@ -1431,7 +1570,10 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
     case "palette-pick-prompt":
       if (!state.palette.open) return next({});
       // the prompt is the searched chat's: the pane's, or the one beside
-      if (state.palette.chat === "side") return next({ palette: { open: false }, side: { ...state.side, chat: seekPrompt(state.side.chat, { key: event.key }) } });
+      if (state.palette.chat !== "main") {
+        const lens = state.palette.chat;
+        return next({ palette: { open: false }, lenses: { ...state.lenses, [lens]: { ...state.lenses[lens], chat: seekPrompt(state.lenses[lens].chat, { key: event.key }) } } });
+      }
       return next({ palette: { open: false }, chat: seekPrompt(state.chat, { key: event.key }) });
     case "prompt-rail-step":
       return next({ chat: seekPrompt(state.chat, event.direction) });
@@ -1476,7 +1618,14 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       const completions = completionsTransition(state.completions, event, effects);
       return next(completions === state.completions ? {} : { completions });
     }
-    case "composer-send":
+    case "composer-send": {
+      // `/btw <question>` in a pane's box on this PC asks it on the side, as Claude Code's desktop app does
+      const question = event.via === "box" && event.machineId === LOCAL_MACHINE ? /^\/btw(?:\s+([\s\S]*))?$/.exec(event.text.trim()) : null;
+      if (question === null) return sendTransition(state, event, effects);
+      for (const kind of ["begin", "settle"] as const) effects.push({ kind: "composer-draft-change", owner: event.owner, change: { kind, sent: event.text } });
+      effects.push({ kind: "composer-draft-change", owner: event.owner, change: { kind: "end" } });
+      return next(askOnTheSide(state, event.paneId, question[1]?.trim() ?? "", effects));
+    }
     case "line-send":
     case "queue-send":
     case "submit-started":
@@ -1556,6 +1705,22 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       return next({ drawerOpen: event.open });
     case "toggle-drawer":
       return next({ drawerOpen: !state.drawerOpen });
+    case "side-panel":
+    case "toggle-side-panel-tab":
+    case "open-side-terminal":
+    case "side-terminal-opened":
+    case "side-terminal-failed":
+    case "side-terminal-closed":
+    case "show-side-terminal":
+    case "side-chat-watch":
+    case "side-chat-pushed":
+    case "side-chat-draft":
+    case "side-chat-ask":
+    case "side-chat-asked":
+    case "side-chat-ask-failed":
+    case "side-chat-interrupt":
+    case "side-chat-close":
+      return next(sidePanelTransition(state, event, effects));
     case "selection-confirmed":
       return next(state.selection.auto ? { selection: { ...state.selection, auto: false } } : {});
     case "fleet-changed":
@@ -2308,7 +2473,7 @@ function subscriptionKey(state: UiState): string | null {
   return JSON.stringify(alertPrefs(settings));
 }
 
-/** What a step means for the pane's chat and its conversation (and, run on asSide, for the chat beside). */
+/** What a step means for the pane's chat and its conversation (and, run on asLens, for a lens beside). */
 function followLens(before: UiState, after: UiState, effects: Effect[]): UiState {
   let state = after;
   // the conversation follows the chat open on a pane: another pane starts over, a closed chat reads nothing
@@ -2471,6 +2636,100 @@ function readFile(state: UiState, effects: Effect[], now = true): UiState {
   const seq = state.files.seq + 1;
   if (now) effects.push({ kind: "load-file", machineId: viewer.preview.machineId, paneId: viewer.preview.paneId, path: viewer.path, seq });
   return { ...state, files: { ...state.files, seq, viewer: { ...viewer, content: { kind: "opening" } } } };
+}
+
+/** The side panel's side chat about a pane, shown, and asked `text` when there is one (`/btw`). */
+function askOnTheSide(state: UiState, paneId: string, text: string, effects: Effect[]): Partial<UiState> {
+  const panel = state.sidePanel;
+  let { chat } = panel;
+  if (chat.paneId !== paneId) {
+    effects.push({ kind: "watch-side-chat", paneId });
+    chat = { ...chat, paneId, chat: null, loaded: false, asking: false, error: null };
+  }
+  if (text && !chat.asking) {
+    effects.push({ kind: "ask-side-chat", paneId, chatId: chat.chat !== null && chat.chat.status !== "ended" ? chat.chat.id : null, text });
+    chat = { ...chat, asking: true, error: null };
+  } else if (text) {
+    // a question goes on its way: this one waits in the side chat's box, not lost
+    chat = { ...chat, drafts: { ...chat.drafts, [paneId]: chat.drafts[paneId] ? `${chat.drafts[paneId]}\n${text}` : text } };
+  }
+  return { sidePanel: { ...panel, open: true, tab: "chat", focusSeq: panel.focusSeq + 1, chat }, drawerOpen: false };
+}
+
+type SidePanelEvent = Extract<UiEvent, { type: "side-panel" | "toggle-side-panel-tab" | "open-side-terminal" | "side-terminal-opened" | "side-terminal-failed" | "show-side-terminal"
+  | "side-terminal-closed" | "side-chat-watch" | "side-chat-pushed" | "side-chat-draft" | "side-chat-ask" | "side-chat-asked" | "side-chat-ask-failed" | "side-chat-interrupt" | "side-chat-close" }>;
+
+/**
+ * The side panel: it shows or goes, a terminal is asked for once per pane at a time, and the side
+ * chat of the pane it is about is read from the server while it shows. A question goes to that
+ * side chat while it runs, else it starts a new one.
+ */
+function sidePanelTransition(state: UiState, event: SidePanelEvent, effects: Effect[]): Partial<UiState> {
+  const panel = state.sidePanel;
+  const { chat } = panel;
+  const terminal = (key: string, opening: SideOpening | null): Partial<UiState> => {
+    const { [key]: _gone, ...rest } = panel.terminals;
+    return { sidePanel: { ...panel, terminals: opening === null ? rest : { ...rest, [key]: opening } } };
+  };
+  const withChat = (patch: Partial<SideChatState>): Partial<UiState> => ({ sidePanel: { ...panel, chat: { ...chat, ...patch } } });
+  const show = (open: boolean, tab: SidePanelTab, focus: boolean): Partial<UiState> => {
+    if (panel.open === open && panel.tab === tab && !focus) return {};
+    return { sidePanel: { ...panel, open, tab, focusSeq: focus ? panel.focusSeq + 1 : panel.focusSeq }, ...(open ? { drawerOpen: false } : {}) };
+  };
+  switch (event.type) {
+    case "side-panel":
+      return show(event.open, event.tab ?? panel.tab, event.open && event.focus === true);
+    case "toggle-side-panel-tab":
+      return panel.open && panel.tab === event.tab ? show(false, event.tab, false) : show(true, event.tab, true);
+    case "open-side-terminal": {
+      const key = paneStorageId(event.machineId, event.paneId);
+      if (panel.terminals[key]?.status === "opening") return {};
+      effects.push({ kind: "open-side-terminal", machineId: event.machineId, paneId: event.paneId, key, another: event.another === true });
+      return terminal(key, { status: "opening" });
+    }
+    case "side-terminal-opened": {
+      // the new terminal is the one shown; one the session tree lists already is the tree's at once
+      const listed = state.machines.list.some((machine) => machine.snapshot?.panes.some((pane) => pane.pane_id === event.paneId) === true);
+      const opened = terminal(event.key, listed ? null : { status: "opened", paneId: event.paneId }).sidePanel!;
+      return { sidePanel: { ...opened, shownTerminal: { ...panel.shownTerminal, [event.key]: event.paneId } } };
+    }
+    case "side-terminal-failed":
+      return terminal(event.key, { status: "failed", message: event.message });
+    case "side-terminal-closed":
+      return terminal(event.key, { status: "closed" });
+    case "show-side-terminal":
+      return panel.shownTerminal[event.key] === event.paneId ? {} : { sidePanel: { ...panel, shownTerminal: { ...panel.shownTerminal, [event.key]: event.paneId } } };
+    case "side-chat-watch":
+      if (chat.paneId === event.paneId) return {};
+      effects.push({ kind: "watch-side-chat", paneId: event.paneId });
+      return withChat({ paneId: event.paneId, chat: null, loaded: false, asking: false, error: null });
+    case "side-chat-pushed":
+      return event.paneId === chat.paneId ? withChat({ chat: event.chat, loaded: true }) : {};
+    case "side-chat-draft":
+      if (chat.paneId === null || (chat.drafts[chat.paneId] ?? "") === event.text) return {};
+      return withChat({ drafts: { ...chat.drafts, [chat.paneId]: event.text } });
+    case "side-chat-ask": {
+      const text = event.text.trim();
+      if (chat.asking || !text || event.paneId !== chat.paneId) return {};
+      const open = chat.chat !== null && chat.chat.status !== "ended" ? chat.chat.id : null;
+      effects.push({ kind: "ask-side-chat", paneId: event.paneId, chatId: open, text });
+      const { [event.paneId]: _sent, ...drafts } = chat.drafts;
+      return withChat({ asking: true, error: null, drafts });
+    }
+    case "side-chat-asked":
+      // the stream says the same, perhaps later: what is newer wins there
+      return event.paneId === chat.paneId ? withChat({ asking: false, ...(chat.chat?.id === event.chat.id ? {} : { chat: event.chat, loaded: true }) }) : {};
+    case "side-chat-ask-failed":
+      // the question goes back into the box, unless something else was typed meanwhile
+      return event.paneId === chat.paneId ? withChat({ asking: false, error: event.message, drafts: { ...chat.drafts, [event.paneId]: chat.drafts[event.paneId] || event.text } }) : {};
+    case "side-chat-interrupt":
+      if (chat.chat?.status === "working") effects.push({ kind: "interrupt-side-chat", chatId: chat.chat.id });
+      return {};
+    case "side-chat-close":
+      if (chat.chat === null) return {};
+      effects.push({ kind: "close-side-chat", chatId: chat.chat.id });
+      return withChat({ chat: null, error: null });
+  }
 }
 
 type DraftEvent = Extract<UiEvent, { type: "draft-open" | "draft-loaded" | "draft-input" | "send-draft" | "draft-sent" | "discard-draft" }>;

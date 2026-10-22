@@ -280,6 +280,16 @@ export async function paneSendKeys(paneId: string, keys: string[], socketPath?: 
   await herdrRpc("pane.send_keys", { pane_id: paneId, keys }, socketPath);
 }
 
+/** A tab in a workspace, its shell started in `cwd`, left in the background; its root pane. */
+export async function tabCreate(options: { workspaceId: string; cwd?: string; label: string }, socketPath?: string): Promise<PaneInfo | undefined> {
+  const created = await herdrRpc<{ root_pane?: PaneInfo }>(
+    "tab.create",
+    { workspace_id: options.workspaceId, ...(options.cwd === undefined ? {} : { cwd: options.cwd }), label: options.label, focus: false },
+    socketPath,
+  );
+  return created.root_pane;
+}
+
 export async function paneClose(paneId: string, socketPath?: string): Promise<void> {
   await herdrRpc("pane.close", { pane_id: paneId }, socketPath);
 }

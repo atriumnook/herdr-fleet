@@ -145,6 +145,16 @@ export const JA: Record<string, string> = {
   "Tailscale is the shortest route: install it on this PC, run tailscale up, then check again. An SSH tunnel or your own HTTPS proxy work too.": "いちばん手早いのは Tailscale です。この PC に入れて tailscale up を実行してから、もう一度確かめてください。SSH トンネルや自前の HTTPS プロキシでも構いません。",
   "This PC did not say how it can be reached.": "この PC から、つなぎ方の答えがありませんでした。",
   "Your own Tailscale devices get in as you; with an access token set, each asks for it once. Anyone else's device, or a LAN or public address, needs pairing: Devices, below.": "自分の Tailscale の Device は、あなたとして入れます。アクセストークンを設定していれば、Device ごとに一度だけ聞かれます。ほかの人の Device や、LAN・公開アドレスからは、ペアリングが要ります(下の Devices)。",
+  // ---- side panel ----
+  "Open a pane to ask about it.": "質問するには、Pane を開いてください。",
+  "Open a pane to open a terminal in its folder.": "Pane を開くと、そのフォルダーで Terminal を開けます。",
+  "Ask about this conversation without interrupting it. The answer changes nothing, and nothing of it goes back into the conversation.": "この会話を止めずに、横で質問できます。答えるときに何も変更せず、やり取りは元の会話に入りません。",
+  "This terminal is the pane open on the Pane screen.": "この Terminal は、Pane 画面で開いている Pane です。",
+  "A side chat is for a pane on this PC.": "Side chat は、この PC の Pane についてだけ使えます。",
+  "Ends this side chat; nothing of it is kept.": "この Side chat を終えます。やり取りは残りません。",
+  "Knows this Claude session up to when it opened.": "開いた時点までの、この Claude のセッションの内容を知っています。",
+  "Read this pane's conversation when it opened.": "開いたときに、この Pane の会話を読みました。",
+  "This side chat has ended. A question starts a new one.": "この Side chat は終わりました。質問すると、新しい Side chat を始めます。",
   // ---- fleet ----
   "Could not load the fleet. {error}": "Fleet を読み込めませんでした。{error}",
   "The last read failed. {error}": "前回の読み取りに失敗しました。{error}",

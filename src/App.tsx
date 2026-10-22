@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { AppWindow, Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, Search, SquareTerminal, X } from "lucide-react";
+import { AppWindow, Bell, FolderOpen, Lock, Menu, MessageSquare, Orbit, PanelLeft, PanelRight, Search, SquareTerminal, X } from "lucide-react";
 
 import { closePaneEvent, displayPaneTitle, type SidebarEvent } from "./components/Sidebar.tsx";
 import { PaneTerminal } from "./components/PaneTerminal.tsx";
@@ -35,7 +35,8 @@ import { SidebarPresenter } from "./ui/SidebarPresenter.tsx";
 import { PushTestPresenter } from "./ui/PushTestPresenter.tsx";
 import { useSelected } from "./ui/presenter.ts";
 import { SettingsDialogPresenter } from "./ui/SettingsDialogPresenter.tsx";
-import type { Lens, UiEvent } from "./ui/state.ts";
+import { SidePanelPresenter } from "./ui/SidePanelPresenter.tsx";
+import { SIDE_LENSES, type Lens, type UiEvent } from "./ui/state.ts";
 
 const APP_TITLE = "herdr fleet";
 /**
@@ -108,6 +109,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   const snapshot = selectedMachine?.snapshot ?? null;
   const canSignOut = auth?.authenticated === true && (auth.via === "token" || auth.via === "device");
   const drawerOpen = useSelected((state) => state.drawerOpen);
+  const sidePanelOpen = useSelected((state) => state.sidePanel.open);
   const drawerOpenRef = useRef(drawerOpen); drawerOpenRef.current = drawerOpen;
   const setDrawerOpen = useCallback((open: boolean) => emitRef.current({ type: "drawer", open }), []);
   const selectionRef = useRef({ machineId: selectedMachineId, paneId: selectedPaneId });
@@ -232,7 +234,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
   // a chat shows and has its conversation open: the Pane screen's chat lens, the Fleet screen's
   // project conversation or the thread beside it (a chat opens itself while it is mounted). The
   // Fleet screen with no conversation open has no prompt to step to.
-  const chatShows = useSelected((state) => state.chat.open !== null || state.side.chat.open !== null);
+  const chatShows = useSelected((state) => state.chat.open !== null || SIDE_LENSES.some((lens) => state.lenses[lens].chat.open !== null));
   const actions = useMemo<AppActions>(
     () => ({
       selectPane,
@@ -244,7 +246,8 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         if (next) selectPane(next.pane_id);
       },
       stepPrompt: chatShows ? (direction) => {
-        emitRef.current({ type: "prompt-rail-step", direction, ...(focusedChat() === "side" ? { lens: "side" as const } : {}) });
+        const lens = focusedChat();
+        emitRef.current({ type: "prompt-rail-step", direction, ...(lens === "main" ? {} : { lens }) });
       } : null,
       setView,
       toggleView: () => setView(view === "chat" ? "terminal" : "chat"),
@@ -258,13 +261,16 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
         if (window.matchMedia("(max-width: 768px)").matches) emitRef.current({ type: "toggle-drawer" });
         else setSidebarCollapsed((collapsed) => !collapsed);
       },
+      toggleSidePanel: () => emitRef.current({ type: "side-panel", open: !sidePanelOpen }),
+      toggleSideChat: () => emitRef.current({ type: "toggle-side-panel-tab", tab: "chat" }),
+      toggleSideTerminal: () => emitRef.current({ type: "toggle-side-panel-tab", tab: "terminal" }),
       toggleTheme: () => updateSettings({ theme: resolvedTheme === "dark" ? "light" : "dark" }),
       lock: canSignOut ? () => void lock() : null,
       enableNotifications: bellVisible && !bell.on ? () => void enableNotifications() : null,
       refresh: () => emitRef.current({ type: "reload-machines" }),
       openFiles: selectedPaneId !== null ? () => emitRef.current({ type: "open-files" }) : null,
     }),
-    [selectPane, selectedPaneId, selectedMachineId, setView, view, chatShows, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications],
+    [selectPane, selectedPaneId, selectedMachineId, setView, view, chatShows, sidePanelOpen, updateSettings, resolvedTheme, canSignOut, lock, bellVisible, bell.on, enableNotifications],
   );
   // a connected PC's sessions: a new session is this shell's; the rest goes up as it is
   const treeEmit = useMemo(() => relay<SidebarEvent, UiEvent>(emit, (event, pass) => {
@@ -436,6 +442,10 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
               <FolderOpen />
             </button>
           )}
+          <button type="button" className={`icon-button side-panel-button${sidePanelOpen ? " is-on" : ""}`} aria-label={t("Side panel")} aria-pressed={sidePanelOpen}
+            title={t("Side chat and terminal (⌘⇧L)")} onClick={() => emit({ type: "side-panel", open: !sidePanelOpen })}>
+            <PanelRight />
+          </button>
           <button type="button" className="icon-button" aria-label={t("Command palette")} title={t("Command palette (⌘⇧K)")} onClick={() => emit({ type: "open-palette" })}>
             <Search />
           </button>
@@ -492,6 +502,7 @@ export function App({ emit }: { emit: Emit<UiEvent> }) {
           </div>
           {screen === "fleet" && <FleetPresenter emit={emit} />}
         </main>
+        <SidePanelPresenter emit={emit} />
         </OpenFileContext.Provider>
       </div>
 

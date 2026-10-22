@@ -1,5 +1,6 @@
 import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, FleetSettingsPatch, LandingChecks, ModelListing, UsageEntry } from "../../shared/fleet.ts";
 import type { Plan } from "../../shared/plan.ts";
+import type { SideChatSnapshot } from "../../shared/side-chat.ts";
 import type { Machine, MachineEvent } from "../../shared/machines.ts";
 import type { BridgeHealth } from "../../shared/machines.ts";
 import type { PairedDevice, PairingCode, RemoteAccess, SessionSnapshot } from "../../shared/protocol.ts";
@@ -13,7 +14,7 @@ import type { InputDraft } from "../lib/draft.ts";
 import type { HeldMessage } from "../lib/messageQueue.ts";
 import type { Settings } from "../lib/settings.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
-import { INITIAL_STATE, transition, type ComposerDraftChange, type ConversationOutcome, type Effect, type ExplainOutcome, type FileOutcome, type LineDraftChange, type QueueChange, type RequestAction, type SessionRequest, type TreeRequest, type UiEvent, type UiState } from "./state.ts";
+import { INITIAL_STATE, lensed, SIDE_LENSES, transition, type ComposerDraftChange, type ConversationOutcome, type Effect, type ExplainOutcome, type FileOutcome, type LineDraftChange, type QueueChange, type RequestAction, type SessionRequest, type TreeRequest, type Lens, type UiEvent, type UiState } from "./state.ts";
 
 type PtyData = Extract<ServerMessage, { type: "pty-data" }>;
 
@@ -166,6 +167,14 @@ export interface EffectPorts {
   listFolder(machineId: string, path: string, paneId: string | null): Promise<string>;
   /** runs `then` after `ms`: the clock the state machine's `later` effects wait on */
   later(ms: number, then: () => void): void;
+  /** a terminal for a pane: a shell in its folder, in a tab of its workspace (the one there already unless `another`, else a new one); its pane id */
+  openSideTerminal(machineId: string, paneId: string, another: boolean): Promise<string>;
+  /** reads the side chat of a pane on this PC now and after each change, until the answer is called */
+  watchSideChat(paneId: string, changed: (chat: SideChatSnapshot | null) => void): () => void;
+  /** asks a pane's open side chat (`chatId`), or starts a new one with `text` first; the side chat as it is then */
+  askSideChat(paneId: string, chatId: string | null, text: string): Promise<SideChatSnapshot>;
+  interruptSideChat(chatId: string): Promise<void>;
+  closeSideChat(chatId: string): Promise<void>;
 }
 
 const message = (error: unknown): string => error instanceof Error ? error.message : String(error);
@@ -179,9 +188,12 @@ export class Mediator {
   private state: UiState;
   private readonly listeners = new Set<() => void>();
   private closeStream: (() => void) | null = null;
+  /** the side chat read for the side panel: stops reading it */
+  private unwatchSideChat: (() => void) | null = null;
   /** the terminal's socket open now, by the opening it answers */
   private paneSocket: { seq: number; handle: PaneSocketHandle } | null = null;
-  private terminal: TerminalSink | null = null;
+  /** each lens's xterm: the pane's terminal, and the side panel's */
+  private readonly terminals = new Map<Lens, TerminalSink>();
 
   constructor(private readonly ports: EffectPorts, initial: UiState = INITIAL_STATE) {
     this.state = initial;
@@ -189,11 +201,16 @@ export class Mediator {
 
   getState = (): UiState => this.state;
 
-  /** The terminal's xterm takes the socket's messages until the function returned is called. */
-  attachTerminal = (sink: TerminalSink): (() => void) => {
-    this.terminal = sink;
-    return () => { if (this.terminal === sink) this.terminal = null; };
+  /** A lens's xterm takes the socket's messages until the function returned is called. */
+  attachTerminal = (sink: TerminalSink, lens: Lens = "main"): (() => void) => {
+    this.terminals.set(lens, sink);
+    return () => { if (this.terminals.get(lens) === sink) this.terminals.delete(lens); };
   };
+
+  /** The lens whose terminal shows a pane: a lens beside whose grid attached it, else the pane's own. */
+  private lensOf(paneId: string | undefined): Lens {
+    return SIDE_LENSES.find((lens) => paneId !== undefined && this.terminals.has(lens) && lensed(this.state, lens).pane.session.paneId === paneId) ?? "main";
+  }
 
   readonly terminalLink: TerminalLink = {
     connected: () => this.paneSocket?.handle.connected ?? false,
@@ -211,41 +228,55 @@ export class Mediator {
     const { handle } = this.paneSocket;
     const paneId = this.state.pane.session.paneId;
     const connection = (): void => this.dispatch({ type: "pane-connection", connected: handle.connected });
-    if (paneId !== null) this.dispatch({ type: "pane-input-ready", paneId, ready: handle.canInput(paneId) });
+    for (const lens of ["main", ...SIDE_LENSES] as const) {
+      const { session } = lensed(this.state, lens).pane;
+      // asked each message, told only a change: output streams in many messages
+      if (session.paneId !== null && (lens === "main" || this.terminals.has(lens)) && session.inputReady !== handle.canInput(session.paneId)) {
+        this.dispatch({ type: "pane-input-ready", paneId: session.paneId, ready: handle.canInput(session.paneId), ...(lens === "main" ? {} : { lens }) });
+      }
+    }
+    const about = "pane_id" in message ? message.pane_id : undefined;
+    const lens = this.lensOf(about);
+    // what the state is told of a pane goes to the lens that shows it
+    const dispatch = (event: UiEvent): void => this.dispatch(lens === "main" ? event : { ...event, lens });
     if (message.type === "pty-data") {
       const acknowledge = handle.outputAcknowledgement(message);
       // nothing to write it to: the server must not wait on it
-      if (this.terminal) this.terminal.output(message, acknowledge); else acknowledge?.();
+      const terminal = this.terminals.get(lens);
+      if (terminal) terminal.output(message, acknowledge); else acknowledge?.();
       if (message.pane_id === paneId) connection();
       return;
     }
-    this.terminal?.message(message);
+    // what is said of one pane goes to the grid that shows it; the rest (the role, a snapshot) to every grid
+    if (about === undefined) for (const terminal of this.terminals.values()) terminal.message(message);
+    else this.terminals.get(lens)?.message(message);
+    const shown = lensed(this.state, lens).pane.session.paneId;
     switch (message.type) {
       case "attach-resumed":
-        this.dispatch({ type: "pane-attach-resumed", paneId: message.pane_id });
+        dispatch({ type: "pane-attach-resumed", paneId: message.pane_id });
         break;
       case "pty-exit":
-        this.dispatch({ type: "pane-exited", paneId: message.pane_id });
+        dispatch({ type: "pane-exited", paneId: message.pane_id });
         break;
       case "role-ack":
         this.dispatch({ type: "role-ack", role: message.mode });
         break;
       case "error": {
-        const about = message.pane_id ?? paneId;
+        const about = message.pane_id ?? shown;
         if (message.code === "input_not_ready" || message.code === "input_failed") {
-          if (message.pane_id !== undefined) this.dispatch({ type: "pane-input-failed", paneId: message.pane_id, message: message.message });
+          if (message.pane_id !== undefined) dispatch({ type: "pane-input-failed", paneId: message.pane_id, message: message.message });
           return;
         }
         if (message.code === "attach_held" || message.code === "terminal_unsupported") {
           // a pane this terminal already left: its wait is not this pane's
-          if (about === null || about !== paneId) return;
-          this.dispatch({ type: message.code === "attach_held" ? "pane-attach-held" : "pane-terminal-unsupported", paneId: about });
+          if (about === null || about !== shown) return;
+          dispatch({ type: message.code === "attach_held" ? "pane-attach-held" : "pane-terminal-unsupported", paneId: about });
           break;
         }
         if (message.code === "output_stalled" || message.code === "attach_conflict") {
           if (message.code === "output_stalled") this.dispatch({ type: "output-stalled" });
           // the connection stays as the stop left it until the next read of it
-          this.dispatch({ type: "pane-output-failed", message: message.message });
+          dispatch({ type: "pane-output-failed", message: message.message });
           return;
         }
         break;
@@ -495,8 +526,9 @@ export class Mediator {
           message: (message) => this.paneMessage(seq, message),
           disconnected: () => {
             if (this.paneSocket?.seq !== seq) return;
-            this.terminal?.disconnected();
+            for (const terminal of this.terminals.values()) terminal.disconnected();
             dispatch({ type: "pane-socket-lost" });
+            for (const lens of SIDE_LENSES) if (this.terminals.has(lens)) this.dispatch({ type: "pane-socket-lost", lens });
             dispatch({ type: "pane-connection", connected: false });
           },
         });
@@ -625,6 +657,28 @@ export class Mediator {
         return;
       case "later":
         this.ports.later(effect.ms, () => dispatch(effect.event));
+        return;
+      case "open-side-terminal":
+        try { dispatch({ type: "side-terminal-opened", key: effect.key, paneId: await this.ports.openSideTerminal(effect.machineId, effect.paneId, effect.another) }); }
+        catch (error) { dispatch({ type: "side-terminal-failed", key: effect.key, message: message(error) }); }
+        return;
+      case "watch-side-chat": {
+        this.unwatchSideChat?.();
+        this.unwatchSideChat = null;
+        const { paneId } = effect;
+        if (paneId !== null) this.unwatchSideChat = this.ports.watchSideChat(paneId, (chat) => dispatch({ type: "side-chat-pushed", paneId, chat }));
+        return;
+      }
+      case "ask-side-chat":
+        try { dispatch({ type: "side-chat-asked", paneId: effect.paneId, chat: await this.ports.askSideChat(effect.paneId, effect.chatId, effect.text) }); }
+        catch (error) { dispatch({ type: "side-chat-ask-failed", paneId: effect.paneId, text: effect.text, message: message(error) }); }
+        return;
+      // what came of these, the stream says
+      case "interrupt-side-chat":
+        await this.ports.interruptSideChat(effect.chatId).catch(() => {});
+        return;
+      case "close-side-chat":
+        await this.ports.closeSideChat(effect.chatId).catch(() => {});
         return;
     }
   }

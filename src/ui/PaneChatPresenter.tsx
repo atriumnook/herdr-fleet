@@ -10,7 +10,7 @@ import { ChatPresenter, type ChatUpEvent } from "./ChatPresenter.tsx";
 import { ComposerPresenter, type ComposerUpEvent } from "./ComposerPresenter.tsx";
 import type { ThreadRowModel } from "./fleetView.ts";
 import { useSelected } from "./presenter.ts";
-import type { Lens, UiEvent } from "./state.ts";
+import { lensed, type Lens, type UiEvent } from "./state.ts";
 
 /** fleet runs live on this PC */
 const FLEET_MACHINE = "local";
@@ -37,19 +37,19 @@ export function PaneChatPresenter({ runId, paneId, agent, ended, lens, threads, 
   const connected = useSelected((state) => state.pane.connected);
   const agentStatus = useSelected((state) => state.machines.list.find((machine) => machine.id === FLEET_MACHINE)?.snapshot?.panes.find((pane) => pane.pane_id === paneId)?.agent_status);
   const prompt = useSelected((state) => {
-    const chat = lens === "side" ? state.side.chat : state.chat;
+    const { chat } = lensed(state, lens);
     return chat.open?.paneId === paneId ? chat.prompt : null;
   });
   const pendingAnswer = useSelected((state) => {
-    const chat = lens === "side" ? state.side.chat : state.chat;
+    const { chat } = lensed(state, lens);
     return chat.open?.paneId === paneId ? chat.pendingAnswer : null;
   });
   const suggestion = useSelected((state) => {
-    const chat = lens === "side" ? state.side.chat : state.chat;
+    const { chat } = lensed(state, lens);
     return chat.open?.paneId === paneId ? chat.suggestion : null;
   });
   const metadata = useSelected((state) => {
-    const chat = lens === "side" ? state.side.chat : state.chat;
+    const { chat } = lensed(state, lens);
     return chat.metadata?.paneId === paneId ? chat.metadata.value : null;
   });
   // as in the pane's own composer, a prompt is answered from the box; a message to a working agent
@@ -60,7 +60,7 @@ export function PaneChatPresenter({ runId, paneId, agent, ended, lens, threads, 
     if (event.type !== "send-message") { emit(event); return; }
     emit({
       type: "composer-send", owner: paneStorageId(FLEET_MACHINE, paneId), machineId: FLEET_MACHINE, paneId, text: event.text, via: event.via,
-      bracketedPaste: false, working: false, ...(lens === "side" ? { lens } : {}),
+      bracketedPaste: false, working: false, ...(lens === "main" ? {} : { lens }),
     });
   }, [emit, lens, paneId, runId]);
   const chatEmit = useMemo<Emit<ChatUpEvent>>(() => (event) => emit(event), [emit]);
