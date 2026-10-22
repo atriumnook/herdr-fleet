@@ -1,5 +1,5 @@
-import { constants, closeSync, fstatSync, openSync, realpathSync } from "node:fs";
-import { isAbsolute, join, relative, sep } from "node:path";
+import { constants, closeSync, fstatSync, lstatSync, openSync, realpathSync, statSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import { herdrRpc } from "./herdr/client.ts";
 import { piAgentDir } from "./pi-models.ts";
@@ -38,12 +38,44 @@ export function piTranscriptInStore(path: string, sessionDir: string): string | 
   finally { if (fd !== undefined) closeSync(fd); }
 }
 
+const absent = (error: unknown): boolean => (error as { code?: unknown } | null)?.code === "ENOENT";
+
 /**
- * pi's transcript for a pane. herdr's integration re-reports the session file on every
- * `session_start`, so `/new`, `/resume`, `/fork` and `/clone` need no inference here:
- * the next read names the file that replaced the old one.
+ * The session an agent named but has not written, or null. pi and omp write their file only
+ * once the first answer is in (pi's SessionManager waits for an assistant message), so until
+ * then the reported path does not exist. Only an absent `.jsonl` file whose nearest existing
+ * ancestor is a directory inside the store, both resolved, counts: nothing is read from it,
+ * its display id and canonical prospective path keep equally named sessions distinct.
  */
-export async function piTranscriptPath(paneId: string, sessionDir = defaultPiSessionDir()): Promise<string | null> {
+export function unwrittenSession(path: string, sessionDir: string): { id: string; path: string } | null {
+  if (!isAbsolute(path) || !path.endsWith(".jsonl")) return null;
+  let root: string;
+  try { root = realpathSync(sessionDir); } catch { return null; }
+  try {
+    lstatSync(path);
+    return null;
+  } catch (error) { if (!absent(error)) return null; }
+  for (let dir = dirname(path); ; dir = dirname(dir)) {
+    try {
+      const real = realpathSync(dir);
+      if (!statSync(real).isDirectory()) return null;
+      const inside = relative(root, real);
+      if (inside === ".." || inside.startsWith(`..${sep}`) || isAbsolute(inside)) return null;
+      return { id: basename(path, ".jsonl"), path: join(real, relative(dir, path)) };
+    } catch (error) {
+      if (!absent(error) || dirname(dir) === dir) return null;
+      // a link to nowhere is a place the agent cannot write to, not a directory still to come
+      try { lstatSync(dir); return null; } catch (missing) { if (!absent(missing)) return null; }
+    }
+  }
+}
+
+/**
+ * pi's transcript for a pane, or the session it has not written yet. herdr's integration
+ * re-reports the session file on every `session_start`, so `/new`, `/resume`, `/fork` and
+ * `/clone` need no inference here: the next read names the file that replaced the old one.
+ */
+export async function piTranscriptPath(paneId: string, sessionDir = defaultPiSessionDir()): Promise<{ path: string } | { unwritten: { id: string; path: string } } | null> {
   const info = await herdrRpc<{ agent: { agent_session?: { agent?: unknown; kind?: unknown; value?: unknown } } }>(
     "agent.get",
     { target: paneId },
@@ -51,5 +83,8 @@ export async function piTranscriptPath(paneId: string, sessionDir = defaultPiSes
   const session = info?.agent?.agent_session;
   // pi reports an absolute path; the id-only form belongs to agents with no store of ours.
   if (session?.kind !== "path" || typeof session.value !== "string") return null;
-  return piTranscriptInStore(session.value, sessionDir);
+  const path = piTranscriptInStore(session.value, sessionDir);
+  if (path !== null) return { path };
+  const unwritten = unwrittenSession(session.value, sessionDir);
+  return unwritten === null ? null : { unwritten };
 }

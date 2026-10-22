@@ -1,8 +1,8 @@
 import { afterAll, describe, expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, appendFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";import { tmpdir } from "node:os";
+import { mkdirSync, mkdtempSync, appendFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { defaultPiSessionDir, piTranscriptInStore } from "./pi.ts";
+import { defaultPiSessionDir, piTranscriptInStore, unwrittenSession } from "./pi.ts";
 import { transcriptPage, piTranscriptImage } from "./conversation.ts";
 import type { ConversationTurn } from "../shared/protocol.ts";
 
@@ -47,6 +47,37 @@ describe("pi's session store holds the transcript a pane reads", () => {
     const other = join(slug, "notes.txt");
     writeFileSync(other, "{}\n");
     expect(piTranscriptInStore(other, store)).toBeNull();
+  });
+
+  it("names a session pi has not written yet only when its path is in the store", () => {
+    expect(unwrittenSession(join(slug, "2026-10-06_fresh.jsonl"), store)).toEqual({ id: "2026-10-06_fresh", path: join(realpathSync(slug), "2026-10-06_fresh.jsonl") });
+    expect(unwrittenSession(join(store, "new-cwd", "fresh.jsonl"), store)).toEqual({ id: "fresh", path: join(realpathSync(store), "new-cwd", "fresh.jsonl") });
+    expect(unwrittenSession(session("written"), store)).toBeNull();
+    expect(unwrittenSession(join(root, "missing.jsonl"), store)).toBeNull();
+    expect(unwrittenSession(join(store, "..", "missing.jsonl"), store)).toBeNull();
+    expect(unwrittenSession(join(slug, "fresh.txt"), store)).toBeNull();
+    expect(unwrittenSession("fresh.jsonl", store)).toBeNull();
+    expect(unwrittenSession(join(root, "no-store", "fresh.jsonl"), join(root, "no-store"))).toBeNull();
+    const dangling = join(slug, "dangling.jsonl");
+    symlinkSync(join(root, "nowhere.jsonl"), dangling);
+    expect(unwrittenSession(dangling, store)).toBeNull();
+  });
+
+  it("resolves the directories around an unwritten session before trusting its place", () => {
+    // a link in the store to a directory outside it does not make its children the store's
+    mkdirSync(join(root, "outside-dir"), { recursive: true });
+    symlinkSync(join(root, "outside-dir"), join(store, "escape"));
+    expect(unwrittenSession(join(store, "escape", "fresh.jsonl"), store)).toBeNull();
+    symlinkSync(join(root, "nowhere-dir"), join(store, "broken"));
+    expect(unwrittenSession(join(store, "broken", "fresh.jsonl"), store)).toBeNull();
+    // a file where a directory should be holds no session
+    writeFileSync(join(slug, "plain"), "");
+    expect(unwrittenSession(join(slug, "plain", "fresh.jsonl"), store)).toBeNull();
+    // the store reached through a link is still the store
+    const alias = join(root, "store-alias");
+    symlinkSync(store, alias);
+    expect(unwrittenSession(join(slug, "fresh.jsonl"), alias)).toEqual({ id: "fresh", path: join(realpathSync(slug), "fresh.jsonl") });
+    expect(unwrittenSession(join(alias, "fresh.jsonl"), store)).toEqual({ id: "fresh", path: join(realpathSync(store), "fresh.jsonl") });
   });
 
   it("follows PI_CODING_AGENT_SESSION_DIR the way Codex follows CODEX_HOME", () => {

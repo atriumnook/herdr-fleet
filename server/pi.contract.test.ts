@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, it } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -13,14 +13,15 @@ const root = mkdtempSync(join(tmpdir(), "herdr-fleet-pi-contract-"));
 const sessionDir = join(root, ".pi", "agent", "sessions");
 const slug = join(sessionDir, `--${root.replaceAll("/", "-")}--`);
 const transcript = join(slug, "session.jsonl");
-let workspaceId: string | undefined;
+const workspaces: string[] = [];
+const fakePi = join(root, "bin", "pi");
 let paneId: string;
 let server: ReturnType<typeof createServer>;
 // herdr keeps one session report per pane and refuses one older than the last.
 let seq = Date.now() * 1000;
 const nextSeq = () => ++seq;
-const reportSession = (path: string) =>
-  herdrRpc("pane.report_agent_session", { pane_id: paneId, source: "herdr:pi", agent: "pi", seq: nextSeq(), agent_session_path: path, session_start_source: "startup" });
+const reportSession = (path: string, target = paneId) =>
+  herdrRpc("pane.report_agent_session", { pane_id: target, source: "herdr:pi", agent: "pi", seq: nextSeq(), agent_session_path: path, session_start_source: "startup" });
 
 const page = (entries: unknown[]) => [
   { type: "session", version: 3, id: "session", timestamp: new Date().toISOString(), cwd: root },
@@ -37,6 +38,21 @@ const turns = (prompt: string, answer: string) => page([
   } },
 ]);
 
+async function createPiPane(): Promise<string> {
+  const created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-pi-contract" });
+  workspaces.push(created.workspace.workspace_id);
+  const target = created.root_pane.pane_id;
+  await herdrRpc("pane.send_text", { pane_id: target, text: `${fakePi}\n` });
+  for (const deadline = Date.now() + 10_000;;) {
+    const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === target);
+    if (pane?.agent === "pi") break;
+    if (Date.now() > deadline) throw new Error("test pi did not start");
+    await Bun.sleep(50);
+  }
+  await herdrRpc("pane.report_agent", { pane_id: target, source: "herdr:pi", agent: "pi", state: "idle", seq: nextSeq() });
+  return target;
+}
+
 beforeAll(async () => {
   process.env["PI_CODING_AGENT_SESSION_DIR"] = sessionDir;
   mkdirSync(slug, { recursive: true });
@@ -44,32 +60,22 @@ beforeAll(async () => {
   // running there, reporting under its own integration source. A fake pi stands in.
   const bin = join(root, "bin");
   mkdirSync(bin, { recursive: true });
-  const fakePi = join(bin, "pi");
   writeFileSync(fakePi, "#!/bin/sh\nsleep 600\n");
   chmodSync(fakePi, 0o755);
-  const created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-pi-contract" });
-  workspaceId = created.workspace.workspace_id;
-  paneId = created.root_pane.pane_id;
-  await herdrRpc("pane.send_text", { pane_id: paneId, text: `${fakePi}\n` });
-  for (let attempt = 0; attempt < 100; attempt++) {
-    const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
-    if (pane?.agent === "pi") break;
-    await Bun.sleep(50);
-  }
-  await herdrRpc("pane.report_agent", { pane_id: paneId, source: "herdr:pi", agent: "pi", state: "idle", seq: nextSeq() });
+  paneId = await createPiPane();
   await reportSession(transcript);
   server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push") });
 });
 
 afterAll(async () => {
   server?.stop();
-  if (workspaceId) await workspaceClose(workspaceId);
+  for (const workspaceId of workspaces) await workspaceClose(workspaceId);
   delete process.env["PI_CODING_AGENT_SESSION_DIR"];
   rmSync(root, { recursive: true, force: true });
 });
 
-const read = async (): Promise<ConversationResponse> => {
-  const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
+const read = async (target = paneId): Promise<ConversationResponse> => {
+  const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(target)}`);
   expect(response.status).toBe(200);
   return await response.json() as ConversationResponse;
 };
@@ -201,6 +207,58 @@ it("counts the turns a /tree left behind, over HTTP", async () => {
   // a session no /tree touched answers zero, not absent: the client shows nothing at 0
   writeFileSync(transcript, turns("Check chat", "Answer one"));
   expect((await read()).abandoned).toEqual({ count: 0, branches: 0, summary: null });
+});
+
+it("answers a session pi has not written yet as an empty conversation, then follows the file it writes", async () => {
+  const target = await createPiPane();
+  const fresh = join(slug, "fresh.jsonl");
+  await reportSession(fresh, target);
+  expect(await read(target)).toMatchObject({ source: "pi-transcript", turns: [], cursor: null, history_id: "unwritten:fresh" });
+  // a cursor from another conversation is refused, whichever way it points
+  for (const cursor of ["before", "since", "from"]) {
+    const stale = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(target)}&${cursor}=${encodeURIComponent("other:0")}`);
+    expect(stale.status).toBe(409);
+  }
+  // at work on its first turn, pi has written nothing yet: the terminal shows the turn (a status
+  // report carries the session too: one without it would drop the session herdr holds)
+  await herdrRpc("pane.report_agent", { pane_id: target, source: "herdr:pi", agent: "pi", state: "working", seq: nextSeq(), agent_session_path: fresh });
+  try {
+    expect(await read(target)).toEqual({ source: "scrollback", turns: [] });
+    const stale = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(target)}&from=${encodeURIComponent("other:0")}`);
+    expect(stale.status).toBe(409);
+  } finally {
+    await herdrRpc("pane.report_agent", { pane_id: target, source: "herdr:pi", agent: "pi", state: "idle", seq: nextSeq(), agent_session_path: fresh });
+  }
+  writeFileSync(fresh, turns("First prompt", "First answer"));
+  const written = await read(target);
+  expect(written.source).toBe("pi-transcript");
+  expect(written.history_id).not.toBe("unwritten:fresh");
+  expect(written.turns[0]!.parts).toEqual([{ kind: "text", text: "First prompt" }]);
+  // a transcript read and then removed is missing, not a conversation not begun
+  rmSync(fresh);
+  expect(await read(target)).toEqual({ source: "scrollback", turns: [] });
+});
+
+it("distinguishes unwritten sessions with the same filename in different folders", async () => {
+  const target = await createPiPane();
+  const first = join(slug, "shared-name.jsonl");
+  const other = join(sessionDir, "other-project");
+  mkdirSync(other);
+  const fresh = join(other, "shared-name.jsonl");
+  writeFileSync(first, turns("Earlier prompt", "Earlier answer"));
+  await reportSession(first, target);
+  expect((await read(target)).source).toBe("pi-transcript");
+  await reportSession(fresh, target);
+  expect(await read(target)).toMatchObject({ source: "pi-transcript", turns: [], history_id: "unwritten:shared-name" });
+  writeFileSync(fresh, turns("Fresh prompt", "Fresh answer"));
+  expect((await read(target)).turns[0]!.parts).toEqual([{ kind: "text", text: "Fresh prompt" }]);
+  rmSync(fresh);
+  expect(await read(target)).toEqual({ source: "scrollback", turns: [] });
+  // Another spelling of the same directory must not make a removed transcript unwritten again.
+  const alias = join(sessionDir, "alias-project");
+  symlinkSync(other, alias, "dir");
+  await reportSession(join(alias, "shared-name.jsonl"), target);
+  expect(await read(target)).toEqual({ source: "scrollback", turns: [] });
 });
 
 it("falls back to the scrollback when the reported path leaves the store", async () => {

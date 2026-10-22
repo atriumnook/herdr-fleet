@@ -15,13 +15,14 @@ import { paneFiles } from "./files.ts";
 import { badRequest, errorResponse, isCount, isJsonObject, jsonResponse, sameOrigin } from "./http.ts";
 import { serveStatic } from "./static.ts";
 import { startStatusCollector } from "./collector.ts";
-import { conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, toolOutput } from "./conversation.ts";
+import { claudePaneTranscript, conversationImage, ConversationUnavailable, HistoryChanged, paneConversation, toolOutput } from "./conversation.ts";
+import { claudeSessionTempDir } from "./claude-store.ts";
 import { CompletionTracker } from "./completion.ts";
 import { placeWithProject, WorkspaceProjects } from "./projects.ts";
 import { EXPLAIN_MODEL, ExplainCalls, ExplainError, explainQuestion, explainRequest, type ExplainDeps } from "./explain.ts";
 import { freeAgentName } from "./agent-name.ts";
 import { listDirectories } from "./directories.ts";
-import { FILE_VIEW_PREFIX, fileInfo, fileResponse, fileRoots, locateFile, parseViewPath, withinRoots } from "./file-view.ts";
+import { FILE_VIEW_PREFIX, fileInfo, fileResponse, fileRoots, locateFile, locateFileInFolder, parseViewPath, withinRoots } from "./file-view.ts";
 import {
   agentManifests,
   agentPrompt,
@@ -179,6 +180,15 @@ async function paneContext(paneId: string): Promise<{ agent: string | null; cwd:
   const cwd = pane.foreground_cwd ?? pane.cwd;
   if (!cwd) throw new HerdrError("cwd_not_found", `pane ${paneId} has no working directory`);
   return { agent: pane.agent ?? pane.agent_session?.agent ?? null, cwd };
+}
+
+/** The temp folder of the Claude Code session in a pane, or null when the pane runs none or it has none. */
+async function claudeTempFolder(paneId: string): Promise<string | null> {
+  try {
+    const pane = (await sessionSnapshot()).panes.find((candidate) => candidate.pane_id === paneId);
+    const transcript = pane === undefined ? null : await claudePaneTranscript(pane);
+    return transcript === null ? null : await claudeSessionTempDir(transcript);
+  } catch { return null; /* herdr busy or the pane gone: the path stays not found */ }
 }
 
 interface SocketData {
@@ -1128,7 +1138,14 @@ export function createServer(
         if (paneId) {
           try { cwd = (await paneContext(paneId)).cwd; } catch { /* an absolute path still opens */ }
         }
-        const found = locateFile(url.searchParams.get("path") ?? "", cwd);
+        const path = url.searchParams.get("path") ?? "";
+        let found = locateFile(path, cwd);
+        // a Claude Code pane names the files it keeps outside the project (`scratchpad/…`) relative to its session's
+        // temp folder; what is found there is held to the same roots below
+        if (found === null && paneId && cwd !== null && !isAbsolute(path.trim()) && !path.trim().startsWith("~")) {
+          const folder = await claudeTempFolder(paneId);
+          if (folder !== null) found = locateFileInFolder(path, folder);
+        }
         if (found === null) return jsonResponse({ error: { code: "not_found", message: "no readable file at that path" } }, 404);
         const roots = fileRoots(cwd, resultsDir);
         // several files end in that name: the viewer lists them to choose from

@@ -1871,6 +1871,8 @@ describe("an answer and the menu it was made for", () => {
           if (once) return void setTimeout(() => answer({ read: { text: once.text } }), once.delay);
           return void setTimeout(() => answer({ read: { text: pane.screen } }), pane.readDelay ?? 0);
         }
+        // no Codex process runs here: the queue's rollout is looked for in the default store
+        if (request.method === "pane.process_info") return answer({ process_info: { foreground_processes: [] } });
         if (request.method === "agent.get" && pane.agentUnanswered) return;
         if (request.method === "agent.get") return answer({ agent: pane.rollout ? { agent_session: { kind: "path", value: pane.rollout } } : {} });
         if (request.method !== "pane.send_keys" && request.method !== "pane.send_text") throw new Error(`unexpected fixture RPC: ${request.method}`);

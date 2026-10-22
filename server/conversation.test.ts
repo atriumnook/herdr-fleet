@@ -57,9 +57,181 @@ describe("parseClaudeTranscript", () => {
     expect(turns.some((turn) => turn.parts.some((part) => part.kind === "text" && part.text.includes("/clear")))).toBe(false);
   });
 
+  it("shows what a slash command answered, and leaves its echo and an empty answer out", () => {
+    const local = (content: string, ts: string) => JSON.stringify({ type: "system", subtype: "local_command", isMeta: false, timestamp: ts, content });
+    const refusal = "/goal can't run while hooks are restricted (disableAllHooks or allowManagedHooksOnly is set in settings or by policy).";
+    const turns = parseClaudeTranscript([
+      local("<command-name>/goal</command-name>\n<command-message>goal</command-message>\n<command-args>test</command-args>", "2026-10-07T19:00:00.000Z"),
+      local(`<local-command-stdout>${refusal}</local-command-stdout>`, "2026-10-07T19:00:01.000Z"),
+      local("<local-command-stdout></local-command-stdout>", "2026-10-07T19:00:02.000Z"),
+      local("<local-command-stderr>\u001b[31mUnknown command: /gaol\u001b[39m</local-command-stderr>", "2026-10-07T19:00:03.000Z"),
+      JSON.stringify({ type: "system", subtype: "turn_duration", content: "<local-command-stdout>not a command's answer</local-command-stdout>" }),
+    ].join("\n"));
+    expect(turns).toEqual([
+      { role: "user", ts: "2026-10-07T19:00:01.000Z", parts: [{ kind: "notice", text: refusal, source: "local-command" }] },
+      { role: "user", ts: "2026-10-07T19:00:03.000Z", parts: [{ kind: "notice", text: "Unknown command: /gaol", source: "local-command" }] },
+    ]);
+  });
+
+  it("shows Claude Code's own notices, an unknown command's lines joined as one", () => {
+    // Claude Code 2.1.294: an unknown command and its dropped arguments, 1ms apart, and no user turn
+    const info = (content: string, ts: string) => JSON.stringify({ type: "system", subtype: "informational", content, level: "warning", timestamp: ts });
+    const turns = parseClaudeTranscript([
+      info("Unknown command: /xyzabc", "2026-10-08T08:06:31.117Z"),
+      info("Args from unknown skill: hello there", "2026-10-08T08:06:31.118Z"),
+      info("Usage limit reached · continuing automatically at 4am · esc to cancel", "2026-10-08T09:00:00.000Z"),
+      info("\u001b[2mUsage limit reset · continuing automatically\u001b[22m", "2026-10-08T13:00:00.000Z"),
+      info("", "2026-10-08T13:00:01.000Z"),
+    ].join("\n"));
+    expect(turns).toEqual([
+      { role: "user", ts: "2026-10-08T08:06:31.117Z", parts: [{ kind: "notice", text: "Unknown command: /xyzabc\nArgs from unknown skill: hello there", source: "informational" }] },
+      { role: "user", ts: "2026-10-08T09:00:00.000Z", parts: [{ kind: "notice", text: "Usage limit reached · continuing automatically at 4am · esc to cancel", source: "informational" }] },
+      { role: "user", ts: "2026-10-08T13:00:00.000Z", parts: [{ kind: "notice", text: "Usage limit reset · continuing automatically", source: "informational" }] },
+    ]);
+  });
+
+  it("keeps a notice joined from long lines within the notice's length", () => {
+    const info = (content: string, ts: string) => JSON.stringify({ type: "system", subtype: "informational", content, timestamp: ts });
+    const [turn] = parseClaudeTranscript([
+      info("a".repeat(4000), "2026-10-08T08:06:31.117Z"),
+      info("b".repeat(4000), "2026-10-08T08:06:31.118Z"),
+    ].join("\n"));
+    const text = (turn!.parts[0] as { text: string }).text;
+    expect(turn!.parts).toHaveLength(1);
+    expect(text.length).toBe(4001);
+    expect(text.endsWith("\u2026")).toBe(true);
+  });
+
+  it("keeps a turn whole when Claude Code writes a notice while the agent works", () => {
+    // a cross-session notice between a tool's result and the next call: about half of the notices in real transcripts
+    const assistant = (block: object, stop: string, ts: string) => JSON.stringify({ type: "assistant", timestamp: ts, message: { role: "assistant", stop_reason: stop, content: [block] } });
+    const info = (content: string, ts: string) => JSON.stringify({ type: "system", subtype: "informational", content, level: "warning", timestamp: ts });
+    const turns = parseClaudeTranscript([
+      JSON.stringify({ type: "user", timestamp: "2026-10-08T08:00:00.000Z", message: { role: "user", content: "run it" } }),
+      assistant({ type: "tool_use", id: "t1", name: "Bash", input: { command: "sleep 60" } }, "tool_use", "2026-10-08T08:00:01.000Z"),
+      info("Cross-session message held by the receiving session", "2026-10-08T08:00:20.000Z"),
+      JSON.stringify({ type: "user", timestamp: "2026-10-08T08:01:01.000Z", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] } }),
+      info("Cross-session message expired without approval", "2026-10-08T08:01:02.500Z"),
+      assistant({ type: "text", text: "Done." }, "end_turn", "2026-10-08T08:01:03.000Z"),
+      info("Unknown command: /xyzabc", "2026-10-08T08:02:00.000Z"),
+    ].join("\n"));
+    expect(turns.map((turn) => [turn.role, turn.parts.map((part) => part.kind === "notice" ? part.text : part.kind)])).toEqual([
+      ["user", ["text"]],
+      // written inside the turn: shown before it, and the turn is still the last one while it runs
+      ["user", ["Cross-session message held by the receiving session"]],
+      ["user", ["Cross-session message expired without approval"]],
+      ["assistant", ["tool", "text"]],
+      // written after the answer: shown after it
+      ["user", ["Unknown command: /xyzabc"]],
+    ]);
+    expect(turns[3]!.end_ts).toBe("2026-10-08T08:01:03.000Z");
+  });
+
+  it("keeps a turn whole around a notice when the tool call's entry names no stop reason", () => {
+    const turns = parseClaudeTranscript([
+      JSON.stringify({ type: "user", message: { role: "user", content: "run" } }),
+      JSON.stringify({ type: "assistant", message: { role: "assistant", stop_reason: null, content: [{ type: "tool_use", id: "t", name: "Bash", input: { command: "sleep 60" } }] } }),
+      JSON.stringify({ type: "system", subtype: "informational", content: "Message held" }),
+      JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: "ok" }] } }),
+      JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Done" }] } }),
+      JSON.stringify({ type: "system", subtype: "informational", content: "After the answer" }),
+    ].join("\n"));
+    expect(turns.map((turn) => [turn.role, turn.parts.map((part) => part.kind === "notice" ? part.text : part.kind)])).toEqual([
+      ["user", ["text"]], ["user", ["Message held"]], ["assistant", ["tool", "text"]], ["user", ["After the answer"]],
+    ]);
+  });
+
+  it("shows a refusal recorded both ways once also while the agent works, and keeps the turn whole", () => {
+    const at = "2026-10-08T08:00:10.000Z";
+    const info = JSON.stringify({ type: "system", subtype: "informational", timestamp: at, content: "Message held" });
+    const local = JSON.stringify({ type: "system", subtype: "local_command", timestamp: at, content: "<local-command-stderr>Message held</local-command-stderr>" });
+    const around = (notices: string[]) => parseClaudeTranscript([
+      JSON.stringify({ type: "user", timestamp: "2026-10-08T08:00:00.000Z", message: { role: "user", content: "run" } }),
+      JSON.stringify({ type: "assistant", timestamp: "2026-10-08T08:00:01.000Z", message: { role: "assistant", stop_reason: "tool_use", content: [{ type: "tool_use", id: "t", name: "Bash", input: { command: "sleep 60" } }] } }),
+      ...notices,
+      JSON.stringify({ type: "user", timestamp: "2026-10-08T08:01:00.000Z", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: "ok" }] } }),
+      JSON.stringify({ type: "assistant", timestamp: "2026-10-08T08:01:01.000Z", message: { role: "assistant", stop_reason: "end_turn", content: [{ type: "text", text: "Done" }] } }),
+    ].join("\n")).map((turn) => [turn.role, turn.parts.map((part) => part.kind === "notice" ? `${part.source}: ${part.text}` : part.kind)]);
+    expect(around([info, local])).toEqual([["user", ["text"]], ["user", ["informational: Message held"]], ["assistant", ["tool", "text"]]]);
+    expect(around([local, info])).toEqual([["user", ["text"]], ["user", ["local-command: Message held"]], ["assistant", ["tool", "text"]]]);
+  });
+
+  it("shows a refusal once when Claude Code records it both as a command's answer and as a notice", () => {
+    const info = (content: string, ts: string) => JSON.stringify({ type: "system", subtype: "informational", content, level: "warning", timestamp: ts });
+    const local = (content: string, ts: string) => JSON.stringify({ type: "system", subtype: "local_command", timestamp: ts, content });
+    const notices = (lines: string[]) => parseClaudeTranscript(lines.join("\n")).flatMap((turn) => turn.parts).filter((part) => part.kind === "notice").map((part) => (part as { text: string }).text);
+    const stderr = "<local-command-stderr>\u001b[31mUnknown command: /gaol\u001b[39m</local-command-stderr>";
+    expect(notices([local(stderr, "2026-10-08T08:06:31.117Z"), info("Unknown command: /gaol", "2026-10-08T08:06:31.118Z"), info("Args from unknown skill: x", "2026-10-08T08:06:31.119Z")]))
+      .toEqual(["Unknown command: /gaol", "Args from unknown skill: x"]);
+    expect(notices([info("Unknown command: /gaol", "2026-10-08T08:06:31.117Z"), info("Args from unknown skill: x", "2026-10-08T08:06:31.118Z"), local(stderr, "2026-10-08T08:06:31.119Z")]))
+      .toEqual(["Unknown command: /gaol\nArgs from unknown skill: x"]);
+    // the same words a minute later are another answer, and a notice's own repeat is kept
+    expect(notices([local(stderr, "2026-10-08T08:06:31.117Z"), info("Unknown command: /gaol", "2026-10-08T08:07:31.118Z")])).toEqual(["Unknown command: /gaol", "Unknown command: /gaol"]);
+    expect(notices([info("Message expired", "2026-10-08T08:06:31.117Z"), info("Message expired", "2026-10-08T08:06:31.118Z")])).toEqual(["Message expired\nMessage expired"]);
+  });
+
+  it("shows a slash command's answer only as the whole entry, as text, and not past its length", () => {
+    const local = (content: string) => JSON.stringify({ type: "system", subtype: "local_command", timestamp: "2026-10-07T19:00:00.000Z", content });
+    const notices = (lines: string[]) => parseClaudeTranscript(lines.join("\n")).flatMap((turn) => turn.parts).filter((part) => part.kind === "notice").map((part) => (part as { text: string }).text);
+    // an echo whose arguments quote the tag is still an echo
+    expect(notices([local("<command-name>/goal</command-name>\n<command-args>x <local-command-stdout>quoted</local-command-stdout></command-args>")])).toEqual([]);
+    // a link keeps its text and drops its hidden address; cursor moves and backspaces go too
+    expect(notices([local("<local-command-stdout>\u001b]8;;https://example.test/?token=hidden\u0007open\u001b]8;;\u0007 done\u001b[2K\b</local-command-stdout>")])).toEqual(["open done"]);
+    const long = notices([local(`<local-command-stdout>${"x".repeat(10_000)}</local-command-stdout>`)])[0]!;
+    expect(long.length).toBe(4001);
+    expect(long.endsWith("\u2026")).toBe(true);
+  });
+
+  it("strips an unterminated link, a charset switch, and shows both streams of one entry", () => {
+    const local = (content: string) => JSON.stringify({ type: "system", subtype: "local_command", timestamp: "2026-10-07T19:00:00.000Z", content });
+    const notices = (lines: string[]) => parseClaudeTranscript(lines.join("\n")).flatMap((turn) => turn.parts).filter((part) => part.kind === "notice").map((part) => (part as { text: string }).text);
+    // an OSC cut off before its BEL or ST still hides its address
+    expect(notices([local("<local-command-stdout>done \u001b]8;;https://example.test/?token=hidden</local-command-stdout>")])).toEqual(["done"]);
+    // ESC ( B is one sequence: no stray B
+    expect(notices([local("<local-command-stdout>\u001b(Bplain\u001b[m text</local-command-stdout>")])).toEqual(["plain text"]);
+    expect(notices([local("<local-command-stdout>out</local-command-stdout>\n<local-command-stderr>err</local-command-stderr>")])).toEqual(["out\nerr"]);
+    // a closing tag the output itself prints ends nothing: only one at the end, or before the next stream, does
+    expect(notices([local("<local-command-stdout>Use </local-command-stdout> in this example.</local-command-stdout>")])).toEqual(["Use </local-command-stdout> in this example."]);
+    expect(notices([local("<local-command-stdout>a </local-command-stdout> b</local-command-stdout>\n<local-command-stderr>err</local-command-stderr>")])).toEqual(["a </local-command-stdout> b\nerr"]);
+  });
+
+  it("strips escapes in time linear in a malformed answer's length", () => {
+    const local = (n: number, unit: string) => JSON.stringify({ type: "system", subtype: "local_command", timestamp: "2026-10-07T19:00:00.000Z", content: `<local-command-stdout>${unit.repeat(n)}</local-command-stdout>` });
+    // best of several runs, so a scheduler hiccup does not count; doubling the input may not
+    // quadruple the time (a rescan from every unterminated opener did)
+    const time = (line: string) => Math.min(...Array.from({ length: 5 }, () => {
+      const start = performance.now();
+      parseClaudeTranscript(line);
+      return performance.now() - start;
+    }));
+    // unterminated escapes, and closing tags the output prints itself
+    for (const unit of ["\u001b]x", "</local-command-stdout> x"]) {
+      const small = local(20_000, unit);
+      const large = local(40_000, unit);
+      time(small);
+      expect(time(large) / Math.max(time(small), 0.05)).toBeLessThan(3);
+    }
+  });
+
   it("keeps thinking blocks in transcript order", () => {
     const assistant = parseClaudeTranscript(lines)[1];
     expect(assistant?.parts.map((part) => part.kind)).toEqual(["text", "tool", "thinking", "text"]);
+  });
+
+  it("reads thinking that Claude Code displays as updates as narration in the work", () => {
+    // the shape a recent Claude Code writes: one entry per block, the visible update as thinking
+    const entry = (thinkingDisplay: string | undefined, block: object) => JSON.stringify({ type: "assistant", timestamp: "2026-10-14T07:00:00.000Z", ...(thinkingDisplay ? { thinkingDisplay } : {}), message: { role: "assistant", stop_reason: null, content: [block] } });
+    const turns = parseClaudeTranscript([
+      JSON.stringify({ type: "user", message: { role: "user", content: "measure the padding" } }),
+      entry("updates", { type: "thinking", thinking: "", signature: "s" }),
+      entry("updates", { type: "thinking", thinking: "The padding stays; measuring it next.", signature: "s" }),
+      entry("updates", { type: "tool_use", id: "t", name: "Bash", input: { command: "true" } }),
+      entry(undefined, { type: "thinking", thinking: "private reasoning", signature: "s" }),
+    ].join("\n"));
+    expect(turns[1]?.parts.filter((part) => part.kind !== "tool")).toEqual([
+      { kind: "text", text: "The padding stays; measuring it next.", phase: "commentary" },
+      { kind: "thinking", text: "private reasoning" },
+    ]);
   });
 
   it("survives a torn tail line while Claude is mid-append", () => {
@@ -280,6 +452,96 @@ describe("transcript pages", () => {
   ].map((entry) => JSON.stringify(entry)).join("\n");
   const texts = (turns: { parts: { kind: string; text?: string; output?: string }[] }[]) =>
     turns.map((turn) => turn.parts.map((part) => part.kind === "tool" ? `[${part.output}]` : part.text).join(" "));
+
+  it("shows another session's message as its own notice turn, so the work it starts is not appended to the answer before it", () => {
+    const path = join(temp(), "peer.jsonl");
+    const envelope = (body: string) => `<cross-session-message from="uds:x" from-name="FUSION" from-mode="bypass">\n${body}\n</cross-session-message>`;
+    let delivered = 0;
+    const origin = (body: string) => ({ kind: "peer", from: "uds:x", msg_id: `m${++delivered}`, name: "FUSION", body });
+    const say = (text: string) => ({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text }] } });
+    writeFileSync(path, `${[
+      { type: "user", timestamp: "2026-10-08T03:04:00.000Z", message: { role: "user", content: "deck status?" } },
+      say("the deck is done"),
+      // arrives between turns: a meta user entry
+      { type: "user", isMeta: true, timestamp: "2026-10-08T03:05:01.000Z", origin: origin("R18 is ready"), message: { role: "user", content: `Another Claude session sent a message:\n${envelope("R18 is ready")}` } },
+      say("recorded both decisions"),
+      // arrives mid-turn: a queued attachment, its own turn in the order it was taken in
+      { type: "attachment", timestamp: "2026-10-08T03:06:00.000Z", attachment: { type: "queued_command", commandMode: "prompt", prompt: envelope("coordinates sent"), origin: origin("coordinates sent") } },
+      say("rebuilt slide 4"),
+      // a meta entry that is not another session's message stays hidden
+      { type: "user", isMeta: true, message: { role: "user", content: "<local-command-caveat>x</local-command-caveat>" } },
+    ].map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+    const page = transcriptPage("claude-transcript", path);
+    expect(page.turns.map((turn) => [turn.role, turn.parts.map((part) => part.kind === "notice" ? `${part.source}|${part.text}` : part.kind === "text" ? part.text : part.kind).join(" ")])).toEqual([
+      ["user", "deck status?"],
+      ["assistant", "the deck is done"],
+      ["user", "peer:FUSION|R18 is ready"],
+      ["assistant", "recorded both decisions"],
+      ["user", "peer:FUSION|coordinates sent"],
+      ["assistant", "rebuilt slide 4"],
+    ]);
+  });
+
+  it("shows one notice for a delivery Claude recorded twice, and says 'another session' for an unnamed sender", () => {
+    const path = join(temp(), "peer-echo.jsonl");
+    const origin = { kind: "peer", from: "uds:x", msg_id: "m7", name: "FUSION", body: "R18 is ready" };
+    writeFileSync(path, `${[
+      { type: "user", timestamp: "2026-10-08T03:04:00.000Z", message: { role: "user", content: "deck status?" } },
+      { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "working on it" }] } },
+      // queued mid-turn, then echoed as a meta entry once the turn ended: one message
+      { type: "attachment", timestamp: "2026-10-08T03:05:00.000Z", attachment: { type: "queued_command", commandMode: "prompt", prompt: "<cross-session-message from-name=\"FUSION\">\nR18 is ready\n</cross-session-message>", origin } },
+      { type: "user", isMeta: true, timestamp: "2026-10-08T03:05:01.000Z", origin, message: { role: "user", content: "Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nR18 is ready\n</cross-session-message>" } },
+      { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "noted" }] } },
+      // a sender without a name
+      { type: "user", isMeta: true, timestamp: "2026-10-08T03:06:00.000Z", origin: { kind: "peer", from: "uds:y", msg_id: "m8", body: "ping" }, message: { role: "user", content: "Another Claude session sent a message:\n<cross-session-message>\nping\n</cross-session-message>" } },
+    ].map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+    const page = transcriptPage("claude-transcript", path);
+    expect(page.turns.map((turn) => turn.parts.map((part) => part.kind === "notice" ? `${part.source}|${part.text}` : part.kind === "text" ? part.text : part.kind).join(" "))).toEqual([
+      "deck status?", "working on it", "peer:FUSION|R18 is ready", "noted", "peer:|ping",
+    ]);
+  });
+
+  it("shows a delivery recorded twice once also when the echo is the newest turn the chat reads", () => {
+    const path = join(temp(), "peer-echo-last.jsonl");
+    const origin = { kind: "peer", from: "uds:x", msg_id: "m7", name: "FUSION", body: "R18 is ready" };
+    const envelope = "<cross-session-message from-name=\"FUSION\">\nR18 is ready\n</cross-session-message>";
+    const lines = [
+      { type: "user", message: { role: "user", content: "deck status?" } },
+      { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "working on it" }] } },
+      // queued mid-turn, then echoed as a meta entry, which ends the file: the settled turns and the live one
+      { type: "attachment", attachment: { type: "queued_command", commandMode: "prompt", prompt: envelope, origin } },
+      { type: "user", isMeta: true, origin, message: { role: "user", content: `Another Claude session sent a message:\n${envelope}` } },
+    ].map((entry) => JSON.stringify(entry));
+    writeFileSync(path, `${lines.join("\n")}\n`);
+    const notices = (turns: ReturnType<typeof parseClaudeTranscript>) => turns.flatMap((turn) => turn.parts).filter((part) => part.kind === "notice").length;
+    expect(notices(parseClaudeTranscript(lines.join("\n")))).toBe(1);
+    expect(notices(transcriptPage("claude-transcript", path).turns)).toBe(1);
+    expect(notices(transcriptPage("claude-transcript", path).turns)).toBe(1);
+  });
+
+  it("pages back across other sessions' messages without gaps or overlaps", () => {
+    const path = join(temp(), "peer-pages.jsonl");
+    const envelope = (n: number) => `<cross-session-message from-name="FUSION">\nreply ${n}\n</cross-session-message>`;
+    const origin = (n: number) => ({ kind: "peer", from: "uds:x", msg_id: `m${n}`, name: "FUSION", body: `reply ${n}` });
+    // in both forms Claude records them: the meta entry between turns, the queued attachment mid-turn
+    const peer = (n: number) => JSON.stringify(n % 2 === 0
+      ? { type: "user", isMeta: true, timestamp: "2026-10-08T00:00:00.000Z", origin: origin(n), message: { role: "user", content: `Another Claude session sent a message:\n${envelope(n)}` } }
+      : { type: "attachment", timestamp: "2026-10-08T00:00:00.000Z", attachment: { type: "queued_command", commandMode: "prompt", prompt: envelope(n), origin: origin(n) } })
+      + "\n" + JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: `handled ${n}` }] } });
+    writeFileSync(path, `${Array.from({ length: 120 }, (_, n) => n % 3 === 0 ? peer(n) : claudeTurn(n)).join("\n")}\n`);
+    const seen: string[] = [];
+    let page = transcriptPage("claude-transcript", path);
+    for (let pages = 0; ; pages++) {
+      expect(pages).toBeLessThan(20);
+      seen.unshift(...texts(page.turns));
+      if (!page.cursor) break;
+      page = transcriptPage("claude-transcript", path, { before: page.cursor });
+    }
+    expect(new Set(seen).size).toBe(seen.length);
+    expect(seen.filter((text) => text.startsWith("reply ")).length).toBe(40);
+    expect(seen.filter((text) => text.startsWith("prompt ")).length).toBe(80);
+  });
+
 
   it("reads a growing file's newest page incrementally, exactly as a cold read of it", () => {
     const root = temp();
