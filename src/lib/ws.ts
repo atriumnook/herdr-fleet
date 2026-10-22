@@ -392,6 +392,12 @@ export class HerdrSocket {
   }
 
   /** Waits out a probe in flight on `socket`; true when it is still this connection afterwards. */
+  /** Settles once a liveness probe in flight ends: true when the connection it checked is still open. */
+  async checked(): Promise<boolean> {
+    const socket = this.socket;
+    return socket !== null && await this.probeSettled(socket);
+  }
+
   private async probeSettled(socket: WebSocket): Promise<boolean> {
     while (this.probing && this.socket === socket) await this.probeDone;
     return this.connected && this.socket === socket;

@@ -1180,7 +1180,8 @@ export function PaneTerminal({
     if (draftHeldForRef.current === pane) return t("Not sent: send or discard the held input first.");
     const sent = link.sendInput(pane, "\r");
     termRef.current?.scrollToBottom();
-    return sent;
+    // connected, and still refused: the pane does not take keys yet (its attach, or a connection check)
+    return sent || t("Not sent: the terminal is not taking keys yet. Press it again in a moment.");
   }, []);
 
   const toggleDirect = useCallback(() => {
