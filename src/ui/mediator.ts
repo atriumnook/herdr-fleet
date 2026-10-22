@@ -295,6 +295,10 @@ export class Mediator {
           if (message.code === "output_stalled") this.dispatch({ type: "output-stalled" });
           // the connection stays as the stop left it until the next read of it
           dispatch({ type: "pane-output-failed", message: message.message });
+          // the socket's own stop is the whole connection's: the side panel's terminal says it too, with its Reconnect
+          if (message.code === "output_stalled" && message.pane_id === undefined) {
+            for (const lens of SIDE_LENSES) if (this.terminals.has(lens)) this.dispatch({ type: "pane-output-failed", message: message.message, lens });
+          }
           return;
         }
         break;

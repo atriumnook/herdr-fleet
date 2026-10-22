@@ -432,6 +432,22 @@ describe("Mediator", () => {
       detach();
     });
 
+    it("says a stopped output in every terminal on the connection, the side panel's too", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      mediator.attachTerminal(sinkFor().sink);
+      mediator.attachTerminal(sinkFor().sink, "side-terminal");
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p9", lens: "side-terminal" });
+      fake.socket.up = true;
+      fake.say({ type: "pty-data", pane_id: "w1:p1", data: "x" } as ServerMessage);
+      // the socket's own stop names no pane: the whole connection stopped
+      fake.say({ type: "error", code: "output_stalled", message: "could not keep up" } as ServerMessage);
+      expect(mediator.getState().pane.session).toMatchObject({ ended: true, outputError: "could not keep up" });
+      expect(mediator.getState().lenses["side-terminal"].session).toMatchObject({ ended: true, outputError: "could not keep up" });
+    });
+
     it("writes each pane's output to the terminal that shows it: the pane's own, or the side panel's", () => {
       const fake = fakeSocket();
       const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
