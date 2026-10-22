@@ -210,7 +210,7 @@ interface TranscriptEntry {
   isCompactSummary?: boolean;
   /** "updates": Claude Code shows the entry's thinking text as a progress message, not as reasoning */
   thinkingDisplay?: unknown;
-  message?: { role?: string; content?: unknown; stop_reason?: unknown };
+  message?: { id?: unknown; role?: string; content?: unknown; stop_reason?: unknown };
   attachment?: { type?: unknown; prompt?: unknown; commandMode?: unknown; origin?: { kind?: unknown } };
 }
 
@@ -234,12 +234,18 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
   const pending = new Map<string, Extract<ConversationPart, { kind: "tool" }>>();
   /** the agent's last entry called a tool: its turn is not over, whatever is written meanwhile */
   let atWork = false;
+  /** the message whose reply ended (end_turn): injected feedback can resume the model without a human
+   *  prompt, and its next message is a new reply. Claude Code writes one message as several entries
+   *  (its thinking, then its text), each with the message's stop reason: they stay one reply, also
+   *  when a notice is written between them. */
+  let completed: { id: unknown; turn: ConversationTurn } | null = null;
   /** where a notice goes: before the turn at work it was written in, else at the end */
   const noticeAt = (): number => atWork && turns.at(-1)?.role === "assistant" ? turns.length - 1 : turns.length;
 
-  const assistantTurn = (ts?: string): ConversationTurn => {
+  const assistantTurn = (ts: string | undefined, id: unknown): ConversationTurn => {
+    if (completed !== null && typeof id === "string" && id === completed.id && turns.includes(completed.turn)) return completed.turn;
     const last = turns[turns.length - 1];
-    if (last !== undefined && last.role === "assistant") return last;
+    if (last !== undefined && last.role === "assistant" && completed === null) return last;
     const turn: ConversationTurn = { role: "assistant", ts: ts ?? null, parts: [] };
     turns.push(turn);
     return turn;
@@ -352,9 +358,10 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
     }
 
     if (entry.type === "assistant" && Array.isArray(content)) {
-      const turn = assistantTurn(entry.timestamp);
+      const turn = assistantTurn(entry.timestamp, entry.message?.id);
       // an entry that names no stop reason is still at work when it calls a tool
       const stop = entry.message?.stop_reason;
+      completed = stop === "end_turn" ? { id: entry.message?.id, turn } : null;
       atWork = stop === "tool_use" || (stop == null && content.some((block: unknown) => typeof block === "object" && block !== null && (block as { type?: unknown }).type === "tool_use"));
       if (entry.timestamp) turn.end_ts = entry.timestamp;
       for (const block of content) {
