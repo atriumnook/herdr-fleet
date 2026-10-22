@@ -15,6 +15,18 @@ const SNAPSHOT_WAIT_MS = 2000;
  * message the client gave up on is never submitted later.
  */
 const SUBMIT_TIMEOUT_MS = 90_000;
+/**
+ * A connect attempt that has neither opened nor failed by now is given up and retried: a phone
+ * that wakes on a dead network (or a tunnel that drops the handshake) can leave a socket in
+ * CONNECTING for minutes, and nothing else would ever start a new attempt. Each attempt given up
+ * doubles the next one's deadline up to CONNECT_TIMEOUT_MAX_MS, so a slow path that does work (a
+ * remote PC, where the server waits up to 15s for the machine relay before it upgrades; a slow
+ * cellular or tunnel handshake) still connects; an attempt that opens starts it over.
+ */
+const CONNECT_TIMEOUT_MS = 8_000;
+const CONNECT_TIMEOUT_MAX_MS = 30_000;
+const SOCKET_CLOSING = 2;
+const SOCKET_CLOSED = 3;
 const DISCONNECTED: SubmitResult = { ok: false, code: "disconnected", message: "the connection dropped before the pane confirmed this message" };
 
 interface AttachState {
@@ -55,6 +67,12 @@ export class HerdrSocket {
   private readonly attached = new Map<string, AttachState>();
   private retries = 0;
   private reconnectTimer: number | null = null;
+  /** the deadline of the attempt still in CONNECTING */
+  private connectTimer: number | null = null;
+  /** attempts given up at their deadline since the last one that opened */
+  private connectTimeouts = 0;
+  /** a socket wake() ended before its close event ran: that event can still say the output stopped */
+  private endedEarly: WebSocket | null = null;
   private disposed = false;
   private wakeListening = false;
   /** a page shown again or a network back: a reconnect waiting out its backoff runs now */
@@ -87,6 +105,9 @@ export class HerdrSocket {
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return;
     }
+    // a backoff retry still waiting would only open a second attempt later, past whatever ends this one
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
     const socket = new WebSocket(this.url);
     this.socket = socket;
     this.features = new Set();
@@ -94,8 +115,21 @@ export class HerdrSocket {
     this.outputSeen.clear();
     this.snapshotKnown = false;
     this.snapshotSeen = new Promise((resolve) => { this.markSnapshot = resolve; });
+    this.clearConnectTimer();
+    this.connectTimer = window.setTimeout(() => {
+      this.connectTimer = null;
+      if (this.socket !== socket || socket.readyState !== WebSocket.CONNECTING) return;
+      this.connectTimeouts += 1;
+      socket.close();
+      // the close event of an attempt that never opened may come late or not at all: end it here
+      this.closed(socket, 1006);
+    }, Math.min(CONNECT_TIMEOUT_MAX_MS, CONNECT_TIMEOUT_MS * 2 ** this.connectTimeouts));
 
     socket.addEventListener("open", () => {
+      if (this.socket === socket) {
+        this.clearConnectTimer();
+        this.connectTimeouts = 0;
+      }
       this.retries = 0;
       // always send the role, never only when non-default: a user can flip the role
       // while disconnected (setMode stores it without sending), so without this frame
@@ -143,22 +177,61 @@ export class HerdrSocket {
     });
 
     socket.addEventListener("close", (event) => {
-      if (this.socket !== socket) return;
-      this.socket = null;
-      for (const handler of this.disconnectHandlers) handler();
-      this.markSnapshot();
-      this.settleSubmits(DISCONNECTED);
-      if (event.code === OUTPUT_STALLED_CLOSE_CODE) {
-        this.outputStopped = true;
-        this.emit({ type: "error", code: "output_stalled", message: "Terminal output stopped because this device could not keep up." });
+      if (this.endedEarly === socket) {
+        this.endedEarly = null;
+        // the server's own close still decides whether output stopped, even after a replacement started
+        if (event.code === OUTPUT_STALLED_CLOSE_CODE && !this.disposed) {
+          if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+          const replacement = this.socket;
+          if (replacement) {
+            this.endConnection();
+            replacement.close();
+          }
+          this.stopOutput();
+        }
         return;
       }
-      this.scheduleReconnect();
+      this.closed(socket, event.code);
     });
 
     socket.addEventListener("error", () => {
       socket.close();
     });
+  }
+
+  /** The end of this connection, from its close event or a connect deadline; a stale socket's is ignored. */
+  private closed(socket: WebSocket, code: number): void {
+    if (this.socket !== socket) return;
+    this.endConnection();
+    if (code === OUTPUT_STALLED_CLOSE_CODE) {
+      this.stopOutput();
+      return;
+    }
+    this.scheduleReconnect();
+  }
+
+  /** Drops the current connection: its submits settle as disconnected and the disconnect handlers run. */
+  private endConnection(): void {
+    this.socket = null;
+    this.clearConnectTimer();
+    for (const handler of this.disconnectHandlers) handler();
+    this.markSnapshot();
+    this.settleSubmits(DISCONNECTED);
+  }
+
+  private stopOutput(): void {
+    this.outputStopped = true;
+    // stopped output stays stopped until an attach: no retry left armed may reconnect behind it
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.emit({ type: "error", code: "output_stalled", message: "Terminal output stopped because this device could not keep up." });
+  }
+
+  private clearConnectTimer(): void {
+    if (this.connectTimer === null) return;
+    window.clearTimeout(this.connectTimer);
+    this.connectTimer = null;
   }
 
   private listenForWake(): void {
@@ -171,14 +244,36 @@ export class HerdrSocket {
 
   /**
    * A phone that slept or went to the background comes back with its socket closed and a
-   * reconnect timer that may have backed off to its 5s cap. Waking skips that wait and starts
-   * again from the shortest delay. A stopped output stays stopped: only an attach resumes it.
+   * reconnect timer that may have backed off to its 5s cap, or with a socket already CLOSED whose
+   * close event has not run yet (so no timer at all). Waking skips the wait and starts again from
+   * the shortest delay; a connection that is open, or a first attempt still connecting, is left
+   * alone (connect() ignores it). An attempt still connecting after earlier ones hit their deadline
+   * has a deadline grown up to 30s, likely started on the network that just came back or changed:
+   * it is given up now and a fresh attempt starts with the shortest deadline. A socket in CLOSING
+   * is left to its close event too: a submit-result can still arrive during that handshake, and
+   * the server's close code decides whether output stopped (the reconnect it schedules starts from
+   * the shortest delay). A stopped output stays stopped: only an attach resumes it.
    */
   wake(): void {
-    if (this.disposed || this.outputStopped || this.reconnectTimer === null) return;
-    window.clearTimeout(this.reconnectTimer);
+    if (this.disposed || this.outputStopped) return;
+    const socket = this.socket;
+    if (socket?.readyState === SOCKET_CLOSING) {
+      this.retries = 0;
+      return;
+    }
+    if (socket?.readyState === WebSocket.CONNECTING && this.connectTimeouts > 0) {
+      // never opened, so its close event can carry no output-stalled code: end it like its deadline would
+      socket.close();
+      this.closed(socket, 1006);
+    } else if (socket?.readyState === SOCKET_CLOSED) {
+      // ended now so its submits and listeners settle; its close event, when it runs, can still stop output
+      this.closed(socket, 1006);
+      this.endedEarly = socket;
+    }
+    if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
     this.retries = 0;
+    this.connectTimeouts = 0;
     this.connect();
   }
 
@@ -188,6 +283,7 @@ export class HerdrSocket {
     this.retries += 1;
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
+      if (this.outputStopped || this.disposed) return;
       this.connect();
     }, delay);
   }
@@ -360,6 +456,8 @@ export class HerdrSocket {
     this.disposed = true;
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    this.clearConnectTimer();
+    this.endedEarly = null;
     if (this.wakeListening) {
       window.removeEventListener("online", this.onWake);
       window.removeEventListener("pageshow", this.onWake);
