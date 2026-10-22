@@ -208,6 +208,8 @@ interface TranscriptEntry {
   uuid?: string;
   isMeta?: boolean;
   isCompactSummary?: boolean;
+  /** "updates": Claude Code shows the entry's thinking text as a progress message, not as reasoning */
+  thinkingDisplay?: unknown;
   message?: { role?: string; content?: unknown; stop_reason?: unknown };
   attachment?: { type?: unknown; prompt?: unknown; commandMode?: unknown; origin?: { kind?: unknown } };
 }
@@ -362,7 +364,10 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
           turn.parts.push({ kind: "text", text: b.text });
         } else if (b.type === "thinking") {
           const thinking = typeof b.thinking === "string" ? b.thinking : typeof b.text === "string" ? b.text : "";
-          if (thinking.length > 0) turn.parts.push({ kind: "thinking", text: thinking });
+          // the terminal prints an "updates" entry's thinking as narration between the tools, so it
+          // is read as that: commentary keeps it in the work block, never taken for the answer
+          if (thinking.trim().length > 0 && entry.thinkingDisplay === "updates") turn.parts.push({ kind: "text", text: thinking, phase: "commentary" });
+          else if (thinking.length > 0) turn.parts.push({ kind: "thinking", text: thinking });
         } else if (b.type === "tool_use" && typeof b.name === "string") {
           const input = (typeof b.input === "object" && b.input !== null ? b.input : {}) as Record<string, unknown>;
           const part: Extract<ConversationPart, { kind: "tool" }> = {
