@@ -28,7 +28,7 @@ import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPan
 import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
 import { codexHistorySegments, createCodexTranscriptParser, codexOutputText, codexTranscriptPath, defaultCodexHome, paneCodexHome, parseCodexTranscript, readRange } from "./codex.ts";
 import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
-import { claudeProcessSession, claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
+import { claudeProcessSession, claudeTranscriptFile, defaultClaudeConfigDir, forgetClaudeSessions, processClaudeConfigDir } from "./claude-store.ts";
 import { ConversationUnavailable, HistoryChanged } from "./conversation-errors.ts";
 import { opencodeConversations, opencodeSessionId } from "./opencode-session.ts";
 import { piTranscriptPath, unwrittenSession } from "./pi.ts";
@@ -655,22 +655,29 @@ function parseCursor(stream: TranscriptStream, cursor: string): number {
   return offset;
 }
 
-/** Claude's transcript: Herdr's hook, or a unique live Claude's native PID record. */
+/**
+ * Claude's transcript: Herdr's hook, or a unique live Claude's native PID record, in the config dir
+ * of the pane's Claude process (a launcher can give each environment its own CLAUDE_CONFIG_DIR).
+ */
 async function claudeTranscriptPath(paneId: string, cwds: readonly (string | null | undefined)[]): Promise<string> {
   const info = await herdrRpc<{ agent: { agent_session?: { value?: unknown } } }>("agent.get", { target: paneId });
   let session = info.agent.agent_session?.value;
   const home = process.env["HOME"] ?? "";
-  if ((typeof session !== "string" || !SESSION_ID.test(session)) && process.platform === "linux") {
-    const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; name?: string; argv?: string[] }[] } }>(
+  let processes: { pid: number; name?: string; argv0?: string; argv?: string[] }[] = [];
+  try {
+    const processInfo = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; name?: string; argv0?: string; argv?: string[] }[] } }>(
       "pane.process_info", { pane_id: paneId },
     );
-    const processes = info.process_info?.foreground_processes?.filter((entry) =>
-      entry.name === "claude" || /(?:^|\/)claude$/.test(entry.argv?.[0] ?? ""),
+    processes = processInfo.process_info?.foreground_processes?.filter((entry) =>
+      // macOS keeps the executable name "node" for npm installs; the process title is argv0.
+      entry.name === "claude" || /(?:^|\/)claude$/.test(entry.argv0 ?? "") || /(?:^|\/)claude$/.test(entry.argv?.[0] ?? ""),
     ) ?? [];
-    if (processes.length === 1 && processes[0]) session = await claudeProcessSession(home, processes[0].pid);
-  }
+  } catch { /* herdr busy: the default store */ }
+  const only = processes.length === 1 ? processes[0] : undefined;
+  const configDir = (only && await processClaudeConfigDir(only.pid, only.argv ?? [only.argv0 ?? only.name ?? ""])) || defaultClaudeConfigDir(home);
+  if ((typeof session !== "string" || !SESSION_ID.test(session)) && only) session = await claudeProcessSession(home, only.pid, configDir);
   if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
-  const path = await claudeTranscriptFile(home, session, cwds);
+  const path = await claudeTranscriptFile(home, session, cwds, configDir);
   // Claude writes the file with its first message: until then the session it reports holds nothing
   if (!path) throw new ConversationNotStarted(session, "claude-transcript");
   return path;

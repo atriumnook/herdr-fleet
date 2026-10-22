@@ -2,8 +2,9 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeProcessSession, claudeProjectDir, claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
+import { claudeProcessSession, claudeProjectDir, claudeTranscriptFile, configDirInPsLine, forgetClaudeSessions, processClaudeConfigDir } from "./claude-store.ts";
 
+const NATIVE = process.platform === "linux" || process.platform === "darwin";
 const SESSION = "0b8e6f0e-8d3f-4c1a-9a53-6c2b7a1d9e42";
 
 describe("claudeProcessSession", () => {
@@ -14,14 +15,16 @@ describe("claudeProcessSession", () => {
     roots.push(home);
     const dir = join(home, ".claude", "sessions");
     mkdirSync(dir, { recursive: true });
-    const procStart = readFileSync("/proc/self/stat", "utf8").split(") ").pop()?.split(" ")[19];
+    const procStart = process.platform === "linux"
+      ? readFileSync("/proc/self/stat", "utf8").split(") ").pop()?.split(" ")[19]
+      : Bun.spawnSync(["/bin/ps", "-o", "lstart=", "-p", String(process.pid)], { env: { ...process.env, TZ: "UTC" } }).stdout.toString().trim();
     writeFileSync(join(dir, `${process.pid}.json`), JSON.stringify({
       pid: process.pid, sessionId: SESSION, procStart, kind: "interactive", ...patch,
     }));
     return home;
   }
 
-  it.skipIf(process.platform !== "linux")("reads an exact live PID's session without a cwd guess", async () => {
+  it.skipIf(!NATIVE)("reads an exact live PID's session without a cwd guess", async () => {
     const home = nativeRecord();
     expect(await claudeProcessSession(home, process.pid)).toBe(SESSION);
   });
@@ -34,13 +37,13 @@ describe("claudeProcessSession", () => {
     ["a path in place of a UUID", { sessionId: "../../other" }],
     ["a missing session ID", { sessionId: null }],
   ] satisfies [string, Record<string, unknown>][]) {
-    it.skipIf(process.platform !== "linux")(`rejects ${name}`, async () => {
+    it.skipIf(!NATIVE)(`rejects ${name}`, async () => {
       const home = nativeRecord(patch);
       expect(await claudeProcessSession(home, process.pid)).toBeNull();
     });
   }
 
-  it.skipIf(process.platform !== "linux")("returns no identity for absent, torn or oversized records", async () => {
+  it.skipIf(!NATIVE)("returns no identity for absent, torn or oversized records", async () => {
     const home = nativeRecord();
     const path = join(home, ".claude", "sessions", `${process.pid}.json`);
     rmSync(path);
@@ -52,7 +55,7 @@ describe("claudeProcessSession", () => {
     expect(await claudeProcessSession(home, -1)).toBeNull();
   });
 
-  it.skipIf(process.platform !== "linux")("does not wait on a FIFO or follow a link in the record's place", async () => {
+  it.skipIf(!NATIVE)("does not wait on a FIFO or follow a link in the record's place", async () => {
     const home = nativeRecord();
     const path = join(home, ".claude", "sessions", `${process.pid}.json`);
     const target = join(home, "elsewhere.json");
@@ -153,5 +156,42 @@ describe("claudeTranscriptFile", () => {
     const { home: dir } = home();
     expect(await claudeTranscriptFile(dir, SESSION, ["/w/project"])).toBeNull();
     expect(await claudeTranscriptFile(join(dir, "missing"), SESSION, ["/w/project"])).toBeNull();
+  });
+});
+
+describe("CLAUDE_CONFIG_DIR", () => {
+  afterEach(() => forgetClaudeSessions());
+  it("reads the last assignment of a ps line, through a path with spaces", () => {
+    expect(configDirInPsLine("claude --resume HOME=/h CLAUDE_CONFIG_DIR=/Users/me/.cac/envs/work/.claude PATH=/bin")).toBe("/Users/me/.cac/envs/work/.claude");
+    expect(configDirInPsLine("claude CLAUDE_CONFIG_DIR=/a b/.claude")).toBe("/a b/.claude");
+    expect(configDirInPsLine("claude HOME=/h")).toBeNull();
+  });
+
+  it("finds a transcript in the given store instead of ~/.claude", async () => {
+    forgetClaudeSessions();
+    const home = mkdtempSync(join(tmpdir(), "herdr-claude-dir-"));
+    try {
+      const store = join(home, "env", ".claude");
+      mkdirSync(join(store, "projects", claudeProjectDir("/work/app")), { recursive: true });
+      const path = join(store, "projects", claudeProjectDir("/work/app"), `${SESSION}.jsonl`);
+      writeFileSync(path, "{}\n");
+      expect(await claudeTranscriptFile(home, SESSION, ["/work/app"])).toBeNull();
+      expect(await claudeTranscriptFile(home, SESSION, ["/work/app"], store)).toBe(path);
+    } finally { rmSync(home, { recursive: true, force: true }); }
+  });
+
+  it.skipIf(process.platform !== "linux" && process.platform !== "darwin")("reads a running process's own store", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "herdr-claude-env-"));
+    // macOS hides system binaries' environments; use a started user process, as Claude is.
+    const sleeper = (env: Record<string, string | undefined>) => Bun.spawn(
+      [process.execPath, "-e", "console.log('ready'); await Bun.sleep(5000)"], { env, stdout: "pipe" },
+    );
+    const child = sleeper({ ...process.env, CLAUDE_CONFIG_DIR: dir });
+    const bare = sleeper({ PATH: process.env["PATH"] ?? "" });
+    try {
+      for (const process of [child, bare]) await process.stdout.getReader().read();
+      expect(await processClaudeConfigDir(child.pid)).toBe(dir);
+      expect(await processClaudeConfigDir(bare.pid)).toBeNull();
+    } finally { child.kill(); bare.kill(); rmSync(dir, { recursive: true, force: true }); }
   });
 });
