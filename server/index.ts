@@ -59,7 +59,7 @@ import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 import { MirrorSession } from "./mirror.ts";
 import { paneGrid, type Grid } from "./pane-grid.ts";
 import { mirrorInput } from "./mirror-input.ts";
-import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
+import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer, wireBytes } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
@@ -76,7 +76,7 @@ import { RunRegistry } from "./fleet/registry.ts";
 import { HerdrRuntime } from "./fleet/runtime.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 
-const MAX_REPLAY_BYTES = 256 * 1024;
+const MAX_REPLAY_BYTES = 128 * 1024;
 /**
  * herdr's refusal of an attach while a read of the same terminal is in progress; it asks
  * for a retry. A read of more lines than an idle alt-screen agent (Codex) shows, like the
@@ -251,6 +251,7 @@ interface PaneAttachment {
   regrid?: () => Promise<void>;
   /** bounded tail so a client joining late still sees the current screen */
   replay: ReplayBuffer;
+  /** when each client without ACKs (no OutputWindow) became blocked on its transport queue */
   stalled: Map<Client, number>;
   /** another web bridge holds herdr's one attach slot for this terminal: waiting for it to let go */
   held?: boolean;
@@ -443,7 +444,15 @@ export function createServer(
     for (const client of attachment.clients) {
       const window = client.data.output.get(paneId);
       const buffered = client.getBufferedAmount();
-      const blocked = window?.blocked || buffered >= OUTPUT_HIGH_BYTES;
+      if (window) {
+        // an ACK client: measured by its ACK progress, and a joiner draining its replay never pauses the pty
+        const verdict = window.check(buffered);
+        if (verdict === "stop") stopSlowClient(client);
+        else if (verdict === "pause") paused = true;
+        continue;
+      }
+      // a client without ACKs has only its transport queue to go by
+      const blocked = buffered >= OUTPUT_HIGH_BYTES;
       if (!blocked) {
         attachment.stalled.delete(client);
         continue;
@@ -470,7 +479,7 @@ export function createServer(
     }
     send(client, {
       type: "pty-data", pane_id: paneId, data,
-      ...(window ? { flow: { stream_id: window.id, offset: window.write(bytes) } } : {}),
+      ...(window ? { flow: { stream_id: window.id, offset: window.write(bytes, wireBytes(data)) } } : {}),
     });
   }
   const push = createPushService({
@@ -1739,7 +1748,10 @@ export function createServer(
               // hand the newcomer the current screen it would otherwise have missed
               // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
               const replay = attachment.mirror ? attachment.mirror.current ?? "" : attachment.replay.text();
-              if (!alreadyAttached && replay) sendOutput(client, message.pane_id, replay);
+              if (!alreadyAttached && replay) {
+                client.data.output.get(message.pane_id)?.join(replay, client.getBufferedAmount());
+                sendOutput(client, message.pane_id, replay);
+              }
               // a pane waiting for another web bridge to let go says so to each newcomer, too
               if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
               reconcileOutput(message.pane_id);
