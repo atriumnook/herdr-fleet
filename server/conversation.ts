@@ -21,7 +21,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
-import { closeSync, openSync, readFileSync, readSync, statSync } from "node:fs";
+import { closeSync, openSync, readFileSync, readSync, realpathSync, statSync } from "node:fs";
 import nodePath, { type PlatformPath } from "node:path";
 
 import type { ConversationMetadata, ConversationPart, ConversationTurn, HerdrPane } from "../shared/protocol.ts";
@@ -31,7 +31,7 @@ import { CODEX_IMAGE_REF, codexTranscriptImage } from "./codex-images.ts";
 import { claudeProcessSession, claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
 import { ConversationUnavailable, HistoryChanged } from "./conversation-errors.ts";
 import { opencodeConversations, opencodeSessionId } from "./opencode-session.ts";
-import { piTranscriptPath } from "./pi.ts";
+import { piTranscriptPath, unwrittenSession } from "./pi.ts";
 import { piAbandonedTurns, piBranchSegments } from "./pi-tree.ts";
 import { trimOutput } from "./tool-output.ts";
 import { parseConversationMetadata } from "./conversation-metadata.ts";
@@ -221,6 +221,9 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
   return turns.filter((turn) => turn.parts.length > 0).slice(-maxTurns);
 }
 
+/** Read sessions by source and canonical path (Claude uses its unique session id): a removed file is not unwritten. */
+const writtenSessions = new Set<string>();
+
 /** Re-parse on file changes, including replacement and same-size rewrites. */
 const cache = new Map<string, { signature: string; turns: ConversationTurn[]; metadata: ConversationMetadata; cursor: string | null; abandoned?: { count: number; branches: number; summary: string | null } }>();
 
@@ -228,6 +231,14 @@ export { ConversationUnavailable, HistoryChanged };
 
 /** The stores that are a file on disk; OpenCode 2 is read through its CLI instead (opencode-session.ts) */
 type TranscriptSource = "claude-transcript" | "omp-transcript" | "pi-transcript" | "codex-transcript";
+
+/** The pane's agent holds a session it has not written yet: a conversation with no turns, not a missing one. */
+export class ConversationNotStarted extends ConversationUnavailable {
+  constructor(readonly sessionId: string, readonly source: TranscriptSource, readonly identity: string = sessionId) {
+    super("session_not_written");
+    this.name = "ConversationNotStarted";
+  }
+}
 
 /** What paneConversation resolved: which store the turns came from, and where they start. */
 export type RecognizedConversation = {
@@ -622,6 +633,7 @@ function liveTurns(path: string, stream: TranscriptStream, source: TranscriptSou
 /** Forget every scan and parse kept between polls (tests compare against a cold read). */
 export function forgetTranscriptState(): void {
   cache.clear();
+  writtenSessions.clear();
   forgetClaudeSessions();
   liveScans.clear();
   settledTurns.clear();
@@ -659,7 +671,8 @@ async function claudeTranscriptPath(paneId: string, cwds: readonly (string | nul
   }
   if (typeof session !== "string" || !SESSION_ID.test(session)) throw new ConversationUnavailable("no_session_id");
   const path = await claudeTranscriptFile(home, session, cwds);
-  if (!path) throw new ConversationUnavailable("transcript_missing");
+  // Claude writes the file with its first message: until then the session it reports holds nothing
+  if (!path) throw new ConversationNotStarted(session, "claude-transcript");
   return path;
 }
 
@@ -692,6 +705,9 @@ async function ompTranscriptPath(paneId: string): Promise<string> {
   // a Windows bridge starts with HOME set to the profile directory (remote-entry.ts)
   const path = ompSessionPath(session?.kind === "path" ? session.value : undefined, process.env["HOME"] ?? "");
   if (!path) throw new ConversationUnavailable("no_session_path");
+  // omp names its session file at start and writes it with the first answer
+  const unwritten = unwrittenSession(path, nodePath.join(process.env["HOME"] ?? "", ".omp", "agent", "sessions"));
+  if (unwritten !== null) throw new ConversationNotStarted(unwritten.id, "omp-transcript", unwritten.path);
   return path;
 }
 
@@ -710,9 +726,10 @@ async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: strin
   if (agent === "claude") return { source: "claude-transcript", path: await claudeTranscriptPath(paneId, [cwd, pane.foreground_cwd]) };
   if (agent === "omp") return { source: "omp-transcript", path: await ompTranscriptPath(paneId) };
   if (agent === "pi") {
-    const path = await piTranscriptPath(paneId);
-    if (!path) throw new ConversationUnavailable("no_session_path");
-    return { source: "pi-transcript", path };
+    const found = await piTranscriptPath(paneId);
+    if (found === null) throw new ConversationUnavailable("no_session_path");
+    if ("unwritten" in found) throw new ConversationNotStarted(found.unwritten.id, "pi-transcript", found.unwritten.path);
+    return { source: "pi-transcript", path: found.path };
   }
   throw new ConversationUnavailable("no_recognized_transcript");
 }
@@ -741,8 +758,27 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     if (session === null) throw new ConversationUnavailable("no_session_path");
     return opencodeConversations().page(session, pane.agent_status === "working" || pane.agent_status === "blocked", page);
   }
-  const resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes);
-  return transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome);
+  let resolved: Awaited<ReturnType<typeof resolveTranscript>>;
+  try {
+    resolved = await resolveTranscript(pane, pane.cwd, codexHome, snapshot.panes);
+  } catch (error) {
+    if (!(error instanceof ConversationNotStarted)) throw error;
+    // a file read before and gone since is no conversation not begun: the terminal stands in for it
+    if (writtenSessions.has(`${error.source}\0${error.identity}`)) throw new ConversationUnavailable("transcript_missing");
+    // nothing comes before a conversation not begun: a cursor into it is another one's
+    if (page.before !== undefined || page.since !== undefined || page.from !== undefined) throw new HistoryChanged();
+    // an agent at work on its first turn has written nothing yet, but its terminal shows the turn
+    if (pane.agent_status === "working" || pane.agent_status === "blocked") throw error;
+    // the chat says there is nothing yet; the session's first prompt writes the file and
+    // the next poll's history_id differs, so the chat takes it whole
+    const id = `unwritten:${error.sessionId}`;
+    return { source: error.source, turns: [], metadata: { model: null, reasoning_effort: null }, cursor: null, history_id: id, version: answerVersion(id, "") };
+  }
+  const identity = resolved.source === "claude-transcript" ? nodePath.basename(resolved.path, ".jsonl")
+    : resolved.source === "pi-transcript" || resolved.source === "omp-transcript" ? realpathSync(resolved.path) : null;
+  const answer = transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome);
+  if (identity !== null) writtenSessions.add(`${resolved.source}\0${identity}`);
+  return answer;
 }
 
 /** One page of a resolved transcript (paneConversation's `page`). */

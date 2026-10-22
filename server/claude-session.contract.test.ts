@@ -14,6 +14,7 @@ const workspaces: string[] = [];
 const FIRST = "8d8f7d39-6788-49f3-b071-e3ba985c163c";
 const SECOND = "f2f55dc4-50ad-478c-a641-bf21268a1bba";
 const NEXT = "9343d82a-890c-4a39-a4a7-33c017d496f1";
+const UNWRITTEN = "5b0c7f1e-3d2a-4c8b-9e6f-0a1b2c3d4e5f";
 const project = join(root, ".claude", "projects", claudeProjectDir(root));
 let server: ReturnType<typeof createServer>;
 let first: { pane: string; pid: number };
@@ -118,6 +119,19 @@ it.skipIf(process.platform !== "linux")("refuses a reused PID record rather than
     writeFileSync(path, JSON.stringify({ ...JSON.parse(previous), procStart: "1" }));
     expect(await read(first.pane)).toEqual({ source: "scrollback", turns: [] });
   } finally { writeFileSync(path, previous); }
+});
+
+it.skipIf(process.platform !== "linux")("answers a session Claude has not written yet as an empty conversation, then follows the file it writes", async () => {
+  const fresh = await pane(UNWRITTEN);
+  const blank = await read(fresh.pane);
+  expect(blank).toMatchObject({ source: "claude-transcript", turns: [], cursor: null, history_id: `unwritten:${UNWRITTEN}` });
+  transcript(UNWRITTEN);
+  const written = await read(fresh.pane);
+  expect(written.source).toBe("claude-transcript");
+  expect(written.history_id).not.toBe(`unwritten:${UNWRITTEN}`);
+  expect(written.turns.at(-1)?.parts[0]).toMatchObject({ text: `Answer ${UNWRITTEN}` });
+  rmSync(join(project, `${UNWRITTEN}.jsonl`));
+  expect(await read(fresh.pane)).toEqual({ source: "scrollback", turns: [] });
 });
 
 it.skipIf(process.platform !== "linux")("keeps the existing Herdr hook path when no native PID record is available", async () => {
