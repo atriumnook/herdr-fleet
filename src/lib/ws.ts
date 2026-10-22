@@ -25,6 +25,8 @@ const SUBMIT_TIMEOUT_MS = 90_000;
  */
 const CONNECT_TIMEOUT_MS = 8_000;
 const CONNECT_TIMEOUT_MAX_MS = 30_000;
+/** A completed handshake alone is not recovery: short-lived opens must keep the retry backoff. */
+const STABLE_CONNECTION_MS = 10_000;
 /**
  * Liveness (feature "ping"): a socket can read OPEN while its TCP path is gone (a phone moved from
  * Wi-Fi to cellular, a NAT entry expired while it slept) and no close event comes for minutes. The
@@ -96,6 +98,8 @@ export class HerdrSocket {
   private readonly inputReady = new Set<string>();
   private readonly attached = new Map<string, AttachState>();
   private retries = 0;
+  /** When this connection opened; a brief open must not restart a flapping connection's retries. */
+  private openedAt: number | null = null;
   private reconnectTimer: number | null = null;
   /** the deadline of the attempt still in CONNECTING */
   private connectTimer: number | null = null;
@@ -197,14 +201,13 @@ export class HerdrSocket {
     }, Math.min(CONNECT_TIMEOUT_MAX_MS, CONNECT_TIMEOUT_MS * 2 ** this.connectTimeouts));
 
     socket.addEventListener("open", () => {
-      if (this.socket === socket) {
-        this.clearConnectTimer();
-        this.connectTimeouts = 0;
-        this.connectionState = "open";
-        this.lastFrameAt = Date.now();
-        this.watchIdle(socket);
-      }
-      this.retries = 0;
+      if (this.socket !== socket) return;
+      this.clearConnectTimer();
+      this.connectTimeouts = 0;
+      this.connectionState = "open";
+      this.openedAt = Date.now();
+      this.lastFrameAt = this.openedAt;
+      this.watchIdle(socket);
       // always send the role, never only when non-default: a user can flip the role
       // while disconnected (setMode stores it without sending), so without this frame
       // the reconnect would leave the server on the stale role and no ack would ever
@@ -301,6 +304,8 @@ export class HerdrSocket {
 
   /** Drops the current connection: its submits settle as disconnected and the disconnect handlers run. */
   private endConnection(): void {
+    if (this.openedAt !== null && Date.now() - this.openedAt >= STABLE_CONNECTION_MS) this.retries = 0;
+    this.openedAt = null;
     this.socket = null;
     this.clearConnectTimer();
     this.clearLiveness();
