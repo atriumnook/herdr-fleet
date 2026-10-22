@@ -283,6 +283,10 @@ export function PaneTerminal({
       // a chosen family follows in the font effect below, once its faces have loaded
       fontFamily: TERMINAL_FONT_STACK,
       theme: terminalTheme(theme),
+      // a program's own colors suit one background (Claude Code's question titles are #ffffff, near
+      // 1:1 on the light palette): xterm moves a foreground under 4.5:1 toward black or white. Dim text
+      // needs half that, and box, block and powerline glyphs keep their color.
+      minimumContrastRatio: 4.5,
       linkHandler: {
         activate: (event, uri) => {
           if (!linkPressed(event)) return;
