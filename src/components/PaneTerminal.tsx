@@ -7,6 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
+import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
 import { EMPTY_DRAFT, applyToDraft, besideHeldDraft, draftHoldsText, draftIsEmpty } from "../lib/draft.ts";
 import { QUEUE_READY_STATUS } from "../lib/compose.ts";
 import { answerHint } from "../lib/promptAnswer.ts";
@@ -684,6 +685,7 @@ export function PaneTerminal({
         const generation = outputGeneration;
         term.write(message.data, () => {
           acknowledge?.();
+          if (disposed) return;
           if (paneRef.current !== owner || generation !== outputGeneration) return;
           followCursor();
           const lines: string[] = [];
@@ -981,6 +983,7 @@ export function PaneTerminal({
 
     return () => {
       disposed = true;
+      term.options.disableStdin = true;
       observer.disconnect();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       host.removeEventListener("touchstart", onTouchStart);
@@ -1009,7 +1012,10 @@ export function PaneTerminal({
       stopGlyphs();
       host.removeEventListener("compositionstart", compositionStart);
       host.removeEventListener("compositionend", compositionEnd);
-      term.dispose();
+      // a replacement mount must not share its host with the retiring terminal; its renderer goes
+      // once the frame and task xterm already scheduled have run (they read its dimensions)
+      term.element?.remove();
+      disposeAfterPendingFrame(term);
       termRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one terminal for the mount; theme/font follow in their own effect
