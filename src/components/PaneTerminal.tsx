@@ -981,8 +981,24 @@ export function PaneTerminal({
       if (document.visibilityState === "visible") return back();
       leave();
     };
+    // Another device can size the pty while this window keeps its focus (a phone used beside a PC
+    // left in front): no focus event comes back here, so a click or key in this terminal takes the
+    // pane back to this window's grid. Only input meant for the terminal itself: a right-click, a
+    // held key's repeats or an IME composition must not resize the pty under the other device.
+    const reclaim = (event: Event): void => {
+      const shared = sharedGridRef.current;
+      if (!shared || !(event.target instanceof Node) || !term.element?.contains(event.target)) return;
+      // an IME's first key comes before compositionstart, with isComposing still false (keyCode 229)
+      if (event instanceof KeyboardEvent && (event.repeat || event.isComposing || event.keyCode === 229 || composingRef.current)) return;
+      if (event instanceof PointerEvent && event.button !== 0) return;
+      // the grid follows the one another device set: compare it with the grid this window fits
+      const own = fit.proposeDimensions();
+      if (own && (shared.cols !== own.cols || shared.rows !== own.rows)) refit();
+    };
     window.addEventListener("focus", refit);
     window.addEventListener("blur", leave);
+    window.addEventListener("pointerdown", reclaim, { capture: true });
+    window.addEventListener("keydown", reclaim, { capture: true });
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
@@ -1002,6 +1018,8 @@ export function PaneTerminal({
       selectionChange.dispose();
       window.removeEventListener("focus", refit);
       window.removeEventListener("blur", leave);
+      window.removeEventListener("pointerdown", reclaim, { capture: true });
+      window.removeEventListener("keydown", reclaim, { capture: true });
       document.removeEventListener("visibilitychange", onVisible);
       onShiftEnter.dispose();
       onCommandBackspace.dispose();
