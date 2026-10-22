@@ -55,6 +55,7 @@ import { codexQuestionsCollapsed, handlePromptRequest, liveScreen, promptWaitEnd
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
+import { AttachStartupProbes } from "./attach-output.ts";
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 import { MirrorSession } from "./mirror.ts";
 import { paneGrid, type Grid } from "./pane-grid.ts";
@@ -741,12 +742,14 @@ export function createServer(
       let heldSince = 0;
       let holding = false;
       let holdTimer: ReturnType<typeof setTimeout> | undefined;
+      const probes = new AttachStartupProbes();
       /** ended before its exit came: what it still prints is no attach's */
       let retired = false;
       const release = (): void => {
         clearTimeout(holdTimer);
         if (held === null) return;
-        const data = held;
+        // a read that ended inside what could have been a probe is output after all
+        const data = held + probes.flush();
         held = null;
         if (data) forward(data);
       };
@@ -884,6 +887,14 @@ export function createServer(
         rows: attachment.rows,
         onData: (data) => {
           if (retired || session === replaced || attachments.get(paneId) !== attachment) return;
+          // herdr's startup queries are the bridge's to answer: never readiness, broadcast or replay
+          if (!holding && held !== null) {
+            const before = held;
+            const taken = probes.take(data, (text) => ATTACH_PREAMBLE_RE.test(before + text));
+            if (taken.replies) session.write(taken.replies);
+            data = taken.output;
+          } else data = probes.flush() + data;
+          if (!data) return;
           output = (output + data).slice(-1024);
           if (held === null) return forward(data);
           held += data;
