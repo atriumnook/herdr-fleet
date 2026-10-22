@@ -228,7 +228,11 @@ const IMAGE_TYPES = new Set(["image/png", "image/jpeg", "image/gif", "image/webp
  * merge into a single turn (text parts + tool parts); each tool_use is followed
  * by a user tool_result entry, which is folded into the tool part it answers.
  */
-export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): ConversationTurn[] {
+/**
+ * `options.peersSeen`: the deliveries of other sessions' messages an earlier part of the same page
+ * read (liveTurns parses a page in parts), so an echo in a later part is no second notice.
+ */
+export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS, options: { peersSeen?: Set<string> } = {}): ConversationTurn[] {
   const turns: ConversationTurn[] = [];
   /** tool parts still waiting for their result, by tool_use id */
   const pending = new Map<string, Extract<ConversationPart, { kind: "tool" }>>();
@@ -252,7 +256,7 @@ export function parseClaudeTranscript(text: string, maxTurns = MAX_TURNS): Conve
   };
 
   // another session's deliveries seen in this text, by sender and message id: an echo is no second notice
-  const peersSeen = new Set<string>();
+  const peersSeen = options.peersSeen ?? new Set<string>();
 
   for (const line of text.split("\n")) {
     if (line.trim().length === 0) continue;
@@ -686,6 +690,8 @@ interface SettledTurns {
   metadata: ConversationMetadata;
   /** the bytes just before `end` (see LiveScan.tail) */
   tail: string;
+  /** other sessions' deliveries the settled turns hold (parseClaudeTranscript's peersSeen) */
+  peersSeen: Set<string>;
 }
 const settledTurns = new Map<string, SettledTurns>();
 
@@ -727,11 +733,11 @@ function newestPage(path: string, stream: TranscriptStream, source: TranscriptSo
   return start === undefined ? null : { start, starts };
 }
 
-function parseTurns(source: TranscriptSource, text: string): ConversationTurn[] {
+function parseTurns(source: TranscriptSource, text: string, peersSeen?: Set<string>): ConversationTurn[] {
   return source === "codex-transcript" ? parseCodexTranscript(text, Infinity)
     // only pi keeps a tool's images in the entry as base64; omp is read the same
     // way but would carry image refs nothing can answer, so the option stays with pi alone
-    : source === "claude-transcript" ? parseClaudeTranscript(text, Infinity)
+    : source === "claude-transcript" ? parseClaudeTranscript(text, Infinity, { peersSeen })
       : parseOmpTranscript(text, Infinity, { toolImages: source === "pi-transcript" });
 }
 
@@ -797,11 +803,11 @@ function liveTurns(path: string, stream: TranscriptStream, source: TranscriptSou
   let settled = settledTurns.get(key);
   if (!settled || settled.id !== stream.id || settled.end > last || bytesBefore(stream, settled.end) !== settled.tail) {
     const head = start > stream.floor ? metadataHead(path, stream, source, start) : "";
-    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start) };
+    settled = { id: stream.id, start, end: start, turns: [], metadata: parseConversationMetadata(`${head}\n`, source), tail: bytesBefore(stream, start), peersSeen: new Set() };
   }
   if (settled.end < last) {
     const text = readStream(stream, settled.end, last).toString("utf8");
-    settled = { ...settled, end: last, turns: [...settled.turns, ...parseTurns(source, text)], metadata: parseConversationMetadata(text, source, settled.metadata), tail: bytesBefore(stream, last) };
+    settled = { ...settled, end: last, turns: [...settled.turns, ...parseTurns(source, text, settled.peersSeen)], metadata: parseConversationMetadata(text, source, settled.metadata), tail: bytesBefore(stream, last) };
   }
   remember(settledTurns, key, settled, 8);
   if (source === "codex-transcript") {
@@ -809,7 +815,8 @@ function liveTurns(path: string, stream: TranscriptStream, source: TranscriptSou
     return { turns: [...settled.turns, ...live.turns], metadata: live.metadata };
   }
   const text = readStream(stream, last, stream.length).toString("utf8");
-  return { turns: [...settled.turns, ...parseTurns(source, text)], metadata: parseConversationMetadata(text, source, settled.metadata) };
+  // the live turn is parsed again on every poll: what it delivers is kept only once it settles
+  return { turns: [...settled.turns, ...parseTurns(source, text, new Set(settled.peersSeen))], metadata: parseConversationMetadata(text, source, settled.metadata) };
 }
 
 /** Forget every scan and parse kept between polls (tests compare against a cold read). */

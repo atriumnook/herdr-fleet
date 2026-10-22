@@ -501,6 +501,24 @@ describe("transcript pages", () => {
     ]);
   });
 
+  it("shows a delivery recorded twice once also when the echo is the newest turn the chat reads", () => {
+    const path = join(temp(), "peer-echo-last.jsonl");
+    const origin = { kind: "peer", from: "uds:x", msg_id: "m7", name: "FUSION", body: "R18 is ready" };
+    const envelope = "<cross-session-message from-name=\"FUSION\">\nR18 is ready\n</cross-session-message>";
+    const lines = [
+      { type: "user", message: { role: "user", content: "deck status?" } },
+      { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "working on it" }] } },
+      // queued mid-turn, then echoed as a meta entry, which ends the file: the settled turns and the live one
+      { type: "attachment", attachment: { type: "queued_command", commandMode: "prompt", prompt: envelope, origin } },
+      { type: "user", isMeta: true, origin, message: { role: "user", content: `Another Claude session sent a message:\n${envelope}` } },
+    ].map((entry) => JSON.stringify(entry));
+    writeFileSync(path, `${lines.join("\n")}\n`);
+    const notices = (turns: ReturnType<typeof parseClaudeTranscript>) => turns.flatMap((turn) => turn.parts).filter((part) => part.kind === "notice").length;
+    expect(notices(parseClaudeTranscript(lines.join("\n")))).toBe(1);
+    expect(notices(transcriptPage("claude-transcript", path).turns)).toBe(1);
+    expect(notices(transcriptPage("claude-transcript", path).turns)).toBe(1);
+  });
+
   it("pages back across other sessions' messages without gaps or overlaps", () => {
     const path = join(temp(), "peer-pages.jsonl");
     const envelope = (n: number) => `<cross-session-message from-name="FUSION">\nreply ${n}\n</cross-session-message>`;
