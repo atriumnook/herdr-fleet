@@ -900,6 +900,13 @@ async function ompTranscriptPath(paneId: string): Promise<string> {
   return path;
 }
 
+/** The transcript of the Claude Code session in a pane, or null when it runs none or none is written yet. */
+export async function claudePaneTranscript(pane: HerdrPane): Promise<string | null> {
+  if ((pane.agent ?? pane.agent_session?.agent) !== "claude") return null;
+  try { return await claudeTranscriptPath(pane.pane_id, [pane.cwd, pane.foreground_cwd]); }
+  catch (error) { if (error instanceof ConversationUnavailable) return null; throw error; }
+}
+
 /** The store a pane's transcript lives in, routed by herdr's agent label. */
 async function resolveTranscript(pane: HerdrPane, cwd: string, codexHome?: string, panes?: HerdrPane[]): Promise<{ source: TranscriptSource; path: string; codexHome?: string }> {
   const paneId = pane.pane_id;

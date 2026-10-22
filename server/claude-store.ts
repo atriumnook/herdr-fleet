@@ -15,7 +15,8 @@
 
 import { constants } from "node:fs";
 import { open, readFile, readdir, stat } from "node:fs/promises";
-import { dirname, isAbsolute, join } from "node:path";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, join } from "node:path";
 
 const MAX_PROJECT_NAME = 200;
 const SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -288,6 +289,33 @@ export async function claudeTranscriptFile(home: string, session: string, cwds: 
     const nextPath = await locate(next) ?? await backgroundJobTranscript(path, configDir);
     if (nextPath === null) return path;
     path = nextPath;
+  }
+  return null;
+}
+
+/**
+ * The folder Claude Code keeps for a session's own files outside the project, such as the
+ * `scratchpad/` it names in prose by a relative path: `<tmp>/claude-<uid>/<project>/<session>/`,
+ * <project> and <session> being the transcript's folder and name. Only a `claude-<uid>` folder
+ * this user owns is read (another user could make it first in a shared /tmp). Null when there is
+ * none, and on Windows, which has no uid.
+ */
+export async function claudeSessionTempDir(
+  transcript: string,
+  roots: readonly string[] = [...new Set([tmpdir(), "/tmp"])],
+  uid: number | undefined = process.getuid?.(),
+): Promise<string | null> {
+  if (uid === undefined || !transcript.endsWith(".jsonl")) return null;
+  const session = basename(transcript, ".jsonl");
+  if (!SESSION_ID.test(session)) return null;
+  const project = basename(dirname(transcript));
+  for (const root of roots) {
+    const base = join(root, `claude-${uid}`);
+    try {
+      if ((await stat(base)).uid !== uid) continue;
+      const dir = join(base, project, session);
+      if ((await stat(dir)).isDirectory()) return dir;
+    } catch { /* absent or unreadable: not in this root */ }
   }
   return null;
 }

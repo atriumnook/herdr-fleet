@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, it } from "bun:test";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "./index.ts";
@@ -118,6 +118,30 @@ it.skipIf(!NATIVE)("reads each hookless Claude pane's own conversation in a shar
   expect(a.turns.at(-1)?.parts[0]).toMatchObject({ text: `Answer ${FIRST}` });
   expect(b.source).toBe("claude-transcript");
   expect(b.turns.at(-1)?.parts[0]).toMatchObject({ text: `Answer ${SECOND}` });
+});
+
+it.skipIf(!NATIVE || process.getuid === undefined)("opens a relative link into the pane's Claude session folder, and only that session's", async () => {
+  // Claude Code's own temp base for this user: only the test's project folder is made in it, and removed
+  const base = join(tmpdir(), `claude-${process.getuid!()}`);
+  const madeBase = !existsSync(base);
+  const projectTemp = join(base, claudeProjectDir(root));
+  mkdirSync(join(projectTemp, FIRST, "scratchpad"), { recursive: true });
+  writeFileSync(join(projectTemp, FIRST, "scratchpad", "notes.md"), "scratch notes");
+  const file = (paneId: string, path: string) =>
+    fetch(`http://127.0.0.1:${server.port}/api/fs/file?pane_id=${encodeURIComponent(paneId)}&path=${encodeURIComponent(path)}`);
+  try {
+    const found = await file(first.pane, "scratchpad/notes.md");
+    expect(found.status).toBe(200);
+    expect(await found.text()).toBe("scratch notes");
+    // a bare name is found under the folder too
+    expect(await (await file(first.pane, "notes.md")).text()).toBe("scratch notes");
+    // the other pane's session keeps no such folder
+    expect((await file(second.pane, "scratchpad/notes.md")).status).toBe(404);
+    expect((await file(first.pane, "scratchpad/missing.md")).status).toBe(404);
+  } finally {
+    rmSync(projectTemp, { recursive: true, force: true });
+    if (madeBase) rmSync(base, { recursive: true, force: true });
+  }
 });
 
 it.skipIf(!NATIVE)("follows the current PID record without retaining a previous session", async () => {
