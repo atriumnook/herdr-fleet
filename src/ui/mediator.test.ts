@@ -363,6 +363,7 @@ describe("Mediator", () => {
       const socket: PaneSocketHandle & { up: boolean } = {
         up: false,
         get connected() { return this.up; },
+        stoppedWhileHidden: false,
         attach: (paneId) => { calls.push(`attach ${paneId}`); },
         detach: (paneId) => { calls.push(`detach ${paneId}`); },
         resize: (paneId, cols, rows, force) => { calls.push(`resize ${paneId} ${cols}x${rows}${force ? " force" : ""}`); },
@@ -386,6 +387,7 @@ describe("Mediator", () => {
         output: (message, acknowledge) => { seen.push(`output ${message.data}`); acknowledge?.(); },
         message: (message) => { seen.push(message.type); },
         disconnected: () => { seen.push("disconnected"); },
+        reconnect: () => { seen.push("reconnect"); },
       };
       return { seen, sink };
     };
@@ -429,6 +431,33 @@ describe("Mediator", () => {
       expect(seen.at(-1)).toBe("disconnected");
       expect(mediator.getState().pane.connected).toBe(false);
       detach();
+    });
+
+    it("asks every terminal on the connection to attach again when the person reconnects one", () => {
+      const mediator = new Mediator(ports().ports);
+      const main = sinkFor();
+      const side = sinkFor();
+      mediator.attachTerminal(main.sink);
+      mediator.attachTerminal(side.sink, "side-terminal");
+      mediator.reconnectTerminals();
+      expect(main.seen).toEqual(["reconnect"]);
+      expect(side.seen).toEqual(["reconnect"]);
+    });
+
+    it("says a stopped output in every terminal on the connection, the side panel's too", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      mediator.attachTerminal(sinkFor().sink);
+      mediator.attachTerminal(sinkFor().sink, "side-terminal");
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p9", lens: "side-terminal" });
+      fake.socket.up = true;
+      fake.say({ type: "pty-data", pane_id: "w1:p1", data: "x" } as ServerMessage);
+      // the socket's own stop names no pane: the whole connection stopped
+      fake.say({ type: "error", code: "output_stalled", message: "could not keep up" } as ServerMessage);
+      expect(mediator.getState().pane.session).toMatchObject({ ended: true, outputError: "could not keep up" });
+      expect(mediator.getState().lenses["side-terminal"].session).toMatchObject({ ended: true, outputError: "could not keep up" });
     });
 
     it("writes each pane's output to the terminal that shows it: the pane's own, or the side panel's", () => {
@@ -476,6 +505,18 @@ describe("Mediator", () => {
       fake.say({ type: "pty-data", pane_id: "w1:p1", data: "x" } as ServerMessage);
       fake.say({ type: "error", code: "output_stalled", message: "could not keep up", pane_id: "w1:p1" } as ServerMessage);
       expect(mediator.getState().pane).toMatchObject({ connected: false, outputStopped: true, session: { ended: true, outputError: "could not keep up" } });
+    });
+
+    it("ends the terminal with the reason when the server cannot start herdr, for its own pane only", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      fake.socket.up = true;
+      fake.say({ type: "error", code: "attach_failed", message: "herdr could not be started", pane_id: "w1:p9" } as ServerMessage);
+      expect(mediator.getState().pane.session.ended).toBe(false);
+      fake.say({ type: "error", code: "attach_failed", message: "herdr could not be started", pane_id: "w1:p1" } as ServerMessage);
+      expect(mediator.getState().pane.session).toMatchObject({ ended: true, outputError: expect.stringContaining("HERDR_FLEET_HERDR_BIN") });
     });
 
     it("tells the state only what is said of the attached pane, and writes an unknown error in the grid", () => {

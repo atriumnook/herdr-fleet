@@ -7,6 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
+import { disposeAfterPendingFrame } from "../lib/terminalDispose.ts";
 import { EMPTY_DRAFT, applyToDraft, besideHeldDraft, draftHoldsText, draftIsEmpty } from "../lib/draft.ts";
 import { QUEUE_READY_STATUS } from "../lib/compose.ts";
 import { answerHint } from "../lib/promptAnswer.ts";
@@ -34,7 +35,7 @@ import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fo
 import { t } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
-import { fileUriPath, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
+import { fileUriPath, openWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
@@ -170,7 +171,7 @@ export function PaneTerminal({
   const emitRef = useRef(emit);
   emitRef.current = emit;
   // the Mediator owns the socket: its messages reach the grid through the sink, keystrokes go out through the link
-  const { attachTerminal, terminalLink: link } = useTerminal();
+  const { attachTerminal, terminalLink: link, reconnectTerminals } = useTerminal();
   /** what the grid asks of its socket: the pane shown, its size, the role */
   const command = useCallback((asked: PaneCommand) => emitRef.current({ type: "pane-command", machineId, command: asked }), [machineId]);
   // the attached pane as its socket told the Mediator; until it attached, nothing of it is known
@@ -186,6 +187,16 @@ export function PaneTerminal({
   const setComposing = useCallback((active: boolean) => { composingRef.current = active; setComposingState(active); }, []);
   const ctrlRef = useRef(false);
   const [ctrlArmed, setCtrlArmed] = useState(false);
+  // the pane attached again in place, after its output stopped (4008): the attach effect runs again
+  const [reattached, setReattached] = useState(0);
+  /** the next attach runs on its own, not on the person's click: it leaves the focus where it is */
+  const unaskedReattachRef = useRef(false);
+  const reattach = useCallback((asked = true) => {
+    unaskedReattachRef.current = !asked;
+    setReattached((count) => count + 1);
+  }, []);
+  /** the server stopped this connection's output (4008) since the pane was last attached */
+  const stalledRef = useRef(false);
   // observe mode: the ref is what onData and the resize listeners read mid-stream
   const observeRef = useRef(false);
   // a mirrored pane (no terminal attach on its PC): the grid is the pane's own in herdr, adopted like an observer's
@@ -277,12 +288,16 @@ export function PaneTerminal({
       // a chosen family follows in the font effect below, once its faces have loaded
       fontFamily: TERMINAL_FONT_STACK,
       theme: terminalTheme(theme),
+      // a program's own colors suit one background (Claude Code's question titles are #ffffff, near
+      // 1:1 on the light palette): xterm moves a foreground under 4.5:1 toward black or white. Dim text
+      // needs half that, and box, block and powerline glyphs keep their color.
+      minimumContrastRatio: 4.5,
       linkHandler: {
         activate: (event, uri) => {
           if (!linkPressed(event)) return;
           const path = fileUriPath(uri);
           if (path !== null) openFileRef.current?.(path);
-          else if (/^https?:\/\//i.test(uri)) window.open(uri, "_blank", "noopener,noreferrer");
+          else if (/^https?:\/\//i.test(uri)) openWebLink(uri);
         },
         allowNonHttpProtocols: true,
       },
@@ -293,7 +308,7 @@ export function PaneTerminal({
     term.loadAddon(fit);
     matchHerdrWidths(term);
     // an address in the terminal opens in a new tab; the page never navigates away from the pane
-    term.loadAddon(new WebLinksAddon((_event, uri) => { window.open(uri, "_blank", "noopener,noreferrer"); }));
+    term.loadAddon(new WebLinksAddon((_event, uri) => { openWebLink(uri); }));
     term.registerLinkProvider(terminalFileLinkProvider(() => term.buffer.active, (path, event) => { if (linkPressed(event)) openFileRef.current?.(path); }));
     term.open(host);
     const compositionStart = () => setComposing(true);
@@ -679,6 +694,7 @@ export function PaneTerminal({
         const generation = outputGeneration;
         term.write(message.data, () => {
           acknowledge?.();
+          if (disposed) return;
           if (paneRef.current !== owner || generation !== outputGeneration) return;
           followCursor();
           const lines: string[] = [];
@@ -750,8 +766,19 @@ export function PaneTerminal({
           term.options.disableStdin = true;
           return;
         }
+        // the state says it in the banner: no line in the grid
+        if (message.code === "attach_failed") {
+          if (message.pane_id === undefined || message.pane_id === paneRef.current) term.options.disableStdin = true;
+          return;
+        }
         if (message.code === "output_stalled" || message.code === "attach_conflict") {
           term.options.disableStdin = true;
+          if (message.code === "output_stalled") {
+            stalledRef.current = true;
+            // a frozen page reads the close after it is shown again: the stop belongs to the time it
+            // was put away, so attach again now, once (see onVisible)
+            if (link.stoppedWhileHidden() && document.visibilityState === "visible") queueMicrotask(() => { if (!disposed && stalledRef.current) reattach(false); });
+          }
           return;
         }
         term.writeln(`\r\n\u001b[31m[herdr-fleet] ${message.code}: ${message.message}\u001b[0m`);
@@ -761,6 +788,9 @@ export function PaneTerminal({
       // the reconnect attaches afresh: it says attach_held again if the other bridge still has
       // the pane, and a pane it gets straight away sends no attach-resumed to clear this
       heldRef.current = false;
+    }, reconnect: () => {
+      // Reconnect in another terminal of this connection: one stopped with it attaches again too
+      if (stalledRef.current) reattach();
     } }, lens);
     // the pane's own terminal opens its PC's socket; one beside shares it
     if (lens === "main") emitRef.current({ type: "open-pane-socket", machineId });
@@ -953,16 +983,42 @@ export function PaneTerminal({
       // the server says nothing when the pane's own grid is the one this view had
       followCursorRef.current?.();
     };
+    // A pane that kept its attach while the page was put away stopped because the frozen page sent
+    // no ACKs, not because this device is too slow: coming back attaches it again, once. A stop
+    // while the page stays in use is final (no reconnect loop).
+    const back = (): void => {
+      if (stalledRef.current && link.stoppedWhileHidden()) reattach(false);
+      else refit();
+    };
     const onVisible = (): void => {
-      if (document.visibilityState === "visible") return refit();
+      if (document.visibilityState === "visible") return back();
       leave();
+    };
+    // Another device can size the pty while this window keeps its focus (a phone used beside a PC
+    // left in front): no focus event comes back here, so a click or key in this terminal takes the
+    // pane back to this window's grid. Only input meant for the terminal itself: a right-click, a
+    // held key's repeats or an IME composition must not resize the pty under the other device.
+    const reclaim = (event: Event): void => {
+      const shared = sharedGridRef.current;
+      if (!shared || !(event.target instanceof Node) || !term.element?.contains(event.target)) return;
+      // an IME's first key comes before compositionstart, with isComposing still false (keyCode 229)
+      if (event instanceof KeyboardEvent && (event.repeat || event.isComposing || event.keyCode === 229 || composingRef.current)) return;
+      // a modifier alone (Ctrl to copy a selection) types nothing into the pane
+      if (event instanceof KeyboardEvent && ["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
+      if (event instanceof PointerEvent && event.button !== 0) return;
+      // the grid follows the one another device set: compare it with the grid this window fits
+      const own = fit.proposeDimensions();
+      if (own && (shared.cols !== own.cols || shared.rows !== own.rows)) refit();
     };
     window.addEventListener("focus", refit);
     window.addEventListener("blur", leave);
+    window.addEventListener("pointerdown", reclaim, { capture: true });
+    window.addEventListener("keydown", reclaim, { capture: true });
     document.addEventListener("visibilitychange", onVisible);
 
     return () => {
       disposed = true;
+      term.options.disableStdin = true;
       observer.disconnect();
       if (resizeTimer !== null) window.clearTimeout(resizeTimer);
       host.removeEventListener("touchstart", onTouchStart);
@@ -977,6 +1033,8 @@ export function PaneTerminal({
       selectionChange.dispose();
       window.removeEventListener("focus", refit);
       window.removeEventListener("blur", leave);
+      window.removeEventListener("pointerdown", reclaim, { capture: true });
+      window.removeEventListener("keydown", reclaim, { capture: true });
       document.removeEventListener("visibilitychange", onVisible);
       onShiftEnter.dispose();
       onCommandBackspace.dispose();
@@ -991,7 +1049,10 @@ export function PaneTerminal({
       stopGlyphs();
       host.removeEventListener("compositionstart", compositionStart);
       host.removeEventListener("compositionend", compositionEnd);
-      term.dispose();
+      // a replacement mount must not share its host with the retiring terminal; its renderer goes
+      // once the frame and task xterm already scheduled have run (they read its dimensions)
+      term.element?.remove();
+      disposeAfterPendingFrame(term);
       termRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- one terminal for the mount; theme/font follow in their own effect
@@ -1076,6 +1137,7 @@ export function PaneTerminal({
     if (!term) return;
     // everything known of the pane before goes: written, ready, held, ended, errors, a masked prompt
     emitRef.current({ type: "pane-attached", paneId });
+    stalledRef.current = false;
     setComposing(false);
     heldRef.current = false;
     fixedGridRef.current = false;
@@ -1098,11 +1160,14 @@ export function PaneTerminal({
     if (drives()) command({ kind: "resize", paneId, cols: term.cols, rows: term.rows, force: true });
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
-    if (!chatViewRef.current && !quiet && !coarseRef.current) term.focus();
+    // an attach again that the person did not ask for leaves the focus where they put it (the side chat, a field)
+    const unasked = unaskedReattachRef.current;
+    unaskedReattachRef.current = false;
+    if (!chatViewRef.current && !quiet && !unasked && !coarseRef.current) term.focus();
     return () => {
       command({ kind: "detach", paneId });
     };
-  }, [paneId]);
+  }, [paneId, reattached]);
 
   // the user picked the pane App had switched to on its own (the same row or lens again,
   // which changes neither the pane nor the lens): the grid takes the keyboard now
@@ -1268,7 +1333,7 @@ export function PaneTerminal({
         {paneId !== null && outputError && (
           <div className="terminal-banner terminal-banner-warning terminal-banner-output-error" role="status">
             <span>{outputError}</span>
-            <a className="btn" href={`?machine=${encodeURIComponent(machineId)}&pane=${encodeURIComponent(paneId)}`}>{t("Reconnect")}</a>
+            <button type="button" className="btn" onClick={() => { reattach(); reconnectTerminals(); }}>{t("Reconnect")}</button>
           </div>
         )}
         {!chatView && inputError && <div className="terminal-banner" role="status">{inputError}<button className="btn" onClick={() => emit({ type: "dismiss-input-error" })}>{t("Dismiss")}</button></div>}

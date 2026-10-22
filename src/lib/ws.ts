@@ -44,6 +44,12 @@ const PROBE_TIMEOUT_MAX_MS = 12_000;
 const PROBE_OVERDUE_MS = 2_000;
 const IDLE_PROBE_MS = 20_000;
 const IDLE_CHECK_MS = 5_000;
+/**
+ * How long after a page is shown again a 4008 still counts as the hidden page's. A frozen page
+ * reads the close only after it resumes, and the server's 2 s stall clock can still run out while
+ * the page works through the output it held back.
+ */
+const SHOWN_GRACE_MS = 5_000;
 const SOCKET_CLOSING = 2;
 const SOCKET_CLOSED = 3;
 const DISCONNECTED: SubmitResult = { ok: false, code: "disconnected", message: "the connection dropped before the pane confirmed this message" };
@@ -57,7 +63,8 @@ const DISCONNECTED: SubmitResult = { ok: false, code: "disconnected", message: "
  * - probing: open, a ping sent and its pong not back yet; terminal input is refused (it goes to the
  *   held draft) and submits, pending actions and secrets wait for the answer before they are sent
  * - waiting: no socket, a reconnect waits out its backoff
- * - stopped: output stopped (4008); only an attach reconnects
+ * - stopped: output stopped (4008); only an attach reconnects (PaneTerminal attaches again on its
+ *   own once when the stop came while the page was hidden, see stoppedWhileHidden)
  * - closed: close() was called
  */
 export type ConnectionState = "idle" | "connecting" | "open" | "probing" | "waiting" | "stopped" | "closed";
@@ -136,15 +143,26 @@ export class HerdrSocket {
   /** a page shown again or a network back: a reconnect waiting out its backoff runs now */
   private readonly onWake = (): void => {
     if (typeof document !== "undefined" && document.visibilityState === "hidden") {
+      this.pageHidden = true;
       // a deadline must not run out while the page is frozen, and a probe cut short is not an
       // answer: it pauses, and the page coming back asks again
       this.pauseProbe();
       return;
     }
+    if (this.pageHidden) {
+      this.pageHidden = false;
+      this.shownAt = Date.now();
+    }
     this.wake();
   };
   private mode: ClientRole = "interact";
-  private outputStopped = false;
+  private stopped = false;
+  /** the output stopped while the page was hidden, or just after it was shown again */
+  private stoppedHidden = false;
+  /** the page went hidden and has not been shown since */
+  private pageHidden = false;
+  /** when the page was last shown after being hidden (Date.now()); 0 once an attach after a stop used it */
+  private shownAt = 0;
   /** what the connected server listed in its snapshot: empty until it arrives, and on older bridges */
   private features = new Set<ServerFeature>();
   /** settles when this connection's snapshot arrives (or the connection ends) */
@@ -164,6 +182,20 @@ export class HerdrSocket {
 
   get state(): ConnectionState {
     return this.connectionState;
+  }
+
+  /** The server closed this connection with 4008: nothing reconnects until an attach. */
+  get outputStopped(): boolean {
+    return this.stopped;
+  }
+
+  /**
+   * The output stopped while the page was hidden or within SHOWN_GRACE_MS of being shown again: a
+   * frozen page sent no ACKs, so the device was put away rather than too slow. The page attaches
+   * again once when it is back in use; a stop while it stays in use is final (no reconnect loop).
+   */
+  get stoppedWhileHidden(): boolean {
+    return this.stopped && this.stoppedHidden;
   }
 
   connect(): void {
@@ -316,7 +348,9 @@ export class HerdrSocket {
   }
 
   private stopOutput(): void {
-    this.outputStopped = true;
+    this.stopped = true;
+    this.stoppedHidden = (typeof document !== "undefined" && document.visibilityState === "hidden")
+      || this.pageHidden || (this.shownAt > 0 && Date.now() - this.shownAt <= SHOWN_GRACE_MS);
     this.connectionState = "stopped";
     // stopped output stays stopped until an attach: no retry left armed may reconnect behind it
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
@@ -448,7 +482,11 @@ export class HerdrSocket {
     this.wakeListening = true;
     window.addEventListener("online", this.onWake);
     window.addEventListener("pageshow", this.onWake);
-    if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onWake);
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.onWake);
+      // a page loaded behind another app counts as put away until it is first shown
+      if (document.visibilityState === "hidden") this.pageHidden = true;
+    }
   }
 
   /**
@@ -465,7 +503,7 @@ export class HerdrSocket {
    * an attach resumes it.
    */
   wake(): void {
-    if (this.disposed || this.outputStopped) return;
+    if (this.disposed || this.stopped) return;
     const socket = this.socket;
     // an open socket may be half-open after a sleep or a network change: ask it (a bridge without "ping" is trusted)
     if (socket?.readyState === WebSocket.OPEN) {
@@ -499,7 +537,7 @@ export class HerdrSocket {
     this.connectionState = "waiting";
     this.reconnectTimer = window.setTimeout(() => {
       this.reconnectTimer = null;
-      if (this.outputStopped || this.disposed) return;
+      if (this.stopped || this.disposed) return;
       this.connect();
     }, delay);
   }
@@ -535,8 +573,11 @@ export class HerdrSocket {
     this.inputReady.delete(paneId);
     this.attached.set(paneId, { cols, rows, keepSize, drives: false });
     this.send({ type: "attach", pane_id: paneId, cols, rows, flow_control: "ack", ...(keepSize ? { keep_size: true } : {}) });
-    if (this.outputStopped) {
-      this.outputStopped = false;
+    if (this.stopped) {
+      this.stopped = false;
+      this.stoppedHidden = false;
+      // the time the page was shown is used up: a stop on this new connection while in use is final
+      this.shownAt = 0;
       this.connect();
     }
   }

@@ -50,6 +50,7 @@ export const JA: Record<string, string> = {
   "Not sent: the terminal is disconnected.": "送っていません。Terminal との接続が切れています。",
   "Not sent: send or discard the held input first.": "送っていません。先に、保持している入力を送るか破棄してください。",
   "Not sent: the terminal is not taking keys yet. Press it again in a moment.": "送っていません。Terminal はまだキー入力を受け付けていません。少し待ってからもう一度押してください。",
+  "herdr could not be started on the server, so this terminal cannot attach. Put herdr on the server's PATH or set HERDR_FLEET_HERDR_BIN to its full path.": "サーバーで herdr を起動できないため、この Terminal をつなげません。サーバーの PATH に herdr を置くか、HERDR_FLEET_HERDR_BIN に herdr のフルパスを指定してください。",
   // ---- secret input ----
   "Enter a single-line password or PIN.": "改行のないパスワードか PIN を入力してください。",
   "Update this PC to use masked input.": "伏せ字で入力するには、この PC の herdr-fleet を更新してください。",

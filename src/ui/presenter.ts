@@ -48,7 +48,7 @@ export function useStateNow(): () => UiState {
  * The terminal's way to its socket, which the Mediator owns: the sink its xterm takes the
  * socket's messages through, and the link its keystrokes go out by. Both are past the state.
  */
-export function useTerminal(): Pick<Mediator, "attachTerminal" | "terminalLink"> {
+export function useTerminal(): Pick<Mediator, "attachTerminal" | "terminalLink" | "reconnectTerminals"> {
   return useMediator();
 }
 

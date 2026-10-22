@@ -14,6 +14,7 @@ import type { InputDraft } from "../lib/draft.ts";
 import type { HeldMessage } from "../lib/messageQueue.ts";
 import type { Settings } from "../lib/settings.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
+import { t } from "../lib/i18n.ts";
 import { INITIAL_STATE, lensed, SIDE_LENSES, transition, type ComposerDraftChange, type ConversationOutcome, type Effect, type ExplainOutcome, type FileOutcome, type LineDraftChange, type QueueChange, type RequestAction, type SessionRequest, type TreeRequest, type Lens, type UiEvent, type UiState } from "./state.ts";
 
 type PtyData = Extract<ServerMessage, { type: "pty-data" }>;
@@ -21,6 +22,8 @@ type PtyData = Extract<ServerMessage, { type: "pty-data" }>;
 /** The terminal's socket (lib/ws.ts HerdrSocket), as the Mediator and the terminal use it. */
 export interface PaneSocketHandle {
   readonly connected: boolean;
+  /** the server stopped the output (4008) while the page was put away: it attaches again when back (ws.ts) */
+  readonly stoppedWhileHidden: boolean;
   attach(paneId: string, cols: number, rows: number, keepSize?: boolean): void;
   detach(paneId: string): void;
   resize(paneId: string, cols: number, rows: number, force?: boolean): void;
@@ -45,11 +48,15 @@ export interface TerminalSink {
   output(message: PtyData, acknowledge: (() => void) | undefined): void;
   message(message: ServerMessage): void;
   disconnected(): void;
+  /** the person pressed Reconnect in one terminal: one whose output stopped attaches again too */
+  reconnect(): void;
 }
 
 /** What the terminal sends straight to its socket: keystrokes, and a secret. Nothing while no socket is open. */
 export interface TerminalLink {
   connected(): boolean;
+  /** the output stopped while the page was put away, not because this device is too slow (ws.ts) */
+  stoppedWhileHidden(): boolean;
   canInput(paneId: string): boolean;
   sendInput(paneId: string, text: string): boolean;
   /** the one send a view awaits: a secret never enters the state or an event (SecretInput) */
@@ -209,6 +216,11 @@ export class Mediator {
     return () => { if (this.terminals.get(lens) === sink) this.terminals.delete(lens); };
   };
 
+  /** Reconnect in one terminal: the connection is every terminal's, so each one stopped with it attaches again. */
+  reconnectTerminals = (): void => {
+    for (const sink of [...this.terminals.values()]) sink.reconnect();
+  };
+
   /** The lens whose terminal shows a pane: a lens beside whose grid attached it, else the pane's own. */
   private lensOf(paneId: string | undefined): Lens {
     return SIDE_LENSES.find((lens) => paneId !== undefined && this.terminals.has(lens) && lensed(this.state, lens).pane.session.paneId === paneId) ?? "main";
@@ -216,6 +228,7 @@ export class Mediator {
 
   readonly terminalLink: TerminalLink = {
     connected: () => this.paneSocket?.handle.connected ?? false,
+    stoppedWhileHidden: () => this.paneSocket?.handle.stoppedWhileHidden ?? false,
     canInput: (paneId) => this.paneSocket?.handle.canInput(paneId) ?? false,
     sendInput: (paneId, text) => this.paneSocket?.handle.sendInput(paneId, text) ?? false,
     sendSecret: (paneId, prompt, secret) => this.paneSocket?.handle.sendSecret(paneId, prompt, secret) ?? null,
@@ -279,10 +292,20 @@ export class Mediator {
           dispatch({ type: message.code === "attach_held" ? "pane-attach-held" : "pane-terminal-unsupported", paneId: about });
           break;
         }
+        if (message.code === "attach_failed") {
+          if (about === null || about !== shown) return;
+          // the server could not start herdr: nothing is coming, so the terminal says why instead of waiting
+          dispatch({ type: "pane-output-failed", message: t("herdr could not be started on the server, so this terminal cannot attach. Put herdr on the server's PATH or set HERDR_FLEET_HERDR_BIN to its full path.") });
+          return;
+        }
         if (message.code === "output_stalled" || message.code === "attach_conflict") {
           if (message.code === "output_stalled") this.dispatch({ type: "output-stalled" });
           // the connection stays as the stop left it until the next read of it
           dispatch({ type: "pane-output-failed", message: message.message });
+          // the socket's own stop is the whole connection's: the side panel's terminal says it too, with its Reconnect
+          if (message.code === "output_stalled" && message.pane_id === undefined) {
+            for (const lens of SIDE_LENSES) if (this.terminals.has(lens)) this.dispatch({ type: "pane-output-failed", message: message.message, lens });
+          }
           return;
         }
         break;

@@ -993,3 +993,103 @@ it("lets an interrupt and other control keys through while a probe waits, never 
     jest.useRealTimers();
   }
 });
+
+/** A page whose visibility the test sets: install it before connect(), which listens for its changes. */
+function fakePage(): { hide(): void; show(): void; restore(): void } {
+  const listeners = new Map<string, () => void>();
+  const page = { visibilityState: "visible", addEventListener: (type: string, listener: () => void) => { listeners.set(type, listener); }, removeEventListener: () => {} };
+  const globalDocument = globalThis as unknown as { document?: unknown };
+  const previous = globalDocument.document;
+  globalDocument.document = page;
+  const change = (state: string) => { page.visibilityState = state; listeners.get("visibilitychange")?.(); };
+  return { hide: () => change("hidden"), show: () => change("visible"), restore: () => { globalDocument.document = previous; } };
+}
+
+it("marks a 4008 that came while the page was hidden, and an attach after it is shown reconnects and replays every attach", () => {
+  const page = fakePage();
+  const { client, socket } = liveClient([]);
+  try {
+    client.attach("w1:p2", 80, 24);
+    page.hide();
+    socket.closeEvent(OUTPUT_STALLED_CLOSE_CODE);
+    expect(client.outputStopped).toBe(true);
+    expect(client.stoppedWhileHidden).toBe(true);
+    // showing the page reconnects nothing by itself: the pane, back in use, attaches again
+    page.show();
+    expect(FakeSocket.last).toBe(socket);
+    client.attach("w1:p1", 100, 30);
+    expect(client.outputStopped).toBe(false);
+    expect(client.stoppedWhileHidden).toBe(false);
+    const reconnected = FakeSocket.last;
+    expect(reconnected).not.toBe(socket);
+    reconnected.open();
+    expect(reconnected.sent.filter((frame) => frame.type === "attach").map((frame) => frame.pane_id).sort()).toEqual(["w1:p1", "w1:p2"]);
+  } finally {
+    client.close();
+    page.restore();
+  }
+});
+
+it("counts a 4008 read just after the page is shown again as the hidden page's, once", () => {
+  jest.useFakeTimers();
+  const page = fakePage();
+  const { client, socket } = liveClient([]);
+  try {
+    page.hide();
+    page.show();
+    // the frozen page reads the server's close only after it resumed
+    jest.advanceTimersByTime(1_000);
+    socket.closeEvent(OUTPUT_STALLED_CLOSE_CODE);
+    expect(client.stoppedWhileHidden).toBe(true);
+    client.attach("w1:p1", 100, 30);
+    const reconnected = FakeSocket.last;
+    reconnected.open();
+    // the same device stalls again while in use: that stop is final
+    reconnected.closeEvent(OUTPUT_STALLED_CLOSE_CODE);
+    expect(client.outputStopped).toBe(true);
+    expect(client.stoppedWhileHidden).toBe(false);
+  } finally {
+    client.close();
+    page.restore();
+    jest.useRealTimers();
+  }
+});
+
+it("keeps a 4008 while the page is in use final: no reconnect on its own, on wake or later", () => {
+  jest.useFakeTimers();
+  const page = fakePage();
+  const { client, socket } = liveClient([]);
+  try {
+    page.hide();
+    page.show();
+    // long after the page came back, this device is simply too slow
+    jest.advanceTimersByTime(60_000);
+    socket.closeEvent(OUTPUT_STALLED_CLOSE_CODE);
+    expect(client.outputStopped).toBe(true);
+    expect(client.stoppedWhileHidden).toBe(false);
+    client.wake();
+    page.hide();
+    page.show();
+    jest.advanceTimersByTime(60_000);
+    expect(FakeSocket.last).toBe(socket);
+    expect(client.state).toBe("stopped");
+  } finally {
+    client.close();
+    page.restore();
+    jest.useRealTimers();
+  }
+});
+
+it("counts a page that connected while hidden as put away until it is first shown", () => {
+  const page = fakePage();
+  page.hide();
+  const { client, socket } = liveClient([]);
+  try {
+    page.show();
+    socket.closeEvent(OUTPUT_STALLED_CLOSE_CODE);
+    expect(client.stoppedWhileHidden).toBe(true);
+  } finally {
+    client.close();
+    page.restore();
+  }
+});

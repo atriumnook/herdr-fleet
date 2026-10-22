@@ -55,11 +55,12 @@ import { codexQuestionsCollapsed, handlePromptRequest, liveScreen, promptWaitEnd
 import { secretPrompt, validSecret } from "../shared/secret-prompt.ts";
 import { PasteImageError, savePaneImage } from "./paste.ts";
 import { PtySession } from "./pty/session.ts";
+import { AttachStartupProbes } from "./attach-output.ts";
 import { attachableIdentity, sidecarAvailable } from "./pty/sidecar.ts";
 import { MirrorSession } from "./mirror.ts";
 import { paneGrid, type Grid } from "./pane-grid.ts";
 import { mirrorInput } from "./mirror-input.ts";
-import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer } from "./output-window.ts";
+import { OutputWindow, OUTPUT_HIGH_BYTES, OUTPUT_HARD_BYTES, OUTPUT_STALL_MS, ReplayBuffer, wireBytes } from "./output-window.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 
 import { BRIDGE_PROTOCOL } from "../shared/machines.ts";
@@ -76,7 +77,7 @@ import { RunRegistry } from "./fleet/registry.ts";
 import { HerdrRuntime } from "./fleet/runtime.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 
-const MAX_REPLAY_BYTES = 256 * 1024;
+const MAX_REPLAY_BYTES = 128 * 1024;
 /**
  * herdr's refusal of an attach while a read of the same terminal is in progress; it asks
  * for a retry. A read of more lines than an idle alt-screen agent (Codex) shows, like the
@@ -97,13 +98,14 @@ const ATTACH_RETRY_MAX_MS = 500;
 /** a refused attach says so within milliseconds of its first bytes: those are held this long */
 const ATTACH_HOLD_MS = 100;
 /**
- * What `herdr terminal attach` writes itself before herdr has answered: terminal modes set and
- * reset only (mouse reporting off, the alternate screen on; the last one maybe cut short). The
- * answer can come any time after them, later than the hold on a busy PC, so they say nothing
- * about whether the attach took and do not start the hold. A refusal and a screen both begin
- * with something else.
+ * What `herdr terminal attach` writes itself before herdr has answered, and as the teardown of a
+ * refused one: terminal modes set and reset (mouse reporting off, the alternate screen on, then
+ * off) and the cursor style restored (`ESC [ 0 SP q`), the last one maybe cut short. The answer
+ * can come any time after them, later than the hold on a busy PC, and herdr writes its refusal
+ * apart from the teardown before it, so they say nothing about whether the attach took and do
+ * not start the hold. A refusal and a screen both begin with something else.
  */
-const ATTACH_PREAMBLE_RE = /^(?:\x1b\[\?[\d;]+[hl])*(?:\x1b(?:\[(?:\?[\d;]*)?)?)?$/;
+const ATTACH_PREAMBLE_RE = /^(?:\x1b\[(?:\?[\d;]+[hl]|\d* q))*(?:\x1b(?:\[(?:\?[\d;]*|\d+ ?| )?)?)?$/;
 /** how often a terminal another web bridge holds is tried again, while clients here still want it */
 const ATTACH_HELD_RETRY_MS = 3_000;
 /**
@@ -250,6 +252,7 @@ interface PaneAttachment {
   regrid?: () => Promise<void>;
   /** bounded tail so a client joining late still sees the current screen */
   replay: ReplayBuffer;
+  /** when each client without ACKs (no OutputWindow) became blocked on its transport queue */
   stalled: Map<Client, number>;
   /** another web bridge holds herdr's one attach slot for this terminal: waiting for it to let go */
   held?: boolean;
@@ -442,7 +445,15 @@ export function createServer(
     for (const client of attachment.clients) {
       const window = client.data.output.get(paneId);
       const buffered = client.getBufferedAmount();
-      const blocked = window?.blocked || buffered >= OUTPUT_HIGH_BYTES;
+      if (window) {
+        // an ACK client: measured by its ACK progress, and a joiner draining its replay never pauses the pty
+        const verdict = window.check(buffered);
+        if (verdict === "stop") stopSlowClient(client);
+        else if (verdict === "pause") paused = true;
+        continue;
+      }
+      // a client without ACKs has only its transport queue to go by
+      const blocked = buffered >= OUTPUT_HIGH_BYTES;
       if (!blocked) {
         attachment.stalled.delete(client);
         continue;
@@ -469,7 +480,7 @@ export function createServer(
     }
     send(client, {
       type: "pty-data", pane_id: paneId, data,
-      ...(window ? { flow: { stream_id: window.id, offset: window.write(bytes) } } : {}),
+      ...(window ? { flow: { stream_id: window.id, offset: window.write(bytes, wireBytes(data)) } } : {}),
     });
   }
   const push = createPushService({
@@ -731,12 +742,14 @@ export function createServer(
       let heldSince = 0;
       let holding = false;
       let holdTimer: ReturnType<typeof setTimeout> | undefined;
+      const probes = new AttachStartupProbes();
       /** ended before its exit came: what it still prints is no attach's */
       let retired = false;
       const release = (): void => {
         clearTimeout(holdTimer);
         if (held === null) return;
-        const data = held;
+        // a read that ended inside what could have been a probe is output after all
+        const data = held + probes.flush();
         held = null;
         if (data) forward(data);
       };
@@ -784,7 +797,7 @@ export function createServer(
               // a throw here is uncaught and takes the whole server down: end this
               // pane's terminal instead, on the exited pty the record still holds
               const message = spawnFailure(paneId, error);
-              broadcast(paneId, { type: "error", code: "command_failed", message });
+              broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
               broadcast(paneId, { type: "pty-exit", pane_id: paneId, code: null });
               closeAttachment(paneId);
             }
@@ -811,7 +824,7 @@ export function createServer(
               attachment.pty = start();
             } catch (error) {
               const message = spawnFailure(paneId, error);
-              broadcast(paneId, { type: "error", code: "command_failed", message });
+              broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
               broadcast(paneId, { type: "pty-exit", pane_id: paneId, code: null });
               closeAttachment(paneId);
             }
@@ -851,7 +864,7 @@ export function createServer(
               attachment.pty = start();
             } catch (error) {
               const message = spawnFailure(paneId, error);
-              broadcast(paneId, { type: "error", code: "command_failed", message });
+              broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
               finish();
             }
           }, (error: unknown) => {
@@ -863,8 +876,14 @@ export function createServer(
         };
         relookup();
       };
+      const command = process.env["HERDR_FLEET_HERDR_BIN"] || "herdr";
+      // node-pty reports a command it cannot exec only as a silent exit 1, which reads as an
+      // ended attach (#925): look it up on the PATH and from the home directory the sidecar uses.
+      if (!Bun.which(command, { PATH: process.env["PATH"] ?? "", cwd: process.env["HOME"] ?? "/" })) {
+        throw new HerdrError("attach_failed", `herdr could not be started: ${command} is not an executable on the server's PATH (set HERDR_FLEET_HERDR_BIN to herdr's full path)`);
+      }
       const session = new PtySession({
-        command: process.env["HERDR_FLEET_HERDR_BIN"] || "herdr",
+        command,
         args: ["terminal", "attach", attachedTerminal],
         // herdr's CLI reads HERDR_SOCKET_PATH, not HERDR_SOCKET: the stream must reach
         // the same session the RPCs talk to, or a named session's terminals are
@@ -874,6 +893,14 @@ export function createServer(
         rows: attachment.rows,
         onData: (data) => {
           if (retired || session === replaced || attachments.get(paneId) !== attachment) return;
+          // herdr's startup queries are the bridge's to answer: never readiness, broadcast or replay
+          if (!holding && held !== null) {
+            const before = held;
+            const taken = probes.take(data, (text) => ATTACH_PREAMBLE_RE.test(before + text));
+            if (taken.replies) session.write(taken.replies);
+            data = taken.output;
+          } else data = probes.flush() + data;
+          if (!data) return;
           output = (output + data).slice(-1024);
           if (held === null) return forward(data);
           held += data;
@@ -936,7 +963,7 @@ export function createServer(
           attachment.pty = start();
         } catch (error) {
           const message = spawnFailure(paneId, error);
-          broadcast(paneId, { type: "error", code: "command_failed", message });
+          broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
           broadcast(paneId, { type: "pty-exit", pane_id: paneId, code: null });
           closeAttachment(paneId);
         }
@@ -1738,7 +1765,10 @@ export function createServer(
               // hand the newcomer the current screen it would otherwise have missed
               // (a mirror keeps its latest screen whole; a pty keeps a bounded tail of its stream)
               const replay = attachment.mirror ? attachment.mirror.current ?? "" : attachment.replay.text();
-              if (!alreadyAttached && replay) sendOutput(client, message.pane_id, replay);
+              if (!alreadyAttached && replay) {
+                client.data.output.get(message.pane_id)?.join(replay, client.getBufferedAmount());
+                sendOutput(client, message.pane_id, replay);
+              }
               // a pane waiting for another web bridge to let go says so to each newcomer, too
               if (!alreadyAttached && attachment.held) send(client, { type: "error", code: "attach_held", message: ATTACH_HELD_MESSAGE, pane_id: message.pane_id });
               reconcileOutput(message.pane_id);
@@ -1967,7 +1997,10 @@ export function createServer(
           }
         } catch (error) {
           const code = error instanceof HerdrError ? error.code : "command_failed";
-          send(client, { type: "error", code, message: error instanceof Error ? error.message : String(error) });
+          // an attach that could not start names its pane: the panes of a PC share this connection, and one
+          // without a pane would end every terminal on it
+          const failed = code === "attach_failed" && message.type === "attach" ? { pane_id: message.pane_id } : {};
+          send(client, { type: "error", code, message: error instanceof Error ? error.message : String(error), ...failed });
         }
       },
 
