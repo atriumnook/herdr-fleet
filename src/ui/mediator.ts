@@ -22,6 +22,8 @@ type PtyData = Extract<ServerMessage, { type: "pty-data" }>;
 /** The terminal's socket (lib/ws.ts HerdrSocket), as the Mediator and the terminal use it. */
 export interface PaneSocketHandle {
   readonly connected: boolean;
+  /** the server stopped the output (4008) while the page was put away: it attaches again when back (ws.ts) */
+  readonly stoppedWhileHidden: boolean;
   attach(paneId: string, cols: number, rows: number, keepSize?: boolean): void;
   detach(paneId: string): void;
   resize(paneId: string, cols: number, rows: number, force?: boolean): void;
@@ -51,6 +53,8 @@ export interface TerminalSink {
 /** What the terminal sends straight to its socket: keystrokes, and a secret. Nothing while no socket is open. */
 export interface TerminalLink {
   connected(): boolean;
+  /** the output stopped while the page was put away, not because this device is too slow (ws.ts) */
+  stoppedWhileHidden(): boolean;
   canInput(paneId: string): boolean;
   sendInput(paneId: string, text: string): boolean;
   /** the one send a view awaits: a secret never enters the state or an event (SecretInput) */
@@ -217,6 +221,7 @@ export class Mediator {
 
   readonly terminalLink: TerminalLink = {
     connected: () => this.paneSocket?.handle.connected ?? false,
+    stoppedWhileHidden: () => this.paneSocket?.handle.stoppedWhileHidden ?? false,
     canInput: (paneId) => this.paneSocket?.handle.canInput(paneId) ?? false,
     sendInput: (paneId, text) => this.paneSocket?.handle.sendInput(paneId, text) ?? false,
     sendSecret: (paneId, prompt, secret) => this.paneSocket?.handle.sendSecret(paneId, prompt, secret) ?? null,

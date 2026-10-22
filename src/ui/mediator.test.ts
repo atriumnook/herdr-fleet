@@ -363,6 +363,7 @@ describe("Mediator", () => {
       const socket: PaneSocketHandle & { up: boolean } = {
         up: false,
         get connected() { return this.up; },
+        stoppedWhileHidden: false,
         attach: (paneId) => { calls.push(`attach ${paneId}`); },
         detach: (paneId) => { calls.push(`detach ${paneId}`); },
         resize: (paneId, cols, rows, force) => { calls.push(`resize ${paneId} ${cols}x${rows}${force ? " force" : ""}`); },
