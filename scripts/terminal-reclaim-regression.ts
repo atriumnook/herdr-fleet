@@ -88,7 +88,12 @@ try {
   await phone.locator(".pane-terminal .xterm").tap();
   await sizeBecomes(phoneSize, "a tap in the phone terminal takes it again");
   await desktop.locator(".pane-terminal .xterm-helper-textarea").focus();
+  // a modifier alone types nothing: the pane stays the phone's
   await desktop.keyboard.press("Shift");
+  await Bun.sleep(500);
+  assert.equal(await size(), phoneSize, "Shift alone in the desktop terminal leaves the pane at the phone's size");
+  // an arrow on the shell's empty line is a key typed into the pane
+  await desktop.keyboard.press("ArrowRight");
   await sizeBecomes(desktopSize, "a key in the desktop terminal takes the pane back");
   console.log("PASS a window that kept its focus takes the pane back on a click or a key in its terminal");
 } finally {

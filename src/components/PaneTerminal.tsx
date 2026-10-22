@@ -171,7 +171,7 @@ export function PaneTerminal({
   const emitRef = useRef(emit);
   emitRef.current = emit;
   // the Mediator owns the socket: its messages reach the grid through the sink, keystrokes go out through the link
-  const { attachTerminal, terminalLink: link } = useTerminal();
+  const { attachTerminal, terminalLink: link, reconnectTerminals } = useTerminal();
   /** what the grid asks of its socket: the pane shown, its size, the role */
   const command = useCallback((asked: PaneCommand) => emitRef.current({ type: "pane-command", machineId, command: asked }), [machineId]);
   // the attached pane as its socket told the Mediator; until it attached, nothing of it is known
@@ -788,6 +788,9 @@ export function PaneTerminal({
       // the reconnect attaches afresh: it says attach_held again if the other bridge still has
       // the pane, and a pane it gets straight away sends no attach-resumed to clear this
       heldRef.current = false;
+    }, reconnect: () => {
+      // Reconnect in another terminal of this connection: one stopped with it attaches again too
+      if (stalledRef.current) reattach();
     } }, lens);
     // the pane's own terminal opens its PC's socket; one beside shares it
     if (lens === "main") emitRef.current({ type: "open-pane-socket", machineId });
@@ -1000,6 +1003,8 @@ export function PaneTerminal({
       if (!shared || !(event.target instanceof Node) || !term.element?.contains(event.target)) return;
       // an IME's first key comes before compositionstart, with isComposing still false (keyCode 229)
       if (event instanceof KeyboardEvent && (event.repeat || event.isComposing || event.keyCode === 229 || composingRef.current)) return;
+      // a modifier alone (Ctrl to copy a selection) types nothing into the pane
+      if (event instanceof KeyboardEvent && ["Shift", "Control", "Alt", "Meta"].includes(event.key)) return;
       if (event instanceof PointerEvent && event.button !== 0) return;
       // the grid follows the one another device set: compare it with the grid this window fits
       const own = fit.proposeDimensions();
@@ -1328,7 +1333,7 @@ export function PaneTerminal({
         {paneId !== null && outputError && (
           <div className="terminal-banner terminal-banner-warning terminal-banner-output-error" role="status">
             <span>{outputError}</span>
-            <button type="button" className="btn" onClick={() => reattach()}>{t("Reconnect")}</button>
+            <button type="button" className="btn" onClick={() => { reattach(); reconnectTerminals(); }}>{t("Reconnect")}</button>
           </div>
         )}
         {!chatView && inputError && <div className="terminal-banner" role="status">{inputError}<button className="btn" onClick={() => emit({ type: "dismiss-input-error" })}>{t("Dismiss")}</button></div>}

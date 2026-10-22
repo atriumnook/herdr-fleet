@@ -48,6 +48,8 @@ export interface TerminalSink {
   output(message: PtyData, acknowledge: (() => void) | undefined): void;
   message(message: ServerMessage): void;
   disconnected(): void;
+  /** the person pressed Reconnect in one terminal: one whose output stopped attaches again too */
+  reconnect(): void;
 }
 
 /** What the terminal sends straight to its socket: keystrokes, and a secret. Nothing while no socket is open. */
@@ -212,6 +214,11 @@ export class Mediator {
   attachTerminal = (sink: TerminalSink, lens: Lens = "main"): (() => void) => {
     this.terminals.set(lens, sink);
     return () => { if (this.terminals.get(lens) === sink) this.terminals.delete(lens); };
+  };
+
+  /** Reconnect in one terminal: the connection is every terminal's, so each one stopped with it attaches again. */
+  reconnectTerminals = (): void => {
+    for (const sink of [...this.terminals.values()]) sink.reconnect();
   };
 
   /** The lens whose terminal shows a pane: a lens beside whose grid attached it, else the pane's own. */

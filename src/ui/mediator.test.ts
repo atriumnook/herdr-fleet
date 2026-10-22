@@ -387,6 +387,7 @@ describe("Mediator", () => {
         output: (message, acknowledge) => { seen.push(`output ${message.data}`); acknowledge?.(); },
         message: (message) => { seen.push(message.type); },
         disconnected: () => { seen.push("disconnected"); },
+        reconnect: () => { seen.push("reconnect"); },
       };
       return { seen, sink };
     };
@@ -430,6 +431,17 @@ describe("Mediator", () => {
       expect(seen.at(-1)).toBe("disconnected");
       expect(mediator.getState().pane.connected).toBe(false);
       detach();
+    });
+
+    it("asks every terminal on the connection to attach again when the person reconnects one", () => {
+      const mediator = new Mediator(ports().ports);
+      const main = sinkFor();
+      const side = sinkFor();
+      mediator.attachTerminal(main.sink);
+      mediator.attachTerminal(side.sink, "side-terminal");
+      mediator.reconnectTerminals();
+      expect(main.seen).toEqual(["reconnect"]);
+      expect(side.seen).toEqual(["reconnect"]);
     });
 
     it("says a stopped output in every terminal on the connection, the side panel's too", () => {
