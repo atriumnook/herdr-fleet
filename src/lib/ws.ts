@@ -56,6 +56,12 @@ export class HerdrSocket {
   private retries = 0;
   private reconnectTimer: number | null = null;
   private disposed = false;
+  private wakeListening = false;
+  /** a page shown again or a network back: a reconnect waiting out its backoff runs now */
+  private readonly onWake = (): void => {
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    this.wake();
+  };
   private mode: ClientRole = "interact";
   private outputStopped = false;
   /** what the connected server listed in its snapshot: empty until it arrives, and on older bridges */
@@ -77,6 +83,7 @@ export class HerdrSocket {
 
   connect(): void {
     if (this.disposed) return;
+    this.listenForWake();
     if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
       return;
     }
@@ -152,6 +159,27 @@ export class HerdrSocket {
     socket.addEventListener("error", () => {
       socket.close();
     });
+  }
+
+  private listenForWake(): void {
+    if (this.wakeListening || typeof window.addEventListener !== "function") return;
+    this.wakeListening = true;
+    window.addEventListener("online", this.onWake);
+    window.addEventListener("pageshow", this.onWake);
+    if (typeof document !== "undefined") document.addEventListener("visibilitychange", this.onWake);
+  }
+
+  /**
+   * A phone that slept or went to the background comes back with its socket closed and a
+   * reconnect timer that may have backed off to its 5s cap. Waking skips that wait and starts
+   * again from the shortest delay. A stopped output stays stopped: only an attach resumes it.
+   */
+  wake(): void {
+    if (this.disposed || this.outputStopped || this.reconnectTimer === null) return;
+    window.clearTimeout(this.reconnectTimer);
+    this.reconnectTimer = null;
+    this.retries = 0;
+    this.connect();
   }
 
   private scheduleReconnect(): void {
@@ -332,6 +360,12 @@ export class HerdrSocket {
     this.disposed = true;
     if (this.reconnectTimer !== null) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
+    if (this.wakeListening) {
+      window.removeEventListener("online", this.onWake);
+      window.removeEventListener("pageshow", this.onWake);
+      if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onWake);
+      this.wakeListening = false;
+    }
     this.socket?.close();
     this.socket = null;
     this.settleSubmits(DISCONNECTED);

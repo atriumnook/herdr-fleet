@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, expect, it } from "bun:test";
 import { HerdrSocket } from "./ws.ts";
+import { OUTPUT_STALLED_CLOSE_CODE } from "../../shared/terminal-flow.ts";
 
 /** A WebSocket the test drives: it opens, receives and records what the client sends. */
 class FakeSocket {
@@ -13,6 +14,7 @@ class FakeSocket {
   addEventListener(type: string, listener: (event: any) => void): void { this.listeners.set(type, [...(this.listeners.get(type) ?? []), listener]); }
   send(data: string): void { this.sent.push(JSON.parse(data)); }
   close(): void { this.readyState = 3; }
+  disconnect(): void { this.readyState = 3; this.emit("close", { code: 1006 }); }
   private emit(type: string, event: unknown): void { for (const listener of this.listeners.get(type) ?? []) listener(event); }
   open(): void { this.readyState = FakeSocket.OPEN; this.emit("open", {}); }
   receive(message: unknown): void { this.emit("message", { data: JSON.stringify(message) }); }
@@ -138,4 +140,40 @@ it("waits for capabilities when output precedes snapshot, and supports old bridg
     expect(client.sendInput("w1:p1", "no replay")).toBe(false);
     client.close();
   }
+});
+
+it("reconnects at once when the page wakes instead of waiting out the backoff, and starts the backoff over", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const first = FakeSocket.last;
+  first.open();
+  // a phone asleep: each attempt fails and the backoff grows toward its cap
+  first.disconnect();
+  for (let attempt = 0; attempt < 5; attempt++) {
+    client.wake();
+    FakeSocket.last.disconnect();
+  }
+  const sleeping = FakeSocket.last;
+  client.wake();
+  expect(FakeSocket.last).not.toBe(sleeping);
+  const woken = FakeSocket.last;
+  woken.open();
+  expect(woken.sent.map((frame) => frame.type)).toEqual(["role"]);
+  // a live connection has no timer to skip: waking opens nothing more
+  client.wake();
+  expect(FakeSocket.last).toBe(woken);
+  client.close();
+});
+
+it("does not wake a connection whose output stopped, nor one that was closed", () => {
+  const client = new HerdrSocket("ws://test/ws");
+  client.connect();
+  const socket = FakeSocket.last;
+  socket.open();
+  (socket as unknown as { emit(type: string, event: unknown): void }).emit("close", { code: OUTPUT_STALLED_CLOSE_CODE });
+  client.wake();
+  expect(FakeSocket.last).toBe(socket);
+  client.close();
+  client.wake();
+  expect(FakeSocket.last).toBe(socket);
 });
