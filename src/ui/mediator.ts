@@ -28,6 +28,8 @@ export interface PaneSocketHandle {
   setMode(mode: ClientRole): void;
   canInput(paneId: string): boolean;
   sendInput(paneId: string, text: string): boolean;
+  /** settles once a liveness check in flight ends: true when this connection is still open */
+  checked(): Promise<boolean>;
   submit(paneId: string, text: string, payload: string, typed?: boolean): Promise<SubmitResult> | null;
   sendSecret(paneId: string, prompt: string, secret: string): Promise<SubmitResult> | null;
   outputAcknowledgement(message: PtyData): (() => void) | undefined;
@@ -223,18 +225,22 @@ export class Mediator {
    * A message from the terminal's socket: the output goes to the terminal alone; anything else to
    * the terminal too, and as events to the state for what it says of the attached pane.
    */
+  /** Whether each lens's pane takes keys, told only on a change: asked on each message and each poll. */
+  private readInputReady(handle: PaneSocketHandle): void {
+    for (const lens of ["main", ...SIDE_LENSES] as const) {
+      const { session } = lensed(this.state, lens).pane;
+      if (session.paneId !== null && (lens === "main" || this.terminals.has(lens)) && session.inputReady !== handle.canInput(session.paneId)) {
+        this.dispatch({ type: "pane-input-ready", paneId: session.paneId, ready: handle.canInput(session.paneId), ...(lens === "main" ? {} : { lens }) });
+      }
+    }
+  }
+
   private paneMessage(seq: number, message: ServerMessage): void {
     if (this.paneSocket?.seq !== seq) return;
     const { handle } = this.paneSocket;
     const paneId = this.state.pane.session.paneId;
     const connection = (): void => this.dispatch({ type: "pane-connection", connected: handle.connected });
-    for (const lens of ["main", ...SIDE_LENSES] as const) {
-      const { session } = lensed(this.state, lens).pane;
-      // asked each message, told only a change: output streams in many messages
-      if (session.paneId !== null && (lens === "main" || this.terminals.has(lens)) && session.inputReady !== handle.canInput(session.paneId)) {
-        this.dispatch({ type: "pane-input-ready", paneId: session.paneId, ready: handle.canInput(session.paneId), ...(lens === "main" ? {} : { lens }) });
-      }
-    }
+    this.readInputReady(handle);
     const about = "pane_id" in message ? message.pane_id : undefined;
     const lens = this.lensOf(about);
     // what the state is told of a pane goes to the lens that shows it
@@ -536,6 +542,8 @@ export class Mediator {
         const poll = (): void => {
           if (this.paneSocket?.seq !== seq) return;
           dispatch({ type: "pane-connection", connected: handle.connected });
+          // a liveness check refuses keys with no message to say so: the poll reads it
+          this.readInputReady(handle);
           this.ports.later(SOCKET_POLL_MS, poll);
         };
         this.ports.later(SOCKET_POLL_MS, poll);
@@ -651,10 +659,14 @@ export class Mediator {
       case "save-draft":
         this.ports.saveDraft(effect.owner, effect.value);
         return;
-      case "send-draft":
-        // never queued: a draft the socket does not take stays for the person to send again
-        if (this.paneSocket?.handle.sendInput(effect.paneId, effect.text)) dispatch({ type: "draft-sent", owner: effect.owner });
+      case "send-draft": {
+        // never queued: a draft the socket does not take stays for the person to send again. One
+        // refused while the connection is checked goes once the check ends, on the same connection.
+        const handle = this.paneSocket?.handle;
+        if (!handle) return;
+        if (handle.sendInput(effect.paneId, effect.text) || (await handle.checked() && handle.sendInput(effect.paneId, effect.text))) dispatch({ type: "draft-sent", owner: effect.owner });
         return;
+      }
       case "later":
         this.ports.later(effect.ms, () => dispatch(effect.event));
         return;

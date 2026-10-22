@@ -48,6 +48,8 @@ export const JA: Record<string, string> = {
   "The chat can't be shown. The terminal still works.": "Chat を表示できません。Terminal は使えます。",
   "herdr could not restore this pane.": "herdr はこの Pane を復元できませんでした。",
   "Not sent: the terminal is disconnected.": "送っていません。Terminal との接続が切れています。",
+  "Not sent: send or discard the held input first.": "送っていません。先に、保持している入力を送るか破棄してください。",
+  "Not sent: the terminal is not taking keys yet. Press it again in a moment.": "送っていません。Terminal はまだキー入力を受け付けていません。少し待ってからもう一度押してください。",
   // ---- secret input ----
   "Enter a single-line password or PIN.": "改行のないパスワードか PIN を入力してください。",
   "Update this PC to use masked input.": "伏せ字で入力するには、この PC の herdr-fleet を更新してください。",

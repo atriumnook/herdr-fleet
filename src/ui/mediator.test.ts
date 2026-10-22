@@ -370,6 +370,7 @@ describe("Mediator", () => {
         setMode: (role) => { calls.push(`mode ${role}`); },
         canInput: () => socket.up,
         sendInput: (paneId, text) => { calls.push(`input ${paneId} ${text}`); return socket.up; },
+        checked: async () => false,
         submit: () => null,
         sendSecret: () => null,
         outputAcknowledgement: () => () => { calls.push("ack"); },
@@ -539,6 +540,32 @@ describe("Mediator", () => {
       expect(fake.calls.at(-1)).toBe("input w1:p1 ls");
       expect(mediator.getState().pane.draft.value.text).toBe("");
       expect(saved.at(-1)).toEqual({ owner: "w1:p1", text: "" });
+    });
+
+    it("sends held input refused during a liveness check once the check ends, and tells the terminal's readiness on each poll", async () => {
+      const fake = fakeSocket();
+      const harness = ports({ openPaneSocket: fake.port, loadDraft: () => ({ text: "ls", droppedSpecial: 0 }) });
+      const mediator = new Mediator(harness.ports);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      mediator.dispatch({ type: "draft-open", owner: "w1:p1" });
+      fake.socket.up = true;
+      fake.say({ type: "pty-data", pane_id: "w1:p1", data: "$" } as ServerMessage);
+      expect(mediator.getState().pane.session.inputReady).toBe(true);
+      // a check starts, with no message to say so: the next poll reads it
+      let checking = true;
+      let end: (open: boolean) => void = () => {};
+      fake.socket.canInput = () => !checking;
+      fake.socket.sendInput = (paneId, text) => { if (checking) return false; fake.calls.push(`input ${paneId} ${text}`); return true; };
+      fake.socket.checked = () => new Promise((resolve) => { end = resolve; });
+      for (const timer of harness.timers.filter((timer) => timer.ms === 1000)) timer.then();
+      expect(mediator.getState().pane.session.inputReady).toBe(false);
+      mediator.dispatch({ type: "send-draft" });
+      expect(mediator.getState().pane.draft.value.text).toBe("ls");
+      checking = false;
+      end(true);
+      await until(() => mediator.getState().pane.draft.value.text === "");
+      expect(fake.calls.filter((call) => call.startsWith("input"))).toEqual(["input w1:p1 ls"]);
     });
 
         it("acknowledges output with no terminal to write it, so the server is not left waiting", () => {

@@ -7,7 +7,7 @@ import "@xterm/xterm/css/xterm.css";
 import "./PaneTerminal.css";
 
 import { controlCode, isPrintable, keySequence, type KeyBarKey } from "../lib/keys.ts";
-import { EMPTY_DRAFT, draftIsEmpty } from "../lib/draft.ts";
+import { EMPTY_DRAFT, applyToDraft, besideHeldDraft, draftHoldsText, draftIsEmpty } from "../lib/draft.ts";
 import { QUEUE_READY_STATUS } from "../lib/compose.ts";
 import { answerHint } from "../lib/promptAnswer.ts";
 import { fetchPaneScroll, fetchPaneSelection, scrollPane } from "../lib/api.ts";
@@ -219,6 +219,10 @@ export function PaneTerminal({
   // input typed while the terminal could not take it, held for the user to review and send (the Mediator keeps it)
   const heldInput = useSelected((state) => lensed(state, lens).pane.draft);
   const draft = paneId !== null && heldInput.owner === paneStorageId(machineId, paneId) ? heldInput.value : EMPTY_DRAFT;
+  // the pane whose held draft takes later typing until Send or Discard (besideHeldDraft); set on each
+  // render, and at once by onData when it holds text, before that render comes
+  const draftHeldForRef = useRef<string | null>(null);
+  draftHeldForRef.current = paneId !== null && draftHoldsText(draft) ? paneId : null;
   // transient OSC 52 feedback ("copied") — a pill in the banner column
   const [clipboardNote, setClipboardNote] = useState<string | null>(null);
   const clipboardTimerRef = useRef<number | null>(null);
@@ -789,10 +793,15 @@ export function PaneTerminal({
         setCtrlArmed(false);
         input = controlCode(data) ?? data;
       }
+      const hold = (): void => {
+        emitRef.current({ type: "draft-input", owner: paneStorageId(machineId, current), input });
+        if (draftHoldsText(applyToDraft(EMPTY_DRAFT, input))) draftHeldForRef.current = current;
+      };
+      if (draftHeldForRef.current === current && besideHeldDraft(input) === "hold") { hold(); return; }
       if (link.sendInput(current, input)) return;
-      // A closed socket, an attachment still opening, or a failed synchronous send:
-      // keep printable input for explicit review, never replay it automatically.
-      emitRef.current({ type: "draft-input", owner: paneStorageId(machineId, current), input });
+      // A closed socket, an attachment still opening, a liveness check under way, or a failed
+      // synchronous send: keep printable input for explicit review, never replay it automatically.
+      hold();
     });
 
     // Browsers expose dropped files as bytes, not local paths. Save them beside
@@ -1164,12 +1173,15 @@ export function PaneTerminal({
   const started = useSelected((state) => state.sends.started);
   useEffect(() => { if (started > 0) termRef.current?.scrollToBottom(); }, [started]);
 
-  const pressEnter = useCallback((): boolean => {
+  const pressEnter = useCallback((): boolean | string => {
     const pane = paneRef.current;
     if (pane === null || !link.connected()) return false;
+    // Enter beside a held draft would run the pty's line without the held start
+    if (draftHeldForRef.current === pane) return t("Not sent: send or discard the held input first.");
     const sent = link.sendInput(pane, "\r");
     termRef.current?.scrollToBottom();
-    return sent;
+    // connected, and still refused: the pane does not take keys yet (its attach, or a connection check)
+    return sent || t("Not sent: the terminal is not taking keys yet. Press it again in a moment.");
   }, []);
 
   const toggleDirect = useCallback(() => {

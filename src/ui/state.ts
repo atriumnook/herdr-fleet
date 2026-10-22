@@ -10,7 +10,7 @@ import type { FilePreview } from "../lib/fileHistory.ts";
 import { DROPLET_EXIT_MS, DROPLET_EXIT_REDUCED_MS, DROPLET_HOLD_MS, DROPLET_REPEAT_MS, DROPLET_REVEAL_MS, dropletAllows, endedTurn, trackTurn, type DropletNotice } from "../lib/droplet.ts";
 import type { NotificationState } from "../lib/notifications.ts";
 import { applyPaneStatus } from "../lib/snapshot.ts";
-import { EMPTY_DRAFT, applyToDraft, type InputDraft } from "../lib/draft.ts";
+import { EMPTY_DRAFT, applyToDraft, draftHoldsText, type InputDraft } from "../lib/draft.ts";
 import { answerFromText, needsConfirmation, type TypedAnswer } from "../lib/promptAnswer.ts";
 import { composerMessage, composerPayload } from "../lib/compose.ts";
 import { toTranscriptMessages, type TranscriptMessage } from "../lib/transcript.ts";
@@ -3143,6 +3143,14 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
   const { sends } = state;
   const composerDraft = (owner: string, change: ComposerDraftChange): void => { effects.push({ kind: "composer-draft-change", owner, change }); };
   const lineDraft = (owner: string, change: LineDraftChange): void => { effects.push({ kind: "line-draft-change", owner, change }); };
+  /**
+   * The pane holds the start of a line typed into its terminal: a message sent now would land after
+   * it and run it. Only where that terminal shows its held input, to be sent or discarded: the Fleet
+   * screen's project conversation shows none of the pane's terminal.
+   */
+  const heldBeside = (owner: string): boolean => state.pane.draft.owner === owner && draftHoldsText(state.pane.draft.value)
+    && !(state.screen === "fleet" && (event.lens ?? "main") === "main");
+  const HELD: SendOutcome = { kind: "submit-failed", code: "input_held", message: "" };
   /** what a box's send came to, said in it */
   const said = (next: UiState, box: string, id: number, outcome: SendOutcome): UiState =>
     ({ ...next, sends: { ...next.sends, outcomes: { ...next.sends.outcomes, [box]: { id, outcome } } } });
@@ -3185,6 +3193,7 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
         return cleared(counted);
       }
       if (!takes) return { state: said(counted, box, id, { kind: "not-sent" }), effects };
+      if (heldBeside(owner)) return { state: said(counted, box, id, HELD), effects };
       const { next } = start({ target: "composer", owner, via, sent: text });
       composerDraft(owner, via === "box" ? { kind: "begin", sent: text } : { kind: "begin" });
       effects.push({ kind: "submit", id, paneId: event.paneId, text: composerMessage(text), payload: composerPayload(text, event.bracketedPaste), typed: false });
@@ -3195,6 +3204,8 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
       if (busy(owner, "line")) return { state, effects };
       // the line goes into an open menu as typed: only a masked prompt holds it
       if (state.pane.session.secret !== null) return { state: said({ ...state, sends: { ...sends, seq: sends.seq + 1 } }, `line:${owner}`, sends.seq + 1, { kind: "not-sent" }), effects };
+      // the line and its Enter would land beside the held draft, without its start: Send or Discard that first
+      if (heldBeside(owner)) return { state: said({ ...state, sends: { ...sends, seq: sends.seq + 1 } }, `line:${owner}`, sends.seq + 1, HELD), effects };
       const message = composerMessage(text);
       const { id, next } = start({ target: "line", owner });
       lineDraft(owner, { kind: "begin" });
@@ -3206,6 +3217,7 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
       // one at a time: the pane takes them in the order the person sends them
       if (state.queue.sending !== null) return { state, effects };
       if (!takes) return { state: { ...state, queue: { ...state.queue, error: { owner: event.owner, id: event.id, note: { kind: "not-sent" } } } }, effects };
+      if (heldBeside(event.owner)) return { state: { ...state, queue: { ...state.queue, error: { owner: event.owner, id: event.id, note: HELD } } }, effects };
       const { id, next } = start({ target: "queue", owner: event.owner, queueId: event.id });
       effects.push({ kind: "submit", id, paneId: event.paneId, text: composerMessage(event.text), payload: composerPayload(event.text, event.bracketedPaste), typed: false });
       return { state: { ...next, queue: { ...next.queue, sending: { owner: event.owner, id: event.id }, error: null } }, effects };

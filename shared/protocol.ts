@@ -420,10 +420,14 @@ export type ClientMessage =
   | { type: "release"; pane_id: string }
   /** Cumulative UTF-8 payload bytes processed by xterm, only for this subscription. */
   | { type: "pty-ack"; pane_id: string; stream_id: string; offset: number }
-  | { type: "role"; mode: ClientRole };
+  | { type: "role"; mode: ClientRole }
+  /** liveness only (feature "ping"): answered at once with a `pong` of the same id, for any role. The
+   * client sends it when the page comes back, the network changes or nothing arrived for a while,
+   * and drops a socket that stays silent: a half-open one still reads OPEN in the browser. */
+  | { type: "ping"; id: number };
 
 /** What a server supports beyond the base protocol, listed in its first snapshot; older bridges list nothing. */
-export type ServerFeature = "submit" | "secret-input" | "input-ready";
+export type ServerFeature = "submit" | "secret-input" | "input-ready" | "ping";
 
 export type ServerMessage =
   | { type: "snapshot"; snapshot: SessionSnapshot; features?: ServerFeature[] }
@@ -448,6 +452,8 @@ export type ServerMessage =
   | { type: "session-changed" }
   /** a fleet run or the usage the fleet knows changed: refetch /api/fleet/runs and /api/fleet/usage */
   | { type: "fleet-changed" }
+  /** the answer to a `ping`, with its id; only this frame, for a ping in flight, ends the client's liveness probe */
+  | { type: "pong"; id: number }
   /** `pane_id` names the pane an error is about, when it is about one (`attach_held`) */
   | { type: "error"; code: string; message: string; pane_id?: string };
 
