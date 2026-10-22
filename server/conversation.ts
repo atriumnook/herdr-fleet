@@ -978,10 +978,15 @@ export async function paneConversation(paneId: string, codexHome?: string, page:
     return { source: error.source, turns: [], metadata: { model: null, reasoning_effort: null }, cursor: null, history_id: id, version: answerVersion(id, "") };
   }
   const identity = resolved.source === "claude-transcript" ? nodePath.basename(resolved.path, ".jsonl")
-    : resolved.source === "pi-transcript" || resolved.source === "omp-transcript" ? realpathSync(resolved.path) : null;
+    : resolved.source === "pi-transcript" || resolved.source === "omp-transcript" ? canonical(resolved.path) : null;
   const answer = transcriptPage(resolved.source, resolved.path, page, resolved.codexHome ?? codexHome);
   if (identity !== null) writtenSessions.add(`${resolved.source}\0${identity}`);
   return answer;
+}
+
+/** A path with its links resolved, or null when it leads nowhere: the page read then says the file is missing. */
+function canonical(path: string): string | null {
+  try { return realpathSync(path); } catch { return null; }
 }
 
 /** One page of a resolved transcript (paneConversation's `page`). */
