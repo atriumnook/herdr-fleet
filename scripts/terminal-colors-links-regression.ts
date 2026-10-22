@@ -1,6 +1,7 @@
 /**
- * Text a program colored for a dark background stays readable on the light theme (Claude Code
- * writes its question titles as truecolor white).
+ * Two things a program writes into the terminal, on the light theme: text it colored for a dark
+ * background stays readable (Claude Code writes its question titles as truecolor white), and a web
+ * address opens in a new tab, not a popup window (window.open with a features string asks for one).
  */
 import "./test-herdr.ts";
 import assert from "node:assert/strict";
@@ -77,7 +78,22 @@ setInterval(() => {}, 1 << 30);
   assert.ok(contrast(drawn.color, drawn.background) >= 4.5, `the white title is drawn ${drawn.color} on ${drawn.background}`);
   console.log("PASS text a program colored white stays readable on the light theme");
 
+  // When: the address is clicked with the modifier a terminal link needs (Ctrl, ⌘ on a Mac)
+  const link = page.locator(".pane-terminal .xterm-rows span", { hasText: "https://example.test/page" }).first();
+  const box = (await link.boundingBox())!;
+  const modifier = process.platform === "darwin" ? "Meta" : "Control";
+  await page.mouse.move(box.x + 30, box.y + box.height / 2);
+  await page.keyboard.down(modifier);
+  await page.mouse.move(box.x + 34, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.up();
+  await page.keyboard.up(modifier);
+  await page.waitForFunction(() => (window as unknown as { opened: unknown[] }).opened.length > 0);
+  const opened = await page.evaluate(() => (window as unknown as { opened: unknown[] }).opened);
+  // Then: a link's own click to a new tab, no window.open with features
+  assert.deepEqual(opened, [{ via: "link", url: "https://example.test/page", target: "_blank" }]);
   assert.deepEqual(errors, []);
+  console.log("PASS a web address in the terminal opens in a new tab");
 } finally {
   await browser?.close();
   server?.stop();

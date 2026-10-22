@@ -35,7 +35,7 @@ import { loadFontStack, TERMINAL_FONT_STACK, terminalFontStack } from "../lib/fo
 import { t } from "../lib/i18n.ts";
 import { isAppShortcut } from "../lib/shortcuts.ts";
 import { OpenFileContext } from "../lib/filePaths.ts";
-import { fileUriPath, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
+import { fileUriPath, openWebLink, terminalFileLinkProvider } from "../lib/terminalFileLinks.ts";
 import { adjustTerminalGlyphs } from "../lib/terminalGlyphs.ts";
 
 /** How long a resize must rest before the grid refits and the pty follows it. */
@@ -292,7 +292,7 @@ export function PaneTerminal({
           if (!linkPressed(event)) return;
           const path = fileUriPath(uri);
           if (path !== null) openFileRef.current?.(path);
-          else if (/^https?:\/\//i.test(uri)) window.open(uri, "_blank", "noopener,noreferrer");
+          else if (/^https?:\/\//i.test(uri)) openWebLink(uri);
         },
         allowNonHttpProtocols: true,
       },
@@ -303,7 +303,7 @@ export function PaneTerminal({
     term.loadAddon(fit);
     matchHerdrWidths(term);
     // an address in the terminal opens in a new tab; the page never navigates away from the pane
-    term.loadAddon(new WebLinksAddon((_event, uri) => { window.open(uri, "_blank", "noopener,noreferrer"); }));
+    term.loadAddon(new WebLinksAddon((_event, uri) => { openWebLink(uri); }));
     term.registerLinkProvider(terminalFileLinkProvider(() => term.buffer.active, (path, event) => { if (linkPressed(event)) openFileRef.current?.(path); }));
     term.open(host);
     const compositionStart = () => setComposing(true);

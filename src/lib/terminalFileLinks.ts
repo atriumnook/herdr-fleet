@@ -16,6 +16,18 @@ const FILE_URI = /file:\/\/\/[^\s<>"`]+/gi;
 /** A logical line longer than this is not prose with paths in it (a minified bundle, a blob): it is left alone. */
 const MAX_LINE_CHARS = 8192;
 
+/**
+ * Opens an http(s) address in a new tab, as a chat link does: a link's own click, with no opener
+ * and no referrer. window.open with a features string (even "noopener") opens a popup window instead.
+ */
+export function openWebLink(uri: string): void {
+  const link = document.createElement("a");
+  link.href = uri;
+  link.target = "_blank";
+  link.rel = "noopener noreferrer";
+  link.click();
+}
+
 /** Local file URIs are read by the existing server-side file viewer. */
 export function fileUriPath(uri: string): string | null {
   // a control character belongs to no path, and URL drops a trailing one before it can be seen
