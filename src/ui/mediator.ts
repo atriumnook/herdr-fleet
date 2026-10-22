@@ -14,6 +14,7 @@ import type { InputDraft } from "../lib/draft.ts";
 import type { HeldMessage } from "../lib/messageQueue.ts";
 import type { Settings } from "../lib/settings.ts";
 import type { FilePreview } from "../lib/fileHistory.ts";
+import { t } from "../lib/i18n.ts";
 import { INITIAL_STATE, lensed, SIDE_LENSES, transition, type ComposerDraftChange, type ConversationOutcome, type Effect, type ExplainOutcome, type FileOutcome, type LineDraftChange, type QueueChange, type RequestAction, type SessionRequest, type TreeRequest, type Lens, type UiEvent, type UiState } from "./state.ts";
 
 type PtyData = Extract<ServerMessage, { type: "pty-data" }>;
@@ -278,6 +279,12 @@ export class Mediator {
           if (about === null || about !== shown) return;
           dispatch({ type: message.code === "attach_held" ? "pane-attach-held" : "pane-terminal-unsupported", paneId: about });
           break;
+        }
+        if (message.code === "attach_failed") {
+          if (about === null || about !== shown) return;
+          // the server could not start herdr: nothing is coming, so the terminal says why instead of waiting
+          dispatch({ type: "pane-output-failed", message: t("herdr could not be started on the server, so this terminal cannot attach. Put herdr on the server's PATH or set HERDR_FLEET_HERDR_BIN to its full path.") });
+          return;
         }
         if (message.code === "output_stalled" || message.code === "attach_conflict") {
           if (message.code === "output_stalled") this.dispatch({ type: "output-stalled" });

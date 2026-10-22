@@ -797,7 +797,7 @@ export function createServer(
               // a throw here is uncaught and takes the whole server down: end this
               // pane's terminal instead, on the exited pty the record still holds
               const message = spawnFailure(paneId, error);
-              broadcast(paneId, { type: "error", code: "command_failed", message });
+              broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
               broadcast(paneId, { type: "pty-exit", pane_id: paneId, code: null });
               closeAttachment(paneId);
             }
@@ -824,7 +824,7 @@ export function createServer(
               attachment.pty = start();
             } catch (error) {
               const message = spawnFailure(paneId, error);
-              broadcast(paneId, { type: "error", code: "command_failed", message });
+              broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
               broadcast(paneId, { type: "pty-exit", pane_id: paneId, code: null });
               closeAttachment(paneId);
             }
@@ -864,7 +864,7 @@ export function createServer(
               attachment.pty = start();
             } catch (error) {
               const message = spawnFailure(paneId, error);
-              broadcast(paneId, { type: "error", code: "command_failed", message });
+              broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
               finish();
             }
           }, (error: unknown) => {
@@ -876,8 +876,14 @@ export function createServer(
         };
         relookup();
       };
+      const command = process.env["HERDR_FLEET_HERDR_BIN"] || "herdr";
+      // node-pty reports a command it cannot exec only as a silent exit 1, which reads as an
+      // ended attach (#925): look it up on the PATH and from the home directory the sidecar uses.
+      if (!Bun.which(command, { PATH: process.env["PATH"] ?? "", cwd: process.env["HOME"] ?? "/" })) {
+        throw new HerdrError("attach_failed", `herdr could not be started: ${command} is not an executable on the server's PATH (set HERDR_FLEET_HERDR_BIN to herdr's full path)`);
+      }
       const session = new PtySession({
-        command: process.env["HERDR_FLEET_HERDR_BIN"] || "herdr",
+        command,
         args: ["terminal", "attach", attachedTerminal],
         // herdr's CLI reads HERDR_SOCKET_PATH, not HERDR_SOCKET: the stream must reach
         // the same session the RPCs talk to, or a named session's terminals are
@@ -957,7 +963,7 @@ export function createServer(
           attachment.pty = start();
         } catch (error) {
           const message = spawnFailure(paneId, error);
-          broadcast(paneId, { type: "error", code: "command_failed", message });
+          broadcast(paneId, { type: "error", code: error instanceof HerdrError ? error.code : "command_failed", message, pane_id: paneId });
           broadcast(paneId, { type: "pty-exit", pane_id: paneId, code: null });
           closeAttachment(paneId);
         }
@@ -1991,7 +1997,10 @@ export function createServer(
           }
         } catch (error) {
           const code = error instanceof HerdrError ? error.code : "command_failed";
-          send(client, { type: "error", code, message: error instanceof Error ? error.message : String(error) });
+          // an attach that could not start names its pane: the panes of a PC share this connection, and one
+          // without a pane would end every terminal on it
+          const failed = code === "attach_failed" && message.type === "attach" ? { pane_id: message.pane_id } : {};
+          send(client, { type: "error", code, message: error instanceof Error ? error.message : String(error), ...failed });
         }
       },
 

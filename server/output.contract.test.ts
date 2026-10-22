@@ -66,11 +66,17 @@ async function connect(paneId: string, ack = true, observer = false, port = serv
   return { ws, state, send, acknowledge };
 }
 
-/** Bun.spawn throws synchronously for the pty sidecar while `node` is not on PATH. */
+/** Bun.spawn throws synchronously for the pty sidecar while `node` is not on PATH (herdr itself stays found). */
 function breakPath(): () => void {
   const previous = process.env["PATH"];
+  const previousHerdr = process.env["HERDR_FLEET_HERDR_BIN"];
+  process.env["HERDR_FLEET_HERDR_BIN"] = Bun.which(previousHerdr || "herdr", { PATH: previous ?? "" }) ?? previousHerdr ?? "herdr";
   process.env["PATH"] = "/nonexistent";
-  return () => { process.env["PATH"] = previous; };
+  return () => {
+    process.env["PATH"] = previous;
+    if (previousHerdr === undefined) delete process.env["HERDR_FLEET_HERDR_BIN"];
+    else process.env["HERDR_FLEET_HERDR_BIN"] = previousHerdr;
+  };
 }
 
 async function flood(paneId: string): Promise<void> {
@@ -200,6 +206,44 @@ describe("a terminal attach that cannot spawn (#154)", () => {
       expect(third.state.errors).toEqual([]);
       expect(third.state.exits).toBe(0);
     } finally { third.ws.close(); ws.close(); }
+  }, 30_000);
+});
+
+describe("a herdr the server cannot start (#925)", () => {
+  it("tells the attaching client and logs it, instead of a terminal that waits in silence", async () => {
+    const paneId = await pane();
+    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    sockets.push(ws);
+    const errors: string[] = [];
+    const errorPanes: (string | undefined)[] = [];
+    ws.addEventListener("message", (event) => {
+      const frame = JSON.parse(String(event.data)) as ServerMessage;
+      if (frame.type === "error") { errors.push(frame.code); errorPanes.push(frame.pane_id); }
+    });
+    await until(() => ws.readyState === WebSocket.OPEN, "socket open");
+    const missing = join(root, "missing-herdr");
+    const logged: string[] = [];
+    const log = console.error;
+    console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
+    const previous = process.env["HERDR_FLEET_HERDR_BIN"];
+    process.env["HERDR_FLEET_HERDR_BIN"] = missing;
+    try {
+      ws.send(JSON.stringify({ type: "attach", pane_id: paneId, cols: 100, rows: 30, flow_control: "ack" } satisfies ClientMessage));
+      await until(() => errors.includes("attach_failed"), "the missing herdr is reported", 3_000);
+    } finally {
+      console.error = log;
+      if (previous === undefined) delete process.env["HERDR_FLEET_HERDR_BIN"];
+      else process.env["HERDR_FLEET_HERDR_BIN"] = previous;
+    }
+    expect(errors).toEqual(["attach_failed"]);
+    // the panes of a PC share one connection: the failure names its pane, so only that terminal ends
+    expect(errorPanes).toEqual([paneId]);
+    expect(logged.filter((line) => line.includes(paneId) && line.includes(missing))).toHaveLength(1);
+    // nothing was left behind: with herdr back, the pane attaches for real
+    const client = await connect(paneId);
+    try {
+      expect(client.state.errors).toEqual([]);
+    } finally { client.ws.close(); ws.close(); }
   }, 30_000);
 });
 

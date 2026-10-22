@@ -478,6 +478,18 @@ describe("Mediator", () => {
       expect(mediator.getState().pane).toMatchObject({ connected: false, outputStopped: true, session: { ended: true, outputError: "could not keep up" } });
     });
 
+    it("ends the terminal with the reason when the server cannot start herdr, for its own pane only", () => {
+      const fake = fakeSocket();
+      const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
+      mediator.dispatch({ type: "open-pane-socket", machineId: "local" });
+      mediator.dispatch({ type: "pane-attached", paneId: "w1:p1" });
+      fake.socket.up = true;
+      fake.say({ type: "error", code: "attach_failed", message: "herdr could not be started", pane_id: "w1:p9" } as ServerMessage);
+      expect(mediator.getState().pane.session.ended).toBe(false);
+      fake.say({ type: "error", code: "attach_failed", message: "herdr could not be started", pane_id: "w1:p1" } as ServerMessage);
+      expect(mediator.getState().pane.session).toMatchObject({ ended: true, outputError: expect.stringContaining("HERDR_FLEET_HERDR_BIN") });
+    });
+
     it("tells the state only what is said of the attached pane, and writes an unknown error in the grid", () => {
       const fake = fakeSocket();
       const mediator = new Mediator(ports({ openPaneSocket: fake.port }).ports);
