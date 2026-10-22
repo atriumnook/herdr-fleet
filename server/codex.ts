@@ -1,7 +1,7 @@
 /** Native Codex rollouts contain both display events and model context. Only
  * conversation records belong in chat; developer prompts and terminal chrome do not. */
 import { Database } from "bun:sqlite";
-import { closeSync, openSync, readdirSync, readlinkSync, readSync, realpathSync, statSync } from "node:fs";
+import { closeSync, openSync, readdirSync, readFileSync, readlinkSync, readSync, realpathSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, relative, sep } from "node:path";
 import type { ConversationPart, ConversationTurn, HerdrPane } from "../shared/protocol.ts";
@@ -699,13 +699,50 @@ function theirs(rollouts: string[], paneId: string, claimed: ReadonlySet<string>
   return rollouts.filter((rollout) => !elsewhere.has(rollout) && !claimed.has(rollout));
 }
 
-/** A pane's Codex processes: the ones whose command line names codex, and their pids as one key. */
+/** Interpreter options that run code or load a module: whatever follows is not the script. */
+const CODE_OPTIONS = new Set(["eval", "print", "require", "import", "loader", "experimental-loader", "input-type"]);
+/** Interpreter and shell options that take no value, so the script may follow them directly. */
+const VALUELESS_OPTIONS = new Set([
+  "", "no-warnings", "no-deprecation", "trace-warnings", "trace-deprecation", "pending-deprecation", "throw-deprecation",
+  "enable-source-maps", "preserve-symlinks", "preserve-symlinks-main", "expose-gc", "abort-on-uncaught-exception",
+  "experimental-strip-types", "experimental-transform-types", "experimental-vm-modules", "experimental-require-module",
+  "no-experimental-fetch", "harmony", "bun", "smol", "hot", "watch", "noprofile", "norc", "posix", "login",
+]);
+
+/** A pane's Codex executables (or interpreter scripts), and their pids as one key. */
 async function codexProcessesOf(paneId: string): Promise<{ list: { pid: number; argv?: string[] }[]; key: string }> {
   const processInfo = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } }>(
     "pane.process_info", { pane_id: paneId },
   );
   const list = (processInfo.process_info?.foreground_processes ?? [])
-    .filter((process) => process.argv?.some((arg) => /(?:^|\/)codex(?:\.js)?$/.test(arg)));
+    .map((foreground) => {
+      if (foreground.argv?.length || process.platform !== "linux") return foreground;
+      // herdr can report only pid/name. Read this process, never infer argv from
+      // its name; an exited or inaccessible process provides no binding evidence.
+      try {
+        return { ...foreground, argv: readFileSync(`/proc/${foreground.pid}/cmdline`, "utf8").split("\0") };
+      } catch { return foreground; }
+    })
+    .filter(({ argv = [] }) => {
+      const executable = argv[0] ?? "";
+      const codex = /(?:^|[\\/])codex(?:\.js|\.exe|\.opencodex-real)?$/;
+      if (codex.test(executable)) return true;
+      // `node codex.js` and shell shebangs name the script after the interpreter and its
+      // `--flag` options (`node --no-warnings codex.js`). Only options known to take no
+      // value may precede the script, plus `--name=value` forms that do not run code: an
+      // option that takes the next argument (`--title x`, `-e`, `-c`) or one that evaluates
+      // code or loads a module ends the search, since what follows it is not the script.
+      // Later arguments (echo, etc.) are not executables.
+      if (!/(?:^|[\\/])(?:node|bun|sh|bash|dash|zsh)(?:\.exe)?$/.test(executable)) return false;
+      let script = 1;
+      for (; argv[script]?.startsWith("--"); script++) {
+        const option = argv[script] ?? "";
+        const name = option.slice(2, option.includes("=") ? option.indexOf("=") : undefined);
+        if (CODE_OPTIONS.has(name)) return false;
+        if (!option.includes("=") && !VALUELESS_OPTIONS.has(name)) return false;
+      }
+      return codex.test(argv[script] ?? "");
+    });
   return { list, key: list.map((process) => process.pid).sort((left, right) => left - right).join(",") };
 }
 

@@ -12,7 +12,8 @@
  * id is a UUID herdr reports, so at most one file answers to it.
  */
 
-import { readdir, stat } from "node:fs/promises";
+import { constants } from "node:fs";
+import { open, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 const MAX_PROJECT_NAME = 200;
@@ -45,6 +46,50 @@ const found = new Map<string, string>();
 
 export function forgetClaudeSessions(): void {
   found.clear();
+}
+
+/**
+ * Claude's native PID record names the current session even without Herdr's hook.
+ * Linux's exact process-start ticks reject leftovers after a PID is reused. Read
+ * again on every request: /clear and resume can change sessions in the same process.
+ * Other platforms and older records without procStart keep the hook-only path.
+ */
+export async function claudeProcessSession(home: string, pid: number): Promise<string | null> {
+  if (process.platform !== "linux" || !Number.isSafeInteger(pid) || pid <= 0) return null;
+  try {
+    // Non-blocking and no symlinks: a FIFO or a link in the record's place must not hang the read.
+    const file = await open(join(home, ".claude", "sessions", `${pid}.json`), constants.O_RDONLY | constants.O_NONBLOCK | constants.O_NOFOLLOW);
+    let text: string;
+    try {
+      if (!(await file.stat()).isFile()) return null;
+      const bytes = Buffer.alloc(16 * 1024 + 1);
+      let length = 0;
+      // One read may return less than the file holds; only a read of nothing is its end.
+      for (;;) {
+        const { bytesRead } = await file.read(bytes, length, bytes.length - length, length);
+        if (bytesRead === 0) break;
+        length += bytesRead;
+        if (length === bytes.length) return null;
+      }
+      text = bytes.subarray(0, length).toString("utf8");
+    } finally { await file.close(); }
+    const record: unknown = JSON.parse(text);
+    if (record === null || typeof record !== "object" ||
+      !("pid" in record) || record.pid !== pid ||
+      !("kind" in record) || record.kind !== "interactive" ||
+      !("sessionId" in record) || typeof record.sessionId !== "string" ||
+      !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(record.sessionId) ||
+      !("procStart" in record) || typeof record.procStart !== "string" || !/^\d+$/.test(record.procStart)) return null;
+    const processStat = await readFile(`/proc/${pid}/stat`, "utf8");
+    const fields = processStat.slice(processStat.lastIndexOf(") ") + 2).split(" ");
+    if (fields[19] !== record.procStart) return null;
+    return record.sessionId;
+  } catch (error) {
+    // A closed process, absent/older native store or a torn write gives no identity.
+    if (error instanceof SyntaxError || absent(error) ||
+      (error !== null && typeof error === "object" && "code" in error && ["EACCES", "EPERM", "ESRCH", "ELOOP", "ENXIO"].includes(String(error.code)))) return null;
+    throw error;
+  }
 }
 
 /**

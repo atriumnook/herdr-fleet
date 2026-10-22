@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createServer } from "./index.ts";
@@ -45,7 +45,13 @@ const rollout = (name: keyof typeof answers) => {
 const codexRunning = async (paneId: string, not?: string): Promise<string> => {
   for (let attempt = 0; attempt < 100; attempt++) {
     const info = await herdrRpc<{ process_info?: { foreground_processes?: { pid: number; argv?: string[] }[] } }>("pane.process_info", { pane_id: paneId });
-    const pids = (info.process_info?.foreground_processes ?? []).filter((process) => process.argv?.some((arg) => arg.endsWith("/codex"))).map((process) => String(process.pid)).join(",");
+    const pids = (info.process_info?.foreground_processes ?? []).filter((foreground) => {
+      let argv = foreground.argv ?? [];
+      if (argv.length === 0 && process.platform === "linux") {
+        try { argv = readFileSync(`/proc/${foreground.pid}/cmdline`, "utf8").split("\0"); } catch { return false; }
+      }
+      return argv.includes(join(root, "bin", "codex"));
+    }).map((process) => String(process.pid)).join(",");
     if (pids !== "" && pids !== not) return pids;
     await Bun.sleep(100);
   }

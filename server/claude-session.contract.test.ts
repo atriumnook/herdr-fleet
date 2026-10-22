@@ -1,0 +1,132 @@
+import { afterAll, beforeAll, expect, it } from "bun:test";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { createServer } from "./index.ts";
+import { claudeProjectDir } from "./claude-store.ts";
+import { herdrRpc, workspaceClose, workspaceCreate } from "./herdr/client.ts";
+import type { ConversationResponse } from "../shared/protocol.ts";
+
+// Real foreground processes and native PID records, without hooks or a model request.
+const root = mkdtempSync(join(tmpdir(), "herdr-claude-session-"));
+const originalHome = process.env["HOME"];
+const workspaces: string[] = [];
+const FIRST = "8d8f7d39-6788-49f3-b071-e3ba985c163c";
+const SECOND = "f2f55dc4-50ad-478c-a641-bf21268a1bba";
+const NEXT = "9343d82a-890c-4a39-a4a7-33c017d496f1";
+const project = join(root, ".claude", "projects", claudeProjectDir(root));
+let server: ReturnType<typeof createServer>;
+let first: { pane: string; pid: number };
+let second: { pane: string; pid: number };
+
+function transcript(id: string): void {
+  writeFileSync(join(project, `${id}.jsonl`), [
+    { type: "user", message: { content: `Prompt ${id}` } },
+    { type: "assistant", message: { content: [{ type: "text", text: `Answer ${id}` }] } },
+  ].map((entry) => JSON.stringify(entry)).join("\n"));
+}
+
+async function pane(id: string): Promise<{ pane: string; pid: number }> {
+  const created = await workspaceCreate({ cwd: root, label: "herdr-web-ui-test-claude-session" });
+  workspaces.push(created.workspace.workspace_id);
+  const paneId = created.root_pane.pane_id;
+  let ready: (pid: number) => void = () => {};
+  const signal = new Promise<number>((resolve) => { ready = resolve; });
+  const listener = Bun.listen({
+    hostname: "127.0.0.1", port: 0,
+    socket: { data(socket, data) { ready(Number(data.toString())); socket.end(); } },
+  });
+  const node = Bun.which("node");
+  if (!node) throw new Error("Claude session contract needs Node");
+  const timeout = setTimeout(() => ready(0), 10_000);
+  try {
+    await herdrRpc("pane.send_text", {
+      pane_id: paneId, text: `exec ${JSON.stringify(node)} ${JSON.stringify(join(root, "claude.cjs"))} ${JSON.stringify(root)} ${id} ${listener.port}\n`,
+    });
+    const pid = await signal;
+    if (!pid) throw new Error("Claude stand-in did not signal readiness");
+    await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "claude", state: "idle" });
+    return { pane: paneId, pid };
+  } finally { clearTimeout(timeout); listener.stop(true); }
+}
+
+beforeAll(async () => {
+  if (process.platform !== "linux") return;
+  mkdirSync(project, { recursive: true });
+  mkdirSync(join(root, ".claude", "sessions"), { recursive: true });
+  for (const id of [FIRST, SECOND, NEXT]) transcript(id);
+  writeFileSync(join(root, "claude.cjs"), `
+const fs = require("node:fs");
+const net = require("node:net");
+const [home, sessionId, port] = process.argv.slice(2);
+process.title = "claude";
+const procStart = fs.readFileSync("/proc/self/stat", "utf8").split(") ").pop().split(" ")[19];
+fs.writeFileSync(home + "/.claude/sessions/" + process.pid + ".json", JSON.stringify({
+  pid: process.pid, sessionId, cwd: home, procStart, kind: "interactive",
+}));
+net.connect(Number(port), "127.0.0.1", function () { this.end(String(process.pid)); });
+process.stdin.resume();
+`);
+  first = await pane(FIRST);
+  second = await pane(SECOND);
+  process.env["HOME"] = root;
+  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
+});
+
+afterAll(async () => {
+  server?.stop();
+  if (originalHome === undefined) delete process.env["HOME"];
+  else process.env["HOME"] = originalHome;
+  for (const workspace of workspaces) await workspaceClose(workspace);
+  rmSync(root, { recursive: true, force: true });
+});
+
+async function read(paneId: string): Promise<ConversationResponse> {
+  const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
+  expect(response.status).toBe(200);
+  return await response.json();
+}
+
+it.skipIf(process.platform !== "linux")("reads each hookless Claude pane's own conversation in a shared cwd", async () => {
+  // The pane has no session id from Herdr; cwd and recency cannot distinguish these.
+  const info = await herdrRpc<{ agent: { agent_session?: unknown } }>("agent.get", { target: first.pane });
+  expect(info.agent.agent_session).toBeUndefined();
+  const a = await read(first.pane);
+  const b = await read(second.pane);
+  expect(a.source).toBe("claude-transcript");
+  expect(a.turns.at(-1)?.parts[0]).toMatchObject({ text: `Answer ${FIRST}` });
+  expect(b.source).toBe("claude-transcript");
+  expect(b.turns.at(-1)?.parts[0]).toMatchObject({ text: `Answer ${SECOND}` });
+});
+
+it.skipIf(process.platform !== "linux")("follows the current PID record without retaining a previous session", async () => {
+  const path = join(root, ".claude", "sessions", `${first.pid}.json`);
+  const previous = readFileSync(path, "utf8");
+  try {
+    const record = JSON.parse(previous);
+    writeFileSync(path, JSON.stringify({ ...record, sessionId: NEXT }));
+    const response = await read(first.pane);
+    expect(response.source).toBe("claude-transcript");
+    expect(response.turns.at(-1)?.parts[0]).toMatchObject({ text: `Answer ${NEXT}` });
+  } finally { writeFileSync(path, previous); }
+});
+
+it.skipIf(process.platform !== "linux")("refuses a reused PID record rather than selecting another same-cwd session", async () => {
+  const path = join(root, ".claude", "sessions", `${first.pid}.json`);
+  const previous = readFileSync(path, "utf8");
+  try {
+    writeFileSync(path, JSON.stringify({ ...JSON.parse(previous), procStart: "1" }));
+    expect(await read(first.pane)).toEqual({ source: "scrollback", turns: [] });
+  } finally { writeFileSync(path, previous); }
+});
+
+it.skipIf(process.platform !== "linux")("keeps the existing Herdr hook path when no native PID record is available", async () => {
+  const hooked = await pane(SECOND);
+  rmSync(join(root, ".claude", "sessions", `${hooked.pid}.json`));
+  await herdrRpc("pane.report_agent_session", {
+    pane_id: hooked.pane, source: "herdr:claude", agent: "claude", seq: 1, agent_session_id: FIRST,
+  });
+  const response = await read(hooked.pane);
+  expect(response.source).toBe("claude-transcript");
+  expect(response.turns.at(-1)?.parts[0]).toMatchObject({ text: `Answer ${FIRST}` });
+});

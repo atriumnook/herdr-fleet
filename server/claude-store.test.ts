@@ -1,10 +1,71 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { chmodSync, mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { claudeProjectDir, claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
+import { claudeProcessSession, claudeProjectDir, claudeTranscriptFile, forgetClaudeSessions } from "./claude-store.ts";
 
 const SESSION = "0b8e6f0e-8d3f-4c1a-9a53-6c2b7a1d9e42";
+
+describe("claudeProcessSession", () => {
+  const roots: string[] = [];
+  afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
+  function nativeRecord(patch: Record<string, unknown> = {}): string {
+    const home = mkdtempSync(join(tmpdir(), "herdr-claude-pid-"));
+    roots.push(home);
+    const dir = join(home, ".claude", "sessions");
+    mkdirSync(dir, { recursive: true });
+    const procStart = readFileSync("/proc/self/stat", "utf8").split(") ").pop()?.split(" ")[19];
+    writeFileSync(join(dir, `${process.pid}.json`), JSON.stringify({
+      pid: process.pid, sessionId: SESSION, procStart, kind: "interactive", ...patch,
+    }));
+    return home;
+  }
+
+  it.skipIf(process.platform !== "linux")("reads an exact live PID's session without a cwd guess", async () => {
+    const home = nativeRecord();
+    expect(await claudeProcessSession(home, process.pid)).toBe(SESSION);
+  });
+
+  for (const [name, patch] of [
+    ["another PID", { pid: process.pid + 1 }],
+    ["a reused PID", { procStart: "1" }],
+    ["an older record without start ticks", { procStart: null }],
+    ["a noninteractive SDK session", { kind: "sdk" }],
+    ["a path in place of a UUID", { sessionId: "../../other" }],
+    ["a missing session ID", { sessionId: null }],
+  ] satisfies [string, Record<string, unknown>][]) {
+    it.skipIf(process.platform !== "linux")(`rejects ${name}`, async () => {
+      const home = nativeRecord(patch);
+      expect(await claudeProcessSession(home, process.pid)).toBeNull();
+    });
+  }
+
+  it.skipIf(process.platform !== "linux")("returns no identity for absent, torn or oversized records", async () => {
+    const home = nativeRecord();
+    const path = join(home, ".claude", "sessions", `${process.pid}.json`);
+    rmSync(path);
+    expect(await claudeProcessSession(home, process.pid)).toBeNull();
+    writeFileSync(path, "{");
+    expect(await claudeProcessSession(home, process.pid)).toBeNull();
+    writeFileSync(path, JSON.stringify({ padding: "x".repeat(16 * 1024) }));
+    expect(await claudeProcessSession(home, process.pid)).toBeNull();
+    expect(await claudeProcessSession(home, -1)).toBeNull();
+  });
+
+  it.skipIf(process.platform !== "linux")("does not wait on a FIFO or follow a link in the record's place", async () => {
+    const home = nativeRecord();
+    const path = join(home, ".claude", "sessions", `${process.pid}.json`);
+    const target = join(home, "elsewhere.json");
+    renameSync(path, target);
+    symlinkSync(target, path);
+    expect(await claudeProcessSession(home, process.pid)).toBeNull();
+    rmSync(path);
+    expect(Bun.spawnSync(["mkfifo", path]).exitCode).toBe(0);
+    const started = Date.now();
+    expect(await claudeProcessSession(home, process.pid)).toBeNull();
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+});
 
 describe("claudeProjectDir", () => {
   it("encodes a cwd the way Claude Code names its project", () => {
