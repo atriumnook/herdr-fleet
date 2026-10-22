@@ -189,7 +189,12 @@ export function PaneTerminal({
   const [ctrlArmed, setCtrlArmed] = useState(false);
   // the pane attached again in place, after its output stopped (4008): the attach effect runs again
   const [reattached, setReattached] = useState(0);
-  const reattach = useCallback(() => setReattached((count) => count + 1), []);
+  /** the next attach runs on its own, not on the person's click: it leaves the focus where it is */
+  const unaskedReattachRef = useRef(false);
+  const reattach = useCallback((asked = true) => {
+    unaskedReattachRef.current = !asked;
+    setReattached((count) => count + 1);
+  }, []);
   /** the server stopped this connection's output (4008) since the pane was last attached */
   const stalledRef = useRef(false);
   // observe mode: the ref is what onData and the resize listeners read mid-stream
@@ -761,13 +766,18 @@ export function PaneTerminal({
           term.options.disableStdin = true;
           return;
         }
+        // the state says it in the banner: no line in the grid
+        if (message.code === "attach_failed") {
+          if (message.pane_id === undefined || message.pane_id === paneRef.current) term.options.disableStdin = true;
+          return;
+        }
         if (message.code === "output_stalled" || message.code === "attach_conflict") {
           term.options.disableStdin = true;
           if (message.code === "output_stalled") {
             stalledRef.current = true;
             // a frozen page reads the close after it is shown again: the stop belongs to the time it
             // was put away, so attach again now, once (see onVisible)
-            if (link.stoppedWhileHidden() && document.visibilityState === "visible") queueMicrotask(() => { if (!disposed && stalledRef.current) reattach(); });
+            if (link.stoppedWhileHidden() && document.visibilityState === "visible") queueMicrotask(() => { if (!disposed && stalledRef.current) reattach(false); });
           }
           return;
         }
@@ -974,7 +984,7 @@ export function PaneTerminal({
     // no ACKs, not because this device is too slow: coming back attaches it again, once. A stop
     // while the page stays in use is final (no reconnect loop).
     const back = (): void => {
-      if (stalledRef.current && link.stoppedWhileHidden()) reattach();
+      if (stalledRef.current && link.stoppedWhileHidden()) reattach(false);
       else refit();
     };
     const onVisible = (): void => {
@@ -1145,7 +1155,10 @@ export function PaneTerminal({
     if (drives()) command({ kind: "resize", paneId, cols: term.cols, rows: term.rows, force: true });
     // the chat lens covers the grid and its composer takes the keyboard: focusing the hidden
     // grid sent the keys straight to the pane, and showed a phone's IME text mid-screen
-    if (!chatViewRef.current && !quiet && !coarseRef.current) term.focus();
+    // an attach again that the person did not ask for leaves the focus where they put it (the side chat, a field)
+    const unasked = unaskedReattachRef.current;
+    unaskedReattachRef.current = false;
+    if (!chatViewRef.current && !quiet && !unasked && !coarseRef.current) term.focus();
     return () => {
       command({ kind: "detach", paneId });
     };
@@ -1315,7 +1328,7 @@ export function PaneTerminal({
         {paneId !== null && outputError && (
           <div className="terminal-banner terminal-banner-warning terminal-banner-output-error" role="status">
             <span>{outputError}</span>
-            <button type="button" className="btn" onClick={reattach}>{t("Reconnect")}</button>
+            <button type="button" className="btn" onClick={() => reattach()}>{t("Reconnect")}</button>
           </div>
         )}
         {!chatView && inputError && <div className="terminal-banner" role="status">{inputError}<button className="btn" onClick={() => emit({ type: "dismiss-input-error" })}>{t("Dismiss")}</button></div>}
