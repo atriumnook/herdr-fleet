@@ -2161,6 +2161,9 @@ describe("sending a message", () => {
       { type: "queue-send", owner, id: "m", text: "rm -rf build", paneId: "w1:p1", bracketedPaste: false }], held);
     expect(queued.effects.filter((effect) => effect.kind === "submit")).toEqual([]);
     expect(queued.state.queue.error).toEqual({ owner, id: "m", note: { kind: "submit-failed", code: "input_held", message: "" } });
+    // the Fleet screen's project conversation shows none of the terminal, nor its held input to discard: it sends
+    const fleet = play([send("rm -rf build")], { ...held, screen: "fleet" });
+    expect(fleet.effects.filter((effect) => effect.kind === "submit")).toHaveLength(1);
     // an Enter left out holds no start: the line goes
     const leftOut = play([{ type: "draft-input", owner, input: "\r" }], ready()).state;
     expect(kinds(play([{ type: "line-send", owner, paneId: "w1:p1", text: "ls", bracketedPaste: false }], leftOut).effects)).toEqual(["line-draft-change", "submit"]);

@@ -3143,10 +3143,15 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
   const { sends } = state;
   const composerDraft = (owner: string, change: ComposerDraftChange): void => { effects.push({ kind: "composer-draft-change", owner, change }); };
   const lineDraft = (owner: string, change: LineDraftChange): void => { effects.push({ kind: "line-draft-change", owner, change }); };
-  /** what a box's send came to, said in it */
-  /** the pane holds the start of a line typed into its terminal: a message sent now would land after it and run it */
-  const heldBeside = (owner: string): boolean => state.pane.draft.owner === owner && draftHoldsText(state.pane.draft.value);
+  /**
+   * The pane holds the start of a line typed into its terminal: a message sent now would land after
+   * it and run it. Only where that terminal shows its held input, to be sent or discarded: the Fleet
+   * screen's project conversation shows none of the pane's terminal.
+   */
+  const heldBeside = (owner: string): boolean => state.pane.draft.owner === owner && draftHoldsText(state.pane.draft.value)
+    && !(state.screen === "fleet" && (event.lens ?? "main") === "main");
   const HELD: SendOutcome = { kind: "submit-failed", code: "input_held", message: "" };
+  /** what a box's send came to, said in it */
   const said = (next: UiState, box: string, id: number, outcome: SendOutcome): UiState =>
     ({ ...next, sends: { ...next.sends, outcomes: { ...next.sends.outcomes, [box]: { id, outcome } } } });
   /** a request under way */
