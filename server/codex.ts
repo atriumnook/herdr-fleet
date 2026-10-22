@@ -411,10 +411,31 @@ function rolloutHeader(path: string): RecordValue | null {
   } finally { closeSync(fd); }
 }
 
+/**
+ * A Windows path without the `\\?\` prefix that Codex on Windows stores in `threads` (`cwd`,
+ * `rollout_path`), as Rust's canonical paths carry it: `\\?\D:\x` is `D:\x` and
+ * `\\?\UNC\host\share` is `\\host\share` (#518). Any other path, `\\?\Volume{…}\` included, is
+ * returned as it is: without its prefix it would read as a relative path.
+ */
+export function withoutVerbatimPrefix(path: string): string {
+  if (!path.startsWith("\\\\?\\")) return path;
+  const rest = path.slice(4);
+  if (/^UNC\\/i.test(rest)) return `\\\\${rest.slice(4)}`;
+  return /^[A-Za-z]:\\/.test(rest) ? rest : path;
+}
+
+/** The `cwd` values Codex may have stored for a directory: as given, and on Windows also with `\\?\`. */
+export function storedCwds(cwd: string): [string, string] {
+  const plain = withoutVerbatimPrefix(cwd);
+  if (/^[A-Za-z]:\\/.test(plain)) return [plain, `\\\\?\\${plain}`];
+  if (/^\\\\[^\\?.]/.test(plain)) return [plain, `\\\\?\\UNC\\${plain.slice(2)}`];
+  return [cwd, cwd];
+}
+
 /** File access is constrained by canonical paths, including symlink targets. */
 export function codexRolloutPath(path: string, codexHome: string): string | null {
   try {
-    const canonical = realpathSync(path);
+    const canonical = realpathSync(withoutVerbatimPrefix(path));
     const rel = relative(realpathSync(join(codexHome, "sessions")), canonical);
     if (!rel || rel === ".." || rel.startsWith(`..${sep}`) || isAbsolute(rel) || !canonical.endsWith(".jsonl")) return null;
     if (!statSync(canonical).isFile()) return null;
@@ -828,9 +849,9 @@ const boundRollouts = new Map<string, { processes: string; path: string; at: num
  */
 function newerThreads(db: Database, cwd: string, since: number, except: string | null, paneId: string, home: string, firsts?: Map<string, string>): string[] {
   const first = db.query("SELECT 1 FROM pragma_table_info('threads') WHERE name = 'first_user_message'").get() !== null ? ", first_user_message" : "";
-  const rows = db.query<{ id: string; rollout_path: string; first_user_message?: string | null }, [string, number]>(
-    `SELECT id, rollout_path${first} FROM threads WHERE cwd = ? AND archived = 0 AND agent_role IS NULL${interactive(db)} AND created_at >= ?`,
-  ).all(cwd, since);
+  const rows = db.query<{ id: string; rollout_path: string; first_user_message?: string | null }, [string, string, number]>(
+    `SELECT id, rollout_path${first} FROM threads WHERE cwd IN (?, ?) AND archived = 0 AND agent_role IS NULL${interactive(db)} AND created_at >= ?`,
+  ).all(...storedCwds(cwd), since);
   return theirs(rows.flatMap((row) => {
     if (row.id === except) return [];
     const path = codexRolloutPath(row.rollout_path, home) ?? row.rollout_path;
@@ -1062,10 +1083,10 @@ export async function codexTranscriptPath(paneId: string, cwd: string, home = de
     // the same guard for a match: after /new the process writes a thread begun since
     // (created_at has whole seconds, so one begun in the match's second counts too)
     if (boundHere !== undefined) boundNewer = newerThreads(db, cwd, Math.floor(boundHere.at / 1000), null, paneId, home, firsts);
-    const rows = db.query<{ rollout_path: string }, [string]>(
+    const rows = db.query<{ rollout_path: string }, [string, string]>(
       // a burst of `codex exec` runs must not push the pane's own thread out of the 32
-      `SELECT rollout_path FROM threads WHERE cwd = ? AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 33`,
-    ).all(cwd);
+      `SELECT rollout_path FROM threads WHERE cwd IN (?, ?) AND archived = 0 AND agent_role IS NULL${interactive(db)} ORDER BY updated_at DESC LIMIT 33`,
+    ).all(...storedCwds(cwd));
     const rollouts = rows.slice(0, 32).map((row) => codexRolloutPath(row.rollout_path, home));
     // a thread whose rollout is gone or outside the store is still a conversation of this cwd
     listed = rows.length <= 32 && !rollouts.includes(null);
