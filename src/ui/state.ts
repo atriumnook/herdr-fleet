@@ -3144,6 +3144,9 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
   const composerDraft = (owner: string, change: ComposerDraftChange): void => { effects.push({ kind: "composer-draft-change", owner, change }); };
   const lineDraft = (owner: string, change: LineDraftChange): void => { effects.push({ kind: "line-draft-change", owner, change }); };
   /** what a box's send came to, said in it */
+  /** the pane holds the start of a line typed into its terminal: a message sent now would land after it and run it */
+  const heldBeside = (owner: string): boolean => state.pane.draft.owner === owner && draftHoldsText(state.pane.draft.value);
+  const HELD: SendOutcome = { kind: "submit-failed", code: "input_held", message: "" };
   const said = (next: UiState, box: string, id: number, outcome: SendOutcome): UiState =>
     ({ ...next, sends: { ...next.sends, outcomes: { ...next.sends.outcomes, [box]: { id, outcome } } } });
   /** a request under way */
@@ -3185,6 +3188,7 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
         return cleared(counted);
       }
       if (!takes) return { state: said(counted, box, id, { kind: "not-sent" }), effects };
+      if (heldBeside(owner)) return { state: said(counted, box, id, HELD), effects };
       const { next } = start({ target: "composer", owner, via, sent: text });
       composerDraft(owner, via === "box" ? { kind: "begin", sent: text } : { kind: "begin" });
       effects.push({ kind: "submit", id, paneId: event.paneId, text: composerMessage(text), payload: composerPayload(text, event.bracketedPaste), typed: false });
@@ -3196,9 +3200,7 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
       // the line goes into an open menu as typed: only a masked prompt holds it
       if (state.pane.session.secret !== null) return { state: said({ ...state, sends: { ...sends, seq: sends.seq + 1 } }, `line:${owner}`, sends.seq + 1, { kind: "not-sent" }), effects };
       // the line and its Enter would land beside the held draft, without its start: Send or Discard that first
-      if (state.pane.draft.owner === owner && draftHoldsText(state.pane.draft.value)) {
-        return { state: said({ ...state, sends: { ...sends, seq: sends.seq + 1 } }, `line:${owner}`, sends.seq + 1, { kind: "submit-failed", code: "input_held", message: "" }), effects };
-      }
+      if (heldBeside(owner)) return { state: said({ ...state, sends: { ...sends, seq: sends.seq + 1 } }, `line:${owner}`, sends.seq + 1, HELD), effects };
       const message = composerMessage(text);
       const { id, next } = start({ target: "line", owner });
       lineDraft(owner, { kind: "begin" });
@@ -3210,6 +3212,7 @@ function sendTransition(state: UiState, event: SendEvent, effects: Effect[]): Tr
       // one at a time: the pane takes them in the order the person sends them
       if (state.queue.sending !== null) return { state, effects };
       if (!takes) return { state: { ...state, queue: { ...state.queue, error: { owner: event.owner, id: event.id, note: { kind: "not-sent" } } } }, effects };
+      if (heldBeside(event.owner)) return { state: { ...state, queue: { ...state.queue, error: { owner: event.owner, id: event.id, note: HELD } } }, effects };
       const { id, next } = start({ target: "queue", owner: event.owner, queueId: event.id });
       effects.push({ kind: "submit", id, paneId: event.paneId, text: composerMessage(event.text), payload: composerPayload(event.text, event.bracketedPaste), typed: false });
       return { state: { ...next, queue: { ...next.queue, sending: { owner: event.owner, id: event.id }, error: null } }, effects };

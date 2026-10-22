@@ -2148,11 +2148,19 @@ describe("sending a message", () => {
     ]);
   });
 
-  it("sends no input line beside held input: it would run without the held start", () => {
+  it("sends nothing typed beside held input: it would run without the held start", () => {
     const held = play([{ type: "draft-input", owner, input: "echo " }], ready()).state;
     const { state, effects } = play([{ type: "line-send", owner, paneId: "w1:p1", text: "rm -rf build", bracketedPaste: false }], held);
     expect(effects).toEqual([]);
     expect(state.sends.outcomes[`line:${owner}`]?.outcome).toEqual({ kind: "submit-failed", code: "input_held", message: "" });
+    // nor a message from the message box or a queued Send now: each types its text and Enter
+    const box = play([send("rm -rf build")], held);
+    expect(box.effects.filter((effect) => effect.kind === "submit")).toEqual([]);
+    expect(box.state.sends.outcomes[`composer:${owner}`]?.outcome).toEqual({ kind: "submit-failed", code: "input_held", message: "" });
+    const queued = play([{ type: "queue-loaded", owner, messages: [{ id: "m", text: "rm -rf build" }], unsaved: false },
+      { type: "queue-send", owner, id: "m", text: "rm -rf build", paneId: "w1:p1", bracketedPaste: false }], held);
+    expect(queued.effects.filter((effect) => effect.kind === "submit")).toEqual([]);
+    expect(queued.state.queue.error).toEqual({ owner, id: "m", note: { kind: "submit-failed", code: "input_held", message: "" } });
     // an Enter left out holds no start: the line goes
     const leftOut = play([{ type: "draft-input", owner, input: "\r" }], ready()).state;
     expect(kinds(play([{ type: "line-send", owner, paneId: "w1:p1", text: "ls", bracketedPaste: false }], leftOut).effects)).toEqual(["line-draft-change", "submit"]);

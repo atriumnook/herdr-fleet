@@ -787,3 +787,86 @@ it("settles a submit waiting on a probe when a CLOSING socket is replaced, and t
     jest.useRealTimers();
   }
 });
+
+it("tells its handlers the probe's pong, so a view that read input as refused during the probe reads it again", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    const seen: boolean[] = [];
+    client.on((message) => { seen.push(message.type === "pong" && client.canInput("w1:p1")); });
+    client.wake();
+    // output during the probe: a view reading canInput() now stores false
+    socket.receive({ type: "pty-data", pane_id: "w1:p1", data: "x" });
+    expect(seen).toEqual([false]);
+    socket.receive({ type: "pong", id: 1 });
+    expect(seen).toEqual([false, true]);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("ends a probe sent before the snapshot when the reconnected bridge does not list ping, and keeps its connection", async () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["submit", "ping"]);
+  try {
+    socket.disconnect();
+    jest.advanceTimersByTime(250);
+    const older = FakeSocket.last;
+    expect(older).not.toBe(socket);
+    older.open();
+    // woken before the new snapshot: the ping support remembered from the last bridge sends a ping
+    client.wake();
+    expect(pings(older)).toHaveLength(1);
+    const submit = client.submit("w1:p1", "later", "later");
+    older.receive(snapshot(["submit"]));
+    expect(client.state).toBe("open");
+    await settle();
+    expect(older.sent.filter((frame) => frame.type === "submit").map((frame) => frame.text)).toEqual(["later"]);
+    older.receive({ type: "submit-result", id: older.sent.find((frame) => frame.type === "submit")!.id, pane_id: "w1:p1", ok: true });
+    expect(await submit).toEqual({ ok: true });
+    jest.advanceTimersByTime(30_000);
+    expect(FakeSocket.last).toBe(older);
+    expect(older.readyState).toBe(FakeSocket.OPEN);
+    expect(pings(older)).toHaveLength(1);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
+
+it("ends a probe the hidden page paused when the reconnected bridge's snapshot does not list ping", async () => {
+  jest.useFakeTimers();
+  const listeners = new Map<string, () => void>();
+  const page = { visibilityState: "visible", addEventListener: (type: string, listener: () => void) => { listeners.set(type, listener); }, removeEventListener: () => {} };
+  const globalDocument = globalThis as unknown as { document?: unknown };
+  const previous = globalDocument.document;
+  globalDocument.document = page;
+  const { client, socket } = liveClient(["submit", "ping"]);
+  try {
+    socket.disconnect();
+    jest.advanceTimersByTime(250);
+    const older = FakeSocket.last;
+    older.open();
+    client.wake();
+    expect(pings(older)).toHaveLength(1);
+    // put away before the snapshot: the probe pauses
+    page.visibilityState = "hidden";
+    listeners.get("visibilitychange")!();
+    expect(client.state).toBe("probing");
+    const submit = client.submit("w1:p1", "later", "later");
+    older.receive(snapshot(["submit"]));
+    // shown again: probe() never pings this bridge, so the snapshot must have ended the paused probe
+    page.visibilityState = "visible";
+    listeners.get("visibilitychange")!();
+    expect(client.state).toBe("open");
+    await settle();
+    expect(older.sent.filter((frame) => frame.type === "submit").map((frame) => frame.text)).toEqual(["later"]);
+    older.receive({ type: "submit-result", id: older.sent.find((frame) => frame.type === "submit")!.id, pane_id: "w1:p1", ok: true });
+    expect(await submit).toEqual({ ok: true });
+  } finally {
+    client.close();
+    globalDocument.document = previous;
+    jest.useRealTimers();
+  }
+});
