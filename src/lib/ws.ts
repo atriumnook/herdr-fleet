@@ -1,5 +1,6 @@
 import type { ClientMessage, ClientRole, ServerFeature, ServerMessage } from "../../shared/protocol.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../../shared/terminal-flow.ts";
+import { besideHeldDraft } from "./draft.ts";
 
 type Handler = (message: ServerMessage) => void;
 
@@ -586,11 +587,18 @@ export class HerdrSocket {
 
   /** False while a liveness probe waits: typing goes to the held draft until the connection answers its ping. */
   canInput(paneId: string): boolean {
-    return this.connected && !this.probing && this.mode === "interact" && this.inputReady.has(paneId);
+    return !this.probing && this.takesInput(paneId);
+  }
+
+  private takesInput(paneId: string): boolean {
+    return this.connected && this.mode === "interact" && this.inputReady.has(paneId);
   }
 
   sendInput(paneId: string, text: string): boolean {
-    if (!this.canInput(paneId)) return false;
+    // an interrupt (Ctrl+C, Escape, an arrow: no text and no line break) is let through while a probe
+    // waits: a runaway program must stay stoppable, and a dead socket loses it either way
+    const interrupt = this.probing && besideHeldDraft(text) === "send";
+    if (!(interrupt ? this.takesInput(paneId) : this.canInput(paneId))) return false;
     try { this.rawSend({ type: "input", pane_id: paneId, text }); return true; } catch { return false; }
   }
 

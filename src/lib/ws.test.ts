@@ -975,3 +975,21 @@ it("ends a probe the hidden page paused when the reconnected bridge's snapshot d
     jest.useRealTimers();
   }
 });
+
+it("lets an interrupt and other control keys through while a probe waits, never text", () => {
+  jest.useFakeTimers();
+  const { client, socket } = liveClient(["ping"]);
+  try {
+    client.wake();
+    expect(client.canInput("w1:p1")).toBe(false);
+    // a runaway program must be stoppable while the connection is checked; a dead socket loses it either way
+    expect(client.sendInput("w1:p1", "\x03")).toBe(true);
+    expect(client.sendInput("w1:p1", "\x1b")).toBe(true);
+    expect(client.sendInput("w1:p1", "ls")).toBe(false);
+    expect(client.sendInput("w1:p1", "\r")).toBe(false);
+    expect(socket.sent.filter((frame) => frame.type === "input").map((frame) => frame.text)).toEqual(["\x03", "\x1b"]);
+  } finally {
+    client.close();
+    jest.useRealTimers();
+  }
+});
