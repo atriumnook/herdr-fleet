@@ -194,8 +194,9 @@ export type ConversationPart =
   | { kind: "image"; media_type: string; ref: string }
   /** the summary a compaction left; the conversation before it is what it sums up */
   | { kind: "compact"; text: string }
-  /** a message the agent's runtime put in the user's seat: it starts a turn, nobody typed it */
-  | { kind: "notice"; text: string };
+  /** a message the agent's runtime put in the user's seat: it starts a turn, nobody typed it.
+   * `source`: what put it there when it is no background result ("local-command": a slash command's answer) */
+  | { kind: "notice"; text: string; source?: string };
 
 /**
  * POST /api/pane/explain: a question the pane's agent asked, on a question screen (`screen`) or at

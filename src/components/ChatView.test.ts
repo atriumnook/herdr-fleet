@@ -88,6 +88,15 @@ describe("Chat view", () => {
     expect(render(model({ view: { ...EMPTY_VIEW, turns: [user("What is left?")] } }))).not.toContain("From a pane");
   });
 
+  it("names a slash command's answer by its first line, and a background result as one", () => {
+    const notice = (text: string, source?: string): ConversationTurn => ({ role: "user", ts: null, parts: [{ kind: "notice", text, ...(source === undefined ? {} : { source }) }] });
+    const answer = render(model({ view: { ...EMPTY_VIEW, turns: [notice("\nUnknown command: /gaol\nsecond line", "local-command")] } }));
+    expect(answer).toContain("<summary>Unknown command: /gaol</summary>");
+    expect(answer).not.toContain("Background result delivered");
+    expect(render(model({ view: { ...EMPTY_VIEW, turns: [notice("x".repeat(120), "local-command")] } }))).toContain(`<summary>${"x".repeat(95)}\u2026</summary>`);
+    expect(render(model({ view: { ...EMPTY_VIEW, turns: [notice("done")] } }))).toContain("<summary>Background result delivered</summary>");
+  });
+
   it("says the pane is reconnecting, and ended", () => {
     expect(render(model({ connected: false }))).toContain("reconnecting…");
     expect(render(model({ ended: true }))).toContain("terminal ended");
