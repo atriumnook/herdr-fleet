@@ -80,17 +80,73 @@ const LOCAL_COMMAND_MAX_CHARS = 4000;
 
 function localCommandOutput(content: unknown): string {
   if (typeof content !== "string") return "";
-  // the whole entry is the output: a tag quoted inside an echo's arguments is not an answer
-  const match = /^\s*<local-command-(stdout|stderr)>([\s\S]*)<\/local-command-\1>\s*$/.exec(content);
-  if (match === null) return "";
-  // the terminal's escape codes (colours, links, cursor moves) and other controls are not text
-  const text = match[2]!
-    .replace(/\u001b\][\s\S]*?(?:\u0007|\u001b\\)/g, "")
-    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "")
-    .replace(/\u001b./g, "")
-    .replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "")
-    .trim();
+  // the whole entry is the output, one stream after another: a tag quoted inside an echo's
+  // arguments is not an answer
+  const streams: string[] = [];
+  let at = 0;
+  for (;;) {
+    while (at < content.length && /\s/.test(content[at]!)) at++;
+    if (at === content.length) break;
+    const stream = content.startsWith("<local-command-stdout>", at) ? "stdout" : content.startsWith("<local-command-stderr>", at) ? "stderr" : null;
+    if (stream === null) return "";
+    const start = at + `<local-command-${stream}>`.length;
+    // a closing tag the output prints itself ends nothing: the stream's own one is at the end of
+    // the entry or before the next stream. Each candidate looks only at the whitespace after it.
+    const close = `</local-command-${stream}>`;
+    let end = content.indexOf(close, start);
+    let next = 0;
+    while (end !== -1) {
+      next = end + close.length;
+      while (next < content.length && /\s/.test(content[next]!)) next++;
+      if (next === content.length || content.startsWith("<local-command-stdout>", next) || content.startsWith("<local-command-stderr>", next)) break;
+      end = content.indexOf(close, end + close.length);
+    }
+    if (end === -1) return "";
+    const text = stripTerminalControls(content.slice(start, end)).trim();
+    if (text.length > 0) streams.push(text);
+    at = next;
+  }
+  const text = streams.join("\n");
   return text.length > LOCAL_COMMAND_MAX_CHARS ? `${text.slice(0, LOCAL_COMMAND_MAX_CHARS)}\u2026` : text;
+}
+
+/**
+ * The text of terminal output without its escape codes (colours, links, cursor moves, charset
+ * switches) and other controls, in one pass: a sequence cut off by the end swallows the rest,
+ * and malformed input never makes it rescan what follows.
+ */
+function stripTerminalControls(input: string): string {
+  let out = "";
+  let i = 0;
+  while (i < input.length) {
+    const code = input.charCodeAt(i);
+    if (code !== 0x1b) {
+      // tab and newline are text; every other C0 control and DEL is not
+      if (code === 0x09 || code === 0x0a || (code >= 0x20 && code !== 0x7f)) out += input[i];
+      i++;
+      continue;
+    }
+    const kind = input[i + 1];
+    if (kind === "]" || kind === "P" || kind === "X" || kind === "^" || kind === "_") {
+      // a string (OSC, DCS, SOS, PM, APC) ends at BEL or ST; another ESC ends it too
+      i += 2;
+      while (i < input.length && input.charCodeAt(i) !== 0x07 && input.charCodeAt(i) !== 0x1b) i++;
+      if (input.charCodeAt(i) === 0x07) i++;
+      else if (input[i + 1] === "\\") i += 2;
+    } else if (kind === "[") {
+      // CSI: parameters, intermediates, one final byte
+      i += 2;
+      while (i < input.length && input.charCodeAt(i) >= 0x30 && input.charCodeAt(i) <= 0x3f) i++;
+      while (i < input.length && input.charCodeAt(i) >= 0x20 && input.charCodeAt(i) <= 0x2f) i++;
+      if (i < input.length && input.charCodeAt(i) >= 0x40 && input.charCodeAt(i) <= 0x7e) i++;
+    } else {
+      // ESC, intermediates (as in ESC ( B), then one final byte
+      i++;
+      while (i < input.length && input.charCodeAt(i) >= 0x20 && input.charCodeAt(i) <= 0x2f) i++;
+      if (i < input.length && input.charCodeAt(i) >= 0x30 && input.charCodeAt(i) <= 0x7e) i++;
+    }
+  }
+  return out;
 }
 
 /**
