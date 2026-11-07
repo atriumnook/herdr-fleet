@@ -65,7 +65,7 @@
     }
   },
   {
-    "about": "added: a count of four digits counts as none",
+    "about": "added: a count of four digits counts as none (the code reads at most three digits; the server entries are dropped, ours is still set)",
     "input": {
       "GIT_CONFIG_COUNT": "1000",
       "GIT_CONFIG_KEY_0": "a.b",
@@ -78,7 +78,7 @@
     }
   },
   {
-    "about": "added: a count with a space counts as none",
+    "about": "added: a count with a space counts as none (git reads \" 1\" as 1; the server entry is dropped, ours is still set)",
     "input": {
       "GIT_CONFIG_COUNT": " 1",
       "GIT_CONFIG_KEY_0": "a.b",
@@ -91,7 +91,7 @@
     }
   },
   {
-    "about": "added: an entry with no value is left out, and ours still takes the index after the count",
+    "about": "added: an entry with no value is left out, and ours still takes the index after the count (git refuses such a server environment, missing GIT_CONFIG_VALUE_1, and refuses the result alike)",
     "input": {
       "GIT_CONFIG_COUNT": "2",
       "GIT_CONFIG_KEY_0": "a.b",

@@ -1,6 +1,6 @@
 [
   {
-    "about": "added: no token configured: every request passes",
+    "about": "added: no token configured: every request passes (server/index.ts asks only when a token is configured; decideAccess then decides)",
     "input": {
       "headers": [],
       "token": ""

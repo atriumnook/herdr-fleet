@@ -37,7 +37,9 @@
  *   describes it (`kind` a FileKind of shared/protocol.ts), whether it is to be saved, and for a
  *   file read through its `/api/fs/view/` path the request's Host and pane, `{host, paneId}`
  *   (each may be null); the headers of fileResponse's answer, its body left out. content-type is
- *   as Bun writes it for the type fileResponse gives (Bun adds `;charset=utf-8` to text/html)
+ *   as Bun writes it for the type fileResponse gives (Bun adds `;charset=utf-8` to text/html and
+ *   text/css), compared as text. What is added when the file is sent (content-length, ranges) is
+ *   not part of it: the HTTP/WS contract checks the answer as served
  * - isPushServiceEndpoint: the endpoint URL; a boolean
  * - parseSubscription: the JSON a browser sent as its subscription, the endpoint judged by
  *   isPushServiceEndpoint; the stored `{endpoint, keys: {p256dh, auth}}` or null
@@ -129,7 +131,9 @@ export function testOwner(owner: Owner, decisions: Record<string, Decision>): vo
   test(`${owner}: a table for each decision, and a decision for each table`, () => {
     expect(tableNames(owner)).toEqual(Object.keys(decisions).sort());
   });
-  for (const [name, decision] of Object.entries(decisions)) {
+  // a decision with no table is the test above's failure, not an error that stops every test of the owner
+  const tables = new Set(tableNames(owner));
+  for (const [name, decision] of Object.entries(decisions).filter(([name]) => tables.has(name))) {
     for (const [index, spec] of loadTable(owner, name).entries()) {
       test(`${owner}/${name} #${index}: ${spec.about}`, () => {
         expect(run(decision, spec.input)).toStrictEqual(resolvePlaceholders(spec.expected));

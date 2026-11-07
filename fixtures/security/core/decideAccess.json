@@ -950,7 +950,7 @@
     }
   },
   {
-    "about": "added: the token matched from a LAN client, no token configured: the token still lets in",
+    "about": "added: a matched token comes before every other rule, even with no token configured (server/index.ts never sets tokenMatched then)",
     "input": {
       "loopback": false,
       "forwarded": false,
