@@ -1,0 +1,164 @@
+[
+  {
+    "about": "server/machines.test.ts: machine boundaries > rejects cross-origin controls",
+    "input": {
+      "url": "http://localhost:7317/api/machines",
+      "headers": [
+        [
+          "origin",
+          "http://evil.test"
+        ]
+      ]
+    },
+    "expected": false
+  },
+  {
+    "about": "server/machines.test.ts: machine boundaries > rejects cross-origin controls",
+    "input": {
+      "url": "http://localhost:7317/api/machines",
+      "headers": [
+        [
+          "origin",
+          "http://localhost:7317"
+        ]
+      ]
+    },
+    "expected": true
+  },
+  {
+    "about": "server/machines.test.ts: machine boundaries > rejects cross-origin controls",
+    "input": {
+      "url": "http://localhost:7317/api/machines",
+      "headers": [
+        [
+          "sec-fetch-site",
+          "cross-site"
+        ]
+      ]
+    },
+    "expected": false
+  },
+  {
+    "about": "added: no Origin and no Sec-Fetch-Site: not from a browser page",
+    "input": {
+      "url": "http://localhost:7317/api/machines",
+      "headers": []
+    },
+    "expected": true
+  },
+  {
+    "about": "added: a typed address (Sec-Fetch-Site none)",
+    "input": {
+      "url": "http://localhost:7317/api/machines",
+      "headers": [
+        [
+          "sec-fetch-site",
+          "none"
+        ],
+        [
+          "origin",
+          "http://localhost:7317"
+        ]
+      ]
+    },
+    "expected": true
+  },
+  {
+    "about": "added: Sec-Fetch-Site same-site is another origin",
+    "input": {
+      "url": "http://localhost:7317/api/machines",
+      "headers": [
+        [
+          "sec-fetch-site",
+          "same-site"
+        ]
+      ]
+    },
+    "expected": false
+  },
+  {
+    "about": "added: Sec-Fetch-Site same-origin with another Origin",
+    "input": {
+      "url": "http://localhost:7317/api/machines",
+      "headers": [
+        [
+          "sec-fetch-site",
+          "same-origin"
+        ],
+        [
+          "origin",
+          "http://localhost:7318"
+        ]
+      ]
+    },
+    "expected": false
+  },
+  {
+    "about": "added: an Origin of null",
+    "input": {
+      "url": "http://localhost:7317/api/machines",
+      "headers": [
+        [
+          "origin",
+          "null"
+        ]
+      ]
+    },
+    "expected": false
+  },
+  {
+    "about": "added: an HTTPS Origin through a proxy that terminates TLS",
+    "input": {
+      "url": "http://localhost:7317/api/machines",
+      "headers": [
+        [
+          "origin",
+          "https://localhost:7317"
+        ],
+        [
+          "x-forwarded-proto",
+          "https"
+        ]
+      ]
+    },
+    "expected": true
+  },
+  {
+    "about": "added: an HTTP Origin through a proxy that terminates TLS",
+    "input": {
+      "url": "http://localhost:7317/api/machines",
+      "headers": [
+        [
+          "origin",
+          "http://localhost:7317"
+        ],
+        [
+          "x-forwarded-proto",
+          "https"
+        ]
+      ]
+    },
+    "expected": false
+  },
+  {
+    "about": "added: an Origin under a forwarded host is not trusted",
+    "input": {
+      "url": "http://localhost:7317/api/machines",
+      "headers": [
+        [
+          "origin",
+          "https://app.example.test"
+        ],
+        [
+          "x-forwarded-proto",
+          "https"
+        ],
+        [
+          "x-forwarded-host",
+          "app.example.test"
+        ]
+      ]
+    },
+    "expected": false
+  }
+]

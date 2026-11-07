@@ -1,0 +1,21 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript returns nothing for an empty transcript",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

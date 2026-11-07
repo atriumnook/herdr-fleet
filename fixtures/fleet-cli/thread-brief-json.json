@@ -1,0 +1,63 @@
+{
+  "about": "thread with a brief instead of --task, with --json",
+  "argv": [
+    "thread",
+    "--title",
+    "Login error",
+    "--goal",
+    "The login error shows once.",
+    "--write",
+    "src/login.ts",
+    "--context",
+    "none",
+    "--done",
+    "it shows once",
+    "--verify",
+    "bun test",
+    "--json"
+  ],
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r6",
+          "name": "Login error",
+          "role": "lead",
+          "agent": "claude",
+          "group": "fleet-default",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/threads",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "title": "Login error",
+          "brief": {
+            "goal": "The login error shows once.",
+            "write": [
+              "src/login.ts"
+            ],
+            "context": "none",
+            "done": "it shows once",
+            "verify": "bun test"
+          },
+          "cwd": "$CWD",
+          "depth": 0
+        }
+      }
+    ],
+    "stdout": "{\n  \"id\": \"r6\",\n  \"name\": \"Login error\",\n  \"role\": \"lead\",\n  \"agent\": \"claude\",\n  \"group\": \"fleet-default\",\n  \"paneId\": \"w1:p2\",\n  \"state\": \"working\"\n}\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

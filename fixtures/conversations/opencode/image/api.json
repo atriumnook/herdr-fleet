@@ -1,0 +1,92 @@
+{
+  "serviceRunning": true,
+  "get": {
+    "/api/session/ses_testsession0001/message/msg_u": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "msg_u",
+          "type": "user",
+          "time": {
+            "created": 3
+          },
+          "text": "<msg_u>",
+          "files": [
+            {
+              "data": "PHBuZyBieXRlcz4=",
+              "mime": "image/png",
+              "source": {
+                "type": "inline"
+              }
+            },
+            {
+              "data": "PHBuZyBieXRlcz4=",
+              "mime": "application/pdf",
+              "source": {
+                "type": "inline"
+              }
+            }
+          ]
+        }
+      }
+    },
+    "/api/session/ses_testsession0001/message/msg_a": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "msg_a",
+          "type": "assistant",
+          "agent": "build",
+          "model": {
+            "id": "model-x",
+            "providerID": "prov-x"
+          },
+          "time": {
+            "created": 4,
+            "completed": 5
+          },
+          "finish": "tool-calls",
+          "tokens": {
+            "input": 10,
+            "output": 1,
+            "reasoning": 0,
+            "cache": {
+              "read": 90,
+              "write": 0
+            }
+          },
+          "content": [
+            {
+              "type": "text",
+              "text": "<a>"
+            },
+            {
+              "type": "tool",
+              "id": "c",
+              "name": "bash",
+              "time": {
+                "created": 1
+              },
+              "state": {
+                "status": "completed",
+                "input": {},
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<whole output>"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      }
+    },
+    "/api/session/ses_testsession0001/message/msg_gone": {
+      "status": 404,
+      "body": {
+        "_tag": "MessageNotFoundError"
+      }
+    }
+  }
+}

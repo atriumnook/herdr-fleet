@@ -1,0 +1,45 @@
+{
+  "about": "server/codex-images.test.ts: fetches only referenced raster images within the retained history and bounds local reads (the local image by a path relative to cwd, and the inline one, over the whole rollout)",
+  "steps": [
+    {
+      "call": "image",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "ref": "codex-1bc8ef93098d0ae5e4054b63010ae4f481f526177f07fdacedf4e8490a448f79",
+      "cwd": ".",
+      "expected": {
+        "mediaType": "image/png",
+        "sha256": "6528ab9015aa95481b08dcdd35d71fdeff48f3876aad1d267fa52a34a915bcbf",
+        "length": 68
+      }
+    },
+    {
+      "call": "image",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "ref": "codex-3d13b4f3ae760186a2e29ce8917f21ebd8ddab1af6b901a838b5b3e5122a3c0c",
+      "cwd": ".",
+      "expected": {
+        "mediaType": "image/png",
+        "sha256": "6528ab9015aa95481b08dcdd35d71fdeff48f3876aad1d267fa52a34a915bcbf",
+        "length": 68
+      }
+    },
+    {
+      "call": "image",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "ref": "../../etc/passwd",
+      "cwd": ".",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "ref": "codex-0000000000000000000000000000000000000000000000000000000000000000",
+      "cwd": ".",
+      "expected": null
+    }
+  ]
+}

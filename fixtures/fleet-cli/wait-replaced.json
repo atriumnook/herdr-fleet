@@ -1,0 +1,71 @@
+{
+  "about": "A run replaced after a failed first turn hands the wait to its replacement, saying so on standard error",
+  "argv": [
+    "wait",
+    "r1"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "failed",
+          "model": "opus",
+          "lastError": "usage limit",
+          "replacedBy": "r2"
+        }
+      }
+    },
+    {
+      "status": 200,
+      "body": {
+        "run": {
+          "id": "r2",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "codex",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "idle",
+          "result": "done"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/runs/r1/wait",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "group": "g1"
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/api/fleet/runs/r2/wait",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "group": "g1"
+        }
+      }
+    ],
+    "stdout": "r2  worker 1 (worker, codex)  idle  pane w1:p2\n\ndone\n",
+    "stderr": "worker 1 failed on opus (usage limit); waiting for its re-spawn r2\n",
+    "exitCode": 0
+  }
+}

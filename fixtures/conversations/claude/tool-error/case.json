@@ -1,0 +1,44 @@
+{
+  "about": "server/conversation.test.ts: tool calls that failed keeps Claude's is_error and omp's isError on the call they answer (the Claude half)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "false",
+                "input": "{\n  \"command\": \"false\"\n}",
+                "output": "exit 1",
+                "error": true
+              },
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "true",
+                "input": "{\n  \"command\": \"true\"\n}",
+                "output": ""
+              }
+            ],
+            "end_ts": "2026-09-27T00:00:00Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

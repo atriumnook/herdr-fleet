@@ -1,0 +1,10 @@
+{"type":"user","timestamp":"2026-09-23T00:00:00.000Z","message":{"role":"user","content":"prompt 0"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t0","name":"Bash","input":{"command":"echo 0"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t0","content":"out 0"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 0"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:01.000Z","message":{"role":"user","content":"prompt 1"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"echo 1"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"out 1"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 1"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:02.000Z","message":{"role":"user","content":"prompt 2"}}
+{"type":"assistant"

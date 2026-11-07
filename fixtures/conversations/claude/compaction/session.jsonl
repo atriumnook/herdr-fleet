@@ -1,0 +1,2 @@
+{"type":"user","timestamp":"2026-09-27T00:00:00Z","message":{"content":"before"}}
+{"type":"user","isCompactSummary":true,"timestamp":"2026-09-27T01:00:00Z","message":{"content":"This session is being continued. Summary: X"}}

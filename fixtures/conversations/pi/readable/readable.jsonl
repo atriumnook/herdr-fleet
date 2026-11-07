@@ -1,0 +1,8 @@
+{"type":"session","version":3,"id":"readable","timestamp":"2026-09-30T00:00:00.000Z","cwd":"/work/project"}
+{"type":"model_change","id":"m1","parentId":null,"timestamp":"2026-09-30T00:00:00.000Z","provider":"test","modelId":"qwen-test"}
+{"type":"thinking_level_change","id":"t1","parentId":"m1","timestamp":"2026-09-30T00:00:00.000Z","thinkingLevel":"medium"}
+{"type":"message","id":"s1","parentId":"t1","timestamp":"2026-09-30T00:00:01.000Z","message":{"role":"system","content":"instructions the chat must not show"}}
+{"type":"message","id":"u1","parentId":"s1","timestamp":"2026-09-30T00:00:02.000Z","message":{"role":"user","content":[{"type":"text","text":"fix the crash"}]}}
+{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-09-30T00:00:03.000Z","message":{"role":"assistant","model":"qwen-test","provider":"test","stopReason":"toolUse","usage":{"input":100,"output":20,"cacheRead":300,"cacheWrite":0,"totalTokens":420},"content":[{"type":"thinking","thinking":"the null check is missing"},{"type":"text","text":"I'll add the guard."},{"type":"toolCall","id":"c1","name":"read","arguments":{"path":"src/app.ts"}}]}}
+{"type":"message","id":"r1","parentId":"a1","timestamp":"2026-09-30T00:00:04.000Z","message":{"role":"toolResult","toolCallId":"c1","toolName":"read","content":[{"type":"text","text":"export const app = null;"}]}}
+{"type":"message","id":"a2","parentId":"r1","timestamp":"2026-09-30T00:00:05.000Z","message":{"role":"assistant","model":"qwen-test","provider":"test","stopReason":"stop","usage":{"input":150,"output":30,"cacheRead":300,"cacheWrite":0,"totalTokens":480},"content":[{"type":"text","text":"Guarded. The crash came from a null export."}]}}

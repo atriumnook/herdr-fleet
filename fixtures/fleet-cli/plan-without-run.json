@@ -1,0 +1,14 @@
+{
+  "about": "Only a run the fleet started (HERDR_FLEET_RUN) writes a plan: a usage error otherwise",
+  "argv": [
+    "plan",
+    "-"
+  ],
+  "stdin": "{}",
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: fleet plan: only a thread's lead the fleet started writes a plan (HERDR_FLEET_RUN is not set)\n",
+    "exitCode": 2
+  }
+}

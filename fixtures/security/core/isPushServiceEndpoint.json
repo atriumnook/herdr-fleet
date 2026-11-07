@@ -1,0 +1,82 @@
+[
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": "https://fcm.googleapis.com/fcm/send/abc",
+    "expected": true
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": "https://updates.push.services.mozilla.com/wpush/v2/abc",
+    "expected": true
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": "https://web.push.apple.com/abc",
+    "expected": true
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": "https://wns2-par02p.notify.windows.com/w/?token=abc",
+    "expected": true
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise (the fake push service's loopback endpoint)",
+    "input": "http://127.0.0.1:41234/push/abc",
+    "expected": false
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": "http://fcm.googleapis.com/fcm/send/abc",
+    "expected": false
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": "https://fcm.googleapis.com:8443/x",
+    "expected": false
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": "https://192.168.1.1/x",
+    "expected": false
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": "https://localhost/x",
+    "expected": false
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": "https://fcm.googleapis.com.evil.example/x",
+    "expected": false
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": "https://evilfcm.googleapis.com.example/x",
+    "expected": false
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": "https://FCM.googleapis.com/x",
+    "expected": true
+  },
+  {
+    "about": "added: the bare vendor host",
+    "input": "https://push.apple.com/x",
+    "expected": true
+  },
+  {
+    "about": "added: a vendor host with the default HTTPS port written out is the same URL",
+    "input": "https://fcm.googleapis.com:443/x",
+    "expected": true
+  },
+  {
+    "about": "added: a vendor host with a trailing dot is not on the list",
+    "input": "https://fcm.googleapis.com./x",
+    "expected": false
+  },
+  {
+    "about": "added: a vendor name in the user part of the URL",
+    "input": "https://fcm.googleapis.com@evil.example/x",
+    "expected": false
+  }
+]

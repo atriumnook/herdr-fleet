@@ -1,0 +1,33 @@
+{
+  "about": "usage clear ends every cooldown",
+  "argv": [
+    "usage",
+    "clear"
+  ],
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "cleared": [
+          "agy:gemini",
+          "claude"
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/usage/clear",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {}
+      }
+    ],
+    "stdout": "cleared agy:gemini, claude\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

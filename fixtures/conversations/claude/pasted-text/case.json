@@ -1,0 +1,52 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript shows a pasted text without Claude Code's paste wrapper, in string and block prompts",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "| a | b |\n\nsecond paragraph"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "look at this\n\n| a | b |\n\nsecond paragraph"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "typed <\\pasted_content id=\"6d8b\"> stays"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

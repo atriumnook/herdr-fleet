@@ -1,0 +1,83 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript keeps a turn whole when Claude Code writes a notice while the agent works",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "run it"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:00:20.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Cross-session message held by the receiving session",
+                "source": "informational"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:01:02.500Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Cross-session message expired without approval",
+                "source": "informational"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-10-08T08:00:01.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "sleep 60",
+                "input": "{\n  \"command\": \"sleep 60\"\n}",
+                "output": "ok"
+              },
+              {
+                "kind": "text",
+                "text": "Done."
+              }
+            ],
+            "end_ts": "2026-10-08T08:01:03.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:02:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Unknown command: /xyzabc",
+                "source": "informational"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

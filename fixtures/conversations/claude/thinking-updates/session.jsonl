@@ -1,0 +1,5 @@
+{"type":"user","message":{"role":"user","content":"measure the padding"}}
+{"type":"assistant","timestamp":"2026-10-14T07:00:00.000Z","thinkingDisplay":"updates","message":{"role":"assistant","stop_reason":null,"content":[{"type":"thinking","thinking":"","signature":"s"}]}}
+{"type":"assistant","timestamp":"2026-10-14T07:00:00.000Z","thinkingDisplay":"updates","message":{"role":"assistant","stop_reason":null,"content":[{"type":"thinking","thinking":"The padding stays; measuring it next.","signature":"s"}]}}
+{"type":"assistant","timestamp":"2026-10-14T07:00:00.000Z","thinkingDisplay":"updates","message":{"role":"assistant","stop_reason":null,"content":[{"type":"tool_use","id":"t","name":"Bash","input":{"command":"true"}}]}}
+{"type":"assistant","timestamp":"2026-10-14T07:00:00.000Z","message":{"role":"assistant","stop_reason":null,"content":[{"type":"thinking","thinking":"private reasoning","signature":"s"}]}}

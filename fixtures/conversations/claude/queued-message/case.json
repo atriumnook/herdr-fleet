@@ -1,0 +1,64 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript shows a message the person sent while the agent was working",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-02T04:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "start"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-10-02T04:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "working"
+              }
+            ],
+            "end_ts": "2026-10-02T04:00:02.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-02T04:00:05.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "also fix the tests"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-10-02T04:00:10.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "on it"
+              }
+            ],
+            "end_ts": "2026-10-02T04:00:10.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

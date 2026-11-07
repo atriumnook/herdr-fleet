@@ -1,0 +1,6 @@
+{"type":"user","timestamp":"2026-10-08T08:00:00.000Z","message":{"role":"user","content":"run"}}
+{"type":"assistant","timestamp":"2026-10-08T08:00:01.000Z","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t","name":"Bash","input":{"command":"sleep 60"}}]}}
+{"type":"system","subtype":"local_command","timestamp":"2026-10-08T08:00:10.000Z","content":"<local-command-stderr>Message held</local-command-stderr>"}
+{"type":"system","subtype":"informational","timestamp":"2026-10-08T08:00:10.000Z","content":"Message held"}
+{"type":"user","timestamp":"2026-10-08T08:01:00.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t","content":"ok"}]}}
+{"type":"assistant","timestamp":"2026-10-08T08:01:01.000Z","message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"Done"}]}}

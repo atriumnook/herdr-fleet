@@ -1,0 +1,122 @@
+{
+  "about": "server/skill-activity.test.ts: Claude records skill request, invocation and failure without claiming task completion",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "requested.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Skill",
+                "summary": "plugin:review",
+                "input": "{\n  \"skill\": \"plugin:review\"\n}",
+                "output": "",
+                "skill": {
+                  "name": "plugin:review",
+                  "evidence": "invocation",
+                  "status": "requested"
+                }
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "loaded-and-failed.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Skill",
+                "summary": "plugin:review",
+                "input": "{\n  \"skill\": \"plugin:review\"\n}",
+                "output": "Launching skill",
+                "skill": {
+                  "name": "plugin:review",
+                  "evidence": "invocation",
+                  "status": "loaded"
+                }
+              },
+              {
+                "kind": "tool",
+                "name": "Skill",
+                "summary": "deploy",
+                "input": "{\n  \"skill\": \"deploy\"\n}",
+                "output": "Unavailable",
+                "skill": {
+                  "name": "deploy",
+                  "evidence": "invocation",
+                  "status": "failed"
+                },
+                "error": true
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "mention.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Maybe use review"
+              },
+              {
+                "kind": "tool",
+                "name": "Read",
+                "summary": "/notes/review.txt",
+                "input": "{\n  \"file_path\": \"/notes/review.txt\"\n}",
+                "output": ""
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    }
+  ]
+}

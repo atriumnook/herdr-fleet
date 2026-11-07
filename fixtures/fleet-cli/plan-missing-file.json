@@ -1,0 +1,18 @@
+{
+  "about": "A plan file that cannot be read is a usage error; the reason is the runtime's",
+  "argv": [
+    "plan",
+    "missing.json"
+  ],
+  "env": {
+    "HERDR_FLEET_RUN": "r5"
+  },
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": {
+      "pattern": "fleet: cannot read missing\\.json: .+\\n"
+    },
+    "exitCode": 2
+  }
+}

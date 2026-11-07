@@ -1,0 +1,145 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript strips an unterminated link, a charset switch, and shows both streams of one entry",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "unterminated-link.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-07T19:00:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "done",
+                "source": "local-command"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "charset-switch.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-07T19:00:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "plain text",
+                "source": "local-command"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "both-streams.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-07T19:00:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "out\nerr",
+                "source": "local-command"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "printed-closing-tag.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-07T19:00:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Use </local-command-stdout> in this example.",
+                "source": "local-command"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h4",
+        "version": "$v4"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "printed-closing-tag-before-stderr.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-07T19:00:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "a </local-command-stdout> b\nerr",
+                "source": "local-command"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h5",
+        "version": "$v5"
+      }
+    }
+  ]
+}

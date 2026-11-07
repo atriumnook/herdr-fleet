@@ -1,0 +1,44 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript shows what a slash command answered, and leaves its echo and an empty answer out",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-07T19:00:01.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "/goal can't run while hooks are restricted (disableAllHooks or allowManagedHooksOnly is set in settings or by policy).",
+                "source": "local-command"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-07T19:00:03.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Unknown command: /gaol",
+                "source": "local-command"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

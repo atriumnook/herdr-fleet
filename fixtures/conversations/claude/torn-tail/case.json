@@ -1,0 +1,58 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript survives a torn tail line while Claude is mid-append",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-19T08:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "리팩터링 시작해줘"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-19T08:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "먼저 상태를 확인하겠습니다."
+              },
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "git status --short",
+                "input": "{\n  \"command\": \"git status --short\",\n  \"description\": \"check tree\"\n}",
+                "output": "M src/app.ts"
+              },
+              {
+                "kind": "thinking",
+                "text": "internal reasoning stays private"
+              },
+              {
+                "kind": "text",
+                "text": "변경된 파일이 하나입니다."
+              }
+            ],
+            "end_ts": "2026-09-19T08:00:05.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

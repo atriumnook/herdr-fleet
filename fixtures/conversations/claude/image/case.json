@@ -1,0 +1,51 @@
+{
+  "about": "server/conversation.test.ts: transcriptImage decodes the image a ref names, and nothing else",
+  "steps": [
+    {
+      "call": "image",
+      "source": "claude",
+      "path": "session.jsonl",
+      "ref": "11111111-2222-3333-4444-555555555555:0",
+      "expected": {
+        "mediaType": "image/png",
+        "sha256": "0f4636c78f65d3639ece5a064b5ae753e3408614a14fb18ab4d7540d2c248543",
+        "length": 4
+      }
+    },
+    {
+      "call": "image",
+      "source": "claude",
+      "path": "session.jsonl",
+      "ref": "11111111-2222-3333-4444-555555555555:1",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "claude",
+      "path": "session.jsonl",
+      "ref": "11111111-2222-3333-4444-555555555555:2",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "claude",
+      "path": "session.jsonl",
+      "ref": "99999999-2222-3333-4444-555555555555:0",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "claude",
+      "path": "session.jsonl",
+      "ref": "../../etc/passwd:0",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "claude",
+      "path": "missing.jsonl",
+      "ref": "11111111-2222-3333-4444-555555555555:0",
+      "expected": null
+    }
+  ]
+}

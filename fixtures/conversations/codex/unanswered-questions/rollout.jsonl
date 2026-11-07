@@ -1,0 +1,2 @@
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"go"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"function_call","name":"request_user_input_async","call_id":"call_a","arguments":"{\"questions\":[{\"title\":\"Which dataset?\",\"options\":[\"LM-O\",\"YCB-V\"]},{\"title\":\"Any notes?\"}]}"}}

@@ -1,0 +1,4 @@
+{"type":"user","message":{"role":"user","content":"deck status?"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"working on it"}]}}
+{"type":"attachment","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nR18 is ready\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m7","name":"FUSION","body":"R18 is ready"}}}
+{"type":"user","isMeta":true,"origin":{"kind":"peer","from":"uds:x","msg_id":"m7","name":"FUSION","body":"R18 is ready"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nR18 is ready\n</cross-session-message>"}}

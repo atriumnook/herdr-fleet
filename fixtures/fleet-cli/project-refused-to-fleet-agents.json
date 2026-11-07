@@ -1,0 +1,18 @@
+{
+  "about": "bin/fleet.test.ts: fleet project is refused to the fleet's own agents, which report to whoever started them",
+  "argv": [
+    "project",
+    "--task",
+    "t"
+  ],
+  "env": {
+    "HERDR_PANE_ID": "w2:p4",
+    "HERDR_FLEET_RUN": "r7"
+  },
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: fleet project: the fleet's own agents do not call the coordinator; report as your instructions say\n",
+    "exitCode": 2
+  }
+}

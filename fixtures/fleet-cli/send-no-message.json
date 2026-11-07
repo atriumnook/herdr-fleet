@@ -1,0 +1,13 @@
+{
+  "about": "send without a message is a usage error",
+  "argv": [
+    "send",
+    "r1"
+  ],
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: fleet send: give the message\n",
+    "exitCode": 2
+  }
+}

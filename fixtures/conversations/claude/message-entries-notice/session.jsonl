@@ -1,0 +1,4 @@
+{"type":"user","message":{"content":"How many books?"}}
+{"type":"assistant","message":{"id":"msg_1","content":[{"type":"thinking","thinking":"Count them."}],"stop_reason":"end_turn"}}
+{"type":"system","subtype":"informational","content":"Model switched","timestamp":"2026-01-01T12:00:00Z"}
+{"type":"assistant","message":{"id":"msg_1","content":[{"type":"text","text":"Three books."}],"stop_reason":"end_turn"}}

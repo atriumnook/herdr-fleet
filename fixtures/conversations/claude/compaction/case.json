@@ -1,0 +1,42 @@
+{
+  "about": "server/conversation.test.ts: images and compactions in a Claude transcript marks where a compaction folded the conversation, with its summary",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "before"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-27T01:00:00Z",
+            "parts": [
+              {
+                "kind": "compact",
+                "text": "This session is being continued. Summary: X"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

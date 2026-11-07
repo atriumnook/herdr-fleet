@@ -1,0 +1,400 @@
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m0","name":"FUSION","body":"reply 0"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 0\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 0"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:01.000Z","message":{"role":"user","content":"prompt 1"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"echo 1"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"out 1"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 1"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:02.000Z","message":{"role":"user","content":"prompt 2"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"echo 2"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"out 2"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 2"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 3\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m3","name":"FUSION","body":"reply 3"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 3"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:04.000Z","message":{"role":"user","content":"prompt 4"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t4","name":"Bash","input":{"command":"echo 4"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t4","content":"out 4"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 4"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:05.000Z","message":{"role":"user","content":"prompt 5"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t5","name":"Bash","input":{"command":"echo 5"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t5","content":"out 5"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 5"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m6","name":"FUSION","body":"reply 6"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 6\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 6"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:07.000Z","message":{"role":"user","content":"prompt 7"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t7","name":"Bash","input":{"command":"echo 7"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t7","content":"out 7"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 7"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:08.000Z","message":{"role":"user","content":"prompt 8"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t8","name":"Bash","input":{"command":"echo 8"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t8","content":"out 8"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 8"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 9\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m9","name":"FUSION","body":"reply 9"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 9"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:10.000Z","message":{"role":"user","content":"prompt 10"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t10","name":"Bash","input":{"command":"echo 10"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t10","content":"out 10"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 10"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:11.000Z","message":{"role":"user","content":"prompt 11"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t11","name":"Bash","input":{"command":"echo 11"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t11","content":"out 11"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 11"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m12","name":"FUSION","body":"reply 12"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 12\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 12"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:13.000Z","message":{"role":"user","content":"prompt 13"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t13","name":"Bash","input":{"command":"echo 13"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t13","content":"out 13"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 13"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:14.000Z","message":{"role":"user","content":"prompt 14"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t14","name":"Bash","input":{"command":"echo 14"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t14","content":"out 14"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 14"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 15\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m15","name":"FUSION","body":"reply 15"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 15"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:16.000Z","message":{"role":"user","content":"prompt 16"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t16","name":"Bash","input":{"command":"echo 16"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t16","content":"out 16"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 16"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:17.000Z","message":{"role":"user","content":"prompt 17"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t17","name":"Bash","input":{"command":"echo 17"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t17","content":"out 17"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 17"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m18","name":"FUSION","body":"reply 18"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 18\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 18"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:19.000Z","message":{"role":"user","content":"prompt 19"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t19","name":"Bash","input":{"command":"echo 19"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t19","content":"out 19"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 19"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:20.000Z","message":{"role":"user","content":"prompt 20"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t20","name":"Bash","input":{"command":"echo 20"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t20","content":"out 20"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 20"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 21\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m21","name":"FUSION","body":"reply 21"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 21"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:22.000Z","message":{"role":"user","content":"prompt 22"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t22","name":"Bash","input":{"command":"echo 22"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t22","content":"out 22"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 22"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:23.000Z","message":{"role":"user","content":"prompt 23"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t23","name":"Bash","input":{"command":"echo 23"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t23","content":"out 23"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 23"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m24","name":"FUSION","body":"reply 24"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 24\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 24"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:25.000Z","message":{"role":"user","content":"prompt 25"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t25","name":"Bash","input":{"command":"echo 25"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t25","content":"out 25"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 25"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:26.000Z","message":{"role":"user","content":"prompt 26"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t26","name":"Bash","input":{"command":"echo 26"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t26","content":"out 26"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 26"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 27\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m27","name":"FUSION","body":"reply 27"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 27"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:28.000Z","message":{"role":"user","content":"prompt 28"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t28","name":"Bash","input":{"command":"echo 28"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t28","content":"out 28"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 28"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:29.000Z","message":{"role":"user","content":"prompt 29"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t29","name":"Bash","input":{"command":"echo 29"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t29","content":"out 29"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 29"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m30","name":"FUSION","body":"reply 30"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 30\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 30"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:31.000Z","message":{"role":"user","content":"prompt 31"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t31","name":"Bash","input":{"command":"echo 31"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t31","content":"out 31"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 31"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:32.000Z","message":{"role":"user","content":"prompt 32"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t32","name":"Bash","input":{"command":"echo 32"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t32","content":"out 32"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 32"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 33\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m33","name":"FUSION","body":"reply 33"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 33"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:34.000Z","message":{"role":"user","content":"prompt 34"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t34","name":"Bash","input":{"command":"echo 34"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t34","content":"out 34"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 34"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:35.000Z","message":{"role":"user","content":"prompt 35"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t35","name":"Bash","input":{"command":"echo 35"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t35","content":"out 35"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 35"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m36","name":"FUSION","body":"reply 36"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 36\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 36"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:37.000Z","message":{"role":"user","content":"prompt 37"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t37","name":"Bash","input":{"command":"echo 37"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t37","content":"out 37"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 37"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:38.000Z","message":{"role":"user","content":"prompt 38"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t38","name":"Bash","input":{"command":"echo 38"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t38","content":"out 38"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 38"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 39\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m39","name":"FUSION","body":"reply 39"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 39"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:40.000Z","message":{"role":"user","content":"prompt 40"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t40","name":"Bash","input":{"command":"echo 40"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t40","content":"out 40"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 40"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:41.000Z","message":{"role":"user","content":"prompt 41"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t41","name":"Bash","input":{"command":"echo 41"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t41","content":"out 41"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 41"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m42","name":"FUSION","body":"reply 42"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 42\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 42"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:43.000Z","message":{"role":"user","content":"prompt 43"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t43","name":"Bash","input":{"command":"echo 43"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t43","content":"out 43"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 43"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:44.000Z","message":{"role":"user","content":"prompt 44"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t44","name":"Bash","input":{"command":"echo 44"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t44","content":"out 44"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 44"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 45\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m45","name":"FUSION","body":"reply 45"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 45"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:46.000Z","message":{"role":"user","content":"prompt 46"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t46","name":"Bash","input":{"command":"echo 46"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t46","content":"out 46"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 46"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:47.000Z","message":{"role":"user","content":"prompt 47"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t47","name":"Bash","input":{"command":"echo 47"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t47","content":"out 47"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 47"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m48","name":"FUSION","body":"reply 48"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 48\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 48"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:49.000Z","message":{"role":"user","content":"prompt 49"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t49","name":"Bash","input":{"command":"echo 49"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t49","content":"out 49"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 49"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:50.000Z","message":{"role":"user","content":"prompt 50"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t50","name":"Bash","input":{"command":"echo 50"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t50","content":"out 50"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 50"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 51\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m51","name":"FUSION","body":"reply 51"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 51"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:52.000Z","message":{"role":"user","content":"prompt 52"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t52","name":"Bash","input":{"command":"echo 52"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t52","content":"out 52"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 52"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:53.000Z","message":{"role":"user","content":"prompt 53"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t53","name":"Bash","input":{"command":"echo 53"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t53","content":"out 53"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 53"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m54","name":"FUSION","body":"reply 54"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 54\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 54"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:55.000Z","message":{"role":"user","content":"prompt 55"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t55","name":"Bash","input":{"command":"echo 55"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t55","content":"out 55"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 55"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:56.000Z","message":{"role":"user","content":"prompt 56"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t56","name":"Bash","input":{"command":"echo 56"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t56","content":"out 56"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 56"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 57\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m57","name":"FUSION","body":"reply 57"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 57"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:58.000Z","message":{"role":"user","content":"prompt 58"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t58","name":"Bash","input":{"command":"echo 58"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t58","content":"out 58"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 58"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:59.000Z","message":{"role":"user","content":"prompt 59"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t59","name":"Bash","input":{"command":"echo 59"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t59","content":"out 59"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 59"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m60","name":"FUSION","body":"reply 60"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 60\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 60"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:01.000Z","message":{"role":"user","content":"prompt 61"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t61","name":"Bash","input":{"command":"echo 61"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t61","content":"out 61"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 61"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:02.000Z","message":{"role":"user","content":"prompt 62"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t62","name":"Bash","input":{"command":"echo 62"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t62","content":"out 62"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 62"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 63\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m63","name":"FUSION","body":"reply 63"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 63"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:04.000Z","message":{"role":"user","content":"prompt 64"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t64","name":"Bash","input":{"command":"echo 64"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t64","content":"out 64"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 64"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:05.000Z","message":{"role":"user","content":"prompt 65"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t65","name":"Bash","input":{"command":"echo 65"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t65","content":"out 65"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 65"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m66","name":"FUSION","body":"reply 66"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 66\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 66"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:07.000Z","message":{"role":"user","content":"prompt 67"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t67","name":"Bash","input":{"command":"echo 67"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t67","content":"out 67"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 67"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:08.000Z","message":{"role":"user","content":"prompt 68"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t68","name":"Bash","input":{"command":"echo 68"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t68","content":"out 68"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 68"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 69\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m69","name":"FUSION","body":"reply 69"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 69"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:10.000Z","message":{"role":"user","content":"prompt 70"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t70","name":"Bash","input":{"command":"echo 70"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t70","content":"out 70"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 70"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:11.000Z","message":{"role":"user","content":"prompt 71"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t71","name":"Bash","input":{"command":"echo 71"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t71","content":"out 71"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 71"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m72","name":"FUSION","body":"reply 72"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 72\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 72"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:13.000Z","message":{"role":"user","content":"prompt 73"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t73","name":"Bash","input":{"command":"echo 73"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t73","content":"out 73"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 73"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:14.000Z","message":{"role":"user","content":"prompt 74"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t74","name":"Bash","input":{"command":"echo 74"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t74","content":"out 74"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 74"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 75\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m75","name":"FUSION","body":"reply 75"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 75"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:16.000Z","message":{"role":"user","content":"prompt 76"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t76","name":"Bash","input":{"command":"echo 76"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t76","content":"out 76"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 76"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:17.000Z","message":{"role":"user","content":"prompt 77"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t77","name":"Bash","input":{"command":"echo 77"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t77","content":"out 77"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 77"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m78","name":"FUSION","body":"reply 78"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 78\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 78"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:19.000Z","message":{"role":"user","content":"prompt 79"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t79","name":"Bash","input":{"command":"echo 79"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t79","content":"out 79"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 79"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:20.000Z","message":{"role":"user","content":"prompt 80"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t80","name":"Bash","input":{"command":"echo 80"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t80","content":"out 80"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 80"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 81\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m81","name":"FUSION","body":"reply 81"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 81"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:22.000Z","message":{"role":"user","content":"prompt 82"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t82","name":"Bash","input":{"command":"echo 82"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t82","content":"out 82"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 82"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:23.000Z","message":{"role":"user","content":"prompt 83"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t83","name":"Bash","input":{"command":"echo 83"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t83","content":"out 83"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 83"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m84","name":"FUSION","body":"reply 84"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 84\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 84"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:25.000Z","message":{"role":"user","content":"prompt 85"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t85","name":"Bash","input":{"command":"echo 85"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t85","content":"out 85"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 85"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:26.000Z","message":{"role":"user","content":"prompt 86"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t86","name":"Bash","input":{"command":"echo 86"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t86","content":"out 86"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 86"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 87\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m87","name":"FUSION","body":"reply 87"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 87"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:28.000Z","message":{"role":"user","content":"prompt 88"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t88","name":"Bash","input":{"command":"echo 88"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t88","content":"out 88"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 88"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:29.000Z","message":{"role":"user","content":"prompt 89"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t89","name":"Bash","input":{"command":"echo 89"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t89","content":"out 89"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 89"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m90","name":"FUSION","body":"reply 90"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 90\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 90"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:31.000Z","message":{"role":"user","content":"prompt 91"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t91","name":"Bash","input":{"command":"echo 91"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t91","content":"out 91"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 91"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:32.000Z","message":{"role":"user","content":"prompt 92"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t92","name":"Bash","input":{"command":"echo 92"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t92","content":"out 92"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 92"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 93\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m93","name":"FUSION","body":"reply 93"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 93"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:34.000Z","message":{"role":"user","content":"prompt 94"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t94","name":"Bash","input":{"command":"echo 94"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t94","content":"out 94"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 94"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:35.000Z","message":{"role":"user","content":"prompt 95"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t95","name":"Bash","input":{"command":"echo 95"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t95","content":"out 95"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 95"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m96","name":"FUSION","body":"reply 96"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 96\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 96"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:37.000Z","message":{"role":"user","content":"prompt 97"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t97","name":"Bash","input":{"command":"echo 97"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t97","content":"out 97"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 97"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:38.000Z","message":{"role":"user","content":"prompt 98"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t98","name":"Bash","input":{"command":"echo 98"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t98","content":"out 98"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 98"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 99\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m99","name":"FUSION","body":"reply 99"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 99"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:40.000Z","message":{"role":"user","content":"prompt 100"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t100","name":"Bash","input":{"command":"echo 100"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t100","content":"out 100"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 100"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:41.000Z","message":{"role":"user","content":"prompt 101"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t101","name":"Bash","input":{"command":"echo 101"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t101","content":"out 101"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 101"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m102","name":"FUSION","body":"reply 102"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 102\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 102"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:43.000Z","message":{"role":"user","content":"prompt 103"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t103","name":"Bash","input":{"command":"echo 103"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t103","content":"out 103"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 103"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:44.000Z","message":{"role":"user","content":"prompt 104"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t104","name":"Bash","input":{"command":"echo 104"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t104","content":"out 104"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 104"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 105\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m105","name":"FUSION","body":"reply 105"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 105"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:46.000Z","message":{"role":"user","content":"prompt 106"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t106","name":"Bash","input":{"command":"echo 106"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t106","content":"out 106"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 106"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:47.000Z","message":{"role":"user","content":"prompt 107"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t107","name":"Bash","input":{"command":"echo 107"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t107","content":"out 107"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 107"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m108","name":"FUSION","body":"reply 108"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 108\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 108"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:49.000Z","message":{"role":"user","content":"prompt 109"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t109","name":"Bash","input":{"command":"echo 109"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t109","content":"out 109"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 109"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:50.000Z","message":{"role":"user","content":"prompt 110"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t110","name":"Bash","input":{"command":"echo 110"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t110","content":"out 110"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 110"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 111\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m111","name":"FUSION","body":"reply 111"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 111"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:52.000Z","message":{"role":"user","content":"prompt 112"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t112","name":"Bash","input":{"command":"echo 112"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t112","content":"out 112"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 112"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:53.000Z","message":{"role":"user","content":"prompt 113"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t113","name":"Bash","input":{"command":"echo 113"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t113","content":"out 113"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 113"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T00:00:00.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m114","name":"FUSION","body":"reply 114"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from-name=\"FUSION\">\nreply 114\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 114"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:55.000Z","message":{"role":"user","content":"prompt 115"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t115","name":"Bash","input":{"command":"echo 115"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t115","content":"out 115"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 115"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:56.000Z","message":{"role":"user","content":"prompt 116"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t116","name":"Bash","input":{"command":"echo 116"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t116","content":"out 116"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 116"}]}}
+{"type":"attachment","timestamp":"2026-10-08T00:00:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from-name=\"FUSION\">\nreply 117\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m117","name":"FUSION","body":"reply 117"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"handled 117"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:58.000Z","message":{"role":"user","content":"prompt 118"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t118","name":"Bash","input":{"command":"echo 118"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t118","content":"out 118"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 118"}]}}
+{"type":"user","timestamp":"2026-09-23T00:00:59.000Z","message":{"role":"user","content":"prompt 119"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"t119","name":"Bash","input":{"command":"echo 119"}}]}}
+{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t119","content":"out 119"}]}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"answer 119"}]}}

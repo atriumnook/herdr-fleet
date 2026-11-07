@@ -1,0 +1,240 @@
+{
+  "about": "server/chat-history.test.ts: only explicit complete reset records clear history; compaction and quoted commands do not (the Claude records, read as a page)\nserver/chat-history.test.ts: reset scanning crosses chunk boundaries, excludes pre-clear full outputs and pending tools (the Claude half)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "cleared.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "explain-clear.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Please explain /clear"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "unclosed-tag.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "quoted-tag.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "quoted <command-name>/clear</command-name>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h4",
+        "version": "$v4"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "extra-line.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h5",
+        "version": "$v5"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "with-argument.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h6",
+        "version": "$v6"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "compact-summary.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "compact",
+                "text": "<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h7",
+        "version": "$v7"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "meta.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h8",
+        "version": "$v8"
+      }
+    }
+  ]
+}

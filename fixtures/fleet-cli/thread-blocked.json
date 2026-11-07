@@ -1,0 +1,49 @@
+{
+  "about": "A thread started blocked exits 4, with its error as a note",
+  "argv": [
+    "thread",
+    "--title",
+    "T",
+    "--task",
+    "t",
+    "--cwd",
+    "/repo"
+  ],
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r6",
+          "name": "T",
+          "role": "lead",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "blocked",
+          "lastError": "needs an answer"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/threads",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "title": "T",
+          "task": "t",
+          "cwd": "/repo",
+          "depth": 0
+        }
+      }
+    ],
+    "stdout": "r6  T (lead, claude)  blocked  pane w1:p2\nnote: needs an answer\n",
+    "stderr": "",
+    "exitCode": 4
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "about": "threads --json prints the summaries as JSON",
+  "argv": [
+    "threads",
+    "--cwd",
+    "/repo",
+    "--json"
+  ],
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "threads": [
+          {
+            "run": {
+              "id": "r7",
+              "name": "Docs",
+              "role": "lead",
+              "agent": "claude",
+              "group": "g1",
+              "paneId": "w1:p2",
+              "state": "working"
+            },
+            "state": "idle"
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/threads?cwd=%2Frepo",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "[\n  {\n    \"run\": {\n      \"id\": \"r7\",\n      \"name\": \"Docs\",\n      \"role\": \"lead\",\n      \"agent\": \"claude\",\n      \"group\": \"g1\",\n      \"paneId\": \"w1:p2\",\n      \"state\": \"working\"\n    },\n    \"state\": \"idle\"\n  }\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

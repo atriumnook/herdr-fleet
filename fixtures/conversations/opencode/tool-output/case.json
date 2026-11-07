@@ -1,0 +1,33 @@
+{
+  "about": "server/opencode-session.test.ts: on demand a tool's whole output, by message and position",
+  "steps": [
+    {
+      "call": "toolOutput",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "msg_a:1",
+      "expected": "<whole output>"
+    },
+    {
+      "call": "toolOutput",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "msg_a:0",
+      "expected": null
+    },
+    {
+      "call": "toolOutput",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "msg_gone:0",
+      "expected": null
+    },
+    {
+      "call": "toolOutput",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "../msg_a:1",
+      "expected": null
+    }
+  ]
+}

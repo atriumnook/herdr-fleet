@@ -1,0 +1,14 @@
+{
+  "about": "thread without --title is a usage error, before any request",
+  "argv": [
+    "thread",
+    "--task",
+    "t"
+  ],
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: fleet thread: --title and --task (or a brief) are required\n",
+    "exitCode": 2
+  }
+}
