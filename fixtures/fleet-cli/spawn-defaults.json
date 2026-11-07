@@ -1,0 +1,47 @@
+{
+  "about": "Without --cwd, HERDR_FLEET_GROUP, HERDR_FLEET_DEPTH and HERDR_PANE_ID, spawn sends the working folder, the group fleet-default and depth 0",
+  "argv": [
+    "spawn",
+    "--role",
+    "worker",
+    "--task",
+    "t"
+  ],
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "fleet-default",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/spawn",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "role": "worker",
+          "task": "t",
+          "cwd": "$CWD",
+          "group": "fleet-default",
+          "depth": 0
+        }
+      }
+    ],
+    "stdout": "r1  worker 1 (worker, claude)  working  pane w1:p2\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

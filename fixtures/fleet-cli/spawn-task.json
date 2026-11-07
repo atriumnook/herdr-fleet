@@ -1,0 +1,55 @@
+{
+  "about": "spawn with --task sends the role, the task, the cwd and the caller's group, depth and pane, and prints the run",
+  "argv": [
+    "spawn",
+    "--role",
+    "worker",
+    "--task",
+    "Fix the doubled login error.",
+    "--cwd",
+    "/repo"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1",
+    "HERDR_FLEET_DEPTH": "1",
+    "HERDR_PANE_ID": "w1:p2"
+  },
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/spawn",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "role": "worker",
+          "task": "Fix the doubled login error.",
+          "cwd": "/repo",
+          "group": "g1",
+          "depth": 1,
+          "caller_pane_id": "w1:p2"
+        }
+      }
+    ],
+    "stdout": "r1  worker 1 (worker, claude)  working  pane w1:p2\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

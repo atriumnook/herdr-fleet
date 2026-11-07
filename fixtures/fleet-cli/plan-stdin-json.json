@@ -1,0 +1,45 @@
+{
+  "about": "plan - reads the plan from standard input; --json prints the saved plan",
+  "argv": [
+    "plan",
+    "-",
+    "--json"
+  ],
+  "env": {
+    "HERDR_FLEET_RUN": "r5"
+  },
+  "stdin": "{\"title\": \"Login\", \"claims\": []}",
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "plan": {
+          "version": 2,
+          "title": "Login",
+          "claims": []
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/runs/r5/plan",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "plan": {
+            "title": "Login",
+            "claims": []
+          },
+          "group": "fleet-default"
+        }
+      }
+    ],
+    "stdout": "{\n  \"version\": 2,\n  \"title\": \"Login\",\n  \"claims\": []\n}\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

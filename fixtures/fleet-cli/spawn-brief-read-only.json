@@ -1,0 +1,65 @@
+{
+  "about": "--read-only sends a brief whose write list is empty",
+  "argv": [
+    "spawn",
+    "--role",
+    "scout",
+    "--cwd",
+    "/repo",
+    "--goal",
+    "Find where the error is shown.",
+    "--read-only",
+    "--context",
+    "none",
+    "--done",
+    "the files are named",
+    "--verify",
+    "none"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "scout 1",
+          "role": "scout",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/spawn",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "role": "scout",
+          "brief": {
+            "goal": "Find where the error is shown.",
+            "write": [],
+            "context": "none",
+            "done": "the files are named",
+            "verify": "none"
+          },
+          "cwd": "/repo",
+          "group": "g1",
+          "depth": 0
+        }
+      }
+    ],
+    "stdout": "r1  scout 1 (scout, claude)  working  pane w1:p2\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

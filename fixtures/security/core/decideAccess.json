@@ -1,0 +1,1055 @@
+[
+  {
+    "about": "server/access.test.ts: decideAccess > regression: refuses a login forwarded for null",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": null,
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > regression: refuses a login forwarded for 127.0.0.1",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "127.0.0.1",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > regression: refuses a login forwarded for 203.0.113.50",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "203.0.113.50",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > regression: refuses a login forwarded for 100.101.102.103, 100.64.0.9",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.101.102.103, 100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > regression: refuses a login forwarded for 100.63.255.255",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.63.255.255",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > regression: refuses a login forwarded for 100.128.0.0",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.128.0.0",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > regression: refuses a login forwarded for fd7a:115c:a1e1::1",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "fd7a:115c:a1e1::1",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > regression: refuses a login forwarded for 100.64.0.999",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.999",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > regression: refuses a login forwarded for ::ffff:100.64.0.9",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "::ffff:100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > accepts a login forwarded for 100.101.102.103",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.101.102.103",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "tailscale",
+      "login": "me@example.com"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > accepts a login forwarded for 100.64.0.0",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.0",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "tailscale",
+      "login": "me@example.com"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > accepts a login forwarded for 100.127.255.255",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.127.255.255",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "tailscale",
+      "login": "me@example.com"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > accepts a login forwarded for fd7a:115c:a1e0::1",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "fd7a:115c:a1e0::1",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "tailscale",
+      "login": "me@example.com"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > accepts a login forwarded for FD7A:115C:A1E0:0:0:0:0:1",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "FD7A:115C:A1E0:0:0:0:0:1",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "tailscale",
+      "login": "me@example.com"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > lets this PC in without a token, but not through a proxy (this PC)",
+    "input": {
+      "loopback": true,
+      "forwarded": false,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "local"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > lets this PC in without a token, but not through a proxy (through a proxy, gated)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": true
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > never lets a request in without a token or a device, even before anything is paired (not loopback)",
+    "input": {
+      "loopback": false,
+      "forwarded": false,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > never lets a request in without a token or a device, even before anything is paired (loopback through a proxy)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > never lets a request in without a token or a device, even before anything is paired (not loopback, gated)",
+    "input": {
+      "loopback": false,
+      "forwarded": false,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": true
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > refuses a DNS-rebound page: loopback address, foreign Host, no Tailscale owner",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > never treats a Funnel request as open",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": true,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > never treats a Funnel request as open (a paired device)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": true,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      },
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "device",
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      }
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > trusts the PC's own Tailscale login only from the local tailscaled (the owner's login)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "tailscale",
+      "login": "me@example.com"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > trusts the PC's own Tailscale login only from the local tailscaled (the owner's login in other case)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "Me@Example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "tailscale",
+      "login": "Me@Example.com"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > trusts the PC's own Tailscale login only from the local tailscaled (another login, gated)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "them@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": true
+    },
+    "expected": {
+      "level": "none",
+      "reason": "other_user"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > trusts the PC's own Tailscale login only from the local tailscaled (another login)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "them@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "other_user"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > trusts the PC's own Tailscale login only from the local tailscaled (a LAN client typing the owner's login)",
+    "input": {
+      "loopback": false,
+      "forwarded": false,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": true
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > trusts the PC's own Tailscale login only from the local tailscaled (no login: a tagged node)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > trusts the PC's own Tailscale login only from the local tailscaled (no login: a tagged node with a paired device)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      },
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "device",
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      }
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > trusts the PC's own Tailscale login only from the local tailscaled (no owner known yet)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > asks a tagged PC's visitors to pair, its owner included, and never calls them another user (a login)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": true,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > asks a tagged PC's visitors to pair, its owner included, and never calls them another user (no login)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": true,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > asks a tagged PC's visitors to pair, its owner included, and never calls them another user (a token configured)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": true,
+      "tokenConfigured": true,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "token_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > asks a tagged PC's visitors to pair, its owner included, and never calls them another user (a paired device)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      },
+      "owner": null,
+      "tagged": true,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "device",
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      }
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > asks a tagged PC's visitors to pair, its owner included, and never calls them another user (this PC)",
+    "input": {
+      "loopback": true,
+      "forwarded": false,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": true,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "local"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > asks a tagged PC's visitors to pair, its owner included, and never calls them another user (a login named for the PC)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "tailscale",
+      "login": "me@example.com"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > a configured token gates everything but a paired device, this PC and its Tailscale login included (this PC)",
+    "input": {
+      "loopback": true,
+      "forwarded": false,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": true,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "token_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > a configured token gates everything but a paired device, this PC and its Tailscale login included (the token)",
+    "input": {
+      "loopback": true,
+      "forwarded": false,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": true,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": true,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "token"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > a configured token gates everything but a paired device, this PC and its Tailscale login included (a paired device)",
+    "input": {
+      "loopback": true,
+      "forwarded": false,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      },
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": true,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "device",
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      }
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > a configured token gates everything but a paired device, this PC and its Tailscale login included (the owner's login)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": true,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "token_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > a configured token gates everything but a paired device, this PC and its Tailscale login included (another login)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "them@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": true,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "token_required"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > a configured token gates everything but a paired device, this PC and its Tailscale login included (the token with the owner's login)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": true,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": true,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "token"
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > a configured token gates everything but a paired device, this PC and its Tailscale login included (a paired device with the owner's login)",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      },
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": true,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "device",
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      }
+    }
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > a paired device gets in from anywhere",
+    "input": {
+      "loopback": false,
+      "forwarded": false,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      },
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": true
+    },
+    "expected": {
+      "level": "full",
+      "via": "device",
+      "device": {
+        "id": "d1",
+        "label": "Phone"
+      }
+    }
+  },
+  {
+    "about": "added: the owner's login from the tailnet, but from a LAN client: not loopback, so the header means nothing",
+    "input": {
+      "loopback": false,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.101.102.103",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "added: a matched token comes before every other rule, even with no token configured (server/index.ts never sets tokenMatched then)",
+    "input": {
+      "loopback": false,
+      "forwarded": false,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": true,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "token"
+    }
+  },
+  {
+    "about": "added: a LAN client with nothing paired and no token: refused",
+    "input": {
+      "loopback": false,
+      "forwarded": false,
+      "funnel": false,
+      "tailscaleLogin": null,
+      "forwardedFor": null,
+      "tokenMatched": false,
+      "device": null,
+      "owner": null,
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "none",
+      "reason": "pairing_required"
+    }
+  },
+  {
+    "about": "added: the owner's login forwarded for a tailnet IPv6 address in another spelling of the range",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "fd7a:115c:a1e0:ab12::1",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "tailscale",
+      "login": "me@example.com"
+    }
+  },
+  {
+    "about": "added: a tagged PC whose owner is named (HERDR_FLEET_TAILSCALE_OWNER): the named login gets in",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": false,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.101.102.103",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": true,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "tailscale",
+      "login": "me@example.com"
+    }
+  },
+  {
+    "about": "added: the owner's login through Funnel, forwarded for a tailnet address: Funnel decides nothing here",
+    "input": {
+      "loopback": true,
+      "forwarded": true,
+      "funnel": true,
+      "tailscaleLogin": "me@example.com",
+      "forwardedFor": "100.64.0.9",
+      "tokenMatched": false,
+      "device": null,
+      "owner": "me@example.com",
+      "tagged": false,
+      "tokenConfigured": false,
+      "gated": false
+    },
+    "expected": {
+      "level": "full",
+      "via": "tailscale",
+      "login": "me@example.com"
+    }
+  }
+]

@@ -1,0 +1,19 @@
+{
+  "about": "--write and --read-only together are a usage error, before any request",
+  "argv": [
+    "spawn",
+    "--role",
+    "worker",
+    "--goal",
+    "g",
+    "--write",
+    "a",
+    "--read-only"
+  ],
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: --write and --read-only do not go together\n",
+    "exitCode": 2
+  }
+}

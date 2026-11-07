@@ -1,0 +1,51 @@
+{
+  "about": "list asks for this group's runs and prints a line for each",
+  "argv": [
+    "list"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "runs": [
+          {
+            "id": "r1",
+            "name": "worker 1",
+            "role": "worker",
+            "agent": "claude",
+            "group": "g1",
+            "paneId": "w1:p2",
+            "state": "working",
+            "model": "sonnet"
+          },
+          {
+            "id": "r2",
+            "name": "scout 1",
+            "role": "scout",
+            "agent": "codex",
+            "group": "g1",
+            "paneId": "w1:p3",
+            "state": "idle"
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/runs?group=g1",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "r1  worker 1 (worker, claude, sonnet)  working  pane w1:p2\nr2  scout 1 (scout, codex)  idle  pane w1:p3\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

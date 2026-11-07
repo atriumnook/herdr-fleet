@@ -1,0 +1,13 @@
+{
+  "about": "The only subcommand of usage is clear",
+  "argv": [
+    "usage",
+    "reset"
+  ],
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: fleet usage: the only subcommand is clear\n",
+    "exitCode": 2
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "about": "bin/fleet.test.ts: guide tells the agent to hand the work on in a request that stands alone, and not to wait",
+  "argv": [
+    "guide"
+  ],
+  "expected": {
+    "requests": [],
+    "stdout": "herdr-fleet runs a team of coding agents in herdr. Each repository has one coordinator: it talks with\nthe person on the Fleet screen and splits work into threads, each on a branch of its own.\nBelow, `fleet` is the command the skill named, with HERDR_FLEET_URL set as it shows.\n\nTo hand work on:  fleet project --cwd <the repository> --task \"<the request>\"\n- This is a handoff: the repository's coordinator owns the work from here. Do not wait for it, and do not\n  follow its threads up yourself.\n- The coordinator has not seen this conversation. Write the request so that it stands alone: what to do and\n  why, what this conversation found and decided, the files involved, and how to tell it is done.\n- Then tell the person it was sent, and that the coordinator's reply and its threads are on the Fleet screen.\n\nTo check on it, when the person asks:  fleet threads --cwd <the repository>\n\nIf the command cannot reach the server, your sandbox may block the loopback: ask to run that one command\noutside it. Do not change the sandbox's network settings.\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

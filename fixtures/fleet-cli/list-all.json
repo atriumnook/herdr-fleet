@@ -1,0 +1,51 @@
+{
+  "about": "list --all asks for every fleet's runs and adds each run's group",
+  "argv": [
+    "list",
+    "--all"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "runs": [
+          {
+            "id": "r1",
+            "name": "worker 1",
+            "role": "worker",
+            "agent": "claude",
+            "group": "g1",
+            "paneId": "w1:p2",
+            "state": "working"
+          },
+          {
+            "id": "r9",
+            "name": "worker 1",
+            "role": "worker",
+            "agent": "claude",
+            "group": "g2",
+            "paneId": "w3:p1",
+            "state": "working"
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/runs",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "r1  worker 1 (worker, claude)  working  pane w1:p2  [g1]\nr9  worker 1 (worker, claude)  working  pane w3:p1  [g2]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

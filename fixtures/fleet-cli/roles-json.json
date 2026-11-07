@@ -1,0 +1,36 @@
+{
+  "about": "Without --cwd, roles asks for the working folder's; --json prints them",
+  "argv": [
+    "roles",
+    "--json"
+  ],
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "roles": [
+          {
+            "name": "worker",
+            "description": "Does one part.",
+            "agent": "claude",
+            "source": "builtin"
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/roles?cwd=$CWD",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "[\n  {\n    \"name\": \"worker\",\n    \"description\": \"Does one part.\",\n    \"agent\": \"claude\",\n    \"source\": \"builtin\"\n  }\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

@@ -1,0 +1,42 @@
+[
+  {
+    "about": "server/access.test.ts: decideAccess > knows loopback addresses in every spelling",
+    "input": "127.0.0.1",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows loopback addresses in every spelling",
+    "input": "127.1.2.3",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows loopback addresses in every spelling",
+    "input": "::1",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows loopback addresses in every spelling",
+    "input": "::ffff:127.0.0.1",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows loopback addresses in every spelling",
+    "input": "192.168.0.10",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows loopback addresses in every spelling",
+    "input": "100.64.0.2",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows loopback addresses in every spelling",
+    "input": "::ffff:192.168.0.10",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows loopback addresses in every spelling",
+    "input": "fd7a::1",
+    "expected": false
+  }
+]

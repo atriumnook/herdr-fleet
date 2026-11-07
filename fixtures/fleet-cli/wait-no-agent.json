@@ -1,0 +1,12 @@
+{
+  "about": "wait without an agent is a usage error",
+  "argv": [
+    "wait"
+  ],
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: fleet wait: name the agent\n",
+    "exitCode": 2
+  }
+}

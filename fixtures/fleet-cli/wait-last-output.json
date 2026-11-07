@@ -1,0 +1,48 @@
+{
+  "about": "Without a result, wait prints the run's screen; a failed run prints its error and exits 1",
+  "argv": [
+    "wait",
+    "r1",
+    "--timeout",
+    "1000"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "failed",
+          "lastError": "rate limited",
+          "lastOutput": "Error: rate limited\n\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/runs/r1/wait",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "group": "g1",
+          "timeout_ms": 1000
+        }
+      }
+    ],
+    "stdout": "r1  worker 1 (worker, claude)  failed  pane w1:p2\nerror: rate limited\n\nError: rate limited\n",
+    "stderr": "",
+    "exitCode": 1
+  }
+}

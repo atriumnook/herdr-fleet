@@ -1,0 +1,29 @@
+{
+  "about": "An error answer without a JSON body is printed as http_<status> and the status text",
+  "argv": [
+    "list"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 502,
+      "body": "bad gateway"
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/runs?group=g1",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "",
+    "stderr": "fleet: http_502: Bad Gateway\n",
+    "exitCode": 1
+  }
+}

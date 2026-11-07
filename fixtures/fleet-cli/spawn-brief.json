@@ -1,0 +1,80 @@
+{
+  "about": "spawn with a brief sends its fields (--forbid as forbidden) and --task as notes beside it",
+  "argv": [
+    "spawn",
+    "--role",
+    "worker",
+    "--cwd",
+    "/repo",
+    "--goal",
+    "The login error shows once.",
+    "--write",
+    "src/login.ts",
+    "--write",
+    "src/login.test.ts",
+    "--context",
+    "issue 12",
+    "--done",
+    "bun test src/login.test.ts passes",
+    "--verify",
+    "bun test src/login.test.ts, and its output",
+    "--forbid",
+    "no new dependency",
+    "--timebox",
+    "one hour",
+    "--task",
+    "Keep the copy as it is."
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/spawn",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "role": "worker",
+          "task": "Keep the copy as it is.",
+          "brief": {
+            "goal": "The login error shows once.",
+            "write": [
+              "src/login.ts",
+              "src/login.test.ts"
+            ],
+            "context": "issue 12",
+            "done": "bun test src/login.test.ts passes",
+            "verify": "bun test src/login.test.ts, and its output",
+            "forbidden": "no new dependency",
+            "timebox": "one hour"
+          },
+          "cwd": "/repo",
+          "group": "g1",
+          "depth": 0
+        }
+      }
+    ],
+    "stdout": "r1  worker 1 (worker, claude)  working  pane w1:p2\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

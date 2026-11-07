@@ -1,0 +1,187 @@
+[
+  {
+    "about": "server/access.test.ts: decideAccess > sees a proxy in a forwarding header or in a Host that is not this machine",
+    "input": [
+      [
+        "host",
+        "localhost:7317"
+      ]
+    ],
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > sees a proxy in a forwarding header or in a Host that is not this machine",
+    "input": [
+      [
+        "host",
+        "127.0.0.1:7317"
+      ],
+      [
+        "origin",
+        "http://127.0.0.1:7317"
+      ]
+    ],
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > sees a proxy in a forwarding header or in a Host that is not this machine (no Host at all)",
+    "input": [],
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > sees a proxy in a forwarding header or in a Host that is not this machine",
+    "input": [
+      [
+        "host",
+        "public.example@localhost:7317"
+      ]
+    ],
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > sees a proxy in a forwarding header or in a Host that is not this machine",
+    "input": [
+      [
+        "host",
+        "app.example.test"
+      ]
+    ],
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > sees a proxy in a forwarding header or in a Host that is not this machine (x-forwarded-for)",
+    "input": [
+      [
+        "host",
+        "127.0.0.1:7317"
+      ],
+      [
+        "x-forwarded-for",
+        "x"
+      ]
+    ],
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > sees a proxy in a forwarding header or in a Host that is not this machine (x-forwarded-host)",
+    "input": [
+      [
+        "host",
+        "127.0.0.1:7317"
+      ],
+      [
+        "x-forwarded-host",
+        "x"
+      ]
+    ],
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > sees a proxy in a forwarding header or in a Host that is not this machine (x-forwarded-proto)",
+    "input": [
+      [
+        "host",
+        "127.0.0.1:7317"
+      ],
+      [
+        "x-forwarded-proto",
+        "x"
+      ]
+    ],
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > sees a proxy in a forwarding header or in a Host that is not this machine (x-real-ip)",
+    "input": [
+      [
+        "host",
+        "127.0.0.1:7317"
+      ],
+      [
+        "x-real-ip",
+        "x"
+      ]
+    ],
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > sees a proxy in a forwarding header or in a Host that is not this machine (forwarded)",
+    "input": [
+      [
+        "host",
+        "127.0.0.1:7317"
+      ],
+      [
+        "forwarded",
+        "x"
+      ]
+    ],
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > sees a proxy in a forwarding header or in a Host that is not this machine (via)",
+    "input": [
+      [
+        "host",
+        "127.0.0.1:7317"
+      ],
+      [
+        "via",
+        "x"
+      ]
+    ],
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > refuses a DNS-rebound page: loopback address, foreign Host, no Tailscale owner",
+    "input": [
+      [
+        "host",
+        "evil.example:7317"
+      ],
+      [
+        "origin",
+        "http://evil.example:7317"
+      ]
+    ],
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > asks a tagged PC's visitors to pair, its owner included, and never calls them another user (a login header alone marks a proxy)",
+    "input": [
+      [
+        "host",
+        "localhost:7317"
+      ],
+      [
+        "tailscale-user-login",
+        "them@example.com"
+      ]
+    ],
+    "expected": true
+  },
+  {
+    "about": "added: a forwarding header named in another case is the same header",
+    "input": [
+      [
+        "Host",
+        "localhost:7317"
+      ],
+      [
+        "X-Forwarded-For",
+        "203.0.113.50"
+      ]
+    ],
+    "expected": true
+  },
+  {
+    "about": "added: a Host of [::1] with no forwarding header is this PC",
+    "input": [
+      [
+        "host",
+        "[::1]:7317"
+      ]
+    ],
+    "expected": false
+  }
+]

@@ -1,0 +1,15 @@
+{
+  "about": "plan without a file is a usage error",
+  "argv": [
+    "plan"
+  ],
+  "env": {
+    "HERDR_FLEET_RUN": "r5"
+  },
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: fleet plan: give the plan's JSON file (- for stdin)\n",
+    "exitCode": 2
+  }
+}
