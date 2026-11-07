@@ -1,0 +1,3302 @@
+{
+  "about": "server/conversation.test.ts: transcript pages pages back through a long conversation without gaps, overlaps or split turns",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:10.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 70"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 70",
+                "input": "{\n  \"command\": \"echo 70\"\n}",
+                "output": "out 70"
+              },
+              {
+                "kind": "text",
+                "text": "answer 70"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:11.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 71"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 71",
+                "input": "{\n  \"command\": \"echo 71\"\n}",
+                "output": "out 71"
+              },
+              {
+                "kind": "text",
+                "text": "answer 71"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:12.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 72"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 72",
+                "input": "{\n  \"command\": \"echo 72\"\n}",
+                "output": "out 72"
+              },
+              {
+                "kind": "text",
+                "text": "answer 72"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:13.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 73"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 73",
+                "input": "{\n  \"command\": \"echo 73\"\n}",
+                "output": "out 73"
+              },
+              {
+                "kind": "text",
+                "text": "answer 73"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:14.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 74"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 74",
+                "input": "{\n  \"command\": \"echo 74\"\n}",
+                "output": "out 74"
+              },
+              {
+                "kind": "text",
+                "text": "answer 74"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:15.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 75"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 75",
+                "input": "{\n  \"command\": \"echo 75\"\n}",
+                "output": "out 75"
+              },
+              {
+                "kind": "text",
+                "text": "answer 75"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:16.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 76"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 76",
+                "input": "{\n  \"command\": \"echo 76\"\n}",
+                "output": "out 76"
+              },
+              {
+                "kind": "text",
+                "text": "answer 76"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:17.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 77"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 77",
+                "input": "{\n  \"command\": \"echo 77\"\n}",
+                "output": "out 77"
+              },
+              {
+                "kind": "text",
+                "text": "answer 77"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:18.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 78"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 78",
+                "input": "{\n  \"command\": \"echo 78\"\n}",
+                "output": "out 78"
+              },
+              {
+                "kind": "text",
+                "text": "answer 78"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:19.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 79"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 79",
+                "input": "{\n  \"command\": \"echo 79\"\n}",
+                "output": "out 79"
+              },
+              {
+                "kind": "text",
+                "text": "answer 79"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:20.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 80"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 80",
+                "input": "{\n  \"command\": \"echo 80\"\n}",
+                "output": "out 80"
+              },
+              {
+                "kind": "text",
+                "text": "answer 80"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:21.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 81"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 81",
+                "input": "{\n  \"command\": \"echo 81\"\n}",
+                "output": "out 81"
+              },
+              {
+                "kind": "text",
+                "text": "answer 81"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:22.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 82"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 82",
+                "input": "{\n  \"command\": \"echo 82\"\n}",
+                "output": "out 82"
+              },
+              {
+                "kind": "text",
+                "text": "answer 82"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:23.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 83"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 83",
+                "input": "{\n  \"command\": \"echo 83\"\n}",
+                "output": "out 83"
+              },
+              {
+                "kind": "text",
+                "text": "answer 83"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:24.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 84"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 84",
+                "input": "{\n  \"command\": \"echo 84\"\n}",
+                "output": "out 84"
+              },
+              {
+                "kind": "text",
+                "text": "answer 84"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:25.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 85"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 85",
+                "input": "{\n  \"command\": \"echo 85\"\n}",
+                "output": "out 85"
+              },
+              {
+                "kind": "text",
+                "text": "answer 85"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:26.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 86"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 86",
+                "input": "{\n  \"command\": \"echo 86\"\n}",
+                "output": "out 86"
+              },
+              {
+                "kind": "text",
+                "text": "answer 86"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:27.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 87"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 87",
+                "input": "{\n  \"command\": \"echo 87\"\n}",
+                "output": "out 87"
+              },
+              {
+                "kind": "text",
+                "text": "answer 87"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:28.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 88"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 88",
+                "input": "{\n  \"command\": \"echo 88\"\n}",
+                "output": "out 88"
+              },
+              {
+                "kind": "text",
+                "text": "answer 88"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:29.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 89"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 89",
+                "input": "{\n  \"command\": \"echo 89\"\n}",
+                "output": "out 89"
+              },
+              {
+                "kind": "text",
+                "text": "answer 89"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:30.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 90"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 90",
+                "input": "{\n  \"command\": \"echo 90\"\n}",
+                "output": "out 90"
+              },
+              {
+                "kind": "text",
+                "text": "answer 90"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:31.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 91"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 91",
+                "input": "{\n  \"command\": \"echo 91\"\n}",
+                "output": "out 91"
+              },
+              {
+                "kind": "text",
+                "text": "answer 91"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:32.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 92"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 92",
+                "input": "{\n  \"command\": \"echo 92\"\n}",
+                "output": "out 92"
+              },
+              {
+                "kind": "text",
+                "text": "answer 92"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:33.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 93"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 93",
+                "input": "{\n  \"command\": \"echo 93\"\n}",
+                "output": "out 93"
+              },
+              {
+                "kind": "text",
+                "text": "answer 93"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:34.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 94"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 94",
+                "input": "{\n  \"command\": \"echo 94\"\n}",
+                "output": "out 94"
+              },
+              {
+                "kind": "text",
+                "text": "answer 94"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:35.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 95"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 95",
+                "input": "{\n  \"command\": \"echo 95\"\n}",
+                "output": "out 95"
+              },
+              {
+                "kind": "text",
+                "text": "answer 95"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:36.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 96"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 96",
+                "input": "{\n  \"command\": \"echo 96\"\n}",
+                "output": "out 96"
+              },
+              {
+                "kind": "text",
+                "text": "answer 96"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:37.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 97"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 97",
+                "input": "{\n  \"command\": \"echo 97\"\n}",
+                "output": "out 97"
+              },
+              {
+                "kind": "text",
+                "text": "answer 97"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:38.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 98"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 98",
+                "input": "{\n  \"command\": \"echo 98\"\n}",
+                "output": "out 98"
+              },
+              {
+                "kind": "text",
+                "text": "answer 98"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:39.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 99"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 99",
+                "input": "{\n  \"command\": \"echo 99\"\n}",
+                "output": "out 99"
+              },
+              {
+                "kind": "text",
+                "text": "answer 99"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:40.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 100"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 100",
+                "input": "{\n  \"command\": \"echo 100\"\n}",
+                "output": "out 100"
+              },
+              {
+                "kind": "text",
+                "text": "answer 100"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:41.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 101"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 101",
+                "input": "{\n  \"command\": \"echo 101\"\n}",
+                "output": "out 101"
+              },
+              {
+                "kind": "text",
+                "text": "answer 101"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:42.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 102"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 102",
+                "input": "{\n  \"command\": \"echo 102\"\n}",
+                "output": "out 102"
+              },
+              {
+                "kind": "text",
+                "text": "answer 102"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:43.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 103"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 103",
+                "input": "{\n  \"command\": \"echo 103\"\n}",
+                "output": "out 103"
+              },
+              {
+                "kind": "text",
+                "text": "answer 103"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:44.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 104"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 104",
+                "input": "{\n  \"command\": \"echo 104\"\n}",
+                "output": "out 104"
+              },
+              {
+                "kind": "text",
+                "text": "answer 104"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:45.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 105"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 105",
+                "input": "{\n  \"command\": \"echo 105\"\n}",
+                "output": "out 105"
+              },
+              {
+                "kind": "text",
+                "text": "answer 105"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:46.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 106"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 106",
+                "input": "{\n  \"command\": \"echo 106\"\n}",
+                "output": "out 106"
+              },
+              {
+                "kind": "text",
+                "text": "answer 106"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:47.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 107"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 107",
+                "input": "{\n  \"command\": \"echo 107\"\n}",
+                "output": "out 107"
+              },
+              {
+                "kind": "text",
+                "text": "answer 107"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:48.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 108"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 108",
+                "input": "{\n  \"command\": \"echo 108\"\n}",
+                "output": "out 108"
+              },
+              {
+                "kind": "text",
+                "text": "answer 108"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:49.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 109"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 109",
+                "input": "{\n  \"command\": \"echo 109\"\n}",
+                "output": "out 109"
+              },
+              {
+                "kind": "text",
+                "text": "answer 109"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:50.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 110"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 110",
+                "input": "{\n  \"command\": \"echo 110\"\n}",
+                "output": "out 110"
+              },
+              {
+                "kind": "text",
+                "text": "answer 110"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:51.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 111"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 111",
+                "input": "{\n  \"command\": \"echo 111\"\n}",
+                "output": "out 111"
+              },
+              {
+                "kind": "text",
+                "text": "answer 111"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:52.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 112"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 112",
+                "input": "{\n  \"command\": \"echo 112\"\n}",
+                "output": "out 112"
+              },
+              {
+                "kind": "text",
+                "text": "answer 112"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:53.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 113"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 113",
+                "input": "{\n  \"command\": \"echo 113\"\n}",
+                "output": "out 113"
+              },
+              {
+                "kind": "text",
+                "text": "answer 113"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:54.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 114"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 114",
+                "input": "{\n  \"command\": \"echo 114\"\n}",
+                "output": "out 114"
+              },
+              {
+                "kind": "text",
+                "text": "answer 114"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:55.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 115"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 115",
+                "input": "{\n  \"command\": \"echo 115\"\n}",
+                "output": "out 115"
+              },
+              {
+                "kind": "text",
+                "text": "answer 115"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:56.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 116"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 116",
+                "input": "{\n  \"command\": \"echo 116\"\n}",
+                "output": "out 116"
+              },
+              {
+                "kind": "text",
+                "text": "answer 116"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:57.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 117"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 117",
+                "input": "{\n  \"command\": \"echo 117\"\n}",
+                "output": "out 117"
+              },
+              {
+                "kind": "text",
+                "text": "answer 117"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:58.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 118"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 118",
+                "input": "{\n  \"command\": \"echo 118\"\n}",
+                "output": "out 118"
+              },
+              {
+                "kind": "text",
+                "text": "answer 118"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:59.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 119"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 119",
+                "input": "{\n  \"command\": \"echo 119\"\n}",
+                "output": "out 119"
+              },
+              {
+                "kind": "text",
+                "text": "answer 119"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": "$c1",
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "page": {
+        "before": "$c1"
+      },
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:20.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 20"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 20",
+                "input": "{\n  \"command\": \"echo 20\"\n}",
+                "output": "out 20"
+              },
+              {
+                "kind": "text",
+                "text": "answer 20"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:21.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 21"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 21",
+                "input": "{\n  \"command\": \"echo 21\"\n}",
+                "output": "out 21"
+              },
+              {
+                "kind": "text",
+                "text": "answer 21"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:22.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 22"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 22",
+                "input": "{\n  \"command\": \"echo 22\"\n}",
+                "output": "out 22"
+              },
+              {
+                "kind": "text",
+                "text": "answer 22"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:23.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 23"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 23",
+                "input": "{\n  \"command\": \"echo 23\"\n}",
+                "output": "out 23"
+              },
+              {
+                "kind": "text",
+                "text": "answer 23"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:24.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 24"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 24",
+                "input": "{\n  \"command\": \"echo 24\"\n}",
+                "output": "out 24"
+              },
+              {
+                "kind": "text",
+                "text": "answer 24"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:25.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 25"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 25",
+                "input": "{\n  \"command\": \"echo 25\"\n}",
+                "output": "out 25"
+              },
+              {
+                "kind": "text",
+                "text": "answer 25"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:26.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 26"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 26",
+                "input": "{\n  \"command\": \"echo 26\"\n}",
+                "output": "out 26"
+              },
+              {
+                "kind": "text",
+                "text": "answer 26"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:27.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 27"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 27",
+                "input": "{\n  \"command\": \"echo 27\"\n}",
+                "output": "out 27"
+              },
+              {
+                "kind": "text",
+                "text": "answer 27"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:28.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 28"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 28",
+                "input": "{\n  \"command\": \"echo 28\"\n}",
+                "output": "out 28"
+              },
+              {
+                "kind": "text",
+                "text": "answer 28"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:29.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 29"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 29",
+                "input": "{\n  \"command\": \"echo 29\"\n}",
+                "output": "out 29"
+              },
+              {
+                "kind": "text",
+                "text": "answer 29"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:30.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 30"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 30",
+                "input": "{\n  \"command\": \"echo 30\"\n}",
+                "output": "out 30"
+              },
+              {
+                "kind": "text",
+                "text": "answer 30"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:31.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 31"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 31",
+                "input": "{\n  \"command\": \"echo 31\"\n}",
+                "output": "out 31"
+              },
+              {
+                "kind": "text",
+                "text": "answer 31"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:32.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 32"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 32",
+                "input": "{\n  \"command\": \"echo 32\"\n}",
+                "output": "out 32"
+              },
+              {
+                "kind": "text",
+                "text": "answer 32"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:33.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 33"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 33",
+                "input": "{\n  \"command\": \"echo 33\"\n}",
+                "output": "out 33"
+              },
+              {
+                "kind": "text",
+                "text": "answer 33"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:34.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 34"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 34",
+                "input": "{\n  \"command\": \"echo 34\"\n}",
+                "output": "out 34"
+              },
+              {
+                "kind": "text",
+                "text": "answer 34"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:35.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 35"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 35",
+                "input": "{\n  \"command\": \"echo 35\"\n}",
+                "output": "out 35"
+              },
+              {
+                "kind": "text",
+                "text": "answer 35"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:36.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 36"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 36",
+                "input": "{\n  \"command\": \"echo 36\"\n}",
+                "output": "out 36"
+              },
+              {
+                "kind": "text",
+                "text": "answer 36"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:37.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 37"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 37",
+                "input": "{\n  \"command\": \"echo 37\"\n}",
+                "output": "out 37"
+              },
+              {
+                "kind": "text",
+                "text": "answer 37"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:38.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 38"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 38",
+                "input": "{\n  \"command\": \"echo 38\"\n}",
+                "output": "out 38"
+              },
+              {
+                "kind": "text",
+                "text": "answer 38"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:39.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 39"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 39",
+                "input": "{\n  \"command\": \"echo 39\"\n}",
+                "output": "out 39"
+              },
+              {
+                "kind": "text",
+                "text": "answer 39"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:40.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 40"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 40",
+                "input": "{\n  \"command\": \"echo 40\"\n}",
+                "output": "out 40"
+              },
+              {
+                "kind": "text",
+                "text": "answer 40"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:41.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 41"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 41",
+                "input": "{\n  \"command\": \"echo 41\"\n}",
+                "output": "out 41"
+              },
+              {
+                "kind": "text",
+                "text": "answer 41"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:42.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 42"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 42",
+                "input": "{\n  \"command\": \"echo 42\"\n}",
+                "output": "out 42"
+              },
+              {
+                "kind": "text",
+                "text": "answer 42"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:43.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 43"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 43",
+                "input": "{\n  \"command\": \"echo 43\"\n}",
+                "output": "out 43"
+              },
+              {
+                "kind": "text",
+                "text": "answer 43"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:44.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 44"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 44",
+                "input": "{\n  \"command\": \"echo 44\"\n}",
+                "output": "out 44"
+              },
+              {
+                "kind": "text",
+                "text": "answer 44"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:45.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 45"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 45",
+                "input": "{\n  \"command\": \"echo 45\"\n}",
+                "output": "out 45"
+              },
+              {
+                "kind": "text",
+                "text": "answer 45"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:46.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 46"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 46",
+                "input": "{\n  \"command\": \"echo 46\"\n}",
+                "output": "out 46"
+              },
+              {
+                "kind": "text",
+                "text": "answer 46"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:47.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 47"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 47",
+                "input": "{\n  \"command\": \"echo 47\"\n}",
+                "output": "out 47"
+              },
+              {
+                "kind": "text",
+                "text": "answer 47"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:48.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 48"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 48",
+                "input": "{\n  \"command\": \"echo 48\"\n}",
+                "output": "out 48"
+              },
+              {
+                "kind": "text",
+                "text": "answer 48"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:49.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 49"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 49",
+                "input": "{\n  \"command\": \"echo 49\"\n}",
+                "output": "out 49"
+              },
+              {
+                "kind": "text",
+                "text": "answer 49"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:50.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 50"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 50",
+                "input": "{\n  \"command\": \"echo 50\"\n}",
+                "output": "out 50"
+              },
+              {
+                "kind": "text",
+                "text": "answer 50"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:51.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 51"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 51",
+                "input": "{\n  \"command\": \"echo 51\"\n}",
+                "output": "out 51"
+              },
+              {
+                "kind": "text",
+                "text": "answer 51"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:52.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 52"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 52",
+                "input": "{\n  \"command\": \"echo 52\"\n}",
+                "output": "out 52"
+              },
+              {
+                "kind": "text",
+                "text": "answer 52"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:53.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 53"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 53",
+                "input": "{\n  \"command\": \"echo 53\"\n}",
+                "output": "out 53"
+              },
+              {
+                "kind": "text",
+                "text": "answer 53"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:54.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 54"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 54",
+                "input": "{\n  \"command\": \"echo 54\"\n}",
+                "output": "out 54"
+              },
+              {
+                "kind": "text",
+                "text": "answer 54"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:55.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 55"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 55",
+                "input": "{\n  \"command\": \"echo 55\"\n}",
+                "output": "out 55"
+              },
+              {
+                "kind": "text",
+                "text": "answer 55"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:56.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 56"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 56",
+                "input": "{\n  \"command\": \"echo 56\"\n}",
+                "output": "out 56"
+              },
+              {
+                "kind": "text",
+                "text": "answer 56"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:57.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 57"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 57",
+                "input": "{\n  \"command\": \"echo 57\"\n}",
+                "output": "out 57"
+              },
+              {
+                "kind": "text",
+                "text": "answer 57"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:58.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 58"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 58",
+                "input": "{\n  \"command\": \"echo 58\"\n}",
+                "output": "out 58"
+              },
+              {
+                "kind": "text",
+                "text": "answer 58"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:59.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 59"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 59",
+                "input": "{\n  \"command\": \"echo 59\"\n}",
+                "output": "out 59"
+              },
+              {
+                "kind": "text",
+                "text": "answer 59"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 60"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 60",
+                "input": "{\n  \"command\": \"echo 60\"\n}",
+                "output": "out 60"
+              },
+              {
+                "kind": "text",
+                "text": "answer 60"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:01.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 61"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 61",
+                "input": "{\n  \"command\": \"echo 61\"\n}",
+                "output": "out 61"
+              },
+              {
+                "kind": "text",
+                "text": "answer 61"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 62"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 62",
+                "input": "{\n  \"command\": \"echo 62\"\n}",
+                "output": "out 62"
+              },
+              {
+                "kind": "text",
+                "text": "answer 62"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:03.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 63"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 63",
+                "input": "{\n  \"command\": \"echo 63\"\n}",
+                "output": "out 63"
+              },
+              {
+                "kind": "text",
+                "text": "answer 63"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:04.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 64"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 64",
+                "input": "{\n  \"command\": \"echo 64\"\n}",
+                "output": "out 64"
+              },
+              {
+                "kind": "text",
+                "text": "answer 64"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:05.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 65"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 65",
+                "input": "{\n  \"command\": \"echo 65\"\n}",
+                "output": "out 65"
+              },
+              {
+                "kind": "text",
+                "text": "answer 65"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:06.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 66"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 66",
+                "input": "{\n  \"command\": \"echo 66\"\n}",
+                "output": "out 66"
+              },
+              {
+                "kind": "text",
+                "text": "answer 66"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:07.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 67"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 67",
+                "input": "{\n  \"command\": \"echo 67\"\n}",
+                "output": "out 67"
+              },
+              {
+                "kind": "text",
+                "text": "answer 67"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:08.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 68"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 68",
+                "input": "{\n  \"command\": \"echo 68\"\n}",
+                "output": "out 68"
+              },
+              {
+                "kind": "text",
+                "text": "answer 68"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:09.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 69"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 69",
+                "input": "{\n  \"command\": \"echo 69\"\n}",
+                "output": "out 69"
+              },
+              {
+                "kind": "text",
+                "text": "answer 69"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": "$c2",
+        "history_id": "$h",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "page": {
+        "before": "$c2"
+      },
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 0"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 0",
+                "input": "{\n  \"command\": \"echo 0\"\n}",
+                "output": "out 0"
+              },
+              {
+                "kind": "text",
+                "text": "answer 0"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:01.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 1"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 1",
+                "input": "{\n  \"command\": \"echo 1\"\n}",
+                "output": "out 1"
+              },
+              {
+                "kind": "text",
+                "text": "answer 1"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 2"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 2",
+                "input": "{\n  \"command\": \"echo 2\"\n}",
+                "output": "out 2"
+              },
+              {
+                "kind": "text",
+                "text": "answer 2"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:03.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 3"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 3",
+                "input": "{\n  \"command\": \"echo 3\"\n}",
+                "output": "out 3"
+              },
+              {
+                "kind": "text",
+                "text": "answer 3"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:04.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 4"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 4",
+                "input": "{\n  \"command\": \"echo 4\"\n}",
+                "output": "out 4"
+              },
+              {
+                "kind": "text",
+                "text": "answer 4"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:05.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 5"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 5",
+                "input": "{\n  \"command\": \"echo 5\"\n}",
+                "output": "out 5"
+              },
+              {
+                "kind": "text",
+                "text": "answer 5"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:06.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 6"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 6",
+                "input": "{\n  \"command\": \"echo 6\"\n}",
+                "output": "out 6"
+              },
+              {
+                "kind": "text",
+                "text": "answer 6"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:07.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 7"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 7",
+                "input": "{\n  \"command\": \"echo 7\"\n}",
+                "output": "out 7"
+              },
+              {
+                "kind": "text",
+                "text": "answer 7"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:08.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 8"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 8",
+                "input": "{\n  \"command\": \"echo 8\"\n}",
+                "output": "out 8"
+              },
+              {
+                "kind": "text",
+                "text": "answer 8"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:09.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 9"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 9",
+                "input": "{\n  \"command\": \"echo 9\"\n}",
+                "output": "out 9"
+              },
+              {
+                "kind": "text",
+                "text": "answer 9"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:10.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 10"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 10",
+                "input": "{\n  \"command\": \"echo 10\"\n}",
+                "output": "out 10"
+              },
+              {
+                "kind": "text",
+                "text": "answer 10"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:11.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 11"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 11",
+                "input": "{\n  \"command\": \"echo 11\"\n}",
+                "output": "out 11"
+              },
+              {
+                "kind": "text",
+                "text": "answer 11"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:12.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 12"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 12",
+                "input": "{\n  \"command\": \"echo 12\"\n}",
+                "output": "out 12"
+              },
+              {
+                "kind": "text",
+                "text": "answer 12"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:13.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 13"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 13",
+                "input": "{\n  \"command\": \"echo 13\"\n}",
+                "output": "out 13"
+              },
+              {
+                "kind": "text",
+                "text": "answer 13"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:14.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 14"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 14",
+                "input": "{\n  \"command\": \"echo 14\"\n}",
+                "output": "out 14"
+              },
+              {
+                "kind": "text",
+                "text": "answer 14"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:15.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 15"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 15",
+                "input": "{\n  \"command\": \"echo 15\"\n}",
+                "output": "out 15"
+              },
+              {
+                "kind": "text",
+                "text": "answer 15"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:16.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 16"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 16",
+                "input": "{\n  \"command\": \"echo 16\"\n}",
+                "output": "out 16"
+              },
+              {
+                "kind": "text",
+                "text": "answer 16"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:17.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 17"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 17",
+                "input": "{\n  \"command\": \"echo 17\"\n}",
+                "output": "out 17"
+              },
+              {
+                "kind": "text",
+                "text": "answer 17"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:18.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 18"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 18",
+                "input": "{\n  \"command\": \"echo 18\"\n}",
+                "output": "out 18"
+              },
+              {
+                "kind": "text",
+                "text": "answer 18"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:19.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 19"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "echo 19",
+                "input": "{\n  \"command\": \"echo 19\"\n}",
+                "output": "out 19"
+              },
+              {
+                "kind": "text",
+                "text": "answer 19"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v3"
+      }
+    }
+  ]
+}

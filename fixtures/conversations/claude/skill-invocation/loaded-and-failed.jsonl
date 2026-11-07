@@ -1,0 +1,4 @@
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"one","name":"Skill","input":{"skill":"plugin:review"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"one","content":"Launching skill","is_error":false}]}}
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"two","name":"Skill","input":{"skill":"deploy"}}]}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"two","content":"Unavailable","is_error":true}]}}

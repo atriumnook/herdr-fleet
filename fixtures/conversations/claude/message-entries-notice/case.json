@@ -1,0 +1,57 @@
+{
+  "about": "server/claude-turn-boundaries.test.ts: Claude completed turns keeps one message's entries in one reply when a notice is written between them",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "How many books?"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "thinking",
+                "text": "Count them."
+              },
+              {
+                "kind": "text",
+                "text": "Three books."
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-01-01T12:00:00Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Model switched",
+                "source": "informational"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{"type":"assistant","timestamp":"2026-01-01T12:00:00Z","message":{"content":[{"type":"text","text":"The catalog has three books."}],"stop_reason":"end_turn"}}
+{"type":"user","message":{"content":"<task-notification><task-id>catalog</task-id><status>completed</status><summary>Catalog check finished.</summary></task-notification>"}}
+{"type":"assistant","timestamp":"2026-01-01T12:01:00Z","message":{"content":[{"type":"text","text":"Checking availability."},{"type":"tool_use","id":"check","name":"Bash","input":{"command":"true"}}],"stop_reason":"tool_use"}}
+{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"check","content":"Two available"}]}}
+{"type":"assistant","timestamp":"2026-01-01T12:02:00Z","message":{"content":[{"type":"text","text":"Two books are available."}],"stop_reason":"end_turn"}}
+{"type":"user","isMeta":true,"userType":"external","message":{"content":"Background command catalog-check failed with exit code 124"}}
+{"type":"assistant","timestamp":"2026-01-01T12:03:00Z","message":{"content":[{"type":"text","text":"The background check timed out."}],"stop_reason":"end_turn"}}

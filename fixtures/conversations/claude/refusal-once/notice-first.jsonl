@@ -1,0 +1,3 @@
+{"type":"system","subtype":"informational","content":"Unknown command: /gaol","level":"warning","timestamp":"2026-10-08T08:06:31.117Z"}
+{"type":"system","subtype":"informational","content":"Args from unknown skill: x","level":"warning","timestamp":"2026-10-08T08:06:31.118Z"}
+{"type":"system","subtype":"local_command","timestamp":"2026-10-08T08:06:31.119Z","content":"<local-command-stderr>\u001b[31mUnknown command: /gaol\u001b[39m</local-command-stderr>"}

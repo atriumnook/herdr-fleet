@@ -1,0 +1,5 @@
+{"type":"system","subtype":"informational","content":"Unknown command: /xyzabc","level":"warning","timestamp":"2026-10-08T08:06:31.117Z"}
+{"type":"system","subtype":"informational","content":"Args from unknown skill: hello there","level":"warning","timestamp":"2026-10-08T08:06:31.118Z"}
+{"type":"system","subtype":"informational","content":"Usage limit reached · continuing automatically at 4am · esc to cancel","level":"warning","timestamp":"2026-10-08T09:00:00.000Z"}
+{"type":"system","subtype":"informational","content":"\u001b[2mUsage limit reset · continuing automatically\u001b[22m","level":"warning","timestamp":"2026-10-08T13:00:00.000Z"}
+{"type":"system","subtype":"informational","content":"","level":"warning","timestamp":"2026-10-08T13:00:01.000Z"}

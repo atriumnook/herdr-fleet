@@ -1,0 +1,1 @@
+{"type":"system","subtype":"local_command","timestamp":"2026-10-07T19:00:00.000Z","content":"<command-name>/goal</command-name>\n<command-args>x <local-command-stdout>quoted</local-command-stdout></command-args>"}

@@ -1,0 +1,71 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript keeps a turn whole around a notice when the tool call's entry names no stop reason",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "run"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Message held",
+                "source": "informational"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "sleep 60",
+                "input": "{\n  \"command\": \"sleep 60\"\n}",
+                "output": "ok"
+              },
+              {
+                "kind": "text",
+                "text": "Done"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "After the answer",
+                "source": "informational"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

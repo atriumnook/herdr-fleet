@@ -1,0 +1,44 @@
+{
+  "about": "server/opencode-session.test.ts: on demand a user's image, decoded, and nothing for a file that is not one",
+  "steps": [
+    {
+      "call": "image",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "msg_u:0",
+      "expected": {
+        "mediaType": "image/png",
+        "sha256": "6a4321c27e50497432630923d7afef22c5fa75bcb4dc0746ec0f18c4e864bab9",
+        "length": 11
+      }
+    },
+    {
+      "call": "image",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "msg_u:1",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "msg_u:7",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "msg_a:0",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "msg_gone:0",
+      "expected": null
+    }
+  ]
+}

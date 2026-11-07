@@ -1,0 +1,70 @@
+{
+  "about": "piContextWindows: the window pi's catalog states for the model that answered (the routing of the case input; the metadata tests of pi are the pi issue's)",
+  "piContextWindows": {
+    "test/qwen-test": 215000
+  },
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "readable.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "fix the crash"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:03.000Z",
+            "parts": [
+              {
+                "kind": "thinking",
+                "text": "the null check is missing"
+              },
+              {
+                "kind": "text",
+                "text": "I'll add the guard."
+              },
+              {
+                "kind": "tool",
+                "name": "read",
+                "summary": "src/app.ts",
+                "input": "{\n  \"path\": \"src/app.ts\"\n}",
+                "output": "export const app = null;"
+              },
+              {
+                "kind": "text",
+                "text": "Guarded. The crash came from a null export."
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:05.000Z"
+          }
+        ],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": "medium",
+          "context": {
+            "used": 480,
+            "window": 215000
+          }
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

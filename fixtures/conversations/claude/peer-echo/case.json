@@ -1,0 +1,74 @@
+{
+  "about": "server/conversation.test.ts: transcript pages shows one notice for a delivery Claude recorded twice, and says 'another session' for an unnamed sender",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "peer-echo.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-08T03:04:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "deck status?"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "working on it"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T03:05:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "R18 is ready",
+                "source": "peer:FUSION"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "noted"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T03:06:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "ping",
+                "source": "peer:"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

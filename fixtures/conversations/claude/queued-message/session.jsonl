@@ -1,0 +1,8 @@
+{"type":"user","timestamp":"2026-10-02T04:00:00.000Z","message":{"role":"user","content":"start"}}
+{"type":"assistant","timestamp":"2026-10-02T04:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"working"}]}}
+{"type":"queue-operation","operation":"enqueue","timestamp":"2026-10-02T04:00:05.000Z","content":"also fix the tests"}
+{"type":"queue-operation","operation":"remove","timestamp":"2026-10-02T04:00:09.000Z","content":"also fix the tests","reason":"absorbed_mid_turn"}
+{"type":"attachment","timestamp":"2026-10-02T04:00:05.000Z","attachment":{"type":"queued_command","timestamp":"2026-10-02T04:00:05.000Z","prompt":"also fix the tests","commandMode":"prompt","origin":{"kind":"human"},"humanTurn":true}}
+{"type":"attachment","timestamp":"2026-10-02T04:00:05.000Z","attachment":{"type":"queued_command","timestamp":"2026-10-02T04:00:05.000Z","prompt":"<task-notification>\n<status>completed</status>\n</task-notification>","commandMode":"task-notification"}}
+{"type":"attachment","timestamp":"2026-10-02T04:00:05.000Z","attachment":{"type":"queued_command","timestamp":"2026-10-02T04:00:05.000Z","prompt":"<agent-message from=\"reviewer\">\ndone\n</agent-message>","commandMode":"prompt","origin":{"kind":"peer"},"isMeta":true}}
+{"type":"assistant","timestamp":"2026-10-02T04:00:10.000Z","message":{"role":"assistant","content":[{"type":"text","text":"on it"}]}}

@@ -1,0 +1,55 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript shows Claude Code's own notices, an unknown command's lines joined as one",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:06:31.117Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Unknown command: /xyzabc\nArgs from unknown skill: hello there",
+                "source": "informational"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T09:00:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Usage limit reached · continuing automatically at 4am · esc to cancel",
+                "source": "informational"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T13:00:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Usage limit reset · continuing automatically",
+                "source": "informational"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

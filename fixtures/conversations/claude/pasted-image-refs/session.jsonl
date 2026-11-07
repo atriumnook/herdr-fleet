@@ -1,0 +1,2 @@
+{"type":"user","uuid":"11111111-2222-3333-4444-555555555555","timestamp":"2026-09-27T00:00:00Z","message":{"content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}},{"type":"text","text":"what is this?"},{"type":"image","source":{"type":"base64","media_type":"image/svg+xml","data":"PHN2Zz4="}}]}}
+{"type":"user","uuid":"66666666-2222-3333-4444-555555555555","message":{"content":[{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"/9j/"}}]}}

@@ -1,0 +1,59 @@
+{
+  "about": "server/conversation.test.ts: images and compactions in a Claude transcript names a pasted image by its entry and block, and never carries its data",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/png",
+                "ref": "11111111-2222-3333-4444-555555555555:0"
+              },
+              {
+                "kind": "text",
+                "text": "what is this?"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/jpeg",
+                "ref": "66666666-2222-3333-4444-555555555555:0"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "image",
+      "source": "claude",
+      "path": "session.jsonl",
+      "ref": "11111111-2222-3333-4444-555555555555:0",
+      "expected": {
+        "mediaType": "image/png",
+        "sha256": "4c4b6a3be1314ab86138bef4314dde022e600960d8689a2c8f8631802d20dab6",
+        "length": 8
+      }
+    }
+  ]
+}

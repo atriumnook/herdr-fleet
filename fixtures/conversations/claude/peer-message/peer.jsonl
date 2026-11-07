@@ -1,0 +1,7 @@
+{"type":"user","timestamp":"2026-10-08T03:04:00.000Z","message":{"role":"user","content":"deck status?"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"the deck is done"}]}}
+{"type":"user","isMeta":true,"timestamp":"2026-10-08T03:05:01.000Z","origin":{"kind":"peer","from":"uds:x","msg_id":"m1","name":"FUSION","body":"R18 is ready"},"message":{"role":"user","content":"Another Claude session sent a message:\n<cross-session-message from=\"uds:x\" from-name=\"FUSION\" from-mode=\"bypass\">\nR18 is ready\n</cross-session-message>"}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"recorded both decisions"}]}}
+{"type":"attachment","timestamp":"2026-10-08T03:06:00.000Z","attachment":{"type":"queued_command","commandMode":"prompt","prompt":"<cross-session-message from=\"uds:x\" from-name=\"FUSION\" from-mode=\"bypass\">\ncoordinates sent\n</cross-session-message>","origin":{"kind":"peer","from":"uds:x","msg_id":"m2","name":"FUSION","body":"coordinates sent"}}}
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"rebuilt slide 4"}]}}
+{"type":"user","isMeta":true,"message":{"role":"user","content":"<local-command-caveat>x</local-command-caveat>"}}

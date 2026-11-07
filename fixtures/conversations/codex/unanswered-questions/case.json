@@ -1,0 +1,69 @@
+{
+  "about": "server/codex.test.ts: Codex queued questions (request_user_input_async) lists the questions still unanswered, reading only what the rollout appends",
+  "steps": [
+    {
+      "call": "unansweredQuestions",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": [
+        {
+          "key": "call_a:0",
+          "title": "Which dataset?",
+          "options": [
+            "LM-O",
+            "YCB-V"
+          ]
+        },
+        {
+          "key": "call_a:1",
+          "title": "Any notes?",
+          "options": []
+        }
+      ]
+    },
+    {
+      "append": "rollout.jsonl",
+      "text": "{\"type\":\"response_item\",\"timestamp\":\"2026-09-22T01:00:00.000Z\",\"payload\":{\"type\":\"message\",\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":\"<send_user_message_question_reply>\\n[{\\\"answer\\\":\\\"LM-O\\\",\\\"question\\\":\\\"Which dataset?\\\",\\\"questionItemId\\\":\\\"[\\\\\\\"request_user_input_async\\\\\\\",\\\\\\\"call_a\\\\\\\",0]\\\"}]\\n</send_user_message_question_reply>\"}]}}\n"
+    },
+    {
+      "append": "rollout.jsonl",
+      "text": "{\"type\":\"response_item\",\"timestamp\":\"202"
+    },
+    {
+      "call": "unansweredQuestions",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": [
+        {
+          "key": "call_a:1",
+          "title": "Any notes?",
+          "options": []
+        }
+      ]
+    },
+    {
+      "append": "rollout.jsonl",
+      "text": "6-09-22T01:00:00.000Z\",\"payload\":{\"type\":\"function_call\",\"name\":\"request_user_input_async\",\"call_id\":\"call_b\",\"arguments\":\"{\\\"questions\\\":[{\\\"title\\\":\\\"Split?\\\",\\\"options\\\":[{\\\"label\\\":\\\"train\\\"},{\\\"label\\\":\\\"test\\\"}]}]}\"}}\n"
+    },
+    {
+      "call": "unansweredQuestions",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": [
+        {
+          "key": "call_a:1",
+          "title": "Any notes?",
+          "options": []
+        },
+        {
+          "key": "call_b:0",
+          "title": "Split?",
+          "options": [
+            "train",
+            "test"
+          ]
+        }
+      ]
+    }
+  ]
+}
