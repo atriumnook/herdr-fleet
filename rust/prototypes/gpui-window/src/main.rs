@@ -35,6 +35,13 @@ impl Render for Lines {
 
 fn main() {
     Application::new().run(|cx: &mut App| {
+        // Without this the process keeps running after its window is closed.
+        cx.on_window_closed(|cx| {
+            if cx.windows().is_empty() {
+                cx.quit();
+            }
+        })
+        .detach();
         let bounds = Bounds::centered(None, size(px(480.), px(240.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -46,8 +53,9 @@ fn main() {
             ..Default::default()
         };
         cx.open_window(options, |window, cx| {
-            // gpui 0.2.2 reads `TitlebarOptions::title` only on X11; on Wayland
-            // the title reaches the compositor only through this call.
+            // gpui 0.2.2's Wayland backend ignores `TitlebarOptions::title` (the
+            // X11, macOS and Windows backends read it); on Wayland the title
+            // reaches the compositor only through this call.
             window.set_window_title(TITLE);
             cx.new(|_| Lines {
                 english: "herdr-fleet".into(),

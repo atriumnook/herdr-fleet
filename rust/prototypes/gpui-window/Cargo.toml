@@ -10,3 +10,7 @@ description = "Prototype for #108: does GPUI open a native Wayland window and dr
 
 [dependencies]
 gpui = "=0.2.2"
+# Not used directly: caps the libc that gpui pulls in. gpui 0.2.2 depends on
+# xattr 0.2.3, which reads `libc::ENOATTR` on Linux; libc 0.2.190 dropped that
+# constant, so `cargo update` to a newer libc breaks the build (ADR 0108).
+libc = "=0.2.189"
