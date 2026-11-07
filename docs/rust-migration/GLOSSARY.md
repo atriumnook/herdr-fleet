@@ -13,6 +13,7 @@ _Avoid_: 会話のセッション(エージェント CLI の会話の記録は�
 
 **ワークスペース(workspace)**:
 herdr のセッションの中で、タブをまとめる単位。thread は 1 つのワークスペースを持つ。
+_Avoid_: Cargo の workspace(Rust の crate の集まりは「Cargo workspace」と書く)
 
 **ペイン(pane)**:
 herdr の中で 1 つのプログラムが動くターミナルの区画。herdr-fleet が見て操作する最小の対象。
