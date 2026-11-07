@@ -33,7 +33,7 @@ Rust 版が正しいかは、エージェントの判断ではなく、次の基
 | 画面の corpus | `fixtures/screens/`。承認画面の解析と adapter の画面の判定(`scripts/screen-fixtures.ts`) | あり(#103) |
 | 会話ログの corpus | claude・codex・pi・opencode・omp の会話ログ → 会話の構造 | 段階 1 で作る |
 | fleet CLI の契約 | argv → HTTP の要求 → 応答 → 標準出力と終了コード | 段階 1 で作る |
-| HTTP/WS の契約 | 今の `*.contract.test.ts` を、任意のサーバーの URL に向けて走らせられる black-box のテストにしたもの | 段階 1 で作る |
+| HTTP/WS の契約 | 今の `*.contract.test.ts` を black-box のテストにしたもの。テストは、起動の指定(launch spec)で自分が起動したサーバー(TypeScript か Rust を選べる)に、URL を通してだけ話す。すでに動いているサーバーには向けない(ADR `0122-parity-criteria`) | 段階 1 で作る |
 | 安全上の判定の表 | アクセス制御、ファイル表示の範囲、push の宛先、子プロセスの環境変数、git の設定 → 判定 | 段階 1 で作る |
 | UI の回帰 | `bun run test:ui`、`scripts/fleet-screen-regression.ts` を Rust の core に向けて走らせる | 段階 4 で使う |
 
