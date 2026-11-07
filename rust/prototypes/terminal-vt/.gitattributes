@@ -1,0 +1,3 @@
+# The recorded bytes and the screens are compared byte for byte: no conversion.
+fixtures/** -text -diff
+fixtures/README.md text diff

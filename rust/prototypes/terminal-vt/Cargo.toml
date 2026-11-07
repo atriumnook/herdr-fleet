@@ -1,0 +1,17 @@
+# Prototype for Issue #109: does libghostty-vt, called from Rust, turn recorded
+# pane bytes into the same screen as Ghostty? Not part of the rust/ workspace.
+[package]
+name = "terminal-vt"
+version = "0.0.0"
+edition = "2024"
+publish = false
+build = "build.rs"
+
+# An empty workspace, so this crate stays out of rust/Cargo.toml's workspace.
+[workspace]
+
+[dependencies]
+alacritty_terminal = "=0.26.0"
+
+[dev-dependencies]
+serde_json = "1"
