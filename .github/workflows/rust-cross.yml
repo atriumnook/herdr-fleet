@@ -22,8 +22,6 @@ permissions:
   contents: read
 
 env:
-  # Same Rust as ADR 0108-gpui-prototype (gpui 0.2.2 declares no rust-version).
-  RUST_VERSION: "1.94.0"
   CARGO_TERM_COLOR: always
 
 jobs:
@@ -92,10 +90,11 @@ jobs:
       - name: Runner image
         run: echo "ImageOS=$ImageOS ImageVersion=$ImageVersion RUNNER_ARCH=$RUNNER_ARCH"
 
+      # Installs the release named in rust/rust-toolchain.toml (ADR
+      # 0110-workspace-and-ci), which rustup finds from the prototype's folder.
       - name: Install Rust
         run: |
-          rustup toolchain install "$RUST_VERSION" --profile minimal --no-self-update
-          rustup default "$RUST_VERSION"
+          rustup toolchain install --no-self-update
           rustc --version --verbose
           cargo --version
 
