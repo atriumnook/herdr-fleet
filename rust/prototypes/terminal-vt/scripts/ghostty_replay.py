@@ -56,7 +56,10 @@ def main() -> None:
                 path = m.group().decode("utf-8", "replace")
                 if os.path.isfile(path):
                     # Ghostty writes and closes the file before it pastes the path.
-                    shutil.copyfile(path, os.path.join(work, "ghostty-screen.txt"))
+                    # Copy, then rename: capture_ghostty.py waits for the final name.
+                    partial = os.path.join(work, "ghostty-screen.txt.partial")
+                    shutil.copyfile(path, partial)
+                    os.rename(partial, os.path.join(work, "ghostty-screen.txt"))
                     os.remove(path)
                     try:
                         os.rmdir(os.path.dirname(path))

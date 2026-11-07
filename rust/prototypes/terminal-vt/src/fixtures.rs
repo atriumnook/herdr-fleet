@@ -64,7 +64,9 @@ pub fn lines(text: &[u8]) -> Vec<String> {
 }
 
 /// The first line (1-based) where `actual` differs from `expected`, with
-/// both lines, or `None` when every line is the same.
+/// both lines, or `None` when every line is the same. A line that only one
+/// side has is a difference even when it is empty, so the reported line is
+/// where the two first part, whether or not the input went through [`lines`].
 pub fn first_difference(expected: &[String], actual: &[String]) -> Option<(usize, String, String)> {
     let n = expected.len().max(actual.len());
     (0..n).find_map(|i| {

@@ -20,6 +20,7 @@ Needs Ghostty (1.4.0 for the committed fixtures) and Hyprland (0.56, whose
 """
 
 import os
+import shlex
 import shutil
 import subprocess
 import sys
@@ -79,7 +80,7 @@ def capture(fixture: str) -> None:
             str(rows),
             work,
         ]
-        cmd = " ".join(shell_quote(a) for a in args)
+        cmd = shlex.join(args)
         hypr(f"hl.exec_cmd([==[{cmd}]==], {{ float = true }})")
 
         if not wait_for(os.path.join(work, "written"), 20):
@@ -105,10 +106,6 @@ def read(path: str) -> str:
             return f.read().strip()
     except OSError:
         return ""
-
-
-def shell_quote(s: str) -> str:
-    return "'" + s.replace("'", "'\\''") + "'"
 
 
 def main() -> None:

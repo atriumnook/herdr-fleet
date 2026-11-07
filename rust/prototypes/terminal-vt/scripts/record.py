@@ -5,7 +5,8 @@ Usage: record.py <fixture dir> <cols> <rows> <seconds> <shell command>
 
 Runs the command under util-linux `script` in a pty of <cols> x <rows>, kills
 it with SIGKILL after <seconds> (so a full-screen program is still on its
-alternate screen when the recording ends), and writes:
+alternate screen when the recording ends), and, unless the command failed
+(an exit status other than 0, or 137 from the kill), writes:
 
   <fixture dir>/output.bin  the bytes the pty's master side read, unchanged
   <fixture dir>/size.txt    "<cols>x<rows>"
@@ -21,6 +22,7 @@ into the program: stdin is a pipe that stays open and silent.
 """
 
 import os
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -35,7 +37,7 @@ def main() -> None:
 
     inner = (
         f"stty rows {rows_n} cols {cols_n}; "
-        f"exec timeout -s KILL {float(seconds)} sh -c {sh_quote(command)}"
+        f"exec timeout -s KILL {float(seconds)} sh -c {shlex.quote(command)}"
     )
     env = {
         "PATH": os.environ["PATH"],
@@ -49,14 +51,17 @@ def main() -> None:
         timing = os.path.join(tmp, "timing")
         # A pipe that stays open: the program reads no input and sees no EOF.
         holder = subprocess.Popen(["sleep", str(float(seconds) + 5)], stdout=subprocess.PIPE)
-        subprocess.run(
-            ["script", "-q", "-E", "never", "-m", "advanced", "-T", timing, "-O", log, "-c", inner],
+        result = subprocess.run(
+            ["script", "-q", "-e", "-E", "never", "-m", "advanced", "-T", timing, "-O", log, "-c", inner],
             stdin=holder.stdout,
             stdout=subprocess.DEVNULL,
             env=env,
             check=False,
         )
         holder.kill()
+        # 0: the command ended by itself; 137: timeout killed it (128 + SIGKILL).
+        if result.returncode not in (0, 137):
+            sys.exit(f"{out_dir}: the command exited with {result.returncode}; nothing written")
         data = extract(log, timing)
 
     with open(os.path.join(out_dir, "output.bin"), "wb") as f:
@@ -79,10 +84,6 @@ def extract(log: str, timing: str) -> bytes:
     if not raw[start + total :].lstrip(b"\n").startswith(b"Script done"):
         sys.exit("unexpected script log layout")
     return raw[start : start + total]
-
-
-def sh_quote(s: str) -> str:
-    return "'" + s.replace("'", "'\\''") + "'"
 
 
 if __name__ == "__main__":

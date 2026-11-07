@@ -2,8 +2,10 @@
 //!
 //! What this runs:
 //!
-//! 1. The source: `$GHOSTTY_SOURCE_DIR` when it is set (used as is; a warning
-//!    is printed when its `git rev-parse HEAD` is not `GHOSTTY_COMMIT`).
+//! 1. The source: `$GHOSTTY_SOURCE_DIR` when it is set, which must be a git
+//!    checkout whose `git rev-parse HEAD` is `GHOSTTY_COMMIT` (the build
+//!    fails otherwise, so the fixtures are never checked against another
+//!    Ghostty). Zig writes its `.zig-cache` into that folder.
 //!    Otherwise `git init`, `git fetch --depth 1 <GHOSTTY_REPO> <GHOSTTY_COMMIT>`
 //!    and `git checkout FETCH_HEAD` in `$OUT_DIR/ghostty-src`, once.
 //! 2. `zig build -Demit-lib-vt -Doptimize=ReleaseFast --prefix $OUT_DIR/ghostty-vt`
@@ -77,13 +79,13 @@ fn fetch(dir: &Path) -> PathBuf {
 }
 
 fn check_commit(dir: &Path) {
-    match head(dir) {
-        Some(h) if h == GHOSTTY_COMMIT => {}
-        other => println!(
-            "cargo:warning=GHOSTTY_SOURCE_DIR is at {}, not the pinned {GHOSTTY_COMMIT}",
-            other.as_deref().unwrap_or("an unknown commit")
-        ),
-    }
+    let found = head(dir);
+    assert_eq!(
+        found.as_deref(),
+        Some(GHOSTTY_COMMIT),
+        "GHOSTTY_SOURCE_DIR ({}) must be a git checkout of {GHOSTTY_COMMIT}",
+        dir.display()
+    );
 }
 
 fn head(dir: &Path) -> Option<String> {
