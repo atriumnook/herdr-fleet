@@ -32,7 +32,7 @@
 - `permissions` は `contents: read`。action は `actions/checkout` だけを使い、コミットの SHA(v7.0.1 の `3d3c42e5aac5ba805825da76410c181273ba90b1`)で固定する。`persist-credentials: false` で、checkout のトークンを作業フォルダーに残さない
 - gpui の `build.rs` が要る道具を、ジョブの中で確かめる
   - macOS: Metal のシェーダーを `xcrun -sdk macosx metal` でコンパイルする。Apple の Xcode 26 の release notes によると、Xcode 26 からは Metal のツールチェインを Xcode と別にダウンロードする。そのため、`xcrun -sdk macosx metal --version` が失敗したときだけ `xcodebuild -downloadComponent MetalToolchain` で入れる
-  - Windows: release のビルドで HLSL のシェーダーを `fxc.exe` でコンパイルする。gpui は `PATH` と、決まった版(10.0.26100.0)の Windows SDK のフォルダーだけを探す。イメージにある最も新しい x64 の `fxc.exe` を探し、`GPUI_FXC_PATH` で渡す
+  - Windows: release のビルドで HLSL のシェーダーを `fxc.exe` でコンパイルする。gpui は `PATH` と、決まった版(10.0.26100.0)の Windows SDK のフォルダーだけを探す。workflow は、10.0.26100.0 の x64 の `fxc.exe` があればそれを、なければイメージにある最も新しい版の x64 の `fxc.exe` を、`GPUI_FXC_PATH` で渡す。1 つもなければ、そのことをエラーに書いてジョブを止める
 - `target/` は cache しない。GitHub は 7 日間使われなかった cache を消す。走らせるのは段階の関門と切り替えの前だけで、run の間はふつう 7 日より空くので、cache はほとんど当たらない
 
 ## 検討した代わり
@@ -41,6 +41,7 @@
 - **thread のブランチへの push で走らせる**: push のたびに macOS と Windows のビルドが走る。計画が手動に限った趣旨に合わないので選ばなかった
 - **すべての PR で走らせる**: 同じ理由で選ばなかった
 - **`dtolnay/rust-toolchain` などの第三者の action で Rust を入れる**: runner のイメージには rustup が入っているので要らない。第三者の action を増やすと、固定と更新の確認が増える
+- **macOS のジョブで Xcode を 16.4 に固定する(`xcode-select`)**: 確かめた Xcode でビルドし続けられるが、イメージから Xcode 16.4 が消えるとジョブが止まる。Xcode 26 以降に替わったときに Metal のツールチェインを入れる分岐のほうが、イメージが替わっても続けて使えるので、固定しなかった。この分岐はまだ走っていない(「結果」)
 - **macOS の x86_64(Intel)でもビルドする**: `macos-15` は arm64 である。段階 0 が確かめるのは「macOS 向けにビルドできるか」で、Intel の Mac を対象にするかは段階 6 で決める
 
 ## 依存
@@ -65,7 +66,7 @@
 
 ## 確かめたこと
 
-この Issue の PR で workflow を 3 回起動した。ビルドが失敗して走らせ直した回数は 0 回である。
+この Issue の PR で、macOS と Windows のビルドのジョブが走った run は 3 回(うち 1 回は途中で取り消した)である。ビルドが失敗して走らせ直した回数は 0 回である。ビルドのジョブが skipped になる `gate` だけの run は、この回数に数えない(下の「gate だけの run」)。
 
 | 回 | run | head のコミット | 起動した理由 | 結果 |
 |---|---|---|---|---|
@@ -73,7 +74,7 @@
 | 2 | [42406033125](https://github.com/atriumnook/herdr-fleet/actions/runs/42406033125) | `3dd0cad`(ADR と `rust` の取り込み) | `synchronize`。`paths` が PR 全体の差分で判定され、workflow を変えていない push でも起動した | 意図しない run なので、ビルドの途中で取り消した(cancelled) |
 | 3 | [42406377574](https://github.com/atriumnook/herdr-fleet/actions/runs/42406377574) | `4b6c502`(`gate` を足した) | `synchronize`。push したコミットが workflow を変えた | `gate` が `build=true` を出し、macOS と Windows とも緑 |
 
-このあとの、ADR と PR の本文だけを直すコミットの push でも run は起動するが、`gate` だけが走り、ビルドのジョブは skipped になる(この ADR の下の「gate だけの run」)。
+このあとの、ADR だけを直すコミットの push で起きた run は、下の「gate だけの run」に書いた。
 
 ### 3 回目の run(マージする workflow と同じ内容)
 
@@ -97,4 +98,6 @@
 
 ### gate だけの run
 
-この節は、ADR だけを変えるコミットの push で起きた run を見てから書く。
+ADR だけを変えたコミット `254ebb7` の push で起きた run [42407013882](https://github.com/atriumnook/herdr-fleet/actions/runs/42407013882) では、`gate` が push の差分のファイルとして `docs/rust-migration/adr/0111-cross-build.md` だけを出して `build=false` になり、ビルドのジョブは skipped になった。`gate` のジョブは 4 秒で終わった。このあとの ADR だけのコミットの push でも、同じように `gate` だけが走る。
+
+skipped になったビルドのジョブは、PR の検査の一覧に `build (${{ matrix.os }})` という名前で出る。matrix を展開する前に skipped になるので、名前の式が展開されないためである。`gh pr checks` はこのジョブを `skipping` と表示し、失敗として扱わない。
