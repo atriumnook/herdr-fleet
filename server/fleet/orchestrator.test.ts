@@ -1287,6 +1287,39 @@ describe("a project run without the person", () => {
     expect(toCoordinator(coordinator)[1]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) ended its turn: PASS — merged #7 into rust\n  Pull request #7: MERGED, and the thread is closed`].join("\n"));
   });
 
+  it("tells the coordinator of a turn the thread's agent started itself, as its helpers' results woke it", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff, git, removed } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Split", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    // the lead's turn breaks off while it waits for its helpers: no HANDOFF yet
+    await turn(thread, "idle");
+    expect(toCoordinator(coordinator)[1]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) ended its turn: no HANDOFF status line`].join("\n"));
+    await turn(coordinator, "idle");
+    // the helpers' results start the next turn: the fleet sent nothing
+    await turn(thread, "working");
+    git.pr = { number: 9, url: "https://github.com/o/r/pull/9", state: "MERGED", checks: "pass", head: "c0ffee" };
+    handoff(thread, "PASS — merged #9 into rust", "- [x] A1 split — evidence: #9");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!).toMatchObject({ landed: "merged", contract: [{ id: "A1", state: "met" }] });
+    expect(removed).toEqual([thread.branch!]);
+    expect(toCoordinator(coordinator)[2]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) ended its turn: PASS — merged #9 into rust\n  Contract: A1 ✓\n  Pull request #9: MERGED, and the thread is closed`].join("\n"));
+  });
+
+  it("does not tell the coordinator again while a thread stays settled", async () => {
+    const { fleet, turn, toCoordinator, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(thread, "ISSUES — 1 case fails");
+    await turn(thread, "idle");
+    await turn(coordinator, "idle");
+    await turn(thread, "idle");
+    await fleet.reconcileAll();
+    await Bun.sleep(30);
+    expect(toCoordinator(coordinator)).toHaveLength(2);
+  });
+
   it("keeps a pull request still open on the thread, for the polling that closes it once merged", async () => {
     const { fleet, registry, turn, handoff, git, removed } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
