@@ -1,0 +1,87 @@
+# Builds the empty GPUI app (rust/prototypes/gpui-window) for macOS and Windows
+# (#111, ADR 0111-cross-build).
+#
+# Triggers: GitHub does not dispatch a workflow that is absent from the default
+# branch (main), and main is off limits to this work, so workflow_dispatch alone
+# could never run this file before the cutover. The pull_request trigger is
+# narrowed to pull requests against rust that change this file itself; to run
+# it, open a pull request that edits this file. Pushes to thread branches and
+# other pull requests do not run it (plan, phase 6: macOS and Windows run by
+# hand only).
+name: rust-cross
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [rust]
+    paths:
+      - .github/workflows/rust-cross.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rust-cross-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Same Rust as ADR 0108-gpui-prototype (gpui 0.2.2 declares no rust-version).
+  RUST_VERSION: "1.94.0"
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: rust/prototypes/gpui-window
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Runner image
+        run: echo "ImageOS=$ImageOS ImageVersion=$ImageVersion RUNNER_ARCH=$RUNNER_ARCH"
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal --no-self-update
+          rustup default "$RUST_VERSION"
+          rustc --version --verbose
+          cargo --version
+
+      # gpui's build.rs compiles the Metal shaders with `xcrun -sdk macosx metal`.
+      # Xcode 26 ships without the Metal toolchain; download it only when absent.
+      - name: Metal compiler (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          xcodebuild -version
+          if ! xcrun -sdk macosx metal --version; then
+            echo "Metal toolchain missing: downloading it"
+            xcodebuild -downloadComponent MetalToolchain
+            xcrun -sdk macosx metal --version
+          fi
+
+      # gpui's build.rs compiles the HLSL shaders with fxc.exe in release builds.
+      # It looks in PATH and then in one fixed SDK version's folder; point it at
+      # the newest x64 fxc.exe the image has instead (GPUI_FXC_PATH).
+      - name: fxc.exe (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          fxc=$(ls -d "/c/Program Files (x86)/Windows Kits/10/bin/"10.*/x64/fxc.exe | sort -V | tail -n 1)
+          test -n "$fxc"
+          echo "fxc.exe: $fxc"
+          echo "GPUI_FXC_PATH=$(cygpath -w "$fxc")" >> "$GITHUB_ENV"
+
+      - name: cargo build --release
+        run: cargo build --release --locked
+
+      - name: Binary
+        run: ls -l target/release/gpui-window*
