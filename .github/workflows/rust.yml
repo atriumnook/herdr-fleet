@@ -12,12 +12,20 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request cancels the run it supersedes. Runs of
+# pushes to `rust` are never cancelled, so that each merge reports its result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   linux:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     defaults:
       run:
+        # `shell: bash` runs with -eo pipefail; the default shell has no pipefail.
+        shell: bash
         working-directory: rust
     env:
       CARGO_TERM_COLOR: always
@@ -41,8 +49,9 @@ jobs:
         run: |
           status=0
           for crate in herdr-fleet-screen herdr-fleet-transcript; do
-            found=$(cargo tree --locked -p "$crate" -e normal --prefix none --format '{p}' \
-              | awk '{print $1}' | sort -u \
+            # A failing cargo tree (an unknown package, say) fails the step here.
+            deps=$(cargo tree --locked -p "$crate" -e normal --prefix none --format '{p}')
+            found=$(printf '%s\n' "$deps" | awk '{print $1}' | sort -u \
               | grep -xE 'herdr-fleet-herdr|herdr-fleet-child-process|tokio|axum|hyper|reqwest' || true)
             if [ -n "$found" ]; then
               echo "::error::$crate depends on: $found"
@@ -50,3 +59,12 @@ jobs:
             fi
           done
           exit $status
+      # ADR 0110-workspace-and-ci: tests that read the corpus or write temporary
+      # files live in tests/ and allow the banned APIs there; src/ never does.
+      - name: Parsing crates allow their banned APIs only in tests
+        run: |
+          if grep -rnE 'clippy::(disallowed_methods|disallowed_types|style|all)\b' \
+              crates/screen/src crates/transcript/src; then
+            echo "::error::screen and transcript allow clippy's disallowed lints only under tests/"
+            exit 1
+          fi
