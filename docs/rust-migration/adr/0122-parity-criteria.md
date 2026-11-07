@@ -47,24 +47,31 @@ await fetch(`${server.url}/api/session`);
 await server.stop();
 ```
 
-- `env` は子プロセスの環境変数で、本番のサーバーがすでに環境変数で受けているものだけを書く: `HOST`、`HERDR_FLEET_TOKEN`、`HERDR_FLEET_TAILSCALE_OWNER`、`HERDR_FLEET_STATE_DIR`、`CODEX_HOME`、`HOME`、`CLAUDE_CONFIG_DIR`、`PI_CODING_AGENT_DIR`、`PI_CODING_AGENT_SESSION_DIR`、`TMPDIR`、`PATH`、`HERDR_FLEET_HERDR_BIN`、`XDG_CONFIG_HOME`。launcher は子プロセスの環境を一から組み立てる。テストのプロセスの `HERDR_*` と API キーは渡さず、`HERDR_SOCKET` にはテスト用の herdr のセッションの socket(`scripts/test-herdr.ts` の `testSocketPath`)を入れる。`PORT` は launcher が決める(下の「ポート」)ので、`env` には書けない。一覧にない名前を `env` に書くと、launcher はその名前を含む `Error` を投げる
+- `env` は子プロセスの環境変数で、本番のサーバーがすでに環境変数で受けているものだけを書く。launcher は子プロセスの環境を次の順で組み立てる。
+  1. テストのプロセスの環境から、`server/cli-child.ts` の `childEnv` と同じ名前(`PATH`、`HOME`、`USER`、`LOGNAME`、`SHELL`、`LANG`、`LANGUAGE`、`TZ`、`TMPDIR`、proxy と証明書の変数、`LC_*`、`XDG_*`)と、`HERDR_FLEET_HERDR_BIN`(テストが使う herdr の実行ファイル)だけを引き継ぐ。ほかの `HERDR_*` と API キーは引き継がない
+  2. `HERDR_SOCKET` にテスト用の herdr のセッションの socket(`scripts/test-herdr.ts` の `testSocketPath`)を、`HERDR_FLEET_STATE_DIR` にサーバーごとに新しく作った `$TMPDIR` の下の空のフォルダーを入れる。`testSocketPath` は `HERDR_TEST_SESSION` に従うので、fleet の thread は `HERDR_TEST_SESSION=herdr-fleet-rs-<run id>` で自分のセッションを使う(決まりの隔離)
+  3. テストの `env` を上に重ねる。テストが自分で持つ socket(例: `server/reattach.contract.test.ts` の自分の herdr、`server/secret.contract.test.ts` の proxy)を使うときは、`env.HERDR_SOCKET` で 2 の値を上書きする。`HERDR_SOCKET` も本番の herdr のクライアントが読む環境変数である
+
+  一覧にある名前は `HOST`、`HERDR_FLEET_TOKEN`、`HERDR_FLEET_TAILSCALE_OWNER`、`HERDR_FLEET_STATE_DIR`、`HERDR_SOCKET`、`CODEX_HOME`、`HOME`、`CLAUDE_CONFIG_DIR`、`PI_CODING_AGENT_DIR`、`PI_CODING_AGENT_SESSION_DIR`、`TMPDIR`、`PATH`、`HERDR_FLEET_HERDR_BIN`、`XDG_CONFIG_HOME` である。`PORT` は launcher が決める(下の「ポート」)ので、`env` には書けない。一覧にない名前を `env` に書くと、launcher はその名前を含む `Error` を投げる
 - `test` はテスト用のオプションで、本番の環境変数では表せず、データだけで書けるものに限る。一覧は次の表のとおりで、表にない名前を書くと、launcher はその名前を含む `Error` を投げ、テスト用のエントリーポイントはその名前を標準エラーに書いて終了コード 2 で終わる。関数を値に持つオプション(`createServer` の `fleet`、`explain`、`sideChats`、関数の `terminalAttach`)は入れない
 
 | オプション | 型 | 意味(TypeScript の `createServer` の対応) |
 |---|---|---|
-| `tailscaleOwner` | 文字列か `null` | Tailscale のログインの持ち主として扱う名前。`null` は持ち主なし。どちらでも `tailscale status` を読まない(`tailscaleOwner`) |
+| `tailscaleOwner` | 文字列か `null` | Tailscale のログインの持ち主として扱う名前。`null` は持ち主なし。どちらでも `tailscale status` を読まない(`tailscaleOwner`)。テストが `test.tailscaleOwner` も `env.HERDR_FLEET_TAILSCALE_OWNER` も書かなければ、launcher は `null` を渡す(テストの結果が、テストを走らせる PC の Tailscale の状態で変わらないように)。両方を書くと `Error` を投げる |
 | `machines` | 真偽値 | `false` で、PC の一覧(`/api/machines`。この PC の herdr の状態を数秒ごとに読む)を動かさない(`machines`) |
-| `acceptLoopbackPush` | 真偽値 | `true` で、push の購読の宛先に 127.0.0.1 も受ける(`pushEndpoint` に `server/push.fake.ts` の `loopbackPush` を渡す) |
-| `alertTiming` | `{short?, long?, longTurn?}`(ミリ秒の数) | push の知らせを送る前に待つ時間(`alertTiming`) |
+| `acceptLoopbackPush` | 真偽値 | `true` で、push の購読の宛先の判定を、ホストが 127.0.0.1 の宛先だけを受ける判定に置き換える。ベンダーの宛先は受けなくなる(`pushEndpoint` に `server/push.fake.ts` の `loopbackPush` を渡す。`server/push.ts` は渡された判定で既定の判定を置き換える) |
+| `alertTiming` | `{short?, long?, longTurn?}`(ミリ秒の数) | `short` と `long` は、push の知らせを送る前にペインの変化を待つ時間(`short` は質問と、すべての終わりを知らせる端末への終わり、`long` は長いターンの終わり)。`longTurn` は、終わりを「長いターン」として知らせるのに要る、ターンの最短の長さ(`alertTiming`。`server/push.ts` の `AlertTiming`) |
 | `submitDeadlineMs` | 数(ミリ秒) | `SUBMIT_DEADLINE_MS` の代わり(`submitDeadlineMs`) |
 | `attachRetryForMs`、`attachHeldRetryMs`、`attachRelookupForMs` | 数(ミリ秒) | attach をやり直す時間の上限と間隔(同名のオプション) |
 | `terminalAttach` | 真偽値 | herdr が `terminal attach` を使えるかの答えを、herdr に聞かずに決める(真偽値の `terminalAttach`) |
 | `localPty` | 真偽値 | `false` で、サーバーがペインのターミナルを自分の PTY で動かせないものとして扱う(`sidecar`。Rust には Node の PTY sidecar がないので、外から見える振る舞いで名前を付けた) |
+
+  `localPty` を書かずに `terminalAttach` を書くと、`localPty` は `terminalAttach` と同じ値になる。どちらも書かなければ、サーバーは herdr に聞き、自分の PTY が動くかを自分で調べる。今の `createServer` の決まり(`server/index.ts` の `sidecar` の既定値)と同じで、Rust の core のテスト用のエントリーポイントも同じ決まりで読む
 - `test` を読むのは、テスト用のエントリーポイントだけにする。テスト用のエントリーポイントは `test` の JSON を標準入力で受け、待ち受けを始めたら標準出力に `{"listening":{"hostname":…,"port":…}}` を 1 行書く。SIGTERM を受けると、本番(`server/index.ts` の `import.meta.main` の部分)と同じく、サーバーを止めて 2 秒待ち(attach の sidecar が herdr の attach の枠を返すため)、終了コード 0 で終わる
   - TypeScript: `scripts/contract/server.ts`。`createServer(テスト用のオプション)` を呼ぶだけで、残りの設定は `createServer` が環境変数から読む。`server/` に置かないのは、ADR `0107-crate-split` の対応表の検査が `server/` の全ファイルを数えるため
   - Rust(段階 4): core が持つ。本番の `rust/crates/core/src/main.rs` は `serve(Config::from_env()?, Seams::default())`、テスト用の `rust/crates/core/examples/contract-server.rs` は `serve(Config::from_env()?, spec.into())` を呼ぶ。`Seams` は lib の公開の型だが `Deserialize` を実装せず、JSON から読む型は example の中だけに置く。本番の実行ファイルは環境変数と引数からしか設定を読まないので、本番の実行ファイルにテスト用のオプションを渡す経路はない。今の TypeScript でも、`pushEndpoint` を `createServer` に渡すのはテストだけである
 - ポート: launcher が 7400〜7499 から空いているポートを選んで `PORT` に入れる。使用中で起動に失敗したら、別のポートで起動し直す
-- すでに動いているサーバーの URL に向ける口(`url:<base>`)は作らない。計画の「任意のサーバーの URL に向けて走らせられる black-box のテスト」は、「テストが URL を通してだけサーバーと話す」と読む
+- すでに動いているサーバーの URL に向ける口(`url:<base>`)は作らない。計画の「任意のサーバーの URL に向けて走らせられる black-box のテスト」は、「テストが URL を通してだけサーバーと話す」と読む。これは計画の文言からの読み替えなので、下の「計画との違い」にも書いた
 
 black-box に書き換えたファイルの決まり:
 
@@ -87,17 +94,19 @@ black-box に書き換えたファイルの決まり:
 - ファイルを変える手順: `append`(後ろに足す)、`replace`(別の inode のファイルに置き換える)、`rewrite`(同じ inode のまま書き直す。runner は書いたあと mtime を前の値より 1 秒進める。今のコードは書き直しを大きさと mtime と ctime で見つけるため)、`remove`
 - 件に与える入力:
   - pi のモデルのコンテキストの大きさ `piContextWindows: {"<provider>/<model>": <数>}`。TypeScript の runner は一時フォルダーに `models.json` を書き、`PI_CODING_AGENT_DIR` をそこに向ける。Rust の runner は検索の関数として渡す(ADR `0107-crate-split`)
-  - OpenCode の記録した応答: `serviceRunning` と、GET のパスごとの `{status, body}`。404 と 400 で振る舞いが変わるので、状態コードも記録する
+  - OpenCode の記録した応答: `serviceRunning` と、GET のパスごとの `{status, body}`。404 と 400 で振る舞いが変わるので、状態コードも記録する。キーはクエリー文字列を含むパスで、クエリーの引数は名前の順に並べ直してから引く(`before`、`limit`、カーソルの順序で別のキーにならないように)。記録にない GET は、パスを示して件を失敗させる
+  - OpenCode の応答を変える手順 `{"api": {<パス>: {status, body}}}`: 記録した応答のうち、書いたパスの応答だけを置き換える。新しいメッセージ、`time.updated` の変化、revert、実行中から終了への書き換え、`since` の上限を、手順の間の応答の変化で表す
   - OpenCode の時計: 手順 `{"at": <ミリ秒>}` の値を `now` として渡す
 - 毎回違う値の扱い:
   - `history_id`、null でない `cursor`、`version` は値を書かない。`"$名前"` が最初に出たところでその値に名前を付け、2 回目からは同じ値であることを確かめる。`"!$名前"` は違う値であることを確かめる。あとの手順の `page.before` などにも `"$名前"` を渡せる
+  - OpenCode の `history_id` と `cursor` は、記録した応答のメッセージ id から決まり毎回同じなので、値のまま書く。OpenCode で名前を使うのは `version` だけ
   - 値を書けないのは、`history_id` がファイルの dev と ino から作られ、書き直しを見つけると randomUUID が足され、Codex の連なりでは前のロールアウトの絶対パスのハッシュが足されるため。`cursor` は `history_id` とバイトの位置をつないだもの、`version` はプロセスごとの randomUUID から作る
   - `cursor: null`(会話の始まり)は値のまま書く
   - 名前は 1 件の中だけで通じる。画面の corpus の `sameIdAs` のような、件をまたぐ関係は持たない。件をまたぐ関係を持つと、`--update` がほかの件の `case.json` も書き換え、source ごとの Issue がほかの source のフォルダーに書き込むことになる
   - 画像のバイト列は `{mediaType, sha256, length}` で比べる
   - 答えに一時フォルダーのパスが出たら、`$CASE` に置き換えて比べる
   - 失敗は `{"error": "HistoryChanged"}`、`{"error": "ConversationUnavailable", "reason": "…"}`、`{"error": "ConversationNotStarted", …}` と書く
-- 件にしないもの: 一時フォルダーの絶対パスを transcript に書き込む件(Codex のローカルの画像は `cwd` からの相対パスで書く)、時計を注入できない時間の経過(Codex の連なりの cache の 30 秒)。これらは TypeScript のテストに残り、parity.md で引き継ぎ先を決める
+- 件にしないもの: 一時フォルダーの絶対パスを transcript に書き込む件(Codex のローカルの画像は `cwd` からの相対パスで書く)、時計を注入できない時間の経過(Codex の連なりの cache の 30 秒、OpenCode のモデルのカタログの cache の有効期限とやり直しの間隔。どちらも `Date.now()` を直接読む)。これらは TypeScript のテストに残り、parity.md で引き継ぎ先を決める
 - `--update` の決まりは画面の corpus と同じにする。期待値のない件と、名前を指定した件だけを書き、毎回違う値には `$h`、`$c1`、`$v1` のような名前を自動で付ける
 - 段階 2 への注意: `rust/crates/transcript/clippy.toml` はファイルへの書き込みを禁じ、CI の clippy は `--all-targets` で走るので、テストのコードにもこの禁止が当たる。ファイルを変える手順を実行する Rust の runner は、runner の module だけに `#[allow(clippy::disallowed_methods, clippy::disallowed_types)]` を理由とともに書く(ADR `0107-crate-split` はテストでの一時ファイルを認めている)
 
@@ -111,17 +120,18 @@ black-box に書き換えたファイルの決まり:
 |---|---|
 | core | `decideAccess`、`isLoopbackAddress`、`isLoopbackHost`、`cameThroughProxy`(ヘッダーの一覧を入力にする)、`isAuthenticated`、`requiresAuth`、`sameOrigin`(URL とヘッダーを入力にする)、`parseViewPath`、ファイルの応答のヘッダー(`fileResponse` のうちヘッダーだけ。本文は比べない。表のファイル名は `fileResponseHeaders.json`)、`isPushServiceEndpoint`、`parseSubscription`(第 2 引数 `acceptEndpoint` を渡さず、宛先を `isPushServiceEndpoint` で判定する形で) |
 | child-process | `childEnv`、`claudeEnv` |
-| orchestrator | `opencodeGitEnv`、`opencodeConfig`(入力の `OpencodeRole` から設定の JSON への完全一致。OpenCode では最後に当たった規則が勝つので、規則の順序も比べる) |
+| orchestrator | `opencodeGitEnv`、`opencodeConfig`(入力の `OpencodeRole` から設定の JSON への完全一致。OpenCode では最後に当たった規則が勝つので、規則の順序も比べる。プラグインのパスは checkout の場所で変わるので、期待値では `$GUARD_PLUGIN` と書き、runner がその実装のプラグインのパスに置き換えて比べる) |
 
 - HTTP/WS の契約だけに置くもの: `withinRoots`(symlink を realpath で解くのでファイルシステムが要る)、`fileRoots`(`os.tmpdir()` を読む)、端末の紐付け(ファイルに書く)、`X-Herdr-Fleet` の確認(今は `server/fleet/api.ts` に直接書かれていて呼べる関数がない)、変更の要求の origin の拒否、ベンダーでない push の宛先の拒否
-- どちらにも置かないもの: fleet-guard の `allowed()`(`opencode/fleet-guard/guard.js`)。OpenCode が読み込む JavaScript のプラグインで、Rust 版も同じフォルダーを同梱するので、`server/fleet/opencode-guard.test.ts` をそのまま残す。サーバーが git を `core.fsmonitor=false` で動かす決まりは、呼べる関数がなく 2 か所に重複している(ADR `0107-crate-split`)ので、段階 3 で child-process の Rust のテストに引き継ぐ
+- どちらにも置かないもの: fleet-guard の `allowed()`(`opencode/fleet-guard/guard.js`)。OpenCode が読み込む JavaScript のプラグインで、Rust 版も同じフォルダーを同梱するので、`server/fleet/opencode-guard.test.ts` をそのまま残す。サーバーが git を `core.fsmonitor=false` で動かす決まりは、呼べる関数がなく 2 か所に重複している(ADR `0107-crate-split`)ので、表には置かない。段階 1 では、HTTP/WS の契約に black-box の件を 1 つ足す: `core.fsmonitor` に印のファイルを作る script を設定したリポジトリをペインの作業フォルダーにして `GET /api/pane/files` を呼び、印のファイルができないことを確かめる(`server/files.test.ts` の同じ件を black-box にしたもの)。`server/fleet/thread.ts` の git は、fleet の thread を起動しないと動かないので、段階 3 で child-process の Rust のテストに引き継ぐ
 - `server/fleet/adapters.test.ts` が OpenCode の規則の照合を再実装して判定を試すテストは TypeScript に残す。設定の JSON が一致すれば、判定も一致する
 
 ### fleet CLI の契約
 
 - 置き場所: `fixtures/fleet-cli/<case>.json`。1 件に、`about`(件のもとになったテストか、件が示すこと)、argv、環境変数、標準入力(`fleet plan -` のため)、stub のサーバーが要求の順に返す応答(状態コードと本文)、期待する要求(要求ごとに `method`、`path`、ヘッダーのうち `X-Herdr-Fleet` と認証、本文を別の項目で)、標準出力、標準エラー、終了コードを書く
+- サーバーに届かないときの件は `"server": "closed"` と書き、runner は 7400〜7499 のうち何も待ち受けていないポートの URL を渡す。標準出力と標準エラーに出る、runner が選んだ URL は `$URL` と書く(ポートが毎回違うため)
 - `HERDR_FLEET_URL` は runner が stub の URL にする。件が変えられるのは末尾の `/` の有無だけで、`HERDR_FLEET_URL` を外す件は作らない(外すと CLI は既定の 127.0.0.1:7317、つまり稼働中の fleet に送る)
-- 時刻の表示(`bin/fleet.ts` の `toLocaleString()`)は、ロケールと時刻帯で変わる。runner は CLI を `TZ=UTC`、`LANG=en_US.UTF-8` で動かし、件の時刻は今から 10 年以上離れた過去か未来にする(クールダウンを表示するかは今の時刻との比較で決まるため)。Rust の CLI が合わせるのは、この固定した環境での表示だけとする
+- 時刻の表示(`bin/fleet.ts` の `toLocaleString()`)は、ロケールと時刻帯で変わる。runner は CLI の環境を一から組み立て、`PATH`、`HOME`、`TMPDIR` と、`TZ=UTC`、`LANG=en_US.UTF-8`、件の環境変数だけを渡す(`LC_ALL` や `LC_TIME` が `LANG` に勝たないように、`LC_*` は渡さない)。件の時刻は今から 10 年以上離れた過去か未来にする(クールダウンを表示するかは今の時刻との比較で決まるため)。Rust の CLI が合わせるのは、この固定した環境での表示だけとする
 
 ### parity.md
 
@@ -135,6 +145,10 @@ black-box に書き換えたファイルの決まり:
 書くパスが重なる Issue は待つ関係にする。runner(`scripts/conversation-fixtures.ts`、`scripts/contract/`、`scripts/security-fixtures/format.ts`)を最初の Issue が作り、あとの Issue は自分の fixtures のフォルダーか自分のテストのファイルだけを書く。あとの Issue が runner に足りない口を見つけたら、runner を直す Issue を別に開き、それを待つ(2 つの thread が同時に runner を書かないため)。
 
 段階 1 の Issue は #123〜#134 で、#122 がこの ADR の Issue である。計画の項目と Issue の対応は、tracking issue #105 のコメントにある。
+
+## 計画との違い
+
+- 計画の「一致を確かめる基準」の表は、HTTP/WS の契約を「任意のサーバーの URL に向けて走らせられる black-box のテスト」と書いている。この ADR は、すでに動いているサーバーの URL に向ける口を作らず、テストが起動したサーバー(TypeScript か Rust)に URL を通してだけ話す形にした。理由は「検討した代わり」の 1 つ目のとおり。計画の段階 1 の項目「サーバーの起動の仕方(TypeScript か Rust か)を引数で選べる」は満たす。計画の文言をこの読み方に合わせる変更は、#136 で行う
 
 ## 検討した代わり
 

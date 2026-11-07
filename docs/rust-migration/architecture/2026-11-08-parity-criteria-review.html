@@ -165,7 +165,7 @@ server/files.ts, server/fleet/thread.ts(git の -c core.fsmonitor=false が重�
 
       <section id="top-recommendation" class="rounded-xl deep p-6 space-y-3">
         <h2 class="font-serif text-2xl">一番の推奨: 1(起動の指定)</h2>
-        <p>候補 1 を最初に決める。理由は 3 つの事実による。4 つの基準のうち、Rust の crate の公開の口を決めるのは候補 1 だけ(core の <code>serve(Config, Seams)</code> と、テスト用のエントリーポイントの置き場所)。HTTP/WS の契約の 13 ファイルの書き換え(4 つの Issue)が、この launcher を待つ。テスト用のオプションの渡し方を誤ると、本番の実行ファイルに push の宛先やアクセス制御を緩める経路ができ、CLAUDE.md の「守ること」に反する。</p>
+        <p>候補 1 を最初に決める。理由は 3 つの事実による。4 つの基準のうち、Rust の実行ファイルの起動の仕方を決めるのは候補 1 だけ(core の <code>serve(Config, Seams)</code> と、テスト用のエントリーポイントの置き場所)。候補 2 と 3 も Rust の crate が公開する関数の形を決めるが、それは関数の呼び出しで、本番の実行ファイルの入力には関わらない。HTTP/WS の契約の 13 ファイルの書き換え(4 つの Issue)が、この launcher を待つ。テスト用のオプションの渡し方を誤ると、本番の実行ファイルに push の宛先やアクセス制御を緩める経路ができ、CLAUDE.md の「守ること」に反する。</p>
         <p>候補 2〜4 も段階 1 で作る(計画が 4 つの基準のすべてを求めるため)。4 つの基準の形、毎回違う値の扱い、判定の持ち主、ファイルの配置は、ADR <code>0122-parity-criteria</code> に書いた。人に聞く手順(どの候補を掘り下げるか、grilling)は、決まりのとおり architect への問い(run <code>42548e4e</code>)と lead の判断に置き換え、その答えを ADR に書いた。</p>
       </section>
     </main>
