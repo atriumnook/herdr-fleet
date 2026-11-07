@@ -1,0 +1,52 @@
+{
+  "about": "server/skill-activity.test.ts: Codex tool and native read records count one skill and keep the tool output",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Please review"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "cat /skills/review/SKILL.md",
+                "input": "{\n  \"cmd\": \"cat /skills/review/SKILL.md\"\n}",
+                "output": "Process exited with code 0\nInstructions",
+                "skill": {
+                  "name": "review",
+                  "path": "/skills/review/SKILL.md",
+                  "evidence": "instructions",
+                  "status": "loaded"
+                }
+              }
+            ],
+            "end_ts": "2026-09-27T00:00:01Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

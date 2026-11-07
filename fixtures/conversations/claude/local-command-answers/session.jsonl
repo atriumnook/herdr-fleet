@@ -1,0 +1,5 @@
+{"type":"system","subtype":"local_command","isMeta":false,"timestamp":"2026-10-07T19:00:00.000Z","content":"<command-name>/goal</command-name>\n<command-message>goal</command-message>\n<command-args>test</command-args>"}
+{"type":"system","subtype":"local_command","isMeta":false,"timestamp":"2026-10-07T19:00:01.000Z","content":"<local-command-stdout>/goal can't run while hooks are restricted (disableAllHooks or allowManagedHooksOnly is set in settings or by policy).</local-command-stdout>"}
+{"type":"system","subtype":"local_command","isMeta":false,"timestamp":"2026-10-07T19:00:02.000Z","content":"<local-command-stdout></local-command-stdout>"}
+{"type":"system","subtype":"local_command","isMeta":false,"timestamp":"2026-10-07T19:00:03.000Z","content":"<local-command-stderr>\u001b[31mUnknown command: /gaol\u001b[39m</local-command-stderr>"}
+{"type":"system","subtype":"turn_duration","content":"<local-command-stdout>not a command's answer</local-command-stdout>"}

@@ -1,0 +1,2 @@
+{"type":"assistant","message":{"role":"assistant","model":"claude-test","content":[{"type":"thinking","thinking":"text"}]}}
+{"type":"assistant","message":{"role":"assistant","model":"<synthetic>"}}

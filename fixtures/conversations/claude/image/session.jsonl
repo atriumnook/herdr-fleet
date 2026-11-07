@@ -1,0 +1,2 @@
+{"type":"user","uuid":"99999999-2222-3333-4444-555555555555","message":{"content":[{"type":"text","text":"x"}]}}
+{"type":"user","uuid":"11111111-2222-3333-4444-555555555555","message":{"content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw=="}},{"type":"text","text":"what?"},{"type":"image","source":{"type":"base64","media_type":"image/svg+xml","data":"PHN2Zz4="}}]}}

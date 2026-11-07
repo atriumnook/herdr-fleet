@@ -1,0 +1,79 @@
+{
+  "about": "server/claude-turn-boundaries.test.ts: Claude completed turns keeps a completed answer separate when task notification resumes tool work",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Check the fictional library."
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Checking the catalog."
+              },
+              {
+                "kind": "tool",
+                "name": "Read",
+                "summary": "catalog.txt",
+                "input": "{\n  \"file_path\": \"catalog.txt\"\n}",
+                "output": "Three books"
+              },
+              {
+                "kind": "text",
+                "text": "The library has three books."
+              },
+              {
+                "kind": "text",
+                "text": "Two are available."
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Verifying the catalog."
+              },
+              {
+                "kind": "tool",
+                "name": "Read",
+                "summary": "catalog.txt",
+                "input": "{\n  \"file_path\": \"catalog.txt\"\n}",
+                "output": "Three books confirmed"
+              },
+              {
+                "kind": "text",
+                "text": "Verified."
+              }
+            ],
+            "end_ts": "2026-01-01T12:02:00Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

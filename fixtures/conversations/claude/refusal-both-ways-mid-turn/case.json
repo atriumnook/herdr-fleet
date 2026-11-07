@@ -1,0 +1,117 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript shows a refusal recorded both ways once also while the agent works, and keeps the turn whole",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "informational-first.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "run"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:00:10.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Message held",
+                "source": "informational"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-10-08T08:00:01.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "sleep 60",
+                "input": "{\n  \"command\": \"sleep 60\"\n}",
+                "output": "ok"
+              },
+              {
+                "kind": "text",
+                "text": "Done"
+              }
+            ],
+            "end_ts": "2026-10-08T08:01:01.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "local-command-first.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "run"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:00:10.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Message held",
+                "source": "local-command"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-10-08T08:00:01.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "sleep 60",
+                "input": "{\n  \"command\": \"sleep 60\"\n}",
+                "output": "ok"
+              },
+              {
+                "kind": "text",
+                "text": "Done"
+              }
+            ],
+            "end_ts": "2026-10-08T08:01:01.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    }
+  ]
+}

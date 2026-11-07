@@ -1,0 +1,6 @@
+{"type":"user","timestamp":"2026-09-19T08:00:00.000Z","message":{"role":"user","content":"리팩터링 시작해줘"}}
+{"type":"assistant","timestamp":"2026-09-19T08:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"먼저 상태를 확인하겠습니다."},{"type":"tool_use","id":"toolu_1","name":"Bash","input":{"command":"git status --short","description":"check tree"}}]}}
+{"type":"user","timestamp":"2026-09-19T08:00:03.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_1","content":"M src/app.ts"}]}}
+{"type":"assistant","timestamp":"2026-09-19T08:00:05.000Z","message":{"role":"assistant","content":[{"type":"thinking","thinking":"internal reasoning stays private"},{"type":"text","text":"변경된 파일이 하나입니다."}]}}
+{"type":"user","timestamp":"2026-09-19T08:01:00.000Z","message":{"role":"user","content":"<command-name>/help</command-name>"}}
+{"type":"ass

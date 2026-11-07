@@ -1,0 +1,84 @@
+{
+  "about": "server/conversation.test.ts: transcript pages shows another session's message as its own notice turn, so the work it starts is not appended to the answer before it",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "peer.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-08T03:04:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "deck status?"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "the deck is done"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T03:05:01.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "R18 is ready",
+                "source": "peer:FUSION"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "recorded both decisions"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T03:06:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "coordinates sent",
+                "source": "peer:FUSION"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "rebuilt slide 4"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

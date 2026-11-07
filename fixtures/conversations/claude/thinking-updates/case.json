@@ -1,0 +1,55 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript reads thinking that Claude Code displays as updates as narration in the work",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "measure the padding"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-10-14T07:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "The padding stays; measuring it next.",
+                "phase": "commentary"
+              },
+              {
+                "kind": "tool",
+                "name": "Bash",
+                "summary": "true",
+                "input": "{\n  \"command\": \"true\"\n}",
+                "output": ""
+              },
+              {
+                "kind": "thinking",
+                "text": "private reasoning"
+              }
+            ],
+            "end_ts": "2026-10-14T07:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

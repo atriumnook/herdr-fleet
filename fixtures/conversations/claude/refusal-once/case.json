@@ -1,0 +1,139 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript shows a refusal once when Claude Code records it both as a command's answer and as a notice",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "answer-first.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:06:31.117Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Unknown command: /gaol",
+                "source": "local-command"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:06:31.119Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Args from unknown skill: x",
+                "source": "informational"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "notice-first.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:06:31.117Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Unknown command: /gaol\nArgs from unknown skill: x",
+                "source": "informational"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "a-minute-later.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:06:31.117Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Unknown command: /gaol",
+                "source": "local-command"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:07:31.118Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Unknown command: /gaol",
+                "source": "informational"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "notice-repeated.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-08T08:06:31.117Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Message expired\nMessage expired",
+                "source": "informational"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h4",
+        "version": "$v4"
+      }
+    }
+  ]
+}

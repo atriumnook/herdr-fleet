@@ -1,0 +1,45 @@
+{
+  "about": "server/conversation-metadata.test.ts: context use adds up a Claude request's input and cache, skipping subagents, and knows the 1M window once past 200k",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "small.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "claude-opus-5-5",
+          "reasoning_effort": null,
+          "context": {
+            "used": 40702,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "long.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "claude-opus-5-5",
+          "reasoning_effort": null,
+          "context": {
+            "used": 30003,
+            "window": 1000000
+          }
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    }
+  ]
+}

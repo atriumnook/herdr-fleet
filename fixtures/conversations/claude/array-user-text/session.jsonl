@@ -1,0 +1,6 @@
+{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t","name":"Read","input":{}}]}}
+{"type":"user","message":{"content":[null,{"type":"tool_result","tool_use_id":"t","content":"result"},{"type":"text","text":"Actual request"}]}}
+{"type":"user","message":{"content":[{"type":"text","text":"<command-name>/clear</command-name>"}]}}
+{"type":"user","isMeta":true,"message":{"content":"internal reminder"}}
+{"type":"user","isCompactSummary":true,"message":{"content":"compacted context"}}
+null

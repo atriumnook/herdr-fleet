@@ -1,0 +1,55 @@
+{
+  "about": "server/conversation.test.ts: parseClaudeTranscript preserves array user text, including mixed tool results, without exposing bookkeeping\nThe page answers the Read call's output empty, where parseClaudeTranscript of the whole text answers \"result\": the tool_result shares its entry with a new prompt, which starts a turn, and the page parses the turns before it apart (#141)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "claude",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "claude-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "Read",
+                "summary": "Read",
+                "input": "{}",
+                "output": ""
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Actual request"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "compact",
+                "text": "compacted context"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

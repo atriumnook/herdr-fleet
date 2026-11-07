@@ -1,0 +1,7 @@
+{"type":"user","timestamp":"2026-10-08T08:00:00.000Z","message":{"role":"user","content":"run it"}}
+{"type":"assistant","timestamp":"2026-10-08T08:00:01.000Z","message":{"role":"assistant","stop_reason":"tool_use","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"sleep 60"}}]}}
+{"type":"system","subtype":"informational","content":"Cross-session message held by the receiving session","level":"warning","timestamp":"2026-10-08T08:00:20.000Z"}
+{"type":"user","timestamp":"2026-10-08T08:01:01.000Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+{"type":"system","subtype":"informational","content":"Cross-session message expired without approval","level":"warning","timestamp":"2026-10-08T08:01:02.500Z"}
+{"type":"assistant","timestamp":"2026-10-08T08:01:03.000Z","message":{"role":"assistant","stop_reason":"end_turn","content":[{"type":"text","text":"Done."}]}}
+{"type":"system","subtype":"informational","content":"Unknown command: /xyzabc","level":"warning","timestamp":"2026-10-08T08:02:00.000Z"}
