@@ -1,0 +1,143 @@
+# Builds the empty GPUI app (rust/prototypes/gpui-window) for macOS and Windows
+# (#111, ADR 0111-cross-build).
+#
+# Triggers: GitHub does not dispatch a workflow that is absent from the default
+# branch (main), and main is off limits to this work, so workflow_dispatch alone
+# could never run this file before the cutover. The pull_request trigger is
+# narrowed to pull requests against rust that change this file itself; to run
+# it, open a pull request that edits this file, and to run it again, push a
+# commit that edits this file. Pushes to thread branches and other pull
+# requests do not run the builds (plan, phase 6: macOS and Windows run by hand
+# only). The `gate` job enforces the "again" part: see there.
+name: rust-cross
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [rust]
+    paths:
+      - .github/workflows/rust-cross.yml
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # GitHub matches a pull_request `paths` filter against the whole pull
+  # request's diff, not against the pushed commits, so once a pull request
+  # changes this file every later push to it would start the builds. This job
+  # lets a push (`synchronize`) start them only when this file differs between
+  # the head before the push and the head after it. It compares the two commits
+  # with git on this one path (no list of file names: the compare API caps it
+  # at 300 files, and printing names would let a crafted name issue workflow
+  # commands), and builds when it cannot compare them (a force push can leave
+  # the old head out of the clone, and git can fail).
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      # Whole history without the blobs of past commits; the checkout itself
+      # still fetches the blobs of the checked-out tree.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
+      - id: check
+        shell: bash
+        env:
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          build=true
+          if [ "$ACTION" = synchronize ]; then
+            if git cat-file -e "$BEFORE^{commit}" 2>/dev/null && git cat-file -e "$AFTER^{commit}" 2>/dev/null; then
+              status=0
+              git diff --quiet --no-renames "$BEFORE" "$AFTER" -- .github/workflows/rust-cross.yml || status=$?
+              case $status in
+                0)
+                  build=false
+                  echo "The push leaves .github/workflows/rust-cross.yml unchanged."
+                  ;;
+                1) echo "The push changes .github/workflows/rust-cross.yml." ;;
+                *) echo "::warning::git diff failed with exit status $status, so the builds run." ;;
+              esac
+            else
+              echo "::warning::The head before or after the push is not in the clone, so the builds run."
+            fi
+          fi
+          echo "build=$build" | tee -a "$GITHUB_OUTPUT"
+
+  build:
+    name: build (${{ matrix.os }})
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, windows-2025]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: rust/prototypes/gpui-window
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Runner image
+        run: echo "ImageOS=$ImageOS ImageVersion=$ImageVersion RUNNER_ARCH=$RUNNER_ARCH"
+
+      # Installs the release named in rust/rust-toolchain.toml (ADR
+      # 0110-workspace-and-ci), which rustup finds from the prototype's folder.
+      - name: Install Rust
+        run: |
+          rustup toolchain install --no-self-update
+          rustc --version --verbose
+          cargo --version
+
+      # gpui's build.rs compiles the Metal shaders with `xcrun -sdk macosx metal`.
+      # Xcode 26 ships without the Metal toolchain; download it only when absent.
+      - name: Metal compiler (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          xcodebuild -version
+          if ! xcrun -sdk macosx metal --version; then
+            echo "Metal toolchain missing: downloading it"
+            xcodebuild -downloadComponent MetalToolchain
+            xcrun -sdk macosx metal --version
+          fi
+
+      # gpui's build.rs compiles the HLSL shaders with fxc.exe in release builds.
+      # It looks in PATH and then in the folder of SDK 10.0.26100.0 only. Use
+      # that one when present (the one ADR 0111 verified), else the newest x64
+      # fxc.exe the image has, and pass it as GPUI_FXC_PATH.
+      - name: fxc.exe (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          shopt -s nullglob
+          kits="/c/Program Files (x86)/Windows Kits/10/bin"
+          fxc="$kits/10.0.26100.0/x64/fxc.exe"
+          if [ ! -f "$fxc" ]; then
+            found=("$kits"/10.*/x64/fxc.exe)
+            if [ ${#found[@]} -eq 0 ]; then
+              echo "::error::no x64 fxc.exe under $kits"
+              exit 1
+            fi
+            fxc=$(printf '%s\n' "${found[@]}" | sort -V | tail -n 1)
+          fi
+          echo "fxc.exe: $fxc"
+          echo "GPUI_FXC_PATH=$(cygpath -w "$fxc")" >> "$GITHUB_ENV"
+
+      - name: cargo build --release
+        run: cargo build --release --locked
+
+      - name: Binary
+        run: ls -l target/release/gpui-window*
