@@ -21,9 +21,9 @@
 
 - ターミナルのバイト列の解析と画面の状態の保持には libghostty-vt を使う。代わりの `alacritty_terminal` は使わない
 - libghostty-vt は、Ghostty v1.4.0 のソース(コミット `83fb95624b0439ee660c2679b43b38c8b63769cd`)を Zig 0.17.0 でビルドし、静的ライブラリ `libghostty-vt.a` としてリンクする。ビルドは `build.rs` が行う(下の「依存」)
-- バインディングは、使う関数と構造体だけを手で書いた `extern "C"` にする(試作では関数 7 つと構造体 3 つ。テストでは型の一覧を返す関数を足して 8 つ)。手で書いた構造体の大きさとフィールドの位置、列挙型の大きさと値は、ライブラリ自身が返す型の一覧(`ghostty_type_json()` の JSON)と比べるテストで確かめる。C API は版ごとに変わるので、Ghostty のコミットを上げたときに、構造体と列挙型の食い違いはこのテストで失敗として出る。型の一覧は関数の引数と戻り値を含まないので、関数の宣言の食い違いはこのテストでは見つからない。Ghostty のコミットを上げるときは、使う関数の宣言をヘッダー(`include/ghostty/vt/*.h`)と見比べる
+- バインディングは、使う関数と構造体だけを手で書いた `extern "C"` にする(試作では関数 7 つと構造体 3 つ。テストでは型の一覧を返す関数を足して 8 つ)。手で書いた構造体の大きさとフィールドの位置、列挙型の大きさと値は、ライブラリ自身が返す型の一覧(`ghostty_type_json()` の JSON)と比べるテストで確かめる。C API は版ごとに変わるので、Ghostty のコミットを上げたときに、構造体の大きさとフィールドの位置、列挙型の値の食い違いは、このテストで失敗として出る。このテストが確かめないものは 2 つある。関数の引数と戻り値(型の一覧に含まれない)と、フィールドの型(`bool` が `u8` に変わっても、大きさと位置は同じ)。Ghostty のコミットを上げるときは、使う関数とフィールドの型をヘッダー(`include/ghostty/vt/*.h`)と見比べる
 - Ghostty のコミットは固定する。上げるときは、`fixtures/` の全件で、libghostty-vt の画面が Ghostty の画面と一致するテストを通す
-- 段階 5 でも libghostty-vt が使えなくなった場合の代わりは `alacritty_terminal` とする。7 件のうち 6 件で画面の文字が一致し、残りの 1 件も行ごとの文字は同じだった(下の「確かめたこと」)
+- 段階 5 でも libghostty-vt が使えなくなった場合の代わりは `alacritty_terminal` とする。7 件のうち 6 件で画面の文字が一致し、残りの 1 件も、行をつながずに libghostty-vt と比べると全行の文字が同じだった(下の「確かめたこと」)
 
 ## 検討した代わり
 
@@ -35,15 +35,17 @@
 
 | 名前 | 版 | 入手元 | ライセンス | 保守の状況 | `build.rs` が実行すること |
 | --- | --- | --- | --- | --- | --- |
-| libghostty-vt(Ghostty のソース) | v1.4.0、コミット `83fb95624b0439ee660c2679b43b38c8b63769cd` | https://github.com/ghostty-org/ghostty | MIT | Ghostty の開発元が保守している。C API は未完成と明記されている | この crate の `build.rs` が、下の手順でソースの取得、Zig でのビルド、リンクの指定を行う |
+| libghostty-vt(Ghostty のソース) | v1.4.0、コミット `83fb95624b0439ee660c2679b43b38c8b63769cd` | https://github.com/ghostty-org/ghostty | MIT | v1.4.0 のコミットは 2026-10-27。C API は未完成と明記されている | この crate の `build.rs` が、下の手順でソースの取得、Zig でのビルド、リンクの指定を行う |
 | Zig | 0.17.0(Ghostty 1.4.0 の `build.zig.zon` の `minimum_zig_version`) | mise(`mise install zig@0.17.0`)。この PC の PATH にはないので、`ZIG` 環境変数で場所を渡す | MIT | Zig Software Foundation が開発している | なし(`build.rs` から呼ばれる) |
-| `alacritty_terminal` | 0.26.0 | crates.io | Apache-2.0 | Alacritty の開発元が保守している | なし(`build.rs` を持たない) |
-| `vte` | 0.15.0(`alacritty_terminal` の依存) | crates.io | Apache-2.0 OR MIT | Alacritty の開発元が保守している | なし(`build.rs` を持たない) |
-| `serde_json` | 1.0.154(テストだけで使う) | crates.io | MIT OR Apache-2.0 | serde の開発元が保守している | 対象の CPU の種類から、コンパイルの条件を決める |
+| `alacritty_terminal` | 0.26.0 | crates.io | Apache-2.0 | 0.26.0 が最新で、2026-04-06 に公開された | なし(`build.rs` を持たない) |
+| `vte` | 0.15.0(`alacritty_terminal` の依存) | crates.io | Apache-2.0 OR MIT | 0.15.0 が最新で、2025-02-02 に公開された | なし(`build.rs` を持たない) |
+| `serde_json` | 1.0.154(テストだけで使う) | crates.io | MIT OR Apache-2.0 | 1.0.154 が最新で、2026-10-11 に公開された | 対象の CPU の種類から、コンパイルの条件を決める |
 
 この crate の `build.rs` が実行すること:
 
-1. Ghostty のソースを用意する。環境変数 `GHOSTTY_SOURCE_DIR` があれば、そのフォルダーを使う。そのフォルダーの `git rev-parse HEAD` が固定したコミットでなければ、ビルドを失敗させる(別の版の Ghostty で fixtures を確かめないため)。Zig は、そのフォルダーに `.zig-cache` を作る。なければ `$OUT_DIR/ghostty-src` で `git init`、`git fetch --depth 1 https://github.com/ghostty-org/ghostty.git <コミット>`、`git checkout FETCH_HEAD` を行う。取得は一度だけで、そのコミットがあれば取得しない
+1. Ghostty のソースを用意する
+   - 環境変数 `GHOSTTY_SOURCE_DIR` がないとき: `$OUT_DIR/ghostty-src` で `git init`、`git fetch --depth 1 https://github.com/ghostty-org/ghostty.git <コミット>`、`git checkout FETCH_HEAD` を行う。そのフォルダーにすでにそのコミットがあれば、取得しない
+   - `GHOSTTY_SOURCE_DIR` があるとき: そのフォルダーを使う。`git rev-parse HEAD` が固定したコミットでないか、`git status --porcelain` が空でない(追跡するファイルの変更か、無視されないファイルの追加がある)ときは、ビルドを失敗させる。別の版や手を加えた Ghostty を、`src/ghostty.rs` の宣言と fixtures で使わないため。そのフォルダーの `src/`、`include/`、`pkg/` の下のファイル、`build.zig`、`build.zig.zon`、git の HEAD のどれかが変わると、Cargo は `build.rs` を走らせ直す。Zig は、そのフォルダーに `.zig-cache` を作る
 2. ソースのフォルダーで `zig build -Demit-lib-vt -Doptimize=ReleaseFast --prefix $OUT_DIR/ghostty-vt` を実行する。`zig` は環境変数 `ZIG` があればそれ、なければ PATH の `zig`。Zig は、Ghostty の `build.zig.zon` と `pkg/*/build.zig.zon` に URL とハッシュで固定された依存を取得し、ハッシュを確かめる。この PC の 1 回目のビルドでは、zlib、wuffs、pixels、highway、ghostty-themes を `deps.files.ghostty.org` から取得した
 3. `$OUT_DIR/ghostty-vt/lib/libghostty-vt.a` を静的にリンクし、libm と libc をリンクする。このライブラリが外に求める記号は libc のものだけだった(`nm -u` で、ライブラリの中で定義されていない記号を調べた)
 
@@ -62,7 +64,7 @@
 
 できないこと、制約:
 
-- ビルドに Zig 0.17.0 が要る。この crate の外の Rust のビルドとは別の道具になる
+- ビルドには、Rust のツールチェーンのほかに Zig 0.17.0 が要る
 - 1 回目のビルドは、ネットワーク(GitHub と `deps.files.ghostty.org`)に出る。オフラインでビルドするには、ソースを置いて `GHOSTTY_SOURCE_DIR` を渡し、Zig の依存を Zig のキャッシュ(`~/.cache/zig`)に入れておく
 - この PC では、Zig のキャッシュが空の状態からの `zig build` に 2 分 20 秒かかった。Zig のキャッシュがある状態で、`target/` を消してからの `cargo test` は 1 分 23 秒だった
 - C API は安定していない。Ghostty の版を上げると、宣言を直す必要が出ることがある
@@ -102,7 +104,7 @@ export ZIG=$(mise where zig@0.17.0)/zig
 cargo fmt --check && cargo clippy --all-targets -- -D warnings && cargo test -- --nocapture
 ```
 
-3 つとも通った。テストは `fixtures/` だけを読み、Ghostty を起動しない。記録ごとの結果は次のとおり。
+3 つとも通った。テストは `fixtures/` だけを読み、Ghostty を起動しない。記録ごとの結果は次のとおり(`alacritty_terminal` の列は、行をつないで Ghostty の画面と比べた結果)。
 
 | 記録 | 大きさ | libghostty-vt | `alacritty_terminal` |
 | --- | --- | --- | --- |
@@ -122,4 +124,7 @@ libghostty-vt は 7 件中 7 件、`alacritty_terminal` は 7 件中 6 件が一
 - nvim は 2 回目の描画(`output.bin` の 4950 バイト目付近)で、同じ行を `…せ` まで書き、`\r\n` で次の行に移ってから `すん、…` を書いている。折り返しは起きない
 - Ghostty は、1 回目に付いた折り返しの印を行に残す。`alacritty_terminal` は、セルを書き直すときに印を消す。`write_screen_file` は印のある行を次の行とつなぐので、2 つの画面の文字は、行のつなぎ方だけが違う
 
-行をつながずに比べると、各行の文字が同じことを、一時的なテストで確かめた(libghostty-vt を `unwrap = false` にし、`alacritty_terminal` で行をつながずに、行末の空白を削って比べた。7 件すべてで全行が同じだった)。このテストはコミットしていない。`tests/alacritty.rs` は、一致する 6 件の名前を固定して確かめる。
+`tests/alacritty.rs` には、このことを確かめるテストが 2 つある。
+
+- `alacritty_terminal_against_ghostty`: Ghostty の画面と比べ、一致する 6 件の名前を固定して確かめる
+- `rows_match_libghostty_vt`: libghostty-vt を `unwrap = false` にし、`alacritty_terminal` も行をつながずに、両方の行末の空白を削って行ごとに比べる。7 件すべてで全行が同じだった。Ghostty の `write_screen_file` には行をつながない設定がないので、Ghostty の画面とは直接比べていない。libghostty-vt は行をつなぐ設定で Ghostty の画面とバイト単位で一致しているので、行をつながない設定でも Ghostty と同じ行を返すと考えている
