@@ -3,9 +3,12 @@
 //! What this runs:
 //!
 //! 1. The source: `$GHOSTTY_SOURCE_DIR` when it is set, which must be a git
-//!    checkout whose `git rev-parse HEAD` is `GHOSTTY_COMMIT` (the build
-//!    fails otherwise, so the fixtures are never checked against another
-//!    Ghostty). Zig writes its `.zig-cache` into that folder.
+//!    checkout whose `git rev-parse HEAD` is `GHOSTTY_COMMIT` and whose
+//!    `git status --porcelain` is empty (the build fails otherwise, so the
+//!    declarations in `src/ghostty.rs` and the fixtures are never used with
+//!    another Ghostty). Cargo runs this script again when a file under its
+//!    `src/`, `include/` or `pkg/`, its `build.zig`, `build.zig.zon` or git
+//!    HEAD changes. Zig writes its `.zig-cache` into that folder.
 //!    Otherwise `git init`, `git fetch --depth 1 <GHOSTTY_REPO> <GHOSTTY_COMMIT>`
 //!    and `git checkout FETCH_HEAD` in `$OUT_DIR/ghostty-src`, once.
 //! 2. `zig build -Demit-lib-vt -Doptimize=ReleaseFast --prefix $OUT_DIR/ghostty-vt`
@@ -33,7 +36,16 @@ fn main() {
     let source = match env::var_os("GHOSTTY_SOURCE_DIR") {
         Some(dir) => {
             let dir = PathBuf::from(dir);
-            check_commit(&dir);
+            check_source(&dir);
+            for watched in ["src", "include", "pkg", "build.zig", "build.zig.zon"] {
+                println!("cargo:rerun-if-changed={}", dir.join(watched).display());
+            }
+            if let Some(head) = git_output(
+                &dir,
+                &["rev-parse", "--path-format=absolute", "--git-path", "HEAD"],
+            ) {
+                println!("cargo:rerun-if-changed={head}");
+            }
             dir
         }
         None => fetch(&out.join("ghostty-src")),
@@ -78,18 +90,31 @@ fn fetch(dir: &Path) -> PathBuf {
     dir.to_path_buf()
 }
 
-fn check_commit(dir: &Path) {
-    let found = head(dir);
+/// Refuses a source that is not exactly the pinned commit: another HEAD, or
+/// tracked files changed, or files added that git does not ignore.
+fn check_source(dir: &Path) {
     assert_eq!(
-        found.as_deref(),
+        head(dir).as_deref(),
         Some(GHOSTTY_COMMIT),
         "GHOSTTY_SOURCE_DIR ({}) must be a git checkout of {GHOSTTY_COMMIT}",
+        dir.display()
+    );
+    let status = git_output(dir, &["status", "--porcelain"]);
+    assert_eq!(
+        status.as_deref(),
+        Some(""),
+        "GHOSTTY_SOURCE_DIR ({}) has changes; it must be the pinned commit unmodified",
         dir.display()
     );
 }
 
 fn head(dir: &Path) -> Option<String> {
-    let out = git(dir).args(["rev-parse", "HEAD"]).output().ok()?;
+    git_output(dir, &["rev-parse", "HEAD"])
+}
+
+/// The trimmed standard output of a successful `git <args>` in `dir`.
+fn git_output(dir: &Path, args: &[&str]) -> Option<String> {
+    let out = git(dir).args(args).output().ok()?;
     out.status
         .success()
         .then(|| String::from_utf8_lossy(&out.stdout).trim().to_string())
