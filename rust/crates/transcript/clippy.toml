@@ -37,6 +37,11 @@ disallowed-methods = [
   { path = "std::fs::OpenOptions::create", reason = "herdr-fleet-transcript opens files for reading only (ADR 0107-crate-split)" },
   { path = "std::fs::OpenOptions::create_new", reason = "herdr-fleet-transcript opens files for reading only (ADR 0107-crate-split)" },
   { path = "std::os::unix::fs::symlink", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
+  { path = "std::fs::soft_link", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
+  { path = "std::os::unix::fs::chown", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
+  { path = "std::os::unix::fs::fchown", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
+  { path = "std::os::unix::fs::lchown", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
+  { path = "std::os::unix::fs::chroot", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
   { path = "std::process::exit", reason = "herdr-fleet-transcript uses no std::process (ADR 0107-crate-split)" },
   { path = "std::process::abort", reason = "herdr-fleet-transcript uses no std::process (ADR 0107-crate-split)" },
 ]
