@@ -1,0 +1,16 @@
+[package]
+name = "gpui-window"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Prototype for #108: does GPUI open a native Wayland window and draw English and Japanese text on this PC?"
+
+# Not a member of the rust/ workspace (#108): an empty workspace keeps it standalone.
+[workspace]
+
+[dependencies]
+gpui = "=0.2.2"
+# Not used directly: caps the libc that gpui pulls in. gpui 0.2.2 depends on
+# xattr 0.2.3, which reads `libc::ENOATTR` on Linux; libc 0.2.190 dropped that
+# constant, so `cargo update` to a newer libc breaks the build (ADR 0108).
+libc = "=0.2.189"
