@@ -21,7 +21,7 @@
 
 - ターミナルのバイト列の解析と画面の状態の保持には libghostty-vt を使う。代わりの `alacritty_terminal` は使わない
 - libghostty-vt は、Ghostty v1.4.0 のソース(コミット `83fb95624b0439ee660c2679b43b38c8b63769cd`)を Zig 0.17.0 でビルドし、静的ライブラリ `libghostty-vt.a` としてリンクする。ビルドは `build.rs` が行う(下の「依存」)
-- バインディングは、使う関数と構造体だけを手で書いた `extern "C"` にする(試作では関数 7 つと構造体 3 つ。テストでは型の一覧を返す関数を足して 8 つ)。手で書いた構造体の大きさとフィールドの位置は、ライブラリ自身が返す型の一覧(`ghostty_type_json()` の JSON)と比べるテストで確かめる。C API は版ごとに変わるので、Ghostty のコミットを上げたときに、宣言と実物の食い違いがこのテストで失敗として出る
+- バインディングは、使う関数と構造体だけを手で書いた `extern "C"` にする(試作では関数 7 つと構造体 3 つ。テストでは型の一覧を返す関数を足して 8 つ)。手で書いた構造体の大きさとフィールドの位置、列挙型の大きさと値は、ライブラリ自身が返す型の一覧(`ghostty_type_json()` の JSON)と比べるテストで確かめる。C API は版ごとに変わるので、Ghostty のコミットを上げたときに、構造体と列挙型の食い違いはこのテストで失敗として出る。型の一覧は関数の引数と戻り値を含まないので、関数の宣言の食い違いはこのテストでは見つからない。Ghostty のコミットを上げるときは、使う関数の宣言をヘッダー(`include/ghostty/vt/*.h`)と見比べる
 - Ghostty のコミットは固定する。上げるときは、`fixtures/` の全件で、libghostty-vt の画面が Ghostty の画面と一致するテストを通す
 - 段階 5 でも libghostty-vt が使えなくなった場合の代わりは `alacritty_terminal` とする。7 件のうち 6 件で画面の文字が一致し、残りの 1 件も行ごとの文字は同じだった(下の「確かめたこと」)
 
@@ -29,7 +29,7 @@
 
 - `alacritty_terminal` 0.26.0: 同じ 7 件で、6 件が一致した。一致しなかった `nvim-japanese` の違いと理由は「確かめたこと」に書いた。選ばなかった理由は 2 つある。1 つ目は、比べる相手が Ghostty の画面で、libghostty-vt はその Ghostty と同じコードなので、7 件すべてがバイト単位で一致したこと。2 つ目は、alacritty のセルは、書かれていないセルと空白を書いたセルを区別しない(どちらも `' '`)ので、Ghostty が残す行末の空白を再現できないこと。比べるときは、両方の行末の空白を削った
 - `vte` 0.15.0 だけを使う: `vte` はエスケープシーケンスの解析器で、画面(セルの格子、スクロールバック、代替画面)を持たない。使うには画面の状態を自分で書くことになるので、画面としては試していない。`alacritty_terminal` は `vte` 0.15.0 を解析器として使っているので、`vte` の解析は `alacritty_terminal` を通して確かめたことになる
-- bindgen でバインディングを生成する: ビルドのたびに libclang が要る。試作で使う C API は関数 7 つと構造体 3 つで、手で書いた宣言の誤りは型の一覧との比較テストで見つかるので、手で書いた
+- bindgen でバインディングを生成する: ビルドのたびに libclang が要る。試作で使う C API は関数 7 つと構造体 3 つで、構造体の誤りは型の一覧との比較テストで見つかり、関数の宣言は 7 つをヘッダーと見比べれば済むので、手で書いた。段階 5 で使う関数が増え、見比べる手間が bindgen の導入より大きくなれば、bindgen を考え直す
 
 ## 依存
 
@@ -43,7 +43,7 @@
 
 この crate の `build.rs` が実行すること:
 
-1. Ghostty のソースを用意する。環境変数 `GHOSTTY_SOURCE_DIR` があれば、そのフォルダーをそのまま使う(`git rev-parse HEAD` が固定したコミットと違えば警告を出す)。なければ `$OUT_DIR/ghostty-src` で `git init`、`git fetch --depth 1 https://github.com/ghostty-org/ghostty.git <コミット>`、`git checkout FETCH_HEAD` を行う。取得は一度だけで、そのコミットがあれば取得しない
+1. Ghostty のソースを用意する。環境変数 `GHOSTTY_SOURCE_DIR` があれば、そのフォルダーを使う。そのフォルダーの `git rev-parse HEAD` が固定したコミットでなければ、ビルドを失敗させる(別の版の Ghostty で fixtures を確かめないため)。Zig は、そのフォルダーに `.zig-cache` を作る。なければ `$OUT_DIR/ghostty-src` で `git init`、`git fetch --depth 1 https://github.com/ghostty-org/ghostty.git <コミット>`、`git checkout FETCH_HEAD` を行う。取得は一度だけで、そのコミットがあれば取得しない
 2. ソースのフォルダーで `zig build -Demit-lib-vt -Doptimize=ReleaseFast --prefix $OUT_DIR/ghostty-vt` を実行する。`zig` は環境変数 `ZIG` があればそれ、なければ PATH の `zig`。Zig は、Ghostty の `build.zig.zon` と `pkg/*/build.zig.zon` に URL とハッシュで固定された依存を取得し、ハッシュを確かめる。この PC の 1 回目のビルドでは、zlib、wuffs、pixels、highway、ghostty-themes を `deps.files.ghostty.org` から取得した
 3. `$OUT_DIR/ghostty-vt/lib/libghostty-vt.a` を静的にリンクし、libm と libc をリンクする。このライブラリが外に求める記号は libc のものだけだった(`nm -u` で、ライブラリの中で定義されていない記号を調べた)
 
@@ -70,7 +70,7 @@
 
 あとの段階が従うこと:
 
-- 段階 5 のターミナルの crate は、この試作と同じく、固定した Ghostty のコミットを Zig でビルドして libghostty-vt をリンクする。手で書く宣言には、型の一覧との比較テストを付ける
+- 段階 5 のターミナルの crate は、この試作と同じく、固定した Ghostty のコミットを Zig でビルドして libghostty-vt をリンクする。手で書く構造体には、型の一覧との比較テストを付ける。関数の宣言は、Ghostty のコミットを上げるたびにヘッダーと見比べる
 - Ghostty のコミットを上げるときは、`fixtures/` の記録で、Ghostty の画面との一致を確かめる。画面の違いを見つけたら、その記録を `fixtures/` に足す
 - Linux の workflow でこの試作や段階 5 の crate をビルドするには、workflow に Zig 0.17.0 を入れる手順が要る。段階 5 で本番の crate に libghostty-vt のビルドを入れるとき、workflow にその手順を足す
 
