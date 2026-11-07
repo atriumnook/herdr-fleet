@@ -1,0 +1,34 @@
+# The Cargo workspace of the Rust replacement of herdr-fleet. The crates, their
+# responsibilities and the direction of their dependencies are decided in
+# docs/rust-migration/adr/0107-crate-split.md; the toolchain and the CI in
+# docs/rust-migration/adr/0110-workspace-and-ci.md.
+#
+# rust/prototypes/ is not a member: each prototype declares its own workspace.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.99.1"
+license = "MIT"
+publish = false
+
+# Short names for the crates of this workspace (ADR 0107-crate-split). The core
+# has none, so that it does not hide Rust's built-in `core` crate; no crate
+# depends on it.
+[workspace.dependencies]
+herdr-api = { package = "herdr-fleet-herdr-api", path = "crates/herdr-api" }
+protocol = { package = "herdr-fleet-protocol", path = "crates/protocol" }
+screen = { package = "herdr-fleet-screen", path = "crates/screen" }
+transcript = { package = "herdr-fleet-transcript", path = "crates/transcript" }
+herdr = { package = "herdr-fleet-herdr", path = "crates/herdr" }
+child-process = { package = "herdr-fleet-child-process", path = "crates/child-process" }
+orchestrator = { package = "herdr-fleet-orchestrator", path = "crates/orchestrator" }
+vt = { package = "herdr-fleet-vt", path = "crates/vt" }
+
+# Every crate but herdr-fleet-vt opts in with `[lints] workspace = true`:
+# ADR 0107-crate-split keeps `unsafe` inside herdr-fleet-vt.
+[workspace.lints.rust]
+unsafe_code = "forbid"
