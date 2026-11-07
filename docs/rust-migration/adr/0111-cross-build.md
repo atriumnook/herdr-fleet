@@ -70,7 +70,7 @@
 
 ## 確かめたこと
 
-この Issue の PR で、macOS と Windows のビルドのジョブが走った run は 5 回(うち 1 回は途中で取り消した)である。ビルドが失敗して走らせ直した回数は 0 回である。2 回目から 5 回目は、失敗のためではなく、workflow の誤りを直すために起きた(下の表)。ビルドのジョブが skipped になる `gate` だけの run は、この回数に数えない(下の「gate だけの run」)。
+この Issue の PR で、macOS と Windows のビルドのジョブが走った run は 5 回(うち 1 回は途中で取り消した)である。ビルドが失敗して走らせ直した回数は 0 回である。2 回目は ADR を足した push で意図せず起きた run で、3 回目から 5 回目は workflow の誤りを直したコミットの push で起きた(下の表)。どれもビルドの失敗のための走らせ直しではない。ビルドのジョブが skipped になる `gate` だけの run は、この回数に数えない(下の「gate だけの run」)。
 
 | 回 | run | head のコミット | 起動した理由 | 結果 |
 |---|---|---|---|---|
@@ -113,6 +113,6 @@
 ADR だけを変えたコミットの push で、`gate` だけが走り、ビルドのジョブが skipped になった run は次のとおり。
 
 - [42407013882](https://github.com/atriumnook/herdr-fleet/actions/runs/42407013882)(`254ebb7`)と [42407116033](https://github.com/atriumnook/herdr-fleet/actions/runs/42407116033)(`dacc1b5`): compare の API の版の `gate` で `build=false`。`gate` のジョブは 4 秒ほどで終わった
-- git の差分の版の `gate` の run: この ADR を足したコミットの push で確かめ、次のコミットで書く
+- [42408980474](https://github.com/atriumnook/herdr-fleet/actions/runs/42408980474)(`cb04253`): git の差分の版の `gate` が `The push leaves .github/workflows/rust-cross.yml unchanged.` と `build=false` を出した。`gate` のジョブは 6 秒で終わった。このあとの ADR だけのコミットの push でも、同じように `gate` だけが走る
 
 skipped になったビルドのジョブは、PR の検査の一覧に `build (${{ matrix.os }})` という名前で出る。matrix を展開する前に skipped になるので、名前の式が展開されないためである。`gh pr checks 116` はこのジョブを `skipping` と表示し(`build (${{ matrix.os }})	skipping	0	…`)、失敗として扱わなかった。この名前のジョブは、ruleset の必須の検査(required status checks)にしない。必須にすると、ADR だけを変える PR では名前が展開されたジョブが報告されず、マージできなくなりうる
