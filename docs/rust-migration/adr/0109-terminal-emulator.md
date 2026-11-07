@@ -1,4 +1,4 @@
-# ターミナルのバイト列の解析に libghostty-vt を使う
+# ペインのバイト列の解析に libghostty-vt を使う
 
 - 状態: 採用
 - 決めた日: 2026-11-08
@@ -6,7 +6,7 @@
 
 ## 状況
 
-計画(`docs/rust-migration/plan.md`)の段階 5 では、GPUI のデスクトップの画面で、ペインのターミナルを libghostty で描く。段階 0 では、その前に次の 2 点を試作で確かめ、使えない場合の代わり(`alacritty_terminal`、`vte`)を決める。
+計画(`docs/rust-migration/plan.md`)の段階 5 では、GPUI のデスクトップの画面で、ペインのターミナル表示を libghostty で描く。段階 0 では、その前に次の 2 点を試作で確かめ、使えない場合の代わり(`alacritty_terminal`、`vte`)を決める。
 
 - libghostty-vt を Rust から使えるか。Zig でビルドでき、その C API を Rust から呼べるか
 - 記録したペインのバイト列を libghostty-vt で解析した画面が、Ghostty 本体の画面と同じになるか
@@ -19,7 +19,7 @@
 
 ## 決定
 
-- ターミナルのバイト列の解析と画面の状態の保持には libghostty-vt を使う。代わりの `alacritty_terminal` は使わない
+- ペインのバイト列の解析と画面の状態の保持には libghostty-vt を使う。代わりの `alacritty_terminal` は使わない。バインディングは、`0107-crate-split` が決めた crate `herdr-fleet-vt` に置く
 - libghostty-vt は、Ghostty v1.4.0 のソース(コミット `83fb95624b0439ee660c2679b43b38c8b63769cd`)を Zig 0.17.0 でビルドし、静的ライブラリ `libghostty-vt.a` としてリンクする。ビルドは `build.rs` が行う(下の「依存」)
 - バインディングは、使う関数と構造体だけを手で書いた `extern "C"` にする(試作では関数 7 つと構造体 3 つ。テストでは型の一覧を返す関数を足して 8 つ)。手で書いた構造体の大きさとフィールドの位置、列挙型の大きさと値は、ライブラリ自身が返す型の一覧(`ghostty_type_json()` の JSON)と比べるテストで確かめる。C API は版ごとに変わるので、Ghostty のコミットを上げたときに、構造体の大きさとフィールドの位置、列挙型の値の食い違いは、このテストで失敗として出る。このテストが確かめないものは 2 つある。関数の引数と戻り値(型の一覧に含まれない)と、フィールドの型(`bool` が `u8` に変わっても、大きさと位置は同じ)。Ghostty のコミットを上げるときは、使う関数とフィールドの型をヘッダー(`include/ghostty/vt/*.h`)と見比べる
 - Ghostty のコミットは固定する。上げるときは、`fixtures/` の全件で、libghostty-vt の画面が Ghostty の画面と一致するテストを通す
@@ -72,7 +72,7 @@
 
 あとの段階が従うこと:
 
-- 段階 5 のターミナルの crate は、この試作と同じく、固定した Ghostty のコミットを Zig でビルドして libghostty-vt をリンクする。手で書く構造体には、型の一覧との比較テストを付ける。関数の宣言は、Ghostty のコミットを上げるたびにヘッダーと見比べる
+- 段階 5 の `herdr-fleet-vt` は、この試作と同じく、固定した Ghostty のコミットを Zig でビルドして libghostty-vt をリンクする。手で書く構造体には、型の一覧との比較テストを付ける。関数の宣言は、Ghostty のコミットを上げるたびにヘッダーと見比べる
 - Ghostty のコミットを上げるときは、`fixtures/` の記録で、Ghostty の画面との一致を確かめる。画面の違いを見つけたら、その記録を `fixtures/` に足す
 - Linux の workflow でこの試作や段階 5 の crate をビルドするには、workflow に Zig 0.17.0 を入れる手順が要る。段階 5 で本番の crate に libghostty-vt のビルドを入れるとき、workflow にその手順を足す
 
