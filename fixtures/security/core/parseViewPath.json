@@ -1,0 +1,77 @@
+[
+  {
+    "about": "server/file-view.test.ts: file view > reads the pane and the file from an /api/fs/view/ path, as the viewer writes it",
+    "input": "/api/fs/view/w1%3Ap1/work/my%20docs/report.html",
+    "expected": {
+      "paneId": "w1:p1",
+      "path": "/work/my docs/report.html"
+    }
+  },
+  {
+    "about": "server/file-view.test.ts: file view > reads the pane and the file from an /api/fs/view/ path, as the viewer writes it (a file the page names relative to itself)",
+    "input": "/api/fs/view/w1%3Ap1/work/my%20docs/img/a%20b.png",
+    "expected": {
+      "paneId": "w1:p1",
+      "path": "/work/my docs/img/a b.png"
+    }
+  },
+  {
+    "about": "server/file-view.test.ts: file view > reads the pane and the file from an /api/fs/view/ path, as the viewer writes it (no pane)",
+    "input": "/api/fs/view/-/tmp/x.html",
+    "expected": {
+      "paneId": null,
+      "path": "/tmp/x.html"
+    }
+  },
+  {
+    "about": "server/file-view.test.ts: file view > reads the pane and the file from an /api/fs/view/ path, as the viewer writes it (encoded .. segments stay inside /)",
+    "input": "/api/fs/view/w1%3Ap1/work/..%2F..%2Fetc/passwd",
+    "expected": {
+      "paneId": "w1:p1",
+      "path": "/etc/passwd"
+    }
+  },
+  {
+    "about": "server/file-view.test.ts: file view > reads the pane and the file from an /api/fs/view/ path, as the viewer writes it (names no file)",
+    "input": "/api/fs/view/",
+    "expected": null
+  },
+  {
+    "about": "server/file-view.test.ts: file view > reads the pane and the file from an /api/fs/view/ path, as the viewer writes it (names no file)",
+    "input": "/api/fs/view/w1",
+    "expected": null
+  },
+  {
+    "about": "server/file-view.test.ts: file view > reads the pane and the file from an /api/fs/view/ path, as the viewer writes it (names no file)",
+    "input": "/api/fs/view//etc/passwd",
+    "expected": null
+  },
+  {
+    "about": "server/file-view.test.ts: file view > reads the pane and the file from an /api/fs/view/ path, as the viewer writes it (names no file)",
+    "input": "/api/fs/view/-/a/%E0",
+    "expected": null
+  },
+  {
+    "about": "server/file-view.test.ts: file view > reads the pane and the file from an /api/fs/view/ path, as the viewer writes it (names no file)",
+    "input": "/api/fs/view/-/a%00b",
+    "expected": null
+  },
+  {
+    "about": "server/file-view.test.ts: file view > reads the pane and the file from an /api/fs/view/ path, as the viewer writes it (names no file)",
+    "input": "/api/fs/file",
+    "expected": null
+  },
+  {
+    "about": "added: an empty segment inside the path names no file",
+    "input": "/api/fs/view/-/a//b",
+    "expected": null
+  },
+  {
+    "about": "added: a .. segment cannot climb above /",
+    "input": "/api/fs/view/-/../../etc/passwd",
+    "expected": {
+      "paneId": null,
+      "path": "/etc/passwd"
+    }
+  }
+]

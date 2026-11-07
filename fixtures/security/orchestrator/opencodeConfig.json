@@ -1,0 +1,2875 @@
+[
+  {
+    "about": "added: an editing role, no model",
+    "input": {
+      "resultDir": "/state/fleet-results/r1",
+      "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+      "readOnly": false,
+      "merges": false
+    },
+    "expected": {
+      "share": "disabled",
+      "update": "disable",
+      "permissions": [
+        {
+          "action": "shell",
+          "resource": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --force*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --mi*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --de*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --pru*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* :*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* +*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -unf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -udf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -u4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -u6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -ndf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -n4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -n6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vdf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -v4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -v6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -quf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qdf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -q4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -q6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -duf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -ddf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -44f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -46f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -64f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -66f*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "/*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "../*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "/state/fleet-results/r1/*",
+          "effect": "allow"
+        },
+        {
+          "action": "external_directory",
+          "resource": "/state/fleet-results/r1/*",
+          "effect": "allow"
+        }
+      ]
+    }
+  },
+  {
+    "about": "added: an editing role, with a model",
+    "input": {
+      "resultDir": "/state/fleet-results/r1",
+      "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+      "model": "anthropic/claude-sonnet-5-5#high",
+      "readOnly": false,
+      "merges": false
+    },
+    "expected": {
+      "model": "anthropic/claude-sonnet-5-5#high",
+      "share": "disabled",
+      "update": "disable",
+      "permissions": [
+        {
+          "action": "shell",
+          "resource": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --force*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --mi*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --de*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --pru*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* :*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* +*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -unf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -udf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -u4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -u6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -ndf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -n4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -n6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vdf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -v4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -v6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -quf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qdf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -q4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -q6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -duf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -ddf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -44f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -46f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -64f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -66f*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "/*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "../*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "/state/fleet-results/r1/*",
+          "effect": "allow"
+        },
+        {
+          "action": "external_directory",
+          "resource": "/state/fleet-results/r1/*",
+          "effect": "allow"
+        }
+      ]
+    }
+  },
+  {
+    "about": "added: an editing role given merges (ignored), no model",
+    "input": {
+      "resultDir": "/state/fleet-results/r1",
+      "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+      "readOnly": false,
+      "merges": true
+    },
+    "expected": {
+      "share": "disabled",
+      "update": "disable",
+      "permissions": [
+        {
+          "action": "shell",
+          "resource": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --force*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --mi*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --de*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --pru*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* :*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* +*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -unf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -udf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -u4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -u6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -ndf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -n4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -n6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vdf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -v4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -v6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -quf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qdf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -q4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -q6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -duf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -ddf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -44f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -46f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -64f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -66f*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "/*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "../*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "/state/fleet-results/r1/*",
+          "effect": "allow"
+        },
+        {
+          "action": "external_directory",
+          "resource": "/state/fleet-results/r1/*",
+          "effect": "allow"
+        }
+      ]
+    }
+  },
+  {
+    "about": "added: an editing role given merges (ignored), with a model",
+    "input": {
+      "resultDir": "/state/fleet-results/r1",
+      "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+      "model": "anthropic/claude-sonnet-5-5#high",
+      "readOnly": false,
+      "merges": true
+    },
+    "expected": {
+      "model": "anthropic/claude-sonnet-5-5#high",
+      "share": "disabled",
+      "update": "disable",
+      "permissions": [
+        {
+          "action": "shell",
+          "resource": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --force*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --mi*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --de*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --pru*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* :*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* +*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -unf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -udf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -u4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -u6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -ndf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -n4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -n6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vdf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -v4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -v6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -quf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qdf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -q4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -q6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -duf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -ddf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -44f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -46f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -64f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -66f*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "/*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "../*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "/state/fleet-results/r1/*",
+          "effect": "allow"
+        },
+        {
+          "action": "external_directory",
+          "resource": "/state/fleet-results/r1/*",
+          "effect": "allow"
+        }
+      ]
+    }
+  },
+  {
+    "about": "added: a read-only role, no model",
+    "input": {
+      "resultDir": "/state/fleet-results/r1",
+      "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+      "readOnly": true,
+      "merges": false
+    },
+    "expected": {
+      "share": "disabled",
+      "update": "disable",
+      "default_agent": "fleet-readonly",
+      "agents": {
+        "fleet-readonly": {
+          "mode": "primary",
+          "description": "Reads the repository and edits no file.",
+          "permissions": [
+            {
+              "action": "*",
+              "resource": "*",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "glob",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "grep",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "question",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "read",
+              "resource": "*.env",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.*",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.example",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git status",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git ls-files",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "ls",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "pwd",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git diff --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git log --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git show --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr view *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr checks *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr list *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh run view *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "*>*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "*<*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--output*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--no-index*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--ext-diff*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--textconv*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *\"*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *'*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *`*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *$*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *{*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * /*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ~*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ../*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ..",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *=/*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git merge --no-ff * ?*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh *--web*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh *--watch*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge *-* --merge",
+              "effect": "deny"
+            },
+            {
+              "action": "edit",
+              "resource": "/state/fleet-results/r1/*",
+              "effect": "allow"
+            },
+            {
+              "action": "external_directory",
+              "resource": "/state/fleet-results/r1/*",
+              "effect": "allow"
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "package": "$GUARD_PLUGIN",
+          "options": {
+            "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+            "merges": false
+          }
+        }
+      ]
+    }
+  },
+  {
+    "about": "added: a read-only role, with a model",
+    "input": {
+      "resultDir": "/state/fleet-results/r1",
+      "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+      "model": "anthropic/claude-sonnet-5-5#high",
+      "readOnly": true,
+      "merges": false
+    },
+    "expected": {
+      "model": "anthropic/claude-sonnet-5-5#high",
+      "share": "disabled",
+      "update": "disable",
+      "default_agent": "fleet-readonly",
+      "agents": {
+        "fleet-readonly": {
+          "mode": "primary",
+          "description": "Reads the repository and edits no file.",
+          "permissions": [
+            {
+              "action": "*",
+              "resource": "*",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "glob",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "grep",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "question",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "read",
+              "resource": "*.env",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.*",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.example",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git status",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git ls-files",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "ls",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "pwd",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git diff --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git log --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git show --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr view *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr checks *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr list *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh run view *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "*>*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "*<*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--output*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--no-index*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--ext-diff*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--textconv*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *\"*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *'*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *`*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *$*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *{*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * /*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ~*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ../*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ..",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *=/*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git merge --no-ff * ?*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh *--web*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh *--watch*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge *-* --merge",
+              "effect": "deny"
+            },
+            {
+              "action": "edit",
+              "resource": "/state/fleet-results/r1/*",
+              "effect": "allow"
+            },
+            {
+              "action": "external_directory",
+              "resource": "/state/fleet-results/r1/*",
+              "effect": "allow"
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "package": "$GUARD_PLUGIN",
+          "options": {
+            "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+            "merges": false
+          }
+        }
+      ]
+    }
+  },
+  {
+    "about": "added: a read-only role that merges (the coordinator), no model",
+    "input": {
+      "resultDir": "/state/fleet-results/r1",
+      "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+      "readOnly": true,
+      "merges": true
+    },
+    "expected": {
+      "share": "disabled",
+      "update": "disable",
+      "default_agent": "fleet-readonly",
+      "agents": {
+        "fleet-readonly": {
+          "mode": "primary",
+          "description": "Reads the repository and edits no file.",
+          "permissions": [
+            {
+              "action": "*",
+              "resource": "*",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "glob",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "grep",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "question",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "read",
+              "resource": "*.env",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.*",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.example",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git status",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git ls-files",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "ls",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "pwd",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git diff --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git log --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git show --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr view *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr checks *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr list *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh run view *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ?? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ??? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ???? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ????? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ?????? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git pull --ff-only",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git merge --no-ff fleet/*",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git merge --no-ff agents/*",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git merge --abort",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "*>*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "*<*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--output*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--no-index*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--ext-diff*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--textconv*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *\"*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *'*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *`*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *$*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *{*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * /*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ~*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ../*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ..",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *=/*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git merge --no-ff * ?*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh *--web*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh *--watch*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge *-* --merge",
+              "effect": "deny"
+            },
+            {
+              "action": "edit",
+              "resource": "/state/fleet-results/r1/*",
+              "effect": "allow"
+            },
+            {
+              "action": "external_directory",
+              "resource": "/state/fleet-results/r1/*",
+              "effect": "allow"
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "package": "$GUARD_PLUGIN",
+          "options": {
+            "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+            "merges": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "about": "added: a read-only role that merges (the coordinator), with a model",
+    "input": {
+      "resultDir": "/state/fleet-results/r1",
+      "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+      "model": "anthropic/claude-sonnet-5-5#high",
+      "readOnly": true,
+      "merges": true
+    },
+    "expected": {
+      "model": "anthropic/claude-sonnet-5-5#high",
+      "share": "disabled",
+      "update": "disable",
+      "default_agent": "fleet-readonly",
+      "agents": {
+        "fleet-readonly": {
+          "mode": "primary",
+          "description": "Reads the repository and edits no file.",
+          "permissions": [
+            {
+              "action": "*",
+              "resource": "*",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "glob",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "grep",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "question",
+              "resource": "*",
+              "effect": "allow"
+            },
+            {
+              "action": "read",
+              "resource": "*.env",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.*",
+              "effect": "deny"
+            },
+            {
+              "action": "read",
+              "resource": "*.env.example",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git status",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git ls-files",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "ls",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "pwd",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git diff --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git log --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git show --no-ext-diff --no-textconv *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr view *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr checks *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr list *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh run view *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ?? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ??? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ???? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ????? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge ?????? --merge",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git pull --ff-only",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git merge --no-ff fleet/*",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git merge --no-ff agents/*",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git merge --abort",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "*>*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "*<*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts *",
+              "effect": "allow"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--output*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--no-index*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--ext-diff*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *--textconv*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *\"*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *'*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *`*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *$*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *{*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * /*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ~*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ../*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git * ..",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git *=/*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "git merge --no-ff * ?*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh *--web*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh *--watch*",
+              "effect": "deny"
+            },
+            {
+              "action": "shell",
+              "resource": "gh pr merge *-* --merge",
+              "effect": "deny"
+            },
+            {
+              "action": "edit",
+              "resource": "/state/fleet-results/r1/*",
+              "effect": "allow"
+            },
+            {
+              "action": "external_directory",
+              "resource": "/state/fleet-results/r1/*",
+              "effect": "allow"
+            }
+          ]
+        }
+      },
+      "plugins": [
+        {
+          "package": "$GUARD_PLUGIN",
+          "options": {
+            "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+            "merges": true
+          }
+        }
+      ]
+    }
+  },
+  {
+    "about": "added: an editing role with an empty model, which sets no model",
+    "input": {
+      "resultDir": "/state/fleet-results/r1",
+      "fleetCommand": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts",
+      "readOnly": false,
+      "merges": false,
+      "model": ""
+    },
+    "expected": {
+      "share": "disabled",
+      "update": "disable",
+      "permissions": [
+        {
+          "action": "shell",
+          "resource": "/usr/bin/bun /opt/herdr-fleet/bin/fleet.ts *",
+          "effect": "allow"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --force*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --mi*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --de*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* --pru*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* :*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* +*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -unf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -uqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -udf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -u4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -u6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -nqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -ndf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -n4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -n6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vuf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -vdf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -v4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -v6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -quf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -qdf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -q4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -q6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -duf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dnf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dvf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -dqf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -ddf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -d6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -4df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -44f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -46f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6uf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6nf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6vf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6qf*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -6df*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -64f*",
+          "effect": "deny"
+        },
+        {
+          "action": "shell",
+          "resource": "git *push* -66f*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "/*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "../*",
+          "effect": "deny"
+        },
+        {
+          "action": "edit",
+          "resource": "/state/fleet-results/r1/*",
+          "effect": "allow"
+        },
+        {
+          "action": "external_directory",
+          "resource": "/state/fleet-results/r1/*",
+          "effect": "allow"
+        }
+      ]
+    }
+  }
+]

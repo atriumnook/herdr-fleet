@@ -1,0 +1,288 @@
+[
+  {
+    "about": "server/explain.test.ts: gives the call only the environment claude needs: no API key, no other Anthropic or herdr setting",
+    "input": {
+      "PATH": "/usr/bin",
+      "HOME": "/home/u",
+      "LANG": "ja_JP.UTF-8",
+      "LC_ALL": "ja_JP.UTF-8",
+      "XDG_CONFIG_HOME": "/home/u/.config",
+      "CLAUDE_CONFIG_DIR": "/home/u/.claude-alt",
+      "HTTPS_PROXY": "http://proxy:3128",
+      "ANTHROPIC_API_KEY": "sk-test",
+      "ANTHROPIC_BASE_URL": "https://elsewhere",
+      "CLAUDE_CODE_USE_BEDROCK": "1",
+      "HERDR_SOCKET": "/run/herdr.sock",
+      "HERDR_FLEET_TOKEN": "t",
+      "AWS_SECRET_ACCESS_KEY": "s"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "HOME": "/home/u",
+      "LANG": "ja_JP.UTF-8",
+      "LC_ALL": "ja_JP.UTF-8",
+      "XDG_CONFIG_HOME": "/home/u/.config",
+      "CLAUDE_CONFIG_DIR": "/home/u/.claude-alt",
+      "HTTPS_PROXY": "http://proxy:3128",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "server/explain.test.ts: starts the CLI with that environment and nothing else",
+    "input": {
+      "PATH": "/usr/bin:/bin",
+      "HOME": "/home/u",
+      "ANTHROPIC_API_KEY": "sk-test",
+      "HERDR_SOCKET": "/s"
+    },
+    "expected": {
+      "PATH": "/usr/bin:/bin",
+      "HOME": "/home/u",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "server/fleet/usage.test.ts: what a probe's CLI gets > claude runs in its own emptied folder, with its own folder's setting, no API key or herdr session, and no self-update",
+    "input": {
+      "PATH": "/usr/bin:/bin",
+      "HOME": "/home/u",
+      "LANG": "ja_JP.UTF-8",
+      "CODEX_HOME": "/home/u/.codex-alt",
+      "CLAUDE_CONFIG_DIR": "/home/u/.claude-alt",
+      "ANTHROPIC_API_KEY": "sk-ant",
+      "OPENAI_API_KEY": "sk-openai",
+      "GEMINI_API_KEY": "g-key",
+      "HERDR_SOCKET": "/run/herdr.sock",
+      "HERDR_FLEET_TOKEN": "t"
+    },
+    "expected": {
+      "PATH": "/usr/bin:/bin",
+      "HOME": "/home/u",
+      "LANG": "ja_JP.UTF-8",
+      "CLAUDE_CONFIG_DIR": "/home/u/.claude-alt",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: KEPT_ENV of server/cli-child.ts: every kept name at once, CLAUDE_CONFIG_DIR, the locale and XDG_*, among API keys and herdr's variables",
+    "input": {
+      "PATH": "value-of-PATH",
+      "HOME": "value-of-HOME",
+      "USER": "value-of-USER",
+      "LOGNAME": "value-of-LOGNAME",
+      "SHELL": "value-of-SHELL",
+      "LANG": "value-of-LANG",
+      "LANGUAGE": "value-of-LANGUAGE",
+      "TZ": "value-of-TZ",
+      "TMPDIR": "value-of-TMPDIR",
+      "HTTP_PROXY": "value-of-HTTP_PROXY",
+      "HTTPS_PROXY": "value-of-HTTPS_PROXY",
+      "NO_PROXY": "value-of-NO_PROXY",
+      "http_proxy": "value-of-http_proxy",
+      "https_proxy": "value-of-https_proxy",
+      "no_proxy": "value-of-no_proxy",
+      "SSL_CERT_FILE": "value-of-SSL_CERT_FILE",
+      "SSL_CERT_DIR": "value-of-SSL_CERT_DIR",
+      "NODE_EXTRA_CA_CERTS": "value-of-NODE_EXTRA_CA_CERTS",
+      "CLAUDE_CONFIG_DIR": "/c",
+      "LC_ALL": "C",
+      "XDG_CONFIG_HOME": "/x",
+      "ANTHROPIC_API_KEY": "sk-ant",
+      "OPENAI_API_KEY": "sk-openai",
+      "GEMINI_API_KEY": "g-key",
+      "CURSOR_API_KEY": "c-key",
+      "HERDR_SOCKET": "/run/herdr.sock",
+      "HERDR_FLEET_TOKEN": "t",
+      "ANTHROPIC_BASE_URL": "https://elsewhere",
+      "CLAUDE_CODE_USE_BEDROCK": "1",
+      "AWS_SECRET_ACCESS_KEY": "s",
+      "CODEX_HOME": "/codex",
+      "PI_CODING_AGENT_DIR": "/pi"
+    },
+    "expected": {
+      "PATH": "value-of-PATH",
+      "HOME": "value-of-HOME",
+      "USER": "value-of-USER",
+      "LOGNAME": "value-of-LOGNAME",
+      "SHELL": "value-of-SHELL",
+      "LANG": "value-of-LANG",
+      "LANGUAGE": "value-of-LANGUAGE",
+      "TZ": "value-of-TZ",
+      "TMPDIR": "value-of-TMPDIR",
+      "HTTP_PROXY": "value-of-HTTP_PROXY",
+      "HTTPS_PROXY": "value-of-HTTPS_PROXY",
+      "NO_PROXY": "value-of-NO_PROXY",
+      "http_proxy": "value-of-http_proxy",
+      "https_proxy": "value-of-https_proxy",
+      "no_proxy": "value-of-no_proxy",
+      "SSL_CERT_FILE": "value-of-SSL_CERT_FILE",
+      "SSL_CERT_DIR": "value-of-SSL_CERT_DIR",
+      "NODE_EXTRA_CA_CERTS": "value-of-NODE_EXTRA_CA_CERTS",
+      "CLAUDE_CONFIG_DIR": "/c",
+      "LC_ALL": "C",
+      "XDG_CONFIG_HOME": "/x",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: a DISABLE_AUTOUPDATER of the server's is replaced, never passed",
+    "input": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "0"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: an empty environment still holds the self-update off",
+    "input": {},
+    "expected": {
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: ANTHROPIC_API_KEY does not pass (server/explain.test.ts, server/fleet/usage.test.ts)",
+    "input": {
+      "PATH": "/usr/bin",
+      "ANTHROPIC_API_KEY": "sk-ant"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: OPENAI_API_KEY does not pass (server/explain.test.ts, server/fleet/usage.test.ts)",
+    "input": {
+      "PATH": "/usr/bin",
+      "OPENAI_API_KEY": "sk-openai"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: GEMINI_API_KEY does not pass (server/explain.test.ts, server/fleet/usage.test.ts)",
+    "input": {
+      "PATH": "/usr/bin",
+      "GEMINI_API_KEY": "g-key"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: CURSOR_API_KEY does not pass (server/explain.test.ts, server/fleet/usage.test.ts)",
+    "input": {
+      "PATH": "/usr/bin",
+      "CURSOR_API_KEY": "c-key"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: HERDR_SOCKET does not pass (server/explain.test.ts, server/fleet/usage.test.ts)",
+    "input": {
+      "PATH": "/usr/bin",
+      "HERDR_SOCKET": "/run/herdr.sock"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: HERDR_FLEET_TOKEN does not pass (server/explain.test.ts, server/fleet/usage.test.ts)",
+    "input": {
+      "PATH": "/usr/bin",
+      "HERDR_FLEET_TOKEN": "t"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: ANTHROPIC_BASE_URL does not pass (server/explain.test.ts, server/fleet/usage.test.ts)",
+    "input": {
+      "PATH": "/usr/bin",
+      "ANTHROPIC_BASE_URL": "https://elsewhere"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: CLAUDE_CODE_USE_BEDROCK does not pass (server/explain.test.ts, server/fleet/usage.test.ts)",
+    "input": {
+      "PATH": "/usr/bin",
+      "CLAUDE_CODE_USE_BEDROCK": "1"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: AWS_SECRET_ACCESS_KEY does not pass (server/explain.test.ts, server/fleet/usage.test.ts)",
+    "input": {
+      "PATH": "/usr/bin",
+      "AWS_SECRET_ACCESS_KEY": "s"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: ANTHROPIC_AUTH_TOKEN does not pass",
+    "input": {
+      "PATH": "/usr/bin",
+      "ANTHROPIC_AUTH_TOKEN": "x"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: CLAUDE_CODE_OAUTH_TOKEN does not pass",
+    "input": {
+      "PATH": "/usr/bin",
+      "CLAUDE_CODE_OAUTH_TOKEN": "x"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: CLAUDE_CODE_USE_VERTEX does not pass",
+    "input": {
+      "PATH": "/usr/bin",
+      "CLAUDE_CODE_USE_VERTEX": "x"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  },
+  {
+    "about": "added: CODEX_HOME does not pass",
+    "input": {
+      "PATH": "/usr/bin",
+      "CODEX_HOME": "x"
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "DISABLE_AUTOUPDATER": "1"
+    }
+  }
+]

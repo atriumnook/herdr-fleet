@@ -1,0 +1,132 @@
+[
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "localhost",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "localhost:7317",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "LOCALHOST:5173",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "herdr.localhost:7317",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "127.0.0.1:7317",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "127.9.9.9",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "[::1]:7317",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "localhost.:7317",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "[::ffff:127.0.0.1]:7317",
+    "expected": true
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "app.example.test",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "app.example.test:8443",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "192.168.0.10:7317",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "localhost.example.test",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "127.0.0.1.example.test",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "[fd7a::1]:7317",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "0.0.0.0:7317",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host",
+    "input": "[::ffff:192.168.0.10]",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host (not an authority)",
+    "input": "public.example@localhost:7317",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host (not an authority)",
+    "input": "localhost/x@public.example",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host (not an authority)",
+    "input": "localhost:7317/x",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host (not an authority)",
+    "input": "localhost?x",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host (not an authority)",
+    "input": "local host",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host (not an authority)",
+    "input": "localhost:port",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host (not an authority)",
+    "input": "localhost..",
+    "expected": false
+  },
+  {
+    "about": "server/access.test.ts: decideAccess > knows a name for this machine from a proxied Host (not an authority)",
+    "input": "127.0.0.1@public.example",
+    "expected": false
+  }
+]
