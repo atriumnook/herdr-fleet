@@ -7,7 +7,7 @@ import { launchServer, type TestOptions } from "./launch.ts";
  * answer shows which value localPty took. Needs the test herdr, which /api/health asks.
  */
 async function health(test: TestOptions): Promise<{ terminal_attach?: boolean }> {
-  const server = await launchServer({ env: { HERDR_FLEET_TOKEN: "test-local-pty" }, test: { machines: false, ...test } });
+  const server = await launchServer({ env: { HERDR_FLEET_TOKEN: "test-local-pty" }, test: { machines: false, ...test } }, { target: { kind: "ts" } });
   try {
     const response = await fetch(`${server.url}/api/health`, { headers: { authorization: "Bearer test-local-pty" } });
     expect(response.status).toBe(200);

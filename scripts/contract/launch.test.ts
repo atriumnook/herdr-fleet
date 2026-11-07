@@ -1,6 +1,11 @@
 import { describe, expect, it } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { candidatePorts, contractTarget, launchServer, serverEnvironment, serverTestOptions } from "./launch.ts";
+
+/** the launcher's own checks run on the TypeScript server, whatever HERDR_FLEET_CONTRACT_TARGET says */
+const TS = { target: { kind: "ts" } } as const;
 
 /** Unit tests: every server started here gets a socket where no herdr answers. */
 const NO_HERDR = "/nonexistent/herdr.sock";
@@ -47,6 +52,8 @@ describe("the test options", () => {
     expect(serverTestOptions({ machines: false }, {})).toEqual({ machines: false, tailscaleOwner: null });
     expect(serverTestOptions({ tailscaleOwner: "me@example.com" }, {})).toEqual({ tailscaleOwner: "me@example.com" });
     expect(serverTestOptions({}, { HERDR_FLEET_TAILSCALE_OWNER: "me@example.com" })).toEqual({});
+    // a blank owner names nobody, and the server would read tailscale status for it
+    expect(serverTestOptions({}, { HERDR_FLEET_TAILSCALE_OWNER: " " })).toEqual({ tailscaleOwner: null });
   });
 
   it("refuse the owner in both places", () => {
@@ -73,16 +80,28 @@ describe("the target", () => {
   it("fails naming the target when its executable is missing", async () => {
     await expect(launchServer({}, { target: { kind: "rust", path: "/nonexistent" } })).rejects.toThrow(/rust:\/nonexistent.*not found/);
   });
+
+  it("fails with the exit code and standard error of a server that ends before it listens, without reading its options", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "herdr-fleet-contract-target-"));
+    const executable = join(folder, "contract-server");
+    writeFileSync(executable, "#!/bin/sh\necho 'no config here' >&2\nexit 3\n", { mode: 0o755 });
+    try {
+      await expect(launchServer({ env: { HERDR_SOCKET: NO_HERDR } }, { target: { kind: "rust", path: executable } }))
+        .rejects.toThrow(/exited with code 3 before it listened\nno config here/);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("launchServer", () => {
   it("refuses a spec outside the ADR before it starts anything", async () => {
-    await expect(launchServer({ env: { PORT: "7317" } as never })).rejects.toThrow("PORT");
-    await expect(launchServer({ test: { fleet: {} } as never })).rejects.toThrow("fleet");
+    await expect(launchServer({ env: { PORT: "7317" } as never }, TS)).rejects.toThrow("PORT");
+    await expect(launchServer({ test: { fleet: {} } as never }, TS)).rejects.toThrow("fleet");
   });
 
   it("starts the TypeScript server on 7400-7499 and stops it with SIGTERM, which it answers after its 2s grace", async () => {
-    const server = await launchServer({ env: { HERDR_SOCKET: NO_HERDR, HERDR_FLEET_TOKEN: "test-launch" }, test: { machines: false } });
+    const server = await launchServer({ env: { HERDR_SOCKET: NO_HERDR, HERDR_FLEET_TOKEN: "test-launch" }, test: { machines: false } }, TS);
     const port = Number(new URL(server.url).port);
     expect(new URL(server.url).hostname).toBe("127.0.0.1");
     expect(port).toBeGreaterThanOrEqual(7400);
@@ -101,7 +120,7 @@ describe("launchServer", () => {
     const taken = free.next().value!;
     const holder = Bun.listen({ hostname: "127.0.0.1", port: taken, socket: { data() {} } });
     try {
-      const server = await launchServer({ env: { HERDR_SOCKET: NO_HERDR }, test: { machines: false } }, { ports: [taken, ...free] });
+      const server = await launchServer({ env: { HERDR_SOCKET: NO_HERDR }, test: { machines: false } }, { ...TS, ports: [taken, ...free] });
       try {
         expect(Number(new URL(server.url).port)).not.toBe(taken);
         expect((await fetch(`${server.url}/api/health?scope=bridge`)).status).toBe(200);

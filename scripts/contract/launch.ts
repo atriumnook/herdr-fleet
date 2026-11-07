@@ -6,13 +6,14 @@
  *   HERDR_FLEET_CONTRACT_TARGET=ts            scripts/contract/server.ts (the default)
  *   HERDR_FLEET_CONTRACT_TARGET=rust:<path>   that executable
  *
- * The child's environment is built from nothing: the names a CLI child keeps (server/cli-child.ts),
+ * The child's environment is built from nothing: what a CLI child keeps (server/cli-child.ts, childEnv),
  * HERDR_FLEET_HERDR_BIN, the test herdr session's socket, a new empty state folder, and the test's
  * own `env` on top. Never HERDR_* of the test process, never an API key, never port 7317.
  */
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { childEnv } from "../../server/cli-child.ts";
 import { testSocketPath } from "../test-herdr.ts";
 import { checkEnvNames, parseTestOptions, type LaunchSpec, type TestOptions } from "./spec.ts";
 
@@ -34,13 +35,11 @@ const PORT_LAST = 7499;
 const LISTEN_TIMEOUT_MS = 20_000;
 const STOP_TIMEOUT_MS = 10_000;
 
-/** what a CLI child keeps (server/cli-child.ts, KEPT_ENV), written out here as the ADR lists it */
-const KEPT_NAMES = new Set(["PATH", "HOME", "USER", "LOGNAME", "SHELL", "LANG", "LANGUAGE", "TZ", "TMPDIR",
-  "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "http_proxy", "https_proxy", "no_proxy", "SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
-  "HERDR_FLEET_HERDR_BIN"]);
+/** what the child inherits besides what a CLI child keeps (server/cli-child.ts): the herdr the tests use */
+const ALSO_KEPT = ["HERDR_FLEET_HERDR_BIN"];
 
 /** The server the contract runs against, from HERDR_FLEET_CONTRACT_TARGET. */
-export function contractTarget(value: string | undefined = process.env["HERDR_FLEET_CONTRACT_TARGET"]): ContractTarget {
+export function contractTarget(value: string | undefined): ContractTarget {
   if (value === undefined || value === "" || value === "ts") return { kind: "ts" };
   if (value.startsWith("rust:") && value.length > "rust:".length) return { kind: "rust", path: resolve(value.slice("rust:".length)) };
   throw new Error(`HERDR_FLEET_CONTRACT_TARGET="${value}": expected ts or rust:<path to the executable>`);
@@ -55,10 +54,7 @@ export function serverEnvironment(
   given: { socket: string; stateDir: string },
 ): Record<string, string> {
   checkEnvNames(env);
-  const built: Record<string, string> = {};
-  for (const [name, value] of Object.entries(source)) {
-    if (value !== undefined && (KEPT_NAMES.has(name) || name.startsWith("LC_") || name.startsWith("XDG_"))) built[name] = value;
-  }
+  const built = childEnv(source, ALSO_KEPT);
   built["HERDR_SOCKET"] = given.socket;
   built["HERDR_FLEET_STATE_DIR"] = given.stateDir;
   Object.assign(built, env);
@@ -76,11 +72,12 @@ function refuseFleetState(source: Record<string, string | undefined>, stateDir: 
 /** The test options a server gets: tailscaleOwner defaults to null, so the result never depends on this PC's Tailscale. */
 export function serverTestOptions(test: TestOptions, env: Record<string, string>): TestOptions {
   const options = parseTestOptions(test);
-  const ownerInEnv = env["HERDR_FLEET_TAILSCALE_OWNER"] !== undefined;
-  if (options.tailscaleOwner !== undefined && ownerInEnv) {
+  const ownerInEnv = env["HERDR_FLEET_TAILSCALE_OWNER"];
+  if (options.tailscaleOwner !== undefined && ownerInEnv !== undefined) {
     throw new Error("launch spec: set the Tailscale owner in test.tailscaleOwner or in env.HERDR_FLEET_TAILSCALE_OWNER, not both");
   }
-  return options.tailscaleOwner === undefined && !ownerInEnv ? { ...options, tailscaleOwner: null } : options;
+  // an empty or blank owner in env names nobody: the server would read `tailscale status` instead
+  return options.tailscaleOwner === undefined && !ownerInEnv?.trim() ? { ...options, tailscaleOwner: null } : options;
 }
 
 /** Ports 7400 to 7499 in a random order, each one skipped while something on 127.0.0.1 holds it. */
@@ -116,7 +113,7 @@ export async function launchServer(
   spec: LaunchSpec = {},
   internals: { ports?: Iterable<number>; target?: ContractTarget } = {},
 ): Promise<LaunchedServer> {
-  const target = internals.target ?? contractTarget();
+  const target = internals.target ?? contractTarget(process.env["HERDR_FLEET_CONTRACT_TARGET"]);
   const label = targetLabel(target);
   const env = spec.env ?? {};
   checkEnvNames(env);
@@ -157,8 +154,12 @@ async function start(
     throw new Error(`HTTP/WS contract target ${label}: could not start ${command.join(" ")}: ${error instanceof Error ? error.message : String(error)}`);
   }
   running.add(child);
-  child.stdin.write(JSON.stringify(test));
-  await child.stdin.end();
+  try {
+    child.stdin.write(JSON.stringify(test));
+    await child.stdin.end();
+  } catch {
+    // a server that exits without reading its options closes the pipe: its exit and standard error tell why, below
+  }
 
   let errors = "";
   let started = false;
