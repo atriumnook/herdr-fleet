@@ -44,21 +44,27 @@ jobs:
       - name: cargo test
         run: cargo test --locked --workspace
       # ADR 0107-crate-split: the parsing crates depend on no herdr client, no
-      # child-process crate, no async runtime and no HTTP library.
+      # child-process crate, no async runtime and no HTTP library. The tree is
+      # resolved for the whole workspace, as the builds above are, so a feature
+      # that another member turns on in a shared dependency shows up here too.
       - name: Parsing crates have no I/O dependencies
         run: |
-          status=0
+          tree=$(cargo tree --locked --workspace -e normal --no-dedupe --prefix depth --format ' {p}')
+          edges=$(printf '%s\n' "$tree" | awk '
+            $1 == "0" { root = $2; if (root ~ /^herdr-fleet-(screen|transcript)$/) print root " -> " root; next }
+            NF >= 2 && root ~ /^herdr-fleet-(screen|transcript)$/ { print root " -> " $2 }' | sort -u)
           for crate in herdr-fleet-screen herdr-fleet-transcript; do
-            # A failing cargo tree (an unknown package, say) fails the step here.
-            deps=$(cargo tree --locked -p "$crate" -e normal --prefix none --format '{p}')
-            found=$(printf '%s\n' "$deps" | awk '{print $1}' | sort -u \
-              | grep -xE 'herdr-fleet-herdr|herdr-fleet-child-process|tokio|axum|hyper|reqwest' || true)
-            if [ -n "$found" ]; then
-              echo "::error::$crate depends on: $found"
-              status=1
+            if ! grep -qx "$crate -> $crate" <<<"$edges"; then
+              echo "::error::$crate is not a member of the workspace"
+              exit 1
             fi
           done
-          exit $status
+          found=$(grep -E ' -> (herdr-fleet-herdr|herdr-fleet-child-process|tokio|axum|hyper|reqwest)$' <<<"$edges" || true)
+          if [ -n "$found" ]; then
+            echo "::error::a parsing crate depends on a banned package:"
+            echo "$found"
+            exit 1
+          fi
       # ADR 0110-workspace-and-ci: tests that read the corpus or write temporary
       # files live in tests/ and allow the banned APIs there; src/ never does.
       - name: Parsing crates allow their banned APIs only in tests
