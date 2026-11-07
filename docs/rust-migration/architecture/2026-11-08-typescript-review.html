@@ -97,8 +97,8 @@ flowchart TB
   class T deep
               </pre></div>
           </div>
-          <p><strong>Problem:</strong> <code>conversation.ts</code> と <code>codex.ts</code> が、純粋な解析と、herdr・sqlite・<code>/proc</code>・子プロセスで transcript を探す処理を 1 つのファイルに持ち、解析だけをテストする入口がない。</p>
-          <p><strong>Solution:</strong> 解析は「transcript の中身(ファイルのバイト列、または OpenCode のメッセージの JSON)→ 会話のターンとページのカーソル」を interface にした module にし、場所の特定は core に残す。</p>
+          <p><strong>Problem:</strong> <code>conversation.ts</code> と <code>codex.ts</code> が、純粋な解析と、herdr・sqlite・<code>/proc</code>・子プロセスで transcript を探す処理を 1 つのファイルに持つ。解析の関数(<code>parseClaudeTranscript</code>、<code>parseCodexTranscript</code>、<code>transcriptPage</code>)はすでに export されていてテストもあるが、同じファイルが場所の特定のための I/O を import しているので、解析だけを I/O なしで build できない。</p>
+          <p><strong>Solution:</strong> 解析は「場所のわかった transcript(ファイルのパス、または OpenCode のメッセージを返す port)→ 会話のターンとページのカーソル」を interface にした module にし、場所の特定(pane から transcript を探すこと)は core に残す。</p>
           <ul class="list-disc pl-6 text-sm"><li>会話ログの corpus がこの interface だけを叩く</li><li>leverage: 5 つのエージェント CLI が 1 つの interface</li><li>場所の特定の不具合と解析の不具合が別の場所に出る</li></ul>
         </article>
 
@@ -132,8 +132,8 @@ flowchart LR
               </pre></div>
           </div>
           <p><strong>Problem:</strong> fleet の振る舞いは <code>runtime.ts</code> の seam で herdr と test の 2 つの adapter を持つが、<code>orchestrator.ts</code> は herdr のクライアントのエラーの型(<code>HerdrError</code>)を直接 import してエラーコードを見ており、HTTP の <code>index.ts</code> の中から組み立てられている。</p>
-          <p><strong>Solution:</strong> fleet を、herdr を Runtime の seam の向こうに置いた 1 つの module にし、HTTP のルート(<code>fleet/api.ts</code>)だけを core に置く。</p>
-          <ul class="list-disc pl-6 text-sm"><li>2 つの adapter が seam を正当化する</li><li>段階 3 が HTTP なしでテストできる</li><li>locality: run の振る舞いが 1 か所</li></ul>
+          <p><strong>Solution:</strong> fleet を、herdr を Runtime の seam の向こうに置いた 1 つの module にし、<code>/api/fleet</code> のルート(<code>fleet/api.ts</code>)もその module に置いて、core はアクセス制御の下にそれを mount するだけにする。</p>
+          <ul class="list-disc pl-6 text-sm"><li>2 つの adapter が seam を正当化する</li><li>段階 3 が HTTP のサーバー、PTY、push を build せずにテストできる</li><li>locality: run の振る舞いが 1 か所</li></ul>
         </article>
 
         <!-- 4 -->
@@ -165,8 +165,8 @@ flowchart TB
   class R deep
               </pre></div>
           </div>
-          <p><strong>Problem:</strong> 「最小の環境変数、私用の空のフォルダー、タイムアウトと kill」という子プロセスの安全上の規則が、<code>cli-child.ts</code> の部品を呼ぶ 5 つのファイルに分かれて組み立てられている。git を <code>core.fsmonitor=false</code> で動かす決まりは <code>files.ts</code> と <code>fleet/thread.ts</code> に重複している。</p>
-          <p><strong>Solution:</strong> 子プロセスの起動を、環境と作業フォルダーとタイムアウトを内側で決める 1 つの module にまとめる。<code>parseX(output)</code> の関数は純粋なまま、使う側の module に残す。</p>
+          <p><strong>Problem:</strong> 子プロセスの安全上の規則(最小の環境変数、使用量の probe などの私用の空のフォルダー、タイムアウトと kill)を、<code>cli-child.ts</code> の部品を呼ぶ 5 つのファイルがそれぞれ組み立てている。どの部品を使うかはファイルごとに違う(サイドチャットはプロジェクトのフォルダーで動くので、環境変数の部品だけを使う)。git を <code>core.fsmonitor=false</code> で動かす決まりは <code>files.ts</code> と <code>fleet/thread.ts</code> に重複している。</p>
+          <p><strong>Solution:</strong> 子プロセスの起動を 1 つの module にまとめ、起動の種類(空のフォルダーで動かす probe と Explain、呼ぶ側のフォルダーで動かすサイドチャットと git)ごとに、環境と作業フォルダーとタイムアウトを内側で決める。<code>parseX(output)</code> の関数は純粋なまま、使う側の module に残す。</p>
           <ul class="list-disc pl-6 text-sm"><li>安全上の判定の表が 1 つの interface を叩く</li><li>API キーを渡さない規則が 1 か所</li></ul>
           <p class="rounded bg-amber-50 border border-amber-200 px-3 py-2 text-sm">使う module が fleet と core の両方にあるので、どちらからも使える場所に置く必要がある。置き場所は ADR <code>0107-crate-split</code> で決めた(crate <code>herdr-fleet-child-process</code>)。</p>
         </article>
@@ -258,7 +258,7 @@ flowchart LR
 
       <section id="top-recommendation" class="rounded-xl deep p-8 space-y-3">
         <h2 class="font-serif text-2xl">一番の推奨</h2>
-        <p>候補 <a class="underline" href="#c2">2(transcript の解析と場所の特定を分ける)</a>を最初に手がける。結合が一番深く(<code>conversation.ts</code> と <code>codex.ts</code> の 2,680 行が herdr・sqlite・子プロセスと解析を混ぜている)、段階 2 の会話ログの corpus がこの seam なしでは書けないため。</p>
+        <p>候補 <a class="underline" href="#c2">2(transcript の解析と場所の特定を分ける)</a>を最初に手がける。結合が一番深く(<code>conversation.ts</code> と <code>codex.ts</code> の 2,680 行が herdr・sqlite・子プロセスと解析を混ぜている)、段階 2 の Rust の実装を会話ログの corpus だけでテストするには、解析が I/O を import しないこの seam が要るため。</p>
         <p>crate の分け方としては、候補 1、2、3、4、5、7 を crate の境界にし、候補 6 は core の中の module の分け方にする。決定と理由は ADR <code>docs/rust-migration/adr/0107-crate-split.md</code> にある。</p>
       </section>
     </main>

@@ -34,11 +34,11 @@ package の名前は `herdr-fleet-<部分>`、フォルダーは `rust/crates/<�
 | crate(package) | 種類 | 責務 | 依存する crate |
 |---|---|---|---|
 | herdr-fleet-herdr-api | lib | herdr の socket API の型を、`scripts/herdr-schema.json` から生成して持つ。 | なし |
-| herdr-fleet-protocol | lib | herdr-fleet の HTTP・WebSocket・SSE の型、ルートのパスとヘッダー名、fleet の記録の型と、サーバーとクライアントの両方が使う規則(計画の検査、通知の条件、秘密の入力の判定、Codex の patch の読み取り)を持つ。 | herdr-api |
+| herdr-fleet-protocol | lib | herdr-fleet の HTTP・WebSocket・SSE の型、ルートのパスとヘッダー名、fleet の記録の型と、サーバーとクライアントの両方が使う規則(計画の検査、通知の条件、秘密の入力の判定、Codex の patch の読み取り)と、2 つ以上の crate が使う型を持つ。 | herdr-api |
 | herdr-fleet-screen | lib | エージェント CLI の画面の文字を読み、カード、答えのキー、画面の判定、Cursor の使用量の画面の読み取りを返す。 | protocol |
 | herdr-fleet-transcript | lib | 場所のわかった transcript(ファイルのパス、OpenCode はメッセージを返す port)を読み、会話のページ、metadata、画像、ツールの出力を返す。 | protocol |
 | herdr-fleet-herdr | lib | herdr の socket のクライアント(RPC、イベントの購読、Windows の marker と named pipe)。 | herdr-api |
-| herdr-fleet-child-process | lib | core がペインの外で起動するすべての子プロセス(エージェント CLI、git、`opencode api`)に、最小の環境変数、専用の空のフォルダー、`core.fsmonitor=false`、タイムアウトと kill、出力の大きさの上限、同時に動かす数の上限を当てる。 | なし |
+| herdr-fleet-child-process | lib | ペインの外で起動するエージェント CLI、`opencode api`、git の子プロセスに、起動の種類ごとの決まり(最小の環境変数、作業フォルダー、git の `core.fsmonitor=false`、タイムアウトと kill、出力の大きさと同時に動かす数の上限)を当てる。 | なし |
 | herdr-fleet-orchestrator | lib | fleet の run、委ねたターン、thread、役割、エージェント adapter の起動の引数と環境変数、使用量とモデル一覧、run の記録、herdr を操作する Runtime(今の `HerdrRuntime`)を持ち、`/api/fleet` のルートを公開する。 | protocol, screen, herdr, child-process |
 | herdr-fleet-core | lib + bin `herdr-fleet` | HTTP・WebSocket のサーバー(ルート、アクセス制御、attach とミラー、エージェントの状態の購読、transcript の場所の特定、push 通知、サイドチャット、Explain、Web UI の配信)。 | herdr-api, protocol, screen, transcript, herdr, child-process, orchestrator |
 | herdr-fleet-cli | bin `fleet` | `bin/fleet.ts` と同じ引数・出力・終了コードで、core の `/api/fleet` を呼ぶ。 | protocol |
@@ -52,19 +52,23 @@ package の名前は `herdr-fleet-<部分>`、フォルダーは `rust/crates/<�
 - screen は `std::fs`、`std::process`、`std::net` を使わない。transcript はファイルを読むだけで、`std::process`、`std::net`、ファイルへの書き込みを使わない。どちらも herdr-fleet-herdr、herdr-fleet-child-process、tokio、HTTP のライブラリに依存しない
 - #110 は、screen と transcript のフォルダーに clippy.toml(`disallowed-methods` と `disallowed-types`)を置き、CI で `cargo tree -p herdr-fleet-screen -e normal` と `cargo tree -p herdr-fleet-transcript -e normal` に herdr-fleet-herdr、herdr-fleet-child-process、tokio、axum、hyper、reqwest が出ないことを確かめる。clippy が crate ごとの clippy.toml を読まなければ、ソースの grep に替える
 - screen のテストは画面の corpus(`fixtures/screens/`)、transcript のテストは会話ログの corpus と一時ファイルだけで走る
+- screen の画面の判定が使う型(エージェントの種類、thinking の段階、`UsageReading`、`InteractivePrompt`)は protocol から取る。どれも今 `shared/fleet.ts` と `shared/protocol.ts` にあり、`server/fleet/types.ts` と `server/fleet/usage.ts` はそれを再 export しているだけなので、screen は orchestrator に依存しない
 - transcript はパスを受けてファイルを読む。最新のページを探すには形式ごとにターンの始まりを探す必要があり(`server/conversation.ts` の `newestPage`、`pageBefore`)、カーソルと ETag はファイルの dev・ino・size・mtime・ctime から作る。バイト列だけを受ける形にすると、この知識が core に漏れるか、Codex のロールアウトを毎回すべて読むことになる。ロールアウトは数百 MB になり、400 MB のものをすべて解析するのに 1.1 秒と 1.7 GB のメモリを使った(`server/conversation.ts` の `TRANSCRIPT_WINDOW_BYTES` のコメント)
-- transcript の cache は 1 つの値(例: `Transcripts`)が持ち、core がそれを 1 つ持つ。テストはそのつど新しい値を作る(TypeScript はモジュールの変数に持ち、`forgetTranscriptState` で消している)
-- transcript は、pi のモデルのコンテキストの大きさを、引数で受け取った検索の関数で求める。大きさを pi のカタログから読む `server/pi-models.ts` は `server/commands.ts` も使うので、core に置く
-- OpenCode のメッセージは、transcript が定義する trait `OpencodeApi` で受ける(今の `server/opencode-session.ts` の `OpencodeApi` の注入と同じ)。本番の adapter は、core が child-process の OpenCode のクライアントを包んで作る
-- screen と transcript をつなぐ型は `QueuedQuestion`(Codex の答えのない質問)だけ。screen が自分の入力の型として定義し、transcript は自分の型を返し、core が詰め替える。詰め替えるのは、今 `server/prompt-api.ts` が 2 つを組み合わせている箇所にあたる
+- transcript の cache は 1 つの値(例: `Transcripts`)が持ち、core がそれを 1 つ持つ。テストはそのつど新しい値を作る。対象は、TypeScript でモジュールの変数に持っているもののすべて: ページングの cache(`server/conversation.ts`)、pi の索引(`server/pi-tree.ts` の `piIndexes`)、Codex の履歴の連なり(`server/codex.ts` の `historyChains`)、Codex の答えのない質問の走査(`server/codex.ts` の `questionScans`)。TypeScript は、これらをテストのたびに `forgetTranscriptState` などで消している
+- transcript は、pi のモデルのコンテキストの大きさを、引数で受け取った検索の関数で求める。大きさを pi のカタログから読む `server/pi-models.ts` は core に置く。core の `server/commands.ts` も pi-models の `piAgentDir` を使い、transcript は pi のカタログの場所を知らずに済む
+- OpenCode のメッセージは、transcript が定義する trait `OpencodeApi` で受ける(今の `server/opencode-session.ts` の `OpencodeApi` の注入と同じ)。trait のエラーも transcript が定義し、HTTP の状態コードを持たせる。今の `opencode-session.ts` は `OpencodeHttpError` の状態コードで振る舞いを変えている(404 は会話なし、カーソルを渡した 400 は `HistoryChanged`)。本番の adapter は、core が child-process の OpenCode のクライアントを包み、そのエラーを transcript のエラーに変換して作る。本物の CLI で `OpencodeConversations` を作る関数(今の `opencodeConversations`)と、その作業フォルダーを state フォルダーから決める処理も core に置く
+- screen と transcript をつなぐ型は `QueuedQuestion`(Codex の答えのない質問。`key`、`title`、`options` の 3 つの項目)だけで、protocol に置く。transcript が返し、core(今の `server/prompt-api.ts`)がそれを screen に渡す
 
 ### crate の間の seam で変えること
 
 - orchestrator の Runtime の port は自分のエラーの enum を返す。herdr のエラーコード(`agent_blocked`、`agent_not_found` など)からの変換は herdr の Runtime の adapter だけが行う
 - `/api/fleet` のルート(今の `server/fleet/api.ts`)は orchestrator の crate に置き、core は自分のアクセス制御の下にそれを mount する。GET 以外の要求に `X-Herdr-Fleet: 1` を求める確認は core のアクセス制御に移し、ヘッダー名は protocol の定数にする(CLI も送るため)
 - herdr のクライアントは herdr 自身の ping の型を返す。`terminal_attach` と `terminal_mirror` を持つ `HerdrIdentity` は、core が protocol の型で組み立てる
-- protocol は、自分の通信に載せる herdr の型を herdr-api から再 export する(今の `shared/protocol.ts` と同じ)
+- protocol は、自分の通信に載せる herdr の型を herdr-api から再 export する(今の `shared/protocol.ts` と同じ)。herdr のクライアントは、今 `shared/protocol.ts` の再 export を通して使っている herdr の型(`SessionSnapshot`、`PaneReadResult` など)を herdr-api から直接取る
+- エラーの本文の形 `{ error: { code, message } }` の型は protocol に置き、core のルートも orchestrator の `/api/fleet` のルートも、それで応答を作る。今の `server/fleet/api.ts` は `server/http.ts` の `jsonResponse` と `isJsonObject` を使っているが、Rust では HTTP のライブラリの JSON の応答と protocol の型で足りる。herdr のエラーを HTTP の状態コードに変える `errorResponse` は core に残す
+- `server/opencode-cli.ts` が `server/transcript-records.ts` から使う `record`(JSON の値をオブジェクトとして読む小さな関数)は、Rust では serde_json の機能で足りる。child-process は transcript に依存しない
 - cli は応答の型を protocol から取る。今の `bin/fleet.ts` は `Run`、`ThreadSummary`、`UsageEntry` を `shared/fleet.ts` と別に定義している。応答の読み方は今の CLI と同じく、項目が欠けても失敗しないようにする。正しいかは段階 1 の fleet CLI の契約で確かめる
+- child-process が扱うのは、ペインの外で起動するエージェント CLI(使用量の probe、モデル一覧、Explain、サイドチャット)、`opencode api`、git だけ。作業フォルダーは起動の種類で違い、今の振る舞いを変えない。使用量の probe、モデル一覧、Explain、`opencode api` は専用の空のフォルダー(実行のたびに空にする)、サイドチャットはペインのプロジェクトのフォルダー(`--resume` で会話を引き継ぐため。今の `server/side-chat.ts` の `sessionPlace`)、git は対象のリポジトリで動かす。呼ぶ側のフォルダーを空にすることはない。ほかの子プロセス(`server/fleet/github.ts` の `gh`、`server/fleet/thread.ts` の `sh -c` で動かす利用者の setup のコマンド、`ps`、`lsof`、`stty`、`tailscale`、PTY)は、使う人の環境変数や端末が要るので、それを使う crate が自分で起動する。`gh` を child-process に移すかは段階 3 で決める
 - 使用量の probe とモデル一覧の取得は orchestrator に残し、出力の parser はそのコマンドの argv の隣に置く。child-process は workspace のどの crate にも依存しない
 
 ### TypeScript のファイルの引き継ぎ先
@@ -81,13 +85,13 @@ package の名前は `herdr-fleet-<部分>`、フォルダーは `rust/crates/<�
 | `server/claude-store.ts` | core | transcript の場所の特定 |
 | `server/cli-child.ts` | child-process | |
 | `server/codex-images.ts` | transcript | |
-| `server/codex.ts` | transcript, core | transcript: parser、履歴の連なり、答えのない質問、画面との照合。core: `codexTranscriptPath`、`paneCodexHome`、`processCodexHome`(sqlite、`/proc`、ps、herdr) |
+| `server/codex.ts` | protocol, transcript, core | protocol: `QueuedQuestion` の型。transcript: parser、履歴の連なり、答えのない質問、画面との照合。core: `codexTranscriptPath`、`paneCodexHome`、`processCodexHome`(sqlite、`/proc`、ps、herdr) |
 | `server/collector.ts` | core | |
 | `server/commands.ts` | core | |
 | `server/completion.ts` | core | |
 | `server/conversation-errors.ts` | transcript | |
 | `server/conversation-metadata.ts` | transcript | pi のコンテキストの大きさは引数で受ける |
-| `server/conversation.ts` | transcript, core | transcript: 解析、ページング、画像、ツールの出力。core: `paneConversation`、`claudePaneTranscript`、`ompSessionPath` |
+| `server/conversation.ts` | transcript, core | transcript: 解析、ページング、場所のわかった transcript からの画像とツールの出力(`transcriptPage`、`transcriptImage`、`piTranscriptImage`、`transcriptToolOutput`)。core: ペインから transcript を探す関数(`paneConversation`、`conversationImage`、`toolOutput`、`resolveTranscript`、`claudePaneTranscript`、`ompSessionPath`) |
 | `server/devices.ts` | core | |
 | `server/directories.ts` | core | |
 | `server/explain.ts` | core | 子プロセスの起動は child-process を使う |
@@ -113,7 +117,7 @@ package の名前は `herdr-fleet-<部分>`、フォルダーは `rust/crates/<�
 | `server/fleet/usage.ts` | orchestrator | |
 | `server/herdr-marker.ts` | herdr | |
 | `server/herdr/client.ts` | herdr | |
-| `server/http.ts` | core | |
+| `server/http.ts` | core, protocol | protocol: エラーの本文の形の型。core: `errorResponse`、`sameOrigin` ほか |
 | `server/index.ts` | core | ルートは core の中で領域ごとの module に分ける(報告の候補 6) |
 | `server/machine-api.ts` | core | |
 | `server/machines.ts` | core | |
@@ -121,7 +125,7 @@ package の名前は `herdr-fleet-<部分>`、フォルダーは `rust/crates/<�
 | `server/mirror.ts` | core | |
 | `server/opencode-cli.ts` | child-process | |
 | `server/opencode-messages.ts` | transcript | |
-| `server/opencode-session.ts` | transcript, core | transcript: `OpencodeConversations`。core: `opencodeSessionId`(herdr の `agent.get`) |
+| `server/opencode-session.ts` | transcript, core | transcript: `OpencodeConversations`。core: `opencodeSessionId`(herdr の `agent.get`)と、本物の CLI で `OpencodeConversations` を作る `opencodeConversations` |
 | `server/output-window.ts` | core | |
 | `server/pane-grid.ts` | core | |
 | `server/paste.ts` | core | |
@@ -170,7 +174,11 @@ vt と desktop が引き継ぐ TypeScript のファイルはない。desktop は
 
 ### architect の答えと違う判断
 
-ない。architect の答えは、lead の下書き(9 crate)に herdr-api と child-process の 2 つの crate を足し、desktop の依存を protocol と vt だけにし、transcript がファイルを読むと決めるものだった。この ADR はそれをそのまま採った。lead の報告の下書きでは `shared/secret-prompt.ts` を screen に入れていたが、Web UI と同じく desktop も秘密の入力を判定するので、architect の答えどおり protocol に置いた。
+architect の答えは、lead の下書き(9 crate)に herdr-api と child-process の 2 つの crate を足し、desktop の依存を protocol と vt だけにし、transcript がファイルを読むと決めるものだった。この ADR は crate の一覧と依存をそのまま採った。違うのは次の 1 点。
+
+- `QueuedQuestion`: architect は、screen と transcript がそれぞれ同じ形の型を定義し、core が詰め替えるとした。この ADR は protocol に 1 つだけ置く。3 つの項目の同じ型を 2 か所に書くと、詰め替えのコードが要り、2 つの定義が食い違いうる。screen も transcript もすでに protocol に依存しているので、protocol に置いても依存は増えない
+
+lead の報告の下書きでは `shared/secret-prompt.ts` を screen に入れていたが、Web UI と同じく desktop も秘密の入力を判定するので、architect の答えどおり protocol に置いた。
 
 ## 検討した代わり
 
@@ -193,7 +201,7 @@ vt と desktop が引き継ぐ TypeScript のファイルはない。desktop は
 - core は外部のライブラリのバインディング(vt)をリンクしない。core の build に Zig や C のツールチェーンは要らない
 - desktop は core が動いていないと何もできない。デスクトップが core を起動するかは段階 5 で決める。どちらにしても `herdr-fleet` の実行ファイルを起動する形なので、crate の依存は変わらない
 - エージェント CLI ごとの知識は、関心ごとに 3 つの crate に分かれる(起動の引数は orchestrator、画面の判定は screen、transcript の解析は transcript)
-- core に、`QueuedQuestion` の詰め替え(3 つの項目)と、`OpencodeApi` の adapter(child-process の OpenCode のクライアントを trait に合わせて包むもの)が要る
+- core に、`OpencodeApi` の adapter(child-process の OpenCode のクライアントを transcript の trait に合わせて包み、エラーを変換するもの)が要る
 - orchestrator は、`/api/fleet` のルートのために HTTP のライブラリに依存する。その代わり、`/api/fleet` の契約を orchestrator の crate の中でテストでき、core は mount するだけで済む
 - crate を足すか分け直すときは、この ADR を置き換える新しい ADR を書く。core の中の module を crate に出すのは、依存の向きを変えない限り、この ADR の変更に当たらない
 
@@ -217,3 +225,55 @@ vt と desktop が引き継ぐ TypeScript のファイルはない。desktop は
   awk -F'|' '/^\| herdr-fleet-/ { c=$2; gsub(/[ ]/,"",c); sub(/^herdr-fleet-/,"",c); n=split($5,d,","); print c, c; for (i=1;i<=n;i++) { x=d[i]; gsub(/[ ]/,"",x); if (x!="なし") print x, c } }' \
     docs/rust-migration/adr/0107-crate-split.md | tsort
   ```
+
+- 依存の列は人が書いたものなので、`tsort` は書いた依存の循環しか見ない。そこで、ファイルの import が crate の依存を越えないかを、次の script で確かめた(`python3 -I <script> docs/rust-migration/adr/0107-crate-split.md`)。ファイルの相対 import のそれぞれについて、import する側のファイルの crate のどれかが、される側のファイルの crate のどれかと同じか、それに(間接に)依存していれば通す
+
+  ```python
+  # For every relative import between server/ shared/ bin/ files (tests excluded), check that some
+  # crate of the importing file is, or depends (transitively) on, some crate of the imported file,
+  # per the two tables of the ADR. Prints each import that fails, and each that crosses a file the
+  # ADR splits (to read by hand).
+  import os, re, sys
+  adr = open(sys.argv[1], encoding="utf-8").read()
+  deps, files = {}, {}
+  for line in adr.splitlines():
+      cells = [c.strip() for c in line.split("|")]
+      if line.startswith("| herdr-fleet-"):
+          name = cells[1].removeprefix("herdr-fleet-")
+          deps[name] = set() if cells[4] == "なし" else {d.strip() for d in cells[4].split(",")}
+      m = re.match(r"^\| `((?:server|shared|bin)/[^`]+\.ts)` \|", line)
+      if m:
+          files[m.group(1)] = {c.strip() for c in cells[2].split(",")}
+  def reach(c, seen=None):
+      seen = seen if seen is not None else set()
+      for d in deps[c]:
+          if d not in seen:
+              seen.add(d); reach(d, seen)
+      return seen | {c}
+  bad, split = [], []
+  for f in sorted(files):
+      src = open(f, encoding="utf-8").read()
+      for spec in sorted(set(re.findall(r"""from ["'](\.{1,2}/[^"']+)["']""", src))):
+          g = os.path.normpath(os.path.join(os.path.dirname(f), spec))
+          if g not in files:
+              continue
+          ok = any(b in reach(a) for a in files[f] for b in files[g])
+          every = all(b in reach(a) for a in files[f] for b in files[g])
+          if not ok:
+              bad.append(f"{f} -> {g}  ({','.join(sorted(files[f]))} -> {','.join(sorted(files[g]))})")
+          elif not every:
+              split.append(f"{f} -> {g}  ({','.join(sorted(files[f]))} -> {','.join(sorted(files[g]))})")
+  print(f"crossing: {len(bad)}"); [print("  " + b) for b in bad]
+  print(f"through a split file: {len(split)}"); [print("  " + s) for s in split]
+  ```
+
+  出力は `crossing: 4` と `through a split file: 21`。越える 4 件は、どれもこの ADR の決定で TypeScript の import を Rust に写さないもの:
+
+  | import | 写さない理由(この ADR の決定) |
+  |---|---|
+  | `server/conversation-metadata.ts` → `server/pi-models.ts` | transcript は pi のコンテキストの大きさを、引数で受け取った検索の関数で求める |
+  | `server/herdr/client.ts` → `shared/protocol.ts` | 使っているのは herdr の型の再 export だけ。herdr のクライアントは herdr-api から直接取る |
+  | `server/herdr/client.ts` → `shared/machines.ts` | `HerdrIdentity` は core が組み立てる。herdr のクライアントは herdr 自身の ping の型を返す |
+  | `server/opencode-cli.ts` → `server/transcript-records.ts` | `record` は serde_json の機能で足りる |
+
+  2 つの crate に分けたファイルを通る 21 件は、分けたどちらの部分が import するかで決まるので、1 件ずつ読んだ。screen の部分(`server/fleet/adapters.ts` の画面の判定)が使うのは `server/fleet/types.ts` と `server/fleet/usage.ts` が再 export する protocol の型だけ。transcript の部分(`server/codex.ts`、`server/conversation.ts`、`server/opencode-session.ts`)が herdr、`server/process-start.ts`、`server/claude-store.ts`、`server/pi.ts`、`server/state-dir.ts` を使うのは、場所の特定の関数(core に置く部分)の中だけ。transcript の部分が使う `server/opencode-cli.ts` の `OpencodeApi` と `OpencodeHttpError` は、transcript が定義する trait とエラーに替える。`server/prompt.ts` → `server/codex.ts` は `QueuedQuestion` の型だけで、protocol に置く。`server/fleet/api.ts` → `server/http.ts` はエラーの本文の形と JSON の応答だけで、protocol の型と HTTP のライブラリに替える。`server/http.ts` → herdr は core に残す `errorResponse` の中だけ

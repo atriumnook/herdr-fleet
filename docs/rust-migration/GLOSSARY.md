@@ -5,7 +5,7 @@ herdr-fleet は、herdr のペインで動く複数のコーディングエー�
 ## herdr の側
 
 **herdr**:
-ターミナルのペインをセッション・ワークスペース・タブに並べて動かす、herdr-fleet の土台のプログラム。herdr-fleet はその socket を通じてペインを読み書きする。
+ターミナルのペインをセッション・ワークスペース・タブに並べて動かす、herdr-fleet の土台のプログラム。herdr-fleet は herdr を通じてペインを読み書きする。
 
 **セッション(session)**:
 1 つの herdr のサーバーが持つ、ワークスペースの集まり全体。
@@ -37,10 +37,10 @@ herdr がペインのエージェントについて報告する状態(`idle`、`
 _Avoid_: 出力、ログ
 
 **attach**:
-ペインのターミナルのバイト列を、herdr の `terminal attach` でそのまま受け取り、入力を送り返すつなぎ方。
+ペインのターミナルの出力をそのまま受け取り、入力を送り返すつなぎ方。
 
 **ミラー(mirror)**:
-attach できない herdr(Windows)で、ペインの画面を繰り返し読んで、attach と同じ形で送るつなぎ方。
+attach できない herdr(Windows)で、ペインの画面を繰り返し読んで、attach と同じ形で見せるつなぎ方。
 
 ## 画面と会話の解析
 
@@ -58,7 +58,7 @@ fleet がエージェントの画面を見て下す判定(起動の失敗、herd
 パスワードなど、画面に出さずに 1 行で入力させる問い。
 
 **transcript**:
-エージェント CLI が自分で保存する会話の記録(JSONL のファイルや、OpenCode のサービスが返すメッセージ)。herdr-fleet は読むだけで書かない。
+エージェント CLI が自分で保存する会話の記録。herdr-fleet は読むだけで書かない。
 _Avoid_: ログ、履歴、セッション
 
 **会話(conversation)**:
@@ -69,7 +69,7 @@ transcript から組み立てた、チャットに出す形の発言の並び。
 _Avoid_: メッセージ(transcript の 1 行や 1 メッセージとは数が一致しない)
 
 **corpus**:
-解析の正しさを確かめる入力と期待値の組の集まり。画面の corpus(`fixtures/screens/`)と会話ログの corpus がある。
+解析の正しさを確かめる入力と期待値の組の集まり。画面の corpus と会話ログの corpus がある。
 
 ## fleet
 
@@ -140,23 +140,23 @@ rate limit のエラーを検知してから、その CLI かアカウントを 
 ## 画面と接続
 
 **core**:
-herdr-fleet のサーバーのプロセス。herdr とつながり、Web UI とデスクトップの画面に HTTP と WebSocket で応える。
+herdr-fleet のサーバー。herdr とつながり、Web UI、デスクトップの画面、fleet CLI に応える。
 _Avoid_: バックエンド、デーモン
 
 **Web UI**:
 core が配信する、ブラウザ(スマホを含む)で動く画面。
 
 **デスクトップの画面(desktop)**:
-GPUI で作る、PC の上で動く画面。Web UI と同じことができる。
+ブラウザを使わずに PC の上で動く画面。Web UI と同じことができる。
 
 **fleet CLI**:
-エージェントが自分の指示文に従って使う `fleet` コマンド。core の fleet の HTTP API を呼ぶ。
+エージェントが自分の指示文に従って使う `fleet` コマンド。core を通じて fleet を操作する。
 
 **lens**:
 1 つのペインを見る見せ方。チャット(会話とカード)と、ターミナル表示がある。
 
 **サイドチャット(side chat)**:
-ペインの会話の横で、そのペインについて尋ねる別の会話。core が動かす Claude Code の print mode で答える。
+ペインの会話の横で、そのペインについて尋ねる別の会話。core が別に動かす Claude Code が答える。
 
 **サイドターミナル(side terminal)**:
 ペインのワークスペースで、エージェントのいないシェルを開いたタブ。サイドパネルに出す。
