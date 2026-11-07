@@ -4,7 +4,7 @@ Herdr 上で複数のコーディングエージェント(pi / Claude Code / Cod
 
 ## 構成
 
-- `server/` — Bun の単一プロセス。HTTP / WebSocket(`index.ts`)、Herdr の socket クライアント(`herdr/client.ts`)、全ペインの状態イベントを購読する collector(`collector.ts`)、ターミナル表示用の PTY sidecar(`pty/`)、承認画面の解析(`prompt.ts`)、会話ログの解析(`conversation.ts` ほか)
+- `server/` — Bun の単一プロセス。HTTP / WebSocket(`index.ts`)、Herdr の socket クライアント(`herdr/client.ts`)、全ペインの状態イベントを購読する collector(`collector.ts`)、ターミナル表示用の PTY sidecar(`pty/`)、承認画面の解析(`prompt.ts`。画面を受け取ってカードを返すだけで I/O を持たない。ペインごとの状態と HTTP の処理は `prompt-api.ts`)、会話ログの解析(`conversation.ts` ほか)
 - `server/fleet/` — エージェントを起動してターンを追う orchestrator。エージェント CLI ごとの違いは `adapters.ts` に閉じ込め、orchestrator は種別に依存させない。HTTP API は `/api/fleet/*`(`api.ts`)
 - `bin/fleet.ts` — `/api/fleet` を呼ぶ薄い CLI。起動されたエージェントは、指示文と環境変数(`HERDR_FLEET_URL` / `HERDR_FLEET_GROUP` / `HERDR_FLEET_DEPTH`)を通じてこれを使う
 - `agents/*.md` — 同梱の役割定義。ユーザー分は `~/.config/herdr-fleet/agents/`、プロジェクト分は `.herdr-fleet/agents/` に置き、後に読んだものが同名の役割を上書きする
