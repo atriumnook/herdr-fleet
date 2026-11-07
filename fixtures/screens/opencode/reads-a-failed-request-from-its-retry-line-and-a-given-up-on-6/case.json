@@ -1,0 +1,5 @@
+{
+  "adapter": "opencode",
+  "check": "turnError",
+  "expected": null
+}

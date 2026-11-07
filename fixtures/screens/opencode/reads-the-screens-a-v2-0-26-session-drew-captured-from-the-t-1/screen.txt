@@ -1,0 +1,13 @@
+  ┃  go
+  ┃
+  ┃  ⠙ ls -la
+  ┃
+     Press ctrl+b to move running work to the background
+  ┃
+  ┃  △ Permission required
+  ┃
+  ┃  $ ls -la
+  ┃
+  ┃
+  ┃   Allow once   Always allow   Reject                               ctrl+f fullscreen  ⇆ select  enter confirm
+  ┃                                         /tmp/sp/pr1/work

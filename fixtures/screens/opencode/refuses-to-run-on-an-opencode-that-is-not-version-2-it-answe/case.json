@@ -1,0 +1,5 @@
+{
+  "adapter": "opencode",
+  "check": "startupError",
+  "expected": "The opencode that herdr starts is not OpenCode 2 (check `opencode --version`); the fleet's rules for it need version 2."
+}

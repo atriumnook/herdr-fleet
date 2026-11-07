@@ -1,0 +1,5 @@
+{
+  "adapter": "cursor",
+  "check": "question",
+  "expected": "Cursor Agent asks whether to trust this folder."
+}

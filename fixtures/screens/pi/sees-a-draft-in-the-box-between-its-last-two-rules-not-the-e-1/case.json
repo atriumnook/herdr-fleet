@@ -1,0 +1,5 @@
+{
+  "adapter": "pi",
+  "check": "draft",
+  "expected": true
+}

@@ -1,0 +1,5 @@
+{
+  "adapter": "opencode",
+  "check": "startupError",
+  "expected": "Unexpected error"
+}

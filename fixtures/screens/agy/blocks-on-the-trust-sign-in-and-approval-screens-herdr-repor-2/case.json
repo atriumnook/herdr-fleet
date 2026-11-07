@@ -1,0 +1,5 @@
+{
+  "adapter": "agy",
+  "check": "question",
+  "expected": "Antigravity CLI is not signed in."
+}

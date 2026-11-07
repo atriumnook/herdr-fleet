@@ -1,0 +1,5 @@
+{
+  "adapter": "pi",
+  "check": "startupError",
+  "expected": "Model \"x\" not found"
+}

@@ -3,7 +3,9 @@
  *
  * Each case is a folder `fixtures/screens/<agent>/<case>/` holding
  * - `screen.txt`: the screen as the pane drew it, ANSI included, byte for byte
- * - `case.json`: the call to make on it, and what that call returns (`expected`)
+ * - `case.json`: the call to make on it, and what that call returns (`expected`): a parser of
+ *   prompt.ts (`call`), or an agent adapter's look at the screen (`adapter` and `check`). A
+ *   check that finds nothing returns undefined, written as null
  *
  * A card's `id` is left out of `expected`, since only which cards share one matters, not
  * how it is computed: `sameIdAs` names the other cases whose card has the same id, and a
@@ -26,13 +28,20 @@ import {
   answerKeys, codexQueuedPrompt, codexQuestionsCollapsed, parseClaudeSuggestion, parseFallbackPrompt, parseInteractivePrompt,
   type AnswerStep, type QueueFront,
 } from "../server/prompt.ts";
+import { adapterFor } from "../server/fleet/adapters.ts";
+import type { AgentKind } from "../server/fleet/types.ts";
 
 export const SCREENS_DIR = join(import.meta.dir, "..", "fixtures", "screens");
 
 type Answer = Pick<PromptAnswer, "option_index" | "option_indices" | "custom_text">;
 
+/** an agent adapter's look at a screen (server/fleet/adapters.ts) */
+type Check = "startupError" | "question" | "readyError" | "inputReady" | "draft" | "turnError";
+
 export interface ScreenCase {
-  call: "parseInteractivePrompt" | "parseFallbackPrompt" | "codexQueuedPrompt" | "codexQuestionsCollapsed" | "parseClaudeSuggestion";
+  call?: "parseInteractivePrompt" | "parseFallbackPrompt" | "codexQueuedPrompt" | "codexQuestionsCollapsed" | "parseClaudeSuggestion";
+  adapter?: AgentKind;
+  check?: Check;
   /** the agent the parse is for (parseInteractivePrompt, parseFallbackPrompt) */
   agent?: string;
   /** codexQueuedPrompt: the questions the rollout holds no answer for, and the question the queue opened on */
@@ -71,13 +80,19 @@ export function evaluate({ screen, spec }: Pick<LoadedCase, "screen" | "spec">):
   if (spec.answers?.length && !prompt) throw new Error("answers are given for a call that returned no card");
   const { id = null, ...rest } = prompt ?? {};
   return {
-    value: JSON.parse(JSON.stringify(prompt ? rest : result)) as unknown,
+    value: JSON.parse(JSON.stringify(prompt ? rest : result ?? null)) as unknown,
     id,
     answers: (spec.answers ?? []).map(({ answer }) => JSON.parse(JSON.stringify(answerKeys(prompt!, answer))) as AnswerStep[]),
   };
 }
 
 function call(screen: string, spec: ScreenCase): unknown {
+  if (spec.adapter !== undefined || spec.check !== undefined) {
+    if (spec.adapter === undefined || spec.check === undefined || spec.call !== undefined) throw new Error("a check needs an adapter and a check, and no call");
+    const look = adapterFor(spec.adapter)[spec.check] as ((screen: string) => unknown) | undefined;
+    if (!look) throw new Error(`the ${spec.adapter} adapter has no ${spec.check}`);
+    return look.call(adapterFor(spec.adapter), screen);
+  }
   switch (spec.call) {
     case "parseInteractivePrompt": return parseInteractivePrompt(agentOf(spec), screen);
     case "parseFallbackPrompt": return parseFallbackPrompt(agentOf(spec), screen);
@@ -110,7 +125,9 @@ function update(): void {
     const result = evaluated.get(name)!;
     const sameIdAs = same.get(name) ?? [];
     const next: ScreenCase = {
-      call: spec.call,
+      ...(spec.call === undefined ? {} : { call: spec.call }),
+      ...(spec.adapter === undefined ? {} : { adapter: spec.adapter }),
+      ...(spec.check === undefined ? {} : { check: spec.check }),
       ...(spec.agent === undefined ? {} : { agent: spec.agent }),
       ...(spec.unanswered === undefined ? {} : { unanswered: spec.unanswered }),
       ...(spec.front === undefined ? {} : { front: spec.front }),

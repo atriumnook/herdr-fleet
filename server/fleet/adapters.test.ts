@@ -20,11 +20,6 @@ describe("pi adapter", () => {
     expect(withThinking("p/m")).toBe("p/m");
   });
 
-  it("reads the last Error: line pi printed when it gave up at startup", () => {
-    expect(pi.startupError('$ pi --model x\nError: Model "x" not found\n$ ')).toBe('Model "x" not found');
-    expect(pi.startupError("$ pi\n")).toBeUndefined();
-  });
-
   it("calls a turn failed by its last Error: line only when no HANDOFF follows", () => {
     expect(piTurnError("working...\nError: 401 unauthorized\n")).toBe("401 unauthorized");
     expect(piTurnError("Error: first\nmore\nError: second")).toBe("second");
@@ -48,21 +43,6 @@ describe("claude adapter", () => {
     expect(claude.launchArgs({ ...base, thinking: "off" }).slice(0, 2)).toEqual(["--effort", "low"]);
   });
 
-  it("fails a turn on the API error it settled with", () => {
-    expect(claude.turnError("❯ do it\n  ⎿  API Error: 404 model: no-such-model\n")).toBe("404 model: no-such-model");
-    expect(claude.turnError("● Done.\n")).toBeUndefined();
-  });
-
-  it("sees a draft in its input, but not the dim placeholder there (Claude Code 2.1, read with colors)", () => {
-    const rule = "\x1b[0m\x1b[38;2;136;136;136m────────\n";
-    const screen = (input: string) => `\x1b[0m❯ claude --permission-mode auto\n${rule}❯\u00a0${input}\r\n${rule}  \x1b[0m\x1b[38;2;255;193;7m⏵⏵ auto mode on\x1b[0m\n`;
-    expect(claude.draft!(screen("draft text here"))).toBe(true);
-    expect(claude.draft!(screen("あいう"))).toBe(true);
-    expect(claude.draft!(screen('\x1b[0m\x1b[2mTry "fix lint errors"\x1b[0m'))).toBe(false);
-    expect(claude.draft!(screen(""))).toBe(false);
-    // a shell prompt's ❯ is followed by a plain space
-    expect(claude.draft!("❯ claude\n")).toBe(false);
-  });
 });
 
 describe("pi adapter", () => {
@@ -72,17 +52,6 @@ describe("pi adapter", () => {
     expect(pi.readOnlyArgs).toEqual(["--exclude-tools", "edit,write,codemode"]);
   });
 
-  it("sees a draft in the box between its last two rules, not the empty box with only its cursor (pi 1.1, read with colors)", () => {
-    const rule = "\x1b[38;2;254;84;98m" + "─".repeat(60) + "\x1b[39m\x1b[0m\x1b]8;;\x07";
-    const screen = (input: string) => `\x1b[2K${rule}\r\n\x1b[2K${input}\x1b[0m\x1b]8;;\x07\r\n\x1b[2K${rule}\r\n\x1b[2K\x1b[38;2;126;136;142m~/app (main)\x1b[39m\r\n`;
-    expect(pi.draft!(screen("hello draft\x1b[7m \x1b[0m   "))).toBe(true);
-    expect(pi.draft!(screen("あいう\x1b[7m \x1b[0m"))).toBe(true);
-    expect(pi.draft!(screen("first line\x1b[0m\r\nsecond"))).toBe(true);
-    expect(pi.draft!(screen("\x1b[7m \x1b[0m" + " ".repeat(90)))).toBe(false);
-    // output with its own rule above the box does not make the box a draft
-    expect(pi.draft!(`${rule}\r\nanswer\r\n${screen("\x1b[7m \x1b[0m")}`)).toBe(false);
-    expect(pi.draft!("$ pi\n")).toBe(false);
-  });
 });
 
 describe("codex adapter", () => {
@@ -112,10 +81,6 @@ describe("codex adapter", () => {
     expect(tomlString("a\tb\\c\u0001\u007f")).toBe('"a\\tb\\\\c\\u0001\\u007F"');
   });
 
-  it("fails a turn on codex's last error line", () => {
-    expect(codex.turnError("› do it\n■ unexpected status 401 Unauthorized\n")).toBe("unexpected status 401 Unauthorized");
-    expect(codex.turnError("• Done.\n")).toBeUndefined();
-  });
 });
 
 describe("cursor adapter", () => {
@@ -125,25 +90,11 @@ describe("cursor adapter", () => {
     expect(cursor.launchArgs(base).at(-1)).toBe("/state/results");
   });
 
-  it("is ready once its input shows", () => {
-    expect(cursor.inputReady?.("  Cursor Agent\n  → Plan, search, build anything\n")).toBe(true);
-    expect(cursor.inputReady?.("❯ cursor-agent --model x\n")).toBe(false);
-  });
-
-  it("no longer asks once its input is drawn after the answered question", () => {
-    const answered = "│  ⚠ Workspace Trust Required  │\n│  ⏳ Trusting workspace...  │\n  Cursor Agent\n  → Plan, search, build anything\n";
-    expect(cursor.question?.(answered)).toBeUndefined();
-  });
-
   it("has no instruction option or level: the instructions lead the first prompt", () => {
     expect(cursor.launchArgs({ ...base, model: "gpt-5:high", thinking: "low" })).toEqual(["--model", "gpt-5", "--auto-review", "--add-dir", "/state/results"]);
     expect(cursor.instructionsInPrompt).toBe(true);
   });
 
-  it("calls the workspace trust question herdr reports as idle a block", () => {
-    expect(cursor.question?.("│  ⚠ Workspace Trust Required  │\n│  ▶ [a] Trust this workspace │")).toBe("Cursor Agent asks whether to trust this folder.");
-    expect(cursor.question?.("→ Plan, search, build anything")).toBeUndefined();
-  });
 });
 
 describe("cursor usage", () => {
@@ -198,24 +149,6 @@ describe("agy adapter", () => {
     expect(agy.instructionsInPrompt).toBe(true);
   });
 
-  it("blocks on the trust, sign-in and approval screens herdr reports as idle", () => {
-    expect(agy.question?.("Do you trust the contents of this project?\n> Yes, I trust this folder")).toContain("trust");
-    expect(agy.question?.("Welcome to the Antigravity CLI. You are currently not signed in.")).toContain("not signed in");
-    expect(agy.question?.("Requesting permission for:\n   ls -la /tmp\n\nRun this command?\n> 1. Yes, run command")).toContain("permission");
-    expect(agy.question?.("● E2E-OK\n>")).toBeUndefined();
-  });
-
-  it("no longer asks once an approved tool ran and its input is back", () => {
-    const approved = "Requesting permission for:\n   ls\nRun this command?\n> 1. Yes, run command\n● Bash(ls)\n● E2E-OK\n──────\n>\n──────\n? for shortcuts";
-    expect(agy.question?.(approved)).toBeUndefined();
-    expect(agy.question?.("──────\n>\n──────\n> do it\n● Bash(ls)\nRequesting permission for:\n   ls\n> 1. Yes, run command")).toContain("permission");
-  });
-
-  it("refuses to run the default model in place of an unknown one", () => {
-    const screen = '⚠ Warning\n  ⎿  model no-such-model is not recognized as a known model or custom model in settings. Using "Gemini 3.8 Flash\n';
-    expect(agy.readyError?.(screen)).toContain("Unknown model no-such-model");
-    expect(agy.readyError?.("Antigravity CLI 1.2.16\n>")).toBeUndefined();
-  });
 });
 
 describe("opencode adapter", () => {
@@ -258,30 +191,6 @@ describe("opencode adapter", () => {
   const editorRules = (before: Rule[] = []) => [...SCHEMA_DEFAULT, ...before, ...configOf(pane).permissions!];
   /** the verdict for a shell line, given the commands the scanner finds in it (tree-sitter, one resource each; a redirected one as the whole statement) */
   const shell = (rules: Rule[], ...commands: string[]) => decide(rules, "shell", ...commands);
-
-  it("sees a draft in its input box, but not the placeholder, a toast drawn over the box, or the agent row (v2.0.26, read with colors)", () => {
-    const row = (inner: string) => `\x1b[48;5;232m  \x1b[38;5;75m┃\x1b[38;5;15m\x1b[48;5;234m${inner}`;
-    const box = (...text: string[]) => [
-      "  ╹ New session",
-      row(" ".repeat(60)),
-      ...text.map((each) => row(`  \x1b[38;5;255m${each}\x1b[38;5;15m${" ".repeat(40)}`)),
-      row(" ".repeat(60)),
-      row("  \x1b[38;5;75mFleet-Readonly\x1b[38;5;15m \x1b[38;5;8m·\x1b[38;5;15m \x1b[38;5;255mExo Free\x1b[38;5;15m \x1b[38;5;8mOpenCode Zen"),
-      `\x1b[48;5;232m  \x1b[38;5;75m╹\x1b[38;5;234m${"▀".repeat(60)}`,
-      "  /tmp/work   shift+tab agents  ctrl+p commands",
-    ].join("\r\n");
-    expect(opencode.draft!(box("hello draft"))).toBe(true);
-    expect(opencode.draft!(box("あいう"))).toBe(true);
-    expect(opencode.draft!(box("hello draft", "second line"))).toBe(true);
-    expect(opencode.draft!(box('\x1b[38;5;8mAsk anything… "What is the tech stack of this project?"'))).toBe(false);
-    // the "Getting started" toast is drawn over the right of the box's rows
-    const toast = ["┃" + " ".repeat(100) + "Claude, GPT, Gemini etc", "┃", "┃" + " ".repeat(100) + "Connect provider", "┃  Fleet-Readonly · Exo Free OpenCode Zen", `╹${"▀".repeat(60)}`].join("\n");
-    expect(opencode.draft!(toast)).toBe(false);
-    expect(opencode.draft!("┃  Fleet-Readonly · Exo Free OpenCode Zen\n╹▀▀▀\n")).toBe(false);
-    // a message above the box is separated from it by a row with no bar
-    expect(opencode.draft!("  ┃  $ echo final\n  ┃\n  ┃  final\n  ┃\n\n  ┃\n  ┃\n  ┃  Fleet-Readonly · Exo Free OpenCode Zen\n  ╹▀▀▀\n")).toBe(false);
-    expect(opencode.draft!("$ opencode\n")).toBe(false);
-  });
 
   it("starts the TUI standalone and takes everything else in its config: no model flag, no thinking level, instructions in the first prompt", () => {
     expect(opencode.launchArgs({ ...base, model: "anthropic/claude-sonnet-5-5", thinking: "high" })).toEqual(["--standalone"]);
@@ -452,51 +361,7 @@ describe("opencode adapter", () => {
     expect(merging).toContain("git merge --no-ff <branch>");
   });
 
-  it("reads the screens a v2.0.26 session drew (captured from the TUI attached to a simulated server)", () => {
-    const permission = [
-      "  ┃  go", "  ┃", "  ┃  ⠙ ls -la", "  ┃", "     Press ctrl+b to move running work to the background", "  ┃", "  ┃  △ Permission required", "  ┃", "  ┃  $ ls -la", "  ┃", "  ┃",
-      "  ┃   Allow once   Always allow   Reject                               ctrl+f fullscreen  ⇆ select  enter confirm", "  ┃                                         /tmp/sp/pr1/work",
-    ].join("\n");
-    const declined = ["  ┃  $ ls -la", "  ┃", "  ┃  The user declined this tool call", "  ┃", "     Fleet-Readonly · Sim one · 41.2s · interrupted", "  ┃", "  ┃", "  ┃", "  ┃  Fleet-Readonly · Sim one Sim", `  ╹${"▀".repeat(60)}`, "  /tmp/sp/pr1/work    shift+tab agents  ctrl+p commands"].join("\n");
-    const typed = declined.replace("  ┃\n  ┃\n  ┃\n  ┃  Fleet-Readonly · Sim one Sim", "  ┃\n  ┃  draft here\n  ┃\n  ┃  Fleet-Readonly · Sim one Sim");
-    const retrying = ["  ┃  go", "  ┃", "     ⚠ Retrying in 2s · attempt 4 · Connection lost while reading the response: Simulated model provider", "     disconnected", "     Fleet-Readonly · Sim one", "  ┃", "  ┃", "  ┃", "  ┃  Fleet-Readonly · Sim one Sim", `  ╹${"▀".repeat(60)}`].join("\n");
-    expect(opencode.question!(permission)).toContain("permission");
-    expect(opencode.question!(declined)).toBeUndefined();
-    expect(opencode.draft!(declined)).toBe(false);
-    expect(opencode.draft!(typed)).toBe(true);
-    expect(opencode.turnError(retrying)).toBe("Connection lost while reading the response: Simulated model provider disconnected");
-    expect(opencode.draft!(retrying)).toBe(false);
-  });
-
-  it("blocks on a permission request and not once it is answered", () => {
-    const asked = "  △ Permission required\n    # Shell command\n    $ rm -rf build\n\n  Allow once   Always allow   Reject";
-    expect(opencode.question?.(asked)).toContain("permission");
-    expect(opencode.question?.("\x1b[1m△ Permission required\x1b[0m\n Allow\x1b[2m once\x1b[0m  Always allow  Reject")).toContain("permission");
-    // a narrow pane shortens the title
-    expect(opencode.question?.("△ Permission\n Allow once  Always allow  Reject")).toContain("permission");
-    expect(opencode.question?.('┃  Ask anything… "What is the tech stack of this project?"\n┃  Fleet-Readonly · Exo Free OpenCode Zen')).toBeUndefined();
-    expect(opencode.question?.("The docs call it a Permission required screen with Allow once.")).toBeUndefined();
-  });
-
-  it("reads a failed request from its retry line, and a given-up one from its Error line", () => {
-    expect(opencode.turnError("working\n⚠ Retrying in 12s · attempt 3 · Rate limit exceeded\n")).toBe("Rate limit exceeded");
-    expect(opencode.turnError("   ⚠ Retry due · attempt 2 · Provider overloaded")).toBe("Provider overloaded");
-    expect(opencode.turnError("     Error: Model exo-free has been deprecated.\n\n     Fleet-Readonly · Exo Free · 595ms")).toBe("Model exo-free has been deprecated.");
-    expect(opencode.turnError("HANDOFF\nPASS\nError: quoted in the evidence")).toBeUndefined();
-    // an Error: line of a tool's output is not a failed turn
-    expect(opencode.turnError("  ┃  $ bun test\n  ┃  Error: 3 tests failed\n  ┃  exit 1\n")).toBeUndefined();
-    expect(opencode.turnError("done")).toBeUndefined();
-  });
-
-  it("reads the error line of a CLI that quit while starting", () => {
-    expect(opencode.startupError("Error: Unexpected error")).toBe("Unexpected error");
-    expect(opencode.startupError('Ask anything… "What is the tech stack of this project?"')).toBeUndefined();
-  });
-
-  it("refuses to run on an opencode that is not version 2: it answers --standalone with its help", () => {
-    // 1.19.0, run in a terminal-less pane: the help text and exit code 1, no TUI
-    const help = "Commands:\n  opencode completion          generate shell completion script\n  opencode [project]           start opencode tui                                          [default]\n";
-    expect(opencode.startupError(help)).toContain("not OpenCode 2");
+  it("refuses an opencode that is not version 2 while starting, not once ready: it has no ready check (fixtures/screens: its help)", () => {
     expect(opencode.readyError).toBeUndefined();
   });
 

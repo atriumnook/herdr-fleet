@@ -1,0 +1,3 @@
+$ pi --model x
+Error: Model "x" not found
+$ 

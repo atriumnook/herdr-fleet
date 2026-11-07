@@ -1,0 +1,5 @@
+[0m❯ claude --permission-mode auto
+[0m[38;2;136;136;136m────────
+❯ [0m[2mTry "fix lint errors"[0m
+[0m[38;2;136;136;136m────────
+  [0m[38;2;255;193;7m⏵⏵ auto mode on[0m

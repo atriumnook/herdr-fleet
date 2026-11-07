@@ -1,0 +1,10 @@
+  ┃  go
+  ┃
+     ⚠ Retrying in 2s · attempt 4 · Connection lost while reading the response: Simulated model provider
+     disconnected
+     Fleet-Readonly · Sim one
+  ┃
+  ┃
+  ┃
+  ┃  Fleet-Readonly · Sim one Sim
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀

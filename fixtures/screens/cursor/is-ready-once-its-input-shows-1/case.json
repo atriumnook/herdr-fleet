@@ -1,0 +1,5 @@
+{
+  "adapter": "cursor",
+  "check": "inputReady",
+  "expected": true
+}

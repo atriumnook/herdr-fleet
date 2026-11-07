@@ -1,0 +1,5 @@
+{
+  "adapter": "agy",
+  "check": "readyError",
+  "expected": "Unknown model no-such-model: Antigravity CLI would run its default model instead."
+}

@@ -1,0 +1,5 @@
+Requesting permission for:
+   ls -la /tmp
+
+Run this command?
+> 1. Yes, run command

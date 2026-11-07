@@ -1,0 +1,5 @@
+{
+  "adapter": "opencode",
+  "check": "question",
+  "expected": "OpenCode asks for permission."
+}
