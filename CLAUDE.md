@@ -2,6 +2,14 @@
 
 Herdr 上で複数のコーディングエージェント(pi / Claude Code / Codex / Cursor / Antigravity / OpenCode)を役割分担させ、ブラウザから見て操作するための個人用ツール。herdr-web-ui v0.3.45 の fork で、上流の履歴は取り込んでいない(起点は NOTICE)。上流の変更は自動では取り込まず、差分を読んでから必要な分だけ手で移す。
 
+## rust ブランチ(Rust への置き換え)
+
+このブランチは、herdr-fleet を Rust に置き換える作業のためのもので、fleet のエージェントが人の判断なしで進める。計画は `docs/rust-migration/plan.md`、すべてのエージェントが守る決まりは `.herdr-fleet/standing.md`、役割は `.herdr-fleet/agents/` にある。下の「コミットと PR」の承認の決まりは、このブランチでは次のとおり置き換える。使う人(atriumnook)が事前に承認した範囲で、これを超える操作はしない。
+
+- してよい: 自分の thread のブランチの push(force は不可)、`rust` を base にした PR の作成と、関門を通ったあとの merge commit でのマージ、ラベル `rust-migration` の Issue の作成・コメント・クローズ、`.github/workflows/` の workflow を計画の範囲で走らせること、各 CLI のサブスクリプションの範囲でのモデルの利用
+- してはいけない: `main` への push・マージ・PR、`~/git/herdr-fleet`(稼働中の fleet)と `~/.config/herdr-fleet` への書き込み、稼働中のサーバー(ポート 7317)と使う人の herdr のセッションへの操作、API キーの利用、リポジトリの設定・ruleset・secrets・公開範囲の変更、force push
+- Rust の core やテストを動かすときは、`HERDR_*` を外し、専用の herdr のセッション(`herdr-fleet-rs-<run id>`)、ポート 7400〜7499、自分の worktree の中の state フォルダー(`HERDR_FLEET_STATE_DIR`)を使う
+
 ## 構成
 
 - `server/` — Bun の単一プロセス。HTTP / WebSocket(`index.ts`)、Herdr の socket クライアント(`herdr/client.ts`)、全ペインの状態イベントを購読する collector(`collector.ts`)、ターミナル表示用の PTY sidecar(`pty/`)、承認画面の解析(`prompt.ts`。画面を受け取ってカードを返すだけで I/O を持たない。ペインごとの状態と HTTP の処理は `prompt-api.ts`)、会話ログの解析(`conversation.ts` ほか)

@@ -5,7 +5,13 @@ dist/
 evidence/
 .omo/
 .gjc/
-.herdr-fleet/
+# fleet's worktrees and state stay out; the rust branch keeps its project roles, standing orders and config
+.herdr-fleet/*
+!.herdr-fleet/agents/
+!.herdr-fleet/standing.md
+!.herdr-fleet/fleet.json
+# cargo's build output
+/rust/target/
 
 remote-bundles/
 
