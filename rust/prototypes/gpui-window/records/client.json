@@ -1,0 +1,16 @@
+{
+  "class": "herdr-fleet-gpui-window",
+  "title": "herdr-fleet GPUI prototype",
+  "xwayland": false,
+  "pid": 4014257,
+  "at": [
+    1480,
+    613
+  ],
+  "size": [
+    480,
+    240
+  ],
+  "workspace": "1",
+  "floating": true
+}
