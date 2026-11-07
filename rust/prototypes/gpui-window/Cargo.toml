@@ -1,0 +1,12 @@
+[package]
+name = "gpui-window"
+version = "0.0.0"
+edition = "2024"
+publish = false
+description = "Prototype for #108: does GPUI open a native Wayland window and draw English and Japanese text on this PC?"
+
+# Not a member of the rust/ workspace (#108): an empty workspace keeps it standalone.
+[workspace]
+
+[dependencies]
+gpui = "=0.2.2"
