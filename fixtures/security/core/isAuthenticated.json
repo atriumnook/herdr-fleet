@@ -1,0 +1,178 @@
+[
+  {
+    "about": "added: no token configured: every request passes",
+    "input": {
+      "headers": [],
+      "token": ""
+    },
+    "expected": true
+  },
+  {
+    "about": "added: a token configured and nothing sent",
+    "input": {
+      "headers": [],
+      "token": "abc123token"
+    },
+    "expected": false
+  },
+  {
+    "about": "added: the token cookie",
+    "input": {
+      "headers": [
+        [
+          "cookie",
+          "herdr_fleet_token=abc123token"
+        ]
+      ],
+      "token": "abc123token"
+    },
+    "expected": true
+  },
+  {
+    "about": "added: the token cookie among another app's junk cookies",
+    "input": {
+      "headers": [
+        [
+          "cookie",
+          "junk; =x; other=%E0; herdr_fleet_token=abc123token"
+        ]
+      ],
+      "token": "abc123token"
+    },
+    "expected": true
+  },
+  {
+    "about": "added: the token cookie, percent-encoded",
+    "input": {
+      "headers": [
+        [
+          "cookie",
+          "herdr_fleet_token=a%20b"
+        ]
+      ],
+      "token": "a b"
+    },
+    "expected": true
+  },
+  {
+    "about": "added: a wrong token cookie",
+    "input": {
+      "headers": [
+        [
+          "cookie",
+          "herdr_fleet_token=abc123toke"
+        ]
+      ],
+      "token": "abc123token"
+    },
+    "expected": false
+  },
+  {
+    "about": "added: a paired device's cookie is not the token",
+    "input": {
+      "headers": [
+        [
+          "cookie",
+          "herdr_fleet_device=abc123token"
+        ]
+      ],
+      "token": "abc123token"
+    },
+    "expected": false
+  },
+  {
+    "about": "added: the bearer token",
+    "input": {
+      "headers": [
+        [
+          "authorization",
+          "Bearer abc123token"
+        ]
+      ],
+      "token": "abc123token"
+    },
+    "expected": true
+  },
+  {
+    "about": "added: the bearer token, the scheme in other case",
+    "input": {
+      "headers": [
+        [
+          "authorization",
+          "BEARER abc123token"
+        ]
+      ],
+      "token": "abc123token"
+    },
+    "expected": true
+  },
+  {
+    "about": "added: a wrong bearer token",
+    "input": {
+      "headers": [
+        [
+          "authorization",
+          "Bearer abc123tokem"
+        ]
+      ],
+      "token": "abc123token"
+    },
+    "expected": false
+  },
+  {
+    "about": "added: the token under another scheme",
+    "input": {
+      "headers": [
+        [
+          "authorization",
+          "Basic abc123token"
+        ]
+      ],
+      "token": "abc123token"
+    },
+    "expected": false
+  },
+  {
+    "about": "added: the token with no scheme",
+    "input": {
+      "headers": [
+        [
+          "authorization",
+          "abc123token"
+        ]
+      ],
+      "token": "abc123token"
+    },
+    "expected": false
+  },
+  {
+    "about": "added: a wrong cookie and the right bearer token",
+    "input": {
+      "headers": [
+        [
+          "cookie",
+          "herdr_fleet_token=wrong"
+        ],
+        [
+          "authorization",
+          "Bearer abc123token"
+        ]
+      ],
+      "token": "abc123token"
+    },
+    "expected": true
+  },
+  {
+    "about": "added: a longer token that begins with the right one",
+    "input": {
+      "headers": [
+        [
+          "authorization",
+          "Bearer abc123tokenx"
+        ]
+      ],
+      "token": "abc123token"
+    },
+    "expected": false
+  }
+]

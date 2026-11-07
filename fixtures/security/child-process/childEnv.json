@@ -1,0 +1,961 @@
+[
+  {
+    "about": "server/cli-child.ts KEPT_ENV: PATH passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "PATH": "value-of-PATH",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "PATH": "value-of-PATH"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: HOME passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "HOME": "value-of-HOME",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "HOME": "value-of-HOME"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: USER passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "USER": "value-of-USER",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "USER": "value-of-USER"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: LOGNAME passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "LOGNAME": "value-of-LOGNAME",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "LOGNAME": "value-of-LOGNAME"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: SHELL passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "SHELL": "value-of-SHELL",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "SHELL": "value-of-SHELL"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: LANG passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "LANG": "value-of-LANG",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "LANG": "value-of-LANG"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: LANGUAGE passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "LANGUAGE": "value-of-LANGUAGE",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "LANGUAGE": "value-of-LANGUAGE"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: TZ passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "TZ": "value-of-TZ",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "TZ": "value-of-TZ"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: TMPDIR passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "TMPDIR": "value-of-TMPDIR",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "TMPDIR": "value-of-TMPDIR"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: HTTP_PROXY passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "HTTP_PROXY": "value-of-HTTP_PROXY",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "HTTP_PROXY": "value-of-HTTP_PROXY"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: HTTPS_PROXY passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "HTTPS_PROXY": "value-of-HTTPS_PROXY",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "HTTPS_PROXY": "value-of-HTTPS_PROXY"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: NO_PROXY passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "NO_PROXY": "value-of-NO_PROXY",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "NO_PROXY": "value-of-NO_PROXY"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: http_proxy passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "http_proxy": "value-of-http_proxy",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "http_proxy": "value-of-http_proxy"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: https_proxy passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "https_proxy": "value-of-https_proxy",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "https_proxy": "value-of-https_proxy"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: no_proxy passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "no_proxy": "value-of-no_proxy",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "no_proxy": "value-of-no_proxy"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: SSL_CERT_FILE passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "SSL_CERT_FILE": "value-of-SSL_CERT_FILE",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "SSL_CERT_FILE": "value-of-SSL_CERT_FILE"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: SSL_CERT_DIR passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "SSL_CERT_DIR": "value-of-SSL_CERT_DIR",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "SSL_CERT_DIR": "value-of-SSL_CERT_DIR"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: NODE_EXTRA_CA_CERTS passes, an API key beside it does not",
+    "input": {
+      "env": {
+        "NODE_EXTRA_CA_CERTS": "value-of-NODE_EXTRA_CA_CERTS",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "NODE_EXTRA_CA_CERTS": "value-of-NODE_EXTRA_CA_CERTS"
+    }
+  },
+  {
+    "about": "server/cli-child.ts KEPT_ENV: every kept name at once, among API keys and herdr's variables",
+    "input": {
+      "env": {
+        "PATH": "value-of-PATH",
+        "HOME": "value-of-HOME",
+        "USER": "value-of-USER",
+        "LOGNAME": "value-of-LOGNAME",
+        "SHELL": "value-of-SHELL",
+        "LANG": "value-of-LANG",
+        "LANGUAGE": "value-of-LANGUAGE",
+        "TZ": "value-of-TZ",
+        "TMPDIR": "value-of-TMPDIR",
+        "HTTP_PROXY": "value-of-HTTP_PROXY",
+        "HTTPS_PROXY": "value-of-HTTPS_PROXY",
+        "NO_PROXY": "value-of-NO_PROXY",
+        "http_proxy": "value-of-http_proxy",
+        "https_proxy": "value-of-https_proxy",
+        "no_proxy": "value-of-no_proxy",
+        "SSL_CERT_FILE": "value-of-SSL_CERT_FILE",
+        "SSL_CERT_DIR": "value-of-SSL_CERT_DIR",
+        "NODE_EXTRA_CA_CERTS": "value-of-NODE_EXTRA_CA_CERTS",
+        "ANTHROPIC_API_KEY": "sk-ant",
+        "OPENAI_API_KEY": "sk-openai",
+        "GEMINI_API_KEY": "g-key",
+        "CURSOR_API_KEY": "c-key",
+        "HERDR_SOCKET": "/run/herdr.sock",
+        "HERDR_FLEET_TOKEN": "t",
+        "ANTHROPIC_BASE_URL": "https://elsewhere",
+        "CLAUDE_CODE_USE_BEDROCK": "1",
+        "AWS_SECRET_ACCESS_KEY": "s"
+      }
+    },
+    "expected": {
+      "PATH": "value-of-PATH",
+      "HOME": "value-of-HOME",
+      "USER": "value-of-USER",
+      "LOGNAME": "value-of-LOGNAME",
+      "SHELL": "value-of-SHELL",
+      "LANG": "value-of-LANG",
+      "LANGUAGE": "value-of-LANGUAGE",
+      "TZ": "value-of-TZ",
+      "TMPDIR": "value-of-TMPDIR",
+      "HTTP_PROXY": "value-of-HTTP_PROXY",
+      "HTTPS_PROXY": "value-of-HTTPS_PROXY",
+      "NO_PROXY": "value-of-NO_PROXY",
+      "http_proxy": "value-of-http_proxy",
+      "https_proxy": "value-of-https_proxy",
+      "no_proxy": "value-of-no_proxy",
+      "SSL_CERT_FILE": "value-of-SSL_CERT_FILE",
+      "SSL_CERT_DIR": "value-of-SSL_CERT_DIR",
+      "NODE_EXTRA_CA_CERTS": "value-of-NODE_EXTRA_CA_CERTS"
+    }
+  },
+  {
+    "about": "added: the locale (LC_*): LC_ALL passes",
+    "input": {
+      "env": {
+        "LC_ALL": "ja_JP.UTF-8"
+      }
+    },
+    "expected": {
+      "LC_ALL": "ja_JP.UTF-8"
+    }
+  },
+  {
+    "about": "added: the locale (LC_*): LC_CTYPE passes",
+    "input": {
+      "env": {
+        "LC_CTYPE": "ja_JP.UTF-8"
+      }
+    },
+    "expected": {
+      "LC_CTYPE": "ja_JP.UTF-8"
+    }
+  },
+  {
+    "about": "added: the locale (LC_*): LC_MESSAGES passes",
+    "input": {
+      "env": {
+        "LC_MESSAGES": "ja_JP.UTF-8"
+      }
+    },
+    "expected": {
+      "LC_MESSAGES": "ja_JP.UTF-8"
+    }
+  },
+  {
+    "about": "added: the locale (LC_*): LC_TIME passes",
+    "input": {
+      "env": {
+        "LC_TIME": "ja_JP.UTF-8"
+      }
+    },
+    "expected": {
+      "LC_TIME": "ja_JP.UTF-8"
+    }
+  },
+  {
+    "about": "added: XDG_*: XDG_CONFIG_HOME passes",
+    "input": {
+      "env": {
+        "XDG_CONFIG_HOME": "/home/u/XDG_CONFIG_HOME"
+      }
+    },
+    "expected": {
+      "XDG_CONFIG_HOME": "/home/u/XDG_CONFIG_HOME"
+    }
+  },
+  {
+    "about": "added: XDG_*: XDG_DATA_HOME passes",
+    "input": {
+      "env": {
+        "XDG_DATA_HOME": "/home/u/XDG_DATA_HOME"
+      }
+    },
+    "expected": {
+      "XDG_DATA_HOME": "/home/u/XDG_DATA_HOME"
+    }
+  },
+  {
+    "about": "added: XDG_*: XDG_STATE_HOME passes",
+    "input": {
+      "env": {
+        "XDG_STATE_HOME": "/home/u/XDG_STATE_HOME"
+      }
+    },
+    "expected": {
+      "XDG_STATE_HOME": "/home/u/XDG_STATE_HOME"
+    }
+  },
+  {
+    "about": "added: XDG_*: XDG_CACHE_HOME passes",
+    "input": {
+      "env": {
+        "XDG_CACHE_HOME": "/home/u/XDG_CACHE_HOME"
+      }
+    },
+    "expected": {
+      "XDG_CACHE_HOME": "/home/u/XDG_CACHE_HOME"
+    }
+  },
+  {
+    "about": "added: XDG_*: XDG_RUNTIME_DIR passes",
+    "input": {
+      "env": {
+        "XDG_RUNTIME_DIR": "/home/u/XDG_RUNTIME_DIR"
+      }
+    },
+    "expected": {
+      "XDG_RUNTIME_DIR": "/home/u/XDG_RUNTIME_DIR"
+    }
+  },
+  {
+    "about": "added: only the exact names and prefixes pass: LC does not",
+    "input": {
+      "env": {
+        "LC": "x"
+      }
+    },
+    "expected": {}
+  },
+  {
+    "about": "added: only the exact names and prefixes pass: XDG does not",
+    "input": {
+      "env": {
+        "XDG": "x"
+      }
+    },
+    "expected": {}
+  },
+  {
+    "about": "added: only the exact names and prefixes pass: lc_all does not",
+    "input": {
+      "env": {
+        "lc_all": "x"
+      }
+    },
+    "expected": {}
+  },
+  {
+    "about": "added: only the exact names and prefixes pass: xdg_config_home does not",
+    "input": {
+      "env": {
+        "xdg_config_home": "x"
+      }
+    },
+    "expected": {}
+  },
+  {
+    "about": "added: only the exact names and prefixes pass: path does not",
+    "input": {
+      "env": {
+        "path": "x"
+      }
+    },
+    "expected": {}
+  },
+  {
+    "about": "added: only the exact names and prefixes pass: Home does not",
+    "input": {
+      "env": {
+        "Home": "x"
+      }
+    },
+    "expected": {}
+  },
+  {
+    "about": "added: only the exact names and prefixes pass: MY_LC_ALL does not",
+    "input": {
+      "env": {
+        "MY_LC_ALL": "x"
+      }
+    },
+    "expected": {}
+  },
+  {
+    "about": "added: only the exact names and prefixes pass: XXDG_CONFIG_HOME does not",
+    "input": {
+      "env": {
+        "XXDG_CONFIG_HOME": "x"
+      }
+    },
+    "expected": {}
+  },
+  {
+    "about": "added: ANTHROPIC_API_KEY does not pass (server/fleet/models.test.ts, server/fleet/usage.test.ts, server/explain.test.ts)",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "ANTHROPIC_API_KEY": "sk-ant"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: OPENAI_API_KEY does not pass (server/fleet/models.test.ts, server/fleet/usage.test.ts, server/explain.test.ts)",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "OPENAI_API_KEY": "sk-openai"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: GEMINI_API_KEY does not pass (server/fleet/models.test.ts, server/fleet/usage.test.ts, server/explain.test.ts)",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "GEMINI_API_KEY": "g-key"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: CURSOR_API_KEY does not pass (server/fleet/models.test.ts, server/fleet/usage.test.ts, server/explain.test.ts)",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "CURSOR_API_KEY": "c-key"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: HERDR_SOCKET does not pass (server/fleet/models.test.ts, server/fleet/usage.test.ts, server/explain.test.ts)",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "HERDR_SOCKET": "/run/herdr.sock"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: HERDR_FLEET_TOKEN does not pass (server/fleet/models.test.ts, server/fleet/usage.test.ts, server/explain.test.ts)",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "HERDR_FLEET_TOKEN": "t"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: ANTHROPIC_BASE_URL does not pass (server/fleet/models.test.ts, server/fleet/usage.test.ts, server/explain.test.ts)",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "ANTHROPIC_BASE_URL": "https://elsewhere"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: CLAUDE_CODE_USE_BEDROCK does not pass (server/fleet/models.test.ts, server/fleet/usage.test.ts, server/explain.test.ts)",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "CLAUDE_CODE_USE_BEDROCK": "1"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: AWS_SECRET_ACCESS_KEY does not pass (server/fleet/models.test.ts, server/fleet/usage.test.ts, server/explain.test.ts)",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "AWS_SECRET_ACCESS_KEY": "s"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: herdr's variables do not pass: HERDR_FLEET_URL",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "HERDR_FLEET_URL": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: herdr's variables do not pass: HERDR_FLEET_GROUP",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "HERDR_FLEET_GROUP": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: herdr's variables do not pass: HERDR_FLEET_DEPTH",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "HERDR_FLEET_DEPTH": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: herdr's variables do not pass: HERDR_PANE_ID",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "HERDR_PANE_ID": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: herdr's variables do not pass: HERDR_SESSION",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "HERDR_SESSION": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: other settings do not pass: OPENCODE_CONFIG_CONTENT",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "OPENCODE_CONFIG_CONTENT": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: other settings do not pass: OPENCODE_SERVER_PASSWORD",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "OPENCODE_SERVER_PASSWORD": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: other settings do not pass: GOOGLE_APPLICATION_CREDENTIALS",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "GOOGLE_APPLICATION_CREDENTIALS": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: other settings do not pass: GITHUB_TOKEN",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "GITHUB_TOKEN": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: other settings do not pass: GH_TOKEN",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "GH_TOKEN": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: other settings do not pass: NODE_OPTIONS",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "NODE_OPTIONS": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: other settings do not pass: LD_PRELOAD",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "LD_PRELOAD": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: other settings do not pass: GIT_CONFIG_COUNT",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "GIT_CONFIG_COUNT": "x"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: alsoKeep: CLAUDE_CONFIG_DIR passes when named",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "CLAUDE_CONFIG_DIR": "/home/u/CLAUDE_CONFIG_DIR",
+        "ANTHROPIC_API_KEY": "sk-ant",
+        "OPENAI_API_KEY": "sk-openai",
+        "GEMINI_API_KEY": "g-key",
+        "CURSOR_API_KEY": "c-key",
+        "HERDR_SOCKET": "/run/herdr.sock",
+        "HERDR_FLEET_TOKEN": "t",
+        "ANTHROPIC_BASE_URL": "https://elsewhere",
+        "CLAUDE_CODE_USE_BEDROCK": "1",
+        "AWS_SECRET_ACCESS_KEY": "s"
+      },
+      "alsoKeep": [
+        "CLAUDE_CONFIG_DIR"
+      ]
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "CLAUDE_CONFIG_DIR": "/home/u/CLAUDE_CONFIG_DIR"
+    }
+  },
+  {
+    "about": "added: alsoKeep: CLAUDE_CONFIG_DIR does not pass when not named",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "CLAUDE_CONFIG_DIR": "/home/u/CLAUDE_CONFIG_DIR"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: alsoKeep: CODEX_HOME passes when named",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "CODEX_HOME": "/home/u/CODEX_HOME",
+        "ANTHROPIC_API_KEY": "sk-ant",
+        "OPENAI_API_KEY": "sk-openai",
+        "GEMINI_API_KEY": "g-key",
+        "CURSOR_API_KEY": "c-key",
+        "HERDR_SOCKET": "/run/herdr.sock",
+        "HERDR_FLEET_TOKEN": "t",
+        "ANTHROPIC_BASE_URL": "https://elsewhere",
+        "CLAUDE_CODE_USE_BEDROCK": "1",
+        "AWS_SECRET_ACCESS_KEY": "s"
+      },
+      "alsoKeep": [
+        "CODEX_HOME"
+      ]
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "CODEX_HOME": "/home/u/CODEX_HOME"
+    }
+  },
+  {
+    "about": "added: alsoKeep: CODEX_HOME does not pass when not named",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "CODEX_HOME": "/home/u/CODEX_HOME"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: alsoKeep: PI_CODING_AGENT_DIR passes when named",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "PI_CODING_AGENT_DIR": "/home/u/PI_CODING_AGENT_DIR",
+        "ANTHROPIC_API_KEY": "sk-ant",
+        "OPENAI_API_KEY": "sk-openai",
+        "GEMINI_API_KEY": "g-key",
+        "CURSOR_API_KEY": "c-key",
+        "HERDR_SOCKET": "/run/herdr.sock",
+        "HERDR_FLEET_TOKEN": "t",
+        "ANTHROPIC_BASE_URL": "https://elsewhere",
+        "CLAUDE_CODE_USE_BEDROCK": "1",
+        "AWS_SECRET_ACCESS_KEY": "s"
+      },
+      "alsoKeep": [
+        "PI_CODING_AGENT_DIR"
+      ]
+    },
+    "expected": {
+      "PATH": "/usr/bin",
+      "PI_CODING_AGENT_DIR": "/home/u/PI_CODING_AGENT_DIR"
+    }
+  },
+  {
+    "about": "added: alsoKeep: PI_CODING_AGENT_DIR does not pass when not named",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "PI_CODING_AGENT_DIR": "/home/u/PI_CODING_AGENT_DIR"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: alsoKeep cannot let an API key through by naming another variable",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin",
+        "ANTHROPIC_API_KEY": "sk-ant",
+        "OPENAI_API_KEY": "sk-openai",
+        "GEMINI_API_KEY": "g-key",
+        "CURSOR_API_KEY": "c-key",
+        "HERDR_SOCKET": "/run/herdr.sock",
+        "HERDR_FLEET_TOKEN": "t",
+        "ANTHROPIC_BASE_URL": "https://elsewhere",
+        "CLAUDE_CODE_USE_BEDROCK": "1",
+        "AWS_SECRET_ACCESS_KEY": "s"
+      },
+      "alsoKeep": [
+        "CODEX_HOME"
+      ]
+    },
+    "expected": {
+      "PATH": "/usr/bin"
+    }
+  },
+  {
+    "about": "added: an empty value passes as it is",
+    "input": {
+      "env": {
+        "TZ": "",
+        "LC_ALL": ""
+      }
+    },
+    "expected": {
+      "TZ": "",
+      "LC_ALL": ""
+    }
+  },
+  {
+    "about": "added: an empty environment",
+    "input": {
+      "env": {}
+    },
+    "expected": {}
+  },
+  {
+    "about": "server/fleet/usage.test.ts: what a probe's CLI gets > codex app-server runs in its own emptied folder, with CODEX_HOME and no API key or herdr session",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin:/bin",
+        "HOME": "/home/u",
+        "LANG": "ja_JP.UTF-8",
+        "CODEX_HOME": "/home/u/.codex-alt",
+        "CLAUDE_CONFIG_DIR": "/home/u/.claude-alt",
+        "ANTHROPIC_API_KEY": "sk-ant",
+        "OPENAI_API_KEY": "sk-openai",
+        "GEMINI_API_KEY": "g-key",
+        "HERDR_SOCKET": "/run/herdr.sock",
+        "HERDR_FLEET_TOKEN": "t"
+      },
+      "alsoKeep": [
+        "CODEX_HOME"
+      ]
+    },
+    "expected": {
+      "PATH": "/usr/bin:/bin",
+      "HOME": "/home/u",
+      "LANG": "ja_JP.UTF-8",
+      "CODEX_HOME": "/home/u/.codex-alt"
+    }
+  },
+  {
+    "about": "server/fleet/usage.test.ts: what a probe's CLI gets > agy runs in its own emptied folder, without an API key or herdr session (the environment before AGY_CLI_DISABLE_AUTO_UPDATE)",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin:/bin",
+        "HOME": "/home/u",
+        "LANG": "ja_JP.UTF-8",
+        "CODEX_HOME": "/home/u/.codex-alt",
+        "CLAUDE_CONFIG_DIR": "/home/u/.claude-alt",
+        "ANTHROPIC_API_KEY": "sk-ant",
+        "OPENAI_API_KEY": "sk-openai",
+        "GEMINI_API_KEY": "g-key",
+        "HERDR_SOCKET": "/run/herdr.sock",
+        "HERDR_FLEET_TOKEN": "t"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin:/bin",
+      "HOME": "/home/u",
+      "LANG": "ja_JP.UTF-8"
+    }
+  },
+  {
+    "about": "server/fleet/models.test.ts: what a model listing's CLI gets > cursor lists in its own emptied folder, without an API key or herdr session",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin:/bin",
+        "HOME": "/home/u",
+        "LANG": "ja_JP.UTF-8",
+        "CODEX_HOME": "/home/u/.codex-alt",
+        "PI_CODING_AGENT_DIR": "/home/u/.pi-alt",
+        "CLAUDE_CONFIG_DIR": "/home/u/.claude-alt",
+        "ANTHROPIC_API_KEY": "sk-ant",
+        "OPENAI_API_KEY": "sk-openai",
+        "GEMINI_API_KEY": "g-key",
+        "CURSOR_API_KEY": "c-key",
+        "HERDR_SOCKET": "/run/herdr.sock",
+        "HERDR_FLEET_TOKEN": "t"
+      }
+    },
+    "expected": {
+      "PATH": "/usr/bin:/bin",
+      "HOME": "/home/u",
+      "LANG": "ja_JP.UTF-8"
+    }
+  },
+  {
+    "about": "server/fleet/models.test.ts: what a model listing's CLI gets > pi lists in its own emptied folder, with its own folder's setting and no API key or herdr session",
+    "input": {
+      "env": {
+        "PATH": "/usr/bin:/bin",
+        "HOME": "/home/u",
+        "LANG": "ja_JP.UTF-8",
+        "CODEX_HOME": "/home/u/.codex-alt",
+        "PI_CODING_AGENT_DIR": "/home/u/.pi-alt",
+        "CLAUDE_CONFIG_DIR": "/home/u/.claude-alt",
+        "ANTHROPIC_API_KEY": "sk-ant",
+        "OPENAI_API_KEY": "sk-openai",
+        "GEMINI_API_KEY": "g-key",
+        "CURSOR_API_KEY": "c-key",
+        "HERDR_SOCKET": "/run/herdr.sock",
+        "HERDR_FLEET_TOKEN": "t"
+      },
+      "alsoKeep": [
+        "PI_CODING_AGENT_DIR"
+      ]
+    },
+    "expected": {
+      "PATH": "/usr/bin:/bin",
+      "HOME": "/home/u",
+      "LANG": "ja_JP.UTF-8",
+      "PI_CODING_AGENT_DIR": "/home/u/.pi-alt"
+    }
+  }
+]

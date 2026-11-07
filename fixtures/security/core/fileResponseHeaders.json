@@ -1,0 +1,537 @@
+[
+  {
+    "about": "server/file-view.test.ts: file view > draws an HTML page without its scripts, loading only its pane's files, and shows any other HTML as text (the page)",
+    "input": {
+      "file": {
+        "name": "page.html",
+        "mime": "text/html",
+        "kind": "html"
+      },
+      "download": false,
+      "page": {
+        "host": "127.0.0.1:8787",
+        "paneId": "w1:p1"
+      }
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''page.html"
+      ],
+      [
+        "content-security-policy",
+        "sandbox allow-same-origin; default-src 'none'; img-src data: 127.0.0.1:8787/api/fs/view/w1%3Ap1/; media-src 127.0.0.1:8787/api/fs/view/w1%3Ap1/; style-src 'unsafe-inline' 127.0.0.1:8787/api/fs/view/w1%3Ap1/; font-src data: 127.0.0.1:8787/api/fs/view/w1%3Ap1/"
+      ],
+      [
+        "content-type",
+        "text/html;charset=utf-8"
+      ],
+      [
+        "referrer-policy",
+        "no-referrer"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "server/file-view.test.ts: file view > draws an HTML page without its scripts, loading only its pane's files, and shows any other HTML as text (a Host that is no plain authority)",
+    "input": {
+      "file": {
+        "name": "page.html",
+        "mime": "text/html",
+        "kind": "html"
+      },
+      "download": false,
+      "page": {
+        "host": "a.example; script-src *",
+        "paneId": null
+      }
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''page.html"
+      ],
+      [
+        "content-security-policy",
+        "sandbox allow-same-origin; default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline'; font-src data:"
+      ],
+      [
+        "content-type",
+        "text/html;charset=utf-8"
+      ],
+      [
+        "referrer-policy",
+        "no-referrer"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "server/file-view.test.ts: file view > draws an HTML page without its scripts, loading only its pane's files, and shows any other HTML as text (not through its page path)",
+    "input": {
+      "file": {
+        "name": "page.html",
+        "mime": "text/html",
+        "kind": "html"
+      },
+      "download": false
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''page.html"
+      ],
+      [
+        "content-security-policy",
+        "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+      ],
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "server/file-view.test.ts: file view > draws an HTML page without its scripts, loading only its pane's files, and shows any other HTML as text (downloaded through its page path)",
+    "input": {
+      "file": {
+        "name": "page.html",
+        "mime": "text/html",
+        "kind": "html"
+      },
+      "download": true,
+      "page": {
+        "host": "127.0.0.1:8787",
+        "paneId": null
+      }
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "attachment; filename*=UTF-8''page.html"
+      ],
+      [
+        "content-security-policy",
+        "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+      ],
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "server/file-view.test.ts: file view > draws an HTML page without its scripts, loading only its pane's files, and shows any other HTML as text (downloaded)",
+    "input": {
+      "file": {
+        "name": "page.html",
+        "mime": "text/html",
+        "kind": "html"
+      },
+      "download": true
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "attachment; filename*=UTF-8''page.html"
+      ],
+      [
+        "content-security-policy",
+        "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+      ],
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "server/file-view.test.ts: file view > serves script as plain text, and a stylesheet as one only to a page (script)",
+    "input": {
+      "file": {
+        "name": "run.js",
+        "mime": "text/javascript",
+        "kind": "text"
+      },
+      "download": false
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''run.js"
+      ],
+      [
+        "content-security-policy",
+        "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+      ],
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "server/file-view.test.ts: file view > serves script as plain text, and a stylesheet as one only to a page (script read by a page)",
+    "input": {
+      "file": {
+        "name": "run.js",
+        "mime": "text/javascript",
+        "kind": "text"
+      },
+      "download": false,
+      "page": {
+        "host": "127.0.0.1:8787",
+        "paneId": null
+      }
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''run.js"
+      ],
+      [
+        "content-security-policy",
+        "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+      ],
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "server/file-view.test.ts: file view > serves script as plain text, and a stylesheet as one only to a page (a stylesheet opened alone)",
+    "input": {
+      "file": {
+        "name": "style.css",
+        "mime": "text/css",
+        "kind": "text"
+      },
+      "download": false
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''style.css"
+      ],
+      [
+        "content-security-policy",
+        "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+      ],
+      [
+        "content-type",
+        "text/plain; charset=utf-8"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "server/file-view.test.ts: file view > serves script as plain text, and a stylesheet as one only to a page (a stylesheet read by a page)",
+    "input": {
+      "file": {
+        "name": "style.css",
+        "mime": "text/css",
+        "kind": "text"
+      },
+      "download": false,
+      "page": {
+        "host": "127.0.0.1:8787",
+        "paneId": null
+      }
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''style.css"
+      ],
+      [
+        "content-security-policy",
+        "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+      ],
+      [
+        "content-type",
+        "text/css;charset=utf-8"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "added: an HTML page with no Host",
+    "input": {
+      "file": {
+        "name": "page.html",
+        "mime": "text/html",
+        "kind": "html"
+      },
+      "download": false,
+      "page": {
+        "host": null,
+        "paneId": "w1:p1"
+      }
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''page.html"
+      ],
+      [
+        "content-security-policy",
+        "sandbox allow-same-origin; default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline'; font-src data:"
+      ],
+      [
+        "content-type",
+        "text/html;charset=utf-8"
+      ],
+      [
+        "referrer-policy",
+        "no-referrer"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "added: an HTML page of no pane under a bracketed address",
+    "input": {
+      "file": {
+        "name": "page.html",
+        "mime": "text/html",
+        "kind": "html"
+      },
+      "download": false,
+      "page": {
+        "host": "[::1]:7317",
+        "paneId": null
+      }
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''page.html"
+      ],
+      [
+        "content-security-policy",
+        "sandbox allow-same-origin; default-src 'none'; img-src data: [::1]:7317/api/fs/view/-/; media-src [::1]:7317/api/fs/view/-/; style-src 'unsafe-inline' [::1]:7317/api/fs/view/-/; font-src data: [::1]:7317/api/fs/view/-/"
+      ],
+      [
+        "content-type",
+        "text/html;charset=utf-8"
+      ],
+      [
+        "referrer-policy",
+        "no-referrer"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "added: an SVG image keeps its type and runs no script",
+    "input": {
+      "file": {
+        "name": "a.svg",
+        "mime": "image/svg+xml",
+        "kind": "image"
+      },
+      "download": false
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''a.svg"
+      ],
+      [
+        "content-security-policy",
+        "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+      ],
+      [
+        "content-type",
+        "image/svg+xml"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "added: a PDF is drawn by the browser's viewer, with no sandbox",
+    "input": {
+      "file": {
+        "name": "doc.pdf",
+        "mime": "application/pdf",
+        "kind": "pdf"
+      },
+      "download": false
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''doc.pdf"
+      ],
+      [
+        "content-type",
+        "application/pdf"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "added: an image",
+    "input": {
+      "file": {
+        "name": "shot.png",
+        "mime": "image/png",
+        "kind": "image"
+      },
+      "download": false
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "inline; filename*=UTF-8''shot.png"
+      ],
+      [
+        "content-security-policy",
+        "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+      ],
+      [
+        "content-type",
+        "image/png"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  },
+  {
+    "about": "added: a binary file whose name needs encoding",
+    "input": {
+      "file": {
+        "name": "a b;\"c\".bin",
+        "mime": "application/octet-stream",
+        "kind": "binary"
+      },
+      "download": true
+    },
+    "expected": [
+      [
+        "cache-control",
+        "private, no-store"
+      ],
+      [
+        "content-disposition",
+        "attachment; filename*=UTF-8''a%20b%3B%22c%22.bin"
+      ],
+      [
+        "content-security-policy",
+        "sandbox; default-src 'none'; img-src 'self' data:; media-src 'self'; style-src 'unsafe-inline'"
+      ],
+      [
+        "content-type",
+        "application/octet-stream"
+      ],
+      [
+        "x-content-type-options",
+        "nosniff"
+      ]
+    ]
+  }
+]

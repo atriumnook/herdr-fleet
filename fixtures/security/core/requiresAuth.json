@@ -1,0 +1,77 @@
+[
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/ws",
+    "expected": true
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/ws/x",
+    "expected": false
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/api/health",
+    "expected": false
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/api/auth",
+    "expected": false
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/api/devices/pair",
+    "expected": false
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/api/devices/pair/confirm",
+    "expected": true
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/api/health/",
+    "expected": true
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/api/panes",
+    "expected": true
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/api/fs/view/-/tmp/x.html",
+    "expected": true
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/api/fleet/runs",
+    "expected": true
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/api/",
+    "expected": true
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/api",
+    "expected": false
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/",
+    "expected": false
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/assets/index.js",
+    "expected": false
+  },
+  {
+    "about": "added: the routes that stay open are /api/health, /api/auth, /api/devices/pair and the app's own files",
+    "input": "/API/panes",
+    "expected": false
+  }
+]

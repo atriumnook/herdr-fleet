@@ -1,0 +1,287 @@
+[
+  {
+    "about": "server/push.test.ts: parseSubscription > accepts what a browser's PushSubscription.toJSON() produces (on a vendor endpoint)",
+    "input": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+      "expirationTime": null,
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    }
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    }
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": {
+      "endpoint": "https://updates.push.services.mozilla.com/wpush/v2/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": {
+      "endpoint": "https://updates.push.services.mozilla.com/wpush/v2/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    }
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": {
+      "endpoint": "https://web.push.apple.com/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": {
+      "endpoint": "https://web.push.apple.com/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    }
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": {
+      "endpoint": "https://wns2-par02p.notify.windows.com/w/?token=abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": {
+      "endpoint": "https://wns2-par02p.notify.windows.com/w/?token=abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    }
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": {
+      "endpoint": "http://127.0.0.1:41234/push/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": {
+      "endpoint": "http://fcm.googleapis.com/fcm/send/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": {
+      "endpoint": "https://fcm.googleapis.com:8443/x",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": {
+      "endpoint": "https://192.168.1.1/x",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": {
+      "endpoint": "https://localhost/x",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": {
+      "endpoint": "https://fcm.googleapis.com.evil.example/x",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > stores only endpoints on a browser vendor's push service unless told otherwise",
+    "input": {
+      "endpoint": "https://evilfcm.googleapis.com.example/x",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > rejects endpoints and keys a push service could never have issued",
+    "input": {
+      "endpoint": "ftp://push.example/x",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > rejects endpoints and keys a push service could never have issued",
+    "input": {
+      "endpoint": "not a url",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > rejects endpoints and keys a push service could never have issued (a short p256dh)",
+    "input": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > rejects endpoints and keys a push service could never have issued (a short auth)",
+    "input": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "AAAA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > rejects endpoints and keys a push service could never have issued (no keys)",
+    "input": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/abc"
+    },
+    "expected": null
+  },
+  {
+    "about": "server/push.test.ts: parseSubscription > rejects endpoints and keys a push service could never have issued (not an object)",
+    "input": "subscription",
+    "expected": null
+  },
+  {
+    "about": "added: null",
+    "input": null,
+    "expected": null
+  },
+  {
+    "about": "added: an array",
+    "input": [
+      "https://fcm.googleapis.com/fcm/send/abc",
+      {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    ],
+    "expected": null
+  },
+  {
+    "about": "added: an endpoint that is not a string",
+    "input": {
+      "endpoint": 1,
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": "nXCjpKvx-CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "added: keys in standard base64, not base64url",
+    "input": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA/1nPSewJ/tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi/Xmw7YEfb40InDOUKCR/h5y8",
+        "auth": "nXCjpKvx+CicRieJMiSnTA"
+      }
+    },
+    "expected": null
+  },
+  {
+    "about": "added: keys with base64 padding",
+    "input": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8=",
+        "auth": "nXCjpKvx-CicRieJMiSnTA=="
+      }
+    },
+    "expected": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8=",
+        "auth": "nXCjpKvx-CicRieJMiSnTA=="
+      }
+    }
+  },
+  {
+    "about": "added: a key that is not a string",
+    "input": {
+      "endpoint": "https://fcm.googleapis.com/fcm/send/abc",
+      "keys": {
+        "p256dh": "BMfZ7QqM5zNOVA8WprA_1nPSewJ_tfN726Mr5jVW22iesSL6X9Jqh8sbaV6psWi_Xmw7YEfb40InDOUKCR_h5y8",
+        "auth": 16
+      }
+    },
+    "expected": null
+  }
+]

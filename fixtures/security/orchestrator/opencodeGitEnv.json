@@ -1,0 +1,141 @@
+[
+  {
+    "about": "server/fleet/adapters.test.ts: opencode adapter > gives the pane the model, no self-update and no sharing, and none of the switches version 2 dropped (no git config in the server's environment)",
+    "input": {},
+    "expected": {
+      "GIT_CONFIG_COUNT": "1",
+      "GIT_CONFIG_KEY_0": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_0": "false"
+    }
+  },
+  {
+    "about": "server/fleet/adapters.test.ts: opencode adapter > gives the pane the model, no self-update and no sharing, and none of the switches version 2 dropped (config the server's own environment carries stays, and ours comes after it)",
+    "input": {
+      "GIT_CONFIG_COUNT": "2",
+      "GIT_CONFIG_KEY_0": "a.b",
+      "GIT_CONFIG_VALUE_0": "1",
+      "GIT_CONFIG_KEY_1": "c.d",
+      "GIT_CONFIG_VALUE_1": "2"
+    },
+    "expected": {
+      "GIT_CONFIG_KEY_0": "a.b",
+      "GIT_CONFIG_VALUE_0": "1",
+      "GIT_CONFIG_KEY_1": "c.d",
+      "GIT_CONFIG_VALUE_1": "2",
+      "GIT_CONFIG_COUNT": "3",
+      "GIT_CONFIG_KEY_2": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_2": "false"
+    }
+  },
+  {
+    "about": "server/fleet/adapters.test.ts: opencode adapter > gives the pane the model, no self-update and no sharing, and none of the switches version 2 dropped (a count that is not a number counts as none)",
+    "input": {
+      "GIT_CONFIG_COUNT": "x"
+    },
+    "expected": {
+      "GIT_CONFIG_COUNT": "1",
+      "GIT_CONFIG_KEY_0": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_0": "false"
+    }
+  },
+  {
+    "about": "added: the rest of the server's environment is not part of it",
+    "input": {
+      "PATH": "/usr/bin",
+      "HOME": "/home/u",
+      "ANTHROPIC_API_KEY": "sk-ant"
+    },
+    "expected": {
+      "GIT_CONFIG_COUNT": "1",
+      "GIT_CONFIG_KEY_0": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_0": "false"
+    }
+  },
+  {
+    "about": "added: a count of 0",
+    "input": {
+      "GIT_CONFIG_COUNT": "0",
+      "GIT_CONFIG_KEY_0": "a.b",
+      "GIT_CONFIG_VALUE_0": "1"
+    },
+    "expected": {
+      "GIT_CONFIG_COUNT": "1",
+      "GIT_CONFIG_KEY_0": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_0": "false"
+    }
+  },
+  {
+    "about": "added: a count of four digits counts as none",
+    "input": {
+      "GIT_CONFIG_COUNT": "1000",
+      "GIT_CONFIG_KEY_0": "a.b",
+      "GIT_CONFIG_VALUE_0": "1"
+    },
+    "expected": {
+      "GIT_CONFIG_COUNT": "1",
+      "GIT_CONFIG_KEY_0": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_0": "false"
+    }
+  },
+  {
+    "about": "added: a count with a space counts as none",
+    "input": {
+      "GIT_CONFIG_COUNT": " 1",
+      "GIT_CONFIG_KEY_0": "a.b",
+      "GIT_CONFIG_VALUE_0": "1"
+    },
+    "expected": {
+      "GIT_CONFIG_COUNT": "1",
+      "GIT_CONFIG_KEY_0": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_0": "false"
+    }
+  },
+  {
+    "about": "added: an entry with no value is left out, and ours still takes the index after the count",
+    "input": {
+      "GIT_CONFIG_COUNT": "2",
+      "GIT_CONFIG_KEY_0": "a.b",
+      "GIT_CONFIG_VALUE_0": "1",
+      "GIT_CONFIG_KEY_1": "c.d"
+    },
+    "expected": {
+      "GIT_CONFIG_KEY_0": "a.b",
+      "GIT_CONFIG_VALUE_0": "1",
+      "GIT_CONFIG_COUNT": "3",
+      "GIT_CONFIG_KEY_2": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_2": "false"
+    }
+  },
+  {
+    "about": "added: an entry past the count is not kept",
+    "input": {
+      "GIT_CONFIG_COUNT": "1",
+      "GIT_CONFIG_KEY_0": "a.b",
+      "GIT_CONFIG_VALUE_0": "1",
+      "GIT_CONFIG_KEY_1": "c.d",
+      "GIT_CONFIG_VALUE_1": "2"
+    },
+    "expected": {
+      "GIT_CONFIG_KEY_0": "a.b",
+      "GIT_CONFIG_VALUE_0": "1",
+      "GIT_CONFIG_COUNT": "2",
+      "GIT_CONFIG_KEY_1": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_1": "false"
+    }
+  },
+  {
+    "about": "added: a server config that sets core.fsmonitor itself is overridden by ours, written after it",
+    "input": {
+      "GIT_CONFIG_COUNT": "1",
+      "GIT_CONFIG_KEY_0": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_0": "/tmp/monitor.sh"
+    },
+    "expected": {
+      "GIT_CONFIG_KEY_0": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_0": "/tmp/monitor.sh",
+      "GIT_CONFIG_COUNT": "2",
+      "GIT_CONFIG_KEY_1": "core.fsmonitor",
+      "GIT_CONFIG_VALUE_1": "false"
+    }
+  }
+]
