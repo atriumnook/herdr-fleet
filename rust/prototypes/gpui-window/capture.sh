@@ -4,23 +4,40 @@
 #
 #   ./capture.sh <png> [<dir for client.json, maps.txt and run.log>]
 #
+# The directory defaults to a new one under $TMPDIR (or /tmp); the script
+# prints where it wrote. Both paths may be relative to the caller's directory.
+#
 # Run `cargo build` first. The window opens on the current workspace for about
 # two seconds; it is floated and centered (a dispatch to this window only, no
 # change to the Hyprland config) so notification overlays do not cover it.
 # The dispatch syntax is the Lua one of Hyprland 0.56.
 set -eu
-png=$1
-out=${2:-.}
+png=$(realpath -m -- "$1")
+if [ $# -ge 2 ]; then
+  mkdir -p -- "$2"
+  out=$(realpath -- "$2")
+else
+  out=$(mktemp -d)
+fi
 cd "$(dirname "$0")"
 
 env $(env | grep -oE '^HERDR[A-Z_]*' | sed 's/^/-u /') ./target/debug/gpui-window >"$out/run.log" 2>&1 &
 pid=$!
 trap 'kill $pid 2>/dev/null || true' EXIT
 
+opened=false
 for _ in $(seq 1 50); do
-  hyprctl clients -j | jq -e --argjson p "$pid" 'any(.[]; .pid == $p)' >/dev/null && break
+  if hyprctl clients -j | jq -e --argjson p "$pid" 'any(.[]; .pid == $p)' >/dev/null; then
+    opened=true
+    break
+  fi
+  kill -0 "$pid" 2>/dev/null || break
   sleep 0.2
 done
+if ! $opened; then
+  echo "the window did not open within 10 s; see $out/run.log" >&2
+  exit 1
+fi
 
 w="window = \"pid:$pid\""
 hyprctl dispatch "hl.dsp.window.float({ action = \"on\", $w })" >/dev/null
@@ -38,5 +55,6 @@ kill "$pid"
 wait "$pid" 2>/dev/null || true
 trap - EXIT
 sleep 0.5
+echo "records: $out"
 echo "windows left: $(hyprctl clients -j | jq --argjson p "$pid" '[.[] | select(.pid == $p)] | length')"
 echo "processes left: $(ps -p "$pid" -o pid= | wc -l)"
