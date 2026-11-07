@@ -1055,8 +1055,9 @@ export class Orchestrator {
         const thread = run as AgentRun & { project: string; branch: string };
         return { id: run.id, at: run.landing!.at, text: coordinatorStep(thread, await this.baseBranchOf(thread)) };
       }));
+      const news = this.deps.config(coordinator.cwd).autonomous ? NEWS_HEADER : QUESTIONS_HEADER;
       const message = [
-        ...(told.length ? ["[fleet] Threads ask the person. These come from the fleet, not from the person.", ...told.map((news) => `- ${news.notice}`)] : []),
+        ...(told.length ? [news, ...told.map((each) => `- ${each.notice}`)] : []),
         ...(steps.length ? [STEPS_HEADER, ...steps.map((step) => `- ${step.text}`)] : []),
       ].join("\n");
       const sent = await this.submit(coordinator, message);
@@ -1170,14 +1171,18 @@ export class Orchestrator {
     }
     if (isThread(run)) {
       this.closeStalePlan(run, pending);
-      run.notice = threadQuestion(run);
       const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
       run.contract = contract ? contractItems(contract) : undefined;
       const base = run.baseBranch ?? run.base;
       const diff = base ? await (this.deps.diffStat ?? diffStat)(run.cwd, base) : null;
       run.diff = diff ?? undefined;
       if (run.landing?.sent && !run.landing.error && LEAD_STEPS.has(run.landing.action)) await this.settleLeadStep(run);
-      else if (run.pr?.state === "OPEN") await this.readPullRequest(run).catch(() => undefined);
+      // without the person, a lead opens and merges its own pull request: read it as its turn ends
+      else if (run.pr?.state === "OPEN" || (config.autonomous && !run.landed)) {
+        const reading = await this.readPullRequest(run).catch(() => null);
+        if (config.autonomous && reading?.state === "MERGED" && !run.landed) await this.mergedOnGitHub(run as AgentRun & { project: string; branch: string }, reading);
+      }
+      run.notice = threadQuestion(run) ?? (config.autonomous ? threadTurnEnded(run) : undefined);
     }
     run.updatedAt = Date.now();
     this.save(run);
@@ -1344,6 +1349,21 @@ const isThread = (run: AgentRun): boolean => run.role === THREAD_ROLE && run.pro
 function threadLabel(run: AgentRun): string {
   return `"${run.name}" (${run.id}${run.branch ? `, ${run.branch}` : ""})`;
 }
+
+/**
+ * A thread's settled turn that asks nothing, as the coordinator of a project run without the person
+ * hears it: the HANDOFF's status line and contract, or how the turn failed, and where the rest is.
+ */
+export function threadTurnEnded(run: AgentRun): string {
+  const status = run.state === "failed" ? `FAILED — ${run.lastError ?? "the turn failed"}` : (run.result ? handoffStatus(run.result) : undefined) ?? "no HANDOFF status line";
+  const contract = run.contract?.length ? `\n  Contract: ${run.contract.map((item) => `${item.id} ${item.state === "met" ? "✓" : item.state === "unmet" ? "✗" : "…"}`).join(" ")}` : "";
+  const pr = run.pr ? `\n  Pull request #${run.pr.number}: ${run.pr.state}${run.landed === "merged" ? ", and the thread is closed" : ""}` : "";
+  return `${threadLabel(run)} ended its turn: ${status}${contract}${pr}`;
+}
+
+const QUESTIONS_HEADER = "[fleet] Threads ask the person. These come from the fleet, not from the person.";
+/** a project run without the person: its coordinator hears every turn a thread ends */
+const NEWS_HEADER = "[fleet] Threads ended a turn. These come from the fleet, not from the person.";
 
 /** How the coordinator hears the landing steps the person pressed. */
 const STEPS_HEADER = "[fleet] The person pressed these on the Fleet screen. Each is the person's approval for that step only.";
