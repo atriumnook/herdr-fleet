@@ -1,0 +1,7 @@
+# The Rust release this workspace builds with (ADR 0110-workspace-and-ci).
+# A prototype under rust/prototypes/ that needs another release puts its own
+# rust-toolchain.toml in its folder.
+[toolchain]
+channel = "1.99.1"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

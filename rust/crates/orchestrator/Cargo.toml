@@ -1,0 +1,15 @@
+[package]
+name = "herdr-fleet-orchestrator"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+protocol.workspace = true
+screen.workspace = true
+herdr.workspace = true
+child-process.workspace = true
+
+[lints]
+workspace = true
