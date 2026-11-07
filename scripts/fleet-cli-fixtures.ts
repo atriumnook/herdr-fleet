@@ -54,16 +54,19 @@
  *     bun scripts/fleet-cli-fixtures.ts --update spawn-task wait-timeout
  *
  * Without `--update` it runs every case, or the named ones, and prints each that fails.
- * Read the diff before committing it. Fields of a case this script does not write are kept.
+ * `--update` refuses a case whose CLI made more or fewer requests than it has responses, and a run
+ * killed after RUN_LIMIT_MS fails its case. Read the diff before committing it. Fields of a case this
+ * script does not write are kept.
  */
 import { accessSync, constants, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { basename, join } from "node:path";
+import { basename, join, resolve } from "node:path";
 
 export const CASES_DIR = join(import.meta.dir, "..", "fixtures", "fleet-cli");
 const TS_CLI = join(import.meta.dir, "..", "bin", "fleet.ts");
 const PORTS = { first: 7400, last: 7499 } as const;
-const RUN_LIMIT_MS = 15_000;
+/** how long a run of the CLI may take before it is killed and the case fails; the test's own timeout is longer */
+export const RUN_LIMIT_MS = 10_000;
 /** names the runner sets itself; a case's env may not change them */
 const RUNNER_ENV = ["HERDR_FLEET_URL", "PATH", "HOME", "TMPDIR", "TZ", "LANG"];
 
@@ -116,7 +119,8 @@ export function resolveTarget(value = process.env["HERDR_FLEET_CLI_TARGET"] || "
       problem = code === "ENOENT" ? "was not found" : code === "EACCES" ? "is not executable" : String(error);
     }
     if (problem) throw new Error(`HERDR_FLEET_CLI_TARGET=${value}: the executable ${path} ${problem}`);
-    return [path];
+    // the CLI starts in a folder of its own, so a relative path is resolved here
+    return [resolve(path)];
   }
   throw new Error(`HERDR_FLEET_CLI_TARGET=${value}: give ts, or rust:<path to the executable>`);
 }
@@ -136,7 +140,7 @@ function substitute(value: unknown, pairs: Array<[string, string]>): unknown {
   return value;
 }
 
-type Stub = { port: number; requests: RecordedRequest[]; stop: () => void };
+type Stub = { port: number; requests: RecordedRequest[]; stop: () => Promise<void> };
 
 /** Calls `listen` on ports from 7400 to 7499, starting at a random one, until one is free. */
 function onFreePort<T>(listen: (port: number) => T): T {
@@ -171,23 +175,26 @@ function startStub(responses: NonNullable<FleetCliCase["responses"]>): Stub {
         : Response.json(answer.body ?? {}, { status: answer.status });
     },
   }));
-  return { port: server.port!, requests, stop: () => void server.stop(true) };
+  return { port: server.port!, requests, stop: () => server.stop(true) };
 }
 
-/** A port from 7400 to 7499 that nothing listens on: free when the runner bound it and let it go. */
-function closedPort(): number {
-  return onFreePort((port) => {
-    const server = Bun.serve({ port, hostname: "127.0.0.1", fetch: () => new Response() });
-    void server.stop(true);
-    return port;
-  });
+/**
+ * A port from 7400 to 7499 that nothing listens on: free when the runner bound it and let it go. Another
+ * process could take it before the CLI connects; the case then fails (its stderr no longer says the
+ * server cannot be reached) rather than passing.
+ */
+async function closedPort(): Promise<number> {
+  const server = onFreePort((port) => Bun.serve({ port, hostname: "127.0.0.1", fetch: () => new Response() }));
+  const port = server.port!;
+  await server.stop(true);
+  return port;
 }
 
 /** Runs the CLI `command` (resolveTarget) on one case. */
 export async function runCase(spec: FleetCliCase, command = resolveTarget()): Promise<Actual> {
   checkCase(spec);
   const stub = spec.server === "closed" ? undefined : startStub(spec.responses ?? []);
-  const port = stub?.port ?? closedPort();
+  const port = stub?.port ?? await closedPort();
   const url = `http://127.0.0.1:${port}`;
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), "fleet-cli-case-")));
   try {
@@ -201,9 +208,15 @@ export async function runCase(spec: FleetCliCase, command = resolveTarget()): Pr
     const child = Bun.spawn([...command, ...spec.argv], {
       cwd, env, stdin: spec.stdin === undefined ? "ignore" : new TextEncoder().encode(spec.stdin), stdout: "pipe", stderr: "pipe",
     });
-    const timer = setTimeout(() => child.kill("SIGKILL"), RUN_LIMIT_MS);
-    const [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
-    clearTimeout(timer);
+    let killed = false;
+    const timer = setTimeout(() => { killed = true; child.kill("SIGKILL"); }, RUN_LIMIT_MS);
+    let stdout: string, stderr: string, exitCode: number;
+    try {
+      [stdout, stderr, exitCode] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+    } finally {
+      clearTimeout(timer);
+    }
+    if (killed) throw new Error(`the CLI did not finish in ${RUN_LIMIT_MS} ms and was killed`);
     const pairs: Array<[string, string]> = [[url, "$URL"], [cwd, "$CWD"]];
     const requests = (stub?.requests ?? []).map((request) => ({
       ...request,
@@ -212,7 +225,7 @@ export async function runCase(spec: FleetCliCase, command = resolveTarget()): Pr
     }));
     return { requests, stdout: substitute(stdout, pairs) as string, stderr: substitute(stderr, pairs) as string, exitCode };
   } finally {
-    stub?.stop();
+    await stub?.stop();
     rmSync(cwd, { recursive: true, force: true });
   }
 }
@@ -237,7 +250,13 @@ export async function update(names: string[], root = CASES_DIR, command = resolv
   const written: string[] = [];
   for (const c of cases) {
     if (c.spec.expected && !names.includes(c.name)) continue;
-    const expected = comparable(c.spec.expected, await runCase(c.spec, command));
+    const actual = await runCase(c.spec, command);
+    // a case written with too few or too many answers would record the stub's no_response error as the contract
+    const answers = c.spec.responses?.length ?? 0;
+    if (c.spec.server !== "closed" && actual.requests.length !== answers) {
+      throw new Error(`${c.name}: the case has ${answers} responses, but the CLI made ${actual.requests.length} requests; nothing was written for it`);
+    }
+    const expected = comparable(c.spec.expected, actual);
     writeFileSync(c.file, `${JSON.stringify({ ...c.spec, expected }, null, 2)}\n`);
     written.push(c.name);
   }
@@ -255,7 +274,10 @@ if (import.meta.main) {
       console.log(written.length ? `wrote ${written.join(", ")}` : "every case has its expected value");
     } else {
       let failed = 0;
-      const cases = loadCases().filter((c) => !names.length || names.includes(c.name));
+      const all = loadCases();
+      const unknown = names.filter((name) => !all.some((c) => c.name === name));
+      if (unknown.length) throw new Error(`no such case: ${unknown.join(", ")}`);
+      const cases = all.filter((c) => !names.length || names.includes(c.name));
       for (const c of cases) {
         const actual = comparable(c.spec.expected, await runCase(c.spec, command));
         if (!Bun.deepEquals(actual, c.spec.expected)) {
