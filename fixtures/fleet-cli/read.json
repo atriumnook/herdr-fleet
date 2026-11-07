@@ -1,0 +1,34 @@
+{
+  "about": "read asks for the run's output with the group and --lines, and prints it without trailing white space",
+  "argv": [
+    "read",
+    "worker 1",
+    "--lines",
+    "20"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "text": "line 1\nline 2\n\n  \n"
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/runs/worker%201/read?group=g1&lines=20",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "line 1\nline 2\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

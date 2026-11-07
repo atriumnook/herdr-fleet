@@ -1,0 +1,47 @@
+{
+  "about": "An error the server answers is printed as its code and message, exit 1",
+  "argv": [
+    "spawn",
+    "--role",
+    "wizard",
+    "--task",
+    "t",
+    "--cwd",
+    "/repo"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 400,
+      "body": {
+        "error": {
+          "code": "unknown_role",
+          "message": "no role named wizard"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/spawn",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "role": "wizard",
+          "task": "t",
+          "cwd": "/repo",
+          "group": "g1",
+          "depth": 0
+        }
+      }
+    ],
+    "stdout": "",
+    "stderr": "fleet: unknown_role: no role named wizard\n",
+    "exitCode": 1
+  }
+}

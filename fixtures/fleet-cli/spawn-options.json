@@ -1,0 +1,77 @@
+{
+  "about": "spawn passes --name, --model, --thinking, --worktree, --interactive, --direction and each --avoid; a model shows in the run's line",
+  "argv": [
+    "spawn",
+    "--role",
+    "reviewer",
+    "--task",
+    "Review it.",
+    "--cwd",
+    "/repo",
+    "--name",
+    "rev",
+    "--model",
+    "openai/gpt-5",
+    "--thinking",
+    "high",
+    "--worktree",
+    "--interactive",
+    "--direction",
+    "down",
+    "--avoid",
+    "codex",
+    "--avoid",
+    "cursor"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r2",
+          "name": "rev",
+          "role": "reviewer",
+          "agent": "pi",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "working",
+          "model": "openai/gpt-5"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/spawn",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "role": "reviewer",
+          "task": "Review it.",
+          "name": "rev",
+          "model": "openai/gpt-5",
+          "thinking": "high",
+          "cwd": "/repo",
+          "worktree": true,
+          "interactive": true,
+          "direction": "down",
+          "group": "g1",
+          "depth": 0,
+          "avoid": [
+            "codex",
+            "cursor"
+          ]
+        }
+      }
+    ],
+    "stdout": "r2  rev (reviewer, pi, openai/gpt-5)  working  pane w1:p2\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

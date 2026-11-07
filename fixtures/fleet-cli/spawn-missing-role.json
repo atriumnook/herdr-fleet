@@ -1,0 +1,14 @@
+{
+  "about": "spawn without --role is a usage error, before any request",
+  "argv": [
+    "spawn",
+    "--task",
+    "t"
+  ],
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: fleet spawn: --role and --task (or a brief) are required\n",
+    "exitCode": 2
+  }
+}

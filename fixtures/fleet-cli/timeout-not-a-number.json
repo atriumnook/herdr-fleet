@@ -1,0 +1,15 @@
+{
+  "about": "--timeout must be a positive number of milliseconds: a usage error before any request",
+  "argv": [
+    "wait",
+    "a1",
+    "--timeout",
+    "soon"
+  ],
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: --timeout must be a positive number of milliseconds\n",
+    "exitCode": 2
+  }
+}

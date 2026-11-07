@@ -1,0 +1,33 @@
+{
+  "about": "read --json prints the text as JSON",
+  "argv": [
+    "read",
+    "r1",
+    "--json"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "text": "line 1\n"
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/runs/r1/read?group=g1",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "{\n  \"text\": \"line 1\\n\"\n}\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "about": "Without --cwd, threads asks for the working folder's; none prints no threads",
+  "argv": [
+    "threads"
+  ],
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "threads": []
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/threads?cwd=$CWD",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "no threads\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

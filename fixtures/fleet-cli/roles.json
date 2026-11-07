@@ -1,0 +1,43 @@
+{
+  "about": "roles asks for the roles of --cwd and prints name, agent and description",
+  "argv": [
+    "roles",
+    "--cwd",
+    "/repo"
+  ],
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "roles": [
+          {
+            "name": "worker",
+            "description": "Does one part.",
+            "agent": "claude",
+            "source": "builtin"
+          },
+          {
+            "name": "architect",
+            "description": "Answers how.",
+            "agent": "codex",
+            "source": "project"
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/roles?cwd=%2Frepo",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "worker       claude Does one part.\narchitect    codex  Answers how.\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

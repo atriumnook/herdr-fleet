@@ -1,0 +1,12 @@
+{
+  "about": "project without --task is a usage error",
+  "argv": [
+    "project"
+  ],
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: fleet project: --task is required\n",
+    "exitCode": 2
+  }
+}

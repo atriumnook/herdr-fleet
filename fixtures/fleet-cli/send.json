@@ -1,0 +1,47 @@
+{
+  "about": "send joins the words of the message, and takes the group from HERDR_PANE_ID when HERDR_FLEET_GROUP is unset",
+  "argv": [
+    "send",
+    "worker 1",
+    "Run",
+    "the",
+    "tests."
+  ],
+  "env": {
+    "HERDR_PANE_ID": "W1:P2 x"
+  },
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "fleet-w1-p2-x",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/runs/worker%201/send",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "message": "Run the tests.",
+          "group": "fleet-w1-p2-x"
+        }
+      }
+    ],
+    "stdout": "r1  worker 1 (worker, claude)  working  pane w1:p2\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

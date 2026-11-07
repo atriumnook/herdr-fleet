@@ -1,0 +1,40 @@
+{
+  "about": "usage --json",
+  "argv": [
+    "usage",
+    "--json"
+  ],
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "usage": [
+          {
+            "key": "codex",
+            "reading": {
+              "readAt": 1262401445000,
+              "windows": []
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/usage/refresh",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "all": false
+        }
+      }
+    ],
+    "stdout": "[\n  {\n    \"key\": \"codex\",\n    \"reading\": {\n      \"readAt\": 1262401445000,\n      \"windows\": []\n    }\n  }\n]\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

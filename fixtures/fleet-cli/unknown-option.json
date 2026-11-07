@@ -1,0 +1,15 @@
+{
+  "about": "An option no command takes is a usage error (exit 2) with the usage; the message itself is the runtime's argument parser's",
+  "argv": [
+    "list",
+    "--bogus"
+  ],
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": {
+      "pattern": "fleet: [^\\n]*--bogus[^\\n]*\\n\\nusage: fleet <command> \\[options\\]\\n[^]*\\n  exit status: 0 settled, 1 failed or error, 2 usage, 4 blocked on a question, 124 wait timed out\\n"
+    },
+    "exitCode": 2
+  }
+}

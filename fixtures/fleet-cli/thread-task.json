@@ -1,0 +1,54 @@
+{
+  "about": "thread sends the title, the task, the cwd, the depth and the caller's run (HERDR_FLEET_RUN), but no group",
+  "argv": [
+    "thread",
+    "--title",
+    "Login error",
+    "--task",
+    "Fix the doubled login error.",
+    "--cwd",
+    "/repo"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1",
+    "HERDR_FLEET_DEPTH": "1",
+    "HERDR_FLEET_RUN": "r5"
+  },
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r6",
+          "name": "Login error",
+          "role": "lead",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/threads",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "title": "Login error",
+          "task": "Fix the doubled login error.",
+          "cwd": "/repo",
+          "depth": 1,
+          "caller_run": "r5"
+        }
+      }
+    ],
+    "stdout": "r6  Login error (lead, claude)  working  pane w1:p2\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
