@@ -5,9 +5,10 @@
 # branch (main), and main is off limits to this work, so workflow_dispatch alone
 # could never run this file before the cutover. The pull_request trigger is
 # narrowed to pull requests against rust that change this file itself; to run
-# it, open a pull request that edits this file. Pushes to thread branches and
-# other pull requests do not run it (plan, phase 6: macOS and Windows run by
-# hand only).
+# it, open a pull request that edits this file, and to run it again, push a
+# commit that edits this file. Pushes to thread branches and other pull
+# requests do not run the builds (plan, phase 6: macOS and Windows run by hand
+# only). The `gate` job enforces the "again" part: see there.
 name: rust-cross
 
 on:
@@ -20,18 +21,44 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: rust-cross-${{ github.ref }}
-  cancel-in-progress: true
-
 env:
   # Same Rust as ADR 0108-gpui-prototype (gpui 0.2.2 declares no rust-version).
   RUST_VERSION: "1.94.0"
   CARGO_TERM_COLOR: always
 
 jobs:
+  # GitHub matches a pull_request `paths` filter against the whole pull
+  # request's diff, not against the pushed commits, so once a pull request
+  # changes this file every later push to it would start the builds. This job
+  # lets a push (`synchronize`) start them only when the pushed commits
+  # themselves change this file.
+  gate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    outputs:
+      build: ${{ steps.check.outputs.build }}
+    steps:
+      - id: check
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ACTION: ${{ github.event.action }}
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+          REPO: ${{ github.repository }}
+        run: |
+          build=true
+          if [ "$ACTION" = synchronize ]; then
+            files=$(gh api --paginate "repos/$REPO/compare/$BEFORE...$AFTER" --jq '.files[].filename')
+            printf 'Files changed by the push:\n%s\n' "$files"
+            grep -qxF .github/workflows/rust-cross.yml <<<"$files" || build=false
+          fi
+          echo "build=$build" | tee -a "$GITHUB_OUTPUT"
+
   build:
     name: build (${{ matrix.os }})
+    needs: gate
+    if: needs.gate.outputs.build == 'true'
     strategy:
       fail-fast: false
       matrix:
@@ -70,13 +97,23 @@ jobs:
           fi
 
       # gpui's build.rs compiles the HLSL shaders with fxc.exe in release builds.
-      # It looks in PATH and then in one fixed SDK version's folder; point it at
-      # the newest x64 fxc.exe the image has instead (GPUI_FXC_PATH).
+      # It looks in PATH and then in the folder of SDK 10.0.26100.0 only. Use
+      # that one when present (the one ADR 0111 verified), else the newest x64
+      # fxc.exe the image has, and pass it as GPUI_FXC_PATH.
       - name: fxc.exe (Windows)
         if: runner.os == 'Windows'
         run: |
-          fxc=$(ls -d "/c/Program Files (x86)/Windows Kits/10/bin/"10.*/x64/fxc.exe | sort -V | tail -n 1)
-          test -n "$fxc"
+          shopt -s nullglob
+          kits="/c/Program Files (x86)/Windows Kits/10/bin"
+          fxc="$kits/10.0.26100.0/x64/fxc.exe"
+          if [ ! -f "$fxc" ]; then
+            found=("$kits"/10.*/x64/fxc.exe)
+            if [ ${#found[@]} -eq 0 ]; then
+              echo "::error::no x64 fxc.exe under $kits"
+              exit 1
+            fi
+            fxc=$(printf '%s\n' "${found[@]}" | sort -V | tail -n 1)
+          fi
           echo "fxc.exe: $fxc"
           echo "GPUI_FXC_PATH=$(cygpath -w "$fxc")" >> "$GITHUB_ENV"
 
