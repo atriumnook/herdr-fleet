@@ -1,0 +1,29 @@
+# 端末エミュレーターの試作
+
+この文書は、全角文字の幅を確かめるためのものです。
+ASCII と日本語を混ぜた行: herdr-fleet は Rust に置き換える。
+半角カナ: ｱｲｳｴｵ ｶﾞｷﾞｸﾞ / 全角英数: ＡＢＣ１２３
+記号: 「かぎ括弧」『二重』【隅付き】〜・…
+絵文字: 🙂 🚀 ✅ と 漢字の混在
+長い行: いろはにほへとちりぬるをわかよたれそつねならむうゐのおくやまけふこえてあさきゆめみしゑひもせすん、これは折り返されるはずの行です。
+        タブのあとの文字
+最後の行
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+~
+scripts/inputs/japanese.txt                                                       1,1            All
+E1568: Terminal did not respond to DSR request for 'background' color. Startup may be slower. :help
