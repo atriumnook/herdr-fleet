@@ -1,9 +1,7 @@
+// black-box: scripts/contract/launch.ts
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { ServerMessage } from "../shared/protocol.ts";
-import { createServer } from "./index.ts";
+import { launchServer, type LaunchedServer } from "../scripts/contract/launch.ts";
 
 /** A socket whose frames are awaited as events, each wait bounded by a deadline. */
 class FrameSocket {
@@ -39,23 +37,21 @@ class FrameSocket {
 }
 
 describe("WebSocket liveness ping", () => {
-  const stateDir = mkdtempSync(join(tmpdir(), "herdr-fleet-ping-"));
   const sockets: WebSocket[] = [];
-  let bridge: ReturnType<typeof createServer> | undefined;
+  let bridge: LaunchedServer | undefined;
 
-  beforeAll(() => {
-    bridge = createServer({ port: 0, hostname: "127.0.0.1", stateDir, token: "test-ping" });
+  beforeAll(async () => {
+    bridge = await launchServer({ env: { HOST: "127.0.0.1", HERDR_FLEET_TOKEN: "test-ping" } });
   });
 
-  afterAll(() => {
+  afterAll(async () => {
     for (const socket of sockets) socket.close();
-    bridge?.stop();
-    rmSync(stateDir, { recursive: true, force: true });
+    await bridge?.stop();
   });
 
   it("lists ping in the snapshot and answers each ping with a pong of its id, for any role", async () => {
     const RuntimeSocket = WebSocket as unknown as new (url: string, options: { headers: Record<string, string> }) => WebSocket;
-    const socket = new FrameSocket(new RuntimeSocket(`ws://127.0.0.1:${bridge!.port}/ws`, { headers: { authorization: "Bearer test-ping" } }));
+    const socket = new FrameSocket(new RuntimeSocket(`${bridge!.url.replace("http:", "ws:")}/ws`, { headers: { authorization: "Bearer test-ping" } }));
     sockets.push(socket.ws);
     await socket.opened;
     const snapshot = await socket.next((message) => message.type === "snapshot", "snapshot");

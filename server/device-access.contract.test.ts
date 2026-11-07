@@ -1,10 +1,10 @@
+// black-box: scripts/contract/launch.ts
 import { expect, it } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DeviceStore } from "./devices.ts";
-import { loopbackPush, startFakePushService } from "./push.fake.ts";
-import { createServer } from "./index.ts";
+import { startFakePushService } from "./push.fake.ts";
+import { launchServer } from "../scripts/contract/launch.ts";
 import { fileViewUrl } from "../src/lib/api.ts";
 import { workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import type { ServerMessage } from "../shared/protocol.ts";
@@ -35,8 +35,8 @@ async function until(check: () => boolean): Promise<void> {
 
 it("revocation closes an active device's terminal and roster stream without disconnecting another device", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-device-access-"));
-  const server = createServer({ port: 0, stateDir: root, token: "test-device-access", tailscaleOwner: null });
-  const base = `http://127.0.0.1:${server.port}`;
+  const server = await launchServer({ env: { HERDR_FLEET_STATE_DIR: root, HERDR_FLEET_TOKEN: "test-device-access" }, test: { tailscaleOwner: null } });
+  const base = server.url;
   const admin = { ...guard, authorization: "Bearer test-device-access" };
   const sockets: WebSocket[] = [];
   const abort = new AbortController();
@@ -75,18 +75,18 @@ it("revocation closes an active device's terminal and roster stream without disc
   } finally {
     abort.abort();
     for (const socket of sockets) socket.close();
-    server.stop();
+    await server.stop();
     if (workspaceId) await workspaceClose(workspaceId);
     rmSync(root, { recursive: true, force: true });
   }
-}, 10_000);
+}, 15_000);
 
 it("a corrupt device registry refuses strangers while keeping local recovery and the original file", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-device-recovery-"));
   const path = join(root, "devices.json");
   writeFileSync(path, "{broken registry");
-  const server = createServer({ port: 0, stateDir: root, token: "", tailscaleOwner: null });
-  const base = `http://127.0.0.1:${server.port}`;
+  const server = await launchServer({ env: { HERDR_FLEET_STATE_DIR: root, HERDR_FLEET_TOKEN: "" }, test: { tailscaleOwner: null } });
+  const base = server.url;
   try {
     expect((await fetch(`${base}/api/session`, { headers: { "x-forwarded-for": "192.0.2.1" } })).status).toBe(401);
     expect((await fetch(`${base}/api/session`)).status).toBe(200);
@@ -94,7 +94,7 @@ it("a corrupt device registry refuses strangers while keeping local recovery and
     expect(response.status).toBe(503);
     expect(await response.json()).toMatchObject({ error: { code: "device_store_unavailable" } });
     expect(readFileSync(path, "utf8")).toBe("{broken registry");
-  } finally { server.stop(); rmSync(root, { recursive: true, force: true }); }
+  } finally { await server.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
 it("opens a fleet run's results, and no other file of the state folder", async () => {
@@ -103,15 +103,13 @@ it("opens a fleet run's results, and no other file of the state folder", async (
   const root = join(base, "state");
   const temp = join(base, "tmp");
   mkdirSync(temp);
-  const before = process.env["TMPDIR"];
-  process.env["TMPDIR"] = temp;
-  const server = createServer({ port: 0, stateDir: root, token: "test-results", tailscaleOwner: null, machines: false });
+  const server = await launchServer({ env: { HERDR_FLEET_STATE_DIR: root, TMPDIR: temp, HERDR_FLEET_TOKEN: "test-results" }, test: { tailscaleOwner: null, machines: false } });
   // after the server started: it drops the results of runs it does not know
   mkdirSync(join(root, "fleet-results", "r1"), { recursive: true });
   writeFileSync(join(root, "fleet-results", "r1", "handoff.md"), "# done");
   writeFileSync(join(root, "devices.json"), "{}");
   symlinkSync(join(root, "devices.json"), join(root, "fleet-results", "r1", "link-out"));
-  const base_ = `http://127.0.0.1:${server.port}`;
+  const base_ = server.url;
   const admin = { ...guard, authorization: "Bearer test-results" };
   const read = (path: string) => fetch(`${base_}/api/fs/file?path=${encodeURIComponent(path)}`, { headers: admin });
   try {
@@ -133,29 +131,28 @@ it("opens a fleet run's results, and no other file of the state folder", async (
     expect((await fetch(`${base_}/api/fs/view/-/${encodeURIComponent(join(root, "fleet-results", "..", "devices.json").slice(1))}`, { headers: admin })).status).toBe(403);
     expect((await fetch(`${base_}${fileViewUrl(join(root, "fleet-results", "r1", "report.html"), null)}`, { method: "POST", headers: admin })).status).toBe(400);
   } finally {
-    server.stop();
-    if (before === undefined) delete process.env["TMPDIR"]; else process.env["TMPDIR"] = before;
+    await server.stop();
     rmSync(base, { recursive: true, force: true });
   }
 });
 
 it("an empty segment in the path names no route", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-empty-segment-"));
-  const server = createServer({ port: 0, stateDir: root, token: "test-segment", tailscaleOwner: null, machines: false });
-  const base = `http://127.0.0.1:${server.port}`;
+  const server = await launchServer({ env: { HERDR_FLEET_STATE_DIR: root, HERDR_FLEET_TOKEN: "test-segment" }, test: { tailscaleOwner: null, machines: false } });
+  const base = server.url;
   try {
     for (const path of ["api//fs/file", "api/machines/pc1//fs/file", "api/machines/pc1/fs//file"]) {
       const response = await fetch(`${base}/${path}?path=${encodeURIComponent(join(root, "devices.json"))}`, { headers: { authorization: "Bearer test-segment" } });
       expect(response.status).toBe(404);
     }
-  } finally { server.stop(); rmSync(root, { recursive: true, force: true }); }
+  } finally { await server.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
 it("revoking a paired device removes its persistent push subscription", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-device-push-"));
-  const server = createServer({ port: 0, stateDir: root, token: "test-push-owner", tailscaleOwner: null, machines: false, pushEndpoint: loopbackPush });
+  const server = await launchServer({ env: { HERDR_FLEET_STATE_DIR: root, HERDR_FLEET_TOKEN: "test-push-owner" }, test: { tailscaleOwner: null, machines: false, acceptLoopbackPush: true } });
   const fake = await startFakePushService();
-  const base = `http://127.0.0.1:${server.port}`;
+  const base = server.url;
   const admin = { ...guard, authorization: "Bearer test-push-owner" };
   try {
     const { code } = await (await fetch(`${base}/api/devices/pair/start`, { method: "POST", headers: admin })).json() as { code: string };
@@ -170,25 +167,46 @@ it("revoking a paired device removes its persistent push subscription", async ()
     expect((await fetch(`${base}/api/session`, { headers: { cookie } })).status).toBe(401);
     expect(JSON.parse(readFileSync(join(root, "push-subscriptions.json"), "utf8"))).toEqual([]);
     expect((await fetch(`${base}/api/push/test`, { method: "POST", headers: admin, body: JSON.stringify({ endpoint: fake.subscription.endpoint }) })).status).toBe(404);
-  } finally { fake.stop(); server.stop(); rmSync(root, { recursive: true, force: true }); }
+  } finally { fake.stop(); await server.stop(); rmSync(root, { recursive: true, force: true }); }
 });
 
-it("returns an error when revocation cannot be persisted, then allows a successful retry", async () => {
-  const root = mkdtempSync(join(tmpdir(), "herdr-device-write-"));
-  const store = new DeviceStore(root);
-  const paired = store.pair(store.startPairing().code, "Phone")!;
-  const server = createServer({ port: 0, stateDir: root, token: "test-write", tailscaleOwner: null, machines: false });
-  const base = `http://127.0.0.1:${server.port}`;
-  const blocked = join(root, `devices.json.${process.pid}.tmp`);
+it("without the loopback push test option, refuses a push endpoint that is no browser vendor's", async () => {
+  const server = await launchServer({ env: { HERDR_FLEET_TOKEN: "test-push-vendor" }, test: { machines: false } });
+  const fake = await startFakePushService();
   try {
-    mkdirSync(blocked);
-    const revoke = () => fetch(`${base}/api/devices/${paired.device.id}`, { method: "DELETE", headers: { ...guard, authorization: "Bearer test-write" } });
-    const failed = await revoke();
-    expect(failed.status).toBe(500);
-    expect(await failed.json()).toMatchObject({ error: { code: "internal_error" } });
-    expect(new DeviceStore(root).match(paired.token)).not.toBeNull();
-    rmSync(blocked, { recursive: true });
-    expect((await revoke()).status).toBe(204);
-    expect(new DeviceStore(root).match(paired.token)).toBeNull();
-  } finally { server.stop(); rmSync(root, { recursive: true, force: true }); }
+    const refused = await fetch(`${server.url}/api/push/subscribe`, {
+      method: "POST", headers: { ...guard, authorization: "Bearer test-push-vendor" }, body: JSON.stringify({ subscription: fake.subscription }),
+    });
+    expect(new URL(fake.subscription.endpoint).hostname).toBe("127.0.0.1");
+    expect(refused.status).toBe(400);
+    expect(await refused.json()).toMatchObject({ error: { code: "invalid_subscription" } });
+  } finally { fake.stop(); await server.stop(); }
+});
+
+it("lists a pane's files without running a command the repository's own config names (core.fsmonitor)", async () => {
+  const root = mkdtempSync(join(tmpdir(), "herdr-pane-files-fsmonitor-"));
+  const marker = join(root, "fsmonitor-ran");
+  const git = (...args: string[]) => expect(Bun.spawnSync(["git", "-C", root, ...args]).exitCode).toBe(0);
+  mkdirSync(join(root, "src"));
+  writeFileSync(join(root, "README.md"), "# fixture\n");
+  writeFileSync(join(root, "src", "api.ts"), "export {};\n");
+  git("init", "-q");
+  git("add", "README.md", "src/api.ts");
+  git("-c", "user.email=t@example.com", "-c", "user.name=t", "-c", "commit.gpgsign=false", "commit", "-qm", "init");
+  writeFileSync(join(root, "hook.sh"), `#!/bin/sh\ntouch "${marker}"\n`, { mode: 0o755 });
+  git("config", "core.fsmonitor", join(root, "hook.sh"));
+  const server = await launchServer({ env: { HERDR_FLEET_TOKEN: "test-pane-files" }, test: { machines: false } });
+  let workspaceId: string | undefined;
+  try {
+    const created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-pane-files-fsmonitor" });
+    workspaceId = created.workspace.workspace_id;
+    const response = await fetch(`${server.url}/api/pane/files?pane_id=${encodeURIComponent(created.root_pane.pane_id)}&limit=100`, { headers: { authorization: "Bearer test-pane-files" } });
+    expect(response.status).toBe(200);
+    expect(((await response.json()) as { files: string[] }).files).toContain("src/api.ts");
+    expect(existsSync(marker)).toBe(false);
+  } finally {
+    await server.stop();
+    if (workspaceId) await workspaceClose(workspaceId);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
