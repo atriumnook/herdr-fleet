@@ -36,7 +36,7 @@ bun run build
 ```
 
 - integration テストのうち 1 件(Windows のミラー表示での paste)は、上流の v0.3.45 でも同じように失敗する。attach-held と output flow control の 2 件は、全件をまとめて走らせたときだけ負荷で失敗することがあり、単独で実行すれば通る
-- 画面の解析の件を足すときは、`fixtures/screens/<agent>/<件>/` に `screen.txt` と、`expected` のない `case.json` を置き、`bun scripts/screen-fixtures.ts --update` で期待値を書き込む。この script はすべての件の期待値を今のコードの出力で書き直すので、コミットの前に差分を読む。`expected` のない件はテストで失敗する
+- 画面の解析の件を足すときは、`fixtures/screens/<agent>/<件>/` に `screen.txt` と、`expected` のない `case.json` を置き、`bun scripts/screen-fixtures.ts --update` で期待値を書き込む。この script が書くのは、期待値のない件だけ。期待値のある件は、名前を指定したとき(`--update claude/<件>`)だけ書き直す。失敗した件を書き直す前に、コードと件のどちらが誤っているかを確かめる。コミットの前に差分を読む。`expected` のない件はテストで失敗する
 - `bun run test:ui` は chromium を `CHROME_PATH`(この PC では `/usr/bin/chromium`)で指定して走らせる。1 つ目の失敗で止まる。fleet 画面だけなら `bun scripts/fleet-screen-regression.ts`(`FLEET_SCREENSHOTS=<dir>` でスクリーンショットを残す)
 - `bun run e2e` は実際の pi にプロンプトを送るので、モデルの利用料が発生する。実行の前にユーザーの承認を取る
 - テスト用セッションを止めるときは `herdr --session herdr-fleet-test server stop`
