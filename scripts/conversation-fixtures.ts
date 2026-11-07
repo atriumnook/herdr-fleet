@@ -13,7 +13,8 @@
  *   - `piContextWindows`: `{"<provider>/<model>": <tokens>}`, the context windows pi's model
  *     catalog states. Written to a `models.json` that `PI_CODING_AGENT_DIR` points at for the
  *     case; without the field the catalog is empty, never the machine's own
- *   - `steps`: run in order, each one an object of one of these forms
+ *   - `steps`: run in order, each one an object of one of these forms. A call's `source` is the
+ *     source of the case's folder
  *     - a call, with what it returns in `expected`:
  *       - `{"call": "page", "source", "path", "page"?: {"before"?, "since"?, "from"?}}`: one page of
  *         the conversation (transcriptPage), metadata included. For opencode
@@ -33,8 +34,8 @@
  *       - `{"append": "<path>", "from" | "text"}`: added at the end
  *       - `{"replace": "<path>", "from" | "text"}`: another file (another inode) put in its place
  *       - `{"rewrite": "<path>", "from" | "text"}`: written over in place (the same inode), its
- *         mtime then set one second past the one it had: the readers find a rewrite by the size,
- *         mtime and ctime, and two writes can share one mtime tick
+ *         mtime then set one second past the later of the one it had and the clock: the readers
+ *         find a rewrite by the size, mtime and ctime, and two writes can share one mtime tick
  *       - `{"remove": "<path>"}`
  *     - `{"api": {"<path>": {"status", "body"}}}`: OpenCode's replies for these GET paths change
  *       to these from here on, the others stay as recorded
@@ -76,13 +77,14 @@
  *
  *     bun scripts/conversation-fixtures.ts --update
  *
- * which writes what the code returns now into the cases that have a call without an expected
- * value, and names the values that change with every run `$h`, `$h2`… (history_id), `$c1`, `$c2`…
- * (cursor) and `$v1`, `$v2`… (version), in the order they appear. A name the case already gives
- * to a value, in its steps' inputs or in an expected value being rewritten, is kept. A case whose
- * calls all have expected values is left as it is: a failing case is a question of whether the
- * code or the case is wrong, not something to write over. To rewrite cases the code now rightly
- * answers differently, name them:
+ * which writes what the code returns now into the calls that have no expected value, and names
+ * the values that change with every run `$h`, `$h2`… (history_id), `$c1`, `$c2`… (cursor) and
+ * `$v1`, `$v2`… (version), in the order they appear. A name the case already gives to a value, in
+ * its steps' inputs or in an expected value, is kept. Every case is run before any is written, so
+ * a case that fails leaves the corpus as it was. A call that has an expected value is left as it
+ * is: a failing case is a question of whether the code or the case is wrong, not something to
+ * write over. To rewrite cases the code now rightly answers differently, name them, and every call
+ * of theirs is written again:
  *
  *     bun scripts/conversation-fixtures.ts --update claude/some-case codex/another
  *
@@ -250,7 +252,12 @@ export function loadCases(root = CONVERSATIONS_DIR): LoadedCase[] {
     return folders(join(root, source)).map((folder) => {
       const name = `${source}/${folder}`;
       const dir = join(root, source, folder);
-      return { name, dir, spec: validateCase(name, JSON.parse(readFileSync(join(dir, "case.json"), "utf8"))) };
+      let text: string;
+      try { text = readFileSync(join(dir, "case.json"), "utf8"); } catch { throw new Error(`${name}: the case folder has no readable case.json`); }
+      const spec = validateCase(name, JSON.parse(text));
+      // a case reads its own source only: the folder is the Issue that owns it
+      spec.steps.forEach((step, index) => { if ("call" in step && step.source !== source) throw new Error(`${name} step ${index}: source "${step.source}" in a ${source} case`); });
+      return { name, dir, spec };
     });
   }).sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -269,6 +276,8 @@ export function replyKey(path: string): string {
 export class RecordedOpencodeApi implements OpencodeApi {
   private readonly replies = new Map<string, Reply>();
   private readonly running: boolean;
+  /** the GETs asked for that the case did not record, kept even when the reader catches the failure */
+  readonly unrecorded: string[] = [];
 
   constructor(recorded: unknown, where = "api.json") {
     if (!isRecord(recorded)) throw new Error(`${where}: not an object`);
@@ -294,7 +303,10 @@ export class RecordedOpencodeApi implements OpencodeApi {
 
   async get(path: string): Promise<unknown> {
     const reply = this.replies.get(replyKey(path));
-    if (reply === undefined) throw new UnrecordedPath(replyKey(path));
+    if (reply === undefined) {
+      this.unrecorded.push(replyKey(path));
+      throw new UnrecordedPath(replyKey(path));
+    }
     if (reply.status >= 200 && reply.status < 300) return structuredClone(reply.body);
     const tag = isRecord(reply.body) && typeof reply.body["_tag"] === "string" ? reply.body["_tag"] : "";
     throw new OpencodeHttpError(reply.status, tag);
@@ -366,11 +378,13 @@ function nameValue(actual: unknown, field: keyof typeof NAMED_FIELDS, expected: 
 
 /** Every string in `value` with the case folder's path written `$CASE` (`folders`: its spellings, the longest first). */
 export function withCase(value: unknown, folders: string[]): unknown {
-  if (typeof value === "string") return folders.reduce((text, folder) => text.split(folder).join("$CASE"), value);
+  if (typeof value === "string") return folders.reduce((text, folder) => text.replace(new RegExp(`${escaped(folder)}(?=/|$|[^A-Za-z0-9._-])`, "g"), "$$CASE"), value);
   if (Array.isArray(value)) return value.map((item) => withCase(item, folders));
   if (isRecord(value)) return Object.fromEntries(Object.entries(value).map(([key, item]) => [key, withCase(item, folders)]));
   return value;
 }
+
+const escaped = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 function failure(error: unknown): unknown {
   if (error instanceof HistoryChanged) return { error: "HistoryChanged" };
@@ -474,6 +488,8 @@ export async function runCase({ name, dir, spec }: LoadedCase, options: { update
             if (field in value && value[field] !== null) value[field] = nameValue(value[field], field, expected[field], names, update);
           }
         }
+        // a reader that catches a failed GET (the model list) must not hide a reply the case forgot
+        if (api !== undefined && api.unrecorded.length > 0) throw new Error(`${where}: api.json records no reply for GET ${api.unrecorded.join(", ")}`);
         values.push(value);
         continue;
       }
@@ -492,7 +508,8 @@ export async function runCase({ name, dir, spec }: LoadedCase, options: { update
       } else {
         const before = statSync(target);
         writeFileSync(target, bytes);
-        const at = before.mtimeMs / 1000 + 1;
+        // past both the mtime it had and the clock, so it never goes back
+        const at = Math.max(before.mtimeMs, Date.now()) / 1000 + 1;
         utimesSync(target, at, at);
       }
     }
@@ -538,21 +555,26 @@ async function call(step: CallStep, folder: string, names: Names, where: string,
 const unfilled = (spec: ConversationCase): boolean => spec.steps.some((step) => "call" in step && step.expected === undefined);
 
 /**
- * Writes what the code returns now into the cases that have a call without an expected value
- * and into the cases `names` names, and nothing else. Returns the cases written.
+ * Writes what the code returns now into the calls without an expected value, and into every call
+ * of the cases `names` names, and nothing else. Returns the cases written.
  */
 export async function update(names: string[] = [], root = CONVERSATIONS_DIR): Promise<string[]> {
   const cases = loadCases(root);
   const known = new Set(cases.map(({ name }) => name));
   const unknown = names.filter((name) => !known.has(name));
   if (unknown.length) throw new Error(`no such case: ${unknown.join(", ")}`);
+  const named = new Set(names);
   const targets = new Set([...names, ...cases.filter(({ spec }) => unfilled(spec)).map(({ name }) => name)]);
+  // every case is run before any is written: a case that fails leaves the corpus as it was
+  const written: { loaded: LoadedCase; steps: Step[] }[] = [];
   for (const loaded of cases) {
     if (!targets.has(loaded.name)) continue;
     const { values } = await runCase(loaded, { update: true });
-    const steps = loaded.spec.steps.map((step, index) => "call" in step ? { ...step, expected: values[index] } : step);
-    writeFileSync(join(loaded.dir, "case.json"), `${JSON.stringify({ ...loaded.spec, steps }, null, 2)}\n`);
+    // a call that has its expected value keeps it unless the case is named
+    const steps = loaded.spec.steps.map((step, index) => "call" in step && (named.has(loaded.name) || step.expected === undefined) ? { ...step, expected: values[index] } : step);
+    written.push({ loaded, steps });
   }
+  for (const { loaded, steps } of written) writeFileSync(join(loaded.dir, "case.json"), `${JSON.stringify({ ...loaded.spec, steps }, null, 2)}\n`);
   return [...targets].sort();
 }
 

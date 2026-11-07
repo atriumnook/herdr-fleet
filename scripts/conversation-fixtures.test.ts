@@ -48,6 +48,26 @@ describe("conversation corpus update", () => {
     expect(values[0]).toStrictEqual((filled.steps[0] as { expected: unknown }).expected);
   });
 
+  test("fills only the calls without an expected value, and keeps the others even when they are stale", async () => {
+    const root = corpus({
+      "claude/grown": { files: { "session.jsonl": SESSION }, spec: { steps: [{ ...page(), expected: "stale" }, page()] } },
+    });
+    await update([], root);
+    const [kept, filled] = read(root, "claude/grown").steps as { expected: unknown }[];
+    expect(kept!.expected).toBe("stale");
+    expect(filled!.expected).toMatchObject({ history_id: "$h", version: "$v1" });
+  });
+
+  test("writes nothing when a case fails", async () => {
+    const root = corpus({
+      "claude/a": { files: { "session.jsonl": SESSION }, spec: { steps: [page()] } },
+      "claude/b": { files: { "session.jsonl": SESSION }, spec: { steps: [page({ page: { before: "$none" } })] } },
+    });
+    const before = raw(root, "claude/a");
+    await expect(update([], root)).rejects.toThrow("$none is passed before a step names it");
+    expect(raw(root, "claude/a")).toBe(before);
+  });
+
   test("rewrites a case it is named, and nothing it is not named", async () => {
     const root = corpus({
       "claude/stale": { files: { "session.jsonl": SESSION }, spec: { steps: [{ ...page(), expected: "old" }] } },
@@ -123,6 +143,8 @@ describe("conversation corpus names", () => {
     const folders = ["/private/tmp/herdr-conversation-x/case", "/tmp/herdr-conversation-x/case"];
     expect(withCase({ a: ["/tmp/herdr-conversation-x/case/session.jsonl", 1, null], b: "missing /private/tmp/herdr-conversation-x/case" }, folders))
       .toEqual({ a: ["$CASE/session.jsonl", 1, null], b: "missing $CASE" });
+    // another folder whose name starts the same is not the case's
+    expect(withCase("/tmp/herdr-conversation-x/case-other/a and /tmp/herdr-conversation-x/case: x", folders)).toBe("/tmp/herdr-conversation-x/case-other/a and $CASE: x");
   });
 
   test("writes a failure as its error", async () => {
@@ -148,9 +170,12 @@ describe("case.json fields", () => {
     expect(() => validateCase("pi/x", { steps: [page()], piContextWindows: { model: 1 } })).toThrow('"model" is not "<provider>/<model>"');
   });
 
-  test("a case folder outside a source fails, named", () => {
-    const root = corpus({ "gemini/x": { spec: { steps: [page()] } } });
-    expect(() => loadCases(root)).toThrow("gemini: not a source");
+  test("a case folder outside a source, without case.json, or calling another source fails, named", () => {
+    expect(() => loadCases(corpus({ "gemini/x": { spec: { steps: [page()] } } }))).toThrow("gemini: not a source");
+    const half = corpus({ "claude/x": { spec: { steps: [page()] } } });
+    rmSync(join(half, "claude/x/case.json"));
+    expect(() => loadCases(half)).toThrow("claude/x: the case folder has no readable case.json");
+    expect(() => loadCases(corpus({ "claude/x": { spec: { steps: [page({ source: "codex" })] } } }))).toThrow('claude/x step 0: source "codex" in a claude case');
   });
 });
 
@@ -172,6 +197,22 @@ describe("OpenCode's recorded replies", () => {
     await expect(api.get("/api/y?z=1")).rejects.toThrow("api.json records no reply for GET /api/y?z=1");
     api.set({ "/api/x": { status: 200, body: "now" } });
     expect(await api.get("/api/x")).toBe("now");
+  });
+
+  test("an unrecorded GET the reader catches still fails the case", async () => {
+    // the session and its messages are recorded, the model list is not: the reader would draw no window
+    const sid = "ses_testsession0001";
+    const message = { id: "msg_u0", type: "user", time: { created: 1 }, text: "<msg_u0>" };
+    const root = corpus({
+      "opencode/case": {
+        files: { "api.json": JSON.stringify({ serviceRunning: true, get: {
+          [`/api/session/${sid}`]: { status: 200, body: { data: { id: sid, time: { created: 1, updated: 1 } } } },
+          [`/api/session/${sid}/message?limit=100&order=desc`]: { status: 200, body: { data: [message] } },
+        } }) },
+        spec: { steps: [{ call: "page", source: "opencode", sessionId: sid }] },
+      },
+    });
+    await expect(runCase(loaded(root, "opencode/case"))).rejects.toThrow("opencode/case step 0: api.json records no reply for GET /api/model");
   });
 
   test("an unrecorded GET fails the case, naming the path", async () => {
