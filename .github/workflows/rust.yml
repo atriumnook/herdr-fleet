@@ -1,0 +1,76 @@
+# Checks of the Rust workspace in rust/ (ADR 0110-workspace-and-ci).
+# Runs on every push to `rust` and on every pull request whose base is `rust`,
+# with no path filter, so that every such pull request carries the checks.
+name: rust
+
+on:
+  push:
+    branches: [rust]
+  pull_request:
+    branches: [rust]
+
+permissions:
+  contents: read
+
+# A newer push to the same pull request cancels the run it supersedes. Runs of
+# pushes to `rust` are never cancelled, so that each merge reports its result.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        # `shell: bash` runs with -eo pipefail; the default shell has no pipefail.
+        shell: bash
+        working-directory: rust
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # Installs the release and components named in rust/rust-toolchain.toml.
+      - name: Install the toolchain
+        run: rustup toolchain install --no-self-update && rustc --version
+      - name: cargo fmt --check
+        run: cargo fmt --check
+      - name: cargo clippy
+        run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - name: cargo test
+        run: cargo test --locked --workspace
+      # ADR 0107-crate-split: the parsing crates depend on no herdr client, no
+      # child-process crate, no async runtime and no HTTP library. The tree is
+      # resolved for the whole workspace, as the builds above are, so a feature
+      # that another member turns on in a shared dependency shows up here too.
+      - name: Parsing crates have no I/O dependencies
+        run: |
+          tree=$(cargo tree --locked --workspace -e normal --no-dedupe --prefix depth --format ' {p}')
+          edges=$(printf '%s\n' "$tree" | awk '
+            $1 == "0" { root = $2; if (root ~ /^herdr-fleet-(screen|transcript)$/) print root " -> " root; next }
+            NF >= 2 && root ~ /^herdr-fleet-(screen|transcript)$/ { print root " -> " $2 }' | sort -u)
+          for crate in herdr-fleet-screen herdr-fleet-transcript; do
+            if ! grep -qx "$crate -> $crate" <<<"$edges"; then
+              echo "::error::$crate is not a member of the workspace"
+              exit 1
+            fi
+          done
+          found=$(grep -E ' -> (herdr-fleet-herdr|herdr-fleet-child-process|tokio|axum|hyper|reqwest)$' <<<"$edges" || true)
+          if [ -n "$found" ]; then
+            echo "::error::a parsing crate depends on a banned package:"
+            echo "$found"
+            exit 1
+          fi
+      # ADR 0110-workspace-and-ci: tests that read the corpus or write temporary
+      # files live in tests/ and allow the banned APIs there; src/ never does.
+      - name: Parsing crates allow their banned APIs only in tests
+        run: |
+          if grep -rnE 'clippy::(disallowed_methods|disallowed_types|style|all)\b' \
+              crates/screen/src crates/transcript/src; then
+            echo "::error::screen and transcript allow clippy's disallowed lints only under tests/"
+            exit 1
+          fi

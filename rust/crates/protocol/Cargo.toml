@@ -1,0 +1,12 @@
+[package]
+name = "herdr-fleet-protocol"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+herdr-api.workspace = true
+
+[lints]
+workspace = true
