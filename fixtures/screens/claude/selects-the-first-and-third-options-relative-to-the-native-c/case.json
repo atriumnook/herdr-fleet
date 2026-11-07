@@ -1,0 +1,94 @@
+{
+  "about": "prompt.test.ts: enters custom text through the provider's direct-input row; prompt.test.ts: selects the first and third options relative to the native cursor",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Dataset",
+    "question": "Which evaluation dataset should we use?",
+    "body": null,
+    "options": [
+      {
+        "label": "LM-O",
+        "description": null
+      },
+      {
+        "label": "YCB-V",
+        "description": null
+      },
+      {
+        "label": "T-LESS",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 3
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 0
+      },
+      "expected": [
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    },
+    {
+      "answer": {
+        "option_index": 2
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    },
+    {
+      "answer": {
+        "custom_text": "Use the internal benchmark"
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "text": "Use the internal benchmark"
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

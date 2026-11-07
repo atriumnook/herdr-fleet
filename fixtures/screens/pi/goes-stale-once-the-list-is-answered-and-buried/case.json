@@ -1,0 +1,6 @@
+{
+  "about": "prompt.test.ts: goes stale once the list is answered and buried",
+  "call": "parseInteractivePrompt",
+  "agent": "pi",
+  "expected": null
+}

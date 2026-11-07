@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: no longer asks once an approved tool ran and its input is back",
+  "adapter": "agy",
+  "check": "question",
+  "expected": null
+}

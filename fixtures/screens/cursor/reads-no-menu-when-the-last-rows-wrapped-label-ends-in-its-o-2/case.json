@@ -1,0 +1,25 @@
+{
+  "about": "prompt.test.ts: reads no menu when the last row's wrapped label ends in its own letter key",
+  "call": "parseFallbackPrompt",
+  "agent": "cursor",
+  "expected": {
+    "agent": "cursor",
+    "kind": "menu",
+    "title": "Waiting for input",
+    "question": "Access?",
+    "body": "1. Cancel\n2. Full access (f)\nAllows writing to every file\nType f, then Enter",
+    "options": [
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: refuses to run the default model in place of an unknown one",
+  "adapter": "agy",
+  "check": "readyError",
+  "expected": null
+}

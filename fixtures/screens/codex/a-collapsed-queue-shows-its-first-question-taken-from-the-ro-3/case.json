@@ -1,0 +1,19 @@
+{
+  "about": "prompt.test.ts: a collapsed queue shows its first question, taken from the rollout's newest unanswered ones",
+  "call": "codexQueuedPrompt",
+  "unanswered": [
+    {
+      "key": "call_c:0",
+      "title": "Which dataset?",
+      "options": [
+        "LM-O"
+      ]
+    },
+    {
+      "key": "call_c:1",
+      "title": "Any notes?",
+      "options": []
+    }
+  ],
+  "expected": null
+}

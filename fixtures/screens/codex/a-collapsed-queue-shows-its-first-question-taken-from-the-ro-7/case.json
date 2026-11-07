@@ -1,0 +1,64 @@
+{
+  "about": "prompt.test.ts: a collapsed queue shows its first question, taken from the rollout's newest unanswered ones",
+  "call": "codexQueuedPrompt",
+  "unanswered": [
+    {
+      "key": "call_t:0",
+      "title": "Which dataset?",
+      "options": [
+        "COCO"
+      ]
+    },
+    {
+      "key": "call_a:0",
+      "title": "Old question?",
+      "options": [
+        "x",
+        "y"
+      ]
+    },
+    {
+      "key": "call_b:0",
+      "title": "Which dataset?",
+      "options": [
+        "LM-O",
+        "YCB-V"
+      ]
+    },
+    {
+      "key": "call_b:1",
+      "title": "Any notes?",
+      "options": []
+    }
+  ],
+  "front": {
+    "question": "Which dataset?",
+    "options": [
+      "LM-O",
+      "YCB-V"
+    ]
+  },
+  "expected": {
+    "agent": "codex",
+    "kind": "question",
+    "title": "Question 1 of 2",
+    "question": "Which dataset?",
+    "body": null,
+    "options": [
+      {
+        "label": "LM-O",
+        "description": null
+      },
+      {
+        "label": "YCB-V",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2,
+    "queued": "collapsed"
+  },
+  "sameIdAs": [
+    "codex/a-collapsed-queue-shows-its-first-question-taken-from-the-ro-4"
+  ]
+}

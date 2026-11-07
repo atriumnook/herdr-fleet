@@ -1,0 +1,24 @@
+{
+  "about": "prompt.test.ts: a command line that reads Tip: is part of a scrolled approval's asking",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "approval",
+    "title": "Command approval",
+    "question": "Do you want to proceed?",
+    "body": "cat <<EOF\nTip: $(rm -rf important)\nEOF",
+    "options": [
+      {
+        "label": "Yes",
+        "description": null
+      },
+      {
+        "label": "No",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  }
+}

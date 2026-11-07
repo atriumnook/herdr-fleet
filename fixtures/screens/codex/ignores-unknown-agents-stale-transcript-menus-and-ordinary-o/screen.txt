@@ -1,0 +1,8 @@
+
+Would you like to run the following command?
+› 1. Yes, proceed
+  2. No, and tell Codex what to do differently
+Press enter to confirm or esc to cancel
+
+• Command completed successfully.
+› Ask Codex to do something

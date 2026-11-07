@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: fails a turn on codex's last error line",
+  "adapter": "codex",
+  "check": "turnError",
+  "expected": "unexpected status 401 Unauthorized"
+}

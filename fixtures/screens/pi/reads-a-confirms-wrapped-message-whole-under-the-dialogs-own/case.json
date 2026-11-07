@@ -1,0 +1,24 @@
+{
+  "about": "prompt.test.ts: reads a confirm's wrapped message whole, under the dialog's own title",
+  "call": "parseInteractivePrompt",
+  "agent": "pi",
+  "expected": {
+    "agent": "pi",
+    "kind": "approval",
+    "title": "Delete the branch?",
+    "question": "This removes the local branch and its remote counterpart for good.",
+    "body": null,
+    "options": [
+      {
+        "label": "Yes",
+        "description": null
+      },
+      {
+        "label": "No",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  }
+}

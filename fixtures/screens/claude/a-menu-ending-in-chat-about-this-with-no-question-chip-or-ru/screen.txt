@@ -1,0 +1,5 @@
+Choose an item
+  1. Keep
+❯ 2. Delete
+  3. Chat about this
+Enter to select · ↑/↓ to navigate · ctrl+g to edit in Vim · Esc to cancel

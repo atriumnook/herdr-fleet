@@ -1,0 +1,41 @@
+{
+  "about": "prompt.test.ts: reads the review under the session's rule, with or without the task list",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Review your answers",
+    "question": "Ready to submit your answers?",
+    "body": "● Which way should the PR go?\n→ my own words typed in the chat my own words t\n● Who should author the commits?\n→ Repo owner\n● What should the release notes say?\n→ my own words typed in the chat my own words typed in the chat my own w",
+    "options": [
+      {
+        "label": "Submit answers",
+        "description": null
+      },
+      {
+        "label": "Cancel",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "sameIdAs": [
+    "claude/reads-the-review-under-the-sessions-rule-with-or-without-the-1"
+  ],
+  "answers": [
+    {
+      "answer": {
+        "option_index": 0
+      },
+      "expected": [
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

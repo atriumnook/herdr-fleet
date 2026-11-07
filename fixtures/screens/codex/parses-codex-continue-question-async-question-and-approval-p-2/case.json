@@ -1,0 +1,28 @@
+{
+  "about": "prompt.test.ts: parses Codex continue, question, async question, and approval prompts",
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "question",
+    "title": "Question",
+    "question": "Which export format should we use?",
+    "body": null,
+    "options": [
+      {
+        "label": "ONNX",
+        "description": "Export a portable ONNX model."
+      },
+      {
+        "label": "TensorRT",
+        "description": "Build an NVIDIA TensorRT engine."
+      },
+      {
+        "label": "RKNN",
+        "description": "Build an RKNN model."
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 3
+  }
+}

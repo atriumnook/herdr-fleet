@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: sees a draft in its input box, but not the placeholder, a toast drawn over the box, or the agent row (v2.0.26, read with colors)",
+  "adapter": "opencode",
+  "check": "draft",
+  "expected": true
+}

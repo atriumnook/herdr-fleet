@@ -1,0 +1,43 @@
+{
+  "about": "prompt.test.ts: reads a confirm as an approval, and declines it by pressing No",
+  "call": "parseInteractivePrompt",
+  "agent": "pi",
+  "expected": {
+    "agent": "pi",
+    "kind": "approval",
+    "title": "Clear session?",
+    "question": "All messages will be lost.",
+    "body": null,
+    "options": [
+      {
+        "label": "Yes",
+        "description": null
+      },
+      {
+        "label": "No",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 1
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

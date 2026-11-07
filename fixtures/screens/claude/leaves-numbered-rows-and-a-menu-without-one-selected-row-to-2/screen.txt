@@ -1,0 +1,6 @@
+Pick one
+
+  First
+  Second
+
+Enter to confirm · Esc to cancel

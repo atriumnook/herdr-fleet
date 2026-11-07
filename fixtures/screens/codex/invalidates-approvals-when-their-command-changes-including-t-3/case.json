@@ -1,0 +1,27 @@
+{
+  "about": "prompt.test.ts: invalidates approvals when their command changes, including text beyond the display cap",
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "approval",
+    "title": "Would you like to run the following command?",
+    "question": "Would you like to run the following command?",
+    "body": "echo first",
+    "options": [
+      {
+        "label": "Yes, proceed",
+        "description": null
+      },
+      {
+        "label": "No, cancel",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "sameIdAs": [
+    "codex/invalidates-approvals-when-their-command-changes-including-t-1"
+  ]
+}

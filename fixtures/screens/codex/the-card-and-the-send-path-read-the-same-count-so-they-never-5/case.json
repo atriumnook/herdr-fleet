@@ -1,0 +1,19 @@
+{
+  "about": "prompt.test.ts: the card and the send path read the same count, so they never tell different stories",
+  "call": "codexQueuedPrompt",
+  "unanswered": [
+    {
+      "key": "call_c:0",
+      "title": "Which dataset?",
+      "options": [
+        "LM-O"
+      ]
+    },
+    {
+      "key": "call_c:1",
+      "title": "Any notes?",
+      "options": []
+    }
+  ],
+  "expected": null
+}

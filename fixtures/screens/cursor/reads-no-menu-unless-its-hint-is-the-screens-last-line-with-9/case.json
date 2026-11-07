@@ -1,0 +1,33 @@
+{
+  "about": "prompt.test.ts: reads no menu unless its hint is the screen's last line, with only the last row's wrap above it",
+  "call": "parseFallbackPrompt",
+  "agent": "cursor",
+  "expected": {
+    "agent": "cursor",
+    "kind": "menu",
+    "title": "Waiting for your answer",
+    "question": "Retry?",
+    "body": null,
+    "options": [
+      {
+        "label": "Never",
+        "description": null
+      },
+      {
+        "label": "Retry with a maximum attempt count: 3",
+        "description": null
+      },
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

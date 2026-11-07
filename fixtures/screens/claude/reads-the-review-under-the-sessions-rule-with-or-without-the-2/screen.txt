@@ -1,0 +1,25 @@
+❯ ASKREPRO 7
+
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Route  ☒ Author  ☒ Notes  ✔ Submit  →
+
+Review your answers
+
+ ● Which way should the PR go?
+   → my own words typed in the chat my own words t
+ ● Who should author the commits?
+   → Repo owner
+ ● What should the release notes say?
+   → my own words typed in the chat my own words typed in the chat my own w
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+─────────────────────────────────────────────────────────────────────────────────────────────────────────── session-name ─
+
+  3 tasks (0 done, 1 in progress, 2 open)
+  ◼ 구현
+    Running tests…
+  ◻ 검증
+  ◻ 정리

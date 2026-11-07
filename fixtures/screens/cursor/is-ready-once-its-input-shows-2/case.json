@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: is ready once its input shows",
+  "adapter": "cursor",
+  "check": "inputReady",
+  "expected": false
+}

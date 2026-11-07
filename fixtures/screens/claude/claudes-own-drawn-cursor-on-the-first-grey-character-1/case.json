@@ -1,0 +1,5 @@
+{
+  "about": "prompt.test.ts: Claude's own drawn cursor on the first grey character",
+  "call": "parseClaudeSuggestion",
+  "expected": "run the tests"
+}

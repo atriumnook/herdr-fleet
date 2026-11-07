@@ -1,0 +1,8 @@
+
+Which backend?
+
+› 1. CUDA
+  2. CPU
+  3. None of the above  Add details in notes (tab).
+
+tab to add notes | enter to submit answer | esc to interrupt

@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: reads the last Error: line pi printed when it gave up at startup",
+  "adapter": "pi",
+  "check": "startupError",
+  "expected": null
+}

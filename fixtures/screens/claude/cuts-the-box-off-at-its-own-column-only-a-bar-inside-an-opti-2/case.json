@@ -1,0 +1,24 @@
+{
+  "about": "prompt.test.ts: cuts the box off at its own column only: a bar inside an option's text stays",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Layout · 1 of 2",
+    "question": "Which layout?",
+    "body": null,
+    "options": [
+      {
+        "label": "격자 보기",
+        "description": null
+      },
+      {
+        "label": "目录列表  │ 宽",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  }
+}

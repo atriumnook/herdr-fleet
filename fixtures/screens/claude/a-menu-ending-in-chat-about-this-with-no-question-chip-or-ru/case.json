@@ -1,0 +1,6 @@
+{
+  "about": "prompt.test.ts: a menu ending in Chat about this with no question chip or rule over it has no typed-answer row",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": null
+}

@@ -1,0 +1,5 @@
+{
+  "about": "prompt.test.ts: is told apart from an open question, which holds the input",
+  "call": "codexQuestionsCollapsed",
+  "expected": false
+}

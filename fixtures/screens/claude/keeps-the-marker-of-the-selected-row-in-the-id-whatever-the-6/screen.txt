@@ -1,0 +1,4 @@
+Choose operation
+· Delete all… (5s)
+* Cancel… (5s)
+Use ↑/↓ then Enter

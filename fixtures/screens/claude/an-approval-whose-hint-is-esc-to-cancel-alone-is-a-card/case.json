@@ -1,0 +1,47 @@
+{
+  "about": "prompt.test.ts: an approval whose hint is Esc to cancel alone is a card",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "approval",
+    "title": "Bash command",
+    "question": "Do you want to proceed?",
+    "body": "Restart the demo service\nsystemctl --user restart demo.service\nPermission rule Bash(systemctl --user restart:*) requires confirmation for this command.\n/permissions to update rules",
+    "options": [
+      {
+        "label": "Yes",
+        "description": null
+      },
+      {
+        "label": "Yes, and don't ask again for: systemctl *",
+        "description": null
+      },
+      {
+        "label": "No",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 0
+      },
+      "expected": [
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

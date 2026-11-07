@@ -1,0 +1,6 @@
+{
+  "about": "prompt.test.ts: does not take a rule of another program under the panel for Claude's own",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": null
+}

@@ -1,0 +1,13 @@
+
+› 1. 먼저 이것부터 해줘
+
+• 알겠습니다.
+
+Which accelerator?
+
+› 1. CUDA
+  2. CPU
+  3. Other
+
+enter submit   ctrl + ] skip
+option 1/3   shift + → main prompt

@@ -1,0 +1,31 @@
+{
+  "about": "prompt.test.ts: the cursor's row is no part of what a menu says: the same card wherever it stands",
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "menu",
+    "title": "Codex",
+    "question": "Choose how to continue",
+    "body": "Conversation interrupted",
+    "options": [
+      {
+        "label": "Resume the task",
+        "description": null
+      },
+      {
+        "label": "Start over",
+        "description": null
+      },
+      {
+        "label": "Quit",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "sameIdAs": [
+    "codex/the-cursors-row-is-no-part-of-what-a-menu-says-the-same-card-2"
+  ]
+}

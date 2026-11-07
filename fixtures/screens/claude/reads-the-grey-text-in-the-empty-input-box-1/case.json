@@ -1,0 +1,5 @@
+{
+  "about": "prompt.test.ts: reads the grey text in the empty input box",
+  "call": "parseClaudeSuggestion",
+  "expected": "아직 진행중이야?"
+}

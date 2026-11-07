@@ -1,0 +1,25 @@
+{
+  "about": "prompt.test.ts: takes the last line for a hint only when it names a way to choose",
+  "call": "parseFallbackPrompt",
+  "agent": "cursor",
+  "expected": {
+    "agent": "cursor",
+    "kind": "menu",
+    "title": "Waiting for input",
+    "question": "Enter to continue",
+    "body": "Pick one:\n1. Alpha\n2. Beta",
+    "options": [
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

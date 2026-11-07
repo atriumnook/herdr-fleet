@@ -1,0 +1,25 @@
+{
+  "about": "prompt.test.ts: offers no letters or arrows for an input box, a quote or a word",
+  "call": "parseFallbackPrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Waiting for input",
+    "question": "❯",
+    "body": "The installer prints \"Overwrite? (y/n)\".",
+    "options": [
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

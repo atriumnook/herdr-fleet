@@ -1,0 +1,43 @@
+{
+  "about": "prompt.test.ts: reads Claude's question, not the sent message, as the menu, with a description wrapped over two lines",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Buzz 공개",
+    "question": "Buzz를 Tailscale 없이 인터넷에서 쓰도록 공개할까요?",
+    "body": null,
+    "options": [
+      {
+        "label": "공개 진행 (추천)",
+        "description": "Cloudflare Tunnel로 buzz.kilpenguin.com을 엽니다. 인바운드 포트는 열지 않습니다. relay는 닫힌 모드(멤버 키 서명만 허용)이고 relay와 /pair만 노출합니다."
+      },
+      {
+        "label": "Tailscale 유지",
+        "description": "지금 구성 그대로 갑니다(이미 동작 중)."
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 1
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

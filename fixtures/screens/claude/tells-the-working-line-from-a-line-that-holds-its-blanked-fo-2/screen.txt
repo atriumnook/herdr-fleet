@@ -1,0 +1,7 @@
+Remove this exact line from the fixture?
+* Tempering… (<time> · <tokens>)
+
+1. Yes
+2. No
+
+Enter a number, or Esc to cancel

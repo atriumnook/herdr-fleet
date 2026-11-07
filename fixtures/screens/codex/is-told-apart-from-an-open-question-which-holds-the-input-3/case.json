@@ -1,0 +1,5 @@
+{
+  "about": "prompt.test.ts: is told apart from an open question, which holds the input; prompt.test.ts: the card and the send path read the same count, so they never tell different stories",
+  "call": "codexQuestionsCollapsed",
+  "expected": false
+}

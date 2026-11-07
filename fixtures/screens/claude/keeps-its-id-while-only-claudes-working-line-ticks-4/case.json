@@ -1,0 +1,36 @@
+{
+  "about": "prompt.test.ts: keeps its id while only Claude's working line ticks",
+  "call": "parseFallbackPrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Waiting for your answer",
+    "question": "Run the tests?",
+    "body": "* Running the tests… (5s · ↓ 12 tokens · esc to interrupt)",
+    "options": [
+      {
+        "label": "Yes",
+        "description": null
+      },
+      {
+        "label": "No",
+        "description": null
+      },
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  },
+  "sameIdAs": [
+    "claude/keeps-its-id-while-only-claudes-working-line-ticks-5"
+  ]
+}

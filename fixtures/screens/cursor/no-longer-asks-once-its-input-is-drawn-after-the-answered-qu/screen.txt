@@ -1,0 +1,4 @@
+│  ⚠ Workspace Trust Required  │
+│  ⏳ Trusting workspace...  │
+  Cursor Agent
+  → Plan, search, build anything

@@ -1,0 +1,27 @@
+{
+  "about": "prompt.test.ts: keeps a label a narrow pane wrapped as one row",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Accessing workspace",
+    "question": "Is this a project you created or one you trust?",
+    "body": "Quick safety check: Is\nthis a project you\ncreated or one you\ntrust?",
+    "options": [
+      {
+        "label": "No, exit",
+        "description": null
+      },
+      {
+        "label": "Yes, I trust this folder",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "sameIdAs": [
+    "claude/keeps-a-label-a-narrow-pane-wrapped-as-one-row-1"
+  ]
+}

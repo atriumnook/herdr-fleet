@@ -1,0 +1,9 @@
+ │ earlier boxed output
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+● Here is what the dialog says:
+
+  Do you want to proceed?
+  ❯ 1. Yes
+    2. No
+
+  Esc to cancel

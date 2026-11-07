@@ -1,0 +1,4 @@
+Pick a profile:
+1. Work
+2. Home
+   Enter a number >

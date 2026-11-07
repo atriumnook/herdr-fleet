@@ -1,0 +1,43 @@
+{
+  "about": "prompt.test.ts: goes stale on a phone's pane once the wrapped hint is buried; prompt.test.ts: reads the catalogue off a phone's pane, joining the rows pi wrapped; prompt.test.ts: stops the catalogue at pi's notes, which the narrow pane indents like a row",
+  "call": "parseInteractivePrompt",
+  "agent": "pi",
+  "expected": {
+    "agent": "pi",
+    "kind": "question",
+    "title": "",
+    "question": "Select model (currently vllm-flash/Qwen3.8-Flash-Next [lwsa-platform])",
+    "body": null,
+    "options": [
+      {
+        "label": "vllm-flash/Qwen3.8-Flash-Next [lwsa-platform] · default",
+        "description": null
+      },
+      {
+        "label": "vllm/Qwen/Qwen3.8-27B [lwsa-platform]",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 1
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,6 @@
+{
+  "about": "prompt.test.ts: goes stale on a phone's pane once a wrapped dialog hint is buried",
+  "call": "parseInteractivePrompt",
+  "agent": "pi",
+  "expected": null
+}

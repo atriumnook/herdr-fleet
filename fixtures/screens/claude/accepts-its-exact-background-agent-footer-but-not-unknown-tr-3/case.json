@@ -1,0 +1,34 @@
+{
+  "about": "prompt.test.ts: accepts its exact background-agent footer, but not unknown trailing text",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "approval",
+    "title": "Bash command · from the general-purpose agent",
+    "question": "Do you want to proceed?",
+    "body": "Run shell command\nsystemctl --user start demo.service\nPermission rule Bash(systemctl --user start:*) requires confirmation for this command.\n/permissions to update rules",
+    "options": [
+      {
+        "label": "Yes",
+        "description": null
+      },
+      {
+        "label": "Yes, and don't ask again for: systemctl --user start demo.service",
+        "description": null
+      },
+      {
+        "label": "No",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "sameIdAs": [
+    "claude/accepts-its-exact-background-agent-footer-but-not-unknown-tr-1",
+    "claude/accepts-its-exact-background-agent-footer-but-not-unknown-tr-2",
+    "claude/accepts-its-exact-background-agent-footer-but-not-unknown-tr-4",
+    "claude/accepts-its-exact-background-agent-footer-but-not-unknown-tr-5"
+  ]
+}

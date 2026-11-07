@@ -1,0 +1,3 @@
+Commands:
+  opencode completion          generate shell completion script
+  opencode [project]           start opencode tui                                          [default]

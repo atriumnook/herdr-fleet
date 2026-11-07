@@ -1,0 +1,8 @@
+──────
+>
+──────
+> do it
+● Bash(ls)
+Requesting permission for:
+   ls
+> 1. Yes, run command

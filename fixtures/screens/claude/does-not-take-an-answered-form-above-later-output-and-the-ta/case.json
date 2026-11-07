@@ -1,0 +1,6 @@
+{
+  "about": "prompt.test.ts: does not take an answered form above later output and the task list for an open one",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": null
+}

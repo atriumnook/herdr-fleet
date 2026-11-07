@@ -1,0 +1,49 @@
+{
+  "about": "prompt.test.ts: reads an open free-form question, and a last row already typed over",
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "question",
+    "title": "Question",
+    "question": "Which split?",
+    "body": null,
+    "options": [
+      {
+        "label": "train",
+        "description": null
+      },
+      {
+        "label": "test",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2,
+    "queued": "open"
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 0
+      },
+      "expected": [
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

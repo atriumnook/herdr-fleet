@@ -1,0 +1,65 @@
+{
+  "about": "prompt.test.ts: counts the Submit row between the typed answer and Chat about this",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Pick",
+    "question": "Which ones?",
+    "body": null,
+    "options": [
+      {
+        "label": "Option A",
+        "description": "First description"
+      },
+      {
+        "label": "Option B",
+        "description": "Second description"
+      }
+    ],
+    "multi_select": true,
+    "custom_option_index": 2
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_indices": [
+          0
+        ]
+      },
+      "expected": [
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        },
+        {
+          "keys": [
+            "right"
+          ]
+        }
+      ]
+    }
+  ]
+}

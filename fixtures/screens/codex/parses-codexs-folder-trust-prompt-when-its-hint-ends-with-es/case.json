@@ -1,0 +1,38 @@
+{
+  "about": "prompt.test.ts: parses Codex's folder trust prompt when its hint ends with esc quit",
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "approval",
+    "title": "Trust this folder?",
+    "question": "Trust this folder?",
+    "body": "Codex can read, edit, and run files here, subject to your permission settings.",
+    "options": [
+      {
+        "label": "Trust and continue",
+        "description": null
+      },
+      {
+        "label": "Open restricted",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 0
+      },
+      "expected": [
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

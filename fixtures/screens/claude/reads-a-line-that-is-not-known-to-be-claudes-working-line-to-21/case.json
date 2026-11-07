@@ -1,0 +1,33 @@
+{
+  "about": "prompt.test.ts: reads a line that is not known to be Claude's working line to the letter",
+  "call": "parseFallbackPrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Waiting for your answer",
+    "question": "Run the tests?",
+    "body": "• Purchase credits (5s · 10 tokens)",
+    "options": [
+      {
+        "label": "Yes",
+        "description": null
+      },
+      {
+        "label": "No",
+        "description": null
+      },
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

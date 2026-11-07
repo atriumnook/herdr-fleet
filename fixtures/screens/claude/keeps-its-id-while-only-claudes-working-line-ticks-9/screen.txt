@@ -1,0 +1,6 @@
+Pick one
+
+❯ 1. One
+  2. Two
+✶ Tempering… (9s · ↓ 1.3k tokens)
+Enter to select

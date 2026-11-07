@@ -1,0 +1,47 @@
+{
+  "about": "prompt.test.ts: lets the chat type an answer to a dialog that wants text",
+  "call": "parseInteractivePrompt",
+  "agent": "pi",
+  "expected": {
+    "agent": "pi",
+    "kind": "question",
+    "title": "",
+    "question": "Branch name?",
+    "body": null,
+    "options": [
+      {
+        "label": "Type your answer",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 0
+  },
+  "answers": [
+    {
+      "answer": {
+        "custom_text": "feat/x"
+      },
+      "expected": [
+        {
+          "keys": [
+            "ctrl+k"
+          ]
+        },
+        {
+          "keys": [
+            "ctrl+u"
+          ]
+        },
+        {
+          "text": "feat/x"
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

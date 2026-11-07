@@ -1,0 +1,5 @@
+Pick:
+  1. Read only
+  2. Full access
+  Saved.
+Enter to select

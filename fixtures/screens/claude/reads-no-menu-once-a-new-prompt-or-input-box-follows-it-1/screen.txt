@@ -1,0 +1,7 @@
+Pick one
+
+  1. Deny
+❯ 2. Allow
+
+● Done.
+❯ 

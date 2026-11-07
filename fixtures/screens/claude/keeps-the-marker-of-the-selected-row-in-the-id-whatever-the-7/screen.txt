@@ -1,0 +1,4 @@
+Choose operation
+* Delete all… (5s · ↓ 1.0k tokens)
+· Cancel… (5s · ↓ 1.0k tokens)
+Use ↑/↓ then Enter

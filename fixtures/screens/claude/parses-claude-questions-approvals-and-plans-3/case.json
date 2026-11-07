@@ -1,0 +1,64 @@
+{
+  "about": "prompt.test.ts: parses Claude questions, approvals, and plans",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "plan",
+    "title": "Ready to code?",
+    "question": "Claude has written up a plan and is ready to execute. Would you like to proceed?",
+    "body": "Ready to code?\n\nHere is Claude's plan:\nAdd a heading to the README file.\n",
+    "options": [
+      {
+        "label": "Yes, auto-accept edits",
+        "description": null
+      },
+      {
+        "label": "Yes, manually approve edits",
+        "description": null
+      },
+      {
+        "label": "No, refine with Ultraplan on Claude Code on the web",
+        "description": null
+      },
+      {
+        "label": "Tell Claude what to change",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 3
+  },
+  "answers": [
+    {
+      "answer": {
+        "custom_text": "Keep the existing introduction"
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "text": "Keep the existing introduction"
+        },
+        {
+          "keys": [
+            "shift+tab"
+          ]
+        }
+      ]
+    }
+  ]
+}

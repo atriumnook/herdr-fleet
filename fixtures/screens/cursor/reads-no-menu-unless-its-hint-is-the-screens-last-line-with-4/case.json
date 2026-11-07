@@ -1,0 +1,25 @@
+{
+  "about": "prompt.test.ts: reads no menu unless its hint is the screen's last line, with only the last row's wrap above it",
+  "call": "parseFallbackPrompt",
+  "agent": "cursor",
+  "expected": {
+    "agent": "cursor",
+    "kind": "menu",
+    "title": "Waiting for input",
+    "question": "Enter recovery code ABCD",
+    "body": "Done:\n1. Read settings\n2. Load profiles\nProfiles loaded\nEnter to continue",
+    "options": [
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

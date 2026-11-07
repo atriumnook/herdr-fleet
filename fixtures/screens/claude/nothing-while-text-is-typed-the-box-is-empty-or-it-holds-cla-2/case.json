@@ -1,0 +1,5 @@
+{
+  "about": "prompt.test.ts: nothing while text is typed, the box is empty, or it holds Claude's tip",
+  "call": "parseClaudeSuggestion",
+  "expected": null
+}

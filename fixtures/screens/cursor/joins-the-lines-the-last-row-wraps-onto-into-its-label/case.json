@@ -1,0 +1,33 @@
+{
+  "about": "prompt.test.ts: joins the lines the last row wraps onto into its label",
+  "call": "parseFallbackPrompt",
+  "agent": "cursor",
+  "expected": {
+    "agent": "cursor",
+    "kind": "menu",
+    "title": "Waiting for your answer",
+    "question": "Trust this folder?",
+    "body": null,
+    "options": [
+      {
+        "label": "No, exit",
+        "description": null
+      },
+      {
+        "label": "Yes, trust folder and allow all commands without asking",
+        "description": null
+      },
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

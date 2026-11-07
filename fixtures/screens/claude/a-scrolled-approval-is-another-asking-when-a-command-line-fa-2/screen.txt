@@ -1,0 +1,19 @@
+ │ rm -rf important
+ │ echo same
+ │ echo same
+ │ echo same
+ │ echo same
+ │ echo same
+ │ echo same
+ │ echo same
+ │ echo same
+ │ echo same
+ │ echo same
+ │ echo same
+ │ echo same
+╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌╌
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. No
+
+ Esc to cancel · Tab to amend

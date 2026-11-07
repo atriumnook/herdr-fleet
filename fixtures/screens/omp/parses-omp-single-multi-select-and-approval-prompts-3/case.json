@@ -1,0 +1,24 @@
+{
+  "about": "prompt.test.ts: parses omp single, multi-select, and approval prompts",
+  "call": "parseInteractivePrompt",
+  "agent": "omp",
+  "expected": {
+    "agent": "omp",
+    "kind": "approval",
+    "title": "Allow tool: bash",
+    "question": "Allow tool: bash",
+    "body": "curl -I example.com",
+    "options": [
+      {
+        "label": "Approve",
+        "description": null
+      },
+      {
+        "label": "Deny",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  }
+}

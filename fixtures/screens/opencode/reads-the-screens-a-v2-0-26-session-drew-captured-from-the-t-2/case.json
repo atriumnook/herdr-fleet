@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: reads the screens a v2.0.26 session drew (captured from the TUI attached to a simulated server)",
+  "adapter": "opencode",
+  "check": "question",
+  "expected": null
+}

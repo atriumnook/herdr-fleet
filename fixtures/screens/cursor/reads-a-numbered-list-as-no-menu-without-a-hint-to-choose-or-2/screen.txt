@@ -1,0 +1,5 @@
+Pick:
+1. A
+2. B
+Enter a number
+Choice: 2

@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: fails a turn on the API error it settled with",
+  "adapter": "claude",
+  "check": "turnError",
+  "expected": "404 model: no-such-model"
+}

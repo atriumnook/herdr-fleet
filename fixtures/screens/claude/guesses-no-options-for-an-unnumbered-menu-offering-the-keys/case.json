@@ -1,0 +1,47 @@
+{
+  "about": "prompt.test.ts: guesses no options for an unnumbered menu, offering the keys its hint names",
+  "call": "parseFallbackPrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Waiting for input",
+    "question": "Continue?",
+    "body": "Yes\n❯ No\nLater\n↑/↓ to move · Enter to choose",
+    "options": [
+      {
+        "label": "↑",
+        "description": null
+      },
+      {
+        "label": "↓",
+        "description": null
+      },
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 1
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        }
+      ]
+    }
+  ]
+}

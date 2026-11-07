@@ -1,0 +1,24 @@
+{
+  "about": "prompt.test.ts: a long command pushes the panel's title off the screen: still an approval",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "approval",
+    "title": "Command approval",
+    "question": "Do you want to proceed?",
+    "body": "echo line 0\necho line 1\necho line 2\necho line 3\necho line 4\necho line 5\necho line 6\necho line 7\necho line 8\necho line 9\necho line 10\necho line 11\necho line 12\necho line 13\necho line 14\necho line 15\necho line 16\necho line 17\necho line 18\necho line 19\necho line 20\necho line 21\necho line 22\necho line 23\nA variable in this command can't be checked before it runs\nPermission rule Bash(systemctl --user daemon-reload:*) requires confirmation for this command.\n/permissions to update rules",
+    "options": [
+      {
+        "label": "Yes",
+        "description": null
+      },
+      {
+        "label": "No",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  }
+}

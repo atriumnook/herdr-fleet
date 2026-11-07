@@ -1,0 +1,6 @@
+{
+  "about": "prompt.test.ts: does not take an answered review above later output and the session's rule for an open one",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": null
+}

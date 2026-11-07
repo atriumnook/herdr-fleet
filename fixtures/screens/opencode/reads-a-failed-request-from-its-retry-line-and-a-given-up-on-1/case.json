@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: reads a failed request from its retry line, and a given-up one from its Error line",
+  "adapter": "opencode",
+  "check": "turnError",
+  "expected": "Rate limit exceeded"
+}

@@ -1,0 +1,6 @@
+Access?
+1. Cancel
+2. Full access (f)
+   Allows writing to every file
+
+Type f, then Enter

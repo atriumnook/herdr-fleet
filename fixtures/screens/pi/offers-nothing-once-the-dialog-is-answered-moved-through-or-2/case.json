@@ -1,0 +1,6 @@
+{
+  "about": "prompt.test.ts: offers nothing once the dialog is answered, moved through, or never opened",
+  "call": "parseInteractivePrompt",
+  "agent": "pi",
+  "expected": null
+}

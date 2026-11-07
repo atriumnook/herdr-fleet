@@ -1,0 +1,6 @@
+Pick
+
+❯ 1. One
+  2. Three
+
+ Enter to select

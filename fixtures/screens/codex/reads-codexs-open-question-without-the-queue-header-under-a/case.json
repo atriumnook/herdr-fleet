@@ -1,0 +1,25 @@
+{
+  "about": "prompt.test.ts: reads Codex's open question without the queue header under a sent message",
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "question",
+    "title": "Question",
+    "question": "Which accelerator?",
+    "body": null,
+    "options": [
+      {
+        "label": "CUDA",
+        "description": null
+      },
+      {
+        "label": "CPU",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2,
+    "queued": "open"
+  }
+}

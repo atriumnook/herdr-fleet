@@ -1,0 +1,10 @@
+Requesting permission for:
+   ls
+Run this command?
+> 1. Yes, run command
+● Bash(ls)
+● E2E-OK
+──────
+>
+──────
+? for shortcuts

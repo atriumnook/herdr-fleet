@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: reads the error line of a CLI that quit while starting",
+  "adapter": "opencode",
+  "check": "startupError",
+  "expected": null
+}

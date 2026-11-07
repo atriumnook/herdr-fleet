@@ -1,0 +1,10 @@
+
+╭─ Ask ───────────────────╮
+│ Which target?           │
+├─────────────────────────┤
+│❯ ○ Jetson Orin         │
+│  ○ RK3588               │
+│  ○ Other (type your own)│
+├─────────────────────────┤
+│ Enter select · n note · ↑/↓ move · Esc cancel
+╰─────────────────────────╯

@@ -1,0 +1,10 @@
+────────────────────────────────────────────────────────────────────────────────
+ Bash command
+ echo Esc to cancel
+
+ Do you want to proceed?
+ ❯ 1. Yes
+   2. Yes, and don’t ask again for: echo Esc to cancel:*
+   3. No
+
+ Esc to cancel · Tab to amend

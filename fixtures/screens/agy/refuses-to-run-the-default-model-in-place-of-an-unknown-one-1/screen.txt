@@ -1,0 +1,2 @@
+⚠ Warning
+  ⎿  model no-such-model is not recognized as a known model or custom model in settings. Using "Gemini 3.8 Flash

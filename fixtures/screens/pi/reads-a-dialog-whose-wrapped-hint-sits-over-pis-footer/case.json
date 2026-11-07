@@ -1,0 +1,43 @@
+{
+  "about": "prompt.test.ts: goes stale on a phone's pane once a wrapped dialog hint is buried; prompt.test.ts: reads a dialog whose wrapped hint sits over pi's footer",
+  "call": "parseInteractivePrompt",
+  "agent": "pi",
+  "expected": {
+    "agent": "pi",
+    "kind": "question",
+    "title": "",
+    "question": "Choose how to sign in.",
+    "body": null,
+    "options": [
+      {
+        "label": "Sign in with an account",
+        "description": null
+      },
+      {
+        "label": "Sign in with an API key",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 1
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

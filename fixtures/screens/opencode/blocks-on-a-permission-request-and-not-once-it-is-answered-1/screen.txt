@@ -1,0 +1,5 @@
+  △ Permission required
+    # Shell command
+    $ rm -rf build
+
+  Allow once   Always allow   Reject

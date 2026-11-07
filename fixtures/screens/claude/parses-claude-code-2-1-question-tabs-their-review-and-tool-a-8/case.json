@@ -1,0 +1,28 @@
+{
+  "about": "prompt.test.ts: parses Claude Code 2.1 question tabs, their review, and tool approvals without the old markers",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "approval",
+    "title": "Create file",
+    "question": "Do you want to create hello.txt?",
+    "body": "hello.txt\n1 hi",
+    "options": [
+      {
+        "label": "Yes",
+        "description": null
+      },
+      {
+        "label": "Yes, and switch to accept edits (auto-approve file edits and common file commands) for this session (shift+tab)",
+        "description": null
+      },
+      {
+        "label": "No",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  }
+}

@@ -1,0 +1,44 @@
+{
+  "about": "prompt.test.ts: makes another card of anything else that changed, on a working line too",
+  "call": "parseFallbackPrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Waiting for input",
+    "question": "Proceed? (y/n)",
+    "body": "detail 1\ndetail 2\ndetail 3\ndetail 4\ndetail 5\ndetail 6\ndetail 7\ndetail 8\ndetail 9\ndetail 10\ndetail 11\ndetail 12\ndetail 13\ndetail 14\n✢ Tempering… (5s · ↓ 1.0k tokens)",
+    "options": [
+      {
+        "label": "Yes (y)",
+        "description": null
+      },
+      {
+        "label": "No (n)",
+        "description": null
+      },
+      {
+        "label": "↑",
+        "description": null
+      },
+      {
+        "label": "↓",
+        "description": null
+      },
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  },
+  "sameIdAs": [
+    "claude/makes-another-card-of-anything-else-that-changed-on-a-workin-7"
+  ]
+}

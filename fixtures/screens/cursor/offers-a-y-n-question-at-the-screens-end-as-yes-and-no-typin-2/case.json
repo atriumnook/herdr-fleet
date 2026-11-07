@@ -1,0 +1,33 @@
+{
+  "about": "prompt.test.ts: offers a (y/n) question at the screen's end as Yes and No, typing the letter alone",
+  "call": "parseFallbackPrompt",
+  "agent": "cursor",
+  "expected": {
+    "agent": "cursor",
+    "kind": "menu",
+    "title": "Waiting for input",
+    "question": "Delete the branch? [Y/n]",
+    "body": null,
+    "options": [
+      {
+        "label": "Yes (y)",
+        "description": null
+      },
+      {
+        "label": "No (n)",
+        "description": null
+      },
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

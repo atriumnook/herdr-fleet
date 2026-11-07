@@ -1,0 +1,24 @@
+{
+  "about": "prompt.test.ts: parses the last of several Codex 0.156 questions and its folder trust prompt",
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "question",
+    "title": "Question 2 of 2",
+    "question": "Which split?",
+    "body": null,
+    "options": [
+      {
+        "label": "train (Recommended)",
+        "description": "Use the training split."
+      },
+      {
+        "label": "test",
+        "description": "Use the test split."
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2
+  }
+}

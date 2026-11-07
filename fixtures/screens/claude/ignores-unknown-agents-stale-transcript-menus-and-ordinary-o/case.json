@@ -1,0 +1,6 @@
+{
+  "about": "prompt.test.ts: ignores unknown agents, stale transcript menus, and ordinary output",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": null
+}

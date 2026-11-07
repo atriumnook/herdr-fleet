@@ -1,0 +1,24 @@
+{
+  "about": "prompt.test.ts: parses Claude Code 2.1 question tabs, their review, and tool approvals without the old markers",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Review your answers",
+    "question": "Ready to submit your answers?",
+    "body": "● Which way should the PR go?\n→ Log in as owner\n● Who should author the commits?\n→ Repo owner",
+    "options": [
+      {
+        "label": "Submit answers",
+        "description": null
+      },
+      {
+        "label": "Cancel",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  }
+}

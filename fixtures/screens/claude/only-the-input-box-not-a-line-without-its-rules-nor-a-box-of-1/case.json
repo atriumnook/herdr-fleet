@@ -1,0 +1,5 @@
+{
+  "about": "prompt.test.ts: only the input box: not a ❯ line without its rules, nor a box of several lines",
+  "call": "parseClaudeSuggestion",
+  "expected": null
+}

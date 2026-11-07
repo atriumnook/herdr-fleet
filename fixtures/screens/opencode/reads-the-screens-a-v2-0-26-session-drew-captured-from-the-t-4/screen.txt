@@ -1,0 +1,11 @@
+  ┃  $ ls -la
+  ┃
+  ┃  The user declined this tool call
+  ┃
+     Fleet-Readonly · Sim one · 41.2s · interrupted
+  ┃
+  ┃  draft here
+  ┃
+  ┃  Fleet-Readonly · Sim one Sim
+  ╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀
+  /tmp/sp/pr1/work    shift+tab agents  ctrl+p commands

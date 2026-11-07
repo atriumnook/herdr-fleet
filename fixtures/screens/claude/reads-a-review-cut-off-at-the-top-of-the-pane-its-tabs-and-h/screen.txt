@@ -1,0 +1,16 @@
+
+ │ ● The PC splits traffic between the main server and the reserve almost evenly, because both servers sit in the same
+ │   city and answer equally fast. Which way should we go?
+   → my own words typed in the chat my own words typed in the chat my own words typed in the chat my own words typed in
+   the chat my own words typed in the chat
+ │ ● After every subscription update the client restarts the tunnel. How often should the subscription be updated?
+   → Once a day
+ │ ● The client has no leak protection. What should we do?
+   → my own words typed in the chat my own words typed in the chat my own words typed in the chat my own words typed in
+   my own words typed in the chat my o
+
+Ready to submit your answers?
+
+❯ 1. Submit answers
+  2. Cancel
+─────────────────────────────────────────────────────────────────────────────────────────────────────────── session-name ─

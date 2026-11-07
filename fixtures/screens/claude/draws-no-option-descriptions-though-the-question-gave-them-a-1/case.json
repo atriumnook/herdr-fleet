@@ -1,0 +1,31 @@
+{
+  "about": "prompt.test.ts: draws no option descriptions though the question gave them, and keeps its id as the cursor moves",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Layout",
+    "question": "Which layout should the report use?",
+    "body": null,
+    "options": [
+      {
+        "label": "Single Column",
+        "description": null
+      },
+      {
+        "label": "Two Column",
+        "description": null
+      },
+      {
+        "label": "Dashboard Grid",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "sameIdAs": [
+    "claude/draws-no-option-descriptions-though-the-question-gave-them-a-2"
+  ]
+}

@@ -1,0 +1,7 @@
+
+╭─ Permission ────────────╮
+│ Allow tool: bash        │
+│ curl -I example.com     │
+│❯ Approve               │
+│  Deny                  │
+╰─────────────────────────╯

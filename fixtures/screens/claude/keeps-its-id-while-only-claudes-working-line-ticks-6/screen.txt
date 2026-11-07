@@ -1,0 +1,3 @@
+Apply the migration to the staging database
+✢ Tempering… (5s · ↓ 1.0k tokens)
+Proceed? (y/n)

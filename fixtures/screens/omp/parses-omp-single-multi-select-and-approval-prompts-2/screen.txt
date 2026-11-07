@@ -1,0 +1,11 @@
+
+╭─ Ask ───────────────────╮
+│ Which checks?           │
+├─────────────────────────┤
+│❯ ☐ Lint                │
+│  ☐ Tests                │
+│  ☐ Build                │
+│  ☐ Other (type your own)│
+├─────────────────────────┤
+│ Space/Enter toggle · n note · ↑/↓ move · Tab/←/→ · Esc cancel
+╰─────────────────────────╯

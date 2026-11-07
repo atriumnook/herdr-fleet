@@ -1,0 +1,5 @@
+Pick one:
+1. Alpha
+2. Beta
+
+Enter to continue

@@ -1,0 +1,6 @@
+Done:
+1. Load configuration
+2. Connect to account
+   Authentication required
+   Password:
+Enter password and press Enter

@@ -1,0 +1,73 @@
+{
+  "about": "prompt.test.ts: a drafted question stays a card with the cursor on another row",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Pick",
+    "question": "Which fruit?",
+    "body": null,
+    "options": [
+      {
+        "label": "apple",
+        "description": "Apple"
+      },
+      {
+        "label": "pear",
+        "description": "Pear"
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 0
+      },
+      "expected": [
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    },
+    {
+      "answer": {
+        "custom_text": "plum"
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "ctrl+k"
+          ]
+        },
+        {
+          "keys": [
+            "ctrl+u"
+          ]
+        },
+        {
+          "text": "plum"
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

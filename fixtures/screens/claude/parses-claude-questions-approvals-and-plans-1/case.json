@@ -1,0 +1,28 @@
+{
+  "about": "prompt.test.ts: parses Claude questions, approvals, and plans",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Dataset",
+    "question": "Which evaluation dataset should we use?",
+    "body": null,
+    "options": [
+      {
+        "label": "LM-O",
+        "description": "Occlusion benchmark."
+      },
+      {
+        "label": "YCB-V",
+        "description": "Household objects."
+      },
+      {
+        "label": "T-LESS",
+        "description": "Texture-less objects."
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 3
+  }
+}

@@ -1,0 +1,2 @@
+│  ⚠ Workspace Trust Required  │
+│  ▶ [a] Trust this workspace │

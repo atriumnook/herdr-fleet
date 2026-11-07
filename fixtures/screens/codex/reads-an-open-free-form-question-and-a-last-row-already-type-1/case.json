@@ -1,0 +1,33 @@
+{
+  "about": "prompt.test.ts: reads an open free-form question, and a last row already typed over",
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "question",
+    "title": "Question",
+    "question": "Any notes?",
+    "body": null,
+    "options": [],
+    "multi_select": false,
+    "custom_option_index": 0,
+    "queued": "open"
+  },
+  "answers": [
+    {
+      "answer": {
+        "custom_text": "none"
+      },
+      "expected": [
+        {
+          "text": "none"
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

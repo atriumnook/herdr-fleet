@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: no longer asks once its input is drawn after the answered question",
+  "adapter": "cursor",
+  "check": "question",
+  "expected": null
+}

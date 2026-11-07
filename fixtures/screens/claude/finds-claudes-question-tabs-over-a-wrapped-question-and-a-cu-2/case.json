@@ -1,0 +1,54 @@
+{
+  "about": "prompt.test.ts: finds Claude's question tabs over a wrapped question and a cut-off bar, and never answers the next question",
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Sets",
+    "question": "Which datasets?",
+    "body": null,
+    "options": [
+      {
+        "label": "LM-O",
+        "description": null
+      },
+      {
+        "label": "YCB-V",
+        "description": null
+      },
+      {
+        "label": "T-LESS",
+        "description": null
+      }
+    ],
+    "multi_select": true,
+    "custom_option_index": 3
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_indices": [
+          1
+        ]
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        },
+        {
+          "keys": [
+            "right"
+          ]
+        }
+      ]
+    }
+  ]
+}

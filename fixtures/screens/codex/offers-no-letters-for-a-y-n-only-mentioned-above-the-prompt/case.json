@@ -1,0 +1,25 @@
+{
+  "about": "prompt.test.ts: offers no letters for a (y/n) only mentioned above the prompt",
+  "call": "parseFallbackPrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "menu",
+    "title": "Waiting for input",
+    "question": "100% context left",
+    "body": "The installer prints \"Overwrite config? (y/n)\".\nIt then exits.\n› Ask Codex to do anything",
+    "options": [
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

@@ -1,0 +1,2 @@
+Done.
+❯ Explain why the installer asks (y/n)

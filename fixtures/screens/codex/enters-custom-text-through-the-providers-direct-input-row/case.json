@@ -1,0 +1,59 @@
+{
+  "about": "prompt.test.ts: enters custom text through the provider's direct-input row",
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "question",
+    "title": "Question",
+    "question": "Which backend?",
+    "body": null,
+    "options": [
+      {
+        "label": "CUDA",
+        "description": null
+      },
+      {
+        "label": "CPU",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2
+  },
+  "sameIdAs": [
+    "codex/reads-codexs-question-under-its-own-sent-message"
+  ],
+  "answers": [
+    {
+      "answer": {
+        "custom_text": "ROCm"
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "tab"
+          ]
+        },
+        {
+          "text": "ROCm"
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}
