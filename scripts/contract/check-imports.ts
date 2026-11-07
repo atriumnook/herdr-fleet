@@ -27,9 +27,10 @@ export function specifiers(source: string): (string | null)[] {
     /\brequire\s*\(\s*(["'`])([^"'`]+)\1\s*\)/g,
   ];
   for (const pattern of patterns) for (const match of source.matchAll(pattern)) found.push(match[2]!);
-  // `import(name)` with anything but a plain literal could load any module
-  for (const match of source.matchAll(/\b(?:import|require)\s*\(\s*([^)\s]?)/g)) {
-    if (!["\"", "'", "`"].includes(match[1]!)) found.push(null);
+  // `import(…)` or `require(…)` with anything but one whole literal (a sum, a template with ${}) could load any module
+  for (const match of source.matchAll(/\b(?:import|require)\s*\(/g)) {
+    const argument = source.slice(match.index! + match[0].length);
+    if (!/^\s*(?:"[^"\n]*"|'[^'\n]*'|`[^`$]*`)\s*[,)]/.test(argument)) found.push(null);
   }
   // what the transpiler sees (it drops type-only imports, which the patterns above keep)
   for (const { path } of new Bun.Transpiler({ loader: "tsx" }).scanImports(source)) found.push(path);
@@ -40,7 +41,7 @@ export function specifiers(source: string): (string | null)[] {
 export function allowed(file: string, specifier: string): boolean {
   if (specifier.startsWith("node:") || specifier.startsWith("bun:")) return true;
   let target: string;
-  if (specifier.startsWith("@shared/")) target = `shared/${specifier.slice("@shared/".length)}`;
+  if (specifier.startsWith("@shared/")) target = relative(REPO, resolve(REPO, "shared", specifier.slice("@shared/".length)));
   else if (specifier.startsWith(".")) target = relative(REPO, resolve(REPO, dirname(file), specifier));
   else return false;
   if (target.startsWith("..")) return false;

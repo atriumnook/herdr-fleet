@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DeviceStore } from "./devices.ts";
 import { createServer } from "./index.ts";
+import { candidatePorts } from "../scripts/contract/launch.ts";
 
 /**
  * What server/device-access.contract.test.ts cannot check through a URL alone (ADR 0122): the
@@ -17,7 +18,7 @@ it("returns an error when revocation cannot be persisted, then allows a successf
   const root = mkdtempSync(join(tmpdir(), "herdr-device-write-"));
   const store = new DeviceStore(root);
   const paired = store.pair(store.startPairing().code, "Phone")!;
-  const server = createServer({ port: 0, stateDir: root, token: "test-write", tailscaleOwner: null, machines: false });
+  const server = createServer({ port: candidatePorts().next().value!, stateDir: root, token: "test-write", tailscaleOwner: null, machines: false });
   const base = `http://127.0.0.1:${server.port}`;
   const blocked = join(root, `devices.json.${process.pid}.tmp`);
   try {

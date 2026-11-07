@@ -34,9 +34,16 @@ describe("the black-box import check", () => {
       `import "./collector.ts";`,
       `import { serve } from "bun";`,
       `import { secret } from "../../outside.ts";`,
+      `import { createServer as viaAlias } from "@shared/../server/index.ts";`,
     ));
-    for (const expected of ["./index.ts", "./devices.ts", "./submit.ts", "./access.ts", "./push.ts", "a module named at run time", "./collector.ts", `"bun"`, "../../outside.ts"]) {
+    for (const expected of ["./index.ts", "./devices.ts", "./submit.ts", "./access.ts", "./push.ts", "a module named at run time", "./collector.ts", `"bun"`, "../../outside.ts", "@shared/../server/index.ts"]) {
       expect(problems.some((problem) => problem.includes(expected))).toBe(true);
+    }
+  });
+
+  it("refuses an import or require whose name is computed, even when it starts with a literal", () => {
+    for (const line of [`const a = require("./" + "index.ts");`, "const b = await import(`../shared/${name}`);", `const c = await import("../shared/" + name);`]) {
+      expect(checkFile(file, marked(line))).toContain(`${file}: imports a module named at run time`);
     }
   });
 

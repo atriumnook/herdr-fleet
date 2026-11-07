@@ -10,9 +10,9 @@
  * HERDR_FLEET_HERDR_BIN, the test herdr session's socket, a new empty state folder, and the test's
  * own `env` on top. Never HERDR_* of the test process, never an API key, never port 7317.
  */
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
 import { childEnv } from "../../server/cli-child.ts";
 import { testSocketPath } from "../test-herdr.ts";
 import { checkEnvNames, parseTestOptions, type LaunchSpec, type TestOptions } from "./spec.ts";
@@ -58,15 +58,39 @@ export function serverEnvironment(
   built["HERDR_SOCKET"] = given.socket;
   built["HERDR_FLEET_STATE_DIR"] = given.stateDir;
   Object.assign(built, env);
+  // an empty socket is no socket to herdr's client, which then falls back to the person's own session
+  if (built["HERDR_SOCKET"] === "") throw new Error("launch spec: HERDR_SOCKET is empty, and the server would talk to the default herdr session");
   refuseFleetState(source, built["HERDR_FLEET_STATE_DIR"]!);
   return built;
 }
 
-/** The running fleet's state folder never reaches a server under test, and neither does an empty one (the server would fall back to it). */
+/**
+ * The running fleet's state folder (and what is in it) never reaches a server under test, and neither
+ * does an empty one, from which the server would fall back to it. Links are followed before comparing.
+ */
 function refuseFleetState(source: Record<string, string | undefined>, stateDir: string): void {
   if (stateDir === "") throw new Error("launch spec: HERDR_FLEET_STATE_DIR is empty, and the server would use the fleet's own state folder");
-  const fleetState = join(source["XDG_CONFIG_HOME"] || join(source["HOME"] || homedir(), ".config"), "herdr-fleet");
-  if (resolve(stateDir) === resolve(fleetState)) throw new Error(`launch spec: HERDR_FLEET_STATE_DIR is the fleet's own state folder (${fleetState})`);
+  const home = source["HOME"] || homedir();
+  const fleetStates = [source["HERDR_FLEET_STATE_DIR"], join(home, ".config", "herdr-fleet"), source["XDG_CONFIG_HOME"] && join(source["XDG_CONFIG_HOME"], "herdr-fleet")]
+    .filter((path): path is string => !!path);
+  const target = canonical(stateDir);
+  for (const fleetState of fleetStates) {
+    const protectedPath = canonical(fleetState);
+    if (target === protectedPath || target.startsWith(`${protectedPath}/`)) {
+      throw new Error(`launch spec: HERDR_FLEET_STATE_DIR is in the fleet's own state folder (${fleetState})`);
+    }
+  }
+}
+
+/** the path with every link in its existing part followed */
+function canonical(path: string): string {
+  let existing = resolve(path);
+  const rest: string[] = [];
+  while (!existsSync(existing) && dirname(existing) !== existing) {
+    rest.unshift(basename(existing));
+    existing = dirname(existing);
+  }
+  return join(realpathSync(existing), ...rest);
 }
 
 /** The test options a server gets: tailscaleOwner defaults to null, so the result never depends on this PC's Tailscale. */
@@ -195,8 +219,18 @@ async function start(
   })();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<"timeout">((resolveTimeout) => { timer = setTimeout(() => resolveTimeout("timeout"), LISTEN_TIMEOUT_MS); });
-  const address = await Promise.race([listening, timeout]);
+  let address = await Promise.race([listening, timeout]);
+  // a server that closed its standard output without listening has the rest of the time to exit
+  if (address === null && await Promise.race([child.exited.then(() => "exited" as const), timeout]) === "timeout") address = "timeout";
   clearTimeout(timer);
+  // a server that listens on another port than the one it was given could be any server, 7317 included
+  const expectedPort = Number(env["PORT"]);
+  if (address !== null && address !== "timeout" && address.port !== expectedPort) {
+    child.kill("SIGKILL");
+    await child.exited;
+    running.delete(child);
+    throw new Error(`HTTP/WS contract target ${label}: the server announced port ${address.port}, not the PORT it was given (${expectedPort})`);
+  }
 
   if (address === null || address === "timeout") {
     if (address === "timeout") child.kill("SIGKILL");

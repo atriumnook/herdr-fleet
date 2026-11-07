@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { candidatePorts, contractTarget, launchServer, serverEnvironment, serverTestOptions } from "./launch.ts";
@@ -44,6 +44,26 @@ describe("the child's environment", () => {
     expect(() => serverEnvironment(source, { HERDR_FLEET_STATE_DIR: "" }, given)).toThrow("HERDR_FLEET_STATE_DIR");
     expect(() => serverEnvironment(source, { HERDR_FLEET_STATE_DIR: "/home/t/.config/herdr-fleet/" }, given)).toThrow("fleet's own state folder");
     expect(() => serverEnvironment({ HOME: "/home/t" }, { HERDR_FLEET_STATE_DIR: "/home/t/.config/herdr-fleet" }, given)).toThrow("fleet's own state folder");
+    // with another XDG_CONFIG_HOME the default under HOME is still the fleet's; what is inside it too
+    expect(() => serverEnvironment(source, { HERDR_FLEET_STATE_DIR: "/home/t/.config/herdr-fleet/fleet-results" }, given)).toThrow("fleet's own state folder");
+    expect(() => serverEnvironment({ ...source, XDG_CONFIG_HOME: "/x" }, { HERDR_FLEET_STATE_DIR: "/home/t/.config/herdr-fleet" }, given)).toThrow("fleet's own state folder");
+    // the fleet's state folder moved with HERDR_FLEET_STATE_DIR
+    expect(() => serverEnvironment({ ...source, HERDR_FLEET_STATE_DIR: "/srv/fleet" }, { HERDR_FLEET_STATE_DIR: "/srv/fleet" }, given)).toThrow("fleet's own state folder");
+  });
+
+  it("refuses the fleet's state folder reached through a link", () => {
+    const home = mkdtempSync(join(tmpdir(), "herdr-fleet-contract-home-"));
+    try {
+      mkdirSync(join(home, ".config", "herdr-fleet"), { recursive: true });
+      symlinkSync(join(home, ".config"), join(home, "alias"));
+      expect(() => serverEnvironment({ HOME: home }, { HERDR_FLEET_STATE_DIR: join(home, "alias", "herdr-fleet") }, given)).toThrow("fleet's own state folder");
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses an empty socket, which herdr's client would take for the person's own session", () => {
+    expect(() => serverEnvironment(source, { HERDR_SOCKET: "" }, given)).toThrow("HERDR_SOCKET");
   });
 });
 
@@ -88,6 +108,18 @@ describe("the target", () => {
     try {
       await expect(launchServer({ env: { HERDR_SOCKET: NO_HERDR } }, { target: { kind: "rust", path: executable } }))
         .rejects.toThrow(/exited with code 3 before it listened\nno config here/);
+    } finally {
+      rmSync(folder, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses a server that announces another port than the one it was given", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "herdr-fleet-contract-target-"));
+    const executable = join(folder, "contract-server");
+    writeFileSync(executable, `#!/bin/sh\necho '{"listening":{"hostname":"127.0.0.1","port":7317}}'\nexec sleep 30\n`, { mode: 0o755 });
+    try {
+      await expect(launchServer({ env: { HERDR_SOCKET: NO_HERDR } }, { target: { kind: "rust", path: executable } }))
+        .rejects.toThrow("announced port 7317");
     } finally {
       rmSync(folder, { recursive: true, force: true });
     }

@@ -172,15 +172,22 @@ it("revoking a paired device removes its persistent push subscription", async ()
 
 it("without the loopback push test option, refuses a push endpoint that is no browser vendor's", async () => {
   const server = await launchServer({ env: { HERDR_FLEET_TOKEN: "test-push-vendor" }, test: { machines: false } });
-  const fake = await startFakePushService();
+  // a well-formed subscription whose only fault is its endpoint on 127.0.0.1; nothing listens there
+  const device = (await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"])) as CryptoKeyPair;
+  const subscription = {
+    endpoint: `http://127.0.0.1:9/push/${crypto.randomUUID()}`,
+    keys: {
+      p256dh: Buffer.from(await crypto.subtle.exportKey("raw", device.publicKey)).toString("base64url"),
+      auth: Buffer.from(crypto.getRandomValues(new Uint8Array(16))).toString("base64url"),
+    },
+  };
   try {
     const refused = await fetch(`${server.url}/api/push/subscribe`, {
-      method: "POST", headers: { ...guard, authorization: "Bearer test-push-vendor" }, body: JSON.stringify({ subscription: fake.subscription }),
+      method: "POST", headers: { ...guard, authorization: "Bearer test-push-vendor" }, body: JSON.stringify({ subscription }),
     });
-    expect(new URL(fake.subscription.endpoint).hostname).toBe("127.0.0.1");
     expect(refused.status).toBe(400);
     expect(await refused.json()).toMatchObject({ error: { code: "invalid_subscription" } });
-  } finally { fake.stop(); await server.stop(); }
+  } finally { await server.stop(); }
 });
 
 it("lists a pane's files without running a command the repository's own config names (core.fsmonitor)", async () => {
