@@ -1,8 +1,19 @@
-/** Every test belongs to one suite; newly added unit tests are picked up automatically. */
-const suite = process.argv[2];
-if (suite !== "unit" && suite !== "integration") throw new Error("Usage: bun scripts/ci-tests.ts unit|integration");
+/**
+ * Every test belongs to one suite; newly added unit tests are picked up automatically.
+ * `--target <ts|rust:path>` picks the server the HTTP/WS contract runs against
+ * (HERDR_FLEET_CONTRACT_TARGET, scripts/contract/launch.ts); the TypeScript server by default.
+ */
+const usage = "Usage: bun scripts/ci-tests.ts unit|integration [--target ts|rust:<path>]";
+const [suite, ...rest] = process.argv.slice(2);
+if (suite !== "unit" && suite !== "integration") throw new Error(usage);
+let target: string | undefined;
+if (rest.length) {
+  if (rest.length !== 2 || rest[0] !== "--target" || !/^(ts|rust:.+)$/.test(rest[1]!)) throw new Error(usage);
+  target = rest[1];
+}
 const files = [...new Bun.Glob("{src,shared,server,scripts,bin}/**/*.test.ts").scanSync({ cwd: process.cwd() })].sort();
-const needsHerdr = (file: string) => file.endsWith(".contract.test.ts") || file.startsWith("server/herdr/") || file.startsWith("server/pty/");
+const needsHerdr = (file: string) =>
+  file.endsWith(".contract.test.ts") || file.endsWith(".herdr.test.ts") || file.startsWith("server/herdr/") || file.startsWith("server/pty/");
 const selected = files.filter((file) => needsHerdr(file) === (suite === "integration"));
 if (!selected.length) throw new Error(`No ${suite} tests found`);
 if (suite === "integration" && !Bun.which(process.env["HERDR_FLEET_HERDR_BIN"] || "herdr")) {
@@ -11,10 +22,10 @@ if (suite === "integration" && !Bun.which(process.env["HERDR_FLEET_HERDR_BIN"] |
 if (suite === "integration" && process.env["HERDR_TEST_LIVE"] === "1") {
   throw new Error("CI integration tests must use an isolated herdr session");
 }
-console.log(`${suite}: ${selected.length} test files`);
+console.log(`${suite}: ${selected.length} test files${target ? `, contract target ${target}` : ""}`);
 // Live process/pane probes can poll for 10s; Bun's 5s default would cut them off early.
 const child = Bun.spawn([process.execPath, "test", ...(suite === "integration" ? ["--timeout", "15000"] : []), ...selected.map((file) => `./${file}`)], {
-  env: { ...process.env, HERDR_TEST_MODE: suite },
+  env: { ...process.env, HERDR_TEST_MODE: suite, ...(target && { HERDR_FLEET_CONTRACT_TARGET: target }) },
   windowsHide: true, stdin: "inherit", stdout: "inherit", stderr: "inherit",
 });
 process.exit(await child.exited);
