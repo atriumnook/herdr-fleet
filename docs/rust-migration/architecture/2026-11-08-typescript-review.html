@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>herdr-fleet の構造の調査</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "strict" });
+    </script>
+    <style>
+      .seam { stroke-dasharray: 4 4; }
+      .leak { stroke: #dc2626; }
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); color: #f8fafc; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-4 py-12 space-y-12">
+      <header class="space-y-3">
+        <h1 class="font-serif text-3xl">herdr-fleet の TypeScript のコードの構造の調査</h1>
+        <p class="text-sm text-slate-600">2026-11-08。Issue #107。対象は <code>server/</code>、<code>shared/</code>、<code>bin/</code> の 84 ファイル(<code>*.test.ts</code> を除く、20,508 行)。手順は <code>improve-codebase-architecture</code>、語は <code>codebase-design</code>(module、interface、seam、adapter、depth、leverage、locality)と <code>docs/rust-migration/GLOSSARY.md</code> に従う。</p>
+        <p class="text-sm text-slate-600">調べ方: 各ファイルの import を機械的に並べて依存の図を作り、2026-08-01 以降のコミット 193 件で変更の多いファイルを数え(<code>server/index.ts</code> 53 件、<code>server/fleet/orchestrator.ts</code> 48 件、<code>shared/fleet.ts</code> と <code>server/fleet/adapters.ts</code> 各 24 件、<code>server/fleet/api.ts</code> 23 件、<code>shared/protocol.ts</code> 20 件、<code>server/conversation.ts</code> 18 件、<code>server/prompt.ts</code> 15 件)、それらから読んだ。Rust の crate の境界にできる seam を探すことが目的なので、候補は「どこで crate を切るか」の形で書く。</p>
+        <div class="flex flex-wrap gap-4 text-xs text-slate-600">
+          <span>実線の箱 = module</span><span>破線 = seam</span><span class="text-red-600">赤い矢印 = seam を越えた漏れ</span><span>濃い箱 = deep module</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-10">
+
+        <!-- 1 -->
+        <article id="c1" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">1. 画面の読み取りを 1 つの module にまとめ、I/O から切り離す</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/prompt.ts
+server/fleet/adapters.ts(画面の判定: startupError, question, readyError, inputReady, draft, turnError, usageScreen = cursorUsage)
+server/codex.ts(QueuedQuestion の型だけ)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart LR
+  P[prompt.ts] -.type QueuedQuestion.-> C[codex.ts]
+  C --> S[(bun:sqlite)]
+  C --> H[herdr client]
+  A[adapters.ts screen checks] -.-> M[model-lists.ts]
+  M --> X[(child CLIs)]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class C,M leak
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  K[agent kind + screen text] --> SC[screen module]
+  SC --> R[card / answer keys / screen check]
+  F[(fixtures/screens corpus)] -.test.-> SC
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class SC deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 画面を読む知識が <code>prompt.ts</code> と <code>adapters.ts</code> に分かれ、どちらも seam の向こうの I/O(<code>codex.ts</code> の sqlite と herdr、<code>model-lists.ts</code> の子プロセス)を import している。</p>
+          <p><strong>Solution:</strong> 「エージェントの種類と画面の文字 → カード、答えのキー、画面の判定」を interface にした 1 つの module にし、型 <code>QueuedQuestion</code> もそこへ移す。</p>
+          <ul class="list-disc pl-6 text-sm"><li>画面の corpus がこの interface だけを叩く</li><li>locality: 画面の癖が 1 か所に集まる</li><li>I/O の import が 0 になる</li></ul>
+        </article>
+
+        <!-- 2 -->
+        <article id="c2" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">2. transcript の解析と、transcript の場所の特定を分ける</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span><span class="rounded bg-slate-100 px-2 py-0.5">local-substitutable(ファイル)</span></div>
+          <pre class="font-mono text-sm text-slate-700">解析: server/conversation.ts(parseClaudeTranscript, unwrapPastes, transcriptPage), server/codex.ts(createCodexTranscriptParser, parseCodexTranscript, matchCodexTranscript ほか),
+      server/opencode-messages.ts, server/pi-tree.ts, server/transcript-records.ts, server/conversation-metadata.ts,
+      server/skill-activity.ts, server/tool-output.ts, server/conversation-errors.ts, server/codex-images.ts(codexImageParts), shared/patch.ts
+場所: server/conversation.ts(paneConversation, claudePaneTranscript), server/codex.ts(codexTranscriptPath, paneCodexHome ほか),
+      server/claude-store.ts, server/pi.ts, server/pi-models.ts, server/process-start.ts, server/opencode-session.ts, server/opencode-cli.ts</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart TB
+  CV[conversation.ts 1255 行] --> H[herdr client]
+  CV --> CX[codex.ts 1425 行]
+  CX --> S[(sqlite, /proc)]
+  CX --> H
+  CV --> OS[opencode-session.ts]
+  OS --> OC[(opencode api 子プロセス)]
+  CV --> PI[pi.ts] --> H
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class CV,CX leak
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart TB
+  LOC[場所の特定: pane → transcript の source] --> T[transcript module]
+  T --> TURNS[会話のターンのページ]
+  F[(会話ログの corpus)] -.test.-> T
+  LOC --> H[herdr client]
+  LOC --> X[(sqlite, /proc, opencode api)]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class T deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> <code>conversation.ts</code> と <code>codex.ts</code> が、純粋な解析と、herdr・sqlite・<code>/proc</code>・子プロセスで transcript を探す処理を 1 つのファイルに持つ。解析の関数(<code>parseClaudeTranscript</code>、<code>parseCodexTranscript</code>、<code>transcriptPage</code>)はすでに export されていてテストもあるが、同じファイルが場所の特定のための I/O を import しているので、解析だけを I/O なしで build できない。</p>
+          <p><strong>Solution:</strong> 解析は「場所のわかった transcript(ファイルのパス、または OpenCode のメッセージを返す port)→ 会話のターンとページのカーソル」を interface にした module にし、場所の特定(pane から transcript を探すこと)は core に残す。</p>
+          <ul class="list-disc pl-6 text-sm"><li>会話ログの corpus がこの interface だけを叩く</li><li>leverage: 5 つのエージェント CLI が 1 つの interface</li><li>場所の特定の不具合と解析の不具合が別の場所に出る</li></ul>
+        </article>
+
+        <!-- 3 -->
+        <article id="c3" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">3. orchestrator を herdr の seam の後ろに置く</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">ports &amp; adapters</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/fleet/orchestrator.ts, runtime.ts, adapters.ts(起動の引数と環境変数), opencode-config.ts, agents.ts, config.ts, settings.ts,
+registry.ts, thread.ts, brief.ts, plan.ts, entrances.ts, github.ts, models.ts, model-lists.ts, usage.ts, types.ts</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart LR
+  IDX[index.ts] --> ORC[orchestrator.ts]
+  ORC --> RT[runtime.ts]
+  RT --> H[herdr client]
+  T[orchestrator.test.ts] --> FAKE[fake runtime]
+  ORC --> HC[herdr client 直接]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class HC leak
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  CORE[core の HTTP] --> ORC[fleet module]
+  ORC -.seam.-> RT{{Runtime}}
+  RT --> HA[herdr adapter]
+  RT --> FA[test adapter]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class ORC deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> fleet の振る舞いは <code>runtime.ts</code> の seam で herdr と test の 2 つの adapter を持つが、<code>orchestrator.ts</code> は herdr のクライアントのエラーの型(<code>HerdrError</code>)を直接 import してエラーコードを見ており、HTTP の <code>index.ts</code> の中から組み立てられている。</p>
+          <p><strong>Solution:</strong> fleet を、herdr を Runtime の seam の向こうに置いた 1 つの module にし、<code>/api/fleet</code> のルート(<code>fleet/api.ts</code>)もその module に置いて、core はアクセス制御の下にそれを mount するだけにする。</p>
+          <ul class="list-disc pl-6 text-sm"><li>2 つの adapter が seam を正当化する</li><li>段階 3 が HTTP のサーバー、PTY、push を build せずにテストできる</li><li>locality: run の振る舞いが 1 か所</li></ul>
+        </article>
+
+        <!-- 4 -->
+        <article id="c4" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">4. エージェント CLI を子プロセスで動かす処理を 1 つの module にする</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-amber-100 text-amber-800 px-2 py-0.5">Worth exploring</span><span class="rounded bg-slate-100 px-2 py-0.5">mock</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/cli-child.ts, server/opencode-cli.ts, server/fleet/model-lists.ts(list*), server/fleet/usage.ts(*Probe),
+server/explain.ts, server/side-chat.ts(claude -p の起動), server/files.ts と server/fleet/thread.ts(git を core.fsmonitor=false で動かす決まり)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart TB
+  U[usage.ts] --> CC[cli-child.ts]
+  ML[model-lists.ts] --> CC
+  ML --> OC[opencode-cli.ts]
+  OS[opencode-session.ts] --> OC
+  EX[explain.ts] --> CC
+  SD[side-chat.ts] --> CC
+  OC --> CC
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart TB
+  U[usage] --> R[CLI runner module]
+  ML[model lists] --> R
+  CONV[conversation の場所の特定] --> R
+  EX[Explain, side chat] --> R
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class R deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 子プロセスの安全上の規則(最小の環境変数、使用量の probe などの私用の空のフォルダー、タイムアウトと kill)を、<code>cli-child.ts</code> の部品を呼ぶ 5 つのファイルがそれぞれ組み立てている。どの部品を使うかはファイルごとに違う(サイドチャットはプロジェクトのフォルダーで動くので、環境変数の部品だけを使う)。git を <code>core.fsmonitor=false</code> で動かす決まりは <code>files.ts</code> と <code>fleet/thread.ts</code> に重複している。</p>
+          <p><strong>Solution:</strong> 子プロセスの起動を 1 つの module にまとめ、起動の種類(空のフォルダーで動かす probe と Explain、呼ぶ側のフォルダーで動かすサイドチャットと git)ごとに、環境と作業フォルダーとタイムアウトを内側で決める。<code>parseX(output)</code> の関数は純粋なまま、使う側の module に残す。</p>
+          <ul class="list-disc pl-6 text-sm"><li>安全上の判定の表が 1 つの interface を叩く</li><li>API キーを渡さない規則が 1 か所</li></ul>
+          <p class="rounded bg-amber-50 border border-amber-200 px-3 py-2 text-sm">使う module が fleet と core の両方にあるので、どちらからも使える場所に置く必要がある。置き場所は ADR <code>0107-crate-split</code> で決めた(crate <code>herdr-fleet-child-process</code>)。</p>
+        </article>
+
+        <!-- 5 -->
+        <article id="c5" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">5. 通信の型を、どの実行ファイルも使える 1 つの module にする</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">shared/protocol.ts, shared/herdr-api.generated.ts, shared/machines.ts, shared/fleet.ts, shared/plan.ts, shared/side-chat.ts,
+shared/side-terminal.ts, shared/terminal-flow.ts, shared/notify-policy.ts, shared/secret-prompt.ts, shared/patch.ts</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart LR
+  SRV[server] --> SH[shared/*.ts]
+  UI[src/ React] --> SH
+  CLI[bin/fleet.ts] -.手書きの型.-> X[(JSON)]
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  CORE[core] --> P[protocol]
+  CLI[fleet CLI] --> P
+  DESK[desktop] --> P
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class P deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> <code>bin/fleet.ts</code> は応答の形を共有の型から取らずに読み、デスクトップの画面が加わると同じ形を読む実行ファイルが 3 つになる。</p>
+          <p><strong>Solution:</strong> herdr の socket の型と herdr-fleet の HTTP/WebSocket の型を、I/O のない 1 つの module にし、core、fleet CLI、デスクトップの画面がそれに依存する。</p>
+          <ul class="list-disc pl-6 text-sm"><li>leverage: 1 つの型を 3 つの実行ファイルが使う</li><li>形の食い違いがコンパイルで出る</li></ul>
+        </article>
+
+        <!-- 6 -->
+        <article id="c6" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">6. <code>index.ts</code> のルートを領域ごとの module に分ける</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-amber-100 text-amber-800 px-2 py-0.5">Worth exploring</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/index.ts(2081 行、コミット 53 件)、server/prompt-api.ts、server/side-chat-api.ts、server/machine-api.ts、server/fleet/api.ts</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <div class="space-y-1 text-xs uppercase tracking-wider">
+                <div class="border-l-4 border-red-400 bg-red-50 px-2 py-3">createServer: 全ルート、WebSocket、attach、push、pairing を 1 つの関数に</div>
+                <div class="border-l-4 border-slate-300 px-2 py-1">prompt-api / side-chat-api / machine-api / fleet/api だけが外にある</div>
+              </div></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <div class="space-y-1 text-xs uppercase tracking-wider">
+                <div class="border-l-4 border-slate-900 bg-slate-100 px-2 py-1">panes(画面、入力、attach)</div>
+                <div class="border-l-4 border-slate-900 bg-slate-100 px-2 py-1">conversation</div>
+                <div class="border-l-4 border-slate-900 bg-slate-100 px-2 py-1">access(token、紐付けた端末)</div>
+                <div class="border-l-4 border-slate-900 bg-slate-100 px-2 py-1">fleet / side chat / push / files</div>
+              </div></div>
+          </div>
+          <p><strong>Problem:</strong> 一番変更の多いファイルが、すべてのルートを 1 つの関数に持ち、どのルートを触っても同じ関数を読むことになる。</p>
+          <p><strong>Solution:</strong> core の中で、ルートを領域ごとの module に分ける。crate には分けない(ルートは同じアクセス制御と状態を共有し、切っても seam の両側に adapter が 1 つずつしかない)。</p>
+          <ul class="list-disc pl-6 text-sm"><li>locality: 領域ごとに読む範囲が閉じる</li></ul>
+        </article>
+
+        <!-- 7 -->
+        <article id="c7" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">7. ターミナルのバイト列を、描画のライブラリから切り離す</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-slate-200 text-slate-700 px-2 py-0.5">Speculative</span><span class="rounded bg-slate-100 px-2 py-0.5">mock</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/attach-output.ts, server/output-window.ts, server/mirror.ts, server/mirror-input.ts, server/pty/session.ts, server/pty/sidecar.ts,
+server/pane-grid.ts, shared/terminal-flow.ts(+ デスクトップの画面のターミナルの描画、#109 のライブラリ)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart LR
+  H[herdr terminal attach] --> PTY[pty sidecar Node]
+  PTY --> IDX[index.ts WebSocket]
+  IDX --> X[ブラウザの xterm]
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  H[herdr terminal attach] --> AT[core の attach module]
+  AT --> WS[WebSocket]
+  WS --> X[ブラウザの xterm]
+  WS --> D[desktop]
+  D --> VT[vt binding]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class VT deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 今はバイト列を描くのはブラウザの xterm だけで、Rust 版ではデスクトップの画面が #109 のライブラリで描く。ライブラリは Zig や C のビルドを伴いうる。</p>
+          <p><strong>Solution:</strong> バインディングを、ほかに何も依存しない独立の module に置き、デスクトップの画面だけが依存する。core はバイト列を流すだけで、ライブラリをリンクしない。</p>
+          <ul class="list-disc pl-6 text-sm"><li>core のビルドが Zig を要らない</li><li>#109 の選択が 1 つの module に閉じる</li></ul>
+        </article>
+      </section>
+
+      <section id="top-recommendation" class="rounded-xl deep p-8 space-y-3">
+        <h2 class="font-serif text-2xl">一番の推奨</h2>
+        <p>候補 <a class="underline" href="#c2">2(transcript の解析と場所の特定を分ける)</a>を最初に手がける。結合が一番深く(<code>conversation.ts</code> と <code>codex.ts</code> の 2,680 行が herdr・sqlite・子プロセスと解析を混ぜている)、段階 2 の Rust の実装を会話ログの corpus だけでテストするには、解析が I/O を import しないこの seam が要るため。</p>
+        <p>crate の分け方としては、候補 1、2、3、4、5、7 を crate の境界にし、候補 6 は core の中の module の分け方にする。決定と理由は ADR <code>docs/rust-migration/adr/0107-crate-split.md</code> にある。</p>
+      </section>
+    </main>
+  </body>
+</html>
