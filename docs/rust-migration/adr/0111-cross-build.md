@@ -23,6 +23,9 @@
   - `workflow_dispatch`
   - base が `rust` の `pull_request` のうち、変更したファイル(`paths`)に `.github/workflows/rust-cross.yml` 自身を含むもの
 - push と、このファイルを変えないほかの PR では走らない。`pull_request` の trigger は、`workflow_dispatch` を起動できない間に段階 6 の「手動で走らせる」を満たす手段とみなす。走らせたい人が、このファイルを変える PR を出したときだけ走るためである
+- ビルドの前に `gate` ジョブ(`ubuntu-24.04`)を置き、PR への push(`synchronize`)では、push したコミットがこのファイルを変えたときだけビルドのジョブを走らせる。GitHub は `pull_request` の `paths` を、push したコミットではなく PR 全体の差分(base との three-dot diff)で判定する(<https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax#git-diff-comparisons>)。そのため `paths` だけでは、このファイルを変えた PR に ADR だけのコミットを push しても、macOS と Windows のビルドが走る(この PR の 2 回目の run で起きた。下の「確かめたこと」)
+  - `gate` は `gh api repos/<repo>/compare/<before>...<after>` で push の差分のファイルを読み、このファイルがなければビルドのジョブを skipped にする。PR を開いたとき(`opened`、`reopened`)と `workflow_dispatch` では、常にビルドする
+  - `concurrency` の `cancel-in-progress` は置かない。置くと、ビルドの途中で ADR だけのコミットを push したとき、`gate` だけの新しい run がビルド中の run を取り消すためである
 - ジョブは matrix で `macos-15` と `windows-2025` の 2 つ。どちらも `rust/prototypes/gpui-window` で `cargo build --release --locked` を実行する。`--locked` で、試作の `Cargo.lock`(`libc` 0.2.189 の固定を含む。`0108-gpui-prototype`)のとおりの版を使う
 - runner のラベルは `macos-latest` と `windows-latest` ではなく、版の付いたラベルにする。`-latest` が指すイメージは GitHub が切り替えるので、同じ workflow でも Xcode や Windows SDK の版が変わりうるためである
 - Rust は 1.94.0。`rustup toolchain install` で入れる(`0108-gpui-prototype` と同じ版。gpui 0.2.2 は `rust-version` を宣言していない)。`rust/rust-toolchain.toml`(#110)ができたら、そちらに合わせる
@@ -55,28 +58,43 @@
 ### 段階 6 でこの workflow を走らせる手順
 
 1. `rust` へのマージのあとで、`gh workflow run rust-cross.yml --ref rust` を試す。既定のブランチ(`main`)にこの workflow がない間は、GitHub が起動を断る見込みである
-2. 起動できなければ、`.github/workflows/rust-cross.yml` を変える PR を `rust` に向けて出す。ファイルを変えるコミットが PR に入るたびに走る。走らせ直すときも、このファイルを変えるコミットを PR に足す
+2. 起動できなければ、`.github/workflows/rust-cross.yml` を変える PR を `rust` に向けて出す。PR を開いたときと、このファイルを変えるコミットを push したときにビルドが走る。走らせ直すときも、このファイルを変えるコミットを PR に足す。ほかのファイルだけを変えるコミットの push では、`gate` のジョブだけが走り、ビルドのジョブは skipped になる
    - 変える中身がないときは、ファイルの冒頭のコメントに走らせる理由(段階の名前など)を書き足す
 3. run の URL、ジョブごとの時間、runner のイメージを、その段階の ADR か PR に書く
 4. 切り替えで `main` に入ったあとは、`workflow_dispatch`(手順 1)で走らせる。`pull_request` の trigger を残すかは、そのときに決める
 
 ## 確かめたこと
 
-この Issue の PR で workflow を 1 回走らせ、macOS と Windows の両方のジョブが緑になった。失敗して走らせ直した回数は 0 回である。
+この Issue の PR で workflow を 3 回起動した。ビルドが失敗して走らせ直した回数は 0 回である。
 
-- run: <https://github.com/atriumnook/herdr-fleet/actions/runs/42405398892>(trigger は `pull_request`。workflow を足したコミット `444b842` の上で走った)
-- 日時: 2026-11-07 19:16 から 19:22(UTC)
+| 回 | run | head のコミット | 起動した理由 | 結果 |
+|---|---|---|---|---|
+| 1 | [42405398892](https://github.com/atriumnook/herdr-fleet/actions/runs/42405398892) | `444b842`(workflow を足した) | PR を開いた(`opened`) | macOS と Windows とも緑 |
+| 2 | [42406033125](https://github.com/atriumnook/herdr-fleet/actions/runs/42406033125) | `3dd0cad`(ADR と `rust` の取り込み) | `synchronize`。`paths` が PR 全体の差分で判定され、workflow を変えていない push でも起動した | 意図しない run なので、ビルドの途中で取り消した(cancelled) |
+| 3 | [42406377574](https://github.com/atriumnook/herdr-fleet/actions/runs/42406377574) | `4b6c502`(`gate` を足した) | `synchronize`。push したコミットが workflow を変えた | `gate` が `build=true` を出し、macOS と Windows とも緑 |
+
+このあとの、ADR と PR の本文だけを直すコミットの push でも run は起動するが、`gate` だけが走り、ビルドのジョブは skipped になる(この ADR の下の「gate だけの run」)。
+
+### 3 回目の run(マージする workflow と同じ内容)
 
 | ジョブ | runner のイメージ | OS | ジョブの時間 | `cargo build --release` の時間 | 実行ファイル |
 |---|---|---|---|---|---|
-| [build (macos-15)](https://github.com/atriumnook/herdr-fleet/actions/runs/42405398892/job/128501888675) | `macos-15-arm64` 20261104.0514.1 | macOS 15.8.2(arm64) | 4 分 10 秒 | 3 分 51 秒 | `gpui-window` 5,264,080 バイト |
-| [build (windows-2025)](https://github.com/atriumnook/herdr-fleet/actions/runs/42405398892/job/128501888545) | `windows-2025-vs2026` 20261103.298.1 | Windows Server 2025 10.0.26100(x64) | 5 分 39 秒 | 5 分 17 秒 | `gpui-window.exe` 10,778,112 バイト |
+| [gate](https://github.com/atriumnook/herdr-fleet/actions/runs/42406377574/job/128504867106) | `ubuntu-24.04` | | 3 秒 | | |
+| [build (macos-15)](https://github.com/atriumnook/herdr-fleet/actions/runs/42406377574/job/128504886524) | `macos-15-arm64` 20261104.0514.1 | macOS 15.8.2(arm64) | 6 分 19 秒 | 5 分 54 秒 | `gpui-window` 5,264,080 バイト |
+| [build (windows-2025)](https://github.com/atriumnook/herdr-fleet/actions/runs/42406377574/job/128504886644) | `windows-2025-vs2026` 20261103.298.1 | Windows Server 2025 10.0.26100(x64) | 6 分 30 秒 | 6 分 6 秒 | `gpui-window.exe` 10,778,112 バイト |
 
-- ジョブの時間は、`gh run view 42405398892 --json jobs` が返すジョブの `startedAt` から `completedAt` まで。`cargo build --release` の時間は、cargo が出した `Finished` の行の値
+1 回目の run(`gate` のない workflow)の時間は、macOS がジョブ 4 分 10 秒・`cargo build --release` 3 分 51 秒、Windows がジョブ 5 分 39 秒・`cargo build --release` 5 分 17 秒だった。イメージの版、Rust、Xcode、`fxc.exe`、実行ファイルの大きさは 3 回目と同じだった。
+
+- ジョブの時間は、`gh run view <run> --json jobs` が返すジョブの `startedAt` から `completedAt` まで。`cargo build --release` の時間は、cargo が出した `Finished` の行の値
 - ラベル `windows-2025` は、イメージ `windows-2025-vs2026`(Visual Studio 2026 入り)で走った。ラベルの名前とイメージの名前が違うので、段階 6 で読み違えないように書いておく
 - イメージに入っているものの一覧: [macos-15-arm64 20261104.0514](https://github.com/actions/runner-images/blob/macos-15-arm64/20261104.0514/images/macos/macos-15-arm64-Readme.md)、[win25-vs2026 20261103.298](https://github.com/actions/runner-images/blob/win25-vs2026/20261103.298/images/windows/Windows2025-VS2026-Readme.md)
 - Rust: どちらも rustc 1.94.0(4a4ef493e 2026-03-02)。host は `aarch64-apple-darwin` と `x86_64-pc-windows-msvc`
 - macOS: `xcodebuild -version` は Xcode 16.4(Build version 16F6)、`xcrun -sdk macosx metal --version` は Apple metal version 32023.620。Metal のツールチェインはイメージにあったので、ダウンロードの分岐は走らなかった
-- Windows: `fxc.exe` は `C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe`。gpui の `build.rs` が決め打ちで探すフォルダーと同じ版だった
-- コンパイルした crate の数(ログの `Compiling` の行。試作を含む): macOS 455、Windows 440。cargo と rustc の警告は 0 件(ログで `warning` を含む行は、checkout が出した git の hint の 1 行だけだった)
+- Windows: `fxc.exe` は `C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\fxc.exe`。gpui の `build.rs` が決め打ちで探すフォルダーと同じで、workflow もこのフォルダーを先に使う
+- コンパイルした crate の数(ログの `Compiling` の行。試作を含む): macOS 455、Windows 440(1 回目の run で数えた)。cargo と rustc の警告は、1 回目と 3 回目のどちらも 0 件(ログで `warning` を含む行は、checkout が出した git の hint だけだった)
+- `gate` の判定: 3 回目の run の `gate` は、push の差分のファイルとして `.github/workflows/rust-cross.yml` だけを出し、`build=true` だった。push の前に手元で同じ判定を compare の API に当て、`444b842...3dd0cad`(2 回目の run の push)が `build=false`、`105c10f...444b842`(1 回目の run のコミット)が `build=true` になることを確かめた
 - 手元(Linux)では、`rust/prototypes/gpui-window` で `cargo metadata --locked --format-version 1` が通ることを、push の前に確かめた(`Cargo.lock` が macOS と Windows の依存も含んでいて、`--locked` で止まらないことの確認)
+
+### gate だけの run
+
+この節は、ADR だけを変えるコミットの push で起きた run を見てから書く。
