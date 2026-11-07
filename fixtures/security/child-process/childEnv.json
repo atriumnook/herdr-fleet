@@ -1,6 +1,6 @@
 [
   {
-    "about": "server/cli-child.ts KEPT_ENV: PATH passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: PATH passes, an API key beside it does not",
     "input": {
       "env": {
         "PATH": "value-of-PATH",
@@ -12,7 +12,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: HOME passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: HOME passes, an API key beside it does not",
     "input": {
       "env": {
         "HOME": "value-of-HOME",
@@ -24,7 +24,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: USER passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: USER passes, an API key beside it does not",
     "input": {
       "env": {
         "USER": "value-of-USER",
@@ -36,7 +36,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: LOGNAME passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: LOGNAME passes, an API key beside it does not",
     "input": {
       "env": {
         "LOGNAME": "value-of-LOGNAME",
@@ -48,7 +48,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: SHELL passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: SHELL passes, an API key beside it does not",
     "input": {
       "env": {
         "SHELL": "value-of-SHELL",
@@ -60,7 +60,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: LANG passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: LANG passes, an API key beside it does not",
     "input": {
       "env": {
         "LANG": "value-of-LANG",
@@ -72,7 +72,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: LANGUAGE passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: LANGUAGE passes, an API key beside it does not",
     "input": {
       "env": {
         "LANGUAGE": "value-of-LANGUAGE",
@@ -84,7 +84,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: TZ passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: TZ passes, an API key beside it does not",
     "input": {
       "env": {
         "TZ": "value-of-TZ",
@@ -96,7 +96,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: TMPDIR passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: TMPDIR passes, an API key beside it does not",
     "input": {
       "env": {
         "TMPDIR": "value-of-TMPDIR",
@@ -108,7 +108,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: HTTP_PROXY passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: HTTP_PROXY passes, an API key beside it does not",
     "input": {
       "env": {
         "HTTP_PROXY": "value-of-HTTP_PROXY",
@@ -120,7 +120,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: HTTPS_PROXY passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: HTTPS_PROXY passes, an API key beside it does not",
     "input": {
       "env": {
         "HTTPS_PROXY": "value-of-HTTPS_PROXY",
@@ -132,7 +132,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: NO_PROXY passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: NO_PROXY passes, an API key beside it does not",
     "input": {
       "env": {
         "NO_PROXY": "value-of-NO_PROXY",
@@ -144,7 +144,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: http_proxy passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: http_proxy passes, an API key beside it does not",
     "input": {
       "env": {
         "http_proxy": "value-of-http_proxy",
@@ -156,7 +156,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: https_proxy passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: https_proxy passes, an API key beside it does not",
     "input": {
       "env": {
         "https_proxy": "value-of-https_proxy",
@@ -168,7 +168,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: no_proxy passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: no_proxy passes, an API key beside it does not",
     "input": {
       "env": {
         "no_proxy": "value-of-no_proxy",
@@ -180,7 +180,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: SSL_CERT_FILE passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: SSL_CERT_FILE passes, an API key beside it does not",
     "input": {
       "env": {
         "SSL_CERT_FILE": "value-of-SSL_CERT_FILE",
@@ -192,7 +192,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: SSL_CERT_DIR passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: SSL_CERT_DIR passes, an API key beside it does not",
     "input": {
       "env": {
         "SSL_CERT_DIR": "value-of-SSL_CERT_DIR",
@@ -204,7 +204,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: NODE_EXTRA_CA_CERTS passes, an API key beside it does not",
+    "about": "added: KEPT_ENV of server/cli-child.ts: NODE_EXTRA_CA_CERTS passes, an API key beside it does not",
     "input": {
       "env": {
         "NODE_EXTRA_CA_CERTS": "value-of-NODE_EXTRA_CA_CERTS",
@@ -216,7 +216,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: every kept name at once, among API keys and herdr's variables",
+    "about": "added: KEPT_ENV of server/cli-child.ts: every kept name at once, among API keys and herdr's variables",
     "input": {
       "env": {
         "PATH": "value-of-PATH",

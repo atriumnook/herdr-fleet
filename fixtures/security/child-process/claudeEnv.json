@@ -64,7 +64,7 @@
     }
   },
   {
-    "about": "server/cli-child.ts KEPT_ENV: every kept name at once, CLAUDE_CONFIG_DIR, the locale and XDG_*, among API keys and herdr's variables",
+    "about": "added: KEPT_ENV of server/cli-child.ts: every kept name at once, CLAUDE_CONFIG_DIR, the locale and XDG_*, among API keys and herdr's variables",
     "input": {
       "PATH": "value-of-PATH",
       "HOME": "value-of-HOME",
