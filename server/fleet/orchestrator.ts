@@ -1134,9 +1134,11 @@ export class Orchestrator {
         if (pending?.armed && !pending.sawWorking && isCompleted(reported) && pending.submittedAt !== undefined && Date.now() - pending.submittedAt < this.grace) return;
         const current = await this.observed(run, reported);
         if (!isLive(run)) return;
+        const previous = run.state;
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
+        else if (!pending && previous === "working" && isCompleted(run.state) && isThread(run)) await this.settleUnsentTurn(run);
         // free again, after the fleet's turn or the person's: the questions of the threads it hears for
         if (!this.pending.has(run.id) && isCompleted(run.state)) void this.deliverNotices(run);
       } catch (error) {
@@ -1158,31 +1160,10 @@ export class Orchestrator {
     if (this.pending.get(run.id)?.generation !== pending.generation) return;
     this.dropPending(run.id);
     const config = this.deps.config(run.cwd);
-    run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
-    run.result = readResult(this.resultFile(run));
-    // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
-    // are spent; a turn that wrote its handoff did its work, whatever its screen quotes
-    const turnError = run.result === undefined ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
-    if (turnError && isCompleted(run.state)) {
-      run.state = "failed";
-      run.lastError = turnError;
-      // a rate limit sits the account out: the re-spawn below and later spawns pass it over
-      this.deps.usage?.noteFailure(run.agent, run.model, turnError, config.rateLimitCooldownMinutes);
-    }
+    await this.readTurn(run, config);
     if (isThread(run)) {
       this.closeStalePlan(run, pending);
-      const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
-      run.contract = contract ? contractItems(contract) : undefined;
-      const base = run.baseBranch ?? run.base;
-      const diff = base ? await (this.deps.diffStat ?? diffStat)(run.cwd, base) : null;
-      run.diff = diff ?? undefined;
-      if (run.landing?.sent && !run.landing.error && LEAD_STEPS.has(run.landing.action)) await this.settleLeadStep(run);
-      // without the person, a lead opens and merges its own pull request: read it as its turn ends
-      else if (run.pr?.state === "OPEN" || (config.autonomous && !run.landed)) {
-        const reading = await this.readPullRequest(run).catch(() => null);
-        if (config.autonomous && reading?.state === "MERGED" && !run.landed) await this.mergedOnGitHub(run as AgentRun & { project: string; branch: string }, reading);
-      }
-      run.notice = threadQuestion(run) ?? (config.autonomous ? threadTurnEnded(run) : undefined);
+      await this.settleThreadTurn(run, config);
     }
     run.updatedAt = Date.now();
     this.save(run);
@@ -1193,6 +1174,53 @@ export class Orchestrator {
     if (run.state === "failed" && plan && pending.generation === 1) await this.respawn(run, plan);
     this.settleWaiters(run);
     await this.closeOnSettle(run, config);
+    if (run.notice) void this.tellCoordinator(run);
+  }
+
+  /** What a settled turn left: the screen, the handoff, and the API failure it may have ended on. */
+  private async readTurn(run: AgentRun, config: FleetConfig): Promise<void> {
+    run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
+    run.result = readResult(this.resultFile(run));
+    // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
+    // are spent; a turn that wrote its handoff did its work, whatever its screen quotes
+    const turnError = run.result === undefined ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
+    if (turnError && isCompleted(run.state)) {
+      run.state = "failed";
+      run.lastError = turnError;
+      // a rate limit sits the account out: the re-spawn and later spawns pass it over
+      this.deps.usage?.noteFailure(run.agent, run.model, turnError, config.rateLimitCooldownMinutes);
+    }
+  }
+
+  /** A thread's settled turn: its contract, its change and its pull request, and what its coordinator hears. */
+  private async settleThreadTurn(run: AgentRun, config: FleetConfig): Promise<void> {
+    const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
+    run.contract = contract ? contractItems(contract) : undefined;
+    const base = run.baseBranch ?? run.base;
+    const diff = base ? await (this.deps.diffStat ?? diffStat)(run.cwd, base) : null;
+    run.diff = diff ?? undefined;
+    if (run.landing?.sent && !run.landing.error && LEAD_STEPS.has(run.landing.action)) await this.settleLeadStep(run);
+    // without the person, a lead opens and merges its own pull request: read it as its turn ends
+    else if (run.pr?.state === "OPEN" || (config.autonomous && !run.landed)) {
+      const reading = await this.readPullRequest(run).catch(() => null);
+      if (config.autonomous && reading?.state === "MERGED" && !run.landed) await this.mergedOnGitHub(run as AgentRun & { project: string; branch: string }, reading);
+    }
+    run.notice = threadQuestion(run) ?? (config.autonomous ? threadTurnEnded(run) : undefined);
+  }
+
+  /**
+   * A thread's turn the fleet did not send ended: its agent started it itself (a helper's result
+   * woke it after a turn that broke off to wait) or the person typed in its pane. Without the
+   * person, nothing else tells the coordinator, which waits for this news to go on.
+   */
+  private async settleUnsentTurn(run: AgentRun): Promise<void> {
+    const config = this.deps.config(run.cwd);
+    if (!config.autonomous) return;
+    await this.readTurn(run, config);
+    await this.settleThreadTurn(run, config);
+    run.updatedAt = Date.now();
+    this.save(run);
+    this.settleWaiters(run);
     if (run.notice) void this.tellCoordinator(run);
   }
 
