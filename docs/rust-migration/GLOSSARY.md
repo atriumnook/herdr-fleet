@@ -170,3 +170,31 @@ PC で発行した短いコードで、token の代わりに自分専用の資�
 
 **state フォルダー(state folder)**:
 core が紐付けた端末、push の鍵と購読、run の記録などを置くフォルダー。
+
+## 一致を確かめる基準
+
+ここでの「契約」は、Rust 版と TypeScript 版を比べる基準の名前で、いつも「fleet CLI の契約」「HTTP/WS の契約」と対象を付けて書く。lead が作業の前に書く受け入れの条件の一覧(上の「契約(contract)」)とは別物である。
+
+**基準(parity criterion)**:
+Rust 版が TypeScript 版と同じに振る舞うかを決める、自動で走るテストの 1 つ。画面の corpus、会話ログの corpus、fleet CLI の契約、HTTP/WS の契約、安全上の判定の表、UI の回帰がある。
+_Avoid_: 仕様、受け入れテスト
+
+**fleet CLI の契約(fleet CLI contract)**:
+fleet CLI に与える argv・環境変数・サーバーの応答と、CLI が送る要求・標準出力・標準エラー・終了コードの組を並べた基準。TypeScript の CLI にも Rust の CLI にも当てる。
+_Avoid_: 契約(対象を付けずに書くと、lead の契約と区別できない)
+
+**HTTP/WS の契約(HTTP/WS contract)**:
+起動の指定で起動した core に URL を通してだけ話し、要求と応答を確かめる black-box のテストの集まり(`*.contract.test.ts`)。TypeScript のサーバーにも Rust の core にも向ける基準。
+_Avoid_: 契約(対象を付けずに書くと、lead の契約と区別できない)、API テスト
+
+**起動の指定(launch spec)**:
+HTTP/WS の契約のテストが core を起動するときに渡す、子プロセスの環境変数(`env`)とテスト用のオプション(`test`)の組。
+_Avoid_: 起動オプション、起動設定
+
+**テスト用のオプション(test options)**:
+起動の指定のうち、本番の環境変数では表せず、データだけで書ける core の設定(Tailscale の持ち主、push の宛先の判定の置き換え、待ち時間など)。テスト用のエントリーポイントだけが読む。
+_Avoid_: seam、テスト用のフック
+
+**テスト用のエントリーポイント(test entry point)**:
+テスト用のオプションを標準入力で受けて core を起動する、テストのためのプログラム(TypeScript では `scripts/contract/server.ts`)。本番のプログラムには、テスト用のオプションを渡す経路がない。
+_Avoid_: テスト用サーバー、モックサーバー
