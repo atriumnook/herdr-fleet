@@ -1,0 +1,80 @@
+{
+  "about": "threads asks for the cwd's threads with the caller's run, and prints state, branch, HANDOFF status line, contract and pull request",
+  "argv": [
+    "threads",
+    "--cwd",
+    "/repo"
+  ],
+  "env": {
+    "HERDR_FLEET_RUN": "r5"
+  },
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "threads": [
+          {
+            "run": {
+              "id": "r6",
+              "name": "Login error",
+              "role": "lead",
+              "agent": "claude",
+              "group": "g1",
+              "paneId": "w1:p2",
+              "state": "working",
+              "branch": "fleet/r6",
+              "pr": {
+                "number": 12,
+                "url": "https://github.com/o/r/pull/12",
+                "state": "OPEN",
+                "checks": "passing"
+              }
+            },
+            "state": "review",
+            "status": "PASS: tests pass",
+            "contract": [
+              {
+                "id": "A1",
+                "state": "met"
+              },
+              {
+                "id": "A2",
+                "state": "open"
+              },
+              {
+                "id": "A3",
+                "state": "unmet"
+              }
+            ]
+          },
+          {
+            "run": {
+              "id": "r7",
+              "name": "Docs",
+              "role": "lead",
+              "agent": "claude",
+              "group": "g1",
+              "paneId": "w1:p2",
+              "state": "working"
+            },
+            "state": "working"
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/threads?cwd=%2Frepo&caller_run=r5",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "r6  Login error  Ready for review  fleet/r6\n    PASS: tests pass\n    Contract: A1 ✓ A2 · A3 ✗\n    PR #12 open, checks passing: https://github.com/o/r/pull/12\nr7  Docs  Working\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

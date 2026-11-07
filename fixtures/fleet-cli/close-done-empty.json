@@ -1,0 +1,34 @@
+{
+  "about": "Nothing closed prints nothing to close",
+  "argv": [
+    "close-done"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "runs": []
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/close-done",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "group": "g1"
+        }
+      }
+    ],
+    "stdout": "nothing to close\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

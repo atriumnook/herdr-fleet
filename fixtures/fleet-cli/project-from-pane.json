@@ -1,0 +1,48 @@
+{
+  "about": "bin/fleet.test.ts: fleet project from a pane's conversation names the pane it was sent from",
+  "argv": [
+    "project",
+    "--cwd",
+    "/repo",
+    "--task",
+    "Fix the doubled login error."
+  ],
+  "env": {
+    "HERDR_PANE_ID": "w2:p3"
+  },
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "repo · fleet",
+          "role": "coordinator",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w9:p1",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/projects",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "task": "Fix the doubled login error.",
+          "cwd": "/repo",
+          "from_pane": "w2:p3"
+        }
+      }
+    ],
+    "stdout": "r1  repo · fleet (coordinator, claude)  working  pane w9:p1\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

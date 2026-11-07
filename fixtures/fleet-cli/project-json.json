@@ -1,0 +1,43 @@
+{
+  "about": "Without --cwd and HERDR_PANE_ID, project sends the working folder and no pane; --json prints the run",
+  "argv": [
+    "project",
+    "--task",
+    "t",
+    "--json"
+  ],
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "repo · fleet",
+          "role": "coordinator",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w9:p1",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/projects",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "task": "t",
+          "cwd": "$CWD"
+        }
+      }
+    ],
+    "stdout": "{\n  \"id\": \"r1\",\n  \"name\": \"repo · fleet\",\n  \"role\": \"coordinator\",\n  \"agent\": \"claude\",\n  \"group\": \"g1\",\n  \"paneId\": \"w9:p1\",\n  \"state\": \"working\"\n}\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

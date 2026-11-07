@@ -1,0 +1,84 @@
+{
+  "about": "spawn --wait whose wait times out prints the run and exits 124, as wait does",
+  "argv": [
+    "spawn",
+    "--role",
+    "worker",
+    "--task",
+    "t",
+    "--cwd",
+    "/repo",
+    "--wait",
+    "--timeout",
+    "1000"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    },
+    {
+      "status": 408,
+      "body": {
+        "error": {
+          "code": "wait_timeout",
+          "message": "worker 1 did not settle in 1000 ms"
+        },
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/spawn",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "role": "worker",
+          "task": "t",
+          "cwd": "/repo",
+          "group": "g1",
+          "depth": 0
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/api/fleet/runs/r1/wait",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "group": "g1",
+          "timeout_ms": 1000
+        }
+      }
+    ],
+    "stdout": "r1  worker 1 (worker, claude)  working  pane w1:p2\nwait timed out; the agent is still working\n",
+    "stderr": "",
+    "exitCode": 124
+  }
+}

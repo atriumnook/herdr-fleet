@@ -1,0 +1,51 @@
+{
+  "about": "wait --json that times out prints the run as JSON and exits 124",
+  "argv": [
+    "wait",
+    "r1",
+    "--timeout",
+    "1000",
+    "--json"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 408,
+      "body": {
+        "error": {
+          "code": "wait_timeout",
+          "message": "worker 1 did not settle in 1000 ms"
+        },
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/runs/r1/wait",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "group": "g1",
+          "timeout_ms": 1000
+        }
+      }
+    ],
+    "stdout": "{\n  \"id\": \"r1\",\n  \"name\": \"worker 1\",\n  \"role\": \"worker\",\n  \"agent\": \"claude\",\n  \"group\": \"g1\",\n  \"paneId\": \"w1:p2\",\n  \"state\": \"working\"\n}\n",
+    "stderr": "",
+    "exitCode": 124
+  }
+}

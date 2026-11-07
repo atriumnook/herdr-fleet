@@ -1,0 +1,18 @@
+{
+  "about": "No server listens: the error names the URL and says how to start it, exit 1; the reason in between is the runtime's",
+  "argv": [
+    "list"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "server": "closed",
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": {
+      "pattern": "fleet: cannot reach the fleet server at \\$URL: .+\\. Start it with `bun run start` in herdr-fleet\\.\\n"
+    },
+    "exitCode": 1
+  }
+}

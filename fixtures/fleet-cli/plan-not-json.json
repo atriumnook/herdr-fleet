@@ -1,0 +1,19 @@
+{
+  "about": "A plan that is not JSON is a usage error, before any request; the parser's message is the runtime's",
+  "argv": [
+    "plan",
+    "-"
+  ],
+  "env": {
+    "HERDR_FLEET_RUN": "r5"
+  },
+  "stdin": "{",
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": {
+      "pattern": "fleet: - is not JSON: .+\\n"
+    },
+    "exitCode": 2
+  }
+}

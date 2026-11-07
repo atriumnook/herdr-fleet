@@ -1,0 +1,44 @@
+{
+  "about": "interrupt --json",
+  "argv": [
+    "interrupt",
+    "r1",
+    "--json"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/runs/r1/interrupt",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "group": "g1"
+        }
+      }
+    ],
+    "stdout": "{\n  \"id\": \"r1\",\n  \"name\": \"worker 1\",\n  \"role\": \"worker\",\n  \"agent\": \"claude\",\n  \"group\": \"g1\",\n  \"paneId\": \"w1:p2\",\n  \"state\": \"working\"\n}\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

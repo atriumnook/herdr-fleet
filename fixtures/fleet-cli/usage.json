@@ -1,0 +1,61 @@
+{
+  "about": "usage prints each subscription's windows and reset times, a cooldown that ends in the future, and a failed read; a cooldown that ended does not show (times are in 2010 and 2040)",
+  "argv": [
+    "usage"
+  ],
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "usage": [
+          {
+            "key": "claude",
+            "reading": {
+              "readAt": 1262401445000,
+              "windows": [
+                {
+                  "name": "5h",
+                  "usedPercent": 40,
+                  "resetsAt": 2209104000000
+                },
+                {
+                  "name": "week",
+                  "usedPercent": 12
+                }
+              ]
+            },
+            "cooldown": {
+              "until": 2209104000000,
+              "reason": "usage limit"
+            }
+          },
+          {
+            "key": "agy:gemini",
+            "cooldown": {
+              "until": 1262304000000,
+              "reason": "rate limited"
+            },
+            "error": "agy exited with 1"
+          }
+        ]
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/usage/refresh",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "all": false
+        }
+      }
+    ],
+    "stdout": "claude       5h 40% (resets 1/2/2040, 8:00:00 AM), week 12%  read 1/2/2010, 3:04:05 AM\n             cooling down until 1/2/2040, 8:00:00 AM: usage limit\nagy:gemini   no reading\n             last read failed: agy exited with 1\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

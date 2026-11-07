@@ -1,0 +1,32 @@
+{
+  "about": "A trailing / in HERDR_FLEET_URL is dropped: the path is the same as without it",
+  "argv": [
+    "list"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "trailingSlash": true,
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "runs": []
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/runs?group=g1",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "no agents\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

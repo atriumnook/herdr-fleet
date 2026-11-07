@@ -1,0 +1,57 @@
+{
+  "about": "plan <file> sends the file's JSON as the caller's run's plan, with the group",
+  "argv": [
+    "plan",
+    "plan.json"
+  ],
+  "env": {
+    "HERDR_FLEET_RUN": "r5",
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "files": {
+    "plan.json": "{\"title\": \"Login\", \"claims\": [{\"id\": \"c1\", \"text\": \"one error\"}]}\n"
+  },
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "plan": {
+          "version": 1,
+          "title": "Login",
+          "claims": [
+            {
+              "id": "c1",
+              "text": "one error"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/runs/r5/plan",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "plan": {
+            "title": "Login",
+            "claims": [
+              {
+                "id": "c1",
+                "text": "one error"
+              }
+            ]
+          },
+          "group": "g1"
+        }
+      }
+    ],
+    "stdout": "plan \"Login\" version 1 is on the Fleet screen. End your turn with a BLOCKED HANDOFF that says the plan waits for the person; their answers come back as your next task.\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

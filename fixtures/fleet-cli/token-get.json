@@ -1,0 +1,33 @@
+{
+  "about": "HERDR_FLEET_TOKEN on a GET",
+  "argv": [
+    "list"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1",
+    "HERDR_FLEET_TOKEN": "test-access-token"
+  },
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "runs": []
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/runs?group=g1",
+        "headers": {
+          "x-herdr-fleet": "1",
+          "authorization": "Bearer test-access-token"
+        }
+      }
+    ],
+    "stdout": "no agents\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

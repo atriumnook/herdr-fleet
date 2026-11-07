@@ -1,0 +1,81 @@
+{
+  "about": "spawn --wait waits for the new run with the timeout given, and prints its result",
+  "argv": [
+    "spawn",
+    "--role",
+    "worker",
+    "--task",
+    "t",
+    "--cwd",
+    "/repo",
+    "--wait",
+    "--timeout",
+    "60000"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 201,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "working"
+        }
+      }
+    },
+    {
+      "status": 200,
+      "body": {
+        "run": {
+          "id": "r1",
+          "name": "worker 1",
+          "role": "worker",
+          "agent": "claude",
+          "group": "g1",
+          "paneId": "w1:p2",
+          "state": "idle",
+          "result": "## HANDOFF\nPASS\n\n"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/spawn",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "role": "worker",
+          "task": "t",
+          "cwd": "/repo",
+          "group": "g1",
+          "depth": 0
+        }
+      },
+      {
+        "method": "POST",
+        "path": "/api/fleet/runs/r1/wait",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "group": "g1",
+          "timeout_ms": 60000
+        }
+      }
+    ],
+    "stdout": "r1  worker 1 (worker, claude)  idle  pane w1:p2\n\n## HANDOFF\nPASS\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

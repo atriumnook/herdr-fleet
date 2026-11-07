@@ -1,0 +1,41 @@
+{
+  "about": "A 408 wait_timeout without a run prints nothing at all (the message of exit 124 is not printed) and exits 124",
+  "argv": [
+    "wait",
+    "r1",
+    "--timeout",
+    "1000"
+  ],
+  "env": {
+    "HERDR_FLEET_GROUP": "g1"
+  },
+  "responses": [
+    {
+      "status": 408,
+      "body": {
+        "error": {
+          "code": "wait_timeout",
+          "message": "worker 1 did not settle in 1000 ms"
+        }
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "POST",
+        "path": "/api/fleet/runs/r1/wait",
+        "headers": {
+          "x-herdr-fleet": "1"
+        },
+        "body": {
+          "group": "g1",
+          "timeout_ms": 1000
+        }
+      }
+    ],
+    "stdout": "",
+    "stderr": "",
+    "exitCode": 124
+  }
+}
