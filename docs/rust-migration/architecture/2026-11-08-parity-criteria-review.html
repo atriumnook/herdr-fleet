@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>一致を確かめる基準の調査</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "strict" });
+    </script>
+    <style>
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); color: #f8fafc; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-4 py-12 space-y-12">
+      <header class="space-y-3">
+        <h1 class="font-serif text-3xl">段階 1 の一致を確かめる基準に関わる TypeScript のテストの調査</h1>
+        <p class="text-sm text-slate-600">2026-11-08。Issue #122。対象は、計画の段階 1 で作る 4 つの基準(会話ログの corpus、fleet CLI の契約、HTTP/WS の契約、安全上の判定の表)が置き換える TypeScript のテストと、その入口のコード。手順は <code>improve-codebase-architecture</code>、語は <code>codebase-design</code>(module、interface、depth、seam、adapter、leverage、locality)と <code>docs/rust-migration/GLOSSARY.md</code> に従う。</p>
+        <p class="text-sm text-slate-600">調べ方: 段階 1 の基準は計画が決めているので、変更の多いファイルからではなく、基準ごとに今のテストの入口を調べた。subagent 2 つが、transcript の解析のテストと安全上の判定のテストを読み、lead が <code>server/*.contract.test.ts</code> の 15 ファイル(5,391 行)と <code>bin/fleet.test.ts</code> を読んだ。数と file:line は ADR <code>0122-parity-criteria</code> の「確かめたこと」にある。</p>
+        <div class="flex flex-wrap gap-4 text-xs text-slate-600">
+          <span>実線の箱 = module</span><span>破線 = seam</span><span class="text-red-600">赤い箱 = seam を越えて内部に触る</span><span>濃い箱 = deep module</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-10">
+
+        <!-- 1 -->
+        <article id="c1" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">1. HTTP/WS の契約のサーバーの起動を、起動の指定という 1 つの seam の後ろに置く</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">ports &amp; adapters</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/*.contract.test.ts(15 ファイル)
+server/index.ts(createServer の options)
+server/push.fake.ts(loopbackPush)
+scripts/test-herdr.ts(テスト用の herdr のセッション)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart LR
+  T[contract test] --> CS[createServer in-process]
+  T --> ENV[process.env HOME TMPDIR PI_*]
+  T --> IN[SUBMIT_DELAY_MS, OUTPUT_*, DeviceStore, forgetTranscriptState]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class ENV,IN leak
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  T[contract test] --> L[launchServer env + test]
+  L -.seam.-> TS[scripts/contract/server.ts]
+  L -.seam.-> RS[core examples/contract-server]
+  T --> U[(URL only)]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class L deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 契約のテストはサーバーを同じプロセスで作り、テスト用のオプションを関数で渡し、テストのプロセスの環境変数を書き換え、サーバーの内部の定数と状態を import するので、別の実装(Rust の core)に向けられない。</p>
+          <p><strong>Solution:</strong> サーバーを「起動の指定(本番が受ける環境変数と、データだけで書けるテスト用のオプション)→ URL」という interface の launcher で別のプロセスとして起動し、テストは URL だけで話す。テスト用のオプションはテスト用のエントリーポイントだけが読む。</p>
+          <ul class="list-disc pl-6 text-sm"><li>adapter が 2 つ(TypeScript、Rust)で本物の seam</li><li>同じテストで 2 つの実装を比べる</li><li>本番の実行ファイルにテスト用の経路がない</li><li>環境変数の書き換えが消える</li></ul>
+        </article>
+
+        <!-- 2 -->
+        <article id="c2" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">2. transcript の解析を、会話ログの corpus という 1 つの interface で試す</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">local-substitutable</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/conversation.test.ts, server/chat-history.test.ts, server/claude-turn-boundaries.test.ts,
+server/codex.test.ts, server/codex-images.test.ts, server/pi-tree.test.ts, server/pi.test.ts,
+server/opencode-messages.test.ts, server/opencode-session.test.ts, server/conversation-metadata.test.ts ほか
+入口: transcriptPage, transcriptImage, piTranscriptImage, transcriptToolOutput, unansweredCodexQuestions, OpencodeConversations</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart TB
+  A[test 1: inline jsonl helper] --> P[parsers]
+  B[test 2: mkdtemp + forget*] --> P
+  C[test 3: fake OpencodeApi class] --> P
+  D[expect toEqual inline] --- A
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  F[(fixtures/conversations)] --> R[runner: steps, $names, $CASE]
+  R -.seam.-> TSP[TypeScript parsers]
+  R2[Rust runner] -.seam.-> RSP[transcript crate]
+  F --> R2
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class R,R2 deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 入力も期待値もテストの中の文字列にあり、cache を消す手順、一時ファイル、OpenCode の fake がテストごとに書かれ、毎回違う値(dev と ino から作る <code>history_id</code>、プロセスごとの <code>version</code>)をテストごとに避けている。</p>
+          <p><strong>Solution:</strong> 「件のファイル + 手順 → 答え」を interface にした runner を 1 つにし、毎回違う値に件の中だけで通じる名前を付けて比べる。</p>
+          <ul class="list-disc pl-6 text-sm"><li>Rust の transcript の crate が同じ件を読む</li><li>locality: 正規化が runner の 1 か所</li><li>source ごとの件はフォルダーで独立</li></ul>
+        </article>
+
+        <!-- 3 -->
+        <article id="c3" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">3. 安全上の判定を、持ち主の crate ごとの表で試す</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/access.ts(decideAccess ほか), server/auth.ts, server/http.ts(sameOrigin), server/file-view.ts,
+server/push.ts, server/cli-child.ts, server/fleet/opencode-config.ts
+テスト: server/access.test.ts, server/push.test.ts, server/file-view.test.ts, server/machines.test.ts,
+server/fleet/adapters.test.ts, server/fleet/models.test.ts, server/fleet/usage.test.ts, server/explain.test.ts</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart TB
+  T1[access.test: arrays + 30 asserts] --> D1[decideAccess]
+  T2[models.test: spawn env, FORBIDDEN] --> D2[childEnv]
+  T3[usage.test: spawn env, FORBIDDEN] --> D2
+  T4[adapters.test: re-implemented matcher] --> D3[opencodeConfig]
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  C[(security/core)] --> RC[core runner]
+  P[(security/child-process)] --> RP[child-process runner]
+  O[(security/orchestrator)] --> RO[orchestrator runner]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class C,P,O deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 同じ判定が、配列の表、個別の assert、子プロセスに <code>env</code> を動かして調べるテストに分かれ、ループバックでない接続元のような black-box では作れない入力の件が、どこにどれだけあるかを一覧できない。</p>
+          <p><strong>Solution:</strong> 判定ごとに持ち主の crate を 1 つ決め、「入力 → 判定」の件を JSON の表にする。各ルートが判定を通しているかは HTTP/WS の契約に残す。</p>
+          <ul class="list-disc pl-6 text-sm"><li>Rust の crate ごとの runner に写せる</li><li>表と契約の役割が分かれる</li><li>件の数が一覧できる</li></ul>
+        </article>
+
+        <!-- 4 -->
+        <article id="c4" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">4. fleet CLI を、argv から出力と終了コードまでの corpus で試す</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">local-substitutable</span></div>
+          <pre class="font-mono text-sm text-slate-700">bin/fleet.ts(322 行、15 のコマンド), bin/fleet.test.ts(3 件)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart LR
+  T[fleet.test: 3 cases] --> S[Bun.serve stub, one canned reply]
+  T --> CLI[bun bin/fleet.ts]
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  F[(fixtures/fleet-cli)] --> R[runner: stub replies in order]
+  R -.seam.-> TS[bun bin/fleet.ts]
+  R -.seam.-> RS[Rust fleet binary]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class R deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 起動されたエージェントの指示文が CLI の引数・出力・終了コードに依存しているのに、それを確かめる件が 3 つしかなく、終了コード 4 と 124、<code>wait</code> の <code>replacedBy</code> の追跡、<code>--json</code> の出力に件がない。</p>
+          <p><strong>Solution:</strong> 「argv、環境変数、stub の応答 → 送った要求、標準出力、標準エラー、終了コード」を件にし、runner が選んだ CLI の実行ファイルに当てる。時刻の表示は <code>TZ=UTC</code>、<code>LANG=en_US.UTF-8</code> に固定する。</p>
+          <ul class="list-disc pl-6 text-sm"><li>Rust の CLI に同じ件を当てる</li><li>全コマンドに件</li></ul>
+        </article>
+
+        <!-- 5 -->
+        <article id="c5" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">5. <code>X-Herdr-Fleet</code> の確認と git の <code>core.fsmonitor=false</code> に、呼べる関数を作る</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-slate-200 text-slate-700 px-2 py-0.5">Speculative</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/fleet/api.ts(X-Herdr-Fleet の確認が handleFleetRequest の中に直接ある)
+server/files.ts, server/fleet/thread.ts(git の -c core.fsmonitor=false が重複)</pre>
+          <p><strong>Problem:</strong> どちらの決まりも呼べる関数がないので、安全上の判定の表に置けない。</p>
+          <p><strong>Solution:</strong> TypeScript では変えない。ADR <code>0107-crate-split</code> が、Rust で <code>X-Herdr-Fleet</code> の確認を core のアクセス制御に、git の起動の決まりを child-process に移すと決めている。段階 1 では HTTP/WS の契約と既存のテストで確かめ、段階 3 と 4 の Rust のテストに引き継ぐ。段階 1 は TypeScript のサーバーのコードを変えないので、ここは掘り下げない。</p>
+        </article>
+      </section>
+
+      <section id="top-recommendation" class="rounded-xl deep p-6 space-y-3">
+        <h2 class="font-serif text-2xl">一番の推奨: 1(起動の指定)</h2>
+        <p>候補 1 を最初に決める。理由は 3 つの事実による。4 つの基準のうち、Rust の実行ファイルの起動の仕方を決めるのは候補 1 だけ(core の <code>serve(Config, Seams)</code> と、テスト用のエントリーポイントの置き場所)。候補 2 と 3 も Rust の crate が公開する関数の形を決めるが、それは関数の呼び出しで、本番の実行ファイルの入力には関わらない。HTTP/WS の契約の 13 ファイルの書き換え(4 つの Issue)が、この launcher を待つ。テスト用のオプションの渡し方を誤ると、本番の実行ファイルに push の宛先やアクセス制御を緩める経路ができ、CLAUDE.md の「守ること」に反する。</p>
+        <p>候補 2〜4 も段階 1 で作る(計画が 4 つの基準のすべてを求めるため)。4 つの基準の形、毎回違う値の扱い、判定の持ち主、ファイルの配置は、ADR <code>0122-parity-criteria</code> に書いた。人に聞く手順(どの候補を掘り下げるか、grilling)は、決まりのとおり architect への問い(run <code>42548e4e</code>)と lead の判断に置き換え、その答えを ADR に書いた。</p>
+      </section>
+    </main>
+  </body>
+</html>
