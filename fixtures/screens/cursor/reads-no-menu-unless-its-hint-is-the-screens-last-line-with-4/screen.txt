@@ -1,0 +1,6 @@
+Done:
+1. Read settings
+2. Load profiles
+   Profiles loaded
+   Enter to continue
+Enter recovery code ABCD

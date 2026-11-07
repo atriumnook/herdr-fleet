@@ -1,0 +1,11 @@
+←  ☐ Frutas  ✔ Submit  →
+¿Qué frutas?
+  1. [ ] Manzana
+         Manzana
+  2. [ ] Pera
+         Pera
+  3. [ ] Type something
+❯    Submit
+───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+Enter to select · ↑/↓ to navigate · Esc to cancel

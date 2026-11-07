@@ -1,0 +1,11 @@
+
+› 1. 먼저 이것부터 해줘
+
+✨ Update available! 0.146.0 -> 0.146.1
+
+› 1. Update now
+  2. Skip
+  3. Skip until next version
+     1. Asks again at the next release.
+
+Press enter to continue

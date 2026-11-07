@@ -1,0 +1,3 @@
+Found 3 stale caches.
+Clear them now?
+Press Enter to continue, Esc to skip

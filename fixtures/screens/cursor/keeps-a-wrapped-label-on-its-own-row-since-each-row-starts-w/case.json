@@ -1,0 +1,48 @@
+{
+  "call": "parseFallbackPrompt",
+  "agent": "cursor",
+  "expected": {
+    "agent": "cursor",
+    "kind": "menu",
+    "title": "Waiting for your answer",
+    "question": "Trust this folder?",
+    "body": null,
+    "options": [
+      {
+        "label": "No, exit and keep this folder untrusted",
+        "description": null
+      },
+      {
+        "label": "Yes, trust folder",
+        "description": null
+      },
+      {
+        "label": "Yes, trust and allow hooks",
+        "description": null
+      },
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 1
+      },
+      "expected": [
+        {
+          "text": "2"
+        }
+      ]
+    }
+  ]
+}

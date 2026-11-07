@@ -1,0 +1,69 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "omp",
+  "expected": {
+    "agent": "omp",
+    "kind": "question",
+    "title": "Multiple choice",
+    "question": "Which checks?",
+    "body": null,
+    "options": [
+      {
+        "label": "Lint",
+        "description": null
+      },
+      {
+        "label": "Tests",
+        "description": null
+      },
+      {
+        "label": "Build",
+        "description": null
+      }
+    ],
+    "multi_select": true,
+    "custom_option_index": null
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_indices": [
+          0,
+          2
+        ]
+      },
+      "expected": [
+        {
+          "keys": [
+            "space"
+          ]
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "space"
+          ]
+        },
+        {
+          "keys": [
+            "tab"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+Access?
+1. Read only (r)
+2. Full access (f)
+Type r or f, then Enter

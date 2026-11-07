@@ -1,0 +1,6 @@
+Access?
+1. Read only
+2. Full access, every file and
+   command (f)
+
+Enter to select

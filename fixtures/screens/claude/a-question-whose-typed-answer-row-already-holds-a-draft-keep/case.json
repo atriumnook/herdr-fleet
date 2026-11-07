@@ -1,0 +1,45 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Session",
+    "question": "Two sessions are open. Which one?",
+    "body": null,
+    "options": [
+      {
+        "label": "builder-a",
+        "description": "started 15 hours ago"
+      },
+      {
+        "label": "builder-b",
+        "description": "started 13 hours ago"
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2
+  },
+  "sameIdAs": [
+    "claude/a-typed-answer-replaces-the-draft-in-the-row-instead-of-join"
+  ],
+  "answers": [
+    {
+      "answer": {
+        "option_index": 1
+      },
+      "expected": [
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

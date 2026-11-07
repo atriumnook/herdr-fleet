@@ -1,0 +1,13 @@
+
+☐ Dataset
+
+Which evaluation dataset should we use?
+
+❯ 1. LM-O
+  2. YCB-V
+  3. T-LESS
+  4. Type something.
+────────────────────────────
+  5. Chat about this
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

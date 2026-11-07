@@ -1,0 +1,5 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "other",
+  "expected": null
+}

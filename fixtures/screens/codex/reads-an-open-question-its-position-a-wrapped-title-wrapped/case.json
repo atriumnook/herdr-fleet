@@ -1,0 +1,68 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "question",
+    "title": "Question 1 of 2",
+    "question": "정리 범위를 현재 Q255 학습 출력과 연결된 산출물로 한정할까요, 아니면 output/test 전체 실험까지 포함할까요?",
+    "body": null,
+    "options": [
+      {
+        "label": "현재 Q255 관련 산출물만",
+        "description": null
+      },
+      {
+        "label": "output/test 전체 실험까지 포함해서 모두 정리하고 결과를 표로 남기기",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2,
+    "queued": "open"
+  },
+  "answers": [
+    {
+      "answer": {
+        "custom_text": "Q255 only, keep logs"
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "text": "Q255 only, keep logs"
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    },
+    {
+      "answer": {
+        "option_index": 1
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+Run it?
+✢ Tempering… (55s · ↓ 10.0k tokens)
+
+1. Yes
+2. No
+
+Enter a number, or Esc to cancel

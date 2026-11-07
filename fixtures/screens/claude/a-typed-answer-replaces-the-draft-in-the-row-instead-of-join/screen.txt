@@ -1,0 +1,14 @@
+────────────────────────────────────────────────────────────────────────────────
+ ☐ Session
+
+Two sessions are open. Which one?
+
+  1. builder-a
+     started 15 hours ago
+  2. builder-b
+     started 13 hours ago
+❯ 3. neither, tell me their names
+────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+
+Enter to select · ↑/↓ to navigate · ctrl+g to edit in Vim · Esc to cancel

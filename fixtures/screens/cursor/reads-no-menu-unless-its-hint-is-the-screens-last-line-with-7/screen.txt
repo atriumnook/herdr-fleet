@@ -1,0 +1,6 @@
+Access?
+1. Cancel
+2. Allow access to the
+   selected account number only
+
+Enter to select

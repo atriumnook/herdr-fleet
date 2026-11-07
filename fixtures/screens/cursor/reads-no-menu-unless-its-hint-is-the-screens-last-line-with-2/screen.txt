@@ -1,0 +1,6 @@
+Pick:
+1. Read only
+2. Full access
+
+Enter to select
+Waiting for the token

@@ -1,0 +1,32 @@
+{
+  "call": "parseFallbackPrompt",
+  "agent": "cursor",
+  "expected": {
+    "agent": "cursor",
+    "kind": "menu",
+    "title": "Waiting for your answer",
+    "question": "Pick",
+    "body": null,
+    "options": [
+      {
+        "label": "One",
+        "description": null
+      },
+      {
+        "label": "Two",
+        "description": null
+      },
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

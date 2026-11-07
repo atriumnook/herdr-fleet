@@ -1,0 +1,27 @@
+{
+  "call": "codexQueuedPrompt",
+  "unanswered": [
+    {
+      "key": "call_a:0",
+      "title": "Old question?",
+      "options": [
+        "x",
+        "y"
+      ]
+    },
+    {
+      "key": "call_b:0",
+      "title": "Which dataset?",
+      "options": [
+        "LM-O",
+        "YCB-V"
+      ]
+    },
+    {
+      "key": "call_b:1",
+      "title": "Any notes?",
+      "options": []
+    }
+  ],
+  "expected": null
+}

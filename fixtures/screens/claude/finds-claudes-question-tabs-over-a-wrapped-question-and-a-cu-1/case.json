@@ -1,0 +1,42 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Author",
+    "question": "Who should author the commits that go into the pull request, given that the fork belongs to the lab account and the upstream repository to its owner?",
+    "body": null,
+    "options": [
+      {
+        "label": "Keep local",
+        "description": "The local git identity."
+      },
+      {
+        "label": "Repo owner",
+        "description": "The repository owner."
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 1
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

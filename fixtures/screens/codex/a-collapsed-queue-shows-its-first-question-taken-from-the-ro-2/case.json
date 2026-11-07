@@ -1,0 +1,36 @@
+{
+  "call": "codexQueuedPrompt",
+  "unanswered": [
+    {
+      "key": "call_c:0",
+      "title": "Which dataset?",
+      "options": [
+        "LM-O"
+      ]
+    },
+    {
+      "key": "call_c:1",
+      "title": "Any notes?",
+      "options": []
+    }
+  ],
+  "expected": {
+    "agent": "codex",
+    "kind": "question",
+    "title": "Question 1 of 2",
+    "question": "Which dataset?",
+    "body": null,
+    "options": [
+      {
+        "label": "LM-O",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 1,
+    "queued": "collapsed"
+  },
+  "sameIdAs": [
+    "codex/the-card-and-the-send-path-read-the-same-count-so-they-never-1"
+  ]
+}

@@ -1,0 +1,8 @@
+
+ Trust?
+
+ ❯ No, exit and keep this folder untrusted
+   Yes
+   Yes, and allow hooks too
+
+ Enter to confirm · Esc to cancel

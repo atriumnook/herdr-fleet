@@ -1,0 +1,7 @@
+Done:
+1. Load configuration
+2. Connect to account
+   Connected to example.com
+   Authentication required
+   Waiting
+Enter to continue

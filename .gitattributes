@@ -1,0 +1,2 @@
+# the screen corpus is read byte for byte: no line-ending conversion
+fixtures/** -text

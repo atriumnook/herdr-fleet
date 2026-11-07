@@ -1,0 +1,8 @@
+* Running the tests… (5s · ↓ 12 tokens · esc to interrupt)
+
+Run the tests?
+
+❯ 1. Yes
+  2. No
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

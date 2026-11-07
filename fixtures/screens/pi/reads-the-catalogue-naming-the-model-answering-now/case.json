@@ -1,0 +1,45 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "pi",
+  "expected": {
+    "agent": "pi",
+    "kind": "question",
+    "title": "",
+    "question": "Select model (currently vllm/Qwen/Qwen3.8-27B [lwsa-platform])",
+    "body": null,
+    "options": [
+      {
+        "label": "vllm/Qwen/Qwen3.8-27B [lwsa-platform] · default",
+        "description": null
+      },
+      {
+        "label": "vllm-flash/Qwen3.8-Flash-Next [lwsa-platform]",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "sameIdAs": [
+    "pi/navigates-from-where-pi-drew-the-cursor-which-is-the-model-i"
+  ],
+  "answers": [
+    {
+      "answer": {
+        "option_index": 1
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

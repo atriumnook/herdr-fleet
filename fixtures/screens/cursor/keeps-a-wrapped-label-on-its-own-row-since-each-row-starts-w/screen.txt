@@ -1,0 +1,8 @@
+Trust this folder?
+
+❯ 1. No, exit and keep this folder
+     untrusted
+  2. Yes, trust folder
+  3. Yes, trust and allow hooks
+
+ Enter to confirm

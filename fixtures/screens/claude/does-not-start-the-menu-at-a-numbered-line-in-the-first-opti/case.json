@@ -1,0 +1,42 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Setup",
+    "question": "How should we set up?",
+    "body": null,
+    "options": [
+      {
+        "label": "Script",
+        "description": "Runs these steps:"
+      },
+      {
+        "label": "Manual",
+        "description": "Follow the guide."
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 0
+      },
+      "expected": [
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

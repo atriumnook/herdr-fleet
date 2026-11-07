@@ -1,0 +1,24 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "question",
+    "title": "Question",
+    "question": "Which accelerator?",
+    "body": null,
+    "options": [
+      {
+        "label": "CUDA",
+        "description": null
+      },
+      {
+        "label": "CPU",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": 2,
+    "queued": "open"
+  }
+}

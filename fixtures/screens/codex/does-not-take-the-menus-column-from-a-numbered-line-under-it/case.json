@@ -1,0 +1,27 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "menu",
+    "title": "Codex",
+    "question": "Choose how to continue",
+    "body": "› 1. 먼저 이것부터 해줘\n✨ Update available! 0.146.0 -> 0.146.1",
+    "options": [
+      {
+        "label": "Update now",
+        "description": null
+      },
+      {
+        "label": "Skip",
+        "description": null
+      },
+      {
+        "label": "Skip until next version",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  }
+}

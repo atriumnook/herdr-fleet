@@ -1,0 +1,2 @@
+The installer prints "Overwrite? (y/n)".
+❯ 

@@ -1,0 +1,7 @@
+ Trust? The first row is not the widest line here, so this one tells the width.
+
+ ❯ No, exit and keep this folder untrusted
+   Yes
+   Yes, and allow hooks too
+
+ Enter to confirm · Esc to cancel

@@ -1,0 +1,57 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Multiple choice",
+    "question": "Which ones?",
+    "body": null,
+    "options": [
+      {
+        "label": "Option A",
+        "description": "First description"
+      },
+      {
+        "label": "Option B",
+        "description": "Second description"
+      }
+    ],
+    "multi_select": true,
+    "custom_option_index": 2
+  },
+  "sameIdAs": [
+    "claude/reads-rows-as-ticked-without-the-box-in-their-labels"
+  ],
+  "answers": [
+    {
+      "answer": {
+        "option_indices": [
+          0
+        ]
+      },
+      "expected": [
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        },
+        {
+          "keys": [
+            "right"
+          ]
+        }
+      ]
+    }
+  ]
+}

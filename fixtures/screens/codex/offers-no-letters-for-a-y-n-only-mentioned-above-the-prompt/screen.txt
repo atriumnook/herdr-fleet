@@ -1,0 +1,5 @@
+The installer prints "Overwrite config? (y/n)".
+It then exits.
+
+› Ask Codex to do anything
+  100% context left

@@ -1,0 +1,32 @@
+{
+  "call": "parseFallbackPrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Waiting for your answer",
+    "question": "Remove this exact line from the fixture?",
+    "body": "✢ Tempering… (55s · ↓ 10.0k tokens · esc to interrupt)",
+    "options": [
+      {
+        "label": "Yes",
+        "description": null
+      },
+      {
+        "label": "No",
+        "description": null
+      },
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

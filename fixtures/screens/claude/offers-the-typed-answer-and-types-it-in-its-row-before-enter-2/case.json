@@ -1,0 +1,54 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Frutas",
+    "question": "¿Qué frutas?",
+    "body": null,
+    "options": [
+      {
+        "label": "Manzana",
+        "description": "Manzana"
+      },
+      {
+        "label": "Pera",
+        "description": "Pera"
+      }
+    ],
+    "multi_select": true,
+    "custom_option_index": 2
+  },
+  "sameIdAs": [
+    "claude/empties-a-draft-already-typed-into-the-row-first",
+    "claude/offers-the-typed-answer-and-types-it-in-its-row-before-enter-1"
+  ],
+  "answers": [
+    {
+      "answer": {
+        "custom_text": "Kiwi"
+      },
+      "expected": [
+        {
+          "keys": [
+            "up"
+          ]
+        },
+        {
+          "text": "Kiwi"
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

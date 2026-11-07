@@ -1,0 +1,7 @@
+Trust this folder?
+
+❯ 1. No, exit
+  2. Yes, trust folder and
+     allow all commands without asking
+
+ Enter to confirm

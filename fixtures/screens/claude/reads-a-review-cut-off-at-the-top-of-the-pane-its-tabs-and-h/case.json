@@ -1,0 +1,23 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Review your answers",
+    "question": "Ready to submit your answers?",
+    "body": "● The PC splits traffic between the main server and the reserve almost evenly, because both servers sit in the same\ncity and answer equally fast. Which way should we go?\n→ my own words typed in the chat my own words typed in the chat my own words typed in the chat my own words typed in\nthe chat my own words typed in the chat\n● After every subscription update the client restarts the tunnel. How often should the subscription be updated?\n→ Once a day\n● The client has no leak protection. What should we do?\n→ my own words typed in the chat my own words typed in the chat my own words typed in the chat my own words typed in\nmy own words typed in the chat my o",
+    "options": [
+      {
+        "label": "Submit answers",
+        "description": null
+      },
+      {
+        "label": "Cancel",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  }
+}

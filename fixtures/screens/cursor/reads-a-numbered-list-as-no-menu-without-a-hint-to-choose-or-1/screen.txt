@@ -1,0 +1,6 @@
+My plan:
+
+1. Inspect files
+2. Remove backups
+
+Password:

@@ -1,0 +1,32 @@
+{
+  "call": "parseFallbackPrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Waiting for input",
+    "question": "Use ↑/↓ then Enter",
+    "body": "Choose operation\n· Delete all… (5s · ↓ 1.0k tokens)\n* Cancel… (5s · ↓ 1.0k tokens)",
+    "options": [
+      {
+        "label": "↑",
+        "description": null
+      },
+      {
+        "label": "↓",
+        "description": null
+      },
+      {
+        "label": "Enter",
+        "description": null
+      },
+      {
+        "label": "Esc",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null,
+    "fallback": true
+  }
+}

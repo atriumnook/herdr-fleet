@@ -1,0 +1,62 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Multiple choice",
+    "question": "Which ones?",
+    "body": null,
+    "options": [
+      {
+        "label": "Option A",
+        "description": "First description"
+      },
+      {
+        "label": "Option B",
+        "description": "Second description"
+      }
+    ],
+    "multi_select": true,
+    "custom_option_index": 2
+  },
+  "sameIdAs": [
+    "claude/keeps-the-card-with-the-cursor-on-submit-counting-the-moves"
+  ],
+  "answers": [
+    {
+      "answer": {
+        "option_indices": [
+          0
+        ]
+      },
+      "expected": [
+        {
+          "keys": [
+            "enter"
+          ]
+        },
+        {
+          "keys": [
+            "right"
+          ]
+        }
+      ]
+    },
+    {
+      "answer": {
+        "option_indices": [
+          0,
+          1
+        ]
+      },
+      "expected": [
+        {
+          "keys": [
+            "right"
+          ]
+        }
+      ]
+    }
+  ]
+}

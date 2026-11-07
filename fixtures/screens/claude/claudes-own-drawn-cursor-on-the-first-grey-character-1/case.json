@@ -1,0 +1,4 @@
+{
+  "call": "parseClaudeSuggestion",
+  "expected": "run the tests"
+}

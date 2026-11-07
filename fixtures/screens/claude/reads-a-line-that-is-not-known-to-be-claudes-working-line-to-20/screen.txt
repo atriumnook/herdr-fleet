@@ -1,0 +1,8 @@
+✢ Purchasing… (5s · 100000 tokens)
+
+Run the tests?
+
+❯ 1. Yes
+  2. No
+
+Enter to select · ↑/↓ to navigate · Esc to cancel

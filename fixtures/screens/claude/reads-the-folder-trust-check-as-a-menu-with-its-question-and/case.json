@@ -1,0 +1,23 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "menu",
+    "title": "Accessing workspace",
+    "question": "Is this a project you created or one you trust?",
+    "body": "/home/user/projects/new-app\nQuick safety check: Is this a project you created or one you trust? (Like your own code, a well-known open source\nproject, or work from your team). If not, take a moment to review what's in this folder first.\nClaude Code'll be able to read, edit, and execute files here.\nSecurity guide",
+    "options": [
+      {
+        "label": "No, exit",
+        "description": null
+      },
+      {
+        "label": "Yes, I trust this folder",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  }
+}

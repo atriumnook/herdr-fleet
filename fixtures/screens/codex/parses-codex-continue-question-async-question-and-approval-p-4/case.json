@@ -1,0 +1,41 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "codex",
+  "expected": {
+    "agent": "codex",
+    "kind": "approval",
+    "title": "Would you like to run the following command?",
+    "question": "Would you like to run the following command?",
+    "body": "Environment: local\n$ curl -I https://example.com",
+    "options": [
+      {
+        "label": "Yes, proceed (y)",
+        "description": null
+      },
+      {
+        "label": "Yes, and don't ask again for commands that start with curl",
+        "description": null
+      },
+      {
+        "label": "No, and tell Codex what to do differently (esc)",
+        "description": null
+      }
+    ],
+    "multi_select": false,
+    "custom_option_index": null
+  },
+  "answers": [
+    {
+      "answer": {
+        "option_index": 2
+      },
+      "expected": [
+        {
+          "keys": [
+            "esc"
+          ]
+        }
+      ]
+    }
+  ]
+}

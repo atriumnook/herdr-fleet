@@ -1,0 +1,69 @@
+{
+  "call": "parseInteractivePrompt",
+  "agent": "claude",
+  "expected": {
+    "agent": "claude",
+    "kind": "question",
+    "title": "Frutas",
+    "question": "¿Qué frutas?",
+    "body": null,
+    "options": [
+      {
+        "label": "Manzana",
+        "description": "Manzana"
+      },
+      {
+        "label": "Pera",
+        "description": "Pera"
+      }
+    ],
+    "multi_select": true,
+    "custom_option_index": 2
+  },
+  "sameIdAs": [
+    "claude/offers-the-typed-answer-and-types-it-in-its-row-before-enter-1",
+    "claude/offers-the-typed-answer-and-types-it-in-its-row-before-enter-2"
+  ],
+  "answers": [
+    {
+      "answer": {
+        "custom_text": "Uva"
+      },
+      "expected": [
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "ctrl+k"
+          ]
+        },
+        {
+          "keys": [
+            "ctrl+u"
+          ]
+        },
+        {
+          "text": "Uva"
+        },
+        {
+          "keys": [
+            "down"
+          ]
+        },
+        {
+          "keys": [
+            "enter"
+          ]
+        }
+      ]
+    }
+  ]
+}

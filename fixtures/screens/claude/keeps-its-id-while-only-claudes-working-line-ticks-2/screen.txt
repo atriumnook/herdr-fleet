@@ -1,0 +1,8 @@
+✻ Tempering… (1m 58s · ↓ 10.4k tokens)
+
+Run the tests?
+
+❯ 1. Yes
+  2. No
+
+Enter to select · ↑/↓ to navigate · Esc to cancel
