@@ -1,0 +1,6 @@
+{
+  "about": "agy 1.5.3 started with agentMode auto in --settings, ready for its first prompt: no question (screen read from the CLI and laid out by hand)",
+  "adapter": "agy",
+  "check": "question",
+  "expected": null
+}

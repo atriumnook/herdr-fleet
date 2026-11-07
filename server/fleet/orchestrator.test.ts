@@ -867,7 +867,8 @@ describe("agent kinds", () => {
 
   it("blocks a turn on a question herdr reports as idle, and settles it once the agent is done", async () => {
     const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy", interactive: true })] });
-    runtime.output = "ready";
+    // agy is ready once its input shows and the auto mode from its settings is set
+    runtime.output = ">\n? for shortcuts    auto · Gemini 4 Argon · medium";
     const run = await spawn(fleet);
     const waiting = fleet.wait(run.id, 2000, "g1");
     runtime.getStatus = "idle";

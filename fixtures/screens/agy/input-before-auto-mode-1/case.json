@@ -1,0 +1,6 @@
+{
+  "about": "agy 1.5.3 shows its input before it sets the mode from --settings: not ready yet, a task typed now would run in the default mode (screen read from the CLI and laid out by hand)",
+  "adapter": "agy",
+  "check": "inputReady",
+  "expected": false
+}

@@ -1,0 +1,6 @@
+{
+  "about": "agy 1.5.3 started with agentMode auto in --settings: its input shows and auto mode is set, so it is ready for the task (screen read from the CLI and laid out by hand)",
+  "adapter": "agy",
+  "check": "inputReady",
+  "expected": true
+}
