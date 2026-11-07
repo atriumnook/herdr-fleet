@@ -1222,6 +1222,87 @@ describe("owners", () => {
   });
 });
 
+describe("a project run without the person", () => {
+  const agents = [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true })];
+  const NEWS = "[fleet] Threads ended a turn. These come from the fleet, not from the person.";
+
+  function project() {
+    const states = new Map<string, AgentState>();
+    const removed: string[] = [];
+    const git = { pr: null as Record<string, unknown> | null, reads: 0 };
+    const harness = setup({
+      agents, gitRoot: async () => "/repo", config: { autonomous: true },
+      landing: {
+        gitBranch: async () => "rust",
+        readPullRequest: async () => { git.reads += 1; return git.pr as never; },
+        branchHead: async () => "c0ffee",
+        removeThread: async (_repo, _worktree, branch) => { removed.push(branch); return undefined; },
+      },
+    });
+    harness.runtime.getImpl = async (name) => states.get(name) ?? "working";
+    const turn = async (run: AgentRun, state: AgentState) => {
+      states.set(run.herdrName, state);
+      await Bun.sleep(GRACE + 5);
+      harness.fleet.onPaneStatus(run.paneId);
+      await Bun.sleep(30);
+    };
+    const toCoordinator = (coordinator: AgentRun) => harness.runtime.prompts.filter((p) => p.name === coordinator.herdrName).map((p) => p.text);
+    const handoff = (run: AgentRun, text: string, contract?: string) => {
+      writeFileSync(join(harness.root, "results", run.id, "handoff.md"), text);
+      if (contract) writeFileSync(join(harness.root, "results", run.id, "contract.md"), contract);
+    };
+    return { ...harness, states, turn, toCoordinator, handoff, git, removed };
+  }
+
+  it("tells the coordinator every turn a thread ends, with its status line and contract, not only its questions", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff } = project();
+    // the coordinator's own turn is still running while both threads end
+    const coordinator = await fleet.startProject({ task: "port the parser", cwd: "/repo" });
+    const done = await fleet.startThread({ title: "Done", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const issues = await fleet.startThread({ title: "Issues", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(done, "## HANDOFF\nPASS — cargo test: 40 pass", "- [x] A1 parses — evidence: test\n- [!] A2 fast — evidence: none");
+    handoff(issues, "ISSUES — 2 cases fail");
+    await turn(done, "idle");
+    await turn(issues, "idle");
+    await turn(coordinator, "idle");
+    expect(toCoordinator(coordinator)[1]).toBe([
+      NEWS,
+      `- "${done.name}" (${done.id}, fleet/${done.id}) ended its turn: PASS — cargo test: 40 pass\n  Contract: A1 ✓ A2 ✗`,
+      `- "${issues.name}" (${issues.id}, fleet/${issues.id}) ended its turn: ISSUES — 2 cases fail`,
+    ].join("\n"));
+    for (const run of [done, issues]) expect(registry.get(run.id)!.notice).toBeUndefined();
+  });
+
+  it("closes a thread whose lead merged its own pull request as the lead's turn ends, and says so", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff, git, removed } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    git.pr = { number: 7, url: "https://github.com/o/r/pull/7", state: "MERGED", checks: "pass", head: "c0ffee" };
+    handoff(thread, "PASS — merged #7 into rust");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.landed).toBe("merged");
+    expect(removed).toEqual([thread.branch!]);
+    await turn(coordinator, "idle");
+    expect(toCoordinator(coordinator)[1]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) ended its turn: PASS — merged #7 into rust\n  Pull request #7: MERGED, and the thread is closed`].join("\n"));
+  });
+
+  it("keeps a pull request still open on the thread, for the polling that closes it once merged", async () => {
+    const { fleet, registry, turn, handoff, git, removed } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    git.pr = { number: 8, url: "https://github.com/o/r/pull/8", state: "OPEN", checks: "pending", head: "c0ffee" };
+    handoff(thread, "PASS — opened #8");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.pr).toMatchObject({ number: 8, state: "OPEN" });
+    expect(removed).toEqual([]);
+    git.pr = { ...git.pr, state: "MERGED" };
+    await fleet.refreshPullRequests();
+    expect(registry.get(thread.id)!.landed).toBe("merged");
+  });
+});
+
 describe("landing", () => {
   const agents = [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true }), role("reviewer")];
   const PR = { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "pending", head: "c0ffee" } as const;

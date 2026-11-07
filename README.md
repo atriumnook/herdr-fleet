@@ -177,6 +177,8 @@ fleet thread --title "通知の重複を直す" --task "リトライで通知が
 { "projects": { "/home/me/git/app": { "setup": "bun install --ignore-scripts" } } }
 ```
 
+人の操作なしで進めるプロジェクトでは、そのリポジトリの `.herdr-fleet/fleet.json`(またはユーザーの `fleet.json`)に `"autonomous": true` を書きます。fleet は、スレッドがターンを終えるたびに、質問がなくても coordinator に知らせます(状態の行、受け入れ条件、PR の状態)。また lead のターンの終わりにそのブランチの PR を読み、lead が自分でマージしていればスレッドを閉じます。計画の承認や PR のマージを人に求めずに進める動き方そのものは、リポジトリの `.herdr-fleet/agents/` に置いた役割の定義で決めます。この設定は設定画面には出しません。
+
 ### 計画
 
 lead は、大きい変更(おおむね 3 ファイルを超える変更か、使う人に見える振る舞いの変更)を作る前に、計画を JSON で書いて `fleet plan <file.json>` で渡し、BLOCKED でターンを終えます。fleet は計画を検査し、コードの抜粋をスレッドの worktree から読んで、`<stateDir>/fleet-plans/<run id>.json` に保存します。保存先は lead が書く結果フォルダの外で、読むたびに検査し直し、検査を通らないものは表示しません。抜粋は worktree の中のファイルだけを読みます(symlink は解決してから確かめます)。計画に問題があれば、fleet は問題をすべて並べて lead に返します。
