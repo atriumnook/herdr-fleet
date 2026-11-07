@@ -51,6 +51,10 @@ disallowed-methods = [
   { path = "std::os::unix::fs::fchown", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
   { path = "std::os::unix::fs::lchown", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
   { path = "std::os::unix::fs::chroot", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
+  { path = "std::os::unix::fs::OpenOptionsExt::custom_flags", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
+  { path = "std::os::unix::fs::OpenOptionsExt::mode", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
+  { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "herdr-fleet-screen does no network I/O (ADR 0107-crate-split)" },
   { path = "std::process::exit", reason = "herdr-fleet-screen uses no std::process (ADR 0107-crate-split)" },
   { path = "std::process::abort", reason = "herdr-fleet-screen uses no std::process (ADR 0107-crate-split)" },
+  { path = "std::process::id", reason = "herdr-fleet-screen uses no std::process (ADR 0107-crate-split)" },
 ]
