@@ -1,3 +1,6 @@
 {
-  "autonomous": true
+  "autonomous": true,
+  "roles": {
+    "reviewer": { "agent": "codex", "model": "gpt-6.1-sol", "fallbackModels": ["claude:"] }
+  }
 }
