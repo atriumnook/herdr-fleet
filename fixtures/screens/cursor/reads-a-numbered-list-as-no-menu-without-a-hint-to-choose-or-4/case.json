@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads a numbered list as no menu without a hint to choose, or before an input field",
   "call": "parseFallbackPrompt",
   "agent": "cursor",
   "expected": {

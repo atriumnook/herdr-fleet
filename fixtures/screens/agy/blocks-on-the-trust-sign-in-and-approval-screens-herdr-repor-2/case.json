@@ -1,4 +1,5 @@
 {
+  "about": "fleet/adapters.test.ts: blocks on the trust, sign-in and approval screens herdr reports as idle",
   "adapter": "agy",
   "check": "question",
   "expected": "Antigravity CLI is not signed in."

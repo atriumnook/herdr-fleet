@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: a drafted question stays a card with the cursor on another row",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

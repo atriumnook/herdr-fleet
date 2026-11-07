@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: offers no letters for a (y/n) only mentioned above the prompt",
   "call": "parseFallbackPrompt",
   "agent": "codex",
   "expected": {

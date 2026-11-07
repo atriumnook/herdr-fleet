@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: an answered approval whose hint a narrow pane wrapped, above another bare hint, is no card",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": null

@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: keeps its id while only Claude's working line ticks",
   "call": "parseFallbackPrompt",
   "agent": "claude",
   "expected": {

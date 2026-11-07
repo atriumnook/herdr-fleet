@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: does not take an answered form for an open one when the agent's own lines follow the task header",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": null

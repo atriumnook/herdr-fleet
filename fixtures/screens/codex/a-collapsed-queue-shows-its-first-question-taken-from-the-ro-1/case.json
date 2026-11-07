@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: a collapsed queue shows its first question, taken from the rollout's newest unanswered ones",
   "call": "parseInteractivePrompt",
   "agent": "codex",
   "expected": null

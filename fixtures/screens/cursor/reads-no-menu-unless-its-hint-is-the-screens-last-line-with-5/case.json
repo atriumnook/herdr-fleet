@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads no menu unless its hint is the screen's last line, with only the last row's wrap above it",
   "call": "parseFallbackPrompt",
   "agent": "cursor",
   "expected": {

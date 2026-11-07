@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: does not read Codex's update prompt as an approval under a question-like line",
   "call": "parseInteractivePrompt",
   "agent": "codex",
   "expected": null

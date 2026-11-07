@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: lets the chat type an answer to a dialog that wants text",
   "call": "parseInteractivePrompt",
   "agent": "pi",
   "expected": {

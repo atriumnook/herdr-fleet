@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: never takes the next row for a wrapped label when a row is the widest line",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": null

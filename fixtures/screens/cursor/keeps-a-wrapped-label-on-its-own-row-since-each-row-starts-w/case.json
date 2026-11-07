@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: keeps a wrapped label on its own row, since each row starts with its number",
   "call": "parseFallbackPrompt",
   "agent": "cursor",
   "expected": {

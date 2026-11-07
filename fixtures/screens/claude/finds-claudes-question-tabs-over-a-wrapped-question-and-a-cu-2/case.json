@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: finds Claude's question tabs over a wrapped question and a cut-off bar, and never answers the next question",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

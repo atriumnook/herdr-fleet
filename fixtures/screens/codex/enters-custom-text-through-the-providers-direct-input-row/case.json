@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: enters custom text through the provider's direct-input row",
   "call": "parseInteractivePrompt",
   "agent": "codex",
   "expected": {

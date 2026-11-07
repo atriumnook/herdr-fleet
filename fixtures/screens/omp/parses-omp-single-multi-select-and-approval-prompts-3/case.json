@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: parses omp single, multi-select, and approval prompts",
   "call": "parseInteractivePrompt",
   "agent": "omp",
   "expected": {

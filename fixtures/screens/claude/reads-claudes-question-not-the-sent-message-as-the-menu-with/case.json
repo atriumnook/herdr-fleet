@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads Claude's question, not the sent message, as the menu, with a description wrapped over two lines",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

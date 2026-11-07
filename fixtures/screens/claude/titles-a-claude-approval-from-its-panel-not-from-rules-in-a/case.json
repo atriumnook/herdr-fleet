@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: titles a Claude approval from its panel, not from rules in a file preview, and joins labels wrapped over lines",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

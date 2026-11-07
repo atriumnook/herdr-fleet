@@ -1,4 +1,5 @@
 {
+  "about": "fleet/adapters.test.ts: blocks on a permission request and not once it is answered",
   "adapter": "opencode",
   "check": "question",
   "expected": "OpenCode asks for permission."

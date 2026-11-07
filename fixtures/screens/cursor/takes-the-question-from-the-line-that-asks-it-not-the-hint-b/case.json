@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: takes the question from the line that asks it, not the hint below",
   "call": "parseFallbackPrompt",
   "agent": "cursor",
   "expected": {

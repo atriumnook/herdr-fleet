@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: accepts its exact background-agent footer, but not unknown trailing text",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

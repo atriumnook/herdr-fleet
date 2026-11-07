@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: empties a draft already typed into the row first",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

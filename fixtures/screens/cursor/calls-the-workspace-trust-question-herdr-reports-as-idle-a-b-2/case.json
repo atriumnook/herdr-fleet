@@ -1,4 +1,5 @@
 {
+  "about": "fleet/adapters.test.ts: calls the workspace trust question herdr reports as idle a block",
   "adapter": "cursor",
   "check": "question",
   "expected": null

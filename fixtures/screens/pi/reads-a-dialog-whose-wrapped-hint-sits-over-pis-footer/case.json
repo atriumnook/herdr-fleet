@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: goes stale on a phone's pane once a wrapped dialog hint is buried; prompt.test.ts: reads a dialog whose wrapped hint sits over pi's footer",
   "call": "parseInteractivePrompt",
   "agent": "pi",
   "expected": {

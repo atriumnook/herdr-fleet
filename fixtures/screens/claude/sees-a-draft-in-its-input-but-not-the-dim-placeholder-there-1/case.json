@@ -1,4 +1,5 @@
 {
+  "about": "fleet/adapters.test.ts: sees a draft in its input, but not the dim placeholder there (Claude Code 2.1, read with colors)",
   "adapter": "claude",
   "check": "draft",
   "expected": true

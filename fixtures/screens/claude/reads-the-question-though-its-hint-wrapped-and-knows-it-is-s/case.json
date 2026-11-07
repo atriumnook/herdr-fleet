@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads the question though its hint wrapped, and knows it is still open",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

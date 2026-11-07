@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: the cursor's row is no part of what a menu says: the same card wherever it stands",
   "call": "parseInteractivePrompt",
   "agent": "codex",
   "expected": {

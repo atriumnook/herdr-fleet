@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: tells the working line from a line that holds its blanked form as text",
   "call": "parseFallbackPrompt",
   "agent": "claude",
   "expected": {

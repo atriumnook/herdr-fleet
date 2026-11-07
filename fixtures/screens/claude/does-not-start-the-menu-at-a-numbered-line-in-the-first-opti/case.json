@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: does not start the menu at a numbered line in the first option's description",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

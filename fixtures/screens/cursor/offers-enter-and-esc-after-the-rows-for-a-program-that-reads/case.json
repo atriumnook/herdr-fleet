@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: offers Enter and Esc after the rows, for a program that reads a whole line",
   "call": "parseFallbackPrompt",
   "agent": "cursor",
   "expected": {

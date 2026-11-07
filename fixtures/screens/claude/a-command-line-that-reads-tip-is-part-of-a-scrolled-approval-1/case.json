@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: a command line that reads Tip: is part of a scrolled approval's asking",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

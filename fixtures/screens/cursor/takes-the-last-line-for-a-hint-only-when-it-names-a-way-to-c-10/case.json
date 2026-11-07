@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: takes the last line for a hint only when it names a way to choose",
   "call": "parseFallbackPrompt",
   "agent": "cursor",
   "expected": {

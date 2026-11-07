@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: is gone once the menu is answered and Claude draws under it",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": null

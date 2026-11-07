@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: without a menu, shows the screen's last lines and offers Enter and Esc",
   "call": "parseFallbackPrompt",
   "agent": "codex",
   "expected": {

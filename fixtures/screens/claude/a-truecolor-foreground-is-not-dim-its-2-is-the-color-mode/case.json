@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: a truecolor foreground is not dim: its 2 is the color mode",
   "call": "parseClaudeSuggestion",
   "expected": null
 }

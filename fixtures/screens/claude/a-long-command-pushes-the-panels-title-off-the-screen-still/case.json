@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: a long command pushes the panel's title off the screen: still an approval",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

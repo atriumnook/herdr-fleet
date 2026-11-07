@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: an option that names Esc to cancel in its own text keeps the approval a card",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: enters custom text through the provider's direct-input row; prompt.test.ts: selects the first and third options relative to the native cursor",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

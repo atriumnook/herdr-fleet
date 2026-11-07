@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads [✔] rows as ticked, without the box in their labels",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

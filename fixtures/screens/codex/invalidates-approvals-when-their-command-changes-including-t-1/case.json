@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: invalidates approvals when their command changes, including text beyond the display cap",
   "call": "parseInteractivePrompt",
   "agent": "codex",
   "expected": {

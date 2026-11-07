@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: does not take an answered menu above later output for an open one",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": null

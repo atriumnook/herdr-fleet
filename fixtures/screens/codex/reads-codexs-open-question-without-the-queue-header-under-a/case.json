@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads Codex's open question without the queue header under a sent message",
   "call": "parseInteractivePrompt",
   "agent": "codex",
   "expected": {

@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: a scrolled approval is another asking when a command line far above the question changes",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

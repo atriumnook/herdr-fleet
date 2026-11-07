@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: parses Codex's folder trust prompt when its hint ends with esc quit",
   "call": "parseInteractivePrompt",
   "agent": "codex",
   "expected": {

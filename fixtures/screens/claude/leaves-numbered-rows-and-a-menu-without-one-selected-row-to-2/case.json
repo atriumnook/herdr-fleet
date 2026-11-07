@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: leaves numbered rows and a menu without one selected row to the other readers",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": null

@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: keeps a label a narrow pane wrapped as one row",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

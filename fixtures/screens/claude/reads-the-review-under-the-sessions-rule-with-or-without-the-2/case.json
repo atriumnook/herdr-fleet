@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads the review under the session's rule, with or without the task list",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

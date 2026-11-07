@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: does not take an answered form for an open one when output sits between the panel and the task list",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": null

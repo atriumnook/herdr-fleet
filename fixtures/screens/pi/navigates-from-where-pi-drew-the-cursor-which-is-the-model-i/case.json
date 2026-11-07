@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: navigates from where pi drew the cursor, which is the model in use",
   "call": "parseInteractivePrompt",
   "agent": "pi",
   "expected": {

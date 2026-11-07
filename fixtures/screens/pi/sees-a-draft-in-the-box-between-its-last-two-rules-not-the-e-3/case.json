@@ -1,4 +1,5 @@
 {
+  "about": "fleet/adapters.test.ts: sees a draft in the box between its last two rules, not the empty box with only its cursor (pi 1.1, read with colors)",
   "adapter": "pi",
   "check": "draft",
   "expected": true

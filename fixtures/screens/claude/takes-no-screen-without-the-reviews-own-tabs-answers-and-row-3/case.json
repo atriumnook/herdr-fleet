@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: takes no screen without the review's own tabs, answers and rows for one",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": null

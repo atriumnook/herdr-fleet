@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: does not take the menu's column from a numbered line under its last option",
   "call": "parseInteractivePrompt",
   "agent": "codex",
   "expected": {

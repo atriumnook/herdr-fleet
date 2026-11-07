@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: offers the typed answer, and types it in its row before Enter on Submit",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

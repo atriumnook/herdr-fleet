@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: a typed answer replaces the draft in the row instead of joining it",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

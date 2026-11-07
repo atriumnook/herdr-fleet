@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads no menu when the last row's wrapped label ends in its own letter key",
   "call": "parseFallbackPrompt",
   "agent": "cursor",
   "expected": {

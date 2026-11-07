@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: a boxed line and a dashed rule further up the screen do not make printed rows an approval",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": null

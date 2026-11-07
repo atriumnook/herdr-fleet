@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: goes stale once the list is answered and buried; prompt.test.ts: reads the catalogue, naming the model answering now",
   "call": "parseInteractivePrompt",
   "agent": "pi",
   "expected": {

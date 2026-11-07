@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: offers no letters or arrows for an input box, a quote or a word",
   "call": "parseFallbackPrompt",
   "agent": "claude",
   "expected": {

@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: voids a catalogue whose rows run out mid-name rather than offering the ones before it",
   "call": "parseInteractivePrompt",
   "agent": "pi",
   "expected": null

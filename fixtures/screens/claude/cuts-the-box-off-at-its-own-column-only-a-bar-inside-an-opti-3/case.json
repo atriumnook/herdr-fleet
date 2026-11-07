@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: cuts the box off at its own column only: a bar inside an option's text stays",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

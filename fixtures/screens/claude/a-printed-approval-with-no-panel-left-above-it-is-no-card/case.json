@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: a printed approval with no panel left above it is no card",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": null

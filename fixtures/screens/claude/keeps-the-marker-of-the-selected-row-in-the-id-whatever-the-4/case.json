@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: keeps the marker of the selected row in the id, whatever the rows look like",
   "call": "parseFallbackPrompt",
   "agent": "claude",
   "expected": {

@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: parses Claude questions, approvals, and plans",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

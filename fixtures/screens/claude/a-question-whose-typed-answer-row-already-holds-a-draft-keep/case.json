@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: a question whose typed-answer row already holds a draft keeps it as the typed answer",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

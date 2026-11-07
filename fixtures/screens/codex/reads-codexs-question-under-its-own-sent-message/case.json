@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads Codex's question under its own sent message",
   "call": "parseInteractivePrompt",
   "agent": "codex",
   "expected": {

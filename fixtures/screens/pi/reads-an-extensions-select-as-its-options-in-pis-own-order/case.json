@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads an extension's select as its options, in pi's own order; prompt.test.ts: tells a dialog apart from another of the same shape",
   "call": "parseInteractivePrompt",
   "agent": "pi",
   "expected": {

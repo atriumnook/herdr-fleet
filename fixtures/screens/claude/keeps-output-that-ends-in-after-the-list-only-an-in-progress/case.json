@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: keeps output that ends in … after the list: only an in-progress task's activity is the list's",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": null

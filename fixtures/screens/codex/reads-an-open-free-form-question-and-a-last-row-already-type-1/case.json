@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads an open free-form question, and a last row already typed over",
   "call": "parseInteractivePrompt",
   "agent": "codex",
   "expected": {

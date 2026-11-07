@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads a line that is not known to be Claude's working line to the letter",
   "call": "parseFallbackPrompt",
   "agent": "claude",
   "expected": {

@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads a review cut off at the top of the pane, its tabs and heading out of view",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

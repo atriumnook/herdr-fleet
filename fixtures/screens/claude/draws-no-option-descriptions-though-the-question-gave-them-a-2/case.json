@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: draws no option descriptions though the question gave them, and keeps its id as the cursor moves",
   "call": "parseInteractivePrompt",
   "agent": "claude",
   "expected": {

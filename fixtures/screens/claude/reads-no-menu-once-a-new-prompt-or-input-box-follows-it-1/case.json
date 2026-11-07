@@ -1,4 +1,5 @@
 {
+  "about": "prompt.test.ts: reads no menu once a new prompt or input box follows it",
   "call": "parseFallbackPrompt",
   "agent": "claude",
   "expected": {
