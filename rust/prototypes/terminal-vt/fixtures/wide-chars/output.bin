@@ -1,0 +1,10 @@
+日本語の文字は二つのセルを使います。この行は折り返されます。
+abcdefghijklmnopqrstuvwxyz0123456789ab日
+abcdefghijklmnopqrstuvwxyz0123456789abc日本
+結合文字: か́ が é ñ
+絵文字: 🙂👍🏽 👨‍👩‍👧 🇯🇵 ✔️ ☺️
+tab:	A	BB	CCC
+上書き前の行です[3C|
+ｱｲｳｴｵ半角カナと全角カナアイウエオ
+[5;20H中[5;21Hx
+[12;1H最下行の漢字
