@@ -15,10 +15,13 @@ use alacritty_terminal::term::cell::Flags;
 use alacritty_terminal::term::test::TermSize;
 use alacritty_terminal::vte::ansi::Processor;
 
+use crate::Wraps;
+
 /// Feeds `bytes` to a new `cols` x `rows` terminal and returns the scrollback
-/// and the active screen as text: soft-wrapped rows joined, each row's
-/// trailing spaces and the trailing blank rows dropped.
-pub fn screen_text(cols: u16, rows: u16, bytes: &[u8]) -> Vec<u8> {
+/// and the active screen as text: soft-wrapped rows joined for
+/// [`Wraps::Join`], each row's trailing spaces and the trailing blank rows
+/// dropped.
+pub fn screen_text(cols: u16, rows: u16, bytes: &[u8], wraps: Wraps) -> Vec<u8> {
     let size = TermSize::new(cols.into(), rows.into());
     let mut term = Term::new(Config::default(), &size, VoidListener);
     let mut parser: Processor = Processor::new();
@@ -50,7 +53,7 @@ pub fn screen_text(cols: u16, rows: u16, bytes: &[u8]) -> Vec<u8> {
                 text.extend(marks);
             }
         }
-        if wrapped {
+        if wrapped && wraps == Wraps::Join {
             current.push_str(&text);
         } else {
             current.push_str(text.trim_end_matches(' '));
@@ -72,7 +75,9 @@ mod tests {
 
     #[test]
     fn joins_soft_wraps_and_skips_wide_spacers() {
-        let text = screen_text(4, 3, "abcdef\r\n日本語".as_bytes());
+        let text = screen_text(4, 3, "abcdef\r\n日本語".as_bytes(), Wraps::Join);
         assert_eq!(String::from_utf8(text).unwrap(), "abcdef\n日本語");
+        let text = screen_text(4, 3, "abcdef\r\n日本語".as_bytes(), Wraps::Keep);
+        assert_eq!(String::from_utf8(text).unwrap(), "abcd\nef\n日本\n語");
     }
 }

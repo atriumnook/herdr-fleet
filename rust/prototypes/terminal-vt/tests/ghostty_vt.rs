@@ -2,7 +2,7 @@
 //! wrote for the same bytes: byte for byte, and so line for line.
 
 use terminal_vt::fixtures::{self, first_difference, lines};
-use terminal_vt::ghostty;
+use terminal_vt::{Wraps, ghostty};
 
 #[test]
 fn libghostty_vt_matches_ghostty_on_every_fixture() {
@@ -10,7 +10,7 @@ fn libghostty_vt_matches_ghostty_on_every_fixture() {
     assert!(all.len() >= 5, "Issue #109 asks for at least 5 recordings");
     let mut failed = Vec::new();
     for f in &all {
-        let text = ghostty::screen_text(f.cols, f.rows, &f.bytes);
+        let text = ghostty::screen_text(f.cols, f.rows, &f.bytes, Wraps::Join);
         let expected = lines(&f.ghostty_screen);
         let diff = first_difference(&expected, &lines(&text));
         let exact = text == f.ghostty_screen;

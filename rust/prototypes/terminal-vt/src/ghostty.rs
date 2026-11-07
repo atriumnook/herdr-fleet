@@ -4,6 +4,8 @@
 use std::ffi::{c_int, c_void};
 use std::ptr;
 
+use crate::Wraps;
+
 type GhosttyResult = c_int;
 const GHOSTTY_SUCCESS: GhosttyResult = 0;
 /// `GHOSTTY_FORMATTER_FORMAT_PLAIN` in `GhosttyFormatterFormat` (an `int`-sized enum).
@@ -106,8 +108,9 @@ impl Drop for Formatter {
 
 /// Feeds `bytes` to a new `cols` x `rows` libghostty-vt terminal and returns
 /// its screen text with the options Ghostty's `write_screen_file:…,plain`
-/// uses (`unwrap = true`, `trim = false`, the whole screen, no extras).
-pub fn screen_text(cols: u16, rows: u16, bytes: &[u8]) -> Vec<u8> {
+/// uses (`trim = false`, the whole screen, no extras, and `unwrap = true`
+/// for [`Wraps::Join`]).
+pub fn screen_text(cols: u16, rows: u16, bytes: &[u8], wraps: Wraps) -> Vec<u8> {
     let mut raw: GhosttyTerminal = ptr::null_mut();
     // SAFETY: a null allocator selects the default one; raw is a valid out pointer.
     let rc = unsafe { ghostty_terminal_new(ptr::null(), &mut raw, cols, rows) };
@@ -120,7 +123,7 @@ pub fn screen_text(cols: u16, rows: u16, bytes: &[u8]) -> Vec<u8> {
     let options = TerminalOptions {
         size: size_of::<TerminalOptions>(),
         emit: GHOSTTY_FORMATTER_FORMAT_PLAIN,
-        unwrap: true,
+        unwrap: wraps == Wraps::Join,
         trim: false,
         extra: TerminalExtra {
             size: size_of::<TerminalExtra>(),
@@ -238,7 +241,13 @@ mod tests {
 
     #[test]
     fn formats_plain_text() {
-        let text = screen_text(10, 3, b"hello\r\n\x1b[1mworld\x1b[0m");
+        let text = screen_text(10, 3, b"hello\r\n\x1b[1mworld\x1b[0m", Wraps::Join);
         assert_eq!(text, b"hello\nworld");
+    }
+
+    #[test]
+    fn keeps_or_joins_wrapped_rows() {
+        assert_eq!(screen_text(4, 3, b"abcdef", Wraps::Join), b"abcdef");
+        assert_eq!(screen_text(4, 3, b"abcdef", Wraps::Keep), b"abcd\nef");
     }
 }
