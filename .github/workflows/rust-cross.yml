@@ -30,28 +30,43 @@ jobs:
   # GitHub matches a pull_request `paths` filter against the whole pull
   # request's diff, not against the pushed commits, so once a pull request
   # changes this file every later push to it would start the builds. This job
-  # lets a push (`synchronize`) start them only when the pushed commits
-  # themselves change this file.
+  # lets a push (`synchronize`) start them only when this file differs between
+  # the head before the push and the head after it. It compares the two commits
+  # with git on this one path (no list of file names: the compare API caps it
+  # at 300 files, and printing names would let a crafted name issue workflow
+  # commands), and builds when it cannot compare them (a force push can leave
+  # the old head out of the clone).
   gate:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       build: ${{ steps.check.outputs.build }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: github.event.action == 'synchronize'
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          filter: blob:none
       - id: check
         shell: bash
         env:
-          GH_TOKEN: ${{ github.token }}
           ACTION: ${{ github.event.action }}
           BEFORE: ${{ github.event.before }}
           AFTER: ${{ github.event.after }}
-          REPO: ${{ github.repository }}
         run: |
           build=true
           if [ "$ACTION" = synchronize ]; then
-            files=$(gh api --paginate "repos/$REPO/compare/$BEFORE...$AFTER" --jq '.files[].filename')
-            printf 'Files changed by the push:\n%s\n' "$files"
-            grep -qxF .github/workflows/rust-cross.yml <<<"$files" || build=false
+            if git cat-file -e "$BEFORE^{commit}" 2>/dev/null && git cat-file -e "$AFTER^{commit}" 2>/dev/null; then
+              if git diff --quiet --no-renames "$BEFORE" "$AFTER" -- .github/workflows/rust-cross.yml; then
+                build=false
+                echo "The push leaves .github/workflows/rust-cross.yml unchanged."
+              else
+                echo "The push changes .github/workflows/rust-cross.yml."
+              fi
+            else
+              echo "::warning::The head before or after the push is not in the clone, so the builds run."
+            fi
           fi
           echo "build=$build" | tee -a "$GITHUB_OUTPUT"
 
