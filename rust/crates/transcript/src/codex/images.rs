@@ -16,6 +16,7 @@ use sha2::{Digest, Sha256};
 use super::parser::{string, truthy};
 use crate::Image;
 use crate::format::Segment;
+use crate::nonblocking_open::open_regular_file;
 use crate::records::{Row, decode_base64_leniently, record};
 
 static DATA_IMAGE: LazyLock<Regex> = LazyLock::new(|| {
@@ -197,19 +198,6 @@ fn resolve(cwd: &Path, value: &str) -> PathBuf {
     out
 }
 
-/// Opens a local image that is a regular file. `server/codex-images.ts` opens it with
-/// `O_NONBLOCK` and then checks it, so a FIFO the path names does not hold the read waiting for a
-/// writer. This crate opens files with no flags but reading: its `clippy.toml` bans `custom_flags`
-/// and ADR 0110-workspace-and-ci bans allowing that lint outside `tests/`. So the path is checked
-/// before it is opened, and the file again once open. A FIFO put in the file's place between the
-/// two still blocks the open (Issue #225).
-fn open_image(path: &Path) -> std::io::Result<File> {
-    if !std::fs::metadata(path)?.is_file() {
-        return Err(std::io::ErrorKind::InvalidInput.into());
-    }
-    File::open(path)
-}
-
 /// The bytes of an attachment: decoded when inline, else read from the file its path names from
 /// `cwd`, a regular file of at most 8 MiB.
 fn image_bytes(value: &str, cwd: &Path) -> Option<Vec<u8>> {
@@ -217,9 +205,10 @@ fn image_bytes(value: &str, cwd: &Path) -> Option<Vec<u8>> {
         let bytes = decode_base64_leniently(inline.get(2)?.as_str());
         return (bytes.len() as u64 <= MAX_IMAGE_BYTES).then_some(bytes);
     }
-    let file = open_image(&resolve(cwd, value)).ok()?;
-    let meta = file.metadata().ok()?;
-    if !meta.is_file() || meta.len() > MAX_IMAGE_BYTES {
+    // `server/codex-images.ts` opens with `O_NONBLOCK` and then checks what it opened, so a FIFO
+    // the path names (or one put in its place) answers at once instead of waiting for a writer.
+    let (file, meta) = open_regular_file(&resolve(cwd, value)).ok()?;
+    if meta.len() > MAX_IMAGE_BYTES {
         return None;
     }
     let mut bytes = Vec::new();
