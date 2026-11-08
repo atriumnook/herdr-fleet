@@ -1,9 +1,10 @@
+// black-box: scripts/contract/launch.ts
 import { afterAll, beforeAll, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
 import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "./index.ts";
+import { launchServer, type LaunchedServer } from "../scripts/contract/launch.ts";
 import { herdrRpc, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import type { ConversationResponse } from "../shared/protocol.ts";
 
@@ -14,7 +15,7 @@ const rollout = join(codexHome, "sessions", "rollout.jsonl");
 const answerPrefix = "The native Codex conversation now preserves the actual user request and final response while removing internal instructions. ";
 let workspaceId: string | undefined;
 let paneId: string;
-let server: ReturnType<typeof createServer>;
+let server: LaunchedServer | undefined;
 const transcript = (answer: string) => [
   { type: "session_meta", payload: { id: "01a0c7a1-56d9-7e20-9f08-f7a2d973bcbb", cwd: root } },
   { type: "turn_context", payload: { model: "codex-test-model", effort: "xhigh" } },
@@ -34,17 +35,19 @@ beforeAll(async () => {
   paneId = created.root_pane.pane_id;
   await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "idle", agent_session_path: rollout });
   await herdrRpc("pane.send_text", { pane_id: paneId, text: `printf '%s\\n' '${answerPrefix}Answer one' '${answerPrefix}Answer two'\n` });
-  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push"), codexHome });
+  server = await launchServer({ env: { HOST: "127.0.0.1", HERDR_FLEET_TOKEN: "", CODEX_HOME: codexHome } });
 });
 
 afterAll(async () => {
-  server?.stop();
-  if (workspaceId) await workspaceClose(workspaceId);
-  rmSync(root, { recursive: true, force: true });
+  // the workspaces and the folder go even when the server does not stop cleanly
+  try { await server?.stop(); } finally {
+    if (workspaceId) await workspaceClose(workspaceId);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 const read = async (): Promise<ConversationResponse> => {
-  const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
+  const response = await fetch(`${server!.url}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
   expect(response.status).toBe(200);
   return await response.json() as ConversationResponse;
 };
@@ -71,7 +74,7 @@ it("serves native Codex conversations and invalidates replaced files even at the
 
 it("answers an unchanged conversation with a bodyless 304 and a changed one in full", async () => {
   writeFileSync(rollout, transcript(`${answerPrefix}Answer one`));
-  const url = `http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`;
+  const url = `${server!.url}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`;
   const first = await fetch(url);
   const etag = first.headers.get("etag");
   expect(first.status).toBe(200);
@@ -97,7 +100,7 @@ it("serves a native image-only Codex turn through the pane-scoped image API", as
   const image = conversation.turns.at(-1)?.parts[0];
   expect(image?.kind).toBe("image");
   if (image?.kind !== "image") throw new Error("missing image");
-  const url = `http://127.0.0.1:${server.port}/api/pane/conversation/image?${new URLSearchParams({ pane_id: paneId, ref: image.ref })}`;
+  const url = `${server!.url}/api/pane/conversation/image?${new URLSearchParams({ pane_id: paneId, ref: image.ref })}`;
   const response = await fetch(url);
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("image/png");

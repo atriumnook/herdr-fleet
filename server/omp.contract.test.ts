@@ -1,9 +1,10 @@
+// black-box: scripts/contract/launch.ts
 import { afterAll, beforeAll, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createServer } from "./index.ts";
+import { launchServer, type LaunchedServer } from "../scripts/contract/launch.ts";
 import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import type { ConversationResponse } from "../shared/protocol.ts";
 
@@ -12,10 +13,9 @@ import type { ConversationResponse } from "../shared/protocol.ts";
 const root = mkdtempSync(join(tmpdir(), "herdr-web-ui-omp-contract-"));
 const slug = join(root, ".omp", "agent", "sessions", "-omp-contract");
 const fresh = join(slug, "2026-10-06T00-00-00-000Z_omp-fresh.jsonl");
-const originalHome = process.env["HOME"];
 let workspaceId: string | undefined;
 let paneId: string;
-let server: ReturnType<typeof createServer>;
+let server: LaunchedServer | undefined;
 let seq = Date.now() * 1000;
 
 beforeAll(async () => {
@@ -36,20 +36,20 @@ beforeAll(async () => {
   }
   await herdrRpc("pane.report_agent", { pane_id: paneId, source: "herdr:omp", agent: "omp", state: "idle", seq: ++seq });
   await herdrRpc("pane.report_agent_session", { pane_id: paneId, source: "herdr:omp", agent: "omp", seq: ++seq, agent_session_path: fresh, session_start_source: "startup" });
-  process.env["HOME"] = root;
-  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
+  // the server finds omp's sessions under its own HOME
+  server = await launchServer({ env: { HOST: "127.0.0.1", HERDR_FLEET_TOKEN: "", HOME: root } });
 });
 
 afterAll(async () => {
-  server?.stop();
-  if (originalHome === undefined) delete process.env["HOME"];
-  else process.env["HOME"] = originalHome;
-  if (workspaceId) await workspaceClose(workspaceId);
-  rmSync(root, { recursive: true, force: true });
+  // the workspaces and the folder go even when the server does not stop cleanly
+  try { await server?.stop(); } finally {
+    if (workspaceId) await workspaceClose(workspaceId);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 const read = async (): Promise<ConversationResponse> => {
-  const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
+  const response = await fetch(`${server!.url}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
   expect(response.status).toBe(200);
   return await response.json() as ConversationResponse;
 };
