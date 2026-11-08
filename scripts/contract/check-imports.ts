@@ -9,7 +9,7 @@
  *
  *   bun scripts/contract/check-imports.ts        exit 1 and one line per import outside that list or contract test without the marker
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 
 export const MARKER = "// black-box: scripts/contract/launch.ts";
@@ -66,9 +66,11 @@ export function markedFiles(): string[] {
   return files.filter(hasMarker).sort();
 }
 
-/** the contract tests that lack the marker, relative to the repository */
+/** the contract tests that lack the marker, relative to the repository: every one git tracks or would track, in any folder */
 export function unmarkedContractFiles(): string[] {
-  return [...new Bun.Glob(`${FOLDERS}/**/*.contract.test.{ts,tsx}`).scanSync({ cwd: REPO })].filter((file) => !hasMarker(file)).sort();
+  const listed = Bun.spawnSync(["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", "*.contract.test.ts", "*.contract.test.tsx"], { cwd: REPO });
+  if (!listed.success) throw new Error(`git ls-files failed: ${listed.stderr.toString()}`);
+  return [...new Set(listed.stdout.toString().split("\n").filter(Boolean))].filter((file) => existsSync(resolve(REPO, file)) && !hasMarker(file)).sort();
 }
 
 if (import.meta.main) {
