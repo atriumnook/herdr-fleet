@@ -755,6 +755,7 @@ export class Orchestrator {
       if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
       await this.reconcileLocks.get(run.id);
       if (run.replacedBy) throw replaced(run);
+      if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
       if (this.pending.has(run.id)) throw new FleetError("run_busy", `The lead of ${run.name} is working; wait for its turn to end.`);
       run.landing = { action, at: Date.now(), sent: true };
       this.save(run);
@@ -829,6 +830,7 @@ export class Orchestrator {
     if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
     await this.reconcileLocks.get(run.id);
     if (run.replacedBy) throw replaced(run);
+    if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
     if (this.pending.has(run.id)) throw new FleetError("run_busy", `The lead of ${run.name} is working; wait for its turn to end.`);
     // the turn is under way before anything awaits again, so a second answer finds the lead busy;
     // the plan counts as answered once the message reached the lead
@@ -1318,12 +1320,16 @@ export class Orchestrator {
     this.dropPending(run.id);
     const config = this.deps.config(run.cwd);
     await this.readTurn(run, config);
-    // a thread whose lead run failed or left no report goes on in a new run first: what the turn
-    // leaves undone (a landing step, an open plan, the coordinator's news) is the new run's
+    if (isThread(run)) await this.readThreadWork(run);
+    // a thread whose lead run failed or left no report goes on in a new run first, from the contract
+    // and change the turn left: what it leaves undone (a landing step, an open plan, the coordinator's
+    // news) is the new run's
     const restartError = needsRestart(run) ? await this.restartThread(run, pending.text) : undefined;
     if (isThread(run) && !run.replacedBy) {
-      // a lead taking a thread over starts with the thread's plan still open
-      if (!(pending.generation === 1 && run.thread)) this.closeStalePlan(run, pending);
+      // a turn that failed or left no report went nowhere; a lead taking a thread over starts with
+      // its plan still open, and keeps it so while it reports blocked on it
+      const report = run.outcome?.report;
+      if (report && !(pending.generation === 1 && run.thread && report.state === "blocked")) this.closeStalePlan(run, pending);
       await this.settleThreadTurn(run, config, restartError);
     }
     run.updatedAt = Date.now();
@@ -1364,15 +1370,10 @@ export class Orchestrator {
   }
 
   /**
-   * A thread's settled turn: its contract, its change and its pull request, and what its coordinator
-   * hears, with why the thread could not start again when it could not.
+   * A thread's settled turn: its landing step and pull request, and what its coordinator hears, with
+   * why the thread could not start again when it could not (its contract and change are read before).
    */
   private async settleThreadTurn(run: AgentRun, config: FleetConfig, restartError?: string): Promise<void> {
-    const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
-    run.contract = contract ? contractItems(contract) : undefined;
-    const base = run.baseBranch ?? run.base;
-    const diff = base ? await (this.deps.diffStat ?? diffStat)(run.cwd, base) : null;
-    run.diff = diff ?? undefined;
     if (run.landing?.sent && !run.landing.error && LEAD_STEPS.has(run.landing.action)) await this.settleLeadStep(run);
     // without the person, a lead opens and merges its own pull request: read it as its turn ends
     else if (run.pr?.state === "OPEN" || (config.autonomous && !run.landed)) {
@@ -1381,6 +1382,15 @@ export class Orchestrator {
     }
     run.notice = threadQuestion(run) ?? (config.autonomous ? threadTurnEnded(run) : undefined);
     if (run.notice && restartError) run.notice = `${run.notice}\n  The fleet could not start the thread again on another CLI: ${restartError}`;
+  }
+
+  /** What a thread's lead left in its worktree as its turn settled: its contract and its change since the base. */
+  private async readThreadWork(run: AgentRun): Promise<void> {
+    const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
+    run.contract = contract ? contractItems(contract) : undefined;
+    const base = run.baseBranch ?? run.base;
+    const diff = base ? await (this.deps.diffStat ?? diffStat)(run.cwd, base) : null;
+    run.diff = diff ?? undefined;
   }
 
   /**
@@ -1392,6 +1402,7 @@ export class Orchestrator {
     const config = this.deps.config(run.cwd);
     if (!config.autonomous) return;
     await this.readTurn(run, config);
+    await this.readThreadWork(run);
     const restartError = needsRestart(run) ? await this.restartThread(run) : undefined;
     if (!run.replacedBy) await this.settleThreadTurn(run, config, restartError);
     run.updatedAt = Date.now();
@@ -1415,8 +1426,10 @@ export class Orchestrator {
     const avoid = [...new Set([...(run.avoid ?? []), run.agent])];
     const task = readResult(join(this.resultDir(run), TASK_FILE));
     const base = { kind: "restart" as const, run: run.id, project: run.project!, agent: run.agent, why };
+    const since = Date.now();
+    let next: AgentRun | undefined;
     try {
-      const next = await this.spawnWithFallbacks({
+      next = await this.spawnWithFallbacks({
         role: THREAD_ROLE, name: run.name, task: recoveryTask(run, this.resultDir(run), task, lastMessage), cwd: run.cwd, depth: run.depth - 1,
         group: run.group, worktree: false, interactive: true, avoid,
         thread: { repo: run.project ?? null, owner: run.owner, base: run.base, baseBranch: run.baseBranch, takeover: { from: run, thread: threadId(run), task } },
@@ -1437,6 +1450,14 @@ export class Orchestrator {
       const reason = error instanceof Error ? error.message : String(error);
       this.deps.events?.({ ...base, error: reason.slice(0, 200) });
       return reason;
+    } finally {
+      // a candidate that failed to start on the way is no lead of the thread: it points to the run that leads it
+      const leader = next ?? run;
+      for (const failed of this.list()) {
+        if (failed.thread !== threadId(run) || failed.id === leader.id || failed.state !== "failed" || failed.replacedBy || failed.startedAt < since) continue;
+        failed.replacedBy = leader.id;
+        this.save(failed);
+      }
     }
   }
 

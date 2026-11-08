@@ -1331,6 +1331,19 @@ function readLanding(landing: LandingState, view: FleetViewState, effects: Effec
   return fresh;
 }
 
+/** What is kept per lead run, moved to the lead run that took its thread over (kept as it is when nothing moved). */
+function followLeads<T>(byRun: Record<string, T>, runs: readonly AgentRun[]): Record<string, T> {
+  let moved: Record<string, T> | undefined;
+  for (const [id, value] of Object.entries(byRun)) {
+    const lead = currentLead(runs, id);
+    if (!lead || lead.id === id) continue;
+    moved ??= { ...byRun };
+    delete moved[id];
+    moved[lead.id] ??= value;
+  }
+  return moved ?? byRun;
+}
+
 /** The open thread's plan, read again when its tab shows it. */
 function readPlan(plan: PlanState, view: FleetViewState, effects: Effect[]): PlanState {
   const runId = view.open?.kind === "thread" ? view.open.runId : null;
@@ -1731,6 +1744,8 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       });
     case "runs-loaded": {
       const runs = settle(state.runs, { status: "ready", data: event.runs, error: undefined }, { kind: "load-runs" }, effects);
+      // the person's unsent comments and plan answers go with a thread to the lead run that took it over
+      state = { ...state, landing: { ...state.landing, comments: followLeads(state.landing.comments, event.runs) }, plan: { ...state.plan, drafts: followLeads(state.plan.drafts, event.runs) } };
       // a thread or agent open in the Fleet screen whose run is gone closes
       const open = state.fleetView.open;
       const gone = open !== null && !event.runs.some((run) => run.id === open.runId);

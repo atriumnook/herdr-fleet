@@ -164,6 +164,14 @@ describe("screens and the Fleet screen's view", () => {
     expect(moved.effects).toContainEqual({ kind: "load-landing-diff", runId: "a2" });
   });
 
+  it("keeps the person's unsent comments and plan answers for a thread when a new lead run takes it over", () => {
+    const opened = play([{ type: "fleet-open", kind: "thread", runId: "a" }], withRuns).state;
+    const drafted = { ...opened, landing: { ...opened.landing, comments: { a: [{ file: "x.ts", line: 3, text: "why?" }] } }, plan: { ...opened.plan, drafts: { a: { version: 1, choices: { limit: "five" }, seen: ["limit"], comments: {}, note: "" } } } };
+    const moved = play([{ type: "runs-loaded", runs: [run("a", { role: "lead", state: "stopped", replacedBy: "a2" }), run("a2", { role: "lead", thread: "a" })] }], drafted).state;
+    expect(moved.landing.comments).toEqual({ a2: [{ file: "x.ts", line: 3, text: "why?" }] });
+    expect(moved.plan.drafts).toEqual({ a2: { version: 1, choices: { limit: "five" }, seen: ["limit"], comments: {}, note: "" } });
+  });
+
   it("reads the open thread's change and checks when their tab shows, again when the thread moves on, and drops answers for another thread", () => {
     const opened = play([{ type: "fleet-open", kind: "thread", runId: "a" }], withRuns).state;
     const changes = play([{ type: "fleet-tab", tab: "changes" }], opened);

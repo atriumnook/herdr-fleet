@@ -1115,6 +1115,8 @@ describe("a thread outlives its lead run", () => {
     // its first turn's message was the task: it is not repeated
     expect(task).not.toContain("The fleet's last message");
     expect(readFileSync(join(root, "results", next.id, "contract.md"), "utf8")).toBe("- [x] A1 no duplicate — evidence: test\n");
+    // the thread list shows the contract as the turn before left it, while the new run works
+    expect(next.contract).toEqual([{ id: "A1", state: "met" }]);
     expect(events.filter((e) => e.kind === "restart")).toEqual([{ kind: "restart", run: first.id, project: "/repo", agent: "claude", why: "no-report", by: next.id, to: "codex" }]);
     // the thread is known by its first id: the fleet's commands and the thread list reach its current lead
     expect(fleet.get(first.id).id).toBe(next.id);
@@ -1254,6 +1256,48 @@ describe("a thread outlives its lead run", () => {
     const next = registry.get(registry.get(first.id)!.replacedBy!)!;
     expect((await sent).id).toBe(next.id);
     expect(promptsTo(next).at(-1)).toBe("Also update the docs.");
+  });
+
+  it("hides a candidate that failed to start in a restart behind the run that took the thread over", async () => {
+    const { fleet, runtime, registry, turn } = thread({ agents: [role("lead", { agent: "claude", fallbackModels: ["codex:", "pi:"], interactive: true, spawning: true })] });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    runtime.startImpl = async (options) => { if (options.kind === "codex") throw new FleetError("agent_start_failed", "codex is signed out"); return "idle"; };
+    await turn(first, "idle");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(next.agent).toBe("pi");
+    const failed = registry.all().find((run) => run.agent === "codex")!;
+    expect(failed).toMatchObject({ state: "failed", replacedBy: next.id });
+    expect((await fleet.threads({ cwd: "/repo" })).map((t) => t.run.id)).toEqual([next.id]);
+  });
+
+  it("closes a carried plan when the new run went on to a report other than blocked, and keeps it open when a turn failed and no run could take over", async () => {
+    const tree = mkdtempSync(join(tmpdir(), "fleet-plan-tree-"));
+    roots.push(tree);
+    mkdirSync(join(tree, "src"));
+    writeFileSync(join(tree, "src", "retry.ts"), "export const RETRIES = 3;\n");
+    const PLAN = { title: "Retry limit", claims: [{ text: "A failed send is tried three times.", exhibit: { kind: "code", path: "src/retry.ts", start: 1 } }] };
+    const { fleet, runtime, registry, turn, report } = thread();
+    runtime.createLocationImpl = async (options) => ({ paneId: `w1:p${runtime.locations.length}`, cwd: options.worktree ? tree : options.cwd });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    fleet.submitPlan(first.id, PLAN);
+    await turn(first, "idle");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    report(next, { state: "ready", summary: "Built it without the answers.", evidence: [] });
+    await turn(next, "idle");
+    expect(registry.get(next.id)!.plan!.closedAt).toBeNumber();
+
+    // another thread: its plan waits, the lead's next turn fails, and no CLI is left to take over
+    const other = await fleet.startThread({ title: "Other", task: "t", cwd: "/repo" });
+    fleet.submitPlan(other.id, PLAN);
+    report(other, { state: "blocked", summary: "The plan waits.", evidence: [], human_action: "Answer the plan." });
+    await turn(other, "idle");
+    await turn(other, "working");
+    await fleet.send(other.id, "go on");
+    runtime.output = "API Error: 529 overloaded";
+    runtime.startImpl = async () => { throw new FleetError("agent_start_failed", "down"); };
+    await turn(other, "idle");
+    expect(registry.get(other.id)).toMatchObject({ state: "failed" });
+    expect(registry.get(other.id)!.plan!.closedAt).toBeUndefined();
   });
 
   it("tells the coordinator of a project run without the person nothing of a restart, and the replacement's turn as usual", async () => {
