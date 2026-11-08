@@ -1,0 +1,3 @@
+{"type":"model_change","modelId":"old"}
+{"type":"message","message":{"role":"assistant","content":"answer","model":"old","usage":{"input":123}}}
+{"type":"custom","customType":"context_clear"}

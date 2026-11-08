@@ -1,0 +1,48 @@
+{
+  "about": "server/pi.test.ts: pi transcripts render as chat shows a failed request instead of a prompt with no answer",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "failed.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "hello"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:03.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Error: 401 unauthorized"
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:03.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

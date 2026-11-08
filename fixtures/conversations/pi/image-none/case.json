@@ -1,0 +1,12 @@
+{
+  "about": "server/pi.test.ts: a pi tool result's images reach the chat offers no image to a pane whose store is not pi's",
+  "steps": [
+    {
+      "call": "image",
+      "source": "pi",
+      "path": "claude-shaped.jsonl",
+      "ref": "pi:c1:0",
+      "expected": null
+    }
+  ]
+}

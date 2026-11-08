@@ -1,0 +1,5 @@
+{"id":"s","parentId":null,"timestamp":"2026-09-30T00:00:00.000Z","type":"session","version":3,"cwd":"/work/project"}
+{"id":"u1","parentId":null,"timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"one"}]}}
+{"id":"a1","parentId":null,"timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"two"}],"stopReason":"stop"}}
+{"id":"u2","parentId":null,"timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"three"}]}}
+{"id":"a2","parentId":null,"timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"four"}],"stopReason":"stop"}}

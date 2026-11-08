@@ -1,0 +1,1 @@
+{"type":"message","message":{"role":"assistant","model":"gpt-6","usage":{"input":2,"output":7000,"cacheRead":10000,"cacheWrite":22000}}}

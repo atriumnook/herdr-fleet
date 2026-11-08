@@ -1,0 +1,11 @@
+{"id":"s","parentId":null,"timestamp":"2026-09-30T00:00:00.000Z","type":"session","version":3,"cwd":"/work/project"}
+{"id":"u1","parentId":"s","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"list the files"}]}}
+{"id":"a1","parentId":"u1","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"toolCall","id":"call-1","name":"bash","arguments":{"command":"ls"}}],"stopReason":"toolUse"}}
+{"id":"r1","parentId":"a1","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"toolResult","toolCallId":"call-1","toolName":"bash","content":[{"type":"text","text":"the first output, kept"}]}}
+{"id":"a2","parentId":"r1","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"the answer in play"}],"stopReason":"stop"}}
+{"id":"u2","parentId":"a2","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"the question a /tree dropped"}]}}
+{"id":"a3","parentId":"u2","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"toolCall","id":"call-2","name":"bash","arguments":{"command":"ls"}}],"stopReason":"toolUse"}}
+{"id":"r2","parentId":"a3","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"toolResult","toolCallId":"call-2","toolName":"bash","content":[{"type":"text","text":"the output a /tree dropped"}]}}
+{"id":"u3","parentId":"a2","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"what about the other folder"}]}}
+{"id":"a4","parentId":"u3","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"toolCall","id":"call-3","name":"bash","arguments":{"command":"ls"}}],"stopReason":"toolUse"}}
+{"id":"r3","parentId":"a4","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"toolResult","toolCallId":"call-3","toolName":"bash","content":[{"type":"text","text":"the newest output"}]}}

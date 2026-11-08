@@ -1,0 +1,100 @@
+{
+  "about": "server/pi.test.ts: a pi tool result's images reach the chat numbers several images of one result, and skips types a chat cannot show",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "image-many.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "what is in this screenshot?"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:03.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "read",
+                "summary": "shot.png",
+                "input": "{\n  \"path\": \"shot.png\"\n}",
+                "output": "read 1 image",
+                "images": [
+                  {
+                    "media_type": "image/png",
+                    "ref": "pi:c1:0"
+                  },
+                  {
+                    "media_type": "image/jpeg",
+                    "ref": "pi:c1:1"
+                  }
+                ]
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:03.000Z"
+          }
+        ],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 11,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "image",
+      "source": "pi",
+      "path": "image-many.jsonl",
+      "ref": "pi:c1:2",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "pi",
+      "path": "image-many.jsonl",
+      "ref": "pi:c1:9",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "pi",
+      "path": "image-many.jsonl",
+      "ref": "c1:0",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "pi",
+      "path": "image-many.jsonl",
+      "ref": "pi:c9:0",
+      "expected": null
+    },
+    {
+      "call": "image",
+      "source": "pi",
+      "path": "nowhere.jsonl",
+      "ref": "pi:c1:0",
+      "expected": null
+    }
+  ]
+}

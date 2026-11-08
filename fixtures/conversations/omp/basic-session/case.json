@@ -1,5 +1,5 @@
 {
-  "about": "server/conversation.test.ts: parseOmpTranscript builds user and merged assistant turns with folded tool results",
+  "about": "server/conversation.test.ts: parseOmpTranscript builds user and merged assistant turns with folded tool results\nserver/conversation.test.ts: parseOmpTranscript keeps thinking parts while ignoring title/session headers\nserver/conversation.test.ts: parseOmpTranscript skips an image-only user part instead of an empty turn",
   "steps": [
     {
       "call": "page",

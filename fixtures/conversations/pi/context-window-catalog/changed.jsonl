@@ -1,0 +1,4 @@
+{"id":"e1","parentId":null,"type":"model_change","provider":"lwsa","modelId":"qwen-test"}
+{"id":"e2","parentId":"e1","type":"message","message":{"role":"assistant","model":"qwen-test","provider":"lwsa","usage":{"totalTokens":100000}}}
+{"id":"e3","parentId":"e2","type":"model_change","provider":"other","modelId":"qwen-test"}
+{"id":"e4","parentId":"e3","type":"message","message":{"role":"assistant","model":"qwen-test","provider":"other","usage":{"totalTokens":100000}}}

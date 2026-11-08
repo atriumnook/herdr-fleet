@@ -1,0 +1,58 @@
+{
+  "about": "server/conversation.test.ts: parseOmpTranscript survives a torn tail line while omp is mid-append",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-20T08:39:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "주소좀 줘봐"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-20T08:39:02.000Z",
+            "parts": [
+              {
+                "kind": "thinking",
+                "text": "internal reasoning stays private"
+              },
+              {
+                "kind": "thinking",
+                "text": "alternate thinking field"
+              },
+              {
+                "kind": "tool",
+                "name": "bash",
+                "summary": "Checking ports",
+                "input": "{\n  \"command\": \"ss -tlnp\",\n  \"i\": \"Checking ports\"\n}",
+                "output": "LISTEN 0 512 100.123.228.51:7317"
+              },
+              {
+                "kind": "text",
+                "text": "http://100.123.228.51:7317"
+              }
+            ],
+            "end_ts": "2026-09-20T08:39:05.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

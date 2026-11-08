@@ -1,0 +1,35 @@
+{
+  "about": "server/conversation.test.ts: parseOmpTranscript falls back to the first interesting argument when a toolCall has no intent",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "read",
+                "summary": "/tmp/x",
+                "input": "{\n  \"file_path\": \"/tmp/x\"\n}",
+                "output": ""
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

@@ -1,0 +1,57 @@
+{
+  "about": "server/pi.test.ts: pi transcripts render as chat marks where /compact folded the conversation, with its summary",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "compacted.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:01.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "the first question"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:02.000Z",
+            "parts": [
+              {
+                "kind": "compact",
+                "text": "## Session Goal\n- fold the older turns"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:03.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "and now the next one"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

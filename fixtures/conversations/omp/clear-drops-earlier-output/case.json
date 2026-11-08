@@ -1,0 +1,12 @@
+{
+  "about": "server/chat-history.test.ts: reset scanning crosses chunk boundaries, excludes pre-clear full outputs and pending tools (the omp file without the padding: a tool's output before a clear is not offered; the half with 16 MiB of padding is not a case, its input would put 16 MiB in the repository)",
+  "steps": [
+    {
+      "call": "toolOutput",
+      "source": "omp",
+      "path": "session.jsonl",
+      "ref": "old",
+      "expected": null
+    }
+  ]
+}

@@ -1,0 +1,104 @@
+{
+  "about": "server/pi.test.ts: pi transcripts render as chat keeps a compaction a /tree navigated away from out of the chat",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "compacted-then-navigated.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:01.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "the first question"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:02.000Z",
+            "parts": [
+              {
+                "kind": "compact",
+                "text": "the fold on the branch left behind"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:03.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "a turn on that branch"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "append": "compacted-then-navigated.jsonl",
+      "text": "{\"type\":\"message\",\"id\":\"a2\",\"parentId\":\"u1\",\"timestamp\":\"2026-09-30T00:10:00.000Z\",\"message\":{\"role\":\"assistant\",\"stopReason\":\"stop\",\"content\":[{\"type\":\"text\",\"text\":\"the answer in play\"}]}}\n"
+    },
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "compacted-then-navigated.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:01.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "the first question"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:10:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "the answer in play"
+              }
+            ],
+            "end_ts": "2026-09-30T00:10:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 1,
+          "branches": 1,
+          "summary": null
+        },
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    }
+  ]
+}

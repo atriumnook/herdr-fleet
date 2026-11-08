@@ -1,0 +1,4 @@
+{"type":"session","version":3,"id":"compacted","timestamp":"2026-09-30T00:00:00.000Z","cwd":"/work/project"}
+{"type":"message","id":"u1","parentId":null,"timestamp":"2026-09-30T00:00:01.000Z","message":{"role":"user","content":"the first question"}}
+{"type":"compaction","id":"c1","parentId":"u1","timestamp":"2026-09-30T00:00:02.000Z","summary":"## Session Goal\n- fold the older turns","firstKeptEntryId":"u1","tokensBefore":178366}
+{"type":"message","id":"u2","parentId":"c1","timestamp":"2026-09-30T00:00:03.000Z","message":{"role":"user","content":"and now the next one"}}

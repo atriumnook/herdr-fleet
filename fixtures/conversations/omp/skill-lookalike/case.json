@@ -1,0 +1,32 @@
+{
+  "about": "server/skill-activity.test.ts: the legacy <skill> form, and text that only looks like an invocation, as pi reads them (the transcript half: an invocation with text after it stays the user's text as typed; the others call skillInvocationPrompt alone)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-02T00:00:00Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "The user explicitly invoked the \"a\" skill. Follow the instructions in <skill-instruction> as binding for this request, while respecting higher-priority instructions.\n\n<skill-instruction name=\"a\" location=\"/home/u/.omp/skills/a/SKILL.md\">\nReferences are relative to /home/u/.omp/skills/a.\n\nPRIVATE a INSTRUCTIONS\n</skill-instruction>\n\nmore"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}
