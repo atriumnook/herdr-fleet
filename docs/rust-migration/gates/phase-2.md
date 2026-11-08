@@ -3,7 +3,7 @@
 - 確かめた日: 2026-11-09
 - 確かめた対象: `rust` ブランチのコミット `4d0a692`(PR #239 のマージ)。報告を書き始めたとき(`git fetch origin` のあと)の `origin/rust` の先頭である
 - 確かめた thread: `57c49b3a`
-- 結論: 計画(`docs/rust-migration/plan.md`)の「段階 2: 解析の crate」の完了条件「画面の corpus と会話ログの corpus の全件を、Rust の実装が通す」と、段階 2 の項目 3 つを、すべて満たす。ADR `0192-phase-2-split` が段階 2 に入れたもの(増分の読み取り、CI の job `ts-corpus`、`#[allow(dead_code)]` の削除、parity.md の段階 2 の行、GLOSSARY)も満たす。足りないものは 0 件で、Issue は開いていない。段階 2 の Issue #192〜#206 と、途中で見つかった #218・#219・#225・#234 はすべて閉じている(PR #207、#208、#213、#216、#217、#220〜#224、#226〜#229、#231〜#233、#235、#236)
+- 結論: 計画(`docs/rust-migration/plan.md`)の「段階 2: 解析の crate」の完了条件「画面の corpus と会話ログの corpus の全件を、Rust の実装が通す」と、段階 2 の項目 3 つを、すべて満たす。ADR `0192-phase-2-split` が段階 2 に入れたもの(外部 crate と protocol の型、増分の読み取り、CI の job `ts-corpus`、`#[allow(dead_code)]` の削除、parity.md の段階 2 の行、GLOSSARY)も満たす。足りないものは 0 件で、Issue は開いていない。段階 2 の Issue #192〜#206 と、途中で見つかった #218・#219・#225・#234 はすべて閉じている(PR #207、#208、#213、#216、#217、#220〜#224、#226〜#229、#231〜#233、#235、#236)
 
 ## 確かめた環境
 
@@ -38,6 +38,7 @@ PR #239 が変えた TypeScript のうち、Rust の解析が写す側のファ�
 
 | 項目(ADR `0192-phase-2-split`) | 確かめたこと | 結果 |
 |---|---|---|
+| 外部 crate と依存の ADR、protocol の型、両方の corpus の `expected` の往復のテスト(P0、#193) | 依存の ADR `0193-phase-2-dependencies` と、型の ADR `0193-protocol-types` がある。`rust/Cargo.toml` の `[workspace.dependencies]` の外部 crate 7 つ(base64 0.23.1、regex 1.13.1、serde 1.0.229、serde_json 1.0.154、sha2 0.11.1、unicode-normalization 0.1.26、unicode-segmentation 1.13.3)の版と feature は、`0193-phase-2-dependencies` の表と同じで、`rust/Cargo.lock` の版も同じである。表の unicode-width 0.2.3 は、ADR `0218-bun-string-width` が外すと決め、`Cargo.lock` に 0 件である。3 つの crate の依存(`crates/{protocol,screen,transcript}/Cargo.toml`)も表の「使う crate」と同じである。ADR が protocol に置くとした型 `InteractivePrompt`、`InteractivePromptOption`、`PromptAnswer`、`QueuedQuestion`、`UsageReading`、`UsageWindow`、`FleetAgentKind`、`ConversationTurn`、`ConversationPart`、`SkillActivity`、`ConversationMetadata`、`AbandonedTurns`、`ConversationResponse` と、関数 `patch_text`、`patch_files` が `rust/crates/protocol/src/` にある。往復のテスト `rust/crates/protocol/tests/corpus_round_trip.rs` の `screen_corpus_cards_questions_and_answers` と `conversation_corpus_pages_and_unanswered_questions` は、`cargo test --locked --workspace` の中で 2 件とも通った | 満たす |
 | 増分の読み取り(T6、#205) | `rust/crates/transcript/tests/warm.rs` の 20 件が通った。このうち `reading_on_answers_as_a_new_value_does_at_every_step_of_the_corpus` は、ファイルを読む 4 つの source の corpus のすべての手順を、1 つの `Transcripts` と、呼び出しごとに新しい `Transcripts` で読み、答えを比べる(ADR の「読み続けた答えが、毎回新しい `Transcripts` で読んだ答えと同じ」)。比べないのは `history_id` と `version` で、その理由はファイルの冒頭のコメントにある | 満たす |
 | CI で TypeScript の 2 つの corpus を走らせる(CI0、#194) | `.github/workflows/rust.yml` に job `ts-corpus` があり、`bun test server/screen-fixtures.test.ts server/conversation-fixtures.test.ts` を走らせる。`rust` の最新の run(下の「検査の結果」)で success だった | 満たす |
 | S1 と T1 の `#[allow(dead_code)]` の削除(V、#206) | `grep -rn dead_code rust/crates/{protocol,screen,transcript}/` が出すのは `screen/tests/common/mod.rs:9` と `transcript/tests/common/mod.rs:16` の 2 か所だけで、どちらも ADR が「corpus の runner」で残すと決めた `tests/common/mod.rs` の先頭の `#![allow(dead_code)]` である。`src/` には 0 件 | 満たす |
