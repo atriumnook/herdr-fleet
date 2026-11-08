@@ -43,7 +43,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 
 - `src/` の Web UI のテスト: `そのまま残す`。Rust の core は Web UI を変えずに配信する(ADR `0122-parity-criteria`)
 - `server/fleet/opencode-guard.test.ts`: `そのまま残す`。fleet-guard(`opencode/fleet-guard/guard.js`)は OpenCode が読み込む JavaScript のプラグインで、Rust 版も同じフォルダーを同梱する(ADR `0122-parity-criteria` の「安全上の判定の表」)
-- `scripts/contract/` のテスト: `そのまま残す`。HTTP/WS の契約の launcher と import の検査を試すテストで、launcher は Rust の core にも同じものを使う(ADR `0122-parity-criteria` の「基準は 3 つの形で作る」)
+- `scripts/contract/` のテスト: `そのまま残す`。HTTP/WS の契約の launcher と import の検査を試すテストで、launcher は Rust の core にも同じものを使う(ADR `0122-parity-criteria` の「基準は 3 つの形で作る」)。段階 1 のあとで足した `scripts/contract/test-shell.herdr.test.ts` も `そのまま残す` にした。契約のテストが使うテスト用の herdr(`scripts/test-herdr.ts`)のペインが、使う人の zsh の設定を読まないことを確かめるテストで、Rust の core に当てるときも同じテスト用の herdr を使う(Issue #179)
 - `*.contract.test.ts`: `HTTP/WS の契約`。どのファイルも先頭に `// black-box: scripts/contract/launch.ts` の印があり、`bun scripts/contract/check-imports.ts` が、印のないものと、決まった範囲の外を import するものを拒む
 - 基準の runner を TypeScript 版に当てるテスト: `server/screen-fixtures.test.ts` は `画面の corpus`、`server/conversation-fixtures.test.ts` は `会話ログの corpus`、`bin/fleet-cli-fixtures.test.ts` は `fleet CLI の契約`、`scripts/security-fixtures/*.test.ts` は `安全上の判定の表`
 - `scripts/ui-regression.ts` と、それが import する回帰検査: `UI の回帰`。計画の「UI の回帰」は `bun run test:ui` で、`test:ui` はビルドのあとに `scripts/ui-regression.ts` を走らせる(`package.json`)。`ui-regression.ts` が import しない回帰検査と `*-qa.ts` は、`test:ui` に入っていないので空欄にした
@@ -78,6 +78,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `scripts/contract/check-imports.test.ts` | そのまま残す | |
 | `scripts/contract/launch.herdr.test.ts` | そのまま残す | |
 | `scripts/contract/launch.test.ts` | そのまま残す | |
+| `scripts/contract/test-shell.herdr.test.ts` | そのまま残す | |
 | `scripts/conversation-fixtures.test.ts` | | |
 | `scripts/default-view-regression.ts` | UI の回帰 | |
 | `scripts/devices-regression.ts` | UI の回帰 | |
