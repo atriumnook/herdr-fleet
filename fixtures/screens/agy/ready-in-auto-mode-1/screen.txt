@@ -1,0 +1,8 @@
+  ▄▀▀▄        Antigravity CLI 1.5.3
+ ▀▀▀▀▀▀       someone@example.com
+▀▀▀▀▀▀▀▀      /repo/.herdr-fleet/worktrees/t1
+────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                        auto · Gemini 4 Argon · medium
+Auto mode: edits & safe commands auto-approved (shift+tab to cycle)    (Google AI Pro)

@@ -489,7 +489,7 @@ export class Orchestrator {
         run.state = await this.deps.runtime.start({
           kind, name: herdrName, paneId: run.paneId, signal, startupError: (screen) => adapter.startupError(screen),
           args: [
-            ...adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
+            ...adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir, cwd: run.cwd }),
             ...(definition.edits === false ? adapter.readOnlyArgs ?? [] : []),
           ],
         });
