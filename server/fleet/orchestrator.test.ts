@@ -1306,15 +1306,24 @@ describe("a thread outlives its lead run", () => {
     await turn(first, "working");
     await turn(first, "idle");
     expect(registry.get(first.id)!.replacedBy).toBeUndefined();
-    // the reviewer's turn settles; the lead's next turn again leaves no report, and nothing it started runs
+    // the reviewer's turn settles and wakes the lead, which the fleet sent nothing (a project run with the
+    // person); that turn again leaves no report, and nothing the lead started runs
     write(reviewer, "report.json", JSON.stringify({ state: "ready", summary: "PASS", evidence: [] }));
     await turn(reviewer, "idle");
-    await fleet.send(first.id, "The reviewer is done.");
     await turn(first, "working");
     await turn(first, "idle");
     const next = registry.get(registry.get(first.id)!.replacedBy!)!;
     expect(next).toMatchObject({ role: "lead", agent: "codex", thread: first.id });
     expect(events.filter((e) => e.kind === "restart")).toEqual([{ kind: "restart", run: first.id, project: "/repo", agent: "claude", why: "no-report", by: next.id, to: "codex" }]);
+  });
+
+  it("stays with its lead while a helper it started runs, whatever role the helper has", async () => {
+    const { fleet, registry, turn } = thread();
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    const brief = { goal: "Try the other approach.", write: [], context: "none", done: "A result.", verify: "bun test" };
+    await fleet.spawn({ role: "lead", brief, group: first.group, cwd: first.cwd, depth: first.depth + 1 });
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeUndefined();
   });
 
   it("goes on in a new run when its lead's run failed, though an agent it started still runs", async () => {

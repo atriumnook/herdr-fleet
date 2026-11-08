@@ -217,6 +217,8 @@ export class Orchestrator {
   private readonly draftRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
+  /** thread leads whose last turn left no report while an agent they started ran: not started again, they report in a later turn */
+  private readonly waitingLeads = new Set<string>();
   /** callers waiting for a run's turn to settle or block */
   private readonly waiters = new Map<string, Set<(run: AgentRun) => void>>();
   /** the concurrency check and the run's first save happen as one step */
@@ -1449,6 +1451,7 @@ export class Orchestrator {
 
   /** What a settled turn left: the screen, the handoff, and the API failure it may have ended on. */
   private async readTurn(run: AgentRun, config: FleetConfig): Promise<void> {
+    this.waitingLeads.delete(run.id);
     run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
     run.result = readResult(this.resultFile(run));
     // a project's coordinator talks with the person and keeps no result folder: it reports nothing
@@ -1498,15 +1501,17 @@ export class Orchestrator {
   /**
    * A thread's turn the fleet did not send ended: its agent started it itself (a helper's result
    * woke it after a turn that broke off to wait) or the person typed in its pane. Without the
-   * person, nothing else tells the coordinator, which waits for this news to go on.
+   * person, nothing else tells the coordinator, which waits for this news to go on. With the person,
+   * it is read only after a turn that broke off without a report to wait for an agent its lead
+   * started: whether the thread goes on in a new run is decided here.
    */
   private async settleUnsentTurn(run: AgentRun): Promise<void> {
     const config = this.deps.config(run.cwd);
-    if (!config.autonomous) return;
+    if (!config.autonomous && !this.waitingLeads.has(run.id)) return;
     await this.readTurn(run, config);
     await this.readThreadWork(run);
     const restartError = this.needsRestart(run) ? await this.restartThread(run) : undefined;
-    if (!run.replacedBy) await this.settleThreadTurn(run, config, restartError);
+    if (config.autonomous && !run.replacedBy) await this.settleThreadTurn(run, config, restartError);
     run.updatedAt = Date.now();
     this.save(run);
     this.settleWaiters(run);
@@ -1531,12 +1536,16 @@ export class Orchestrator {
   /**
    * A thread's settled lead whose run failed, or whose turn left no report while nothing it started
    * in the thread's fleet still runs, and the thread still open: it goes on in a new run. A lead that
-   * ended its turn to wait for its reviewer or another helper reports in a later turn.
+   * ended its turn to wait for its reviewer or another helper reports in a later turn, the fleet's or
+   * one it starts itself: it is kept in waitingLeads until that turn is read.
    */
   private needsRestart(run: AgentRun): boolean {
     if (!isThread(run) || run.landed || run.replacedBy) return false;
     if (run.state === "failed") return true;
-    return run.outcome?.report === null && !this.list(run.group).some((other) => other.role !== THREAD_ROLE && this.running(other));
+    if (run.outcome?.report !== null) return false;
+    if (!this.list(run.group).some((other) => !isThread(other) && this.running(other))) return true;
+    this.waitingLeads.add(run.id);
+    return false;
   }
 
   /** A run still at its turn: starting, working, blocked, or with a turn the fleet sent and has not seen settle. */
