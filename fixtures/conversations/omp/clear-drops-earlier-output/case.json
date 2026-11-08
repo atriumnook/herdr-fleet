@@ -1,5 +1,5 @@
 {
-  "about": "server/chat-history.test.ts: reset scanning crosses chunk boundaries, excludes pre-clear full outputs and pending tools (the omp files without the padding: late.jsonl is the original's file with its padding record left out, so its clear sits in the same window, and its tool output after the clear is the one offered; cleared.jsonl ends at the clear, so the output before it is not offered. The 16 MiB padding that puts the clear one window before the end is not a case: its input would put 16 MiB in the repository)",
+  "about": "server/chat-history.test.ts: reset scanning crosses chunk boundaries, excludes pre-clear full outputs and pending tools (the omp files: late.jsonl is the original's file, its padding record putting the clear past the first 16 MiB read window, and the tool output after the clear is the one offered; cleared.jsonl ends at the clear, so the output before it is not offered)",
   "steps": [
     {
       "call": "page",
