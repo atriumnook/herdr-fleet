@@ -76,6 +76,7 @@ import { Orchestrator, type OrchestratorDeps } from "./fleet/orchestrator.ts";
 import { defaultProbes, UsageTracker } from "./fleet/usage.ts";
 import { RunRegistry } from "./fleet/registry.ts";
 import { HerdrRuntime } from "./fleet/runtime.ts";
+import { eventLog } from "./fleet/events.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 
 const MAX_REPLAY_BYTES = 128 * 1024;
@@ -532,6 +533,7 @@ export function createServer(
     fleetCommand: FLEET_COMMAND,
     usage,
     onChanged: fleetChanged,
+    events: eventLog(join(options.stateDir ?? defaultStateDir(), "fleet-events.jsonl")),
     agentEnv: () => ({ HERDR_FLEET_URL: `http://127.0.0.1:${listeningPort}`, ...(token ? { HERDR_FLEET_TOKEN: token } : {}) }),
   });
 

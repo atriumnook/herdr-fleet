@@ -14,6 +14,7 @@ import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
 import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadSummary } from "./types.ts";
 import type { ModelCatalog } from "./models.ts";
+import type { FleetEvent } from "./events.ts";
 import { usageKey, type UsageTracker } from "./usage.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -151,6 +152,8 @@ export interface OrchestratorDeps {
   /** refuses a model the CLI does not offer, before the run starts (models.ts) */
   models?: Pick<ModelCatalog, "unknown">;
   onChanged?: (run: AgentRun) => void;
+  /** what happened, for the factory's metrics (events.ts) */
+  events?: (event: FleetEvent) => void;
 }
 
 /** What landing a thread reads and changes in git and on GitHub. */
@@ -212,6 +215,8 @@ export class Orchestrator {
   /** per thread: since when its lead is settled, and when GitHub was last asked about it */
   private readonly settledSince = new Map<string, number>();
   private readonly reconciledAt = new Map<string, number>();
+  /** each run's state as last saved: a save that changes it is an event */
+  private readonly savedStates = new Map<string, string>();
 
   private readonly grace: number;
   private readonly quietMs: number;
@@ -225,7 +230,10 @@ export class Orchestrator {
     this.tools = { ...LANDING_TOOLS, ...deps.landing };
     this.pruneResults();
     // a restart read the runs back without their results: the result files hold them
-    for (const run of deps.registry.all()) run.result ??= readResult(this.resultFile(run));
+    for (const run of deps.registry.all()) {
+      run.result ??= readResult(this.resultFile(run));
+      this.savedStates.set(run.id, run.state);
+    }
   }
 
   /** A result folder outlives its pane but not its run: once the registry dropped the run, it goes. So do undelivered instructions. */
@@ -326,7 +334,10 @@ export class Orchestrator {
     const previous = this.projectStarts.get(project) ?? Promise.resolve();
     const started = previous.catch(() => {}).then(async () => {
       const live = this.deps.registry.all().find((run) => run.role === PROJECT_ROLE && run.project === project && isLive(run));
-      if (live) return this.send(live.id, task, undefined, signal);
+      if (live) {
+        this.deps.events?.({ kind: "person", run: live.id, project });
+        return this.send(live.id, task, undefined, signal);
+      }
       return this.launch({
         role: PROJECT_ROLE, name: `${basename(project)} · fleet`, task, cwd: project, depth: 0,
         group: makeGroupId(), worktree: false, interactive: true,
@@ -945,7 +956,10 @@ export class Orchestrator {
       const since = this.quietSince.get(coordinator.id);
       if (since === undefined) { this.quietSince.set(coordinator.id, now); continue; }
       if (now - since < this.quietMs || this.andonSent.has(coordinator.id)) continue;
-      if (await this.callStandstill(coordinator, open, now - since)) this.andonSent.add(coordinator.id);
+      if (await this.callStandstill(coordinator, open, now - since)) {
+        this.andonSent.add(coordinator.id);
+        this.deps.events?.({ kind: "standstill", run: coordinator.id, project: coordinator.project!, quietMs: now - since });
+      }
     }
   }
 
@@ -963,6 +977,7 @@ export class Orchestrator {
       const reading = await this.readPullRequest(thread);
       if (reading?.state !== "MERGED") return;
       await this.mergedOnGitHub(thread, reading);
+      this.deps.events?.({ kind: "reconciled", run: thread.id, project: thread.project, ...(thread.pr ? { pr: thread.pr.number } : {}) });
       thread.notice = threadClosedAfterMerge(thread, now - since);
       this.save(thread);
       void this.tellCoordinator(thread);
@@ -1454,6 +1469,15 @@ export class Orchestrator {
 
   private save(run: AgentRun): void {
     this.deps.registry.upsert(run);
+    const previous = this.savedStates.get(run.id);
+    if (previous !== run.state) {
+      this.savedStates.set(run.id, run.state);
+      const error = run.lastError && (run.state === "failed" || run.state === "blocked" || run.state === "unknown") ? run.lastError.slice(0, 200) : undefined;
+      this.deps.events?.({
+        kind: "state", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
+        ...(run.project ? { project: run.project } : {}), ...(previous ? { from: previous } : {}), to: run.state, sent: this.pending.has(run.id), ...(error ? { error } : {}),
+      });
+    }
     this.deps.onChanged?.(run);
   }
 }

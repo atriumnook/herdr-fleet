@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { DEFAULT_CONFIG, mergeConfig } from "./config.ts";
 import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES, type LandingTools } from "./orchestrator.ts";
+import type { FleetEvent } from "./events.ts";
 import { RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, type AgentMetadata, type AgentRuntime, type CreateLocationOptions, type RuntimeLocation, type StartOptions } from "./runtime.ts";
 import type { AgentDefinition, AgentRun, AgentState, FleetConfig } from "./types.ts";
@@ -81,6 +82,7 @@ interface SetupOptions {
   landing?: Partial<LandingTools>;
   models?: Pick<ModelCatalog, "unknown">;
   quietMs?: number;
+  events?: (event: FleetEvent) => void;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -93,7 +95,7 @@ function setup(options: SetupOptions = {}) {
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
     usage: options.usage, models: options.models, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}), standingOrders: options.standingOrders,
-    draftRetryMs: options.draftRetryMs, quietMs: options.quietMs, gitHead: options.gitHead ?? (async () => null), diffStat: options.diffStat,
+    draftRetryMs: options.draftRetryMs, quietMs: options.quietMs, events: options.events, gitHead: options.gitHead ?? (async () => null), diffStat: options.diffStat,
     landing: { gitBranch: async () => null, readPullRequest: async () => null, ...options.landing },
   });
   return { fleet, runtime, registry, root };
@@ -1233,9 +1235,10 @@ describe("a project run without the person", () => {
   function project() {
     const states = new Map<string, AgentState>();
     const removed: string[] = [];
+    const events: FleetEvent[] = [];
     const git = { pr: null as Record<string, unknown> | null, reads: 0 };
     const harness = setup({
-      agents, gitRoot: async () => "/repo", config: { autonomous: true }, quietMs: QUIET,
+      agents, gitRoot: async () => "/repo", config: { autonomous: true }, quietMs: QUIET, events: (event) => events.push(event),
       landing: {
         gitBranch: async () => "rust",
         readPullRequest: async () => { git.reads += 1; return git.pr as never; },
@@ -1255,7 +1258,7 @@ describe("a project run without the person", () => {
       writeFileSync(join(harness.root, "results", run.id, "handoff.md"), text);
       if (contract) writeFileSync(join(harness.root, "results", run.id, "contract.md"), contract);
     };
-    return { ...harness, states, turn, toCoordinator, handoff, git, removed };
+    return { ...harness, states, turn, toCoordinator, handoff, git, removed, events };
   }
 
   it("tells the coordinator every turn a thread ends, with its status line and contract, not only its questions", async () => {
@@ -1358,6 +1361,37 @@ describe("a project run without the person", () => {
     await fleet.superviseProjects();
     expect(toCoordinator(coordinator)).toHaveLength(before + 1);
     expect(toCoordinator(coordinator).at(-1)).toStartWith(ANDON);
+  });
+
+  it("records each change of a run's state once, whether the fleet sent the turn, the person's messages, a standstill and a thread closed against GitHub", async () => {
+    const { fleet, turn, handoff, git, events } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    await fleet.startProject({ task: "and this too", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(thread, "ISSUES");
+    await turn(thread, "idle");
+    await turn(coordinator, "idle");
+    // a turn the fleet did not send: the lead's own
+    await turn(thread, "working");
+    await turn(thread, "idle");
+    await turn(coordinator, "idle");
+    const states = (id: string) => events.filter((e) => e.kind === "state" && e.run === id).map((e) => e.kind === "state" && `${e.from ?? "-"}>${e.to}${e.sent ? " sent" : ""}`);
+    // ready, the task sent, that turn ended; then a turn of its own, which the fleet did not send
+    expect(states(thread.id)).toEqual(["->starting", "starting>idle", "idle>working sent", "working>idle sent", "idle>working", "working>idle"]);
+    expect(events.filter((e) => e.kind === "person")).toEqual([{ kind: "person", run: coordinator.id, project: "/repo" }]);
+    expect(events.find((e) => e.kind === "state" && e.run === thread.id)).toMatchObject({ role: "lead", agent: "pi", project: "/repo", group: thread.group });
+    git.pr = { number: 12, url: "https://github.com/o/r/pull/12", state: "MERGED", checks: "pass", head: "c0ffee" };
+    await fleet.superviseProjects();
+    await Bun.sleep(QUIET + 20);
+    await fleet.superviseProjects();
+    expect(events.filter((e) => e.kind === "reconciled")).toEqual([{ kind: "reconciled", run: thread.id, project: "/repo", pr: 12 }]);
+    await turn(coordinator, "idle");
+    await fleet.superviseProjects();
+    await Bun.sleep(QUIET + 20);
+    await fleet.superviseProjects();
+    expect(events.filter((e) => e.kind === "standstill")).toMatchObject([{ kind: "standstill", run: coordinator.id, project: "/repo" }]);
   });
 
   it("leaves a project run with the person alone: no standstill call and no closing against GitHub", async () => {
