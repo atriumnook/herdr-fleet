@@ -46,8 +46,14 @@ export interface AgentRun {
   result?: string;
   /** what its last settled turn reported (report.json), or that it reported nothing; none for a run without a result file */
   outcome?: TurnOutcome;
-  /** the commit its folder was at when the turn that left `outcome` ended, kept for a run that edits no file (a review) */
+  /**
+   * a reviewer's: the commit its folder was at when the fleet sent its last turn, and the commit the
+   * turn that left `outcome` reviewed (kept only when the folder did not move during that turn)
+   */
+  turnHead?: string;
   reportedHead?: string;
+  /** a thread lead's: every CLI that wrote in the thread so far (its lead runs, helpers that edit, a reviewer whose turn saw the branch move) */
+  writers?: FleetAgentKind[];
   /** the run's role kept it from editing files when it started */
   readOnly?: true;
   /** the model this run replaced after a configured fallback */
@@ -91,7 +97,7 @@ export interface AgentRun {
   /** the gate of the project's gated merge authority, as the fleet last evaluated it for this thread */
   gate?: GateReading;
   /** how the thread's merge happened: who merged it, through its pull request on GitHub or into the base branch here, and its merge commit when git or GitHub named it */
-  merged?: { by: MergeBy; via: "pr" | "local"; at: number; commit?: string };
+  merged?: { by: MergeBy; via: "pr" | "local"; base: string; at: number; commit?: string };
   /** the revert of that merge the fleet saw land on the base branch */
   reverted?: { at: number; commit: string };
 }
@@ -148,6 +154,8 @@ export interface LandingStep {
   /** a merge the person did not press: the fleet found every condition of the project's gate held, for the pull request at commit `head` */
   by?: "gate";
   head?: string;
+  /** the pull request the gate checked */
+  pr?: number;
   /** the step did not go as asked: what the fleet found */
   error?: string;
 }

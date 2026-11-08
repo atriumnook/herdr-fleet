@@ -98,6 +98,14 @@ describe("the merge gate", () => {
     }
     expect(failed({ ...passing(), files: null })).toEqual(["paths"]);
     expect(failed({ ...passing(), files: [".githubx/notes.md", "src/.github.rs"] })).toEqual([]);
+    // a folder pattern with wildcards also stands for the folder itself
+    const wild = mergeAuthority({ ...GATED, protected: ["**/private/", "packages/*/secrets/**"] }, "rust");
+    if (wild.mode !== "gated") throw new Error("rust is gated");
+    for (const file of ["src/private", "src/private/key", "packages/api/secrets", "packages/api/secrets/token"]) {
+      expect(evaluateGate(wild, { ...passing(), files: [file] }).ok).toBe(false);
+    }
+    expect(evaluateGate(wild, { ...passing(), files: ["src/privateer.rs", "packages/api/src/main.rs"] }).ok).toBe(true);
+    for (const file of ["server/fleet/adapters.ts", "server/fleet/report.ts", "agents/reviewer.md"]) expect(failed({ ...passing(), files: [file] })).toEqual(["paths"]);
     expect(evaluateGate(gate, { ...passing(), files: [".github/workflows/ci.yml"] }).checks.find((check) => check.id === "paths")!.detail).toBe("It touches protected paths: .github/workflows/ci.yml.");
   });
 

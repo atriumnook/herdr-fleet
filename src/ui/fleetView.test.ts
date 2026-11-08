@@ -239,9 +239,9 @@ describe("the projects, their threads and the run open in the Overview", () => {
     const gate = { at: 1, head: "c0ffee", ok: false, checks: [{ id: "report" as const, ok: true, detail: "The lead's latest report is ready." }, { id: "size" as const, ok: false, detail: "The change has 340 lines, over the limit of 200." }] };
     const runs = [
       coordinator(),
-      lead("m", { ...reported("ready", "Done."), state: "stopped", landed: "merged", merged: { by: "gate", via: "pr", at: 2, commit: "abc0001" }, baseBranch: "rust" }),
-      lead("r", { ...reported("ready", "Done."), state: "stopped", landed: "merged", merged: { by: "gate", via: "pr", at: 2, commit: "abc0002" }, reverted: { at: 3, commit: "beef" }, updatedAt: 2 }),
-      lead("n", { ...reported("ready", "Done."), state: "stopped", landed: "merged", merged: { by: "github", via: "pr", at: 2 }, updatedAt: 3 }),
+      lead("m", { ...reported("ready", "Done."), state: "stopped", landed: "merged", merged: { by: "gate", via: "pr", base: "rust", at: 2, commit: "abc0001" }, baseBranch: "rust" }),
+      lead("r", { ...reported("ready", "Done."), state: "stopped", landed: "merged", merged: { by: "gate", via: "pr", base: "rust", at: 2, commit: "abc0002" }, reverted: { at: 3, commit: "beef" }, updatedAt: 2 }),
+      lead("n", { ...reported("ready", "Done."), state: "stopped", landed: "merged", merged: { by: "github", via: "pr", base: "rust", at: 2 }, updatedAt: 3 }),
       lead("g", { ...reported("ready", "Done."), pr: { number: 9, url: "u", state: "OPEN", checks: "pass" }, gate, updatedAt: 4 }),
     ];
     const opened = (runId: string) => fleetScreenModel(withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId, member: null } } }), NOW).open!.landing!;

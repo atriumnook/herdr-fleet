@@ -161,12 +161,14 @@ export async function headCommit(cwd: string): Promise<string | null> {
 }
 
 /**
- * The merge commit that brought `head` into `base` here (git merge --no-ff): the one whose merged
- * parent, the second, is `head`. Null when there is none, as after a fast-forward, or more than one.
+ * The merge commit that brought `head` into `base` here (git merge --no-ff): one on `base`'s own
+ * line of commits (its first parents) whose merged parent, the second, is `head`. A merge on a side
+ * branch, such as one that brought the base into another branch, is not it. Null when there is
+ * none, as after a fast-forward, or more than one.
  */
 export async function mergeCommitOf(repo: string, head: string, base: string): Promise<string | null> {
   if (!BRANCH.test(base) || !SHA.test(head)) return null;
-  const merges = (await gitOutput(repo, ["rev-list", "--merges", "--parents", "--ancestry-path", `${head}..refs/heads/${base}`]))?.split("\n").filter(Boolean) ?? [];
+  const merges = (await gitOutput(repo, ["rev-list", "--first-parent", "--merges", "--parents", `${head}..refs/heads/${base}`]))?.split("\n").filter(Boolean) ?? [];
   const found = merges.map((line) => line.split(" ")).filter((shas) => shas[2] === head).map((shas) => shas[0]!);
   return found.length === 1 ? found[0]! : null;
 }

@@ -24,8 +24,9 @@ const MAX_PATTERN_CHARS = 200;
  */
 export const ALWAYS_PROTECTED: readonly string[] = [
   ".herdr-fleet/", ".github/",
-  "server/fleet/merge-mode.ts", "server/fleet/github.ts", "server/fleet/orchestrator.ts", "server/fleet/config.ts", "server/fleet/settings.ts",
-  "server/fleet/opencode-config.ts", "server/access.ts", "agents/coordinator.md", "agents/lead.md", "opencode/",
+  // herdr-fleet's own: the whole fleet server (the gate's reads, the runs' records it trusts, the
+  // adapters that keep a role from editing), access control, the bundled roles and the OpenCode guard
+  "server/fleet/", "server/access.ts", "agents/", "opencode/",
 ];
 
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -101,8 +102,9 @@ export interface GateFacts {
  * it, as does one ending in `/**` (a symlink in the folder's place is a change to the folder).
  */
 function matches(pattern: string, file: string): boolean {
-  const glob = pattern.replace(/^\.\//, "").replace(/\/$/, "/**");
-  return (glob.endsWith("/**") && file === glob.slice(0, -3)) || new Bun.Glob(glob).match(file);
+  const glob = new Bun.Glob(pattern.replace(/^\.\//, "").replace(/\/$/, "/**"));
+  // the folder itself matches when something below it would, wildcards in its path included
+  return glob.match(file) || (pattern.replace(/\/$/, "/**").endsWith("/**") && glob.match(`${file}/-`));
 }
 
 /** Every condition of the gate, each with what was found; the merge goes ahead only when all hold. */
