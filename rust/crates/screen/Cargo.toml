@@ -13,7 +13,6 @@ serde_json.workspace = true
 sha2.workspace = true
 unicode-normalization.workspace = true
 unicode-segmentation.workspace = true
-unicode-width.workspace = true
 
 [lints]
 workspace = true

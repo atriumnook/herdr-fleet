@@ -38,7 +38,6 @@ serde_json = { version = "1.0.154", features = ["float_roundtrip", "preserve_ord
 sha2 = { version = "0.11.1", default-features = false }
 unicode-normalization = "0.1.26"
 unicode-segmentation = "1.13.3"
-unicode-width = "0.2.3"
 
 # Every crate but herdr-fleet-vt opts in with `[lints] workspace = true`:
 # ADR 0107-crate-split keeps `unsafe` inside herdr-fleet-vt.
