@@ -1,8 +1,8 @@
 //! What a transcript shows of the skills an agent used (`server/skill-activity.ts`): no filesystem
 //! lookup, the evidence is the transcript's own.
 //!
-//! omp uses only `skill_invocation_prompt`; the others are moved here for Claude Code and Codex
-//! (#201, #202), and #206 removes their `allow(dead_code)`.
+//! The rules two or more sources share live here; the evidence only Codex records (`codexReadSkills`,
+//! `codexReadCall`) is in `crate::codex::skills`.
 
 use std::sync::LazyLock;
 
@@ -71,7 +71,6 @@ fn posix_basename(path: &str) -> &str {
 }
 
 /// A SKILL.md the transcript names, read as the skill in its folder.
-#[allow(dead_code)]
 pub(crate) fn skill_document(path: Option<&Value>) -> Option<SkillActivity> {
     let path = path?.as_str()?;
     if !one_line_path(path) {
@@ -100,7 +99,6 @@ static SELECTED_SKILL: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// Codex's explicitly selected skill is injected as one complete user-context envelope.
-#[allow(dead_code)]
 pub(crate) fn selected_skill(text: &str) -> Option<SkillActivity> {
     let captures = SELECTED_SKILL.captures(js::trim(text))?;
     let name = label(Some(&Value::String(captures[1].to_owned())))?;
@@ -188,7 +186,6 @@ pub(crate) fn skill_invocation_prompt(text: &str) -> Option<SkillInvocation> {
 }
 
 /// Claude Code's Skill tool call names the skill it asks for.
-#[allow(dead_code)]
 pub(crate) fn invoked_skill(name: &str, input: &Value) -> Option<SkillActivity> {
     if name != "Skill" {
         return None;
@@ -200,79 +197,6 @@ pub(crate) fn invoked_skill(name: &str, input: &Value) -> Option<SkillActivity> 
         evidence: SkillEvidence::Invocation,
         status: SkillStatus::Requested,
     })
-}
-
-/// Codex records parsed read paths even for commands executed inside code-mode tools.
-/// Unknown shell scripts stay unknown: a mention/search of SKILL.md is not a read.
-#[allow(dead_code)]
-pub(crate) fn codex_read_skills(value: &Value) -> Vec<SkillActivity> {
-    let Some(item) = value.as_object() else {
-        return Vec::new();
-    };
-    let Some(parsed) = item.get("parsed_cmd").and_then(Value::as_array) else {
-        return Vec::new();
-    };
-    if item.get("type").and_then(Value::as_str) != Some("CommandExecution") {
-        return Vec::new();
-    }
-    let status = item.get("status").and_then(Value::as_str);
-    if status != Some("completed") && status != Some("failed") {
-        return Vec::new();
-    }
-    let status = match item.get("exit_code") {
-        Some(Value::Number(code)) if code.as_f64() == Some(0.0) => SkillStatus::Loaded,
-        Some(Value::Number(_)) => SkillStatus::Failed,
-        _ => return Vec::new(),
-    };
-    parsed
-        .iter()
-        .filter(|command| command.get("type").and_then(Value::as_str) == Some("read"))
-        .filter_map(|command| skill_document(command.get("path")))
-        .map(|skill| SkillActivity { status, ..skill })
-        .collect()
-}
-
-static READ_COMMAND: LazyLock<Regex> = LazyLock::new(|| {
-    let s = WHITESPACE;
-    Regex::new(&format!(
-        r#"^(?:cat|head(?:{s}+-n{s}+[0-9]+)?|sed{s}+-n{s}+['"]?[0-9]+(?:,[0-9]+)?p['"]?){s}+(?:"([^"\n]+)"|'([^'\n]+)'|([^{inner}]+)){s}*$"#,
-        inner = &s[1..s.len() - 1]
-    ))
-    .expect("READ_COMMAND")
-});
-
-/// Older Codex rollouts only record tool calls. Recognize a literal, single file
-/// read; shell scripts, searches, writes, interpolated paths and mentions stay out.
-#[allow(dead_code)]
-pub(crate) fn codex_read_call(name: &str, args: &Value) -> Option<SkillActivity> {
-    let requested = |skill: SkillActivity| SkillActivity {
-        status: SkillStatus::Requested,
-        ..skill
-    };
-    if name == "read_file" || name == "Read" {
-        let path = args
-            .get("file_path")
-            .filter(|path| !path.is_null())
-            .or_else(|| args.get("path"));
-        return skill_document(path).map(requested);
-    }
-    if name != "exec_command" && name != "shell_command" && name != "shell" {
-        return None;
-    }
-    let command = args
-        .get("cmd")
-        .filter(|cmd| !cmd.is_null())
-        .or_else(|| args.get("command"))?
-        .as_str()?;
-    if command.contains(['\n', ';', '&', '|', '<', '>', '`', '$']) {
-        return None;
-    }
-    let captures = READ_COMMAND.captures(js::trim(command))?;
-    let path = captures
-        .get(1)
-        .or_else(|| captures.get(2))
-        .or_else(|| captures.get(3))?;
-    skill_document(Some(&Value::String(path.as_str().to_owned()))).map(requested)
 }
 
 #[cfg(test)]
@@ -297,20 +221,5 @@ mod tests {
         assert_eq!(name("/SKILL.md"), None);
         assert_eq!(name("./SKILL.md"), None);
         assert_eq!(name("review/skill.md"), None);
-    }
-
-    #[test]
-    fn reads_a_literal_read_of_a_skill_document() {
-        let skill = |command: &str| {
-            codex_read_call("exec_command", &json!({ "cmd": command })).map(|skill| skill.name)
-        };
-        assert_eq!(skill("cat /s/review/SKILL.md").as_deref(), Some("review"));
-        assert_eq!(
-            skill("sed -n '1,200p' \"/s/my skill/SKILL.md\"").as_deref(),
-            Some("my skill")
-        );
-        assert_eq!(skill("head -n 40 /s/x/SKILL.md").as_deref(), Some("x"));
-        assert_eq!(skill("cat /s/x/SKILL.md | head"), None);
-        assert_eq!(skill("grep foo /s/x/SKILL.md"), None);
     }
 }
