@@ -1,0 +1,6 @@
+{
+  "about": "agy 1.5.3 given a model id that names its level and --effort as well: it runs its default model instead, a failed start (the line read from the CLI)",
+  "adapter": "agy",
+  "check": "readyError",
+  "expected": "The model gemini-4-argon-low does not take the level max: Antigravity CLI would run its default model instead."
+}

@@ -41,6 +41,13 @@ describe("fleet config", () => {
     expect(config.roles["worker"]).toMatchObject({ model: "p/a", thinking: "high" });
   });
 
+  it("runs a project without the person only when its own or the user's config says so", () => {
+    expect(DEFAULT_CONFIG.autonomous).toBe(false);
+    expect(loadConfig(fixture(undefined, JSON.stringify({ autonomous: true })).cwd, [], fixture().userDir).autonomous).toBe(true);
+    const { userDir, cwd } = fixture(JSON.stringify({ autonomous: true }), JSON.stringify({ autonomous: "yes" }));
+    expect(loadConfig(cwd, [], userDir).autonomous).toBe(true);
+  });
+
   it("ignores broken JSON with a warning naming the file", () => {
     const { userDir, cwd } = fixture("{not json", "[1]");
     const warnings: string[] = [];
