@@ -1163,6 +1163,30 @@ describe("a thread outlives its lead run", () => {
     expect(runs.map((run) => threadState(registry.get(run.id)!))).toEqual(["review", "waiting", "waiting", "idle"]);
   });
 
+  it("hands the thread's pull request and landing step to the new run, so the thread is not landed twice", async () => {
+    const removed: string[] = [];
+    const git = { state: "OPEN" };
+    const { fleet, registry, turn } = thread({ landing: {
+      gitBranch: async () => "main", branchHead: async () => "c0ffee",
+      readPullRequest: async () => ({ number: 7, url: "https://github.com/o/r/pull/7", state: git.state, checks: "pass", head: "c0ffee" }) as never,
+      removeThread: async (_repo, worktree, branch) => { removed.push(`${worktree} ${branch}`); return undefined; },
+    } });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    Object.assign(registry.get(first.id)!, { pr: { number: 7, url: "https://github.com/o/r/pull/7", state: "OPEN", checks: "pass" }, landing: { action: "merge-pr", at: 1, sent: true } });
+    await turn(first, "idle");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(next).toMatchObject({ pr: { number: 7, state: "OPEN" }, landing: { action: "merge-pr", sent: true } });
+    expect(registry.get(first.id)!.landing).toBeUndefined();
+    // the new run's turn ends (no CLI is left to restart it on), then the person merges it on GitHub:
+    // the thread closes once, on the run that leads it
+    await turn(next, "idle");
+    git.state = "MERGED";
+    await fleet.refreshPullRequests();
+    expect(removed).toEqual([`/repo/.herdr-fleet/worktrees/${first.id} fleet/${first.id}`]);
+    expect(registry.get(next.id)!.landed).toBe("merged");
+    expect(registry.get(first.id)!.landed).toBeUndefined();
+  });
+
   it("tells the coordinator of a project run without the person nothing of a restart, and the replacement's turn as usual", async () => {
     const { fleet, registry, turn, report, promptsTo } = thread({ config: { autonomous: true } });
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });

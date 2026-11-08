@@ -952,7 +952,7 @@ export class Orchestrator {
    * OPEN), and the thread closes as the lead's turn ends (finalize, settleUnsentTurn).
    */
   async refreshPullRequests(): Promise<void> {
-    for (const run of this.list().filter((each) => isThread(each) && each.pr?.state === "OPEN" && !each.landed)) {
+    for (const run of this.list().filter((each) => isThread(each) && each.pr?.state === "OPEN" && !each.landed && !each.replacedBy)) {
       const thread = run as AgentRun & { project: string; branch: string };
       try {
         const reading = await this.readPullRequest(thread);
@@ -1404,7 +1404,9 @@ export class Orchestrator {
         thread: { repo: run.project ?? null, owner: run.owner, base: run.base, baseBranch: run.baseBranch, takeover: { from: run, thread: threadId(run), task } },
       });
       run.replacedBy = next.id;
+      // the thread's question and landing step went to the new run: the old one must not be landed too
       delete run.notice;
+      delete run.landing;
       await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
       if (isLive(run)) run.state = "stopped";
       this.dropPending(run.id);
