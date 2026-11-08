@@ -5,8 +5,9 @@
  * the fake push service (server/push.fake.ts), the Web UI's URL builders (src/lib/api.ts),
  * scripts/contract/, scripts/test-herdr.ts, and node: and bun: built-ins. Nothing else, type-only
  * imports included: the server's internals and its values are what the contract must not lean on.
+ * Every `*.contract.test.ts` is such a file, so one without the marker is refused too.
  *
- *   bun scripts/contract/check-imports.ts        exit 1 and one line per import outside that list
+ *   bun scripts/contract/check-imports.ts        exit 1 and one line per import outside that list or contract test without the marker
  */
 import { readFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
@@ -56,16 +57,26 @@ export function checkFile(file: string, source: string): string[] {
     .map((specifier) => `${file}: ${specifier === null ? "imports a module named at run time" : `imports "${specifier}", which a black-box test may not`}`);
 }
 
+const FOLDERS = "{server,scripts,src,shared,bin,e2e}";
+const hasMarker = (file: string) => readFileSync(resolve(REPO, file), "utf8").split("\n", 1)[0]!.trim() === MARKER;
+
 /** the files that carry the marker, relative to the repository */
 export function markedFiles(): string[] {
-  const files = [...new Bun.Glob("{server,scripts,src,shared,bin,e2e}/**/*.{ts,tsx}").scanSync({ cwd: REPO })];
-  return files.filter((file) => readFileSync(resolve(REPO, file), "utf8").split("\n", 1)[0]!.trim() === MARKER).sort();
+  const files = [...new Bun.Glob(`${FOLDERS}/**/*.{ts,tsx}`).scanSync({ cwd: REPO })];
+  return files.filter(hasMarker).sort();
+}
+
+/** the contract tests that lack the marker, relative to the repository */
+export function unmarkedContractFiles(): string[] {
+  return [...new Bun.Glob(`${FOLDERS}/**/*.contract.test.{ts,tsx}`).scanSync({ cwd: REPO })].filter((file) => !hasMarker(file)).sort();
 }
 
 if (import.meta.main) {
   const files = markedFiles();
   const problems = files.flatMap((file) => checkFile(file, readFileSync(resolve(REPO, file), "utf8")));
+  const unmarked = unmarkedContractFiles();
   for (const problem of problems) console.error(problem);
-  console.log(`${files.length} black-box files, ${problems.length} forbidden imports`);
-  process.exit(problems.length === 0 ? 0 : 1);
+  for (const file of unmarked) console.error(`${file}: a contract test whose first line is not ${MARKER}`);
+  console.log(`${files.length} black-box files, ${problems.length} forbidden imports, ${unmarked.length} contract tests without the marker`);
+  process.exit(problems.length + unmarked.length === 0 ? 0 : 1);
 }
