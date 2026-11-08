@@ -251,24 +251,14 @@ export class Orchestrator {
       delete run.notice;
       deps.registry.upsert(run);
     }
-    void this.queueUnsentSteps();
-  }
-
-  /**
-   * A merge step the person pressed that is neither sent nor in the outbox, in the order pressed:
-   * saved before the outbox kept the steps, or the server stopped between saving the step and
-   * queuing it. (A delivered step is marked sent before it leaves the outbox.)
-   */
-  private async queueUnsentSteps(): Promise<void> {
-    const unsent = (run: AgentRun, at?: number) => run.landing !== undefined && (at === undefined || run.landing.at === at) && !run.landing.sent && !run.landing.error
-      && COORDINATOR_STEPS.has(run.landing.action) && run.branch !== undefined && !this.outbox.pending((notice) => notice.about === run.id && notice.slot === "landing").length;
-    const steps = this.deps.registry.all().filter((run) => unsent(run)).sort((a, b) => a.landing!.at - b.landing!.at);
-    for (const run of steps) {
-      const at = run.landing!.at;
-      const thread = run as AgentRun & { project: string; branch: string };
-      const baseBranch = await this.baseBranchOf(thread).catch(() => "main");
-      // the person may have pressed another step meanwhile
-      if (unsent(run, at)) this.outbox.put({ about: run.id, slot: "landing", section: "steps", text: coordinatorStep(thread, baseBranch), landingAt: at });
+    // merge steps the person pressed that are neither sent nor queued (saved before the outbox, or the
+    // server stopped between saving one and queuing it), in the order pressed. A delivered step is
+    // marked sent before it leaves the outbox. The branch is the one the thread recorded: a
+    // constructor cannot wait for git, and baseBranchOf falls back to main as well.
+    const unsent = deps.registry.all().filter((run) => run.landing && !run.landing.sent && !run.landing.error && COORDINATOR_STEPS.has(run.landing.action)
+      && run.branch && !this.outbox.pending((notice) => notice.about === run.id && notice.slot === "landing").length);
+    for (const run of unsent.sort((a, b) => a.landing!.at - b.landing!.at)) {
+      this.outbox.put({ about: run.id, slot: "landing", section: "steps", text: coordinatorStep(run as AgentRun & { branch: string }, run.baseBranch ?? "main"), landingAt: run.landing!.at });
     }
   }
 

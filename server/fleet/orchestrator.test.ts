@@ -1823,23 +1823,22 @@ describe("landing", () => {
     restarted.stop();
   });
 
-  it("hand on merge steps a run saved before the outbox kept in the order pressed, onto the branch the checkout is on", async () => {
+  it("hand on merge steps a run saved before the outbox kept in the order pressed, onto the branch each thread recorded", async () => {
     const { fleet, runtime, root, turn, to, ready, states } = project();
     const { coordinator, thread: first } = await ready();
     const second = await fleet.startThread({ title: "Second", task: "t", cwd: "/repo", callerRun: coordinator.id });
     await turn(coordinator, "working");
     fleet.stop();
-    // pressed on the second thread first; no base branch kept on either
+    // pressed on the second thread first; both started from release, while the checkout is on main
     const pressed: Record<string, number> = { [first.id]: 20, [second.id]: 10 };
     const runs = (JSON.parse(readFileSync(join(root, "runs.json"), "utf8")) as AgentRun[])
-      .map(({ baseBranch: _base, ...run }) => pressed[run.id] ? { ...run, landing: { action: "merge", at: pressed[run.id], sent: false } } : run);
+      .map((run) => pressed[run.id] ? { ...run, baseBranch: "release", landing: { action: "merge", at: pressed[run.id], sent: false } } : run);
     writeFileSync(join(root, "runs.json"), JSON.stringify(runs));
     const restarted = new Orchestrator({
       runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG, agents: () => agents, fleetCommand: "fleet", agentEnv: () => ({}),
       resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
-      landing: { gitBranch: async () => "release" },
+      landing: { gitBranch: async () => "main" },
     });
-    await Bun.sleep(10);
     states.set(coordinator.herdrName, "idle");
     await restarted.reconcileAll();
     await until(() => to(coordinator).length === 2, "the saved merges after the restart");
