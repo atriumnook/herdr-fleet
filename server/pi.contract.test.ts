@@ -1,10 +1,10 @@
+// black-box: scripts/contract/launch.ts
 import { afterAll, beforeAll, expect, it } from "bun:test";
 import { chmodSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createServer } from "./index.ts";
-import { forgetPiModels } from "./pi-models.ts";
+import { launchServer, type LaunchedServer, type LaunchSpec } from "../scripts/contract/launch.ts";
 import { herdrRpc, sessionSnapshot, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import type { ConversationResponse } from "../shared/protocol.ts";
 
@@ -16,7 +16,7 @@ const transcript = join(slug, "session.jsonl");
 const workspaces: string[] = [];
 const fakePi = join(root, "bin", "pi");
 let paneId: string;
-let server: ReturnType<typeof createServer>;
+let server: LaunchedServer | undefined;
 // herdr keeps one session report per pane and refuses one older than the last.
 let seq = Date.now() * 1000;
 const nextSeq = () => ++seq;
@@ -53,9 +53,15 @@ async function createPiPane(): Promise<string> {
   return target;
 }
 
+// an empty HOME: pi's default folders under it hold nothing, so the server finds pi's sessions only
+// through PI_CODING_AGENT_SESSION_DIR, and pi's models only through a PI_CODING_AGENT_DIR in `env`
+const home = join(root, "home");
+const launch = (env: LaunchSpec["env"] = {}) =>
+  launchServer({ env: { HOST: "127.0.0.1", HERDR_FLEET_TOKEN: "", HOME: home, PI_CODING_AGENT_SESSION_DIR: sessionDir, ...env } });
+
 beforeAll(async () => {
-  process.env["PI_CODING_AGENT_SESSION_DIR"] = sessionDir;
   mkdirSync(slug, { recursive: true });
+  mkdirSync(home);
   // herdr takes a session report only from an agent holding the pane: one it detected
   // running there, reporting under its own integration source. A fake pi stands in.
   const bin = join(root, "bin");
@@ -64,18 +70,17 @@ beforeAll(async () => {
   chmodSync(fakePi, 0o755);
   paneId = await createPiPane();
   await reportSession(transcript);
-  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push") });
+  server = await launch();
 });
 
 afterAll(async () => {
-  server?.stop();
+  await server?.stop();
   for (const workspaceId of workspaces) await workspaceClose(workspaceId);
-  delete process.env["PI_CODING_AGENT_SESSION_DIR"];
   rmSync(root, { recursive: true, force: true });
 });
 
-const read = async (target = paneId): Promise<ConversationResponse> => {
-  const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(target)}`);
+const read = async (target = paneId, from = server!): Promise<ConversationResponse> => {
+  const response = await fetch(`${from.url}/api/pane/conversation?pane_id=${encodeURIComponent(target)}`);
   expect(response.status).toBe(200);
   return await response.json() as ConversationResponse;
 };
@@ -110,12 +115,12 @@ it("offers a tool's own picture over the image endpoint", async () => {
     const conversation = await read();
     const tool = conversation.turns.flatMap((turn) => turn.parts).find((part) => part.kind === "tool");
     expect(tool !== undefined && tool.kind === "tool" && tool.images).toEqual([{ media_type: "image/png", ref: "pi:call-1:0" }]);
-    const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation/image?pane_id=${encodeURIComponent(paneId)}&ref=${encodeURIComponent("pi:call-1:0")}`);
+    const response = await fetch(`${server!.url}/api/pane/conversation/image?pane_id=${encodeURIComponent(paneId)}&ref=${encodeURIComponent("pi:call-1:0")}`);
     expect(response.status).toBe(200);
     expect(response.headers.get("content-type")).toBe("image/png");
     expect(Buffer.from(await response.arrayBuffer()).equals(PNG)).toBe(true);
     // a ref naming no image, and one that is no pi ref at all
-      const miss = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation/image?pane_id=${encodeURIComponent(paneId)}&ref=${encodeURIComponent("pi:call-9:0")}`);
+      const miss = await fetch(`${server!.url}/api/pane/conversation/image?pane_id=${encodeURIComponent(paneId)}&ref=${encodeURIComponent("pi:call-9:0")}`);
       expect(miss.status).toBe(404);
   } finally {
     writeFileSync(transcript, turns("Check chat", "Answer one"));
@@ -129,16 +134,14 @@ it("resolves pi's context window from the agent dir pi reads its models from", a
   const agentDir = join(root, "agent-dir");
   mkdirSync(agentDir, { recursive: true });
   writeFileSync(join(agentDir, "models.json"), JSON.stringify({ providers: { test: { models: [{ id: "pi-contract-model", contextWindow: 200_000 }] } } }));
-  const previous = process.env["PI_CODING_AGENT_DIR"];
-  process.env["PI_CODING_AGENT_DIR"] = agentDir;
+  // a server started with PI_CODING_AGENT_DIR pointing there
+  const withAgentDir = await launch({ PI_CODING_AGENT_DIR: agentDir });
   try {
-    // the window is read as the metadata is rebuilt, so a new answer carries it
     writeFileSync(transcript, turns("Check chat twice", "Answer two"));
-    const withWindow = await read();
+    const withWindow = await read(paneId, withAgentDir);
     expect(withWindow.metadata?.context).toEqual({ used: 35, window: 200_000 });
   } finally {
-    if (previous === undefined) delete process.env["PI_CODING_AGENT_DIR"]; else process.env["PI_CODING_AGENT_DIR"] = previous;
-    forgetPiModels();
+    await withAgentDir.stop();
     // the tests after this one read the session this file first held
     writeFileSync(transcript, turns("Check chat", "Answer one"));
   }
@@ -216,7 +219,7 @@ it("answers a session pi has not written yet as an empty conversation, then foll
   expect(await read(target)).toMatchObject({ source: "pi-transcript", turns: [], cursor: null, history_id: "unwritten:fresh" });
   // a cursor from another conversation is refused, whichever way it points
   for (const cursor of ["before", "since", "from"]) {
-    const stale = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(target)}&${cursor}=${encodeURIComponent("other:0")}`);
+    const stale = await fetch(`${server!.url}/api/pane/conversation?pane_id=${encodeURIComponent(target)}&${cursor}=${encodeURIComponent("other:0")}`);
     expect(stale.status).toBe(409);
   }
   // at work on its first turn, pi has written nothing yet: the terminal shows the turn (a status
@@ -224,7 +227,7 @@ it("answers a session pi has not written yet as an empty conversation, then foll
   await herdrRpc("pane.report_agent", { pane_id: target, source: "herdr:pi", agent: "pi", state: "working", seq: nextSeq(), agent_session_path: fresh });
   try {
     expect(await read(target)).toEqual({ source: "scrollback", turns: [] });
-    const stale = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(target)}&from=${encodeURIComponent("other:0")}`);
+    const stale = await fetch(`${server!.url}/api/pane/conversation?pane_id=${encodeURIComponent(target)}&from=${encodeURIComponent("other:0")}`);
     expect(stale.status).toBe(409);
   } finally {
     await herdrRpc("pane.report_agent", { pane_id: target, source: "herdr:pi", agent: "pi", state: "idle", seq: nextSeq(), agent_session_path: fresh });
@@ -265,7 +268,7 @@ it("falls back to the scrollback when the reported path leaves the store", async
   const outside = join(root, "outside.jsonl");
   writeFileSync(outside, turns("Must not be read", "no"));
   await reportSession(outside);
-  const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
+  const response = await fetch(`${server!.url}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
   expect(response.status).toBe(200);
   expect(await response.json()).toEqual({ source: "scrollback", turns: [] });
 });

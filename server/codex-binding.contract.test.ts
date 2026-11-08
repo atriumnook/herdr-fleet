@@ -1,9 +1,10 @@
+// black-box: scripts/contract/launch.ts
 import { afterAll, beforeAll, expect, it } from "bun:test";
 import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "./index.ts";
+import { launchServer, type LaunchedServer } from "../scripts/contract/launch.ts";
 import { herdrRpc, paneRead, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 import type { ConversationResponse } from "../shared/protocol.ts";
 
@@ -29,7 +30,7 @@ const answers = {
   hinted: "Only herdr names this thread for its pane, and nothing on that pane's screen or in any other pane contradicts it.",
 };
 const workspaces: string[] = [];
-let server: ReturnType<typeof createServer>;
+let server: LaunchedServer | undefined;
 
 const rollout = (name: keyof typeof answers) => {
   const path = join(codexHome, "sessions", `rollout-2026-09-24T00-00-00-${threads[name]}.jsonl`);
@@ -69,7 +70,7 @@ const pane = async (label: string, command: string, cwd = root): Promise<string>
 };
 
 const read = async (paneId: string): Promise<ConversationResponse> => {
-  const response = await fetch(`http://127.0.0.1:${server.port}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
+  const response = await fetch(`${server!.url}/api/pane/conversation?pane_id=${encodeURIComponent(paneId)}`);
   return await response.json() as ConversationResponse;
 };
 /** A thread row begun now in the panes' cwd, as /new starts one (or a subagent, or `codex exec`); returns its removal. */
@@ -109,7 +110,7 @@ const reportThread = (paneId: string, thread: string) =>
 const lastAnswer = (conversation: ConversationResponse) =>
   conversation.turns.at(-1)?.parts.map((part) => part.kind === "text" ? part.text : "").join("") ?? null;
 
-beforeAll(() => {
+beforeAll(async () => {
   mkdirSync(join(codexHome, "sessions"), { recursive: true });
   const db = new Database(join(codexHome, "state_5.sqlite"));
   db.exec("CREATE TABLE threads (id TEXT, rollout_path TEXT, cwd TEXT, archived INTEGER, agent_role TEXT, created_at INTEGER, updated_at INTEGER, source TEXT, first_user_message TEXT)");
@@ -130,11 +131,11 @@ beforeAll(() => {
   // THEN=NAME shows NAME's answers after the flood
   writeFileSync(script, `#!/bin/sh\n[ -n "$SCREEN_FILE" ] && cat "$SCREEN_FILE"\nname="\${2:-matched}"\n[ "$1" = --say ] || [ "$1" = --both ] && echo "› question for $name"\n[ "$1" = --say ] || [ "$1" = --quote ] || [ "$1" = --both ] && cat "$(dirname "$0")/$name.txt"\n[ "$1" = --both ] && cat "$(dirname "$0")/matched.txt"\nsleep "\${FLOOD_AFTER:-600}"\nseq 1 600\n[ -n "$THEN" ] && cat "$(dirname "$0")/$THEN.txt"\nsleep 600\n`);
   chmodSync(script, 0o755);
-  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "push"), codexHome });
+  server = await launchServer({ env: { HOST: "127.0.0.1", HERDR_FLEET_TOKEN: "", CODEX_HOME: codexHome } });
 });
 
 afterAll(async () => {
-  server?.stop();
+  await server?.stop();
   for (const id of workspaces) await workspaceClose(id);
   rmSync(root, { recursive: true, force: true });
 });
