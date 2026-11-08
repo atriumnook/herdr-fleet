@@ -1,5 +1,5 @@
 {
-  "about": "server/codex.test.ts: Codex rollout resolution follows each backtrack to the rollout that holds its cut, however many there were",
+  "about": "server/codex.test.ts: Codex rollout resolution follows each backtrack to the rollout that holds its cut, however many there were\nThe second rollout is larger than the third one's cut byte (as the test asserts of its input), so a guess by name and size would take it",
   "steps": [
     {
       "call": "page",

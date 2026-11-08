@@ -1,5 +1,5 @@
 {
-  "about": "server/conversation.test.ts: incrementally reads one growing Codex task across split UTF-8, partial records and a rewrite\nThree of the test's appends: inside the four bytes of the emoji, inside the second tool output, and the rest; each page is the page of a cold copy of the bytes so far. Then the rewrite to model-b, and to the first two records",
+  "about": "server/conversation.test.ts: incrementally reads one growing Codex task across split UTF-8, partial records and a rewrite\nSeven appends where the test's pseudo-random ones can cut: just before and just after a newline, inside a three-byte character, inside the four bytes of the emoji, inside a JSON escape, inside the second tool output, and the rest; each page is the page of a cold copy of the bytes so far (the test compares the two after each of its appends). Then the rewrite to model-b, and to the first two records",
   "steps": [
     {
       "append": "live.jsonl",
@@ -24,6 +24,97 @@
     {
       "append": "live.jsonl",
       "from": "part-2.bin"
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "live.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v2"
+      }
+    },
+    {
+      "append": "live.jsonl",
+      "from": "part-3.bin"
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "live.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v3"
+      }
+    },
+    {
+      "append": "live.jsonl",
+      "from": "part-4.bin"
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "live.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v4"
+      }
+    },
+    {
+      "append": "live.jsonl",
+      "from": "part-5.bin"
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "live.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "한글 👋"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": "model-a",
+          "reasoning_effort": "high"
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v5"
+      }
+    },
+    {
+      "append": "live.jsonl",
+      "from": "part-6.bin"
     },
     {
       "call": "page",
@@ -71,12 +162,12 @@
         },
         "cursor": null,
         "history_id": "$h",
-        "version": "$v2"
+        "version": "$v6"
       }
     },
     {
       "append": "live.jsonl",
-      "from": "part-3.bin"
+      "from": "part-7.bin"
     },
     {
       "call": "page",
@@ -383,7 +474,7 @@
         },
         "cursor": null,
         "history_id": "$h",
-        "version": "$v3"
+        "version": "$v7"
       }
     },
     {
@@ -695,7 +786,7 @@
         },
         "cursor": null,
         "history_id": "$h2",
-        "version": "$v4"
+        "version": "$v8"
       }
     },
     {
@@ -726,7 +817,7 @@
         },
         "cursor": null,
         "history_id": "$h3",
-        "version": "$v5"
+        "version": "$v9"
       }
     }
   ]

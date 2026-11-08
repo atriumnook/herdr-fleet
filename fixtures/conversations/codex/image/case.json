@@ -1,5 +1,5 @@
 {
-  "about": "server/codex-images.test.ts: fetches only referenced raster images within the retained history and bounds local reads (the local image by a path relative to cwd, and the inline one, over the whole rollout)",
+  "about": "server/codex-images.test.ts: fetches only referenced raster images within the retained history and bounds local reads (the local image by a path relative to cwd, and the inline one, over the whole rollout)\nThe bound of 8 MiB on a local image's size stays in the test: a case would hold a file past 8 MiB",
   "steps": [
     {
       "call": "image",
