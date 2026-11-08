@@ -3377,4 +3377,22 @@ describe("merge authority", () => {
     await fleet.land(thread.id, "revert");
     expect(to(coordinator).at(-1)).toContain("when this checkout is clean and on rust, git revert -m 1 --no-edit abc0001. On a conflict");
   });
+
+  it("settle the revert of a merged thread, which is closed, under the thread's lock", async () => {
+    const { fleet, registry, events, git, turn } = project(null);
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(thread, "idle");
+    await fleet.land(thread.id, "merge");
+    git.merged = true;
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!.landed).toBe("merged");
+    await fleet.land(thread.id, "revert");
+    git.revert = "beef0002";
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!.reverted).toMatchObject({ commit: "beef0002" });
+    expect(registry.get(thread.id)!.landing).toBeUndefined();
+    expect(events.filter((event) => event.kind === "revert")).toEqual([{ kind: "revert", run: thread.id, project: "/repo", base: "rust", commit: "abc0001", revert: "beef0002" }]);
+  });
 });
