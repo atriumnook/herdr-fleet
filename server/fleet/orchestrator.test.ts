@@ -166,6 +166,20 @@ describe("spawn", () => {
     expect(bare.runtime.instructions[0]).not.toContain("Standing orders");
   });
 
+  it("records the role file a run starts with, its version and the standing orders' version, after the run's first state", async () => {
+    const events: FleetEvent[] = [];
+    // expected hashes: `printf '<text>' | sha256sum`, first 12 hex digits
+    const { fleet } = setup({ agents: [role("worker", { source: "user", filePath: "/u/worker.md", hash: "0123456789ab" })], standingOrders: () => "1. Ask before a push.", events: (event) => events.push(event) });
+    const run = await spawn(fleet);
+    expect(events.filter((e) => e.run === run.id).slice(0, 2)).toEqual([
+      expect.objectContaining({ kind: "state", to: "starting" }),
+      { kind: "role", run: run.id, role: "worker", source: "user", file: "/u/worker.md", hash: "0123456789ab", standing: "edb086f7d809" },
+    ]);
+    const bare = setup({ agents: [role("lead")], standingOrders: () => "", events: (event) => events.push(event) });
+    const lead = await bare.fleet.spawn({ role: "lead", task: "do it", group: "g2", cwd: "/work" });
+    expect(events.find((e) => e.kind === "role" && e.run === lead.id)).toEqual({ kind: "role", run: lead.id, role: "lead", source: "bundled", file: "lead.md", hash: "8bbc2266f7e2" });
+  });
+
   it("tells every agent the person's language when the config sets one, and writes no section without it", async () => {
     const { fleet, runtime } = setup({ config: { language: "Japanese" } });
     await spawn(fleet);

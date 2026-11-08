@@ -40,7 +40,8 @@ const USAGE = `usage: fleet <command> [options]
   usage clear [<key>]              end a cooldown: one account (agy:gemini), a CLI's (agy), or all
   report [--hours <n>] [--planned-label <regex>] [--cwd <dir>]
                                    this project's factory metrics: the person stepping in, standstills, failed starts per
-                                   agent, merged pull requests, issues found during the work (default: the last 24 hours)
+                                   agent and per role version (the role file's hash), merged pull requests, issues found
+                                   during the work (default: the last 24 hours)
 
   <agent> is a name, role, id or pane id. Add --json for machine-readable output.
   exit status: 0 settled, 1 failed or error, 2 usage, 4 blocked on a question, 124 wait timed out`;

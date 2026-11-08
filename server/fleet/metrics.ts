@@ -1,8 +1,9 @@
 /**
  * The factory's metrics for one project, from the fleet's event log (events.ts) and what GitHub
  * says: how often the person stepped in, the stretches the project stood still, starts per agent
- * with the failed ones, the runs that ended without a report, and the anomalies, the turns that
- * ended without a report, the thread lead runs the fleet started again, the turns agents started by themselves, the threads
+ * with the failed ones, the runs that ended without a report, and the anomalies, the same per role
+ * version (the role file a run started with), the turns that ended without a report, the thread
+ * lead runs the fleet started again, the turns agents started by themselves, the threads
  * closed against GitHub, the pull requests merged into the project's base, the issues closed and
  * the issues opened (without a planned label, when one is given: found during the work). Pure:
  * `fleet report` (api.ts) and scripts/factory-report.ts read the inputs and hand them in.
@@ -28,6 +29,8 @@ export interface FactoryMetrics {
   standstillCalls: number;
   /** per agent: runs started, starts that failed or stopped before the task, runs that ended without a report */
   starts: Array<{ agent: string; starts: number; failed: number; lost: number; anomaly: boolean }>;
+  /** the same counts per role version: the role file a run started with and its hash, absent for a run whose version was not recorded */
+  roles: Array<{ role: string; hash?: string; source?: string; file?: string; starts: number; failed: number; lost: number }>;
   /** per agent: the turns that ended since the fleet reads reports, and those that left none */
   reports: Array<{ agent: string; turns: number; none: number }>;
   /** the thread lead runs the fleet started again: started, could not start, and replacements that later reported ready */
@@ -56,7 +59,7 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
   const { project, from, to, quietMs } = input;
   const events = [...input.events].sort((a, b) => a.t - b.t);
   const runs = projectRuns(events, project);
-  const mine = events.filter((event) => (event.kind === "state" || event.kind === "turn" ? runs.has(event.run) : event.project === project));
+  const mine = events.filter((event) => (event.kind === "state" || event.kind === "turn" || event.kind === "role" ? runs.has(event.run) : event.project === project));
   const inWindow = mine.filter((event) => event.t >= from && event.t <= to);
 
   // standstills: replay every state change, the ones before the window included, and find the stretches with no run moving
@@ -78,11 +81,21 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
   }
   close(to);
 
-  const startsByAgent = new Map<string, { starts: number; failed: number; lost: number }>();
-  const entryOf = (agent: string) => {
-    const entry = startsByAgent.get(agent) ?? { starts: 0, failed: 0, lost: 0 };
-    startsByAgent.set(agent, entry);
-    return entry;
+  // each count goes to the run's agent and to the role version it started with (a role event, when the fleet recorded one)
+  type Counts = { starts: number; failed: number; lost: number };
+  const versionOf = new Map<string, Extract<TimedEvent, { kind: "role" }>>();
+  for (const event of mine) if (event.kind === "role") versionOf.set(event.run, event);
+  const startsByAgent = new Map<string, Counts>();
+  const startsByVersion = new Map<string, { role: string; version?: Extract<TimedEvent, { kind: "role" }> } & Counts>();
+  const count = (event: Extract<TimedEvent, { kind: "state" }>, key: keyof Counts) => {
+    const agent = startsByAgent.get(event.agent) ?? { starts: 0, failed: 0, lost: 0 };
+    startsByAgent.set(event.agent, agent);
+    agent[key] += 1;
+    const version = versionOf.get(event.run);
+    const versionKey = `${event.role}\0${version?.hash ?? ""}`;
+    const row = startsByVersion.get(versionKey) ?? { role: event.role, ...(version ? { version } : {}), starts: 0, failed: 0, lost: 0 };
+    startsByVersion.set(versionKey, row);
+    row[key] += 1;
   };
   /** each run's last state change in the window, its open turn's end (cleared when it works again), and whether its start failed */
   const last = new Map<string, Extract<TimedEvent, { kind: "state" }>>();
@@ -95,11 +108,11 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
     if (event.kind !== "state") continue;
     last.set(event.run, event);
     if (event.to === "working") turnEnd.delete(event.run);
-    if (event.from === undefined) entryOf(event.agent).starts += 1;
+    if (event.from === undefined) count(event, "starts");
     // a start that failed, or that stopped before its task was sent
     if (!startFailed.has(event.run) && ((event.to === "failed" && event.from === "starting") || (event.error !== undefined && /not been sent|not ready/.test(event.error)))) {
       startFailed.add(event.run);
-      entryOf(event.agent).failed += 1;
+      count(event, "failed");
     }
     if (event.to === "working" && event.from !== undefined && event.from !== "starting" && !event.sent) {
       if (event.role === "coordinator") typedTurns += 1;
@@ -116,7 +129,7 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
     const end = turnEnd.get(event.run);
     const interactive = event.interactive ?? end?.interactive ?? false;
     const unreported = end ? (end.report !== undefined ? end.report === "none" : !end.handoff) : event.to === "stopped";
-    if (event.to === "failed" || ((!interactive || end?.report !== undefined) && unreported)) entryOf(event.agent).lost += 1;
+    if (event.to === "failed" || ((!interactive || end?.report !== undefined) && unreported)) count(event, "lost");
   }
   const reportsByAgent = new Map<string, { turns: number; none: number }>();
   for (const event of inWindow) {
@@ -133,6 +146,9 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
   const restarts = { started: replacements.size, failed: restartEvents.filter((event) => !event.by).length, ready: readyAfter.size };
   const starts = [...startsByAgent].map(([agent, { starts, failed, lost }]) => ({ agent, starts, failed, lost, anomaly: failed + lost >= 2 && (failed + lost) * 3 >= Math.max(starts, failed + lost) }))
     .sort((a, b) => a.agent.localeCompare(b.agent));
+  // per role, the recorded versions by hash, then the runs of no recorded version
+  const roles = [...startsByVersion.values()].map(({ role, version, starts, failed, lost }) => ({ role, ...(version ? { hash: version.hash, source: version.source, file: version.file } : {}), starts, failed, lost }))
+    .sort((a, b) => a.role.localeCompare(b.role) || (a.hash === undefined ? 1 : b.hash === undefined ? -1 : a.hash.localeCompare(b.hash)));
 
   const within = (at: string | null) => at !== null && Date.parse(at) >= from && Date.parse(at) <= to;
   return {
@@ -141,6 +157,7 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
     standstills,
     standstillCalls: inWindow.filter((event) => event.kind === "standstill").length,
     starts,
+    roles,
     reports,
     restarts,
     ownTurns,
@@ -184,6 +201,12 @@ export function render(project: string, base: string, metrics: FactoryMetrics): 
     "| Agent | Starts | Failed or stopped before the task | Ended without a report |",
     "|---|---|---|---|",
     ...(metrics.starts.length ? metrics.starts.map((row) => `| ${row.agent} | ${row.starts} | ${row.failed} | ${row.lost}${row.anomaly ? " (anomaly)" : ""} |`) : ["| none | 0 | 0 | 0 |"]),
+    "",
+    "## Runs per role version",
+    "",
+    "| Role | Version | Starts | Failed or stopped before the task | Ended without a report |",
+    "|---|---|---|---|---|",
+    ...(metrics.roles.length ? metrics.roles.map((row) => `| ${row.role} | ${row.hash ? `${row.hash} (${row.source})` : "not recorded"} | ${row.starts} | ${row.failed} | ${row.lost} |`) : ["| none | | 0 | 0 | 0 |"]),
     "",
     "## Reports",
     "",
