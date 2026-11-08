@@ -2029,12 +2029,15 @@ export function createServer(
     regridMoved().catch(() => undefined).finally(() => { layoutPolling = false; });
   }, LAYOUT_POLL_MS);
   layoutTimer.unref();
-  // the threads' open pull requests: their checks, and a merge the person made on GitHub
+  // the threads' open pull requests: their checks, and a merge the person made on GitHub; then the
+  // projects run without the person: their records against GitHub, and a standstill
   let pullRequestsPolling = false;
   const pullRequestTimer = setInterval(() => {
     if (pullRequestsPolling) return;
     pullRequestsPolling = true;
-    fleet.refreshPullRequests().catch(() => undefined).finally(() => { pullRequestsPolling = false; });
+    fleet.refreshPullRequests().catch(() => undefined)
+      .then(() => fleet.superviseProjects()).catch(() => undefined)
+      .finally(() => { pullRequestsPolling = false; });
   }, PULL_REQUEST_POLL_MS);
   pullRequestTimer.unref();
 

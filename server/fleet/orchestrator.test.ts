@@ -80,6 +80,7 @@ interface SetupOptions {
   diffStat?: (cwd: string, base: string) => Promise<{ added: number; removed: number; files: number } | null>;
   landing?: Partial<LandingTools>;
   models?: Pick<ModelCatalog, "unknown">;
+  quietMs?: number;
 }
 
 function setup(options: SetupOptions = {}) {
@@ -92,7 +93,7 @@ function setup(options: SetupOptions = {}) {
     runtime, registry, config: () => config, agents: () => options.agents ?? [role("worker"), role("reviewer", { interactive: true })],
     fleetCommand: "fleet", agentEnv: () => ({ HERDR_FLEET_URL: "http://127.0.0.1:1" }), promptDir: root, resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), preVisualGraceMs: GRACE, readyScreenMs: 300,
     usage: options.usage, models: options.models, usageScreenMs: 300, gitRoot: options.gitRoot ?? (async () => null), runSetup: options.runSetup, excludeWorktrees: options.excludeWorktrees ?? (async () => {}), standingOrders: options.standingOrders,
-    draftRetryMs: options.draftRetryMs, gitHead: options.gitHead ?? (async () => null), diffStat: options.diffStat,
+    draftRetryMs: options.draftRetryMs, quietMs: options.quietMs, gitHead: options.gitHead ?? (async () => null), diffStat: options.diffStat,
     landing: { gitBranch: async () => null, readPullRequest: async () => null, ...options.landing },
   });
   return { fleet, runtime, registry, root };
@@ -1226,13 +1227,15 @@ describe("owners", () => {
 describe("a project run without the person", () => {
   const agents = [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true })];
   const NEWS = "[fleet] Threads ended a turn. These come from the fleet, not from the person.";
+  const QUIET = 120;
+  const ANDON = "[fleet] Nothing in this project has moved";
 
   function project() {
     const states = new Map<string, AgentState>();
     const removed: string[] = [];
     const git = { pr: null as Record<string, unknown> | null, reads: 0 };
     const harness = setup({
-      agents, gitRoot: async () => "/repo", config: { autonomous: true },
+      agents, gitRoot: async () => "/repo", config: { autonomous: true }, quietMs: QUIET,
       landing: {
         gitBranch: async () => "rust",
         readPullRequest: async () => { git.reads += 1; return git.pr as never; },
@@ -1319,6 +1322,89 @@ describe("a project run without the person", () => {
     await fleet.reconcileAll();
     await Bun.sleep(30);
     expect(toCoordinator(coordinator)).toHaveLength(2);
+  });
+
+  it("tells the coordinator once when it and every thread stayed settled through the quiet period, and again only after a thread moved", async () => {
+    const { fleet, turn, toCoordinator, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(thread, "ISSUES — 1 case fails");
+    await turn(thread, "idle");
+    await turn(coordinator, "idle");
+    const told = toCoordinator(coordinator).length;
+    await fleet.superviseProjects();
+    // not before the quiet period is over
+    await fleet.superviseProjects();
+    expect(toCoordinator(coordinator)).toHaveLength(told);
+    await Bun.sleep(QUIET + 20);
+    await fleet.superviseProjects();
+    const andon = toCoordinator(coordinator)[told]!;
+    expect(andon).toStartWith(`${ANDON} for 0 minutes: you and every thread are settled. This comes from the fleet, not from the person.`);
+    expect(andon).toContain(`- "${thread.name}" (${thread.id}, fleet/${thread.id}): idle`);
+    // the coordinator answers and does nothing: no second call for the same quiet period
+    await turn(coordinator, "idle");
+    await Bun.sleep(QUIET + 20);
+    await fleet.superviseProjects();
+    expect(toCoordinator(coordinator)).toHaveLength(told + 1);
+    // a thread moves, then settles: the next quiet period calls again
+    await turn(thread, "working");
+    await fleet.superviseProjects();
+    await turn(thread, "idle");
+    await turn(coordinator, "idle");
+    const before = toCoordinator(coordinator).length;
+    await fleet.superviseProjects();
+    await Bun.sleep(QUIET + 20);
+    await fleet.superviseProjects();
+    expect(toCoordinator(coordinator)).toHaveLength(before + 1);
+    expect(toCoordinator(coordinator).at(-1)).toStartWith(ANDON);
+  });
+
+  it("leaves a project run with the person alone: no standstill call and no closing against GitHub", async () => {
+    const removed: string[] = [];
+    const { fleet, runtime, registry, root } = setup({
+      agents, gitRoot: async () => "/repo", quietMs: QUIET,
+      landing: { gitBranch: async () => "main", branchHead: async () => "c0ffee", removeThread: async (_r, _w, branch) => { removed.push(branch); return undefined; },
+        readPullRequest: async () => ({ number: 3, url: "https://github.com/o/r/pull/3", state: "MERGED", checks: "pass", head: "c0ffee" }) as never },
+    });
+    runtime.getStatus = "idle";
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "PASS");
+    await Bun.sleep(GRACE + 5);
+    fleet.onPaneStatus(thread.paneId);
+    fleet.onPaneStatus(coordinator.paneId);
+    await Bun.sleep(30);
+    const told = runtime.prompts.filter((p) => p.name === coordinator.herdrName).length;
+    await fleet.superviseProjects();
+    await Bun.sleep(QUIET + 20);
+    await fleet.superviseProjects();
+    expect(runtime.prompts.filter((p) => p.name === coordinator.herdrName)).toHaveLength(told);
+    expect(registry.get(thread.id)!.landed).toBeUndefined();
+    expect(removed).toEqual([]);
+  });
+
+  it("closes a thread GitHub shows merged once its lead stayed settled through the quiet period, and tells the coordinator", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff, git, removed } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    // its turn ended before the fleet saw a pull request; the merge came after, and no turn ended since
+    handoff(thread, "ISSUES — waiting for the review");
+    await turn(thread, "idle");
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!.pr).toBeUndefined();
+    git.pr = { number: 11, url: "https://github.com/o/r/pull/11", state: "MERGED", checks: "pass", head: "c0ffee" };
+    await fleet.superviseProjects();
+    await fleet.superviseProjects();
+    // a lead that settled just now may be between two turns of its own: not yet
+    expect(registry.get(thread.id)!.landed).toBeUndefined();
+    await Bun.sleep(QUIET + 20);
+    await fleet.superviseProjects();
+    expect(registry.get(thread.id)!).toMatchObject({ landed: "merged", pr: { number: 11, state: "MERGED" } });
+    expect(removed).toEqual([thread.branch!]);
+    await until(() => toCoordinator(coordinator).some((text) => text.includes("pull request #11")), "the coordinator hears of it");
+    expect(toCoordinator(coordinator).at(-1)).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}): GitHub shows pull request #11 merged and its lead stayed settled 0 minutes, so the fleet closed the thread. Close its issue if it is still open.`].join("\n"));
   });
 
   it("leaves a thread whose pull request the polling finds merged open for its lead to finish, tells the coordinator, and closes it as the lead's turn ends", async () => {
