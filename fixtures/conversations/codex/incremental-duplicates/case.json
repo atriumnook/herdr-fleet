@@ -1,0 +1,191 @@
+{
+  "about": "server/codex.test.ts: incremental Codex records pairs duplicates and tool results across writes without mutating earlier snapshots\nThe writes as appends to the rollout, each followed by a page; whole.jsonl is the same records in one file",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Inspect"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "pwd",
+                "input": "{\n  \"cmd\": \"pwd\"\n}",
+                "output": ""
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "append": "rollout.jsonl",
+      "text": "{\"type\":\"response_item\",\"timestamp\":\"2026-09-22T01:00:00.000Z\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"long\",\"output\":\"done\"}}\n{\"type\":\"event_msg\",\"timestamp\":\"2026-09-22T01:00:00.000Z\",\"payload\":{\"type\":\"agent_message\",\"message\":\"Finished\"}}\n"
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Inspect"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "pwd",
+                "input": "{\n  \"cmd\": \"pwd\"\n}",
+                "output": "done"
+              },
+              {
+                "kind": "text",
+                "text": "Finished"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v2"
+      }
+    },
+    {
+      "append": "rollout.jsonl",
+      "text": "{\"type\":\"response_item\",\"timestamp\":\"2026-09-22T01:00:00.000Z\",\"payload\":{\"type\":\"message\",\"role\":\"assistant\",\"content\":[{\"type\":\"output_text\",\"text\":\"Finished\"}],\"phase\":\"final_answer\"}}\n{\"type\":\"event_msg\",\"timestamp\":\"2026-09-22T01:00:00.000Z\",\"payload\":{\"type\":\"task_complete\"}}"
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Inspect"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "pwd",
+                "input": "{\n  \"cmd\": \"pwd\"\n}",
+                "output": "done"
+              },
+              {
+                "kind": "text",
+                "text": "Finished",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v3"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "whole.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Inspect"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "pwd",
+                "input": "{\n  \"cmd\": \"pwd\"\n}",
+                "output": "done"
+              },
+              {
+                "kind": "text",
+                "text": "Finished",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v4"
+      }
+    }
+  ]
+}

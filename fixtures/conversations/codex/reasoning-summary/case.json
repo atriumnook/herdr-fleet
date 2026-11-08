@@ -1,0 +1,42 @@
+{
+  "about": "server/codex.test.ts: Codex conversation records retains reasoning summaries as thinking without decoding encrypted context",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "thinking",
+                "text": "Considering options"
+              },
+              {
+                "kind": "thinking",
+                "text": "Analysis text"
+              },
+              {
+                "kind": "text",
+                "text": "Answer",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

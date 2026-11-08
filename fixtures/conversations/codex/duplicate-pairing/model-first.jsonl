@@ -1,0 +1,6 @@
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}}
+{"type":"event_msg","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"user_message","message":"continue"}}
+{"type":"event_msg","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"agent_message","message":"Done"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done"}],"phase":"final_answer"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"continue"}]}}

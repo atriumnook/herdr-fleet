@@ -1,0 +1,120 @@
+{
+  "about": "server/skill-activity.test.ts: Codex native completed read events work through code-mode wrappers, deduplicate and survive incremental snapshots\nThe writes as appends, each followed by a page; once.jsonl holds the completed event once. codexReadSkills on items is left to the test",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Please review"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "append": "rollout.jsonl",
+      "text": "{\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"item\":{\"type\":\"CommandExecution\",\"id\":\"exec-one\",\"parsed_cmd\":[{\"type\":\"read\",\"path\":\"/skills/review/SKILL.md\"}],\"exit_code\":0,\"status\":\"completed\"}}}\n{\"type\":\"event_msg\",\"payload\":{\"type\":\"item_completed\",\"item\":{\"type\":\"CommandExecution\",\"id\":\"exec-one\",\"parsed_cmd\":[{\"type\":\"read\",\"path\":\"/skills/review/SKILL.md\"}],\"exit_code\":0,\"status\":\"completed\"}}}\n"
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Please review"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "skill",
+                "skill": {
+                  "name": "review",
+                  "path": "/skills/review/SKILL.md",
+                  "evidence": "instructions",
+                  "status": "loaded"
+                }
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "once.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Please review"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "skill",
+                "skill": {
+                  "name": "review",
+                  "path": "/skills/review/SKILL.md",
+                  "evidence": "instructions",
+                  "status": "loaded"
+                }
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v3"
+      }
+    }
+  ]
+}

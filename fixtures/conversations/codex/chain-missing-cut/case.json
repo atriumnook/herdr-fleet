@@ -1,0 +1,43 @@
+{
+  "about": "server/codex.test.ts: Codex rollout resolution shows less history, never the wrong one, when no rollout holds a cut, and finds it once one does\nThe first half: no rollout holds the cut. Finding it once one appears waits for the incomplete chain to expire (forgetHistoryChains, the clock), which stays in the test (ADR 0122)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "codex-home/sessions/2026/09/23/rollout-2026-09-23T12-00-00-01a0a337-19e8-7712-92f5-aa0883392afd.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "later question"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "later answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

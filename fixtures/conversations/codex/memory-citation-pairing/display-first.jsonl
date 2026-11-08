@@ -1,0 +1,2 @@
+{"type":"event_msg","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"agent_message","message":"Done"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done\n<oai-mem-citation>\n<citation_entries>\nMEMORY.md:1-2|note=[context]\n</citation_entries>\n<rollout_ids>\nthread-id\n</rollout_ids>\n</oai-mem-citation>"}],"phase":"final_answer"}}
