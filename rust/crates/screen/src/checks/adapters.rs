@@ -6,20 +6,21 @@ use protocol::js;
 use regex::Regex;
 
 use super::vt::strip_vt;
-use super::{js_lines, last_match, open_question};
+use super::{last_match, multiline, open_question};
 use crate::ScreenChecks;
 use crate::text::{js_regex, split_lines};
 
 /// `/^\s*(?:Error|error): (.+)$/gm`, the error line most CLIs leave.
-static ERROR_LINE: LazyLock<Regex> = LazyLock::new(|| js_regex(r"^{s}*(?:Error|error): ({.}+)$"));
+static ERROR_LINE: LazyLock<Regex> =
+    LazyLock::new(|| js_regex(r"(?m)^{s}*(?:Error|error): ({.}+)$"));
 
 /// `lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm)`.
 fn error_line(screen: &str) -> Option<String> {
     last_match(screen, &ERROR_LINE)
 }
 
-static PI_ERROR: LazyLock<Regex> = LazyLock::new(|| js_regex(r"^{s}*Error: ({.}+)$"));
-static PI_TURN_ERROR: LazyLock<Regex> = LazyLock::new(|| js_regex(r"^{s}*Error: ({.}+?){s}*$"));
+static PI_ERROR: LazyLock<Regex> = LazyLock::new(|| js_regex(r"(?m)^{s}*Error: ({.}+)$"));
+static PI_TURN_ERROR: LazyLock<Regex> = LazyLock::new(|| js_regex(r"(?m)^{s}*Error: ({.}+?){s}*$"));
 
 pub(super) const PI: ScreenChecks = ScreenChecks {
     startup_error: |screen| last_match(screen, &PI_ERROR),
@@ -56,8 +57,8 @@ fn pi_turn_error(output: &str) -> Option<String> {
 
 /// Claude's input line: `❯` and a no-break space after any SGR sequences.
 static CLAUDE_INPUT: LazyLock<Regex> =
-    LazyLock::new(|| js_regex(r"^(?:\x1b\[[0-9;]*m)*❯\x{a0}({.}*)$"));
-static CLAUDE_API_ERROR: LazyLock<Regex> = LazyLock::new(|| js_regex(r"API Error: ?({.}+)$"));
+    LazyLock::new(|| js_regex(r"(?m)^(?:\x1b\[[0-9;]*m)*❯\x{a0}({.}*)$"));
+static CLAUDE_API_ERROR: LazyLock<Regex> = LazyLock::new(|| js_regex(r"(?m)API Error: ?({.}+)$"));
 
 pub(super) const CLAUDE: ScreenChecks = ScreenChecks {
     startup_error: error_line,
@@ -70,10 +71,8 @@ pub(super) const CLAUDE: ScreenChecks = ScreenChecks {
 
 /// The input line opens with ❯ and a no-break space; the placeholder there is dim, a draft is not.
 fn claude_draft(screen: &str) -> bool {
-    let Some(line) = js_lines(screen)
-        .filter_map(|(_, line)| CLAUDE_INPUT.captures(line))
-        .last()
-    else {
+    let screen = multiline(screen);
+    let Some(line) = CLAUDE_INPUT.captures_iter(&screen).last() else {
         return false;
     };
     let mut text = line.get(1).map_or("", |group| group.as_str());
@@ -84,7 +83,7 @@ fn claude_draft(screen: &str) -> bool {
 }
 
 /// Codex shows a failed request as a `■ <reason>` line once its retries are spent.
-static CODEX_FAILED: LazyLock<Regex> = LazyLock::new(|| js_regex(r"^{s}*■{s}+({.}+)$"));
+static CODEX_FAILED: LazyLock<Regex> = LazyLock::new(|| js_regex(r"(?m)^{s}*■{s}+({.}+)$"));
 
 pub(super) const CODEX: ScreenChecks = ScreenChecks {
     startup_error: error_line,
@@ -129,9 +128,9 @@ fn cursor_question(screen: &str) -> Option<String> {
 
 /// agy's input: a `>` line between rules, empty or holding the auto mode's hint until something is
 /// typed (`> Auto mode: edits & safe commands auto-approved (shift+tab to cycle)`, as herdr reads
-/// it). A message or an option after `>` is not it. `AGY_INPUT`, matched line by line.
+/// it). A message or an option after `>` is not it.
 static AGY_INPUT: LazyLock<Regex> =
-    LazyLock::new(|| js_regex(r"^{s}*>(?:{s}+Auto mode: {.}*)?{s}*$"));
+    LazyLock::new(|| js_regex(r"(?m)^{s}*>(?:{s}+Auto mode: {.}*)?{s}*$"));
 /// The auto mode on agy's last line, `auto · ` before the model; `\b` is JavaScript's.
 static AGY_AUTO: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?-u:\b)auto · ").unwrap());
 static AGY_TRUST: LazyLock<Regex> =
@@ -158,25 +157,27 @@ pub(super) const AGY: ScreenChecks = ScreenChecks {
     turn_error: error_line,
 };
 
-/// The byte index of the last line `AGY_INPUT` matches.
+/// Where the last match of `AGY_INPUT` starts in `screen`, a text from `multiline`.
 fn agy_input_at(screen: &str) -> Option<usize> {
-    js_lines(screen)
-        .filter(|(_, line)| AGY_INPUT.is_match(line))
-        .map(|(at, _)| at)
+    AGY_INPUT
+        .find_iter(screen)
         .last()
+        .map(|found| found.start())
 }
 
 /// The mode from --settings is set some seconds after the input shows (`auto · ` before the model
 /// on its last line): a task typed before would run in the default mode, which asks before every
 /// command.
 fn agy_input_ready(screen: &str) -> bool {
-    agy_input_at(screen).is_some() && AGY_AUTO.is_match(screen)
+    AGY_INPUT.is_match(&multiline(screen)) && AGY_AUTO.is_match(screen)
 }
 
 fn agy_question(screen: &str) -> Option<String> {
+    // the questions take no line terminator, so they are found where they are in `screen`
+    let screen = multiline(screen);
     open_question(
-        screen,
-        agy_input_at(screen),
+        &screen,
+        agy_input_at(&screen),
         &[
             (
                 &AGY_TRUST,

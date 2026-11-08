@@ -1,17 +1,19 @@
 //! The agent adapters' looks at their CLIs' screens (server/fleet/adapters.ts:98-130, 147-476), and
 //! Cursor's usage screen (`cursorUsage`).
 //!
-//! TypeScript reads lines with the `m` flag (`/^\s*Error: (.+)$/gm`). Here each line, split where
-//! JavaScript ends a line (`\n`, `\r`, U+2028, U+2029), is matched without it (ADR
-//! 0193-phase-2-dependencies, "`m` フラグ"). In these patterns only a run of `\s` can go past a
-//! line's end (`^\s*`, `\s*$`, and agy's `>\s+Auto mode:`), so a match that does still matches on the
-//! line that holds the pattern's other characters (`Error:`, `■`, `>`) alone. Its groups take no line
-//! end, so they hold the same text, and where it starts before that line, whitespace alone lies
-//! between. So the answers are TypeScript's, U+2028 included, which `(?mR)` does not end a line at.
+//! TypeScript reads lines with the `m` flag (`/^\s*Error: (.+)$/gm`), whose `^` and `$` stand at each
+//! of JavaScript's line terminators (`\n`, `\r`, U+2028, U+2029; `\r\n` is two of them). The regex
+//! crate's `(?m)` stands at `\n` alone, so the text is matched with the other three written as `\n`
+//! (`multiline`): each is one character, as `\n` is, and the patterns' `\s` and `.` are JavaScript's
+//! (`js_regex`), so the matches are JavaScript's. `(?mR)` would not end a line at U+2028 (ADR
+//! 0193-phase-2-dependencies, "`m` フラグ"), and matching line by line would miss a `\s` that runs
+//! into the next line (`■\nreason` is a failed turn of Codex's).
 
 mod adapters;
 mod usage;
 mod vt;
+
+use std::borrow::Cow;
 
 use protocol::{FleetAgentKind, UsageReading, js};
 use regex::Regex;
@@ -35,31 +37,23 @@ pub(crate) fn cursor_usage(screen: &str, now: i64) -> Option<UsageReading> {
     usage::cursor_usage(screen, now)
 }
 
-/// The lines of `text` as a regular expression with the `m` flag sees them, each with its byte
-/// index.
-fn js_lines(text: &str) -> impl Iterator<Item = (usize, &str)> {
-    let mut start = 0;
-    let mut ends = text
-        .char_indices()
-        .filter(|&(_, c)| js::is_line_terminator(c))
-        .map(|(at, c)| (at, at + c.len_utf8()))
-        .chain([(text.len(), text.len())]);
-    std::iter::from_fn(move || {
-        let (end, next) = ends.next()?;
-        let line = (start, &text[start..end]);
-        start = next;
-        Some(line)
-    })
+/// `text` with each of JavaScript's line terminators written as `\n`, for a pattern with `(?m)`. A
+/// group that takes no line terminator holds the same text as in `text`.
+fn multiline(text: &str) -> Cow<'_, str> {
+    if text.contains(['\r', '\u{2028}', '\u{2029}']) {
+        Cow::Owned(text.replace(['\r', '\u{2028}', '\u{2029}'], "\n"))
+    } else {
+        Cow::Borrowed(text)
+    }
 }
 
-/// `lastMatch(output, /<line>/gm)`: the first group of the last line `line` matches, trimmed, if any
-/// is left.
-fn last_match(output: &str, line: &Regex) -> Option<String> {
-    let found = js_lines(output)
-        .filter_map(|(_, text)| line.captures(text))
-        .last()?;
-    let text = js::trim(found.get(1).map_or("", |group| group.as_str()));
-    (!text.is_empty()).then(|| text.to_owned())
+/// `lastMatch(output, pattern)` for a `pattern` with the `m` flag (`(?m)` here): its first group in
+/// the last match, trimmed, if any is left.
+fn last_match(output: &str, pattern: &Regex) -> Option<String> {
+    let text = multiline(output);
+    let found = pattern.captures_iter(&text).last()?;
+    let trimmed = js::trim(found.get(1).map_or("", |group| group.as_str()));
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
 }
 
 /// `openQuestion`: the question whose pattern shows last on the screen, after the CLI's last input
@@ -84,12 +78,24 @@ fn open_question(
 
 #[cfg(test)]
 mod tests {
-    use super::js_lines;
+    use super::multiline;
+    use crate::text::js_regex;
 
+    /// Where JavaScript's `/^|$/gm` matches in `a\r\nb\u2028c` (Bun 1.4.4): `^` at 0, 2, 3 and 5
+    /// (UTF-16 indices), `$` at 1, 2 and 4, and both at the end.
     #[test]
-    fn splits_lines_where_javascript_ends_them() {
-        let lines: Vec<_> = js_lines("a\r\nb\u{2028}c\n").collect();
-        assert_eq!(lines, [(0, "a"), (2, ""), (3, "b"), (7, "c"), (9, "")]);
-        assert_eq!(js_lines("").collect::<Vec<_>>(), [(0, "")]);
+    fn ends_lines_where_javascript_ends_them() {
+        let text = multiline("a\r\nb\u{2028}c");
+        assert_eq!(text, "a\n\nb\nc");
+        let starts: Vec<usize> = js_regex("(?m)^")
+            .find_iter(&text)
+            .map(|found| found.start())
+            .collect();
+        assert_eq!(starts, [0, 2, 3, 5]);
+        let ends: Vec<usize> = js_regex("(?m)$")
+            .find_iter(&text)
+            .map(|found| found.start())
+            .collect();
+        assert_eq!(ends, [1, 2, 4, 6]);
     }
 }
