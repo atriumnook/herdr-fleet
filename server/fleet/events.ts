@@ -10,8 +10,11 @@ import { dirname } from "node:path";
  * No message text, handoff or screen goes in: only ids, roles, agents, models, states and times.
  */
 export type FleetEvent =
-  /** a run's state changed (`from` is absent for a new run); `sent` says whether a turn the fleet sent is open */
-  | { kind: "state"; run: string; role: string; agent: string; model?: string; group: string; project?: string; from?: string; to: string; sent: boolean; error?: string }
+  /**
+   * a run's state changed (`from` is absent for a new run); `sent` says whether a turn the fleet sent
+   * is open; `interactive`, whether the run talks in its pane (absent in events written before it was)
+   */
+  | { kind: "state"; run: string; role: string; agent: string; model?: string; group: string; project?: string; interactive?: boolean; from?: string; to: string; sent: boolean; error?: string }
   /**
    * a run's turn ended and the fleet read what it left: `handoff`, whether its result file holds a
    * HANDOFF; `interactive`, whether the run talks in its pane (a lead may end a turn to wait, with no

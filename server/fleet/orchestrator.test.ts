@@ -1423,6 +1423,23 @@ describe("a project run without the person", () => {
     expect(toCoordinator(coordinator)).toHaveLength(told + 1);
   });
 
+  it("does not count leads stopped without a HANDOFF, as the fleet closes a landed thread and the person stops one", async () => {
+    const { fleet, runtime, turn, toCoordinator } = project();
+    runtime.output = ">\n? for shortcuts    auto · Gemini 4 Argon · medium";
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const threads = [];
+    for (const title of ["One", "Two"]) threads.push(await fleet.startThread({ title, task: "t", cwd: "/repo", callerRun: coordinator.id }));
+    for (const thread of threads) { await turn(thread, "idle"); fleet.onPaneEnded(thread.paneId); }
+    // the threads' news reaches the coordinator one turn at a time: it is free once both are read
+    await turn(coordinator, "idle");
+    await turn(coordinator, "idle");
+    await turn(coordinator, "idle");
+    const told = toCoordinator(coordinator).length;
+    await fleet.superviseProjects();
+    expect(toCoordinator(coordinator).slice(told).filter((text) => text.includes("without a HANDOFF"))).toEqual([]);
+  });
+
   it("counts a helper whose turn settled without a HANDOFF, its pane kept, and records each turn's end once its handoff is read", async () => {
     const { fleet, runtime, turn, toCoordinator, handoff, events } = project({ closeOnSettle: false });
     runtime.output = ">\n? for shortcuts    auto · Gemini 4 Argon · medium";

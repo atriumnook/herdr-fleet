@@ -1009,10 +1009,11 @@ export class Orchestrator {
       byAgent.set(run.agent, [...(byAgent.get(run.agent) ?? []), run]);
     }
     for (const [agent, runs] of byAgent) {
-      // failed; ended without a HANDOFF; or a helper settled without one (its start failed, or its turn
-      // ended on a question the adapter does not know), its pane kept
-      const bad = runs.filter((run) => run.state === "failed" || (run.state === "stopped" && run.result === undefined && !run.landed)
-        || (!run.interactive && isCompleted(run.state) && run.result === undefined && !this.pending.has(run.id)));
+      // failed; or a helper without a HANDOFF, settled (its start failed, or its turn ended on a question
+      // the adapter does not know, its pane kept) or ended. A lead stopped without one is not counted:
+      // the fleet closes a landed thread, and the person stops one, whatever its last turn left.
+      const bad = runs.filter((run) => run.state === "failed"
+        || (!run.interactive && run.result === undefined && !this.pending.has(run.id) && (isCompleted(run.state) || run.state === "stopped")));
       const key = `${coordinator.id} ${agent}`;
       if (bad.length < 2 || bad.length * 3 < runs.length || now - (this.anomalyAt.get(key) ?? -Infinity) < ANOMALY_WINDOW_MS) continue;
       if (!(await this.tellWhenFree(coordinator, agentAnomaly(agent, bad, runs.length)))) continue;
@@ -1514,7 +1515,7 @@ export class Orchestrator {
       const error = run.lastError && (run.state === "failed" || run.state === "blocked" || run.state === "unknown") ? run.lastError.slice(0, 200) : undefined;
       this.deps.events?.({
         kind: "state", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
-        ...(run.project ? { project: run.project } : {}), ...(previous ? { from: previous } : {}), to: run.state, sent: this.pending.has(run.id),
+        ...(run.project ? { project: run.project } : {}), interactive: run.interactive, ...(previous ? { from: previous } : {}), to: run.state, sent: this.pending.has(run.id),
         ...(error ? { error } : {}),
       });
     }

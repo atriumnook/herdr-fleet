@@ -8,7 +8,7 @@ import { metrics, readEvents, render } from "./metrics.ts";
 const MIN = 60_000;
 const P = "/repo";
 const state = (t: number, run: string, role: string, agent: string, from: string | undefined, to: string, sent: boolean, extra: Partial<TimedEvent> = {}): TimedEvent =>
-  ({ t: t * MIN, kind: "state", run, role, agent, group: run === "r" ? "g-lead" : run === "c" ? "g-project" : "g-lead", ...(run === "r" ? {} : { project: P }), ...(from ? { from } : {}), to, sent, ...extra }) as TimedEvent;
+  ({ t: t * MIN, kind: "state", run, role, agent, group: run === "r" ? "g-lead" : run === "c" ? "g-project" : "g-lead", ...(run === "r" ? {} : { project: P }), interactive: role === "lead" || role === "coordinator", ...(from ? { from } : {}), to, sent, ...extra }) as TimedEvent;
 
 /** a turn's end as the fleet read it: whether the run's result file held a HANDOFF */
 const turnEnd = (t: number, run: string, role: string, agent: string, interactive: boolean, handoff: boolean): TimedEvent =>
@@ -49,6 +49,8 @@ const events: TimedEvent[] = [
   state(54, "c", "coordinator", "claude", "working", "idle", false),
   { t: 70 * MIN, kind: "standstill", run: "c", project: P, quietMs: 15 * MIN },
   { t: 71 * MIN, kind: "reconciled", run: "l", project: P, pr: 9 },
+  // the fleet closes the landed thread: its lead's last turn left no HANDOFF, and it is not lost
+  state(71, "l", "lead", "claude", "done", "stopped", false),
   // another project's run: never counted here
   state(20, "x", "lead", "codex", undefined, "starting", false, { project: "/other", group: "g-other" } as Partial<TimedEvent>),
 ];

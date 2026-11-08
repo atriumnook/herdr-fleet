@@ -101,13 +101,14 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
       else ownTurns[event.role] = (ownTurns[event.role] ?? 0) + 1;
     }
   }
-  // a run without a HANDOFF, its start not counted already: it ended (its pane closed, or it failed)
-  // with its last turn leaving none or cut off, or a helper's last turn left none and its pane was kept
+  // a run without a HANDOFF, its start not counted already (as superviseProjects counts): one that
+  // failed, or a helper whose last turn left none (its pane kept) or that ended in the middle of one.
+  // A lead stopped without one is not counted: the fleet closes a landed thread, the person stops one.
   for (const event of last.values()) {
     if (event.role === "coordinator" || startFailed.has(event.run)) continue;
     const end = turnEnd.get(event.run);
-    const ended = event.to === "stopped" || event.to === "failed";
-    if ((ended && end?.handoff !== true) || (end && !end.handoff && !end.interactive)) entryOf(event.agent).lost += 1;
+    const interactive = event.interactive ?? end?.interactive ?? false;
+    if (event.to === "failed" || (!interactive && (end ? !end.handoff : event.to === "stopped"))) entryOf(event.agent).lost += 1;
   }
   const starts = [...startsByAgent].map(([agent, { starts, failed, lost }]) => ({ agent, starts, failed, lost, anomaly: failed + lost >= 2 && (failed + lost) * 3 >= Math.max(starts, failed + lost) }))
     .sort((a, b) => a.agent.localeCompare(b.agent));
