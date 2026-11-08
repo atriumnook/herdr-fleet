@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { BUNDLED_AGENTS_DIR, discoverAgents, findAgent, parseFrontmatter } from "./agents.ts";
+import { BUNDLED_AGENTS_DIR, contentHash, discoverAgents, findAgent, parseFrontmatter, roleVersion } from "./agents.ts";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -59,6 +59,17 @@ describe("role discovery", () => {
     const agents = discoverAgents(cwd, [], dirs);
     expect(findAgent(agents, "watcher")!.edits).toBe(false);
     expect(findAgent(agents, "worker")!.edits).toBeUndefined();
+  });
+
+  it("versions each role by the sha256 of its file's bytes, an override by its own file", () => {
+    // expected values: `printf -- '<the file>' | sha256sum`, first 12 hex digits
+    const { cwd, dirs } = fixture({ "helper.md": "---\nname: helper\n---\nYou are a helper." }, { "Helper2.md": "---\nname: helper\n---\nYou are a helper!" });
+    const helper = findAgent(discoverAgents(cwd, [], dirs), "helper")!;
+    expect(roleVersion(helper)).toEqual({ role: "helper", source: "project", file: join(cwd, ".herdr-fleet", "agents", "helper.md"), hash: "bc0cbd7ea75e" });
+    const { cwd: userOnly, dirs: userDirs } = fixture({}, { "helper.md": "---\nname: helper\n---\nYou are a helper!" });
+    expect(roleVersion(findAgent(discoverAgents(userOnly, [], userDirs), "helper")!)).toMatchObject({ source: "user", hash: "d4b14c1421bc" });
+    expect(contentHash("Always commit.")).toBe("3ccec6fa91ae");
+    for (const agent of discoverAgents(cwd, [], dirs)) expect(roleVersion(agent).hash).toMatch(/^[0-9a-f]{12}$/);
   });
 
   it("reads a file without frontmatter as all body", () => {
