@@ -347,7 +347,9 @@ export const agyAdapter: AgentAdapter = {
     return [
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
-      "--add-dir", options.resultDir,
+      // every run's results folder, not only its own: a reviewer reads the lead's contract and the
+      // files passed with --context there, and agy asks before it reads a file outside its folders
+      "--add-dir", dirname(options.resultDir),
       "--settings", JSON.stringify(agySettings(options.cwd)),
     ];
   },
