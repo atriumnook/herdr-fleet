@@ -1321,19 +1321,35 @@ describe("a project run without the person", () => {
     expect(toCoordinator(coordinator)).toHaveLength(2);
   });
 
-  it("keeps a pull request still open on the thread, for the polling that closes it once merged", async () => {
-    const { fleet, registry, turn, handoff, git, removed } = project();
+  it("leaves a thread whose pull request the polling finds merged open for its lead to finish, tells the coordinator, and closes it as the lead's turn ends", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff, git, removed } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
     const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
     git.pr = { number: 8, url: "https://github.com/o/r/pull/8", state: "OPEN", checks: "pending", head: "c0ffee" };
     handoff(thread, "PASS — opened #8");
     await turn(thread, "idle");
+    await turn(coordinator, "idle");
     expect(registry.get(thread.id)!.pr).toMatchObject({ number: 8, state: "OPEN" });
-    expect(removed).toEqual([]);
+    // the lead merged it in a turn that broke off to wait: it has the issue to close yet
     git.pr = { ...git.pr, state: "MERGED" };
     await fleet.refreshPullRequests();
+    await Bun.sleep(30);
+    expect(registry.get(thread.id)!).toMatchObject({ pr: { number: 8, state: "MERGED" } });
+    expect(registry.get(thread.id)!.landed).toBeUndefined();
+    expect(removed).toEqual([]);
+    expect(toCoordinator(coordinator)[2]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) merged pull request #8; the thread closes once its lead's turn ends`].join("\n"));
+    // told once, however often the polling runs
+    await turn(coordinator, "idle");
+    await fleet.refreshPullRequests();
+    await Bun.sleep(30);
+    expect(toCoordinator(coordinator)).toHaveLength(3);
+    // the lead's own next turn ends: the thread closes
+    await turn(thread, "working");
+    handoff(thread, "PASS — merged #8, closed the issue");
+    await turn(thread, "idle");
     expect(registry.get(thread.id)!.landed).toBe("merged");
+    expect(removed).toEqual([thread.branch!]);
   });
 });
 
