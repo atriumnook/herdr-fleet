@@ -12,7 +12,8 @@ import { candidatePorts } from "../scripts/contract/launch.ts";
 
 /**
  * createServer on the first port in 7400-7499 it can bind. Another test process can take a port
- * between the check and the bind, so a port in use is skipped as the launcher does. A createServer
+ * between the check and the bind, so a port in use is skipped as the launcher does. Bun names
+ * the port in use in the error's code; its message only asks "Is port N in use?". A createServer
  * that failed to bind leaves what it started before Bun.serve (the collector) to this test process.
  */
 function serveInTestPorts(options: Omit<NonNullable<Parameters<typeof createServer>[0]>, "port">): ReturnType<typeof createServer> {
@@ -20,7 +21,7 @@ function serveInTestPorts(options: Omit<NonNullable<Parameters<typeof createServ
     try {
       return createServer({ ...options, port });
     } catch (error) {
-      if (!/EADDRINUSE/.test(String(error))) throw error;
+      if ((error as { code?: unknown }).code !== "EADDRINUSE") throw error;
     }
   }
   throw new Error("no free port in 7400-7499");
