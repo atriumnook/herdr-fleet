@@ -1,6 +1,6 @@
 // black-box: scripts/contract/launch.ts
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { herdrRpc, paneSendText, paneSendKeys } from "./herdr/client.ts";
@@ -64,9 +64,20 @@ async function until(check: () => boolean, label: string, timeout = 10_000): Pro
   }
 }
 
+/**
+ * The home the panes' shell starts from: the person's shell configuration is no input of these
+ * tests, which type commands into the shell. A configuration may hold every new shell back before
+ * it reads a key, past the tests' deadlines: zsh-abbr's job queue in /tmp makes each new zsh wait
+ * up to 30 s for a shell that was closed while it started, as the panes the tests close are (#168).
+ * The empty .zshrc keeps zsh from asking its new-user questions.
+ */
+const shellHome = join(root, "home");
+mkdirSync(shellHome);
+writeFileSync(join(shellHome, ".zshrc"), "");
+
 async function pane(): Promise<string> {
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
-    "workspace.create", { label: "herdr-fleet-test-output", cwd: root, focus: false },
+    "workspace.create", { label: "herdr-fleet-test-output", cwd: root, focus: false, env: { HOME: shellHome, ZDOTDIR: shellHome } },
   );
   workspaces.push(created.workspace.workspace_id);
   return created.root_pane.pane_id;
