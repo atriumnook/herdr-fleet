@@ -14,6 +14,10 @@ const state = (t: number, run: string, role: string, agent: string, from: string
 const turnEnd = (t: number, run: string, role: string, agent: string, interactive: boolean, handoff: boolean): TimedEvent =>
   ({ t: t * MIN, kind: "turn", run, role, agent, group: "g-lead", ...(run === "r" ? {} : { project: P }), interactive, handoff }) as TimedEvent;
 
+/** the role file a run started with, as the fleet recorded it */
+const role = (t: number, run: string, name: string, source: "bundled" | "user", hash: string): TimedEvent =>
+  ({ t: t * MIN, kind: "role", run, role: name, source, file: `/${source}/${name}.md`, hash, standing: "eeeeeeeeeeee" }) as TimedEvent;
+
 // minutes from 0: the coordinator c, a thread's lead l, and its reviewer r (no project of its own: known by its group)
 const events: TimedEvent[] = [
   state(0, "c", "coordinator", "claude", undefined, "starting", false),
@@ -53,6 +57,14 @@ const events: TimedEvent[] = [
   state(71, "l", "lead", "claude", "done", "stopped", false),
   // another project's run: never counted here
   state(20, "x", "lead", "codex", undefined, "starting", false, { project: "/other", group: "g-other" } as Partial<TimedEvent>),
+  role(20, "x", "lead", "bundled", "bbbbbbbbbbbb"),
+  // the role version each run started with; r started before the fleet recorded it
+  role(0, "c", "coordinator", "bundled", "aaaaaaaaaaaa"),
+  role(2, "l", "lead", "bundled", "bbbbbbbbbbbb"),
+  role(5.2, "r4", "reviewer", "bundled", "cccccccccccc"),
+  role(7, "r3", "reviewer", "bundled", "cccccccccccc"),
+  // a user's reviewer.md in place of the bundled one
+  role(9, "r2", "reviewer", "user", "dddddddddddd"),
 ];
 
 const issues = [
@@ -82,6 +94,23 @@ describe("factory metrics", () => {
       { agent: "agy", starts: 3, failed: 2, lost: 1, anomaly: true },
       { agent: "claude", starts: 3, failed: 0, lost: 1, anomaly: false },
     ]);
+  });
+
+  it("counts runs per role version, the starts that failed and the runs without a HANDOFF, with the runs of no recorded version apart", () => {
+    // by hand from the events above: r3 failed to start and r4 left no HANDOFF on reviewer@cccc,
+    // r2 (the user's reviewer) stopped before writing one, r failed to start before versions were recorded
+    expect(result.roles).toEqual([
+      { role: "coordinator", hash: "aaaaaaaaaaaa", source: "bundled", file: "/bundled/coordinator.md", starts: 1, failed: 0, lost: 0 },
+      { role: "lead", hash: "bbbbbbbbbbbb", source: "bundled", file: "/bundled/lead.md", starts: 1, failed: 0, lost: 0 },
+      { role: "reviewer", hash: "cccccccccccc", source: "bundled", file: "/bundled/reviewer.md", starts: 2, failed: 1, lost: 1 },
+      { role: "reviewer", hash: "dddddddddddd", source: "user", file: "/user/reviewer.md", starts: 1, failed: 0, lost: 1 },
+      { role: "reviewer", starts: 1, failed: 1, lost: 0 },
+    ]);
+    const text = render(P, "rust", result);
+    const table = text.slice(text.indexOf("## Runs per role version"), text.indexOf("## Output"));
+    expect(table).toContain("| reviewer | cccccccccccc (bundled) | 2 | 1 | 1 |");
+    expect(table).toContain("| reviewer | dddddddddddd (user) | 1 | 0 | 1 |");
+    expect(table).toContain("| reviewer | not recorded | 1 | 1 | 0 |");
   });
 
   it("counts the turns an agent started by itself, per role, apart from the coordinator's typed ones", () => {
