@@ -44,10 +44,16 @@ export interface AgentRun {
   lastError?: string;
   /** the HANDOFF the agent wrote to its result file during its last settled turn; none if it wrote none then */
   result?: string;
+  /** what its last settled turn reported (report.json), or that it reported nothing; none for a run without a result file */
+  outcome?: TurnOutcome;
   /** the model this run replaced after a configured fallback */
   fallbackFrom?: string;
-  /** the run that took this run's task over after its first turn failed */
+  /** the run that took this run's task over: after a first turn that failed, or, for a thread's lead, a run that failed or a turn without a report */
   replacedBy?: string;
+  /** the thread a lead took over from an earlier run of it: that first run's id, which names the thread's worktree and branch */
+  thread?: string;
+  /** the CLIs a thread's lead runs failed on, or ended a turn without a report on, since the thread's last report: its next restart passes them over */
+  avoid?: FleetAgentKind[];
   /** candidates passed over before this one: no usage left, cooling down, or failed to start */
   skipped?: SkippedCandidate[];
   /** a thread lead's branch, when its thread works on a worktree */
@@ -96,6 +102,28 @@ export interface LandingStep {
   error?: string;
 }
 
+/**
+ * The states an agent reports a turn in (dsh-superagent's Report): still at it and going on by
+ * itself (progress), its turn done and waiting for a helper or a message (waiting), the task done
+ * and checked (ready), unable to go on without the person (blocked), tried and could not (failed),
+ * nothing to do (dropped).
+ */
+export const REPORT_STATES = ["progress", "waiting", "ready", "blocked", "failed", "dropped"] as const;
+export type ReportState = typeof REPORT_STATES[number];
+
+/** An agent's report of its turn, from report.json beside its handoff (server/fleet/report.ts). */
+export interface RunReport {
+  state: ReportState;
+  summary: string;
+  /** what the agent ran and what it showed */
+  evidence: string[];
+  /** one concrete question for the person, when the person must act */
+  human_action?: string;
+}
+
+/** What a settled turn reported: the report, or none, and why (nothing is read from the agent's prose). */
+export type TurnOutcome = { report: RunReport } | { report: null; problem: string };
+
 /** A thread's pull request on GitHub, and its checks: failing ones by name. */
 export interface PullRequest {
   number: number;
@@ -140,17 +168,18 @@ export interface ContractItem {
 }
 
 /**
- * Where a thread stands for the person: its lead at work, waiting on the person (a question in its
- * HANDOFF or on its screen, a landing step that went wrong, failing checks), done with a PASS, its
- * pull request open, settled otherwise, failed, its pane gone, or marked done.
+ * Where a thread stands for the person: its lead at work, waiting on the person (a report that
+ * needs them or no report, a question on its screen, a landing step that went wrong, failing
+ * checks), reported ready, its pull request open, settled otherwise, failed, its pane gone, or
+ * marked done.
  */
 export type ThreadState = "working" | "waiting" | "review" | "landing" | "idle" | "failed" | "ended" | "resolved";
 
-/** A thread as its project's coordinator sees it: the lead's run, where it stands, its HANDOFF status line, and its contract. */
+/** A thread as its project's coordinator sees it: the lead's run, where it stands, its last report, and its contract. */
 export interface ThreadSummary {
   run: AgentRun;
   state: ThreadState;
-  /** the HANDOFF's first line: PASS, ISSUES or BLOCKED and the evidence */
+  /** the last report's state and summary, or that the turn left none and why (outcomeLine) */
   status?: string;
   contract?: ContractItem[];
 }
@@ -184,9 +213,14 @@ export interface UsageEntry {
   error?: string;
 }
 
-/** The HANDOFF's status line: the first that opens with PASS, ISSUES or BLOCKED, without its markdown. */
-export function handoffStatus(result: string): string | undefined {
-  return result.split("\n").map((l) => l.replace(/^[\s#>-]+/, "").replace(/\*\*/g, "").trim()).find((l) => /^(PASS|ISSUES|BLOCKED)\b/.test(l));
+/** A report the person has to act on: it says so with a question, or the agent is blocked or could not do it. */
+export function needsPerson(report: RunReport): boolean {
+  return report.human_action !== undefined || report.state === "blocked" || report.state === "failed";
+}
+
+/** A turn's outcome in a line: the report's state and summary, or that there is none and why. */
+export function outcomeLine(outcome: TurnOutcome): string {
+  return outcome.report ? `${outcome.report.state} — ${outcome.report.summary}` : `no report — ${outcome.problem}`;
 }
 
 /** contract.md's assertions: `- [ ] A1 …` open, `- [x]` met, `- [!]` cannot be met. */
@@ -196,7 +230,18 @@ export function contractItems(text: string): ContractItem[] {
   }));
 }
 
-/** Where a thread stands: herdr's state of its lead, and once a turn settled, the HANDOFF's verdict. */
+/** The run that leads a thread now: `id`, or the lead run that took the thread over from it (`replacedBy`). */
+export function currentLead(runs: readonly AgentRun[], id: string): AgentRun | undefined {
+  let run = runs.find((candidate) => candidate.id === id);
+  for (let hops = 0; run?.role === "lead" && run.replacedBy && hops < 32; hops++) {
+    const next = runs.find((candidate) => candidate.id === run!.replacedBy);
+    if (!next) break;
+    run = next;
+  }
+  return run;
+}
+
+/** Where a thread stands: herdr's state of its lead, and once a turn settled, what it reported. */
 export function threadState(run: AgentRun): ThreadState {
   const working = run.state === "starting" || run.state === "working" || run.state === "unknown";
   if (run.resolvedAt !== undefined && !working) return "resolved";
@@ -204,12 +249,13 @@ export function threadState(run: AgentRun): ThreadState {
   if (run.state === "stopped") return "ended";
   if (run.state === "blocked") return "waiting";
   if (working) return "working";
-  // a plan waits on the person through the BLOCKED HANDOFF its turn ends with (agents/lead.md),
-  // not by itself: a lead that went on without the answers is not waiting
-  const status = run.result ? handoffStatus(run.result) : undefined;
-  if (status?.startsWith("BLOCKED") || run.landing?.error || (run.pr?.state === "OPEN" && run.pr.checks === "fail")) return "waiting";
+  // a plan waits on the person through the blocked report its turn ends with (agents/lead.md),
+  // not by itself: a lead that went on without the answers is not waiting. A turn that left no
+  // report is someone's to look at: the fleet starts a lead's thread again when it can.
+  const report = run.outcome?.report;
+  if ((report && needsPerson(report)) || run.outcome?.report === null || run.landing?.error || (run.pr?.state === "OPEN" && run.pr.checks === "fail")) return "waiting";
   if (run.pr?.state === "OPEN") return "landing";
-  return status?.startsWith("PASS") ? "review" : "idle";
+  return report?.state === "ready" ? "review" : "idle";
 }
 
 /** One candidate of a role: the CLI, and its model (none: the CLI's own default). */

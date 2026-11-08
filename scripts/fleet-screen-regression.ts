@@ -137,8 +137,9 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     const thread = (title: string) => post("/threads", { title, task: "t", cwd: repo, caller_run: coordinator.id });
     await thread("Fix the retry");
     const readme = await thread("Update the README");
-    // the README's lead finishes with a PASS and a contract, read once its turn settles
+    // the README's lead reports ready, with a contract, read once its turn settles
     writeFileSync(join(stateDir, "fleet-results", readme.id, "handoff.md"), "## HANDOFF\nPASS — the steps start the server (bun run start)\n");
+    writeFileSync(join(stateDir, "fleet-results", readme.id, "report.json"), JSON.stringify({ state: "ready", summary: "the steps start the server (bun run start)", evidence: ["bun run start"] }));
     writeFileSync(join(stateDir, "fleet-results", readme.id, "contract.md"), "- [x] A1 steps run — evidence: started\n- [x] A2 reviewed — evidence: no findings\n");
     await thread("Weekly usage window");
     await post("/spawn", { role: "reviewer", name: "review", task: "t", cwd: repo, group: readme.group });
@@ -232,8 +233,9 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     const limit = await thread("Limit the retries");
     const planned = await fetch(`${origin}/api/fleet/runs/${limit.id}/plan`, { method: "POST", headers: { "content-type": "application/json", "x-herdr-fleet": "1" }, body: JSON.stringify({ plan: PLAN }) });
     assert.equal(planned.status, 201, await planned.clone().text());
-    // and ends its turn BLOCKED, as agents/lead.md has it
+    // and ends its turn with a blocked report, as agents/lead.md has it
     writeFileSync(join(stateDir, "fleet-results", limit.id, "handoff.md"), "## HANDOFF\nBLOCKED — the plan waits for the person on the Fleet screen\n");
+    writeFileSync(join(stateDir, "fleet-results", limit.id, "report.json"), JSON.stringify({ state: "blocked", summary: "the plan waits for the person on the Fleet screen", evidence: ["fleet plan"] }));
     await screen.locator(".fleet-row.group-needs", { hasText: "Limit the retries" }).locator(".fleet-plan-chip", { hasText: "Plan · 1 to answer" }).waitFor();
     await screen.locator(".fleet-row", { hasText: "Limit the retries" }).click();
     const planOpen = screen.locator(".fleet-overview .fleet-open");

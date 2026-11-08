@@ -1,8 +1,11 @@
 import { describe, expect, it } from "bun:test";
-import type { AgentRun } from "../../shared/fleet.ts";
+import type { AgentRun, ReportState } from "../../shared/fleet.ts";
 import { fleetScreenModel, meterLevel, needsCount, projectsOf, threadCards } from "./fleetView.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import { INITIAL_STATE, type UiState } from "./state.ts";
+
+/** a run whose last turn reported `state` (report.json) */
+const reported = (state: ReportState, summary: string, human_action?: string): Pick<AgentRun, "outcome"> => ({ outcome: { report: { state, summary, evidence: [], ...(human_action ? { human_action } : {}) } } });
 
 const NOW = 1_000_000;
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
@@ -97,12 +100,12 @@ describe("the projects, their threads and the run open in the Overview", () => {
   it("groups the project's threads by what the person has to do, with what each waits on them for", () => {
     const model = fleetScreenModel(withRuns([
       coordinator(),
-      lead("ask", { result: "BLOCKED — keep the old API?", updatedAt: 5 }),
+      lead("ask", { ...reported("blocked", "Keep the old API?", "Keep the old API?"), updatedAt: 5 }),
       lead("screen", { state: "blocked", lastError: "Allow bun test?", updatedAt: 6 }),
       lead("broke", { state: "failed", lastError: "429 rate limit", updatedAt: 4 }),
-      lead("done", { result: "PASS — 12 pass", diff: { added: 24, removed: 9, files: 2 }, contract: [{ id: "A1", state: "met" }] }),
+      lead("done", { ...reported("ready", "12 pass"), diff: { added: 24, removed: 9, files: 2 }, contract: [{ id: "A1", state: "met" }] }),
       lead("busy", { state: "working" }),
-      lead("quiet", { result: "ISSUES — 1 left" }),
+      lead("quiet", { ...reported("waiting", "1 left") }),
       lead("over", { resolvedAt: 1 }),
       lead("elsewhere", { project: "/other" }),
     ]), NOW);
@@ -112,9 +115,19 @@ describe("the projects, their threads and the run open in the Overview", () => {
       ["needs", ["screen", "ask", "broke"]], ["review", ["done"]], ["working", ["busy"]], ["idle", ["quiet"]],
     ]);
     expect(model.needs).toBe(3);
-    expect(model.threadGroups[0]!.rows.map((row) => [row.label, row.question])).toEqual([["Needs you", "Allow bun test?"], ["Needs you", "BLOCKED — keep the old API?"], ["Failed", "429 rate limit"]]);
+    expect(model.threadGroups[0]!.rows.map((row) => [row.label, row.question])).toEqual([["Needs you", "Allow bun test?"], ["Needs you", "Keep the old API?"], ["Failed", "429 rate limit"]]);
     expect(model.threadGroups[1]!.rows[0]).toMatchObject({ label: "Ready for review", badge: "done", diff: { added: 24, removed: 9 }, contract: [{ id: "A1", state: "met" }] });
     expect(model.resolved.map((row) => row.id)).toEqual(["over"]);
+  });
+
+  it("shows a thread as the lead run that took it over, and keeps the thread open on that run", () => {
+    const runs = [coordinator(), lead("t", { state: "stopped", replacedBy: "t2" }), lead("t2", { group: "g-t", branch: "fleet/t", thread: "t", agent: "codex", state: "working" })];
+    const model = fleetScreenModel(withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null } } }), NOW);
+    const rows = model.threadGroups.flatMap((group) => group.rows);
+    expect(rows.map((row) => [row.id, row.selected])).toEqual([["t2", true]]);
+    expect(model.open).toMatchObject({ runId: "t2", agent: "codex" });
+    // the run it took over from is not one of the thread's agents
+    expect(model.open!.members.map((member) => member.runId)).toEqual([null]);
   });
 
   it("asks for a project's first message while no coordinator lives there", () => {
@@ -125,7 +138,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
 
   it("keeps the agents outside every thread and project conversation, and opens a thread on its lead or one of its helpers", () => {
     const helper = run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done" });
-    const runs = [coordinator(), lead("t", { result: "PASS" }), helper, run("loose", { group: "g9" }), run("old", { group: "g8", state: "stopped" })];
+    const runs = [coordinator(), lead("t", { ...reported("ready", "Done.") }), helper, run("loose", { group: "g9" }), run("old", { group: "g8", state: "stopped" })];
     const open = (member: string | null, expanded = false) => fleetScreenModel(withRuns(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member }, expanded, tab: "chat", settings: false } }), NOW);
     expect(open(null).agents.map((card) => card.id)).toEqual(["loose"]);
     expect(open(null).open).toMatchObject({ title: "t", paneId: "w1:t", paneRunId: "t", label: "Ready for review", canResolve: true, members: [{ runId: null, name: "lead", selected: true }, { runId: "rev", name: "rev", selected: false }] });
@@ -137,11 +150,11 @@ describe("the projects, their threads and the run open in the Overview", () => {
     const pr = { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "pending" } as const;
     const runs = [
       coordinator(),
-      lead("t", { result: "PASS", agent: "claude", baseBranch: "main", diff: { added: 3, removed: 1, files: 1 } }),
-      run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done", result: "PASS — no findings" }),
-      lead("pr", { result: "PASS", pr, updatedAt: 3 }),
-      lead("red", { result: "PASS", pr: { ...pr, number: 71, checks: "fail", failing: ["test"] }, updatedAt: 4 }),
-      lead("stuck", { result: "PASS", landing: { action: "merge", at: 1, sent: true, error: "fleet/stuck is not in main after the coordinator's turn; its reply says why." }, updatedAt: 5 }),
+      lead("t", { ...reported("ready", "Done."), agent: "claude", baseBranch: "main", diff: { added: 3, removed: 1, files: 1 } }),
+      run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done", ...reported("ready", "No findings.") }),
+      lead("pr", { ...reported("ready", "Done."), pr, updatedAt: 3 }),
+      lead("red", { ...reported("ready", "Done."), pr: { ...pr, number: 71, checks: "fail", failing: ["test"] }, updatedAt: 4 }),
+      lead("stuck", { ...reported("ready", "Done."), landing: { action: "merge", at: 1, sent: true, error: "fleet/stuck is not in main after the coordinator's turn; its reply says why." }, updatedAt: 5 }),
     ];
     const opened = (runId: string, extra: Partial<UiState> = {}) => fleetScreenModel(withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId, member: null } }, ...extra }), NOW).open!.landing!;
     const groups = fleetScreenModel(withRuns(runs), NOW).threadGroups;
@@ -151,7 +164,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
     const review = opened("t");
     expect(review).toMatchObject({ stage: "review", baseBranch: "main", branch: "fleet/t", repo: "/repo", tab: "chat", can: { lead: true, merge: true, discard: true } });
     expect(review.offers).toEqual({ createPr: true, mergeLocal: true, discard: true, fixCi: false, mergePr: false });
-    expect(review.checks.thread.find((check) => check.kind === "review")).toEqual({ kind: "review", tone: "ok", reviewers: [{ agent: "cursor", status: "PASS — no findings" }] });
+    expect(review.checks.thread.find((check) => check.kind === "review")).toEqual({ kind: "review", tone: "ok", reviewers: [{ agent: "cursor", status: "ready — No findings." }] });
     expect(opened("pr")).toMatchObject({ stage: "landing", offers: { createPr: false, mergeLocal: false, discard: false, mergePr: true }, mergePrReady: false });
     expect(opened("red")).toMatchObject({ offers: { fixCi: true }, attention: true });
     expect(opened("red").checks.pr.map((check) => [check.kind, check.tone])).toEqual([["pr", "ok"], ["ci", "bad"]]);
@@ -162,7 +175,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
   });
 
   it("reads the open thread's change into files, with the person's comments on their lines, and its checks", () => {
-    const runs = [coordinator(), lead("t", { result: "PASS", baseBranch: "main", diff: { added: 1, removed: 1, files: 1 } })];
+    const runs = [coordinator(), lead("t", { ...reported("ready", "Done."), baseBranch: "main", diff: { added: 1, removed: 1, files: 1 } })];
     const diff = ["diff --git a/a.md b/a.md", "--- a/a.md", "+++ b/a.md", "@@ -1,2 +1,2 @@", " same", "-old", "+new"].join("\n");
     const landing = {
       runId: "t", diff: { status: "ready" as const, data: { diff, truncated: true } },
@@ -182,7 +195,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
     expect(model.checks.thread.find((check) => check.kind === "comments")).toEqual({ kind: "comments", tone: "warn", count: 2, action: "comments" });
     expect(model.confirm).toEqual({ action: "discard", running: false, worktree: "/repo/.herdr-fleet/worktrees/t", ahead: 2 });
     // what was read for another thread is not this one's
-    const other = fleetScreenModel(withRuns([...runs, lead("u", { result: "PASS" })], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "u", member: null } }, landing }), NOW).open!.landing!;
+    const other = fleetScreenModel(withRuns([...runs, lead("u", { ...reported("ready", "Done.") })], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "u", member: null } }, landing }), NOW).open!.landing!;
     expect(other).toMatchObject({ changes: { status: "idle", files: [] }, checks: { status: "idle", branch: [] }, comments: [], confirm: null });
   });
 
@@ -193,7 +206,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
       claims: [{ text: "Tried three times.", ask: ask("limit"), children: [{ text: "Stops at RETRIES.", ask: ask("where"), children: [] }] }],
       shared: { text: "One constant." },
     };
-    const runs = [coordinator(), lead("t", { result: "BLOCKED — the plan waits", plan: { version: 2, asks: 2 } }), lead("u", { plan: { version: 1, asks: 1, answeredAt: 3 } })];
+    const runs = [coordinator(), lead("t", { ...reported("blocked", "The plan waits.", "Answer the plan in the Plan tab."), plan: { version: 2, asks: 2 } }), lead("u", { plan: { version: 1, asks: 1, answeredAt: 3 } })];
     const plan = { runId: "t", reading: { status: "ready" as const, data }, drafts: { t: { version: 2, choices: { where: "b" }, seen: ["where"], comments: { "1.1": "use the constant" }, note: "" } }, confirm: { runId: "t", version: 2, status: "asking" as const }, dropped: null, seq: 0 };
     const state = withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null }, tab: "plan" }, plan });
     const model = fleetScreenModel(state, NOW);
@@ -210,7 +223,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
     expect(model.threadGroups.find((group) => group.key === "needs")!.rows.map((row) => [row.id, row.plan])).toEqual([["t", { toAnswer: 1 }]]);
     expect(model.threads.find((row) => row.id === "u")!.plan).toBeUndefined();
     // a plan the lead went on without: shown, closed, nothing to answer or send
-    const closedRun = lead("t", { result: "PASS — five retries", plan: { version: 2, asks: 2, closedAt: 4 } });
+    const closedRun = lead("t", { ...reported("ready", "Five retries."), plan: { version: 2, asks: 2, closedAt: 4 } });
     const closed = fleetScreenModel(withRuns([coordinator(), closedRun], { fleetView: state.fleetView, plan: { ...plan, reading: { status: "ready", data: { ...data, closedAt: 4 } } } }), NOW);
     expect(closed.threads[0]!.plan).toBeUndefined();
     expect(closed.threads[0]!.state).toBe("review");
