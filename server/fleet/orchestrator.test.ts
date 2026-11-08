@@ -2377,7 +2377,7 @@ describe("merge authority", () => {
     const events: FleetEvent[] = [];
     const removed: string[] = [];
     const git = {
-      pr: null as Record<string, unknown> | null, head: "c0ffee" as string | null,
+      pr: null as Record<string, unknown> | null, head: "c0ffee" as string | null, tree: "clean" as string | null,
       compare: { files: ["src/parser.rs"], lines: 120, behind: 0 } as { files: string[]; lines: number; behind: number } | null,
       merged: false, mergeCommit: "abc0001" as string | null, revert: null as string | null, revertOnGitHub: true, slow: 0,
     };
@@ -2391,6 +2391,7 @@ describe("merge authority", () => {
         isMerged: async () => git.merged,
         removeThread: async (_repo, _worktree, branch) => { removed.push(branch); return undefined; },
         headCommit: async () => git.head,
+        worktreeState: async () => git.tree,
         compareOnGitHub: async () => { if (git.slow) await Bun.sleep(git.slow); return git.compare; },
         onGitHub: async () => git.revertOnGitHub,
         mergeCommitOf: async () => git.mergeCommit,
@@ -2500,6 +2501,45 @@ describe("merge authority", () => {
     await turn(thread, "idle");
     expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review on a CLI other than claude, pi passed." });
     expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("count a reviewer as a writer when its turn changed the worktree without a commit, or ended unseen", async () => {
+    const { fleet, registry, root, git, turn } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi" })]);
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo" });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+    // it edits files and commits nothing: the lead may commit them later
+    git.tree = "edited";
+    writeReport(root, reviewer.id, "ready", "Fixed two things.");
+    await turn(reviewer, "idle");
+    expect(registry.get(reviewer.id)!.reportedHead).toBeUndefined();
+    expect(registry.get(thread.id)!.writers).toEqual(["claude", "pi"]);
+    // another thread: its reviewer's pane closes before the fleet read its turn
+    const other = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo" });
+    const gone = await fleet.spawn({ role: "reviewer", task: "review", group: other.group, cwd: other.cwd, avoid: ["claude"] });
+    fleet.onPaneEnded(gone.paneId);
+    expect(registry.get(other.id)!.writers).toEqual(["claude", "pi"]);
+  });
+
+  it("let a merge the gate allowed wait for a live coordinator rather than start one, and never send it beside a merge the person pressed", async () => {
+    const { fleet, registry, runtime, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    registry.upsert({ ...registry.get(coordinator.id)!, state: "stopped" });
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", sent: false });
+    expect(registry.all().filter((run) => run.role === "coordinator")).toHaveLength(1);
+    expect(runtime.locations.filter((location) => location.label?.includes("fleet"))).toHaveLength(1);
+    // a coordinator lives again, busy; the person presses a merge of another thread meanwhile
+    const live = await fleet.startProject({ task: "go on", cwd: "/repo" });
+    await turn(live, "working");
+    const other = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo", callerRun: live.id });
+    await turn(other, "idle");
+    git.pr = { ...PR };
+    await fleet.land(other.id, "merge");
+    await turn(live, "idle");
+    const message = to(live).at(-1)!;
+    expect(message).toStartWith("[fleet] The person pressed these on the Fleet screen.");
+    expect(message).not.toContain(GATE);
+    expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", sent: false });
   });
 
   it("take the bundled reviewer, which may edit, as a review when its turn left the branch where it was", async () => {

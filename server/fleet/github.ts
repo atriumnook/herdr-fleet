@@ -6,6 +6,8 @@
  * merge records rest on are here too, and change nothing either.
  */
 
+import { statSync } from "node:fs";
+import { join } from "node:path";
 import type { PullRequest } from "../../shared/fleet.ts";
 
 const GH_TIMEOUT_MS = 20_000;
@@ -152,6 +154,23 @@ export async function onGitHub(repo: string, base: string, commit: string): Prom
   } catch {
     return null;
   }
+}
+
+/**
+ * The state of the worktree at `cwd` beside its commit, as a hash: what git status lists, the
+ * tracked files' changes, and each untracked file's size and time. It changes when anything in the
+ * worktree is written, committed or not. Null when git cannot say.
+ */
+export async function worktreeState(cwd: string): Promise<string | null> {
+  const [status, diff] = await Promise.all([
+    gitOutput(cwd, ["status", "--porcelain=v1", "--untracked-files=all", "-z"]),
+    gitOutput(cwd, ["diff", "HEAD", "--binary", "--no-ext-diff", "--no-textconv", "--"], 15_000),
+  ]);
+  if (status === null || diff === null) return null;
+  const untracked = status.split("\0").filter((entry) => entry.startsWith("?? ")).map((entry) => {
+    try { const stat = statSync(join(cwd, entry.slice(3))); return `${entry}:${stat.size}:${stat.mtimeMs}`; } catch { return `${entry}:gone`; }
+  });
+  return Bun.hash(`${status}\0${diff}\0${untracked.join("\0")}`).toString(16);
 }
 
 /** The commit the worktree at `cwd` is at, or null. */

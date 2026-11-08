@@ -246,6 +246,8 @@ describe("the projects, their threads and the run open in the Overview", () => {
     ];
     const opened = (runId: string) => fleetScreenModel(withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId, member: null } } }), NOW).open!.landing!;
     expect(opened("m")).toMatchObject({ stage: "landed", mergedBy: "gate", mergedVia: "pr", offers: { revert: true }, can: { revert: true } });
+    // the merge went into the branch the pull request was moved to, not the one the thread started from
+    expect(fleetScreenModel(withRuns([coordinator(), { ...runs[1]!, merged: { by: "github", via: "pr", base: "main", at: 2, commit: "abc0001" } }], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "m", member: null } } }), NOW).open!.landing!.baseBranch).toBe("main");
     expect(opened("r")).toMatchObject({ reverted: true, offers: { revert: false } });
     // GitHub named no merge commit: nothing to revert by
     expect(opened("n").offers.revert).toBe(false);

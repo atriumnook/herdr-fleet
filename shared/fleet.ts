@@ -51,6 +51,8 @@ export interface AgentRun {
    * turn that left `outcome` reviewed (kept only when the folder did not move during that turn)
    */
   turnHead?: string;
+  /** a reviewer's: the state of its folder's worktree when the fleet sent its last turn (github.ts worktreeState) */
+  turnTree?: string;
   reportedHead?: string;
   /** a thread lead's: every CLI that wrote in the thread so far (its lead runs, helpers that edit, a reviewer whose turn saw the branch move) */
   writers?: FleetAgentKind[];

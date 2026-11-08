@@ -591,7 +591,8 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
   const landing = fleet.landing;
   const read = landing.runId === run.id;
   const checks = read ? landing.checks.data : null;
-  const baseBranch = checks?.baseBranch ?? run.baseBranch ?? "main";
+  // a merged thread is on the branch its merge went into, which its pull request may have been moved to
+  const baseBranch = run.merged?.base ?? checks?.baseBranch ?? run.baseBranch ?? "main";
   const comments = landing.comments[run.id] ?? [];
   const prOpen = run.pr?.state === "OPEN";
   const stage = run.landed ? "landed" : prOpen ? "landing" : "review";
