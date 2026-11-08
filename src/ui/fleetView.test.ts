@@ -14,6 +14,9 @@ const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
 });
 const withRuns = (runs: AgentRun[], extra: Partial<UiState> = {}): UiState => ({ ...INITIAL_STATE, runs: { status: "ready", data: runs, again: false }, ...extra });
 
+const PERSON = { mode: "person" as const, branches: [], maxLines: 200, protected: [] };
+const GATED = { mode: "gated" as const, branches: ["rust"], maxLines: 150, protected: ["docs/plan.md"] };
+
 describe("fleet screen model", () => {
   it("orders runs by what they ask of the person, and folds ended ones away", () => {
     const model = fleetScreenModel(withRuns([
@@ -163,7 +166,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
     expect(groups[2]!.rows[0]).toMatchObject({ label: "Landing", badge: "working", pr });
     const review = opened("t");
     expect(review).toMatchObject({ stage: "review", baseBranch: "main", branch: "fleet/t", repo: "/repo", tab: "chat", can: { lead: true, merge: true, discard: true } });
-    expect(review.offers).toEqual({ createPr: true, mergeLocal: true, discard: true, fixCi: false, mergePr: false });
+    expect(review.offers).toEqual({ createPr: true, mergeLocal: true, discard: true, fixCi: false, mergePr: false, revert: false });
     expect(review.checks.thread.find((check) => check.kind === "review")).toEqual({ kind: "review", tone: "ok", reviewers: [{ agent: "cursor", status: "ready — No findings." }] });
     expect(opened("pr")).toMatchObject({ stage: "landing", offers: { createPr: false, mergeLocal: false, discard: false, mergePr: true }, mergePrReady: false });
     expect(opened("red")).toMatchObject({ offers: { fixCi: true }, attention: true });
@@ -232,8 +235,26 @@ describe("the projects, their threads and the run open in the Overview", () => {
     expect(fleetScreenModel(withRuns([coordinator(), { ...runs[1]!, state: "working" }], { fleetView: state.fleetView, plan }), NOW).open!.plan!.canRespond).toBe(false);
   });
 
+  it("offers Revert on a merged thread whose merge commit the fleet knows, until the fleet saw it reverted, and shows the merge gate", () => {
+    const gate = { at: 1, head: "c0ffee", ok: false, checks: [{ id: "report" as const, ok: true, detail: "The lead's latest report is ready." }, { id: "size" as const, ok: false, detail: "The change has 340 lines, over the limit of 200." }] };
+    const runs = [
+      coordinator(),
+      lead("m", { ...reported("ready", "Done."), state: "stopped", landed: "merged", merged: { by: "gate", via: "pr", at: 2, commit: "abc0001" }, baseBranch: "rust" }),
+      lead("r", { ...reported("ready", "Done."), state: "stopped", landed: "merged", merged: { by: "gate", via: "pr", at: 2, commit: "abc0002" }, reverted: { at: 3, commit: "beef" }, updatedAt: 2 }),
+      lead("n", { ...reported("ready", "Done."), state: "stopped", landed: "merged", merged: { by: "github", via: "pr", at: 2 }, updatedAt: 3 }),
+      lead("g", { ...reported("ready", "Done."), pr: { number: 9, url: "u", state: "OPEN", checks: "pass" }, gate, updatedAt: 4 }),
+    ];
+    const opened = (runId: string) => fleetScreenModel(withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId, member: null } } }), NOW).open!.landing!;
+    expect(opened("m")).toMatchObject({ stage: "landed", mergedBy: "gate", mergedVia: "pr", offers: { revert: true }, can: { revert: true } });
+    expect(opened("r")).toMatchObject({ reverted: true, offers: { revert: false } });
+    // GitHub named no merge commit: nothing to revert by
+    expect(opened("n").offers.revert).toBe(false);
+    expect(opened("g").checks.thread.find((check) => check.kind === "gate")).toEqual({ kind: "gate", tone: "warn", gate });
+    expect(opened("m").checks.thread.find((check) => check.kind === "gate")).toBeUndefined();
+  });
+
   it("draws the Settings page in place of the project, with each project's setup command and how full each account is", () => {
-    const settings = { file: "/c/fleet.json", roles: [], maxUsedPercent: 80, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, language: "", projects: [{ path: "/kept", setup: "make" }, { path: "/repo", setup: "bun install" }], readOnlyAgents: ["claude" as const] };
+    const settings = { file: "/c/fleet.json", roles: [], maxUsedPercent: 80, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, language: "", projects: [{ path: "/kept", setup: "make", merge: PERSON }, { path: "/repo", setup: "", merge: GATED }], readOnlyAgents: ["claude" as const] };
     const usage = { status: "ready" as const, again: false, refreshing: false, data: [
       { key: "codex", reading: { readAt: 1, windows: [{ name: "5h", usedPercent: 85 }, { name: "weekly", usedPercent: 40 }] } },
       { key: "claude", reading: { readAt: 1, windows: [{ name: "5h", usedPercent: 99, resetsAt: NOW - 1 }, { name: "weekly", usedPercent: 30 }] } },
@@ -246,7 +267,10 @@ describe("the projects, their threads and the run open in the Overview", () => {
     }), NOW);
     expect(model.open).toBeNull();
     expect(model.settings).toMatchObject({ status: "ready", saving: true, settings });
-    expect(model.settings!.projects).toEqual([{ path: "/repo", name: "repo", setup: "bun install" }, { path: "/kept", name: "kept", setup: "make" }]);
+    expect(model.settings!.projects).toEqual([{ path: "/repo", name: "repo", setup: "", merge: GATED }, { path: "/kept", name: "kept", setup: "make", merge: PERSON }]);
+    // a project the person's fleet.json does not name leaves every merge to the person
+    const known = fleetScreenModel(withRuns([coordinator({ project: "/other", cwd: "/other" })], { fleetView: { ...INITIAL_STATE.fleetView, settings: true }, fleetSettings: { status: "ready", data: { ...settings, projects: [] }, cwd: "/other", saving: 0, seq: 1 } }), NOW);
+    expect(known.settings!.projects).toEqual([{ path: "/other", name: "other", setup: "", merge: PERSON }]);
     // a window that reset no longer counts
     expect(model.settings!.accounts).toEqual([{ key: "claude", usedPercent: 30, skipped: false }, { key: "codex", usedPercent: 85, skipped: true }]);
     expect(model.settings!.entrances).toEqual({ status: "ready", list: [{ id: "agents", file: "/h/.agents/skills/herdr-fleet/SKILL.md", readers: ["pi", "codex", "cursor"], state: "outdated" }], tokenRequired: true, busy: "agents" });

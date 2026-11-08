@@ -103,9 +103,23 @@ describe("fleet settings", () => {
       projects: { [repo]: { setup: " bun install --ignore-scripts " }, "/elsewhere": { setup: "make" } },
     });
     expect(settings).toMatchObject({ maxUsedPercent: 80, rateLimitCooldownMinutes: 30, maxConcurrent: 4, closeOnSettle: false });
-    expect(settings.projects).toEqual([{ path: repo, setup: "bun install --ignore-scripts" }, { path: "/elsewhere", setup: "make" }]);
+    const person = { mode: "person" as const, branches: [], maxLines: 200, protected: [] };
+    expect(settings.projects).toEqual([{ path: repo, setup: "bun install --ignore-scripts", merge: person }, { path: "/elsewhere", setup: "make", merge: person }]);
     await store.update(repo, { projects: { "/elsewhere": { setup: "" } } });
     expect(written().projects).toEqual({ [repo]: { setup: "bun install --ignore-scripts" } });
+  });
+
+  it("set each project's merge authority beside its setup command, and drop it when set back to the person", async () => {
+    const { store, repo, written } = setup();
+    await store.update(repo, { projects: { [repo]: { setup: "bun install" } } });
+    const settings = await store.update(repo, { projects: { [repo]: { merge: { mode: "gated", branches: ["rust"], maxLines: 150, protected: ["docs/plan.md"] } } } });
+    expect(written().projects).toEqual({ [repo]: { setup: "bun install", merge: { mode: "gated", branches: ["rust"], maxLines: 150, protected: ["docs/plan.md"] } } });
+    expect(settings.projects).toEqual([{ path: repo, setup: "bun install", merge: { mode: "gated", branches: ["rust"], maxLines: 150, protected: ["docs/plan.md"] } }]);
+    // the person's own: no entry, and a project with nothing else set is not listed
+    await store.update(repo, { projects: { [repo]: { setup: "", merge: { mode: "person", branches: [], maxLines: 200, protected: [] } } } });
+    expect(written().projects).toEqual({});
+    await expect(store.update(repo, { projects: { [repo]: { merge: { mode: "gated", branches: [], maxLines: 0, protected: [] } } } })).rejects.toThrow("merge.maxLines");
+    await expect(store.update(repo, { projects: { [repo]: {} } })).rejects.toThrow("names its setup command or its merge authority");
   });
 
   it("set the person's language, refuse what is not a language's name, and unset it when empty", async () => {

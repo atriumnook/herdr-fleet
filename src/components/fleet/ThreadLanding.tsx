@@ -20,7 +20,7 @@ function count(n: number, one: string, many: string, vars: Record<string, string
 
 const PENDING: Record<string, string> = {
   pr: "Lead is opening a PR…", update: "Lead is updating the branch…", "fix-ci": "Lead is fixing CI…", comments: "Lead is taking your comments…",
-  merge: "Coordinator is merging…", "merge-pr": "Coordinator is merging the PR…",
+  merge: "Coordinator is merging…", "merge-pr": "Coordinator is merging the PR…", revert: "Coordinator is reverting the merge…",
 };
 
 /**
@@ -30,7 +30,15 @@ const PENDING: Record<string, string> = {
 export function LandingActions({ landing, resolve, emit }: { landing: LandingModel; resolve?: ReactNode; emit: Emit<LandingEvent> }) {
   const land = (action: LandAction) => emit({ type: "fleet-land", runId: landing.runId, action });
   if (landing.landed) {
-    return <div className="fleet-land-actions"><span className="fleet-land-done">{landing.landed === "merged" ? t("Merged into {base}", { base: landing.baseBranch }) : t("Discarded")}</span></div>;
+    const merged = landing.mergedBy === "gate" ? t("Merged into {base} by the gate", { base: landing.baseBranch }) : t("Merged into {base}", { base: landing.baseBranch });
+    return (
+      <div className="fleet-land-actions">
+        <span className="fleet-land-done">{landing.landed === "merged" ? merged : t("Discarded")}{landing.reverted ? ` · ${t("Reverted")}` : ""}</span>
+        {landing.pending && <span className="fleet-land-pending" role="status">{t(PENDING[landing.pending] ?? "Working…")}</span>}
+        <span className="fleet-grow" />
+        {landing.offers.revert && <button type="button" className="btn" disabled={!landing.can.revert} onClick={() => land("revert")}>{t("Revert")}</button>}
+      </div>
+    );
   }
   const { offers, can } = landing;
   return (
@@ -203,6 +211,11 @@ function checkText(check: CheckModel, landing: LandingModel): { title: string; s
       return check.pr.checks === "fail"
         ? { title: t("Checks failed"), sub: (check.pr.failing ?? []).join(" · "), action: { label: t("Fix CI"), step: "fix-ci" } }
         : { title: t(check.pr.checks === "pass" ? "Checks passed" : check.pr.checks === "pending" ? "Checks running" : "No checks") };
+    case "gate":
+      // the details are the server's words, as a landing step's error is
+      return check.gate.ok
+        ? { title: t("Merge gate held: the coordinator merges"), sub: check.gate.checks.map((each) => each.detail).join(" ") }
+        : { title: t("Merge gate waits for you"), sub: check.gate.checks.filter((each) => !each.ok).map((each) => each.detail).join(" ") };
   }
 }
 
@@ -261,6 +274,14 @@ export function LandingConfirm({ landing, emit }: { landing: LandingModel; emit:
       t("Then the coordinator brings {base} in {repo} up to date.", { base, repo }),
     ],
     label: t("Merge PR"),
+  } : confirm.action === "revert" ? {
+    title: t("Revert the merge of {branch}?", { branch }),
+    body: t("The coordinator reverts the merge commit on {base} in {repo} with git revert -m 1.", { base, repo }),
+    items: [
+      landing.mergedVia === "local" ? t("It pushes nothing: the merge was made here.") : t("Then it pushes {base} to origin, never with force.", { base }),
+      t("If {repo} has changes of its own or is on another branch, the coordinator stops and tells you.", { repo }),
+    ],
+    label: t("Revert"),
   } : {
     title: t("Discard this thread?"),
     body: t("This throws the thread's change away. It cannot be undone."),

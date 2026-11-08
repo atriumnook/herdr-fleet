@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import { isAgentKind } from "./adapters.ts";
+import { parseMergeSetting } from "./merge-mode.ts";
 import { isThinkingLevel, type FleetConfig, type ModelPolicy, type ProjectConfig, type RoleOverride } from "./types.ts";
 
 export const DEFAULT_CONFIG: FleetConfig = {
@@ -77,7 +78,11 @@ function parseRole(value: unknown): RoleOverride {
 
 function parseProject(value: unknown): ProjectConfig {
   if (!isObject(value)) return {};
-  return typeof value["setup"] === "string" && value["setup"].trim() ? { setup: value["setup"].trim() } : {};
+  const merge = parseMergeSetting(value["merge"]);
+  return {
+    ...(typeof value["setup"] === "string" && value["setup"].trim() ? { setup: value["setup"].trim() } : {}),
+    ...(merge ? { merge } : {}),
+  };
 }
 
 function parseModelPolicy(value: unknown): ModelPolicy {
@@ -117,6 +122,7 @@ export function mergeConfig(base: FleetConfig, raw: Record<string, unknown>): Fl
 export function loadConfig(cwd: string, warnings?: string[], userDir = userFleetDir()): FleetConfig {
   const project = findProjectPath(cwd, "fleet.json");
   // the project's file comes with the repository: it may tune roles, never name a command to run
+  // nor say who may merge its threads (merge-mode.ts)
   const { projects: _ignored, ...projectRaw } = project ? readJson(project, warnings) : {};
   return mergeConfig(mergeConfig(DEFAULT_CONFIG, readJson(join(userDir, "fleet.json"), warnings)), projectRaw);
 }

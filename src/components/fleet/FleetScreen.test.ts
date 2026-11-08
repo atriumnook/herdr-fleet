@@ -161,6 +161,22 @@ describe("Fleet screen views", () => {
     expect(checks).toContain("No review on another CLI");
   });
 
+  it("offers Revert on a merged thread, says the gate merged it, and draws the merge gate among the checks", () => {
+    const opened = (target: AgentRun, tab: "chat" | "checks" = "chat") => screen(state([coordinator, target], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: target.id, member: null }, tab } }));
+    const merged = opened(lead("t", { ...reported("ready", "Done."), landed: "merged", merged: { by: "gate", via: "pr", at: 1, commit: "abc0001" }, state: "stopped", baseBranch: "rust" }));
+    expect(merged).toContain("Merged into rust by the gate");
+    expect(merged).toMatch(/<button type="button" class="btn">Revert<\/button>/);
+    const reverting = opened(lead("t", { ...reported("ready", "Done."), landed: "merged", merged: { by: "person", via: "local", at: 1, commit: "abc0001" }, landing: { action: "revert", at: 2, sent: true }, state: "stopped", baseBranch: "rust" }));
+    expect(reverting).toContain("Coordinator is reverting the merge…");
+    expect(reverting).toMatch(/disabled="">Revert<\/button>/);
+    expect(opened(lead("t", { ...reported("ready", "Done."), landed: "merged", merged: { by: "gate", via: "pr", at: 1, commit: "abc0001" }, reverted: { at: 2, commit: "beef" }, state: "stopped", baseBranch: "rust" }))).not.toContain(">Revert<");
+    const gate = { at: 1, ok: false, checks: [{ id: "report" as const, ok: true, detail: "The lead's latest report is ready." }, { id: "size" as const, ok: false, detail: "The change has 340 lines, over the limit of 200." }] };
+    const checks = opened(lead("t", { ...reported("ready", "Done."), pr: { number: 9, url: "u", state: "OPEN", checks: "pass" }, gate }), "checks");
+    expect(checks).toContain("Merge gate waits for you");
+    expect(checks).toContain("The change has 340 lines, over the limit of 200.");
+    expect(checks).not.toContain("The lead&#x27;s latest report is ready.");
+  });
+
   it("draws the Settings page in place of the project: each role's candidates and the one the fleet would start now", () => {
     const settings = {
       file: "/home/me/.config/herdr-fleet/fleet.json", maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, language: "", projects: [], readOnlyAgents: ["claude" as const],

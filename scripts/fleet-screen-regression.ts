@@ -311,6 +311,24 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
       await Bun.sleep(100);
     }
     assert.equal(JSON.parse(readFileSync(settingsFile, "utf8")).projects[repo].setup, "bun install --ignore-scripts");
+    // the project's merge authority: Gated on a branch reaches fleet.json beside the setup command, and Person takes it out again
+    const merges = settingsPage.getByRole("group", { name: "Merges for repo" });
+    await merges.getByRole("button", { name: "Gated", exact: true }).click();
+    const branches = merges.getByRole("textbox", { name: "Branches" });
+    await branches.fill("staging");
+    await branches.press("Enter");
+    const projectEntry = () => JSON.parse(readFileSync(settingsFile, "utf8")).projects[repo];
+    for (let tries = 0; JSON.stringify(projectEntry().merge?.branches) !== '["staging"]'; tries++) {
+      assert.ok(tries < 50, "the gated branches reach fleet.json");
+      await Bun.sleep(100);
+    }
+    assert.deepEqual(projectEntry(), { setup: "bun install --ignore-scripts", merge: { mode: "gated", branches: ["staging"], maxLines: 200, protected: [] } });
+    await save(page, shots, "fleet-settings-projects-dark");
+    await merges.getByRole("button", { name: "Person", exact: true }).click();
+    for (let tries = 0; projectEntry().merge !== undefined; tries++) {
+      assert.ok(tries < 50, "Person takes the merge setting out of fleet.json");
+      await Bun.sleep(100);
+    }
     // Language: the language the person reads reaches fleet.json, and every agent started after it is told
     await settingsPage.getByRole("button", { name: "Language", exact: true }).click();
     const language = settingsPage.getByRole("textbox", { name: "Language you read" });
