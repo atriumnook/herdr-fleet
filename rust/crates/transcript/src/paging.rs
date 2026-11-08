@@ -597,8 +597,8 @@ impl<F: TranscriptFormat> Source<F> {
     ///
     /// Linux sets a write's times before its size, so a stat mid-append can see the same size
     /// with other times, as an in-place rewrite of the same size does. Such a stat is taken
-    /// again, outside the lock, every `RESTAT_EVERY` for up to `SETTLE`: an append shows its size
-    /// by then, a rewrite never does (Issue #219).
+    /// again every `RESTAT_EVERY` for up to `SETTLE`, each time under the lock, which is let go
+    /// while it waits: an append shows its size by then, a rewrite never does (Issue #219).
     fn identify(&self, path: &Path) -> Result<(FileStat, String), ConversationError> {
         let deadline = Instant::now() + SETTLE;
         loop {
