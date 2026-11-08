@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import type { ReportState } from "../../shared/fleet.ts";
 
 /**
  * What happened in the fleet, one JSON object per line, appended and never rewritten: the raw data
@@ -17,10 +18,11 @@ export type FleetEvent =
   | { kind: "state"; run: string; role: string; agent: string; model?: string; group: string; project?: string; interactive?: boolean; from?: string; to: string; sent: boolean; error?: string }
   /**
    * a run's turn ended and the fleet read what it left: `handoff`, whether its result file holds a
-   * HANDOFF; `interactive`, whether the run talks in its pane (a lead may end a turn to wait, with no
-   * HANDOFF yet), where a helper's turn without one did not finish its task
+   * HANDOFF; `report`, the state its report.json gave, or `none` without a valid one (absent for a
+   * run that keeps no result folder, and in events written before reports); `interactive`, whether
+   * the run talks in its pane
    */
-  | { kind: "turn"; run: string; role: string; agent: string; model?: string; group: string; project?: string; interactive: boolean; handoff: boolean }
+  | { kind: "turn"; run: string; role: string; agent: string; model?: string; group: string; project?: string; interactive: boolean; handoff: boolean; report?: ReportState | "none" }
   /** the person wrote to a project's coordinator through the fleet (`fleet project`, the Fleet screen) */
   | { kind: "person"; run: string; project: string }
   /** a project run without the person stood still and its coordinator was told (superviseProjects) */

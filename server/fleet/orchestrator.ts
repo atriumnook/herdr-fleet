@@ -8,6 +8,7 @@ import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brie
 import { contractItems, FROM_PANE, handoffStatus, threadState, type LandAction, type LandingChecks, type LineComment, type PullRequest } from "../../shared/fleet.ts";
 import { readPullRequest, type PullRequestReading } from "./github.ts";
 import { checkAnswer, planAnswerMessage, preparePlan, readPlan, writePlan } from "./plan.ts";
+import { readReport, REPORT_FILE } from "./report.ts";
 import { planAsks, planOpen, type Plan } from "../../shared/plan.ts";
 import { branchHead, branchState, diffStat, diffText, excludeWorktrees, gitBranch, gitHead, gitRoot, isMerged, removeThread, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
@@ -269,8 +270,12 @@ export class Orchestrator {
     rmSync(this.undeliveredFile(run), { force: true });
   }
 
+  private resultDir(run: AgentRun): string {
+    return join(this.deps.resultsDir, run.id);
+  }
+
   private resultFile(run: AgentRun): string {
-    return join(this.deps.resultsDir, run.id, RESULT_FILE);
+    return join(this.resultDir(run), RESULT_FILE);
   }
 
   list(group?: string): AgentRun[] {
@@ -1118,8 +1123,9 @@ export class Orchestrator {
     this.generations.set(run.id, generation);
     const pending: PendingTurn = { armed: false, blockedReported: false, generation, sawWorking: false };
     this.pending.set(run.id, pending);
-    // a result file found when the turn settles is this turn's
+    // a result file and a report found when the turn settles are this turn's
     rmSync(this.resultFile(run), { force: true });
+    rmSync(join(this.resultDir(run), REPORT_FILE), { force: true });
     const instructions = this.undelivered(run);
     try {
       const submitted = await this.deps.runtime.prompt(run.herdrName, instructions ? `${instructions}\n\n## Task\n\n${text}` : text, signal);
@@ -1319,9 +1325,12 @@ export class Orchestrator {
   private async readTurn(run: AgentRun, config: FleetConfig): Promise<void> {
     run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
     run.result = readResult(this.resultFile(run));
+    // a project's coordinator talks with the person and keeps no result folder: it reports nothing
+    run.outcome = run.role === PROJECT_ROLE ? undefined : readReport(this.resultDir(run));
     this.deps.events?.({
       kind: "turn", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
       ...(run.project ? { project: run.project } : {}), interactive: run.interactive, handoff: run.result !== undefined,
+      ...(run.outcome ? { report: run.outcome.report?.state ?? "none" } : {}),
     });
     // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
     // are spent; a turn that wrote its handoff did its work, whatever its screen quotes

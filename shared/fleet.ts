@@ -44,6 +44,8 @@ export interface AgentRun {
   lastError?: string;
   /** the HANDOFF the agent wrote to its result file during its last settled turn; none if it wrote none then */
   result?: string;
+  /** what its last settled turn reported (report.json), or that it reported nothing; none for a run without a result file */
+  outcome?: TurnOutcome;
   /** the model this run replaced after a configured fallback */
   fallbackFrom?: string;
   /** the run that took this run's task over after its first turn failed */
@@ -95,6 +97,28 @@ export interface LandingStep {
   /** the step did not go as asked: what the fleet found */
   error?: string;
 }
+
+/**
+ * The states an agent reports a turn in (dsh-superagent's Report): still at it and going on by
+ * itself (progress), its turn done and waiting for a helper or a message (waiting), the task done
+ * and checked (ready), unable to go on without the person (blocked), tried and could not (failed),
+ * nothing to do (dropped).
+ */
+export const REPORT_STATES = ["progress", "waiting", "ready", "blocked", "failed", "dropped"] as const;
+export type ReportState = typeof REPORT_STATES[number];
+
+/** An agent's report of its turn, from report.json beside its handoff (server/fleet/report.ts). */
+export interface RunReport {
+  state: ReportState;
+  summary: string;
+  /** what the agent ran and what it showed */
+  evidence: string[];
+  /** one concrete question for the person, when the person must act */
+  human_action?: string;
+}
+
+/** What a settled turn reported: the report, or none, and why (nothing is read from the agent's prose). */
+export type TurnOutcome = { report: RunReport } | { report: null; problem: string };
 
 /** A thread's pull request on GitHub, and its checks: failing ones by name. */
 export interface PullRequest {
