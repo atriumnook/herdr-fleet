@@ -1,6 +1,6 @@
 # TypeScript のテストの引き継ぎ先
 
-TypeScript 版のテストのファイルごとに、そのテストが Rust 版でどの検査に引き継がれるか(引き継ぎ先)を書く。計画(`docs/rust-migration/plan.md`)の「一致を確かめる基準」が、この一覧を置くと決めている。引き継ぎ先のない行が残っている間は、切り替えの準備ができていない(計画の段階 7)。行にするファイルと引き継ぎ先の値は、ADR `0122-parity-criteria` の「parity.md」に従う。
+TypeScript 版のテストのファイルごとに、そのテストが Rust 版でどの検査に引き継がれるか(引き継ぎ先)を書く。計画(`docs/rust-migration/plan.md`)の「一致を確かめる基準」が、この一覧を置くと決めている。引き継ぎ先のない行が残っている間は、切り替えの準備ができていない(計画の段階 7 の完了条件「parity.md の全行に引き継ぎ先がある」)。行にするファイルと引き継ぎ先の値は、ADR `0122-parity-criteria` の「parity.md」に従う。
 
 - 作った日: 2026-11-08(Issue #134。段階 1 のほかの Issue #123〜#133 がマージされたあとの `rust`)
 - 一覧とファイルの突き合わせ: `bun scripts/parity.ts`。下の「一覧」の行と、下の「行にするファイル」の glob が `git ls-files` から選んだファイルを比べ、欠けた行、余った行、2 回出た行、決まった値でない引き継ぎ先を挙げて、終了コード 1 で終わる
@@ -19,7 +19,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 
 | ファイル | 除いた理由 |
 |---|---|
-| `scripts/benchmark-codex-transcript.ts` | 計測の script。Codex の transcript を読み直す時間を、全体を読む場合と差分だけを読む場合で測り、JSON で出す。時間に合否の基準はない。2 つの読み方の結果が一致することも `assert` で確かめるが、同じことを `server/codex.test.ts` の `it`(incrementally reads one growing Codex task across split UTF-8, partial records and a rewrite)が確かめ、その `it` は会話ログの corpus に移った |
+| `scripts/benchmark-codex-transcript.ts` | 計測の script。Codex の transcript を読み直す時間を、全体を読む場合と差分だけを読む場合で測り、JSON で出す。時間に合否の基準はない。2 つの読み方の結果が一致することも `assert` で確かめるが、同じことを `server/conversation.test.ts` の `it`(incrementally reads one growing Codex task across split UTF-8, partial records and a rewrite)が確かめる。その `it` は行にあり、会話ログの corpus にも移った(`fixtures/conversations/codex/growing-task`) |
 
 テストの runner と道具(`scripts/screen-fixtures.ts`、`scripts/conversation-fixtures.ts`、`scripts/fleet-cli-fixtures.ts`、`scripts/security-fixtures/*.ts`、`scripts/contract/*.ts` のうちテストでないもの、`scripts/test-herdr.ts`、`scripts/ci-tests.ts`)は glob に当たらないので行にしない。これらを試すテストのファイルは行にある。
 
