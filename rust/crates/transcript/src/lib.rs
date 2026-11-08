@@ -16,6 +16,7 @@ mod codex;
 mod errors;
 mod format;
 mod js_json;
+mod nonblocking_open;
 mod omp;
 pub mod opencode;
 mod paging;
