@@ -1,0 +1,65 @@
+{
+  "about": "server/codex.test.ts: Codex queued questions (request_user_input_async) scans a rollout once however many ask at the same time\nThe answers in order; that two readers at once read the append once is left to the test, since the steps of a case run one after another",
+  "steps": [
+    {
+      "call": "unansweredQuestions",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": [
+        {
+          "key": "call_x:0",
+          "title": "First?",
+          "options": [
+            "a"
+          ]
+        }
+      ]
+    },
+    {
+      "append": "rollout.jsonl",
+      "text": "{\"type\":\"response_item\",\"timestamp\":\"2026-09-22T01:00:00.000Z\",\"payload\":{\"type\":\"function_call\",\"name\":\"request_user_input_async\",\"call_id\":\"call_y\",\"arguments\":\"{\\\"questions\\\":[{\\\"title\\\":\\\"Second?\\\",\\\"options\\\":[\\\"b\\\"]}]}\"}}\n"
+    },
+    {
+      "call": "unansweredQuestions",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": [
+        {
+          "key": "call_x:0",
+          "title": "First?",
+          "options": [
+            "a"
+          ]
+        },
+        {
+          "key": "call_y:0",
+          "title": "Second?",
+          "options": [
+            "b"
+          ]
+        }
+      ]
+    },
+    {
+      "call": "unansweredQuestions",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": [
+        {
+          "key": "call_x:0",
+          "title": "First?",
+          "options": [
+            "a"
+          ]
+        },
+        {
+          "key": "call_y:0",
+          "title": "Second?",
+          "options": [
+            "b"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,53 @@
+{
+  "about": "server/conversation-metadata.test.ts: recorded conversation model settings recognizes collaboration-mode settings and explicit effort overrides",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "collaboration.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "collaboration-model",
+          "reasoning_effort": "high"
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "effort-none.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "collaboration-model",
+          "reasoning_effort": "none"
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "effort-null.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "collaboration-model",
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    }
+  ]
+}

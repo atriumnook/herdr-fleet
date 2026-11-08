@@ -1,0 +1,3 @@
+{"type":"session_meta","payload":{"source":"cli","thread_source":"user"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"earlier question"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"earlier answer"}]}}

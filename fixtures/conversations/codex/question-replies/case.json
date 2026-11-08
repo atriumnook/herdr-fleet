@@ -1,0 +1,76 @@
+{
+  "about": "server/codex.test.ts: Codex queued questions (request_user_input_async) shows only what was answered, and the questions asked as the tool's summary",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Clean up the outputs"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "request_user_input_async",
+                "summary": "Which dataset? · Any notes?",
+                "input": "{\n  \"questions\": [\n    {\n      \"title\": \"Which dataset?\",\n      \"options\": [\n        \"LM-O\",\n        \"YCB-V\"\n      ]\n    },\n    {\n      \"title\": \"Any notes?\"\n    }\n  ]\n}",
+                "output": "{\"accepted\":true}"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "YCB-V"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "keep the logs\ntest"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<send_user_message_question_reply>not json</send_user_message_question_reply>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

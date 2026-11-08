@@ -1,0 +1,43 @@
+{
+  "about": "server/skill-activity.test.ts: late native read events from another Codex turn do not attach to the current answer",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Please review"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Current answer"
+              }
+            ],
+            "end_ts": "2026-09-27T00:00:01Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

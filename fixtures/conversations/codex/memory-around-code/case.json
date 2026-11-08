@@ -1,0 +1,119 @@
+{
+  "about": "server/codex.test.ts: Codex conversation records removes metadata around code examples before pairing their display records",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "pair-model-first.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Before `<oai-mem-citation>` after\n~~~xml\n<oai-mem-citation>sample</oai-mem-citation>\n~~~\nDone",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "pair-display-first.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Before `<oai-mem-citation>` after\n~~~xml\n<oai-mem-citation>sample</oai-mem-citation>\n~~~\nDone",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "mixed.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Before\n\n```xml\n<oai-mem-citation>literal</oai-mem-citation>\n```\n\nAfter"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "unclosed-code.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "BeforeAfter"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h4",
+        "version": "$v4"
+      }
+    }
+  ]
+}

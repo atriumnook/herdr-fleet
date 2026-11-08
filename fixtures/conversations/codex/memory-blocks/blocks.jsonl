@@ -1,0 +1,3 @@
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Before<oai-mem-citation>one</oai-mem-citation> after<oai-mem-citation>two</oai-mem-citation>"}],"phase":"final_answer"}}
+{"type":"event_msg","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"agent_message","message":"Next\n<oai-mem-citation>unfinished"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"<oai-mem-citation>metadata only</oai-mem-citation>"}]}}

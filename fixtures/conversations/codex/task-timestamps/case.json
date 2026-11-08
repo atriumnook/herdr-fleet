@@ -1,0 +1,54 @@
+{
+  "about": "server/codex.test.ts: Codex conversation records uses task timestamps rather than idle time before the next user prompt",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Check"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Done",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:07.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-22T02:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Next"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

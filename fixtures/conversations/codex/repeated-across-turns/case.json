@@ -1,0 +1,42 @@
+{
+  "about": "server/codex.test.ts: Codex conversation records does not deduplicate identical messages in separate turns",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "continue"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "continue"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

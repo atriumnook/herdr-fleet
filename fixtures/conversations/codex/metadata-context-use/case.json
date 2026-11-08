@@ -1,0 +1,25 @@
+{
+  "about": "server/conversation-metadata.test.ts: context use reads Codex's last request against the window it states",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null,
+          "context": {
+            "used": 67723,
+            "window": 258400
+          }
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

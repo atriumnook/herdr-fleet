@@ -1,0 +1,1 @@
+{"type":"response_item","timestamp":"2026-09-27T00:00:00Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"I typed <image name=x> and </image> literally."}]}}

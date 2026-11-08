@@ -1,0 +1,81 @@
+{
+  "about": "server/codex.test.ts: Codex tool calls that failed, and patches reads a failure from the output Codex records, judging a completed script as a whole\nEach output codexCallFailed is given in the test, as the output of a call: the call's error is what codexCallFailed answers",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "step 1",
+                "input": "{\n  \"cmd\": \"step 1\"\n}",
+                "output": "Chunk ID: 1\nWall time: 0.0 seconds\nProcess exited with code 1\nOutput:\n",
+                "error": true
+              },
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "step 2",
+                "input": "{\n  \"cmd\": \"step 2\"\n}",
+                "output": "Process exited with code 0\nOutput:\nok"
+              },
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "step 3",
+                "input": "{\n  \"cmd\": \"step 3\"\n}",
+                "output": "{\"output\":\"boom\",\"metadata\":{\"exit_code\":2}}",
+                "error": true
+              },
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "step 4",
+                "input": "{\n  \"cmd\": \"step 4\"\n}",
+                "output": "Script failed\nError: x",
+                "error": true
+              },
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "step 5",
+                "input": "{\n  \"cmd\": \"step 5\"\n}",
+                "output": "apply_patch verification failed: Failed to find expected lines in /x",
+                "error": true
+              },
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "step 6",
+                "input": "{\n  \"cmd\": \"step 6\"\n}",
+                "output": "Script completed\nProcess exited with code 1"
+              },
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "step 7",
+                "input": "{\n  \"cmd\": \"step 7\"\n}",
+                "output": "{\"accepted\":true}"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}
