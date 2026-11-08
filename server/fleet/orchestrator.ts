@@ -5,7 +5,7 @@ import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { findAgent } from "./agents.ts";
 import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
-import { contractItems, FROM_PANE, handoffStatus, threadState, type LandAction, type LandingChecks, type LineComment, type PullRequest } from "../../shared/fleet.ts";
+import { contractItems, FROM_PANE, outcomeLine, threadState, type LandAction, type LandingChecks, type LineComment, type PullRequest } from "../../shared/fleet.ts";
 import { readPullRequest, type PullRequestReading } from "./github.ts";
 import { checkAnswer, planAnswerMessage, preparePlan, readPlan, writePlan } from "./plan.ts";
 import { readReport, REPORT_FILE } from "./report.ts";
@@ -368,8 +368,7 @@ export class Orchestrator {
     const project = caller?.project ?? await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
     return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project).map((run) => {
       const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
-      const status = run.result ? handoffStatus(run.result) : undefined;
-      return { run, state: threadState(run), ...(status ? { status } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
+      return { run, state: threadState(run), ...(run.outcome ? { status: outcomeLine(run.outcome) } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
     });
   }
 
@@ -1336,8 +1335,8 @@ export class Orchestrator {
       ...(run.outcome ? { report: run.outcome.report?.state ?? "none" } : {}),
     });
     // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
-    // are spent; a turn that wrote its handoff did its work, whatever its screen quotes
-    const turnError = run.result === undefined ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
+    // are spent; a turn that wrote its report did its work, whatever its screen quotes
+    const turnError = !run.outcome?.report ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
     if (turnError && isCompleted(run.state)) {
       run.state = "failed";
       run.lastError = turnError;
@@ -1436,14 +1435,14 @@ export class Orchestrator {
   }
 
   /**
-   * A non-interactive run's pane, once its turn settled with its handoff written. A turn that ended
+   * A non-interactive run's pane, once its turn settled with its report written. A turn that ended
    * without one keeps its pane: a question the adapter does not know reads as a finished turn
    * (herdr reports agy's file access screen as done), and closing it would end the agent there,
    * where the person or its lead can still see what stopped it and send it on.
    */
   private async closeOnSettle(run: AgentRun, config: FleetConfig): Promise<void> {
     if (!config.closeOnSettle || run.interactive || !isCompleted(run.state) || this.pending.has(run.id)) return;
-    if (run.result === undefined) return;
+    if (!run.outcome?.report) return;
     const live = await this.liveState(run);
     if (live && isCompleted(live)) await this.closeSettledPane(run);
   }
@@ -1551,10 +1550,10 @@ function threadLabel(run: AgentRun): string {
 
 /**
  * A thread's settled turn that asks nothing, as the coordinator of a project run without the person
- * hears it: the HANDOFF's status line and contract, or how the turn failed, and where the rest is.
+ * hears it: its report and contract, or how the turn failed, and where the rest is.
  */
 export function threadTurnEnded(run: AgentRun): string {
-  const status = run.state === "failed" ? `FAILED — ${run.lastError ?? "the turn failed"}` : (run.result ? handoffStatus(run.result) : undefined) ?? "no HANDOFF status line";
+  const status = run.state === "failed" ? `failed — ${run.lastError ?? "the turn failed"}` : run.outcome ? outcomeLine(run.outcome) : "no report";
   const contract = run.contract?.length ? `\n  Contract: ${run.contract.map((item) => `${item.id} ${item.state === "met" ? "✓" : item.state === "unmet" ? "✗" : "…"}`).join(" ")}` : "";
   const pr = run.pr ? `\n  Pull request #${run.pr.number}: ${run.pr.state}${run.landed === "merged" ? ", and the thread is closed" : ""}` : "";
   return `${threadLabel(run)} ended its turn: ${status}${contract}${pr}`;
@@ -1634,17 +1633,21 @@ export function coordinatorStep(run: AgentRun & { branch: string }, baseBranch: 
 const QUESTION_MAX_CHARS = 4000;
 
 /**
- * A thread's settled turn that asks the person something, as its coordinator hears it: the whole
- * HANDOFF, which holds the question, the options and what the lead and the architect make of it.
- * Every other outcome reaches the person on the thread list and in push notifications.
+ * A thread's settled turn whose report asks the person something (blocked, or a human_action), as
+ * its coordinator hears it: the question, and the whole HANDOFF, which holds the options and what
+ * the lead and the architect make of it. Every other outcome reaches the person on the thread list
+ * and in push notifications.
  */
 export function threadQuestion(run: AgentRun): string | undefined {
-  if (run.state === "failed" || !run.result || !/^BLOCKED\b/.test(handoffStatus(run.result) ?? "")) return undefined;
-  const handoff = run.result.length > QUESTION_MAX_CHARS ? `${run.result.slice(0, QUESTION_MAX_CHARS)}\n[cut at ${QUESTION_MAX_CHARS} characters]` : run.result;
+  const report = run.outcome?.report;
+  if (run.state === "failed" || !report || (report.state !== "blocked" && report.human_action === undefined)) return undefined;
+  const result = run.result ?? "";
+  const handoff = result.length > QUESTION_MAX_CHARS ? `${result.slice(0, QUESTION_MAX_CHARS)}\n[cut at ${QUESTION_MAX_CHARS} characters]` : result;
   const plan = run.plan && planOpen(run.plan)
     ? `\nIts plan (version ${run.plan.version}, ${run.plan.asks} decision${run.plan.asks === 1 ? "" : "s"}) waits for the person in the thread's Plan tab on the Fleet screen: point them there, and do not answer it yourself.`
     : "";
-  return `${threadLabel(run)} asks the person:\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}${plan}`;
+  const quoted = handoff ? `\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}` : "";
+  return `${threadLabel(run)} asks the person: ${report.human_action ?? report.summary}${quoted}${plan}`;
 }
 
 /**

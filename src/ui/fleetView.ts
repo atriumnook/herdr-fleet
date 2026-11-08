@@ -1,4 +1,4 @@
-import { handoffStatus, modelListed, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type LandAction, type LineComment, type ModelListing, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
+import { modelListed, needsPerson, outcomeLine, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type LandAction, type LineComment, type ModelListing, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import { parseDiff, type DiffLine } from "./diff.ts";
 import { isEnded, planDraft, type ConfirmedStep, type PlanDraft, type ThreadTab, type UiState } from "./state.ts";
@@ -491,11 +491,12 @@ export function projectsOf(state: Pick<UiState, "runs" | "fleetView">): { list: 
 
 function threadRow(run: AgentRun, selected: boolean, fleet: Pick<FleetState, "plan">): ThreadRowModel {
   const state = threadState(run);
-  const status = run.result ? handoffStatus(run.result) : undefined;
+  const report = run.outcome?.report;
   const group: ThreadRowModel["group"] = state === "waiting" || state === "failed" ? "needs" : state === "review" || state === "landing" || state === "working" || state === "resolved" ? state : "idle";
   const failing = run.pr?.state === "OPEN" && run.pr.checks === "fail" ? `PR #${run.pr.number}: ${(run.pr.failing ?? []).join(", ")}` : undefined;
   const question = state === "failed" ? run.lastError : state !== "waiting" ? undefined
-    : run.state === "blocked" ? run.lastError : status?.startsWith("BLOCKED") ? status : run.landing?.error ?? failing ?? status;
+    : run.state === "blocked" ? run.lastError : report && needsPerson(report) ? report.human_action ?? report.summary
+    : run.landing?.error ?? failing ?? (run.outcome ? outcomeLine(run.outcome) : undefined);
   return {
     id: run.id, title: run.name, state, group, ...THREAD_BADGE[state], agent: run.agent, branch: run.branch, diff: run.diff, contract: run.contract ?? [], ...(run.pr ? { pr: run.pr } : {}),
     ...(question ? { question } : {}), startedAt: run.startedAt, updatedAt: run.updatedAt, selected,
@@ -608,7 +609,7 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
   ] : [];
   const threadChecks: CheckModel[] = [
     { kind: "contract", tone: !run.contract?.length ? "none" : contractOpen ? "warn" : "ok", items: run.contract ?? [] },
-    { kind: "review", tone: reviewers.length ? "ok" : "warn", reviewers: reviewers.map((helper) => ({ agent: helper.agent, ...(helper.result && handoffStatus(helper.result) ? { status: handoffStatus(helper.result) } : {}) })) },
+    { kind: "review", tone: reviewers.length ? "ok" : "warn", reviewers: reviewers.map((helper) => ({ agent: helper.agent, ...(helper.outcome ? { status: outcomeLine(helper.outcome) } : {}) })) },
     { kind: "comments", tone: comments.length ? "warn" : "ok", count: comments.length, ...(comments.length ? { action: "comments" as const } : {}) },
   ];
   const pr = checks?.pr ?? run.pr;
