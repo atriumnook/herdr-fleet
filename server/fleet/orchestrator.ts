@@ -628,13 +628,16 @@ export class Orchestrator {
       ...(definition.edits === false && adapter.readOnlyNote ? [adapter.readOnlyNote({ merges: definition.name === PROJECT_ROLE, fleetCommand: fleet })] : []),
       ...(resultFile ? [
         `Your result file is ${resultFile}.`,
+        `Your report file is ${join(dirname(resultFile), REPORT_FILE)}.`,
         ...(definition.edits === false
           ? [adapter.readOnlyEditsResult
-            ? "You edit no file but your result file: write that with your file-editing tool, which is limited to it."
-            : "You edit no file, and your file-editing tools are off: write your result file with a shell command."]
+            ? "You edit no file but your result file and your report file: write them with your file-editing tool, which is limited to their folder."
+            : "You edit no file, and your file-editing tools are off: write your result file and your report file with a shell command."]
           : []),
-        "At the end of each delegated turn, write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section.",
-        "The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED, and the evidence for it (what you ran and what it showed). Under ISSUES, list every issue you can prove, not only the first. Then: outcome, changed files, verification, unresolved questions.",
+        "At the end of each turn, write your report file, replacing what it holds: one JSON object with \"state\": progress, waiting, ready, blocked, failed or dropped; \"summary\": one or two sentences; \"evidence\": a list of what you ran and what it showed; and \"human_action\": one concrete question for the person, only when the person must act.",
+        "The states: progress, you are still at it and go on by yourself; waiting, your turn is done and you wait for a helper's result or a message; ready, the task is done and checked; blocked, you cannot go on without the person; failed, you tried and could not do it; dropped, there is nothing to do (it does not reproduce, or something else superseded it).",
+        "The fleet takes your turn's outcome from your report file alone: a turn that ends without a valid one counts as no report, whatever your reply says.",
+        "Also write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section: outcome, changed files, verification, unresolved questions. List every issue you can prove, not only the first.",
       ] : []),
       ...(standing ? ["", "## Standing orders", "The person who runs this fleet gives these to every agent. Follow them in every turn. Every agent of the fleet gets them, so a task you hand on need not repeat them.", standing] : []),
     ].join("\n");
