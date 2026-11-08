@@ -1452,6 +1452,86 @@ describe("a thread outlives its lead run", () => {
     expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge", sent: true });
   });
 
+  it("turns down Merge into main whose base branch was read while the thread was taken over, so the next press goes alone", async () => {
+    let readBranch = () => {};
+    const branchRead = new Promise<void>((resolveRead) => { readBranch = resolveRead; });
+    let holdBranch = false;
+    let reading = false;
+    const { fleet, runtime, registry, root, turn, report, promptsTo } = thread({ landing: {
+      gitBranch: async () => { if (!holdBranch) return null; reading = true; await branchRead; return "main"; },
+    } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    await turn(coordinator, "working");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    let starting = false;
+    runtime.startImpl = async (options) => { if (options.kind === "codex") { starting = true; await gate; } return "idle"; };
+    runtime.output = "API Error: 529 overloaded";
+    const failing = turn(first, "idle");
+    await until(() => starting, "the new lead starting");
+    // the person presses Merge; the new lead takes the thread over while its base branch is read
+    holdBranch = true;
+    const merging = fleet.land(first.id, "merge");
+    await until(() => reading, "the base branch being read");
+    release();
+    await failing;
+    await until(() => registry.get(first.id)!.replacedBy !== undefined, "the new lead");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    readBranch();
+    await expect(merging).rejects.toMatchObject({ code: "run_ended" });
+    expect(new Outbox(join(root, "fleet-outbox.json")).pending()).toEqual([]);
+    // pressed again, on the lead that holds the thread
+    registry.upsert({ ...registry.get(next.id)!, pr: { number: 7, url: "https://github.com/o/r/pull/7", state: "OPEN", checks: "pass" } });
+    await fleet.land(first.id, "merge-pr");
+    runtime.output = "agent output";
+    await turn(coordinator, "idle");
+    const steps = promptsTo(coordinator).slice(1);
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toContain("gh pr merge 7 --merge");
+    expect(steps[0]).not.toContain("Merge into main");
+  });
+
+  it("keeps a newer step the person pressed on the new lead while it started over the old run's merge", async () => {
+    const { fleet, runtime, registry, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main" } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    registry.upsert({ ...registry.get(first.id)!, pr: { number: 7, url: "https://github.com/o/r/pull/7", state: "OPEN", checks: "pass" } });
+    await turn(coordinator, "working");
+    await fleet.land(first.id, "merge");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    let starting = false;
+    runtime.startImpl = async (options) => { if (options.kind === "codex") { starting = true; await gate; } return "idle"; };
+    runtime.output = "API Error: 529 overloaded";
+    const failing = turn(first, "idle");
+    await until(() => starting, "the new lead starting");
+    // the new lead is listed while it starts, and the person presses Merge PR on it
+    const next = registry.all().find((run) => run.thread === first.id && run.id !== first.id)!;
+    await Bun.sleep(2);
+    await fleet.land(next.id, "merge-pr");
+    release();
+    await failing;
+    await until(() => registry.get(first.id)!.replacedBy !== undefined, "the new lead");
+    expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge-pr", sent: false });
+    runtime.output = "agent output";
+    await turn(coordinator, "idle");
+    const steps = promptsTo(coordinator).slice(1);
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toContain("gh pr merge 7 --merge");
+    expect(steps[0]).not.toContain("Merge into main");
+  });
+
   it("tells the coordinator of a project run without the person nothing of a restart, and the replacement's turn as usual", async () => {
     const { fleet, registry, turn, report, promptsTo } = thread({ config: { autonomous: true } });
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });

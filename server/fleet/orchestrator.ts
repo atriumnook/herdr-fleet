@@ -788,6 +788,8 @@ export class Orchestrator {
       this.save(run);
       return this.notifyNow(run, leadStep(run, action, baseBranch, options.comments ?? []), signal);
     }
+    // a lead that took the thread over while the branch was read holds its steps now
+    if (run.replacedBy) throw replaced(run);
     run.landing = { action, at: Date.now(), sent: false };
     this.save(run);
     const coordinator = this.projectCoordinator(run);
@@ -1482,10 +1484,10 @@ export class Orchestrator {
         thread: { repo: run.project ?? null, owner: run.owner, base: run.base, baseBranch: run.baseBranch, takeover: { from: run, thread: threadId(run), task } },
       });
       run.replacedBy = next.id;
-      // the new run took the landing step over as it started: one the person pressed meanwhile, or one
-      // marked sent meanwhile, is the step it holds
+      // the new run took the landing step over as it started: one the person pressed on the old run
+      // meanwhile, or one marked sent meanwhile, is the step it holds, unless one pressed on it is newer
       const lead = this.deps.registry.get(next.id);
-      if (lead && run.landing) {
+      if (lead && run.landing && (!lead.landing || lead.landing.at <= run.landing.at)) {
         lead.landing = run.landing;
         this.save(lead);
       }
