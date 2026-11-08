@@ -19,8 +19,8 @@ Built:
 | Project rail | The projects, each with a dot: needs you, working or idle |
 | Project conversation | The coordinator's pane, where the person writes requests |
 | Overview, Threads | The threads by what they ask of the person: Needs you, Ready for review, Landing, Working, Idle, and the resolved ones folded |
-| Overview, Agents | Runs outside threads, and every run as a card: needs you, failed, working, done |
-| A thread | Its members (the lead and its helpers) and three tabs: **Chat**, **Plan** when the lead handed one, and **Changes** with the diff, line comments and the landing steps |
+| Overview, Agents | The runs outside threads that have not ended, as cards |
+| A thread | Its members (the lead and its helpers), the landing steps above its tabs, and the tabs **Chat**, **Plan** when the lead handed one, and, on a branch of its own, **Changes** (the diff and line comments) and **Checks** |
 | Settings | Each role's candidates and thinking, usage limits, concurrency, the setup commands, and the fleet skill's entrances |
 
 The Overview button carries the number of threads that need the person. A push notification tells the person when an agent waits for an answer or a permission.
@@ -32,7 +32,7 @@ The Overview button carries the number of threads that need the person. A push n
 
 ### Landing
 
-Built: the Changes tab shows what stands between the thread and landing: work no commit holds, commits ahead of and behind the base branch, the contract, whether a review ran on another CLI, and the pull request with its checks. Each landing step of 002 is a button there, offered only when it applies.
+Built: the Checks tab shows what stands between the thread and landing: work no commit holds, commits ahead of and behind the base branch, the contract, whether a review ran on another CLI, and the pull request with its checks. The landing steps of 002 are buttons above the thread's tabs (Discard, Merge into the base branch, Create PR, Fix CI, Merge PR) and on the Checks rows they fix (Update branch, Send to lead, Fix CI), each offered only when it applies. Line comments are left on the Changes tab and sent with Send to lead.
 
 ## Principles
 

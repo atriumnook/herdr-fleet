@@ -60,7 +60,10 @@ These are the slices in progress and the later work, by where they change the co
 | What | Where | Kept |
 | --- | --- | --- |
 | Runs | `<stateDir>/fleet-runs.json`, rewritten on each change | Across restarts; a run untouched for a week is dropped |
-| Reports, contracts, plans | `<stateDir>/fleet-results/<run id>/` | As long as the run is in the registry |
+| Reports, contracts | `<stateDir>/fleet-results/<run id>/`, which the run's agent writes | As long as the run is in the registry |
+| Plans | `<stateDir>/fleet-plans/<run id>.json`, written by the server only, apart from the folders agents write | As long as the run is in the registry |
+| Instructions not yet sent | `<stateDir>/fleet-instructions/<run id>.md`, for a CLI that takes them in its first prompt | Until that prompt is sent |
+| Usage | `<stateDir>/fleet-usage.json` | Across restarts |
 | Events | `<stateDir>/fleet-events.jsonl`, one JSON line per event, appended | Without message text, reports or screens |
 | Settings | The person's `~/.config/herdr-fleet/fleet.json`, the project's `.herdr-fleet/fleet.json` | — |
 

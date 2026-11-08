@@ -13,7 +13,7 @@ Only the person starts work, in one of two ways (Built):
 
 The coordinator turns a request into threads; a lead hands parts of its thread to helpers. Nothing else starts a thread: there is no proactive work and no rule that starts work by itself.
 
-Reaching the server at all is access control (Built): without a token or a paired device, only a request from a loopback address with a loopback Host passes, which also stops DNS rebinding. This is not loosened for convenience.
+Reaching the server at all is access control (Built, `server/access.ts`): without a token or a paired device, a request passes only from a loopback address with a loopback Host and no proxy headers, which also stops DNS rebinding, or through Tailscale on this machine as the machine's owner. A configured token is required whatever else holds. This is not loosened for convenience.
 
 ## What the person approves
 
@@ -25,8 +25,8 @@ Every step that leaves the machine or lands work waits for the person. The perso
 | Update branch | Update branch | the lead | merging the base branch into the thread's branch |
 | Create a pull request | Create PR | the lead | pushing the branch and opening one pull request |
 | Fix CI | Fix CI | the lead | fixing failing checks and pushing to that pull request |
-| Review comments | the diff view | the lead | addressing those comments |
-| Merge into a branch | Merge | the coordinator | `git merge --no-ff` of the thread's branch on the main checkout |
+| Review comments | Send to lead, after commenting on lines in the Changes tab | the lead | addressing those comments |
+| Merge into a branch | Merge into <base branch> | the coordinator | `git merge --no-ff` of the thread's branch on the main checkout |
 | Merge a pull request | Merge PR | the coordinator | `gh pr merge --merge` of that pull request |
 | Discard | Discard | the fleet server | removing the thread's worktree and branch, after a confirmation that cannot be undone |
 

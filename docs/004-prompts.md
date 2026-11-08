@@ -10,12 +10,12 @@ Built: when the fleet starts a run, it assembles the agent's instructions in thi
 2. **Fleet coordination:** the run's name and group, the `fleet` commands it may use, how to hand work on with a brief when its role may start agents, and that a question or an approval on another agent's screen goes to the person.
 3. The CLI's note, when its adapter has one: agy's says that its sandboxed terminal runs no git, project tool or `fleet` command.
 4. For a role that edits no file, the CLI's read-only note, when it has one: OpenCode's lists the commands it may run, and says to ask rather than try another form.
-5. The result file and the report it writes at the end of each turn.
+5. The result file and the report it writes at the end of each turn, for every role but the coordinator, which has no result file.
 6. **Standing orders:** the person's `~/.config/herdr-fleet/standing.md`, then the project's nearest `.herdr-fleet/standing.md`.
 
 The task follows, as the first prompt: the brief, under the headings Goal, You may change, Context, Done when and Verify, then Forbidden, Timebox and Notes when given. Later prompts are `[fleet]` messages (002) and what the person types in the pane.
 
-The instructions reach the agent as a file it reads at startup, or as its CLI's system-prompt argument, as its adapter takes them; herdr refuses a multi-line argument.
+How the instructions reach the agent depends on its CLI (`instructionsInPrompt` and `launchArgs` in its adapter): as a system-prompt file its CLI reads at startup (herdr refuses a multi-line argument), as Codex's developer instructions, or, for Cursor, agy and OpenCode, at the head of the first prompt, kept in `<stateDir>/fleet-instructions/` until that prompt is sent.
 
 ## What the person and a project write
 
