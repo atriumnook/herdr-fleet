@@ -882,13 +882,24 @@ export class Orchestrator {
    * The open pull requests, read again: their checks, and whether the person merged or closed one
    * on GitHub. A merged one closes its thread once its lead is not at work. The server calls this
    * from time to time; it asks GitHub nothing while no thread has an open pull request.
+   *
+   * Without the person, the lead merges its own pull request and goes on (it closes the issue and
+   * writes its HANDOFF), and a turn that broke off to wait looks settled in between: the thread
+   * stays open, the coordinator hears of the merge once (the reading kept on the run is no longer
+   * OPEN), and the thread closes as the lead's turn ends (finalize, settleUnsentTurn).
    */
   async refreshPullRequests(): Promise<void> {
     for (const run of this.list().filter((each) => isThread(each) && each.pr?.state === "OPEN" && !each.landed)) {
       const thread = run as AgentRun & { project: string; branch: string };
       try {
         const reading = await this.readPullRequest(thread);
-        if (reading?.state === "MERGED" && !this.pending.has(run.id) && run.state !== "working") await this.mergedOnGitHub(thread, reading);
+        if (reading?.state !== "MERGED") continue;
+        if (this.deps.config(run.cwd).autonomous) {
+          run.notice = threadMerged(run);
+          run.updatedAt = Date.now();
+          this.save(run);
+          void this.tellCoordinator(run);
+        } else if (!this.pending.has(run.id) && run.state !== "working") await this.mergedOnGitHub(thread, reading);
       } catch {
         // GitHub could not be asked: the reading kept stands until the next try
       }
@@ -1387,6 +1398,11 @@ export function threadTurnEnded(run: AgentRun): string {
   const contract = run.contract?.length ? `\n  Contract: ${run.contract.map((item) => `${item.id} ${item.state === "met" ? "✓" : item.state === "unmet" ? "✗" : "…"}`).join(" ")}` : "";
   const pr = run.pr ? `\n  Pull request #${run.pr.number}: ${run.pr.state}${run.landed === "merged" ? ", and the thread is closed" : ""}` : "";
   return `${threadLabel(run)} ended its turn: ${status}${contract}${pr}`;
+}
+
+/** A thread's pull request the polling found merged, as the coordinator of a project run without the person hears it. */
+export function threadMerged(run: AgentRun): string {
+  return `${threadLabel(run)} merged pull request #${run.pr?.number ?? "?"}; the thread closes once its lead's turn ends`;
 }
 
 const QUESTIONS_HEADER = "[fleet] Threads ask the person. These come from the fleet, not from the person.";
