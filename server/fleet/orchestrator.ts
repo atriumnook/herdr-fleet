@@ -1426,7 +1426,7 @@ export class Orchestrator {
     // a thread whose lead run failed or left no report goes on in a new run first, from the contract
     // and change the turn left: what it leaves undone (a landing step, an open plan, the coordinator's
     // news) is the new run's
-    const restartError = needsRestart(run) ? await this.restartThread(run, pending.text) : undefined;
+    const restartError = this.needsRestart(run) ? await this.restartThread(run, pending.text) : undefined;
     if (isThread(run) && !run.replacedBy) {
       // a turn that failed or left no report went nowhere; a lead taking a thread over starts with
       // its plan still open, and keeps it so while it reports blocked on it
@@ -1505,7 +1505,7 @@ export class Orchestrator {
     if (!config.autonomous) return;
     await this.readTurn(run, config);
     await this.readThreadWork(run);
-    const restartError = needsRestart(run) ? await this.restartThread(run) : undefined;
+    const restartError = this.needsRestart(run) ? await this.restartThread(run) : undefined;
     if (!run.replacedBy) await this.settleThreadTurn(run, config, restartError);
     run.updatedAt = Date.now();
     this.save(run);
@@ -1525,7 +1525,23 @@ export class Orchestrator {
    */
   private restartThread(run: AgentRun, lastMessage?: string): Promise<string | undefined> {
     // a landing step pressed before goes first: a discard leaves nothing to start again
-    return this.onThread(threadId(run), () => needsRestart(run) ? this.startThreadAgain(run, lastMessage) : Promise.resolve(undefined));
+    return this.onThread(threadId(run), () => this.needsRestart(run) ? this.startThreadAgain(run, lastMessage) : Promise.resolve(undefined));
+  }
+
+  /**
+   * A thread's settled lead whose run failed, or whose turn left no report while nothing it started
+   * in the thread's fleet still runs, and the thread still open: it goes on in a new run. A lead that
+   * ended its turn to wait for its reviewer or another helper reports in a later turn.
+   */
+  private needsRestart(run: AgentRun): boolean {
+    if (!isThread(run) || run.landed || run.replacedBy) return false;
+    if (run.state === "failed") return true;
+    return run.outcome?.report === null && !this.list(run.group).some((other) => other.role !== THREAD_ROLE && this.running(other));
+  }
+
+  /** A run still at its turn: starting, working, blocked, or with a turn the fleet sent and has not seen settle. */
+  private running(run: AgentRun): boolean {
+    return isLive(run) && (this.pending.has(run.id) || run.state === "starting" || run.state === "working" || run.state === "blocked");
   }
 
   private async startThreadAgain(run: AgentRun, lastMessage?: string): Promise<string | undefined> {
@@ -1762,8 +1778,6 @@ function replaced(run: AgentRun): FleetError {
 /** A thread's id: its first lead run's, which names its worktree and branch, whichever run leads it now. */
 const threadId = (run: AgentRun): string => run.thread ?? run.id;
 
-/** A thread's settled lead whose run failed or whose turn left no report, and the thread still open: it goes on in a new run. */
-const needsRestart = (run: AgentRun): boolean => isThread(run) && !run.landed && !run.replacedBy && (run.state === "failed" || run.outcome?.report === null);
 
 /** What a lead that takes a thread over carries from the run before: the thread, what the fleet knows of its landing, and the CLIs to pass over. */
 function carried({ from, thread }: Takeover, avoid: AgentKind[] | undefined): Partial<AgentRun> {

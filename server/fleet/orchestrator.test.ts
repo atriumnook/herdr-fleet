@@ -1290,6 +1290,46 @@ describe("a thread outlives its lead run", () => {
     expect(runs.map((run) => threadState(registry.get(run.id)!))).toEqual(["review", "waiting", "waiting", "idle"]);
   });
 
+  it("stays with its lead while an agent it started runs, and goes on in a new run once its lead ends a later turn without a report", async () => {
+    const { fleet, registry, events, turn, write } = thread({ agents: [lead, role("reviewer", { interactive: true })] });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    const brief = { goal: "Review the fix.", write: [], context: "none", done: "A verdict.", verify: "bun test" };
+    const reviewer = await fleet.spawn({ role: "reviewer", brief, group: first.group, cwd: first.cwd, depth: first.depth + 1 });
+    // the lead ends its turn to wait for its reviewer, without a report (Claude Code's Monitor tool)
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.outcome).toEqual({ report: null, problem: "report.json is missing." });
+    expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+    expect(registry.get(first.id)!.state).toBe("idle");
+    // the reviewer waits for the person: it still runs, and the lead's next turn without a report stays too
+    await turn(reviewer, "blocked");
+    await fleet.send(first.id, "The reviewer asks the person.");
+    await turn(first, "working");
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+    // the reviewer's turn settles; the lead's next turn again leaves no report, and nothing it started runs
+    write(reviewer, "report.json", JSON.stringify({ state: "ready", summary: "PASS", evidence: [] }));
+    await turn(reviewer, "idle");
+    await fleet.send(first.id, "The reviewer is done.");
+    await turn(first, "working");
+    await turn(first, "idle");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(next).toMatchObject({ role: "lead", agent: "codex", thread: first.id });
+    expect(events.filter((e) => e.kind === "restart")).toEqual([{ kind: "restart", run: first.id, project: "/repo", agent: "claude", why: "no-report", by: next.id, to: "codex" }]);
+  });
+
+  it("goes on in a new run when its lead's run failed, though an agent it started still runs", async () => {
+    const { fleet, runtime, registry, events, turn } = thread({ agents: [lead, role("reviewer", { interactive: true })] });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    const brief = { goal: "Review the fix.", write: [], context: "none", done: "A verdict.", verify: "bun test" };
+    const reviewer = await fleet.spawn({ role: "reviewer", brief, group: first.group, cwd: first.cwd, depth: first.depth + 1 });
+    runtime.output = "API Error: 529 overloaded";
+    await turn(first, "idle");
+    expect(registry.get(reviewer.id)!.state).toBe("working");
+    expect(registry.get(first.id)!.lastError).toBe("529 overloaded");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(events.filter((e) => e.kind === "restart")).toEqual([{ kind: "restart", run: first.id, project: "/repo", agent: "claude", why: "failed", by: next.id, to: "codex" }]);
+  });
+
   it("hands the thread's pull request and landing step to the new run, so the thread is not landed twice", async () => {
     const removed: string[] = [];
     const git = { state: "OPEN" };
