@@ -1242,6 +1242,21 @@ describe("thread questions", () => {
     expect(new RunRegistry(join(root, "runs.json")).get(thread.id)!.notice).toBeUndefined();
   });
 
+  it("typed into a coordinator that then waits on an approval screen went out, and are not sent again", async () => {
+    const { fleet, runtime, turn, toCoordinator, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    runtime.promptStatus = "blocked";
+    handoff(thread, "BLOCKED — which one?");
+    await turn(thread, "idle");
+    expect(toCoordinator(coordinator)).toEqual(["go", [HEADER, asks(thread, "BLOCKED — which one?")].join("\n")]);
+    runtime.promptStatus = "working";
+    await turn(coordinator, "blocked");
+    await turn(coordinator, "idle");
+    expect(toCoordinator(coordinator)).toHaveLength(2);
+  });
+
   it("written while the coordinator works reach it once after a restart, in the order they were written, and never again", async () => {
     const { fleet, runtime, states, root, turn, toCoordinator, handoff } = project();
     const coordinator = await fleet.startProject({ task: "two things", cwd: "/repo" });
@@ -1767,6 +1782,72 @@ describe("landing", () => {
     expect(to(coordinator)[1]).not.toContain(other.id);
     await until(() => new RunRegistry(join(root, "runs.json")).get(thread.id)!.landing?.sent === true, "the merge marked sent");
     expect(new RunRegistry(join(root, "runs.json")).get(thread.id)!.landing).toMatchObject({ action: "merge" });
+    restarted.stop();
+  });
+
+  it("leave out a merge the person threw away while the coordinator was being read", async () => {
+    const { fleet, runtime, turn, to, ready } = project();
+    const { coordinator, thread } = await ready();
+    await turn(coordinator, "working");
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    runtime.getImpl = async (name) => { if (name === coordinator.herdrName) await gate; return "idle"; };
+    const merging = fleet.land(thread.id, "merge");
+    await Bun.sleep(10);
+    await fleet.land(thread.id, "discard");
+    release();
+    await merging;
+    await Bun.sleep(30);
+    expect(to(coordinator)).toEqual(["fix the retry"]);
+  });
+
+  it("send a merge marked sent once, though the server stopped before it left the outbox", async () => {
+    const { fleet, runtime, root, turn, to, ready, states } = project();
+    const { coordinator, thread } = await ready();
+    await turn(coordinator, "working");
+    await fleet.land(thread.id, "merge");
+    const queued = readFileSync(join(root, "fleet-outbox.json"), "utf8");
+    await turn(coordinator, "idle");
+    expect(to(coordinator)).toHaveLength(2);
+    fleet.stop();
+    // the outbox as it stood when the server stopped: the step marked sent in the registry, still in the file
+    writeFileSync(join(root, "fleet-outbox.json"), queued);
+    const restarted = new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG, agents: () => agents, fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+    });
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await Bun.sleep(30);
+    expect(to(coordinator)).toHaveLength(2);
+    restarted.stop();
+  });
+
+  it("hand on merge steps a run saved before the outbox kept in the order pressed, onto the branch the checkout is on", async () => {
+    const { fleet, runtime, root, turn, to, ready, states } = project();
+    const { coordinator, thread: first } = await ready();
+    const second = await fleet.startThread({ title: "Second", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(coordinator, "working");
+    fleet.stop();
+    // pressed on the second thread first; no base branch kept on either
+    const pressed: Record<string, number> = { [first.id]: 20, [second.id]: 10 };
+    const runs = (JSON.parse(readFileSync(join(root, "runs.json"), "utf8")) as AgentRun[])
+      .map(({ baseBranch: _base, ...run }) => pressed[run.id] ? { ...run, landing: { action: "merge", at: pressed[run.id], sent: false } } : run);
+    writeFileSync(join(root, "runs.json"), JSON.stringify(runs));
+    const restarted = new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG, agents: () => agents, fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+      landing: { gitBranch: async () => "release" },
+    });
+    await Bun.sleep(10);
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await until(() => to(coordinator).length === 2, "the saved merges after the restart");
+    const steps = to(coordinator)[1]!.split("\n").slice(1);
+    expect(steps).toEqual([
+      `- Merge into release for thread "Second" (${second.id}, ${second.branch}): when this checkout is clean and on release, git merge --no-ff ${second.branch}. On a conflict, git merge --abort and tell the person.`,
+      `- Merge into release for thread "Fix" (${first.id}, ${first.branch}): when this checkout is clean and on release, git merge --no-ff ${first.branch}. On a conflict, git merge --abort and tell the person.`,
+    ]);
     restarted.stop();
   });
 

@@ -59,14 +59,13 @@ export class Outbox {
     const valid = (stored as Entry[]).filter((entry) => typeof entry?.seq === "number" && typeof entry.text === "string");
     this.entries = valid.filter((entry) => !isImmediate(entry)).sort((a, b) => a.seq - b.seq);
     this.next = Math.max(0, ...valid.map((entry) => entry.seq)) + 1;
-    if (this.entries.length !== stored.length) this.persist();
+    if (this.entries.length !== stored.length) this.commit(this.entries);
   }
 
   /** Queues a notice, in place of one of the same run and slot not yet delivered. */
   put(input: NoticeInput): Notice {
     const notice: Notice = { ...input, seq: this.next++, at: Date.now() };
-    this.entries = [...this.entries.filter((entry) => isImmediate(entry) || entry.about !== input.about || entry.slot !== input.slot), notice];
-    this.persist();
+    this.commit([...this.entries.filter((entry) => isImmediate(entry) || entry.about !== input.about || entry.slot !== input.slot), notice]);
     return notice;
   }
 
@@ -104,8 +103,7 @@ export class Outbox {
   /** `text` to the run `to` now, through `send`; written before it is typed, gone after, whatever came of it. */
   async sendNow(to: string, text: string, send: (text: string) => Promise<boolean>): Promise<boolean> {
     const entry: Immediate = { seq: this.next++, at: Date.now(), to, text, now: true };
-    this.entries = [...this.entries, entry];
-    this.persist();
+    this.commit([...this.entries, entry]);
     try {
       return await send(text);
     } finally {
@@ -115,18 +113,19 @@ export class Outbox {
 
   private remove(match: (entry: Entry) => boolean): void {
     const kept = this.entries.filter((entry) => !match(entry));
-    if (kept.length === this.entries.length) return;
-    this.entries = kept;
-    this.persist();
+    if (kept.length !== this.entries.length) this.commit(kept);
   }
 
-  private persist(): void {
-    if (!this.filePath) return;
-    mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
-    const tmp = `${this.filePath}.${process.pid}.tmp`;
-    writeFileSync(tmp, JSON.stringify(this.entries), { mode: 0o600 });
-    chmodSync(tmp, 0o600);
-    renameSync(tmp, this.filePath);
+  /** `entries` on disk, then in memory: a notice the file did not take is never sent */
+  private commit(entries: Entry[]): void {
+    if (this.filePath) {
+      mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
+      const tmp = `${this.filePath}.${process.pid}.tmp`;
+      writeFileSync(tmp, JSON.stringify(entries), { mode: 0o600 });
+      chmodSync(tmp, 0o600);
+      renameSync(tmp, this.filePath);
+    }
+    this.entries = entries;
   }
 }
 

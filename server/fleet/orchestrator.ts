@@ -244,17 +244,31 @@ export class Orchestrator {
     // a notice about a run the registry dropped refers to nothing its hearer can look up
     this.outbox = new Outbox(join(dirname(deps.resultsDir), "fleet-outbox.json"));
     this.outbox.prune((notice) => deps.registry.get(notice.about) !== undefined && !this.staleStep(notice));
-    // runs saved before the outbox kept a thread's news and an unsent merge step on the run
+    // runs saved before the outbox kept a thread's news on the run
     for (const run of deps.registry.all()) {
       if (run.notice === undefined) continue;
       this.queueNews(run, run.notice);
       delete run.notice;
       deps.registry.upsert(run);
     }
-    for (const run of deps.registry.all()) {
-      const step = run.landing;
-      if (!step || step.sent || step.error || !COORDINATOR_STEPS.has(step.action) || !run.branch || this.outbox.pending((notice) => notice.about === run.id && notice.slot === "landing").length) continue;
-      this.outbox.put({ about: run.id, slot: "landing", section: "steps", text: coordinatorStep(run as AgentRun & { branch: string }, run.baseBranch ?? "main"), landingAt: step.at });
+    void this.queueUnsentSteps();
+  }
+
+  /**
+   * A merge step the person pressed that is neither sent nor in the outbox, in the order pressed:
+   * saved before the outbox kept the steps, or the server stopped between saving the step and
+   * queuing it. (A delivered step is marked sent before it leaves the outbox.)
+   */
+  private async queueUnsentSteps(): Promise<void> {
+    const unsent = (run: AgentRun, at?: number) => run.landing !== undefined && (at === undefined || run.landing.at === at) && !run.landing.sent && !run.landing.error
+      && COORDINATOR_STEPS.has(run.landing.action) && run.branch !== undefined && !this.outbox.pending((notice) => notice.about === run.id && notice.slot === "landing").length;
+    const steps = this.deps.registry.all().filter((run) => unsent(run)).sort((a, b) => a.landing!.at - b.landing!.at);
+    for (const run of steps) {
+      const at = run.landing!.at;
+      const thread = run as AgentRun & { project: string; branch: string };
+      const baseBranch = await this.baseBranchOf(thread).catch(() => "main");
+      // the person may have pressed another step meanwhile
+      if (unsent(run, at)) this.outbox.put({ about: run.id, slot: "landing", section: "steps", text: coordinatorStep(thread, baseBranch), landingAt: at });
     }
   }
 
@@ -1043,7 +1057,7 @@ export class Orchestrator {
     await this.reconcileLocks.get(coordinator.id);
     const live = await this.liveState(coordinator);
     if (!live || !isCompleted(live) || this.pending.has(coordinator.id) || await this.hasDraft(coordinator)) return false;
-    return (await this.notifyNow(coordinator, text)).state === "working";
+    return this.typed(coordinator, await this.notifyNow(coordinator, text));
   }
 
   /**
@@ -1207,8 +1221,13 @@ export class Orchestrator {
   /** `text` to `run` now, written to the outbox before it is typed: the run as submit left it. */
   private async notifyNow(run: AgentRun, text: string, signal?: AbortSignal): Promise<AgentRun> {
     let sent: AgentRun = { ...run };
-    await this.outbox.sendNow(run.id, text, async (each) => (sent = await this.submit(run, each, signal)).state === "working");
+    await this.outbox.sendNow(run.id, text, async (each) => this.typed(run, sent = await this.submit(run, each, signal)));
     return sent;
+  }
+
+  /** the text reached the run: its turn runs, or waits on an approval screen the text brought up */
+  private typed(run: AgentRun, sent: AgentRun): boolean {
+    return sent.state === "working" || (sent.state === "blocked" && this.pending.has(run.id));
   }
 
   /**
@@ -1221,21 +1240,29 @@ export class Orchestrator {
     if (this.delivering.has(coordinator.id)) return;
     this.delivering.add(coordinator.id);
     try {
-      this.outbox.prune((notice) => !this.staleStep(notice));
-      const due = this.outbox.pending((notice) => this.hearerOf(notice)?.id === coordinator.id);
-      if (!due.length || this.pending.has(coordinator.id) || !isLive(coordinator)) return;
+      const due = () => {
+        this.outbox.prune((notice) => !this.staleStep(notice));
+        return this.outbox.pending((notice) => this.hearerOf(notice)?.id === coordinator.id);
+      };
+      if (!due().length || this.pending.has(coordinator.id) || !isLive(coordinator)) return;
       await this.reconcileLocks.get(coordinator.id);
       const live = await this.liveState(coordinator);
       if (!live || !isCompleted(live) || this.pending.has(coordinator.id)) return;
       if (await this.hasDraft(coordinator)) return this.retryNotices(coordinator);
+      // read again after the waits: the person may have thrown a thread away meanwhile
+      const notices = due();
       const headers = { news: this.deps.config(coordinator.cwd).autonomous ? NEWS_HEADER : QUESTIONS_HEADER, steps: STEPS_HEADER };
-      if (!(await this.outbox.deliver(due, headers, async (text) => (await this.submit(coordinator, text)).state === "working"))) return;
-      for (const notice of due) {
-        const run = notice.landingAt === undefined ? undefined : this.deps.registry.get(notice.about);
-        if (!run?.landing || run.landing.at !== notice.landingAt) continue;
-        run.landing.sent = true;
-        this.save(run);
-      }
+      await this.outbox.deliver(notices, headers, async (text) => {
+        if (!this.typed(coordinator, await this.submit(coordinator, text))) return false;
+        // marked sent before the steps leave the outbox: a restart in between finds them sent
+        for (const notice of notices) {
+          const run = notice.landingAt === undefined ? undefined : this.deps.registry.get(notice.about);
+          if (!run?.landing || run.landing.at !== notice.landingAt) continue;
+          run.landing.sent = true;
+          this.save(run);
+        }
+        return true;
+      });
     } finally {
       this.delivering.delete(coordinator.id);
     }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from "node:fs";
+import { copyFileSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { message, Outbox } from "./outbox.ts";
@@ -120,6 +120,17 @@ describe("outbox", () => {
     const after = new Outbox(file);
     after.put({ about: "t3", slot: "news", section: "news", text: "Three asks" });
     expect(after.pending().map((notice) => [notice.text, notice.seq])).toEqual([["Two asks", 2], ["Three asks", 3]]);
+  });
+
+  it("sends nothing the file did not take", async () => {
+    const root = folder();
+    writeFileSync(join(root, "not-a-folder"), "");
+    const outbox = new Outbox(join(root, "not-a-folder", "fleet-outbox.json"));
+    expect(() => outbox.put({ about: "t1", slot: "news", section: "news", text: "One asks" })).toThrow();
+    expect(texts(outbox)).toEqual([]);
+    let sent = false;
+    await expect(outbox.sendNow("lead", "Fix CI", async () => { sent = true; return true; })).rejects.toThrow();
+    expect(sent).toBe(false);
   });
 
   it("starts empty from a missing or unreadable file", () => {
