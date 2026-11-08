@@ -197,72 +197,13 @@ fn resolve(cwd: &Path, value: &str) -> PathBuf {
     out
 }
 
-/// O_NONBLOCK where its value is known without libc, which this crate does not depend on.
-#[cfg(all(
-    target_os = "linux",
-    any(
-        target_arch = "x86_64",
-        target_arch = "x86",
-        target_arch = "aarch64",
-        target_arch = "arm",
-        target_arch = "riscv64",
-        target_arch = "powerpc64",
-        target_arch = "s390x",
-        target_arch = "loongarch64"
-    )
-))]
-const NONBLOCK: Option<i32> = Some(0o4000);
-#[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
-const NONBLOCK: Option<i32> = Some(0x0004);
-#[cfg(not(any(
-    all(
-        target_os = "linux",
-        any(
-            target_arch = "x86_64",
-            target_arch = "x86",
-            target_arch = "aarch64",
-            target_arch = "arm",
-            target_arch = "riscv64",
-            target_arch = "powerpc64",
-            target_arch = "s390x",
-            target_arch = "loongarch64"
-        )
-    ),
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "freebsd"
-)))]
-const NONBLOCK: Option<i32> = None;
-
-/// Opens a local image for reading without waiting on a FIFO the path names: with `O_NONBLOCK`,
-/// as `server/codex-images.ts` opens it, and the caller checks the open file is a regular one.
-/// The flag lets a read return early; it opens nothing for writing, which is what the crate's ban
-/// on `custom_flags` keeps out (ADR 0107-crate-split). Where its value is not known here, a path
-/// that is not a regular file is refused before it is opened.
-#[cfg(unix)]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "O_NONBLOCK on a read-only open: the file is still opened for reading only"
-)]
+/// Opens a local image that is a regular file. `server/codex-images.ts` opens it with
+/// `O_NONBLOCK` and then checks it, so a FIFO the path names does not hold the read waiting for a
+/// writer. This crate opens files with no flags but reading: its `clippy.toml` bans `custom_flags`
+/// and ADR 0110-workspace-and-ci bans allowing that lint outside `tests/`. So the path is checked
+/// before it is opened, and the file again once open. A FIFO put in the file's place between the
+/// two still blocks the open (Issue #225).
 fn open_image(path: &Path) -> std::io::Result<File> {
-    use std::os::unix::fs::OpenOptionsExt;
-    let Some(flag) = NONBLOCK else {
-        return open_regular(path);
-    };
-    std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(flag)
-        .open(path)
-}
-
-#[cfg(not(unix))]
-fn open_image(path: &Path) -> std::io::Result<File> {
-    open_regular(path)
-}
-
-/// Opens `path` once it is found to be a regular file. A FIFO put in its place between the two
-/// still blocks the open.
-fn open_regular(path: &Path) -> std::io::Result<File> {
     if !std::fs::metadata(path)?.is_file() {
         return Err(std::io::ErrorKind::InvalidInput.into());
     }
