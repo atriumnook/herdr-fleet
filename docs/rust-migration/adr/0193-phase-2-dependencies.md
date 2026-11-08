@@ -23,7 +23,7 @@ protocol の型の形と、2 つ以上の crate が使う JavaScript の文字�
 | crate | 版 | feature | 使う crate | 使う箇所 |
 |---|---|---|---|---|
 | serde | 1.0.229 | `derive` | protocol、screen、transcript | 型の読み書き |
-| serde_json | 1.0.154 | `preserve_order` | protocol、screen、transcript | protocol: `patch_text` の JSON の文字列のリテラル(`shared/patch.ts:19`)。screen: content id の入力の符号化、`AnswerStep`。transcript: 記録の読み取りと `JSON.stringify(input, null, 2)` |
+| serde_json | 1.0.154 | `float_roundtrip`、`preserve_order` | protocol、screen、transcript | protocol: `patch_text` の JSON の文字列のリテラル(`shared/patch.ts:19`)。screen: content id の入力の符号化、`AnswerStep`。transcript: 記録の読み取りと `JSON.stringify(input, null, 2)` |
 | regex | 1.13.1 | 既定(`std`、`perf`、`unicode`) | protocol、screen、transcript | TypeScript の正規表現の書き換え |
 | sha2 | 0.11.1 | なし(`default-features = false`) | screen、transcript | screen: カードの content id。transcript: Codex の画像の ref(`server/codex-images.ts:36`) |
 | unicode-width | 0.2.3 | 既定 | screen | `Bun.stringWidth`(`server/prompt.ts:433, 441`) |
@@ -31,6 +31,7 @@ protocol の型の形と、2 つ以上の crate が使う JavaScript の文字�
 | unicode-normalization | 0.1.26 | 既定(`std`) | screen | NFKC(`server/prompt.ts:383`) |
 | base64 | 0.23.1 | 既定 | transcript | OpenCode のカーソル(`server/opencode-session.ts:300`)、画像のデータの復号 |
 
+- serde_json の `float_roundtrip` は、小数を正しく丸めて読む(JavaScript の `JSON.parse` と同じ f64 になる)。これがないと、serde_json は `0.9999999999999999` を `1.0` と読み、`Number.isInteger` が偽になる答えの番号を、screen が整数として受け付けてしまう。依存は増えない
 - serde_json の `preserve_order` は、JSON のオブジェクトのキーを読んだ順に保つ。`JSON.stringify(input, null, 2)` の結果が会話ログの corpus の期待値に 768 件あり、キーの順序が答えに出る(ADR `0192-phase-2-split`)。feature は workspace の中で合わさり、protocol と screen の serde_json も同じ feature で build される
 - sha2 の既定の feature は `alloc` と `oid`(ハッシュのアルゴリズムの OID。依存 const-oid を引き込む)で、どちらも使わない。外すと const-oid が依存から消える。`Sha256::digest` は feature なしで使える
 - regex の既定の feature のうち `unicode` は、`\p{L}`(`server/prompt.ts:383` の `comparable`)と、ASCII でない文字への照合に要る
@@ -43,7 +44,8 @@ protocol の型の形と、2 つ以上の crate が使う JavaScript の文字�
 regex crate は、先読み・後読み・後方参照を持たない(`x(?=y)` は `look-around ... is not supported` で断られる)。また、文字クラスの既定が Unicode で、JavaScript と範囲が違う。TypeScript の正規表現は次のように書き換える。
 
 - `\s` と `\S`: `protocol::js::WHITESPACE` と、その否定 `[^…]` を使う。regex の `\s` は U+0085 を含み U+FEFF を含まないので使わない。ほかの文字と組み合わせるときは、regex の入れ子の文字クラスで書く(`[^` + `js::WHITESPACE` + `→❯➜]`)
-- `.`(`s` フラグなし): `[^\n\r\u{2028}\u{2029}]`(`js::LINE_TERMINATOR` の否定)と書く。regex の `.` は `\r`、U+2028、U+2029 にも当たる。`s` フラグの `.` と `[\s\S]` は `(?s:.)` と書く。`u` フラグのない JavaScript の `.` は UTF-16 の code unit 1 つに当たるが、段階 2 で移すファイルに `.{n}` の形の回数の指定はないので、違いは答えに出ない
+- `.`(`s` フラグなし): `[^\n\r\u{2028}\u{2029}]`(`js::LINE_TERMINATOR` の否定)と書く。regex の `.` は `\r`、U+2028、U+2029 にも当たる。`s` フラグの `.` と `[\s\S]` は `(?s:.)` と書く。`u` フラグのない JavaScript の `.` は UTF-16 の code unit 1 つに当たる(下の「回数の指定」)
+- 回数の指定(`{n}`、`{n,m}`): `u` フラグのない JavaScript では、`.`、`\S`、否定の文字クラスのように BMP の外の文字(絵文字など)に当たりうる部分の回数を、UTF-16 の code unit で数える。regex は code point で数えるので、BMP の外の文字 1 つが JavaScript では 2 回、regex では 1 回になる。そのような部分の回数の指定は、上限のない繰り返しの group にし、group の `js::utf16_len` が範囲に入るかを Rust のコードで確かめる。ASCII だけの文字クラス(`[0-9a-f]{64}`、`[─━]{8,}` のような BMP の中の文字だけのクラス)は、どちらで数えても同じなので、そのまま書く。段階 2 で移すファイルで当たるのは `server/prompt.ts:1246` の `/:\s*\S{0,3}$/`(S4)だけで、次のように書き換える。文字列の最後の `:` より後ろが `^` + `js::WHITESPACE` + `*(` + 空白でない文字 `*)$` に当たり、group の `js::utf16_len` が 3 以下のときに当たりとする。最後の `:` だけを見ればよいのは、前の `:` で当たるなら、その `:` より後ろには空白がなく、最後の `:` でも当たるためである。`Select: 😀😀` は、JavaScript では当たらない(空白でない code unit が 4 つ)が、regex の `\S{0,3}` では当たる(code point が 2 つ)。`:`、空白、`a`、`😀` を 0〜7 個並べた 21,845 の文字列で、この書き換えは JavaScript とすべて同じ答えになり、regex の `^.*:\s*\S{0,3}$` は 1,237 の文字列で違った
 - `\b`、`\B`、`\w`、`\d`: JavaScript では ASCII だけを見る。`(?-u:\b)`、`(?-u:\B)`、`[0-9A-Za-z_]`、`[0-9]` と書く。regex の `\b` は Unicode の単語の文字を見るので、`/\bto answer$/` は `éto answer` に当たるが、regex の `\bto answer$` は当たらない。`(?-u:\b)to answer$` は JavaScript と同じく当たる
 - `m` フラグ: パターンの本体が行末を越えない(`.` と、行末を含まない文字クラスだけの)ときは、`js::is_line_terminator` で行に分け、各行に `m` なしで照合する(`patch_files` がこの形)。越えうるときは `(?mR)` と書く。`(?mR)` は U+2028 と U+2029 を行末と見ず、`\r\n` の間では `$` が当たらない点が JavaScript と違う。`(?mR)` で書き換えた Issue は、`\r\n` を含む件をテストに足す
 - `i` フラグ: regex の `(?i)` は Unicode の単純な大文字小文字の対応を使い、`(?i)k` は U+212A(KELVIN SIGN)に、`(?i)s` は U+017F(LATIN SMALL LETTER LONG S)に当たる。`u` フラグのない JavaScript は、ASCII でない文字を ASCII の文字に対応させないので、どちらにも当たらない(Bun 1.4.4 で確かめた)。段階 2 では、この 2 文字を JavaScript に合わせない。`fixtures/` のどのファイルにも、この 2 文字はない(grep で 0 件)
@@ -54,7 +56,7 @@ regex crate は、先読み・後読み・後方参照を持たない(`x(?=y)` �
 - 後方参照: `server/codex.ts:24` の `/^<(environment_context|permissions instructions|turn_aborted|subagent_notification)>[\s\S]*<\/\1>$/`(T3)は、選択肢ごとに開きと閉じを書いた選択に展開する(`^(?:<environment_context>(?s:.)*</environment_context>|<permissions instructions>(?s:.)*</permissions instructions>|…)$`)
 - sticky(`y` フラグ): `server/codex.ts:90` の `/[ \t]*>[ \t]?/y` を `lastIndex` で進める繰り返し(T3)は、`^[ \t]*>[ \t]?` を `&source[offset..]` に照合し、当たった長さだけ `offset` を進める
 - 置き換え: TypeScript の `replace` は、文字列のパターンでは最初の 1 つだけ、`g` フラグの正規表現ではすべてを置き換える。Rust では `replacen(…, 1)` と `Regex::replace` が最初の 1 つ、`str::replace` と `Regex::replace_all` がすべてである。置き換えの文字列の `$1` のあとに英数字が続くときは、regex が `$1a` を名前 `1a` の group と読むので `${1}a` と書く
-- 行に分ける: `split(/\r?\n/)` は、`str::split('\n')` のあとで各行の末尾の `\r` を 1 つ除く。`str::lines` は、末尾の改行のあとの空の行を返さない点が違う
+- 行に分ける: `split(/\r?\n/)` は、`str::split('\n')` のあとで、最後を除く各行の末尾の `\r` を 1 つ除く。最後の行は `\n` で終わっていないので、末尾の `\r` を残す(`"abc\r".split(/\r?\n/)` は `["abc\r"]`、`"a\r\nb\r"` は `["a", "b\r"]`)。`str::lines` は、最後の行の `\r` も除き、末尾の改行のあとの空の行を返さない点が違う
 - 段階 2 の外の先読み: `server/codex.ts:391` と `server/claude-store.ts:52`(ps の行から環境変数を読む)と `server/codex.ts:1258`(`shortThreadFromProcess`)は core の部分で、段階 4 の Issue が移す。前の 2 つは、先読みの `\s` が次の一致の始まりになるので、上の消費する形にできない
 
 #### UTF-16 の長さ
@@ -66,9 +68,12 @@ TypeScript の文字列の `.length`、`slice`、`substring` の位置は、UTF-
 
 #### `JSON.stringify` と serde_json
 
-- 対のないサロゲート: `JSON.parse` は `"\ud800x"` を読んで対のない前半を持つが、serde_json は `unexpected end of hex escape` で断る。Rust は、そのような JSON を読めない値として扱う(transcript の記録は、壊れた行と同じく飛ばす。`patch_text` は `None` を返す)。corpus に対のないサロゲートのエスケープは 1 件もない。実際の transcript で見つかったときは、記録の読み手を変える Issue を開く
+- `JSON.parse` が読み、serde_json が断る JSON: 対のないサロゲートのエスケープ(`"\ud800x"`。`JSON.parse` は対のない前半を持つ文字列にし、serde_json は `unexpected end of hex escape` で断る)と、f64 の範囲を超える数(`1e400`。`JSON.parse` は `Infinity` にし、`JSON.stringify` はそれを `null` と書き、serde_json は `number out of range` で断る)の 2 つ。Rust は、そのような JSON を読めない値として扱う。transcript の記録は、壊れた行と同じく飛ばす(TypeScript は記録を読み、ほかの項目を表示する)。`patch_text` は `None` を返す。会話ログの corpus には、どちらも 1 件もない(対のないサロゲートのエスケープは grep で 0 件、f64 を超える数は python の `json` で全 5,049 の記録を読んで 0 件)。実際の transcript で見つかったときは、記録の読み手を変える Issue を開く
 - 大きな整数: serde_json は ±2^63 までの整数を正確に読むが、JavaScript は 2^53 を超える整数を f64 に丸める(`JSON.stringify(2**53+1)` は `9007199254740992`)。JavaScript と同じ値を書くときは、整数を一度 f64 にしてから書く
-- 数の書き方: `JSON.stringify` は ECMAScript の Number::toString で数を書く。整数の値の f64 は小数点なし(`1.0` は `1`、`1e3` は `1000`、`-0` は `0`)、絶対値が 1e21 以上と 1e-6 未満は指数の形(`1e+21`、`1e-7`)である。serde_json は f64 の `1.0` を `1.0`、`1e3` を `1000.0`、`-0` を `-0.0` と書く(指数の形は `1e+21`、`1e-7` で同じ)。そのため T1 は、transcript の `JSON.stringify(x, null, 2)` を、`serde_json::Value` をたどる自前の writer で書く。キーの順序は読んだ順(`preserve_order`)、字下げと区切りは serde_json の pretty と同じ(2 桁の空白、`": "`、空の配列は `[]`、空のオブジェクトは `{}`)、文字列のエスケープも serde_json と同じ(`\b`、`\f`、`\n`、`\r`、`\t`、ほかの U+0020 未満は小文字の 16 進の `\u00XX`、DEL と U+2028 と ASCII でない文字はそのまま)、数は Number::toString の形にする。最短で往復する数字の列は、Rust の `format!("{:e}", x)` で得られる
+- 数の書き方: `JSON.stringify` は ECMAScript の Number::toString で数を書く。整数の値の f64 は小数点なし(`1.0` は `1`、`1e3` は `1000`、`-0` は `0`)、絶対値が 1e21 以上と 1e-6 未満は指数の形(`1e+21`、`1e-7`)である。serde_json は f64 の `1.0` を `1.0`、`1e3` を `1000.0`、`-0` を `-0.0` と書く(指数の形は `1e+21`、`1e-7` で同じ)。そのため T1 は、transcript の `JSON.stringify(x, null, 2)` を、`serde_json::Value` をたどる自前の writer で書く。決まりは次のとおり
+  - キーの順序: JavaScript のオブジェクトは、配列の添字の形のキー(0 から 4294967294 までの整数を、先頭に 0 を付けずに 10 進で書いたもの)を数の小さい順に先に並べ、残りのキーを足した順に並べる。writer も、各オブジェクトでこの順に書く(入れ子のオブジェクトにも当てる)。それ以外のキーの順序は、serde_json の `preserve_order` が読んだ順に保つ。Bun で `JSON.stringify(JSON.parse('{"b":0,"10":10,"2":2,"a":1,"4294967295":5,"4294967294":4,"01":6}'))` は `{"2":2,"10":10,"4294967294":4,"b":0,"a":1,"4294967295":5,"01":6}`
+  - 字下げと区切りは serde_json の pretty と同じ(2 桁の空白、`": "`、空の配列は `[]`、空のオブジェクトは `{}`)。文字列のエスケープも serde_json と同じ(`\b`、`\f`、`\n`、`\r`、`\t`、ほかの U+0020 未満は小文字の 16 進の `\u00XX`、DEL と U+2028 と ASCII でない文字はそのまま)
+  - 数は Number::toString の形にする。桁の列は、最短で往復する桁数 k を Rust の `format!("{:e}", x)` で求め、`format!("{:.*e}", k - 1, x)`(正しく丸めた k 桁)が読み戻して x になればその桁、ならなければ `{:e}` の桁を使う。ECMAScript は、最短の桁数で往復する桁の列が 2 つ以上あるとき x に最も近いものを選ぶが、`{:e}` はそうとは限らない(`652282746268236.2` を `{:e}` は `6.522827462682363e14` と書き、Bun は `652282746268236.2` と書く)。桁の列を Number::toString の配置(小数点の位置、`e+`・`e-` の指数)で書く。この決まりを scratchpad の Rust で書き、Bun の `JSON.stringify` と 120,014 の数(ランダムなビット列の有限の f64 が 100,000、有効数字の少ない数が 20,000、境界の値が 14)で比べ、すべて同じ文字列になった
 - screen の content id の入力(`server/prompt.ts:1359` の `JSON.stringify({card, screen, working})` の sha256): id の値は corpus の期待値に出ず、同じ id になる件だけが比べられる(`sameIdAs`)。ADR `0192-phase-2-split` は id の長さも変える。そのため serde_json の出力をそのまま使い、TypeScript と同じバイト列にはしない。同じ入力から同じ id になること(決定的であること)だけを守る
 - OpenCode のカーソル(`server/opencode-session.ts:300`): `{"id":…,"order":"desc","direction":"next"}` の compact な JSON を base64url(`=` の埋めなし)にしたもので、記録した応答 `api.json` のキーと同じバイト列でなければならない。値は文字列だけなので、serde_json の compact な出力は `JSON.stringify` と同じバイト列になる。base64 crate の `URL_SAFE_NO_PAD` で符号化する。Node の `toString("base64url")` も埋めない(Bun で `Buffer.from("ab").toString("base64url")` が `YWI`)
 
@@ -80,8 +85,9 @@ TypeScript の `Buffer.from(s, "base64")`(`server/conversation.ts:1122, 1216` �
 - 2 つの文字の集合のどちらにもない文字(空白、改行、`*`、`#` など)は飛ばす
 - 最初の `=` で止まり、そのあとは読まない
 - 最後に 1 文字だけ余ったら捨てる。余ったビットは無視する
+- 上のどれよりも先に、文字列の UTF-16 の code unit をそれぞれ下位 8 ビットのバイトにする(Node の `latin1` と同じ)。そのため ASCII でない文字は、飛ばされずに別の ASCII の文字として読まれうる。`Ł`(U+0141)は `A`(0x41)、`😀` などの絵文字の前半のサロゲート(U+D83D)は `=`(0x3D)になる
 
-Rust の書き方: 入力を最初の `=` の手前までにし、`-` を `+` に、`_` を `/` に置き換え、標準の文字の集合にない文字を除く。残りの長さを 4 で割って 1 余れば最後の 1 文字を除き、base64 crate の `GeneralPurpose`(`alphabet::STANDARD`、`DecodePaddingMode::Indifferent`、`with_decode_allow_trailing_bits(true)`)で復号する。base64 crate の既定の engine は、長さが 4 で割って 1 余る入力を `Invalid input length` で断るので、前の手順が要る。T1 のテストの期待値は、次の Bun の答えから取る。
+Rust の書き方: 文字列を UTF-16 の code unit ごとに下位 8 ビットのバイトにし、そのバイト列を最初の `=` の手前までにし、`-` を `+` に、`_` を `/` に置き換え、標準の文字の集合にないバイトを除く。残りの長さを 4 で割って 1 余れば最後の 1 文字を除き、base64 crate の `GeneralPurpose`(`alphabet::STANDARD`、`DecodePaddingMode::Indifferent`、`with_decode_allow_trailing_bits(true)`)で復号する。base64 crate の既定の engine は、長さが 4 で割って 1 余る入力を `Invalid input length` で断るので、前の手順が要る。T1 のテストの期待値は、次の Bun の答えから取る。
 
 | 入力 | Bun 1.4.4 の `Buffer.from(入力, "base64")` |
 |---|---|
@@ -91,6 +97,9 @@ Rust の書き方: 入力を最初の `=` の手前までにし、`-` を `+` �
 | `aGVsbG8xYQ` | `[104,101,108,108,111,49,97]` |
 | `aGVs=bG8=` | `[104,101,108]` |
 | `=aGVs`、空の文字列、`####` | `[]` |
+| `aG💩VsbG8=` | `[104]`(💩 の前半のサロゲートが `=` になる) |
+| `aGŁVsbG8=` | `[104,96,21,177,177,188]`(`aGAVsbG8=` と同じ) |
+| `aGé VsbG8=` | `[104,101,108,108,111]`(é は 0xE9 になり、文字の集合にないので飛ばす) |
 
 #### 文字の幅と grapheme
 
@@ -104,9 +113,9 @@ Rust の書き方: 入力を最初の `=` の手前までにし、`-` を `+` �
 S1 は `text.rs` に次の 2 つを置き、S2〜S4 はそれを使う。
 
 - grapheme の幅: 制御文字(U+0000〜U+001F、U+007F、U+0080〜U+009F)だけからなる grapheme は 0、それ以外は unicode-width の `str::width`
-- 文字列の幅: 先にエスケープシーケンスを除く。除くのは、CSI(`ESC [` か U+009B から、U+0040〜U+007E の終わりの文字まで)、OSC(`ESC ]` から、BEL か `ESC \` まで。終わりがなければ文字列の終わりまで)、ほかの `ESC`(U+0020〜U+002F の文字が 0 個以上続き、そのあとの 1 文字まで)である。残りから制御文字を除き、unicode-width の `str::width` で数える
+- 文字列の幅: 先にエスケープシーケンスを除く。除くのは、CSI(`ESC [` か U+009B から、U+0040〜U+007E の終わりの文字まで)、OSC(`ESC ]` から、BEL か `ESC \` まで。終わりがなければ文字列の終わりまで)、ほかの `ESC` である。ほかの `ESC` は、次の文字が U+0020〜U+002F なら、その範囲の文字が続く間と、そのあとの 1 文字(どの文字でも)まで、次の文字が U+0030〜U+007E ならその 1 文字まで、それ以外なら `ESC` だけを除く。残りから制御文字を除き、unicode-width の `str::width` で数える
 
-この規則を scratchpad の Rust で書き、上の 998 行すべてと、次の 16 の文字列で `Bun.stringWidth` と同じ値になることを確かめた。S1 のテストの期待値は、この表から取る。
+この規則を scratchpad の Rust で書き、上の 998 行すべてと、次の 23 の文字列で `Bun.stringWidth` と同じ値になることを確かめた。S1 のテストの期待値は、この表から取る。
 
 | 文字列 | Bun 1.4.4 の `Bun.stringWidth` | unicode-width の `str::width` |
 |---|---|---|
@@ -126,8 +135,15 @@ S1 は `text.rs` に次の 2 つを置き、S2〜S4 はそれを使う。
 | `…─○` | 3 | 3 |
 | `あ` | 2 | 2 |
 | `a ESC]8;;xb`(OSC の終わりがない) | 1 | 8 |
+| `a ESC 😀 b` | 4 | 5 |
+| `a ESC é b`(é のあとに空白) | 4 | 5 |
+| `a ESC( 😀 b` | 2 | 6 |
+| `a ESC ESC[31m b` | 2 | 8 |
+| `a ESC SP b`(SP は空白) | 1 | 4 |
+| `a ESC DEL b` | 2 | 4 |
+| `a ESC`(文字列の終わり) | 1 | 2 |
 
-表の文字列の空白は読みやすくするためのもので、実際の文字列には含まない(`a ESC[31m b` は `"a\x1b[31mb"`)。
+表の文字列の空白は読みやすくするためのもので、実際の文字列には含まない(`a ESC[31m b` は `"a\x1b[31mb"`)。ただし `a ESC é b` の é のあとの空白と、`SP` は実際の空白である。
 
 ## 検討した代わり
 
@@ -136,6 +152,7 @@ S1 は `text.rs` に次の 2 つを置き、S2〜S4 はそれを使う。
 - sha2 を既定の feature のまま使う: 使わない const-oid が依存に入る
 - `Bun.stringWidth` を自前の幅の表で写す: unicode-width との違いは制御文字とエスケープシーケンスだけで、上の 2 つの規則で合う
 - 対のないサロゲートを U+FFFD に置き換えてから読む: Web UI は対のないサロゲートを U+FFFD として表示するので、見た目は TypeScript と同じになる。ただし corpus に件がなく、実際に出るかもわからないので、要るとわかった Issue が足す
+- serde_json の `arbitrary_precision`(数を文字列のまま持つ)で `1e400` を読む: feature は workspace の中で合わさり、protocol と screen を含むすべての crate の `serde_json::Value` の数の持ち方を変える。corpus に件がないので足さない
 - base64 の復号を自前で書く: 前処理だけを自前にし、復号は広く使われている base64 crate に任せる
 
 ## 依存
@@ -192,7 +209,7 @@ S1 は `text.rs` に次の 2 つを置き、S2〜S4 はそれを使う。
 - 段階 2 のほかの Issue は、外部 crate を足さずに作業できる。さらに要るとわかったときは、ADR `0192-phase-2-split` のとおり、依存を足す Issue を別に開いて待つ
 - S1〜S5 と T1〜T6 は、TypeScript の正規表現、UTF-16 の長さ、`JSON.stringify`、base64 を、上の決まりで書き換える。上の決まりにない違いを見つけた Issue は、その扱いを自分の PR と HANDOFF の Assumptions に書く
 - S1 は文字の幅の 2 つの規則を `screen/src/text.rs` に置き、テストの期待値を上の表から取る。T1 は `JSON.stringify(x, null, 2)` の writer と寛容な base64 の復号を transcript に置き、テストの期待値を上の表と Bun の答えから取る
-- `i` フラグの 2 文字(U+212A、U+017F)と、`cut_utf16` がサロゲートの対の前で切ることは、TypeScript と違う答えになりうる。どちらも corpus の件には出ない
+- `i` フラグの 2 文字(U+212A、U+017F)、`cut_utf16` がサロゲートの対の前で切ること、serde_json が断る JSON(対のないサロゲートのエスケープ、f64 を超える数)は、TypeScript と違う答えになりうる。どれも corpus の件には出ない
 
 ## 確かめたこと
 
@@ -202,4 +219,6 @@ S1 は `text.rs` に次の 2 つを置き、S2〜S4 はそれを使う。
 - `cargo tree --locked -p herdr-fleet-screen -e normal` と `-p herdr-fleet-transcript -e normal` に、herdr-fleet-herdr、herdr-fleet-child-process、tokio、axum、hyper、reqwest は出ない
 - 依存の一覧は `cargo metadata --format-version 1 --locked` の `packages`(`source` のあるもの)から作り、公開日と最新の版は crates.io の API で読んだ
 - 文字の幅と grapheme の比べ方: Bun のスクリプトが `fixtures/screens/*/*/screen.txt` を読み、出てくるすべての code point の `Bun.stringWidth`、すべての行(そのままと `ANSI_RE` を除いたもの)の `Intl.Segmenter`(granularity `grapheme`)の区切り、各 grapheme と行全体の `Bun.stringWidth` を JSON に書いた。scratchpad の Rust のプログラム(unicode-width 0.2.3、unicode-segmentation 1.13.3)がそれを読み、`char::width`、`str::width`、`graphemes(true)` と比べた。結果は上の「文字の幅と grapheme」のとおり
-- 正規表現と JSON の違いは、scratchpad の Rust のプログラム(regex 1.13.1、serde_json 1.0.154 と `preserve_order`、base64 0.23.1)と Bun 1.4.4 で、上に書いた入力ごとに答えを出して比べた
+- 正規表現と JSON の違いは、scratchpad の Rust のプログラム(regex 1.13.1、serde_json 1.0.154 と `preserve_order`、base64 0.23.1)と Bun 1.4.4 で、上に書いた入力ごとに答えを出して比べた。数の書き方(120,014 の数)、base64 の決まり(表の 18 の入力)、`/:\s*\S{0,3}$/` の書き換え(21,845 の文字列)は、決まりを Rust で書いて Bun の答えと比べ、どれもすべて一致した
+- `float_roundtrip`: `rust/crates/protocol/tests/types.rs` の `a_number_reads_as_javascripts_json_parse_reads_it` が、feature なしで `left: Some(1.0)` で失敗し、足したあとに通った。`Cargo.lock` は変わらなかった
+- レビュー(PR の codex のレビュアーと `/code-review high`)で、`float_roundtrip`、配列の添字の形のキーの順序、数の桁の選び方、f64 を超える数、base64 の ASCII でない文字、回数の指定、ESC のあとの文字、最後の行の `\r` の決まりの誤りと抜けを指摘され、上のとおりに直した
