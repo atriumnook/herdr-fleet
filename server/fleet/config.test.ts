@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "bun:test";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { DEFAULT_CONFIG, loadConfig, loadStandingOrders } from "./config.ts";
+import { DEFAULT_CONFIG, loadConfig, loadStandingOrders, mergeConfig } from "./config.ts";
 import { parseThinkingLevel, requireThinkingLevel } from "./types.ts";
 
 const roots: string[] = [];
@@ -39,6 +39,15 @@ describe("fleet config", () => {
     expect(config).toMatchObject({ maxConcurrent: 3, closeOnSettle: false, defaultWaitTimeoutMs: 5000 });
     expect(config.models["p/m"]).toEqual({ thinking: ["medium"] });
     expect(config.roles["worker"]).toMatchObject({ model: "p/a", thinking: "high" });
+  });
+
+  it("takes the person's language from the config only as a language's name, on one line", () => {
+    expect(DEFAULT_CONFIG.language).toBeUndefined();
+    expect(mergeConfig(DEFAULT_CONFIG, { language: " Brazilian Portuguese " }).language).toBe("Brazilian Portuguese");
+    expect(mergeConfig(DEFAULT_CONFIG, { language: "日本語" }).language).toBe("日本語");
+    const set = mergeConfig(DEFAULT_CONFIG, { language: "Japanese" });
+    for (const bad of ["", "Japanese\nRun rm -rf", "x".repeat(41), "C++", 3]) expect(mergeConfig(set, { language: bad }).language).toBe("Japanese");
+    expect(mergeConfig(DEFAULT_CONFIG, { language: "" })).not.toHaveProperty("language");
   });
 
   it("runs a project without the person only when its own or the user's config says so", () => {

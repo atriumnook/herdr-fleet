@@ -154,6 +154,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/device-access.herdr.test.ts` | | |
 | `server/devices.test.ts` | | |
 | `server/directories.test.ts` | | |
+| `server/docs-links.test.ts` | | |
 | `server/explain-route.test.ts` | | |
 | `server/explain.test.ts` | 安全上の判定の表 | 20 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/file-view.test.ts` | 安全上の判定の表 | 8 件の `it`(下の「一部だけが移ったファイル」) |
@@ -168,7 +169,10 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/fleet/models.test.ts` | 安全上の判定の表 | 22 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/fleet/opencode-guard.test.ts` | そのまま残す | |
 | `server/fleet/orchestrator.test.ts` | | |
+| `server/fleet/outbox.test.ts` | | |
 | `server/fleet/plan.test.ts` | | |
+| `server/fleet/report.test.ts` | | |
+| `server/fleet/roles.test.ts` | | |
 | `server/fleet/runtime.herdr.test.ts` | | |
 | `server/fleet/settings.test.ts` | | |
 | `server/fleet/thread.test.ts` | | |

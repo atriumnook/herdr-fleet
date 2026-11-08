@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { basename, join, resolve } from "node:path";
 import { isAgentKind } from "./adapters.ts";
@@ -30,7 +31,8 @@ function loadDir(dir: string, source: AgentDefinition["source"], warnings?: stri
     if (!entry.name.endsWith(".md") || (!entry.isFile() && !entry.isSymbolicLink())) continue;
     const filePath = join(dir, entry.name);
     try {
-      const { frontmatter: fm, body } = parseFrontmatter(readFileSync(filePath, "utf8"));
+      const text = readFileSync(filePath, "utf8");
+      const { frontmatter: fm, body } = parseFrontmatter(text);
       const name = typeof fm["name"] === "string" ? fm["name"] : basename(entry.name, ".md");
       if (fm["agent"] !== undefined && !isAgentKind(fm["agent"])) throw new Error(`unknown agent ${JSON.stringify(fm["agent"])}`);
       result.push({
@@ -48,6 +50,7 @@ function loadDir(dir: string, source: AgentDefinition["source"], warnings?: stri
         systemPrompt: body.trim(),
         source,
         filePath,
+        hash: contentHash(text),
       });
     } catch (error) {
       // one broken role file must not hide the others
@@ -65,6 +68,16 @@ export function discoverAgents(cwd: string, warnings?: string[], dirs = { bundle
   const project = findProjectPath(cwd, "agents");
   if (project) for (const agent of loadDir(project, "project", warnings)) map.set(agent.name.toLowerCase(), agent);
   return [...map.values()];
+}
+
+/** The first 12 hex digits of the sha256 of `text`'s UTF-8 bytes: a version of a role file or of the standing orders. */
+export function contentHash(text: string): string {
+  return createHash("sha256").update(text, "utf8").digest("hex").slice(0, 12);
+}
+
+/** Which role file, in which version, a run is told to be: what the fleet records when the run starts (events.ts). */
+export function roleVersion(definition: AgentDefinition): { role: string; source: AgentDefinition["source"]; file: string; hash: string } {
+  return { role: definition.name, source: definition.source, file: definition.filePath, hash: definition.hash ?? contentHash(definition.systemPrompt) };
 }
 
 export function findAgent(agents: AgentDefinition[], role: string): AgentDefinition | undefined {

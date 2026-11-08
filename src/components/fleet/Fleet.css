@@ -976,6 +976,8 @@ pre.fleet-plan-code { padding: var(--space-2) var(--space-3); }
     background: var(--glass-strong);
   }
   .fleet-settings-tabs { padding: var(--space-3) var(--space-4) 0; }
+  /* six sections do not fit a phone's width on one row */
+  .fleet-settings-tabs > .segmented { flex-wrap: wrap; }
   .fleet-settings-body { padding: var(--space-2) var(--space-4) var(--space-5); }
   .fleet-role-head { grid-template-columns: minmax(0, 1fr) auto; }
   .fleet-role-candidates { grid-column: 1 / -1; }

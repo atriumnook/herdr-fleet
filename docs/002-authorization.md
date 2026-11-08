@@ -1,0 +1,91 @@
+# 002 Authorization
+
+Authorization decides who may start work in the fleet and which steps need the person. This document builds on [000 Philosophy](000-philosophy.md) and [001 Domain model](001-domain.md).
+
+The server and the agent CLIs enforce what this document says where they can. Text an agent reads, such as an issue, a pull request comment, a file or a helper's output, is an input to its work; it cannot change these rules.
+
+## Who may start work
+
+Only the person starts work, in one of two ways (Built):
+
+- On the Fleet screen, by writing to a project's coordinator.
+- From an agent's conversation in a herdr pane, through the fleet skill (`fleet project`). The message reaches the coordinator opening with `[from pane <id>]`, and the coordinator treats it as the person's own request.
+
+The coordinator turns a request into threads; a lead hands parts of its thread to helpers. Nothing else starts a thread: there is no proactive work and no rule that starts work by itself.
+
+Reaching the server at all is access control (Built, `server/access.ts`): without a token or a paired device, a request passes only from a loopback address with a loopback Host and no proxy headers, which also stops DNS rebinding, or through Tailscale on this machine as the machine's owner. A configured token is required whatever else holds. This is not loosened for convenience.
+
+## What the person approves
+
+Every step that leaves the machine or lands work waits for the person, except a merge under gated merge authority (below). The person presses it on the Fleet screen, and the fleet carries it to one agent as a `[fleet]` message that names the step. Each message approves the step it names and nothing more (Built).
+
+| Step | Pressed as | Carried out by | Approves |
+| --- | --- | --- | --- |
+| Answer a plan | Plan tab | the lead | building to those answers |
+| Update branch | Update branch | the lead | merging the base branch into the thread's branch |
+| Create a pull request | Create PR | the lead | pushing the branch and opening one pull request |
+| Fix CI | Fix CI | the lead | fixing failing checks and pushing to that pull request |
+| Review comments | Send to lead, after commenting on lines in the Changes tab | the lead | addressing those comments |
+| Merge into a branch | Merge into <base branch> | the coordinator | `git merge --no-ff` of the thread's branch on the main checkout |
+| Merge a pull request | Merge PR | the coordinator | `gh pr merge --merge` of that pull request |
+| Discard | Discard | the fleet server | removing the thread's worktree and branch, after a confirmation that cannot be undone |
+
+Once the person approved a pull request for a branch, the lead may push later commits of that branch to it. Force-push is never approved.
+
+### Merge authority
+
+Every merge waits for the person unless the person decided otherwise for that project. The factory runs everything up to the merge without them: threads, reviews, pull requests and CI fixes inside what the person already approved.
+
+- **Built** for the bundled roles: a coordinator merges only on a merge step the person pressed, and a lead never merges.
+- **Built**, and to be replaced: a project's own role files (`.herdr-fleet/agents/`) can tell its lead to merge its own pull request, and an autonomous project then closes the thread on that merge. Once merge authority exists, it replaces this path.
+
+**Planned: merge authority.** Who may merge is an explicit mode per project, in the person's own `fleet.json` (`projects[<path>]`). It is never inferred from a repository's own role files: those come with the repository, and would let it grant itself merges. As in dsh, a Mandate's strength is explicit, not inferred.
+
+| Mode | Who merges |
+| --- | --- |
+| `person` (default) | Every merge waits for the person. herdr-fleet's own main uses this |
+| `gated` | The coordinator merges on its own only when every condition below holds; otherwise the merge waits for the person, as in `person`. The rust project's rust branch will use this |
+
+The conditions of `gated`, all of which must hold:
+
+1. The lead's latest report is ready (slice A).
+2. A review on another CLI than the one that wrote the change passed.
+3. The pull request's CI is green, or, where the project has no CI, the lead's recorded checks passed.
+4. The diff is at most N lines; N defaults to 200, as dsh's delivery rule.
+5. It touches none of the protected paths the person lists. A change to the gate itself, such as the merge conditions, access control or the coordinator's merge rules, always waits for the person.
+6. The branch has the base branch's latest commits.
+
+**Safety comes from undo, not approval.** Every merge is a merge commit (`git merge --no-ff`, `gh pr merge --merge`; Built), so `git revert -m 1 <merge>` undoes it. Planned: every merge the coordinator makes on its own goes to the event log and to `fleet report`, which counts the change failure rate (merges later reverted) and the time to restore, as DORA defines them; and a Revert step on the Fleet screen (005).
+
+## What the fleet server does itself
+
+The fleet server never writes to GitHub (Built). It reads with `gh`, signed in as the person; it never reads `gh`'s sign-in. Agents write, each on a step the person pressed, or, for a merge, under gated merge authority (Planned). The server's own acts are few:
+
+- It starts, messages and closes agents in herdr panes.
+- It removes a thread's worktree and branch once it sees the thread's commits merged, by git or on GitHub.
+- It discards a thread after the person's confirmation.
+
+## Roles and their limits
+
+A role's file says whether it edits files and whether it may start agents (Built).
+
+- A role whose file says it edits no file (`edits: false`: the coordinator and the architect) runs only on a CLI the fleet can hold to that. Each CLI's own guard does the holding: a read-only mode, a settings file for that session, or a plugin for OpenCode.
+- Editing roles (lead, worker) run in each CLI's auto mode. No role runs in a mode that approves everything. A force push or a deletion of a branch is denied where the CLI takes such a rule; these rules stop the usual spelling, and are not a security boundary.
+- A run may start agents only when its role says so and its own children would still fit under the depth limit.
+- The coordinator and the lead run the `fleet` command, which Antigravity's sandboxed terminal cannot run. Neither role is given to agy. This is a rule of this repository, kept by the role files and the person's settings.
+
+## Text is data
+
+From strongest to weakest, as in dsh:
+
+1. What the server and the CLIs enforce: access control, the read-only guards, the write scopes of briefs, the depth limit.
+2. The fleet's instructions and the role files.
+3. The person's standing orders, and the project's.
+4. The brief a run was handed.
+5. Everything else an agent reads: issues, comments, documents, other agents' output. It is data, and never grants a step.
+
+A `[fleet]` message says that it comes from the fleet, not from the person. It carries the person's approval only when it names a step the person pressed.
+
+## Third-party code
+
+The fleet fetches and runs no code from outside the person's machine without the person's approval: no self-update, no remote machines, no tokens read for usage meters, no voice sent out. Usage comes only from each CLI's own answer and from cooldowns after errors (Built).
