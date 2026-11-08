@@ -248,7 +248,9 @@ pub(super) fn unwrap_pastes(text: &str) -> String {
 /// kept, the rest dropped), an offset with or without its colon, hour 24 at the day's end, and a
 /// day past the month's end up to 31 (it rolls over). A time without an offset is local time in
 /// JavaScript; it is read as UTC here, which changes no difference between two such times except
-/// across a daylight saving change (Claude Code writes UTC with `Z`). `None` for NaN.
+/// across a daylight saving change (Claude Code writes UTC with `Z`). The other formats Bun's
+/// fallback parser reads (`Tue, 12 May 2026 10:00:00 GMT` and the like) are not read. `None` for
+/// NaN, also for a time past 8.64e15 ms either way.
 pub(super) fn date_parse(text: &str) -> Option<f64> {
     let mut reader = Reader {
         bytes: text.as_bytes(),
@@ -277,6 +279,8 @@ pub(super) fn date_parse(text: &str) -> Option<f64> {
         return None;
     }
     let (mut hour, mut minute, mut second, mut millis) = (0, 0, 0, 0);
+    // a fraction digit past the milliseconds that is not zero: hour 24 refuses it too
+    let mut past_millis = false;
     let mut has_time = false;
     if matches!(reader.peek(), Some(b'T' | b't' | b' ')) {
         reader.at += 1;
@@ -298,12 +302,13 @@ pub(super) fn date_parse(text: &str) -> Option<f64> {
                     return None;
                 }
                 millis = format!("{fraction:0<3}")[..3].parse().ok()?;
+                past_millis = fraction.bytes().skip(3).any(|digit| digit != b'0');
             }
         }
         if hour > 24
             || minute > 59
             || second > 59
-            || (hour == 24 && (minute, second, millis) != (0, 0, 0))
+            || (hour == 24 && ((minute, second, millis) != (0, 0, 0) || past_millis))
         {
             return None;
         }
@@ -328,7 +333,9 @@ pub(super) fn date_parse(text: &str) -> Option<f64> {
     }
     let days = days_from_civil(year, month, 1) + day - 1;
     let seconds = days * 86_400 + hour * 3600 + minute * 60 + second - offset_minutes * 60;
-    Some((seconds * 1000 + millis) as f64)
+    // TimeClip: a time past 8.64e15 ms either way is NaN
+    let time = seconds * 1000 + millis;
+    (time.abs() <= 8_640_000_000_000_000).then_some(time as f64)
 }
 
 struct Reader<'a> {
@@ -380,12 +387,12 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 mod tests {
     use super::*;
 
-    // Expected values: Bun 1.4.4's `Date.parse` of each string (scratchpad d.ts and d2.ts of #201),
+    // Expected values: Bun 1.4.4's `Date.parse` of each string (scratchpad d.ts to d4.ts of #201),
     // run in a JST (+09:00) zone; the local-time form is the one place the zone shows, and is
     // read as UTC here.
     #[test]
     fn parses_dates_as_bun_does() {
-        let cases: [(&str, Option<f64>); 30] = [
+        let cases: [(&str, Option<f64>); 39] = [
             ("2026-05-12T10:00:00.123Z", Some(1778580000123.0)),
             ("2026-05-12T10:00:00Z", Some(1778580000000.0)),
             ("2026-05-12T10:00:00.123456Z", Some(1778580000123.0)),
@@ -416,6 +423,15 @@ mod tests {
             ("2026-05-12T10:00:00.123Z ", None),
             ("-000001-01-01T00:00:00Z", Some(-62198755200000.0)),
             ("-000000-01-01T00:00:00Z", None),
+            ("+275760-09-13T00:00:00Z", Some(8640000000000000.0)),
+            ("+275760-09-13T00:00:00.001Z", None),
+            ("+275760-09-14T00:00:00Z", None),
+            ("-271821-04-20T00:00:00Z", Some(-8640000000000000.0)),
+            ("-271821-04-19T23:59:59.999Z", None),
+            ("+999999-01-01T00:00:00Z", None),
+            ("+275760-09-13T01:00:00+02:00", Some(8639999996400000.0)),
+            ("2026-05-12T24:00:00.0001Z", None),
+            ("2026-05-12T24:00:00.0000Z", Some(1778630400000.0)),
         ];
         for (input, expected) in cases {
             assert_eq!(date_parse(input), expected, "Date.parse({input:?})");

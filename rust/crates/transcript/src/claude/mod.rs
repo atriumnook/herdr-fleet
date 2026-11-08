@@ -72,10 +72,9 @@ impl TranscriptFormat for Claude {
             Some(Value::Array(blocks)) => {
                 // a page starting here would parse the result apart from its call and lose the
                 // output
-                let kind = |block: &Value| field(record(Some(block)), "type").map(str::to_owned);
                 if blocks
                     .iter()
-                    .any(|block| kind(block).as_deref() == Some("tool_result"))
+                    .any(|block| field(record(Some(block)), "type") == Some("tool_result"))
                 {
                     return false;
                 }
