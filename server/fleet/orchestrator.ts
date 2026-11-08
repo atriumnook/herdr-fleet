@@ -1382,8 +1382,15 @@ export class Orchestrator {
     this.settleWaiters(run);
   }
 
+  /**
+   * A non-interactive run's pane, once its turn settled with its handoff written. A turn that ended
+   * without one keeps its pane: a question the adapter does not know reads as a finished turn
+   * (herdr reports agy's file access screen as done), and closing it would end the agent there,
+   * where the person or its lead can still see what stopped it and send it on.
+   */
   private async closeOnSettle(run: AgentRun, config: FleetConfig): Promise<void> {
     if (!config.closeOnSettle || run.interactive || !isCompleted(run.state) || this.pending.has(run.id)) return;
+    if (run.result === undefined) return;
     const live = await this.liveState(run);
     if (live && isCompleted(live)) await this.closeSettledPane(run);
   }
