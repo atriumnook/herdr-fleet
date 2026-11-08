@@ -25,7 +25,7 @@ ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確�
 ### job `ts-corpus`(`.github/workflows/rust.yml`)
 
 - 同じ workflow `rust` の 2 つ目の job にする。きっかけ(`rust` への push と、base が `rust` のすべての pull request)、`permissions: contents: read`、`concurrency` は、job `linux` と共有する
-- runner は `ubuntu-24.04`、`timeout-minutes: 10`、手順は `shell: bash`(`-eo pipefail`)。作業フォルダーはリポジトリの根
+- runner は `ubuntu-24.04`、`timeout-minutes: 15`、手順は `shell: bash`(`-eo pipefail`)。作業フォルダーはリポジトリの根
 - 手順は次の順に走らせる
   1. `actions/checkout`(job `linux` と同じ SHA `3d3c42e5aac5ba805825da76410c181273ba90b1`、`persist-credentials: false`)
   2. bun を入れる(下の「bun の入れ方」)
@@ -38,9 +38,10 @@ ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確�
 
 ### bun の入れ方
 
-- 取得する: `https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64.zip` を `curl --fail --location --retry 3 --connect-timeout 15 --max-time 60` で `$RUNNER_TEMP/bun/bun.zip` に保存する。この URL が失敗したら、警告を出し、同じ asset を REST API から取得する。`https://api.github.com/repos/oven-sh/bun/releases/tags/bun-v1.4.4` が返す release の `assets` から、名前が `bun-linux-x64.zip` の asset の id を `jq` で引き(2026-11-08 の値は 665259752)、`https://api.github.com/repos/oven-sh/bun/releases/assets/<id>` を `Accept: application/octet-stream` で取得する。どちらの URL から取っても、次の照合は同じ
+- 取得する: `https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64.zip` を `curl --fail --location --retry 3 --retry-max-time 150 --connect-timeout 15 --max-time 60` で `$RUNNER_TEMP/bun/bun.zip` に保存する。この URL が失敗したら、警告を出し、同じ asset を REST API から取得する。`https://api.github.com/repos/oven-sh/bun/releases/tags/bun-v1.4.4` が返す release の JSON を `$RUNNER_TEMP/bun/release.json` に保存し、その `assets` から、名前が `bun-linux-x64.zip` の asset の id を `jq --exit-status` で引き(2026-11-08 の値は 665259752)、`https://api.github.com/repos/oven-sh/bun/releases/assets/<id>` を `Accept: application/octet-stream` で取得する。どちらの URL から取っても、次の照合は同じ
   - asset の id を workflow に書かず、毎回 tag から引く理由: 書いておくと、版を上げる PR が id を変え忘れても、1 つ目の URL が通る間は気づかれない。1 つ目の URL が失敗したときに初めて古い版の zip を取り、照合で失敗する
-  - 時間の上限を付ける理由: 応答が途中で止まった取得は、`--fail` と `--retry` では終わらない。上限がないと、job の `timeout-minutes` まで待って、2 つ目の URL を試さずに赤になる。1 回の試みを 60 秒までにすると、1 つの URL の再試行を含めて約 250 秒で次へ進み、2 つの URL を合わせても 10 分に収まる。zip は runner で、REST API から約 12 秒で取得できた(下の run 42465384924 の、手順の始まりから `downloaded from` までの時間で、1 つ目の URL の 4 回の 504 を含む)
+  - 時間の上限を付ける理由: 応答が途中で止まった取得は、`--fail` と `--retry` では終わらない。上限がないと、job の `timeout-minutes` まで待って、2 つ目の URL を試さずに赤になる。1 回の試みは 60 秒(`--max-time`)まで、再試行は最初の試みから 150 秒(`--retry-max-time`)を過ぎたら始めないので、1 回の取得は最長で約 210 秒で終わる。2 つ目の URL に進むと取得は 3 回(1 つ目の URL、tag、asset)になり、最長で約 630 秒かかる。そのため `timeout-minutes` を 15 分にした。10 分のままでは、3 回の取得が上限まで延びたときに job が先に打ち切られる(再レビューの指摘)。zip は runner で、REST API から約 12 秒で取得できた(下の run 42465384924 の、手順の始まりから `downloaded from` までの時間で、1 つ目の URL の 4 回の 504 を含む)
+  - 取得をファイルに書く理由: curl は再試行の前に `--output` のファイルを書き直すが、pipe に出した途中のデータは取り消せない。tag の JSON を pipe で `jq` に渡すと、途中で切れた応答と再試行で届いた応答がつながり、`jq` が失敗する(再レビューで、手元の HTTP サーバーで再現された)
   - 2 つ目の URL を置く理由: 2026-11-08 の作業中、`releases/download` の URL は、手元からも runner からも、`bun-linux-x64.zip` に 10 分以上 HTTP 504 を返し続けた(runner の run は https://github.com/atriumnook/herdr-fleet/actions/runs/42464358524 と https://github.com/atriumnook/herdr-fleet/actions/runs/42465082588)。同じ時刻に、同じ release の `SHASUMS256.txt` と `bun-darwin-aarch64.zip` は 302 を返し、REST API の asset の URL は `bun-linux-x64.zip` を返した。GitHub Status は `All Systems Operational` だった。この取得の失敗は TypeScript の実装とも件とも関係がない。2 つ目の URL で取れれば、job はこの失敗で赤にならない
   - REST API の URL を 1 つ目にしない理由: 認証のない REST API の呼び出しは、IP ごとに 1 時間 60 回までに制限される。runner の IP はほかの利用者と共有されうるので、毎回の取得に使うと、制限で失敗しうる。2 つ目の取得は REST API を 2 回呼ぶ(tag と asset)。認証に `GITHUB_TOKEN` を使えば制限は緩むが、この job は secrets を使わない
 - 照合する: release `bun-v1.4.4` の `SHASUMS256.txt` にある `bun-linux-x64.zip` の行の sha256(`bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c`)を workflow の `BUN_SHA256` に書き、`sha256sum --check --strict` で比べる。一致しなければ、zip を開く前に job が失敗する
@@ -92,7 +93,7 @@ ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確�
 - workflow の「Install bun」の手順を YAML から取り出し、`RUNNER_TEMP` と `GITHUB_PATH` を一時フォルダーに向けて `bash --noprofile --norc -eo pipefail` で走らせた。この時点で 1 つ目の URL は 504 を返していた
   - workflow の値のまま: `::warning::the release download URL failed; taking the same asset through the REST API`、`downloaded from https://api.github.com/repos/oven-sh/bun/releases/assets/665259752`、`bun.zip: 完了`、終了コード 0 で、`$GITHUB_PATH` に `…/bun/bun-linux-x64` が書かれた
   - `BUN_SHA256` を 0 が 64 個の値にする: `sha256sum: 警告: 1 個の計算したチェックサムが一致しませんでした` で終了コード 1。zip は開かれず、`$GITHUB_PATH` に何も書かれなかった
-  - `BUN_VERSION` を存在しない版にする(両方の URL が失敗する): tag の REST API が `curl: (22) The requested URL returned error: 404` を返し、終了コード 4(`jq --exit-status` が結果なしで返す値)で、`$GITHUB_PATH` に何も書かれなかった
+  - `BUN_VERSION` を存在しない版にする(両方の URL が失敗する): tag の REST API が `curl: (22) The requested URL returned error: 404` を返し、終了コード 22 で、`$GITHUB_PATH` に何も書かれなかった
 - PR の run で確かめた(PR の途中の commit。わざと変えた期待値は、次の commit で戻した)
   - 緑: https://github.com/atriumnook/herdr-fleet/actions/runs/42465384924 。1 つ目の URL が 504 で、`downloaded from https://api.github.com/repos/oven-sh/bun/releases/assets/665259752`、`/home/runner/work/_temp/bun/bun.zip: OK`、`582 pass`。job は 21 秒で終わった
   - 赤: https://github.com/atriumnook/herdr-fleet/actions/runs/42465449664 。上と同じ件の `title` を `"Command approval (broken on purpose)"` に変えた commit で、`(fail) screen corpus > claude/a-command-line-that-reads-tip-is-part-of-a-scrolled-approval-1`、`581 pass`、`1 fail`、`Process completed with exit code 1.`

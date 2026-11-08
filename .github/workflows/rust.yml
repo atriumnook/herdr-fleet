@@ -80,7 +80,7 @@ jobs:
   # to fit the Rust answer, and not the TypeScript code with it, turns red.
   ts-corpus:
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     defaults:
       run:
         shell: bash
@@ -98,20 +98,26 @@ jobs:
       # When the release download URL fails (it answered 504 for this asset on
       # 2026-11-08), the same asset is taken through the REST API: the release
       # of the tag names the asset's id. The sha256 check is the same whichever
-      # URL served the zip. Each attempt has a time limit, so that a stalled
-      # transfer reaches the REST API before the job's timeout.
+      # URL served the zip. Each attempt has a time limit and each fetch stops
+      # retrying after 150 s, so that the three fetches end (in 630 s at most)
+      # before the job's timeout. Every fetch writes to a file: curl rewinds a
+      # file before a retry, but not a pipe.
       - name: Install bun
         run: |
           dir="$RUNNER_TEMP/bun"
           mkdir -p "$dir"
-          fetch() { curl --fail --silent --show-error --location --retry 3 --connect-timeout 15 --max-time 60 "$@"; }
+          fetch() {
+            curl --fail --silent --show-error --location --retry 3 --retry-max-time 150 \
+              --connect-timeout 15 --max-time 60 "$@"
+          }
           if fetch --output "$dir/bun.zip" \
               "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip"; then
             echo "downloaded from the release download URL"
           else
             echo "::warning::the release download URL failed; taking the same asset through the REST API"
             api="https://api.github.com/repos/oven-sh/bun/releases"
-            id=$(fetch "$api/tags/bun-v$BUN_VERSION" | jq --exit-status '.assets[] | select(.name == "bun-linux-x64.zip") | .id')
+            fetch --output "$dir/release.json" "$api/tags/bun-v$BUN_VERSION"
+            id=$(jq --exit-status '.assets[] | select(.name == "bun-linux-x64.zip") | .id' "$dir/release.json")
             fetch --header 'Accept: application/octet-stream' --output "$dir/bun.zip" "$api/assets/$id"
             echo "downloaded from $api/assets/$id"
           fi
