@@ -1,0 +1,1 @@
+  ⎿  --model gemini-4-argon-low conflicts with --effort=max. Using "Gemini 4 Argon (Medium)" instead.

@@ -11,6 +11,7 @@
  * - control: without the fleet's --settings, a new folder gets the trust question (so the reading sees questions);
  * - the fleet's arguments: no trust question, no startup error, nothing the adapter takes for a question, and auto
  *   mode on, on the screen and in agy's log (agy falls back to the default mode without saying so on the screen);
+ * - a model id that names its level starts as that model, whatever the role's thinking (agy drops it given --effort);
  * - the person's settings.json is left as it was (--settings is for the session only).
  * Exit code 1 when a check fails.
  */
@@ -78,6 +79,12 @@ try {
   check(AUTO.test(fleet.screen), "fleet: the screen shows auto mode");
   check(agyAdapter.inputReady?.(fleet.screen) === true, "fleet: the adapter takes the screen for ready");
   check(/SetCycleMode called: auto/.test(fleet.log) && !/auto mode is unavailable/.test(fleet.log), "fleet: agy's log has auto mode set, with no fallback");
+
+  // a model id that names its level, with a role's thinking that differs: the id's level stands
+  const level = await start("level", (cwd, resultDir) =>
+    agyAdapter.launchArgs({ name: "live-check", model: "gemini-4-argon-low", thinking: "max", systemPromptFile: join(root, "instructions.md"), systemPrompt: "", resultDir, cwd }));
+  check(agyAdapter.readyError?.(level.screen) === undefined, "level: a model id that names its level starts as given, with the role's thinking");
+  check(/Argon · low/.test(level.screen), "level: the screen shows the id's level");
 
   check(digest() === before, `the person's ${SETTINGS} is unchanged`);
   if (failures.length) {

@@ -149,6 +149,12 @@ describe("agy adapter", () => {
     expect(agy.instructionsInPrompt).toBe(true);
   });
 
+  it("leaves the level to a model id that names one, as agy drops such a model given --effort as well", () => {
+    expect(agy.launchArgs({ ...base, model: "gemini-4-argon-medium", thinking: "high" }).slice(0, 3)).toEqual(["--model", "gemini-4-argon-medium", "--add-dir"]);
+    expect(agy.launchArgs({ ...base, model: "claude-sonnet-5-5-low:max" }).slice(0, 3)).toEqual(["--model", "claude-sonnet-5-5-low", "--add-dir"]);
+    expect(agy.launchArgs({ ...base, thinking: "high" }).slice(0, 2)).toEqual(["--effort", "high"]);
+  });
+
   it("trusts the run's own folder and runs in auto mode in the sandbox, for the session only", () => {
     const args = agy.launchArgs(base);
     expect(args).not.toContain("--mode");
