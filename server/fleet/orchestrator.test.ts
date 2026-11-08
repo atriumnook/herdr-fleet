@@ -1422,7 +1422,7 @@ describe("a thread outlives its lead run", () => {
     restarted.stop();
   });
 
-  it("hands Merge into main the person pressed while the thread was starting again to the new lead and the coordinator", async () => {
+  it("turns down Merge into main pressed while the thread starts again, and hands it on once pressed on the new lead", async () => {
     const { fleet, runtime, registry, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main" } });
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
@@ -1440,12 +1440,13 @@ describe("a thread outlives its lead run", () => {
     runtime.output = "API Error: 529 overloaded";
     const failing = turn(first, "idle");
     await until(() => starting, "the new lead starting");
-    await fleet.land(first.id, "merge");
+    await expect(fleet.land(first.id, "merge")).rejects.toMatchObject({ code: "thread_restarting" });
     release();
     await failing;
     await until(() => registry.get(first.id)!.replacedBy !== undefined, "the new lead");
     const next = registry.get(registry.get(first.id)!.replacedBy!)!;
-    expect(next.landing).toMatchObject({ action: "merge", sent: false });
+    expect(next.landing).toBeUndefined();
+    await fleet.land(first.id, "merge");
     runtime.output = "agent output";
     await turn(coordinator, "idle");
     expect(promptsTo(coordinator).filter((text) => text.includes("Merge into main"))).toHaveLength(1);
@@ -1497,7 +1498,7 @@ describe("a thread outlives its lead run", () => {
     expect(steps[0]).not.toContain("Merge into main");
   });
 
-  it("keeps a newer step the person pressed on the new lead while it started over the old run's merge", async () => {
+  it("turns down a step pressed on the new lead while it starts, and keeps the merge the old run handed it", async () => {
     const { fleet, runtime, registry, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main" } });
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
@@ -1518,18 +1519,16 @@ describe("a thread outlives its lead run", () => {
     await until(() => starting, "the new lead starting");
     // the new lead is listed while it starts, and the person presses Merge PR on it
     const next = registry.all().find((run) => run.thread === first.id && run.id !== first.id)!;
-    await Bun.sleep(2);
-    await fleet.land(next.id, "merge-pr");
+    await expect(fleet.land(next.id, "merge-pr")).rejects.toMatchObject({ code: "thread_restarting" });
     release();
     await failing;
     await until(() => registry.get(first.id)!.replacedBy !== undefined, "the new lead");
-    expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge-pr", sent: false });
+    expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge", sent: false });
     runtime.output = "agent output";
     await turn(coordinator, "idle");
     const steps = promptsTo(coordinator).slice(1);
     expect(steps).toHaveLength(1);
-    expect(steps[0]).toContain("gh pr merge 7 --merge");
-    expect(steps[0]).not.toContain("Merge into main");
+    expect(steps[0]).toContain(`Merge into main for thread "Fix" (${first.id}`);
   });
 
   it("tells the coordinator of a project run without the person nothing of a restart, and the replacement's turn as usual", async () => {

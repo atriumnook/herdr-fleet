@@ -74,15 +74,9 @@ export class Outbox {
     this.remove((entry) => !isImmediate(entry) && entry.about === about && entry.slot === slot);
   }
 
-  /**
-   * The queued notices about `from` are about `to` now, in their place: a thread's new lead took them
-   * over. One of a slot `to` already holds is older, and goes.
-   */
+  /** The queued notices about `from` are about `to` now, in their place: a thread's new lead took them over. */
   move(from: string, to: string): void {
-    const held = new Set(this.pending((notice) => notice.about === to).map((notice) => notice.slot));
-    this.commit(this.entries
-      .filter((entry) => isImmediate(entry) || entry.about !== from || !held.has(entry.slot))
-      .map((entry) => !isImmediate(entry) && entry.about === from ? { ...entry, about: to } : entry));
+    this.commit(this.entries.map((entry) => !isImmediate(entry) && entry.about === from ? { ...entry, about: to } : entry));
   }
 
   /** The queued notices `keep` turns down leave the outbox. */

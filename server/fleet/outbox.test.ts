@@ -78,16 +78,6 @@ describe("outbox", () => {
     expect(texts(new Outbox(file))).toEqual(["Two asks", "Merge PR One"]);
   });
 
-  it("keeps the newer notice of a slot the run that took over already holds", () => {
-    const file = join(folder(), "fleet-outbox.json");
-    const outbox = new Outbox(file);
-    outbox.put({ about: "t1", slot: "landing", section: "steps", text: "Merge One", landingAt: 7 });
-    outbox.put({ about: "t1", slot: "news", section: "news", text: "One asks" });
-    outbox.put({ about: "t1b", slot: "landing", section: "steps", text: "Merge PR One", landingAt: 9 });
-    outbox.move("t1", "t1b");
-    expect(new Outbox(file).pending().map((notice) => [notice.about, notice.text])).toEqual([["t1b", "One asks"], ["t1b", "Merge PR One"]]);
-  });
-
   it("drops the queued notices a prune turns down, on disk too", () => {
     const file = join(folder(), "fleet-outbox.json");
     const outbox = new Outbox(file);

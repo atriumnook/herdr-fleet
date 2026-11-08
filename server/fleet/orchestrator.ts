@@ -210,6 +210,8 @@ export class Orchestrator {
   private readonly reconcileLocks = new Map<string, Promise<void>>();
   private readonly projectStarts = new Map<string, Promise<AgentRun>>();
   private readonly delivering = new Set<string>();
+  /** threads starting again on a new lead: neither run takes a landing step until it has */
+  private readonly restarting = new Set<string>();
   private readonly draftRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
@@ -775,6 +777,9 @@ export class Orchestrator {
       throw new FleetError("landing_busy", `${run.name} is still on ${run.landing.action}; wait for it to end.`);
     }
     const baseBranch = await this.baseBranchOf(run);
+    // checked after the branch is read, which a restart can outlast: one run holds a thread's steps
+    if (run.replacedBy) throw replaced(run);
+    if (this.restarting.has(threadId(run))) throw new FleetError("thread_restarting", `${run.name} is starting again on another CLI; press it again once it has.`);
     if (action === "merge-pr" && run.pr?.state !== "OPEN") throw new FleetError("no_pull_request", `${run.name} has no open pull request.`);
     if (action === "fix-ci" && !run.pr) throw new FleetError("no_pull_request", `${run.name} has no pull request.`);
     if (action === "comments" && !options.comments?.length) throw new FleetError("missing_comments", "comments are required");
@@ -788,8 +793,6 @@ export class Orchestrator {
       this.save(run);
       return this.notifyNow(run, leadStep(run, action, baseBranch, options.comments ?? []), signal);
     }
-    // a lead that took the thread over while the branch was read holds its steps now
-    if (run.replacedBy) throw replaced(run);
     run.landing = { action, at: Date.now(), sent: false };
     this.save(run);
     const coordinator = this.projectCoordinator(run);
@@ -1477,6 +1480,7 @@ export class Orchestrator {
     const base = { kind: "restart" as const, run: run.id, project: run.project!, agent: run.agent, why };
     const since = Date.now();
     let next: AgentRun | undefined;
+    this.restarting.add(threadId(run));
     try {
       next = await this.spawnWithFallbacks({
         role: THREAD_ROLE, name: run.name, task: recoveryTask(run, this.resultDir(run), task, lastMessage), cwd: run.cwd, depth: run.depth - 1,
@@ -1484,10 +1488,9 @@ export class Orchestrator {
         thread: { repo: run.project ?? null, owner: run.owner, base: run.base, baseBranch: run.baseBranch, takeover: { from: run, thread: threadId(run), task } },
       });
       run.replacedBy = next.id;
-      // the new run took the landing step over as it started: one the person pressed on the old run
-      // meanwhile, or one marked sent meanwhile, is the step it holds, unless one pressed on it is newer
+      // the new run took the landing step over as it started: a step marked sent meanwhile goes as marked
       const lead = this.deps.registry.get(next.id);
-      if (lead && run.landing && (!lead.landing || lead.landing.at <= run.landing.at)) {
+      if (lead?.landing && run.landing && lead.landing.at === run.landing.at) {
         lead.landing = run.landing;
         this.save(lead);
       }
@@ -1518,6 +1521,7 @@ export class Orchestrator {
         delete failed.landing;
         this.save(failed);
       }
+      this.restarting.delete(threadId(run));
     }
   }
 
