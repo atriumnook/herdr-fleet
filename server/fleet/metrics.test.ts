@@ -1,11 +1,18 @@
 import { describe, expect, it } from "bun:test";
-import type { TimedEvent } from "../server/fleet/events.ts";
-import { metrics, render } from "./factory-report.ts";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { TimedEvent } from "./events.ts";
+import { metrics, readEvents, render } from "./metrics.ts";
 
 const MIN = 60_000;
 const P = "/repo";
 const state = (t: number, run: string, role: string, agent: string, from: string | undefined, to: string, sent: boolean, extra: Partial<TimedEvent> = {}): TimedEvent =>
-  ({ t: t * MIN, kind: "state", run, role, agent, group: run === "r" ? "g-lead" : run === "c" ? "g-project" : "g-lead", ...(run === "r" ? {} : { project: P }), ...(from ? { from } : {}), to, sent, ...extra }) as TimedEvent;
+  ({ t: t * MIN, kind: "state", run, role, agent, group: run === "r" ? "g-lead" : run === "c" ? "g-project" : "g-lead", ...(run === "r" ? {} : { project: P }), interactive: role === "lead" || role === "coordinator", ...(from ? { from } : {}), to, sent, ...extra }) as TimedEvent;
+
+/** a turn's end as the fleet read it: whether the run's result file held a HANDOFF */
+const turnEnd = (t: number, run: string, role: string, agent: string, interactive: boolean, handoff: boolean): TimedEvent =>
+  ({ t: t * MIN, kind: "turn", run, role, agent, group: "g-lead", ...(run === "r" ? {} : { project: P }), interactive, handoff }) as TimedEvent;
 
 // minutes from 0: the coordinator c, a thread's lead l, and its reviewer r (no project of its own: known by its group)
 const events: TimedEvent[] = [
@@ -15,13 +22,25 @@ const events: TimedEvent[] = [
   state(3, "l", "lead", "claude", "starting", "working", true),
   state(4, "c", "coordinator", "claude", "working", "idle", true),
   state(5, "r", "reviewer", "agy", undefined, "starting", false),
+  // an agy reviewer whose turn ended on a question the adapter did not know: no HANDOFF, its pane kept
+  state(5.2, "r4", "reviewer", "agy", undefined, "starting", false),
+  state(5.4, "r4", "reviewer", "agy", "starting", "working", true),
+  state(5.8, "r4", "reviewer", "agy", "working", "done", true),
+  turnEnd(5.8, "r4", "reviewer", "agy", false, false),
   state(6, "r", "reviewer", "agy", "starting", "idle", false, { error: "Agent started but is not ready for prompts; the task has not been sent." }),
-  state(7, "r", "reviewer", "agy", undefined, "starting", false),
-  state(8, "r", "reviewer", "agy", "starting", "failed", false, { error: "Unknown model x" }),
+  state(7, "r3", "reviewer", "agy", undefined, "starting", false),
+  state(8, "r3", "reviewer", "agy", "starting", "failed", false, { error: "Unknown model x" }),
+  // a claude reviewer whose pane closed before it wrote anything
+  state(9, "r2", "reviewer", "claude", undefined, "starting", false, { group: "g-lead" } as Partial<TimedEvent>),
+  state(9.5, "r2", "reviewer", "claude", "starting", "working", true, { group: "g-lead" } as Partial<TimedEvent>),
+  state(9.9, "r2", "reviewer", "claude", "working", "stopped", false, { group: "g-lead" } as Partial<TimedEvent>),
   state(10, "l", "lead", "claude", "working", "idle", true),
+  turnEnd(10, "l", "lead", "claude", true, true),
   // 10 to 40: nothing moves (30 minutes); then the lead resumes by itself
   state(40, "l", "lead", "claude", "idle", "working", false),
   state(45, "l", "lead", "claude", "working", "done", false),
+  // the lead ends a turn to wait, with no HANDOFF yet: it talks in its pane, and has not ended
+  turnEnd(45, "l", "lead", "claude", true, false),
   // 45 to 50: still, but shorter than the quiet period; the person writes, and types once more into the pane
   { t: 50 * MIN, kind: "person", run: "c", project: P },
   state(50, "c", "coordinator", "claude", "idle", "working", true),
@@ -30,6 +49,8 @@ const events: TimedEvent[] = [
   state(54, "c", "coordinator", "claude", "working", "idle", false),
   { t: 70 * MIN, kind: "standstill", run: "c", project: P, quietMs: 15 * MIN },
   { t: 71 * MIN, kind: "reconciled", run: "l", project: P, pr: 9 },
+  // the fleet closes the landed thread: its lead's last turn left no HANDOFF, and it is not lost
+  state(71, "l", "lead", "claude", "done", "stopped", false),
   // another project's run: never counted here
   state(20, "x", "lead", "codex", undefined, "starting", false, { project: "/other", group: "g-other" } as Partial<TimedEvent>),
 ];
@@ -56,10 +77,10 @@ describe("factory metrics", () => {
     expect(result.standstills).toEqual([{ from: 10 * MIN, to: 40 * MIN }, { from: 54 * MIN, to: 80 * MIN }]);
   });
 
-  it("counts starts per agent, the failed ones and the ones stopped before the task, and calls an anomaly", () => {
+  it("counts runs per agent, the starts that failed or stopped before the task, the runs that ended or a helper's turn that settled without a HANDOFF, and calls an anomaly", () => {
     expect(result.starts).toEqual([
-      { agent: "agy", starts: 2, failed: 2, anomaly: true },
-      { agent: "claude", starts: 2, failed: 0, anomaly: false },
+      { agent: "agy", starts: 3, failed: 2, lost: 1, anomaly: true },
+      { agent: "claude", starts: 3, failed: 0, lost: 1, anomaly: false },
     ]);
   });
 
@@ -87,6 +108,13 @@ describe("factory metrics", () => {
     const anomalies = text.slice(text.indexOf("## Anomalies"), text.indexOf("## Without the person"));
     expect(anomalies).toContain("The person stepped in 2 times.");
     expect(anomalies).toContain("Stood still 30 minutes");
-    expect(anomalies).toContain("agy: 2 of 2 starts failed or stopped before the task.");
+    expect(anomalies).toContain("agy: of 3 runs, 2 failed or stopped before the task and 1 ended without a HANDOFF.");
+  });
+
+  it("reads the event log line by line, skipping a line that does not parse, and nothing from a missing file", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "fleet-metrics-")), "fleet-events.jsonl");
+    expect(readEvents(file)).toEqual([]);
+    writeFileSync(file, '{"t":1,"kind":"person","run":"c","project":"/repo"}\n{"t":2,"kind":"per\n\n{"t":3,"kind":"standstill","run":"c","project":"/repo","quietMs":5}\n');
+    expect(readEvents(file).map((event) => event.t)).toEqual([1, 3]);
   });
 });

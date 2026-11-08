@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import { branchHead, branchState, diffStat, diffText, excludeWorktrees, gitBranch, gitHead, gitRoot, isMerged, removeThread, runSetup } from "./thread.ts";
+import { branchHead, branchState, diffStat, diffText, excludeWorktrees, gitBranch, gitHead, gitRoot, isMerged, mainWorktree, removeThread, runSetup } from "./thread.ts";
 
 const roots: string[] = [];
 afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
@@ -16,6 +16,22 @@ function repo(): string {
 }
 
 describe("thread helpers", () => {
+  it("find the repository's main worktree from a thread's worktree, from a subfolder, and nothing outside a repository", async () => {
+    const root = repo();
+    const git = (...args: string[]) => Bun.spawnSync(["git", "-C", root, "-c", "user.email=t@example.invalid", "-c", "user.name=t", ...args]);
+    writeFileSync(join(root, "a.txt"), "one\n");
+    git("add", "a.txt");
+    git("commit", "-q", "-m", "base");
+    const worktree = join(root, ".herdr-fleet", "worktrees", "t1");
+    git("worktree", "add", "-q", "-b", "fleet/t1", worktree);
+    mkdirSync(join(root, "sub"));
+    const main = await gitRoot(root);
+    expect(await mainWorktree(worktree)).toBe(main);
+    expect(await mainWorktree(join(root, "sub"))).toBe(main);
+    expect(await gitRoot(worktree)).not.toBe(main);
+    expect(await mainWorktree(tmpdir())).toBeNull();
+  });
+
   it("measure a worktree's change since a commit, committed or not, in the files git tracks", async () => {
     const root = repo();
     const git = (...args: string[]) => Bun.spawnSync(["git", "-C", root, "-c", "user.email=t@example.invalid", "-c", "user.name=t", ...args]);
