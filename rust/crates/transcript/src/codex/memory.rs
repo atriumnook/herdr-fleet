@@ -160,7 +160,7 @@ fn tokens(text: &str) -> Vec<Token> {
                     kind: Kind::Ticks(run),
                 });
                 at += run;
-            } else if source[at..].starts_with(OPENING) {
+            } else if bytes[at..].starts_with(OPENING.as_bytes()) {
                 tokens.push(Token {
                     index: start + at,
                     kind: Kind::Citation,
@@ -344,6 +344,28 @@ mod tests {
         assert_eq!(
             without_memory_citations("a <oai-mem-citation>unclosed"),
             "a"
+        );
+    }
+
+    // A position inside a multi-byte character is never cut at. Expected values: the TypeScript
+    // `parseCodexTranscript` of an agent_message holding each text (Bun 1.4.4).
+    #[test]
+    fn keeps_text_around_citations_whatever_its_characters() {
+        assert_eq!(
+            without_memory_citations("日本語です<oai-mem-citation>a</oai-mem-citation>"),
+            "日本語です"
+        );
+        assert_eq!(
+            without_memory_citations(
+                "> 引用 `コード<oai-mem-citation>x</oai-mem-citation>` 😀\n- 項目<oai-mem-citation>y</oai-mem-citation>終わり"
+            ),
+            "> 引用 `コード<oai-mem-citation>x</oai-mem-citation>` 😀\n- 項目終わり"
+        );
+        assert_eq!(
+            without_memory_citations(
+                "```日本\n<oai-mem-citation>x</oai-mem-citation>\n```\n完了<oai-mem-citation>z</oai-mem-citation>"
+            ),
+            "```日本\n<oai-mem-citation>x</oai-mem-citation>\n```\n完了"
         );
     }
 
