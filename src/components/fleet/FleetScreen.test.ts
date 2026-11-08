@@ -160,7 +160,7 @@ describe("Fleet screen views", () => {
 
   it("draws the Settings page in place of the project: each role's candidates and the one the fleet would start now", () => {
     const settings = {
-      file: "/home/me/.config/herdr-fleet/fleet.json", maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [], readOnlyAgents: ["claude" as const],
+      file: "/home/me/.config/herdr-fleet/fleet.json", maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, language: "", projects: [], readOnlyAgents: ["claude" as const],
       roles: [
         { name: "lead", description: "Owns one thread.", readOnly: false, changed: true, thinking: "high" as const, defaults: { candidates: [{ agent: "claude" as const }], thinking: "high" as const },
           candidates: [{ agent: "codex" as const, model: "gpt-6", skip: "codex has used 92% of its 5h limit" }, { agent: "claude" as const }] },

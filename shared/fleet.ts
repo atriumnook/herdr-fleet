@@ -248,6 +248,8 @@ export interface FleetSettings {
   maxConcurrent: number;
   /** a helper's pane closes when its turn ends */
   closeOnSettle: boolean;
+  /** the language the person reads, such as Japanese; empty when unset */
+  language: string;
   /** the setup command of each repository the person's fleet.json names */
   projects: Array<{ path: string; setup: string }>;
   /** the CLIs a read-only role can run on */
@@ -261,6 +263,8 @@ export interface FleetSettingsPatch {
   rateLimitCooldownMinutes?: number;
   maxConcurrent?: number;
   closeOnSettle?: boolean;
+  /** an empty language unsets it */
+  language?: string;
   /** an empty setup command removes it */
   projects?: Record<string, { setup: string }>;
 }
