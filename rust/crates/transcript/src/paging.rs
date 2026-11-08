@@ -363,18 +363,50 @@ impl PagingState {
 /// The paging cache of one `Transcripts`, which all its sources share: the limits are
 /// TypeScript's, for every source together.
 #[derive(Clone, Default)]
-pub(crate) struct PagingCache(Arc<Mutex<PagingState>>);
+pub(crate) struct PagingCache(Arc<Shared>);
+
+#[derive(Default)]
+struct Shared {
+    state: Mutex<PagingState>,
+    /// the bytes `read_file` has read: outside the lock, which counting never takes
+    bytes_read: AtomicU64,
+}
 
 impl PagingCache {
     fn lock(&self) -> MutexGuard<'_, PagingState> {
         self.0
+            .state
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The bytes the paging has read from transcript files, in all
+    /// (`Transcripts::paging_bytes_read`).
+    pub(crate) fn bytes_read(&self) -> u64 {
+        self.0.bytes_read.load(Ordering::Relaxed)
+    }
+
+    /// Reads at most `length` bytes of `path` from `offset` onto `out`, and counts them. The
+    /// paging reads a transcript file nowhere else, so the count misses none of its reads.
+    fn read_file(
+        &self,
+        path: &Path,
+        offset: u64,
+        length: u64,
+        out: &mut Vec<u8>,
+    ) -> io::Result<()> {
+        let mut handle = File::open(path)?;
+        handle.seek(SeekFrom::Start(offset))?;
+        let read = handle.take(length).read_to_end(out)?;
+        self.0.bytes_read.fetch_add(read as u64, Ordering::Relaxed);
+        Ok(())
     }
 }
 
 /// The conversation as one byte stream.
 struct Stream {
+    /// where its reads are counted
+    cache: PagingCache,
     /// the live file's identity, its layout and where the history starts: cursors from any other
     /// stream are refused
     id: String,
@@ -395,10 +427,12 @@ impl Stream {
             if low >= high {
                 continue;
             }
-            let mut handle = File::open(&file.path)?;
-            handle.seek(SeekFrom::Start(file.offset + (low - file.start)))?;
-            let read = handle.take(high - low).read_to_end(&mut out)?;
-            count_read(read);
+            self.cache.read_file(
+                &file.path,
+                file.offset + (low - file.start),
+                high - low,
+                &mut out,
+            )?;
         }
         Ok(out)
     }
@@ -411,19 +445,6 @@ impl Stream {
     fn bytes_before(&self, offset: u64) -> io::Result<Vec<u8>> {
         self.read(offset.saturating_sub(TAIL_BYTES), offset)
     }
-}
-
-#[cfg(test)]
-thread_local! {
-    /// The bytes of transcript files this thread's reads have read: the tests check that a read
-    /// after an append reads the appended bytes, not the ones read before (ADR
-    /// 0205-incremental-reads).
-    static BYTES_READ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
-}
-
-fn count_read(_bytes: usize) {
-    #[cfg(test)]
-    BYTES_READ.with(|read| read.set(read.get() + _bytes as u64));
 }
 
 /// An I/O failure while a page is read: the file went unreadable mid-read.
@@ -593,6 +614,7 @@ impl<F: TranscriptFormat> Source<F> {
         }
         let mark = self.format.layout_mark(&files);
         Ok(Stream {
+            cache: self.cache.clone(),
             id: format!("{}{mark}{generation}", stat.node),
             files,
             length,
@@ -1023,10 +1045,8 @@ impl<F: TranscriptFormat> Source<F> {
     fn metadata_head(&self, place: &F::Place, stream: &Stream, start: u64) -> io::Result<String> {
         if self.format.metadata_head() == MetadataHead::LiveFileStart {
             let mut bytes = Vec::new();
-            let read = File::open(F::live_path(place))?
-                .take(METADATA_HEAD_BYTES)
-                .read_to_end(&mut bytes)?;
-            count_read(read);
+            self.cache
+                .read_file(F::live_path(place), 0, METADATA_HEAD_BYTES, &mut bytes)?;
             return Ok(String::from_utf8_lossy(&bytes).into_owned());
         }
         let end = start.min(stream.floor + METADATA_HEAD_BYTES);
@@ -1154,332 +1174,5 @@ mod tests {
         assert_eq!(radix36(0), "0");
         assert_eq!(radix36(35), "z");
         assert_eq!(radix36(36), "10");
-    }
-
-    /// What a poll of an unchanged or appended-to transcript reads, and what the cache keeps
-    /// (#205, ADR 0205-incremental-reads). The bounds are worked out by hand from TypeScript's
-    /// reads (`server/conversation.ts:547-826`): a poll reads the bytes appended since the last
-    /// one (once for the history boundary, once for the turn starts), `TAIL_BYTES` before each
-    /// place a kept read stopped, and the live last turn, which only Codex parses incrementally.
-    mod kept {
-        use super::*;
-        use crate::codex::Codex;
-        use crate::omp::Omp;
-        use crate::{CodexRollout, PageRequest};
-
-        /// A new folder of its own under the system's temporary folder, removed when dropped.
-        struct Folder(PathBuf);
-
-        impl Folder {
-            fn new() -> Self {
-                static COUNTER: AtomicU64 = AtomicU64::new(0);
-                let ids = ProcessIds::new();
-                let path = std::env::temp_dir().join(format!(
-                    "herdr-paging-{}-{}",
-                    ids.process(),
-                    COUNTER.fetch_add(1, Ordering::Relaxed)
-                ));
-                // ADR 0107-crate-split allows temporary files in tests; clippy.toml forbids writing
-                // files in this crate, so each write here says so (ADR 0205-incremental-reads)
-                #[allow(clippy::disallowed_methods)]
-                fs::create_dir(&path).expect("a temporary folder");
-                Self(path)
-            }
-
-            /// Writes `text` at the end of the file `name`, made when there is none.
-            #[allow(clippy::disallowed_methods)]
-            fn append(&self, name: &str, text: &str) -> PathBuf {
-                use std::io::Write as _;
-                let path = self.0.join(name);
-                fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&path)
-                    .and_then(|mut file| file.write_all(text.as_bytes()))
-                    .expect("an append");
-                path
-            }
-        }
-
-        impl Drop for Folder {
-            #[allow(clippy::disallowed_methods)]
-            fn drop(&mut self) {
-                let _ = fs::remove_dir_all(&self.0);
-            }
-        }
-
-        fn bytes_read() -> u64 {
-            BYTES_READ.with(|read| read.replace(0))
-        }
-
-        fn omp_line(role: &str, text: &str) -> String {
-            let content = if role == "user" {
-                serde_json::json!(text)
-            } else {
-                serde_json::json!([{ "type": "text", "text": text }])
-            };
-            format!(
-                "{}\n",
-                serde_json::json!({ "type": "message", "message": { "role": role, "content": content } })
-            )
-        }
-
-        fn codex_line(kind: &str, message: &str) -> String {
-            format!(
-                "{}\n",
-                serde_json::json!({ "type": "event_msg", "payload": { "type": kind, "message": message } })
-            )
-        }
-
-        fn rollout(folder: &Folder, path: PathBuf) -> CodexRollout {
-            CodexRollout {
-                path,
-                home: folder.0.join("codex-home"),
-                cwd: folder.0.clone(),
-            }
-        }
-
-        fn newest() -> PageRequest {
-            PageRequest::default()
-        }
-
-        #[test]
-        fn a_poll_reads_what_was_appended_and_the_live_turn_not_the_turns_before() {
-            let folder = Folder::new();
-            let source = Source::new(Omp, &PagingCache::default());
-            // 40 prompts: the newest page starts at the beginning and stays there
-            let mut path = PathBuf::new();
-            for prompt in 0..40 {
-                path = folder.append(
-                    "session.jsonl",
-                    &omp_line("user", &format!("prompt {prompt}")),
-                );
-                folder.append("session.jsonl", &omp_line("assistant", &"x".repeat(10_000)));
-            }
-            let live_start = fs::metadata(&path).expect("the file").len();
-            folder.append("session.jsonl", &omp_line("user", "the live prompt"));
-            let size = fs::metadata(&path).expect("the file").len();
-            bytes_read();
-            let first = source.page(&path, &newest()).expect("a page");
-            assert!(bytes_read() >= size, "the first read reads the file");
-
-            // unchanged: the answer is kept, and only the bytes before the boundary scan's stop
-            // are read, to check that nothing was rewritten and again to keep them, as
-            // `applyHistoryBoundary` does (`server/conversation.ts:551, 584`)
-            assert_eq!(
-                source.page(&path, &newest()).expect("a page").turns,
-                first.turns
-            );
-            assert_eq!(bytes_read(), 2 * TAIL_BYTES);
-
-            // the live turn grows
-            let reply = omp_line("assistant", "a reply");
-            folder.append("session.jsonl", &reply);
-            let appended = reply.len() as u64;
-            let page = source.page(&path, &newest()).expect("a page");
-            assert_eq!(page.turns.len(), first.turns.len() + 1);
-            let live_turn = size + appended - live_start;
-            let bound = 2 * appended + live_turn + 6 * TAIL_BYTES;
-            let read = bytes_read();
-            assert!(read <= bound, "read {read} bytes, at most {bound}");
-            assert!(
-                bound * 20 < size,
-                "the file is large next to what a poll reads"
-            );
-
-            // a new prompt: the turn that was live settles, and is parsed once more
-            let prompt = omp_line("user", "the next prompt");
-            folder.append("session.jsonl", &prompt);
-            source.page(&path, &newest()).expect("a page");
-            let appended = prompt.len() as u64;
-            let bound = 2 * appended + 2 * (live_turn + appended) + 8 * TAIL_BYTES;
-            let read = bytes_read();
-            assert!(read <= bound, "read {read} bytes, at most {bound}");
-        }
-
-        #[test]
-        fn a_poll_of_a_long_codex_task_reads_what_was_appended() {
-            let folder = Folder::new();
-            let source = Source::new(Codex, &PagingCache::default());
-            let mut path = folder.append("rollout.jsonl", &codex_line("task_started", ""));
-            folder.append("rollout.jsonl", &codex_line("user_message", "a long task"));
-            for step in 0..300 {
-                path = folder.append(
-                    "rollout.jsonl",
-                    &codex_line(
-                        "agent_message",
-                        &format!("step {step} {}", "y".repeat(3_000)),
-                    ),
-                );
-            }
-            let place = rollout(&folder, path.clone());
-            let size = fs::metadata(&path).expect("the file").len();
-            source.page(&place, &newest()).expect("a page");
-            assert!(bytes_read() >= size, "the first read reads the file");
-
-            let line = codex_line("agent_message", "one more step");
-            folder.append("rollout.jsonl", &line);
-            let page = source.page(&place, &newest()).expect("a page");
-            let last = page.turns.last().expect("the assistant's turn");
-            assert!(
-                matches!(last.parts.last(), Some(protocol::ConversationPart::Text { text, .. }) if text == "one more step")
-            );
-            let appended = line.len() as u64;
-            let bound = 2 * appended + 4 * TAIL_BYTES;
-            let read = bytes_read();
-            assert!(read <= bound, "read {read} bytes, at most {bound}");
-            assert!(
-                bound * 100 < size,
-                "the task is long next to what a poll reads"
-            );
-        }
-
-        #[test]
-        fn keeps_what_typescript_keeps_and_drops_the_oldest_first() {
-            let folder = Folder::new();
-            let cache = PagingCache::default();
-            let source = Source::new(Omp, &cache);
-            let paths: Vec<PathBuf> = (0..65)
-                .map(|file| {
-                    folder.append(
-                        &format!("{file}.jsonl"),
-                        &omp_line("user", &format!("file {file}")),
-                    )
-                })
-                .collect();
-            for path in &paths {
-                source.page(path, &newest()).expect("a page");
-            }
-            let state = cache.lock();
-            let kept = |keys: Vec<&PathBuf>| keys.into_iter().cloned().collect::<Vec<_>>();
-            // the newest of each, in the order they were stored
-            assert_eq!(
-                kept(
-                    state
-                        .revisions
-                        .entries
-                        .iter()
-                        .map(|(path, _)| path)
-                        .collect()
-                ),
-                paths[1..].to_vec()
-            );
-            assert_eq!(
-                kept(
-                    state
-                        .clear_scans
-                        .entries
-                        .iter()
-                        .map(|(path, _)| path)
-                        .collect()
-                ),
-                paths[33..].to_vec()
-            );
-            assert_eq!(
-                kept(
-                    state
-                        .live_scans
-                        .entries
-                        .iter()
-                        .map(|(path, _)| path)
-                        .collect()
-                ),
-                paths[33..].to_vec()
-            );
-            assert_eq!(
-                kept(
-                    state
-                        .settled
-                        .entries
-                        .iter()
-                        .map(|((path, _), _)| path)
-                        .collect()
-                ),
-                paths[57..].to_vec()
-            );
-            let answers: Vec<String> = state
-                .answers
-                .entries
-                .iter()
-                .map(|(key, _)| key.clone())
-                .collect();
-            let expected: Vec<String> = paths[33..]
-                .iter()
-                .map(|path| format!("{}\0from:", path.to_string_lossy()))
-                .collect();
-            assert_eq!(answers, expected);
-        }
-
-        #[test]
-        fn keeps_eight_codex_live_turns() {
-            let folder = Folder::new();
-            let cache = PagingCache::default();
-            let source = Source::new(Codex, &cache);
-            let places: Vec<CodexRollout> = (0..9)
-                .map(|file| {
-                    let name = format!("rollout-{file}.jsonl");
-                    folder.append(&name, &codex_line("task_started", ""));
-                    rollout(
-                        &folder,
-                        folder.append(&name, &codex_line("user_message", "a task")),
-                    )
-                })
-                .collect();
-            for place in &places {
-                source.page(place, &newest()).expect("a page");
-            }
-            let kept: Vec<PathBuf> = cache
-                .lock()
-                .live_turns
-                .entries
-                .iter()
-                .map(|(path, _)| path.clone())
-                .collect();
-            let expected: Vec<PathBuf> =
-                places[1..].iter().map(|place| place.path.clone()).collect();
-            assert_eq!(kept, expected);
-        }
-
-        #[test]
-        fn keeps_codex_live_turns_that_read_two_windows_together() {
-            let folder = Folder::new();
-            let cache = PagingCache::default();
-            let source = Source::new(Codex, &cache);
-            // three live turns of 11 MB: two fit in 2 × 16 MB, three do not
-            let padding = format!(
-                "{}\n",
-                serde_json::json!({ "type": "response_item", "payload": { "type": "padding", "text": "z".repeat(1024 * 1024) } })
-            );
-            let places: Vec<CodexRollout> = (0..3)
-                .map(|file| {
-                    let name = format!("rollout-{file}.jsonl");
-                    let mut path = folder.append(&name, &codex_line("task_started", ""));
-                    while fs::metadata(&path).expect("the file").len() < 11 * 1024 * 1024 {
-                        path = folder.append(&name, &padding);
-                    }
-                    rollout(&folder, path)
-                })
-                .collect();
-            for place in &places {
-                source.page(place, &newest()).expect("a page");
-            }
-            let state = cache.lock();
-            let kept: Vec<PathBuf> = state
-                .live_turns
-                .entries
-                .iter()
-                .map(|(path, _)| path.clone())
-                .collect();
-            let expected: Vec<PathBuf> =
-                places[1..].iter().map(|place| place.path.clone()).collect();
-            assert_eq!(kept, expected);
-            let retained: u64 = state
-                .live_turns
-                .entries
-                .iter()
-                .map(|(_, turn)| turn.scanned - turn.start)
-                .sum();
-            assert!(retained <= 2 * TRANSCRIPT_WINDOW_BYTES);
-        }
     }
 }

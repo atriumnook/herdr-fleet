@@ -1,7 +1,10 @@
 //! A `Transcripts` that keeps reading answers as a new one does (#205, ADR 0192-phase-2-split:
-//! "1 つの `Transcripts` で読み続けた答えが、毎回新しい `Transcripts` で読んだ答えと同じ").
+//! "1 つの `Transcripts` で読み続けた答えが、毎回新しい `Transcripts` で読んだ答えと同じ"), reads
+//! after an append what was appended, and keeps no more than TypeScript does (the tests after
+//! `TAIL`, ADR 0205-incremental-reads).
 //!
-//! Two checks, both against the conversation corpus of the file sources (claude, codex, pi, omp):
+//! Two checks of the answers, both against the conversation corpus of the file sources (claude,
+//! codex, pi, omp):
 //! - every step of every case runs against one `Transcripts`, as the corpus runner does, and each
 //!   call is asked again of a new `Transcripts` made for that call alone;
 //! - every transcript file of the corpus grows a piece at a time (cut mid-line too), and the
@@ -582,4 +585,409 @@ fn copy_case(from: &Path, to: &Path, top: bool) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+// What a read after an append reads, and how much the reads keep, through
+// `Transcripts::paging_bytes_read` (ADR 0205-incremental-reads). The values are TypeScript's
+// (`server/conversation.ts`), written here rather than taken from the crate, and the bounds are
+// worked out by hand from its reads: a poll reads the bytes appended since the last one (once for
+// the history boundary, once for the turn starts), `TAIL` bytes before each place a kept read
+// stopped, and the live last turn, which only Codex parses incrementally.
+
+/// `bytesBefore` reads this many bytes (`:703-705`).
+const TAIL: u64 = 64;
+/// `TRANSCRIPT_WINDOW_BYTES`.
+const WINDOW: u64 = 16 * 1024 * 1024;
+
+fn no_catalog() -> Transcripts {
+    Transcripts::new(Box::new(|_, _| None))
+}
+
+/// The bytes `call` makes `transcripts` read.
+fn read_by<T>(transcripts: &Transcripts, call: impl FnOnce() -> T) -> (u64, T) {
+    let before = transcripts.paging_bytes_read();
+    let value = call();
+    (transcripts.paging_bytes_read() - before, value)
+}
+
+/// Writes `text` at the end of `path`, made when there is none; the file's new size.
+fn append(path: &Path, text: &str) -> u64 {
+    OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .and_then(|mut file| file.write_all(text.as_bytes()))
+        .expect("an append");
+    size(path)
+}
+
+fn size(path: &Path) -> u64 {
+    fs::metadata(path).expect("the file").len()
+}
+
+fn omp_line(role: &str, text: &str) -> String {
+    let content = if role == "user" {
+        json!(text)
+    } else {
+        json!([{ "type": "text", "text": text }])
+    };
+    format!(
+        "{}\n",
+        json!({ "type": "message", "message": { "role": role, "content": content } })
+    )
+}
+
+fn codex_line(kind: &str, message: &str) -> String {
+    format!(
+        "{}\n",
+        json!({ "type": "event_msg", "payload": { "type": kind, "message": message } })
+    )
+}
+
+fn omp(path: &Path) -> FileSource {
+    FileSource::Omp(path.to_path_buf())
+}
+
+fn codex(folder: &Path, path: &Path) -> FileSource {
+    file_source("codex", path.to_path_buf(), folder)
+}
+
+fn newest(transcripts: &Transcripts, file: &FileSource) -> herdr_fleet_transcript::Page {
+    transcripts
+        .page(file, &PageRequest::default())
+        .expect("a page")
+}
+
+/// A temporary folder of its own, with an empty Codex home, removed when dropped.
+fn folder() -> (PathBuf, Cleanup) {
+    let root = temporary_root();
+    fs::create_dir_all(root.join("codex-home")).expect("a Codex home");
+    (root.clone(), Cleanup(root))
+}
+
+/// An omp session of 40 prompts, each answered at length: its newest page starts at its
+/// beginning, and the live last turn is short.
+fn long_omp_session(path: &Path) -> u64 {
+    for prompt in 0..40 {
+        append(path, &omp_line("user", &format!("prompt {prompt}")));
+        append(path, &omp_line("assistant", &"x".repeat(10_000)));
+    }
+    let live_start = size(path);
+    append(path, &omp_line("user", "the live prompt"));
+    live_start
+}
+
+/// A Codex rollout of one long task: the whole rollout is its live turn.
+fn long_codex_task(path: &Path, steps: usize) {
+    append(path, &codex_line("task_started", ""));
+    append(path, &codex_line("user_message", "a long task"));
+    for step in 0..steps {
+        append(
+            path,
+            &codex_line(
+                "agent_message",
+                &format!("step {step} {}", "y".repeat(3_000)),
+            ),
+        );
+    }
+}
+
+#[test]
+fn a_read_after_an_append_reads_what_was_appended_and_the_live_turn() {
+    let (root, _cleanup) = folder();
+    let path = root.join("session.jsonl");
+    let live_start = long_omp_session(&path);
+    let size = size(&path);
+    let transcripts = no_catalog();
+    let (read, first) = read_by(&transcripts, || newest(&transcripts, &omp(&path)));
+    assert!(
+        read >= size,
+        "the first read reads the file: {read} of {size}"
+    );
+
+    // unchanged: the answer is kept, and the bytes before where the boundary scan stopped are
+    // read twice, to check that nothing was rewritten and again to keep them
+    // (`applyHistoryBoundary`, `:551, 584`)
+    let (read, page) = read_by(&transcripts, || newest(&transcripts, &omp(&path)));
+    assert_eq!(page.turns, first.turns);
+    assert_eq!(read, 2 * TAIL);
+
+    // the live turn grows: the appended bytes twice, six tails, the live turn once
+    let reply = omp_line("assistant", "a reply");
+    let grown = append(&path, &reply);
+    let (read, page) = read_by(&transcripts, || newest(&transcripts, &omp(&path)));
+    assert_eq!(page.turns.len(), first.turns.len() + 1);
+    let appended = reply.len() as u64;
+    let live_turn = grown - live_start;
+    let bound = 2 * appended + live_turn + 6 * TAIL;
+    assert!(read <= bound, "read {read} bytes, at most {bound}");
+    assert!(
+        bound * 20 < size,
+        "the file is large next to what a read reads"
+    );
+
+    // a new prompt: the turn that was live settles and is parsed once more, eight tails
+    let prompt = omp_line("user", "the next prompt");
+    append(&path, &prompt);
+    let (read, _) = read_by(&transcripts, || newest(&transcripts, &omp(&path)));
+    let appended = prompt.len() as u64;
+    let bound = 2 * appended + 2 * (live_turn + appended) + 8 * TAIL;
+    assert!(read <= bound, "read {read} bytes, at most {bound}");
+}
+
+#[test]
+fn a_read_after_an_append_to_a_long_codex_task_reads_what_was_appended() {
+    let (root, _cleanup) = folder();
+    let path = root.join("rollout.jsonl");
+    long_codex_task(&path, 300);
+    let size = size(&path);
+    let file = codex(&root, &path);
+    let transcripts = no_catalog();
+    let (read, _) = read_by(&transcripts, || newest(&transcripts, &file));
+    assert!(
+        read >= size,
+        "the first read reads the file: {read} of {size}"
+    );
+
+    // no history boundary in Codex: the appended bytes twice and four tails
+    let line = codex_line("agent_message", "one more step");
+    append(&path, &line);
+    let (read, page) = read_by(&transcripts, || newest(&transcripts, &file));
+    let last = page.turns.last().expect("the assistant's turn");
+    assert!(matches!(
+        last.parts.last(),
+        Some(protocol::ConversationPart::Text { text, .. }) if text == "one more step"
+    ));
+    let appended = line.len() as u64;
+    let bound = 2 * appended + 4 * TAIL;
+    assert!(read <= bound, "read {read} bytes, at most {bound}");
+    assert!(
+        bound * 100 < size,
+        "the task is long next to what a read reads"
+    );
+}
+
+/// Reads `files` once each, `between` them all, then again from the last to the first: what each
+/// read again read, the first file's last. Each file read again is stored again and moves last,
+/// and the count stays the same, so nothing is dropped before the first file is read again.
+fn read_again_in_reverse(
+    transcripts: &Transcripts,
+    files: &[FileSource],
+    between: impl FnOnce(),
+) -> Vec<u64> {
+    for file in files {
+        newest(transcripts, file);
+    }
+    between();
+    files
+        .iter()
+        .rev()
+        .map(|file| read_by(transcripts, || newest(transcripts, file)).0)
+        .collect()
+}
+
+// The answers (`cache`, `:1075`), 32: Codex has no history boundary to scan, so a rollout read
+// again unchanged reads nothing while its answer is kept.
+#[test]
+fn keeps_32_answers() {
+    const KEPT: usize = 32;
+    let (root, _cleanup) = folder();
+    let paths: Vec<PathBuf> = (0..=KEPT)
+        .map(|at| {
+            let path = root.join(format!("rollout-{at}.jsonl"));
+            long_codex_task(&path, 1);
+            path
+        })
+        .collect();
+    let files: Vec<FileSource> = paths.iter().map(|path| codex(&root, path)).collect();
+    let transcripts = no_catalog();
+    let reads = read_again_in_reverse(&transcripts, &files, || {});
+    let (dropped, kept) = reads.split_last().expect("33 reads");
+    assert!(kept.iter().all(|read| *read == 0), "{kept:?}");
+    assert!(*dropped >= size(&paths[0]), "{dropped}");
+}
+
+// The history boundary scans (`clearScans`, `:585`), 32: an omp file read again unchanged reads
+// two tails only while both its scan and its answer are kept (the answers' limit alone:
+// `keeps_32_answers`).
+#[test]
+fn keeps_32_boundary_scans() {
+    const KEPT: usize = 32;
+    let (root, _cleanup) = folder();
+    let paths: Vec<PathBuf> = (0..=KEPT)
+        .map(|at| {
+            let path = root.join(format!("{at}.jsonl"));
+            append(
+                &path,
+                &omp_line("user", &format!("file {at} {}", "x".repeat(1_000))),
+            );
+            path
+        })
+        .collect();
+    let files: Vec<FileSource> = paths.iter().map(|path| omp(path)).collect();
+    let transcripts = no_catalog();
+    let reads = read_again_in_reverse(&transcripts, &files, || {});
+    let (dropped, kept) = reads.split_last().expect("33 reads");
+    assert!(kept.iter().all(|read| *read == 2 * TAIL), "{kept:?}");
+    assert!(*dropped >= size(&paths[0]), "{dropped}");
+}
+
+// The turn starts of a newest page (`liveScans`, `:735`), 32: each file is one turn, so no turn
+// settles and the 8 settled turns kept do not count. A file kept reads its appended bytes for the
+// two scans and its live turn whole once (omp parses the live turn whole); the file dropped scans
+// for its boundary and its turn starts from its beginning too, three times its size in all.
+#[test]
+fn keeps_32_scans_of_turn_starts() {
+    const KEPT: usize = 32;
+    let (root, _cleanup) = folder();
+    let paths: Vec<PathBuf> = (0..=KEPT)
+        .map(|at| {
+            let path = root.join(format!("{at}.jsonl"));
+            append(&path, &omp_line("user", &format!("file {at}")));
+            append(&path, &omp_line("assistant", &"x".repeat(5_000)));
+            path
+        })
+        .collect();
+    let files: Vec<FileSource> = paths.iter().map(|path| omp(path)).collect();
+    let reply = omp_line("assistant", "more");
+    let transcripts = no_catalog();
+    let reads = read_again_in_reverse(&transcripts, &files, || {
+        for path in &paths {
+            append(path, &reply);
+        }
+    });
+    let (dropped, kept) = reads.split_last().expect("33 reads");
+    let size = size(&paths[0]);
+    let bound = size + 2 * reply.len() as u64 + 6 * TAIL;
+    assert!(
+        kept.iter().all(|read| *read <= bound),
+        "{kept:?}, at most {bound}"
+    );
+    assert!(*dropped >= 3 * size, "{dropped}");
+}
+
+// The settled turns (`settledTurns`, `:817`), 8: files whose settled turns are long and live
+// turn short. 9 files keep every scan (32 each), so the file dropped differs by parsing its
+// settled turns again.
+#[test]
+fn keeps_8_settled_turns() {
+    const KEPT: usize = 8;
+    let (root, _cleanup) = folder();
+    let paths: Vec<PathBuf> = (0..=KEPT)
+        .map(|at| {
+            let path = root.join(format!("{at}.jsonl"));
+            long_omp_session(&path);
+            path
+        })
+        .collect();
+    let files: Vec<FileSource> = paths.iter().map(|path| omp(path)).collect();
+    let reply = omp_line("assistant", "a reply");
+    let transcripts = no_catalog();
+    let reads = read_again_in_reverse(&transcripts, &files, || {
+        for path in &paths {
+            append(path, &reply);
+        }
+    });
+    let (dropped, kept) = reads.split_last().expect("9 reads");
+    let size = size(&paths[0]);
+    let bound = size / 20;
+    assert!(
+        kept.iter().all(|read| *read <= bound),
+        "{kept:?}, at most {bound}"
+    );
+    assert!(*dropped >= size - bound, "{dropped}");
+}
+
+// The parses of a Codex live turn (`codexTurns`, `:777`), 8: a rollout kept reads its appended
+// bytes, the one dropped parses its task again.
+#[test]
+fn keeps_8_codex_live_turns() {
+    const KEPT: usize = 8;
+    let (root, _cleanup) = folder();
+    let paths: Vec<PathBuf> = (0..=KEPT)
+        .map(|at| {
+            let path = root.join(format!("rollout-{at}.jsonl"));
+            long_codex_task(&path, 50);
+            path
+        })
+        .collect();
+    let files: Vec<FileSource> = paths.iter().map(|path| codex(&root, path)).collect();
+    let line = codex_line("agent_message", "one more step");
+    let transcripts = no_catalog();
+    let reads = read_again_in_reverse(&transcripts, &files, || {
+        for path in &paths {
+            append(path, &line);
+        }
+    });
+    let (dropped, kept) = reads.split_last().expect("9 reads");
+    let bound = 2 * line.len() as u64 + 4 * TAIL;
+    assert!(
+        kept.iter().all(|read| *read <= bound),
+        "{kept:?}, at most {bound}"
+    );
+    assert!(*dropped >= size(&paths[0]), "{dropped}");
+}
+
+// The parses of Codex live turns read 2 × 16 MB together at most (`:779-783`): of three tasks of
+// 11 MB, two are kept.
+#[test]
+fn keeps_codex_live_turns_that_read_two_windows_together() {
+    let (root, _cleanup) = folder();
+    let padding = format!(
+        "{}\n",
+        json!({ "type": "response_item", "payload": { "type": "padding", "text": "z".repeat(1024 * 1024) } })
+    );
+    let paths: Vec<PathBuf> = (0..3)
+        .map(|at| {
+            let path = root.join(format!("rollout-{at}.jsonl"));
+            append(&path, &codex_line("task_started", ""));
+            while size(&path) < 11 * 1024 * 1024 {
+                append(&path, &padding);
+            }
+            path
+        })
+        .collect();
+    assert!(3 * size(&paths[0]) > 2 * WINDOW && 2 * size(&paths[1]) <= 2 * WINDOW);
+    let files: Vec<FileSource> = paths.iter().map(|path| codex(&root, path)).collect();
+    let line = codex_line("agent_message", "one more step");
+    let transcripts = no_catalog();
+    let reads = read_again_in_reverse(&transcripts, &files, || {
+        for path in &paths {
+            append(path, &line);
+        }
+    });
+    let (dropped, kept) = reads.split_last().expect("3 reads");
+    let bound = 2 * line.len() as u64 + 4 * TAIL;
+    assert!(
+        kept.iter().all(|read| *read <= bound),
+        "{kept:?}, at most {bound}"
+    );
+    assert!(*dropped >= size(&paths[0]), "{dropped}");
+}
+
+// The files' rewrite generations (`transcriptRevisions`, `:478`), 64: a file rewritten shorter in
+// place starts a new generation, and so a new history id, only while its last state is kept; one
+// forgotten reads as the first time again.
+#[test]
+fn keeps_64_rewrite_generations() {
+    const KEPT: usize = 64;
+    let (root, _cleanup) = folder();
+    let paths: Vec<PathBuf> = (0..=KEPT)
+        .map(|at| {
+            let path = root.join(format!("{at}.jsonl"));
+            append(&path, &omp_line("user", &format!("file {at} at length")));
+            path
+        })
+        .collect();
+    let transcripts = no_catalog();
+    let ids: Vec<String> = paths
+        .iter()
+        .map(|path| newest(&transcripts, &omp(path)).history_id)
+        .collect();
+    for path in &paths[..2] {
+        // written over in place, shorter: the same inode
+        fs::write(path, omp_line("user", "short")).expect("a rewrite");
+    }
+    assert_ne!(newest(&transcripts, &omp(&paths[1])).history_id, ids[1]);
+    assert_eq!(newest(&transcripts, &omp(&paths[0])).history_id, ids[0]);
 }

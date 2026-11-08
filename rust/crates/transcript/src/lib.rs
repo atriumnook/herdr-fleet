@@ -97,6 +97,7 @@ pub struct Image {
 /// each source's own) is guarded by a lock held only while that state is read or written, never
 /// while a file is read or parsed.
 pub struct Transcripts {
+    paging: PagingCache,
     claude: Source<claude::Claude>,
     codex: Source<codex::Codex>,
     pi: Source<pi::Pi>,
@@ -108,13 +109,25 @@ impl Transcripts {
     /// reads no catalog of its own).
     pub fn new(pi_context_window: PiContextWindow) -> Self {
         // one paging cache for every source: TypeScript's limits hold for them together
-        let cache = PagingCache::default();
+        let paging = PagingCache::default();
         Self {
-            claude: Source::new(claude::Claude, &cache),
-            codex: Source::new(codex::Codex, &cache),
-            pi: Source::new(pi::Pi::new(pi_context_window), &cache),
-            omp: Source::new(omp::Omp, &cache),
+            claude: Source::new(claude::Claude, &paging),
+            codex: Source::new(codex::Codex, &paging),
+            pi: Source::new(pi::Pi::new(pi_context_window), &paging),
+            omp: Source::new(omp::Omp, &paging),
+            paging,
         }
+    }
+
+    /// The bytes the paging has read from transcript files through this value since `new`, summed
+    /// over every call and thread: the stream's ranges and the metadata head that `page` reads.
+    /// Not counted: what a source reads on its own (Codex's chain of rollouts, pi's branch index
+    /// and abandoned turns), nor what `image`, `tool_output` and `unanswered_questions` read. It
+    /// only grows: a caller measures a call by the difference around it. The tests check with it
+    /// that a read after an append reads the appended bytes, not the ones read before (ADR
+    /// 0205-incremental-reads).
+    pub fn paging_bytes_read(&self) -> u64 {
+        self.paging.bytes_read()
     }
 
     /// One page of a transcript, its metadata included. A cursor of another transcript, or of the
