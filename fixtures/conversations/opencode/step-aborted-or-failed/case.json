@@ -1,0 +1,47 @@
+{
+  "about": "server/opencode-messages.test.ts: a step that did not finish > an aborted step is Interrupted; a provider error says why; both leave the empty content out. parseOpencodeMessages's input is the session's message list, read by a page; the turns compared, the first ids only as the cursor (null: the page begins at the beginning)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:38.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<user text>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:36.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Interrupted"
+              },
+              {
+                "kind": "text",
+                "text": "Error: <why>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:37.500Z"
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    }
+  ]
+}

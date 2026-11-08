@@ -1,10 +1,10 @@
-import { afterAll, beforeAll, describe, expect, it, spyOn } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+// black-box: scripts/contract/launch.ts
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer, SUBMIT_DELAY_MS } from "./index.ts";
-import { herdrRpc } from "./herdr/client.ts";
-import * as herdr from "./herdr/client.ts";
+import { launchServer, type LaunchedServer } from "../scripts/contract/launch.ts";
+import { herdrRpc, herdrSocketPath } from "./herdr/client.ts";
 
 /**
  * Contract test for the composer's "submit" frame, against the real herdr server.
@@ -15,8 +15,14 @@ import * as herdr from "./herdr/client.ts";
  * agent.prompt path).
  */
 const root = mkdtempSync(join(tmpdir(), "herdr-fleet-submit-"));
-let server: { port: number; stop: () => void };
+let server: LaunchedServer | undefined;
+/** a server that reaches herdr through `proxy`, for what a pane's viewport shows */
+let proxied: LaunchedServer | undefined;
+let proxy: ReturnType<typeof herdrProxy> | undefined;
 const workspaces: string[] = [];
+
+/** the gap the server leaves between a message's text and its Enter (SUBMIT_DELAY_MS in server/index.ts), a value of the contract */
+const SUBMIT_DELAY_MS = 120;
 
 const RECORDER = `
 const { appendFileSync, writeFileSync } = require("node:fs");
@@ -70,8 +76,10 @@ class Socket {
     this.ws = new WebSocket(url);
     this.ws.addEventListener("message", (event) => this.seen.push(JSON.parse(String((event as MessageEvent).data))));
   }
-  static async connect(port = server.port): Promise<Socket> {
-    const socket = new Socket(`ws://localhost:${port}/ws`);
+  static async connect(target: LaunchedServer | undefined): Promise<Socket> {
+    // an unset server is an error here, never a fall back to another server
+    if (!target) throw new Error("the server to connect to was not started");
+    const socket = new Socket(`${target.url.replace(/^http/, "ws")}/ws`);
     await new Promise<void>((resolve) => socket.ws.addEventListener("open", () => resolve()));
     await socket.waitFor((message) => message.type === "snapshot");
     return socket;
@@ -96,10 +104,92 @@ class Socket {
 }
 
 const paste = (text: string) => `\u001b[200~${text}\u001b[201~`;
+
+interface ProxiedRead { paneId: string; source: string }
+interface Leg { up: Bun.Socket<undefined> | null; held: Buffer[]; overriding: boolean; closed: boolean }
+
+/**
+ * A unix socket in front of the test herdr: herdr's own socket cannot be made to show a pane's
+ * viewport other than it is, nor asked what it was read for. One upstream connection per client
+ * connection, bytes passed on as they come (a subscription stays open). Each pane.read is kept in
+ * order, and `viewport` answers a pane's text read of its visible screen in herdr's place.
+ */
+function herdrProxy(path: string, upstream: string) {
+  const reads: ProxiedRead[] = [];
+  const viewport = new Map<string, string>();
+  // a write the kernel took only part of: the rest goes out on drain, and an end waits for it
+  const backlog = new Map<object, { chunks: Buffer[]; end: boolean }>();
+  const push = (to: Bun.Socket<any>, chunk: Buffer): void => {
+    const waiting = backlog.get(to);
+    if (waiting) { waiting.chunks.push(chunk); return; }
+    const written = to.write(chunk);
+    if (written < chunk.length) backlog.set(to, { chunks: [chunk.subarray(Math.max(written, 0))], end: false });
+  };
+  const end = (to: Bun.Socket<any>): void => {
+    const waiting = backlog.get(to);
+    if (waiting) waiting.end = true; else to.end();
+  };
+  const drain = (to: Bun.Socket<any>): void => {
+    const waiting = backlog.get(to);
+    if (!waiting) return;
+    while (waiting.chunks.length) {
+      const chunk = waiting.chunks[0]!;
+      const written = to.write(chunk);
+      if (written < chunk.length) { waiting.chunks[0] = chunk.subarray(Math.max(written, 0)); return; }
+      waiting.chunks.shift();
+    }
+    backlog.delete(to);
+    if (waiting.end) to.end();
+  };
+  const listener = Bun.listen<Leg>({
+    unix: path,
+    socket: {
+      open(down) { down.data = { up: null, held: [], overriding: false, closed: false }; },
+      data(down, chunk) {
+        const leg = down.data;
+        if (leg.up) { push(leg.up, Buffer.from(chunk)); return; }
+        leg.held.push(Buffer.from(chunk));
+        if (leg.overriding) return;
+        const head = Buffer.concat(leg.held);
+        const newline = head.indexOf(10);
+        if (newline < 0) return;
+        leg.overriding = true;
+        const request = JSON.parse(head.subarray(0, newline).toString()) as { id?: string; method: string; params?: { pane_id?: string; source?: string; format?: string } };
+        if (request.method === "pane.read") {
+          const { pane_id: paneId = "", source = "", format } = request.params ?? {};
+          reads.push({ paneId, source });
+          const text = viewport.get(paneId);
+          if (text !== undefined && source === "visible" && format === "text") {
+            push(down, Buffer.from(`${JSON.stringify({ id: request.id, result: { read: { text } } })}\n`));
+            end(down);
+            return;
+          }
+        }
+        void Bun.connect<undefined>({
+          unix: upstream,
+          socket: {
+            // a client gone before herdr answered the connect leaves no connection to herdr behind
+            open(up) { if (leg.closed) { up.end(); return; } leg.up = up; push(up, Buffer.concat(leg.held)); leg.held = []; },
+            data(_up, answer) { push(down, Buffer.from(answer)); },
+            drain,
+            close() { end(down); },
+            error() { end(down); },
+          },
+        }).catch(() => end(down));
+      },
+      drain,
+      close(down) { down.data.closed = true; down.data.up?.end(); },
+    },
+  });
+  return { reads, viewport, stop: () => listener.stop(true) };
+}
+
 const collapsedCodexScreen = "\n• Queued follow-up inputs\n  ? 1 question\n    alt+↑ to answer\n› Ask Codex to do anything\n";
 
 beforeAll(async () => {
-  server = createServer({ port: 0, stateDir: join(root, "push") });
+  server = await launchServer();
+  proxy = herdrProxy(join(root, "herdr.sock"), herdrSocketPath());
+  proxied = await launchServer({ env: { HERDR_SOCKET: join(root, "herdr.sock") } });
   writeFileSync(join(root, "record.js"), RECORDER);
   // herdr's agent.prompt checks that the pane's foreground process is the agent
   copyFileSync(process.execPath, join(root, "claude"));
@@ -122,14 +212,20 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  server?.stop();
-  for (const id of workspaces) await herdrRpc("workspace.close", { workspace_id: id }).catch(() => undefined);
-  rmSync(root, { recursive: true, force: true });
+  try {
+    // both servers have exited before the proxy and the folders they use go; then the first failure is reported
+    const stopped = await Promise.allSettled([server?.stop(), proxied?.stop()]);
+    for (const result of stopped) if (result.status === "rejected") throw result.reason;
+  } finally {
+    proxy?.stop();
+    for (const id of workspaces) await herdrRpc("workspace.close", { workspace_id: id }).catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 describe("WebSocket submit", () => {
   it("lists the submit feature in the first snapshot", async () => {
-    const socket = await Socket.connect();
+    const socket = await Socket.connect(server);
     try {
       // a pane-status can arrive first: the snapshot is found by its type
       expect(socket.seen.find((message) => message.type === "snapshot")?.features).toContain("submit");
@@ -139,7 +235,7 @@ describe("WebSocket submit", () => {
   });
 
   it("types the payload into a pane without an agent, then its own Enter SUBMIT_DELAY_MS later, and says so", async () => {
-    const socket = await Socket.connect();
+    const socket = await Socket.connect(server);
     try {
       const from = chunks(shell).length;
       socket.send({ type: "submit", id: 1, pane_id: shell.pane, text: "hello", payload: paste("hello") });
@@ -155,7 +251,7 @@ describe("WebSocket submit", () => {
   }, 30_000);
 
   it("hands an agent the message through herdr's agent.prompt: the paste, then Enter apart", async () => {
-    const socket = await Socket.connect();
+    const socket = await Socket.connect(server);
     try {
       const from = chunks(agent).length;
       socket.send({ type: "submit", id: 2, pane_id: agent.pane, text: "line one\nline two", payload: "unused" });
@@ -171,7 +267,7 @@ describe("WebSocket submit", () => {
   }, 30_000);
 
   it("refuses a message while the agent waits for an answer, typing nothing", async () => {
-    const socket = await Socket.connect();
+    const socket = await Socket.connect(server);
     await herdrRpc("pane.report_agent", { pane_id: agent.pane, source: "manual", agent: "claude", state: "blocked" });
     try {
       const from = chunks(agent).length;
@@ -186,7 +282,7 @@ describe("WebSocket submit", () => {
   }, 30_000);
 
   it("types the terminal's input line into a waiting agent like the keyboard, then its Enter", async () => {
-    const socket = await Socket.connect();
+    const socket = await Socket.connect(server);
     await herdrRpc("pane.report_agent", { pane_id: agent.pane, source: "manual", agent: "claude", state: "blocked" });
     try {
       const from = chunks(agent).length;
@@ -204,7 +300,7 @@ describe("WebSocket submit", () => {
   }, 30_000);
 
   it("still hands a message to a Codex blocked only by questions waiting collapsed in its queue", async () => {
-    const socket = await Socket.connect();
+    const socket = await Socket.connect(server);
     try {
       const from = chunks(codex).length;
       socket.send({ type: "submit", id: 9, pane_id: codex.pane, text: "stop, do not touch prod", payload: paste("stop, do not touch prod") });
@@ -217,7 +313,7 @@ describe("WebSocket submit", () => {
   }, 30_000);
 
   it("never types a message into an approval under the queue, nor for an agent other than Codex", async () => {
-    const socket = await Socket.connect();
+    const socket = await Socket.connect(server);
     try {
       for (const [id, recorder] of [[10, codexApproval], [11, claudeQueue]] as const) {
         const from = chunks(recorder).length;
@@ -232,47 +328,41 @@ describe("WebSocket submit", () => {
   }, 30_000);
 
   it("regression: ignores a collapsed Codex queue in scrollback while a live approval waits", async () => {
-    const socket = await Socket.connect();
-    const originalRead = herdr.paneRead;
-    const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
-      const result = await originalRead(options, socketPath);
-      // the pane really waits at an approval; its scrolled viewport shows an older queue
-      return options.paneId === codexApproval.pane && options.source === "visible" ? { ...result, text: collapsedCodexScreen } : result;
-    });
+    const socket = await Socket.connect(proxied);
+    // the pane really waits at an approval; its scrolled viewport shows an older queue
+    proxy!.viewport.set(codexApproval.pane, collapsedCodexScreen);
+    const readFrom = proxy!.reads.length;
     try {
       const from = chunks(codexApproval).length;
       socket.send({ type: "submit", id: 20, pane_id: codexApproval.pane, text: "y", payload: "y" });
       expect(await socket.result(20)).toMatchObject({ ok: false, code: "agent_blocked" });
       expect(chunks(codexApproval).slice(from)).toEqual([]);
-      expect(read.mock.calls.filter(([options]) => options.paneId === codexApproval.pane).map(([options]) => options.source)).toEqual(["detection"]);
+      expect(proxy!.reads.slice(readFrom).filter((read) => read.paneId === codexApproval.pane).map((read) => read.source)).toEqual(["detection"]);
     } finally {
-      read.mockRestore();
+      proxy!.viewport.delete(codexApproval.pane);
       socket.close();
     }
   }, 30_000);
 
   it("allows a live collapsed Codex queue even when the viewport shows earlier output", async () => {
-    const socket = await Socket.connect();
-    const originalRead = herdr.paneRead;
-    const read = spyOn(herdr, "paneRead").mockImplementation(async (options, socketPath) => {
-      const result = await originalRead(options, socketPath);
-      return options.paneId === codex.pane && options.source === "visible" ? { ...result, text: "Earlier output" } : result;
-    });
+    const socket = await Socket.connect(proxied);
+    proxy!.viewport.set(codex.pane, "Earlier output");
+    const readFrom = proxy!.reads.length;
     try {
       const from = chunks(codex).length;
       socket.send({ type: "submit", id: 21, pane_id: codex.pane, text: "follow up", payload: paste("follow up") });
       expect(await socket.result(21)).toMatchObject({ ok: true });
       await received(codex, from, 1);
       expect(typed(codex, from)).toBe(`${paste("follow up")}\r`);
-      expect(read.mock.calls.filter(([options]) => options.paneId === codex.pane).map(([options]) => options.source)).toEqual(["detection"]);
+      expect(proxy!.reads.slice(readFrom).filter((read) => read.paneId === codex.pane).map((read) => read.source)).toEqual(["detection"]);
     } finally {
-      read.mockRestore();
+      proxy!.viewport.delete(codex.pane);
       socket.close();
     }
   }, 30_000);
 
   it("keeps other input behind a message in flight: a Stop right after Send lands after its Enter", async () => {
-    const socket = await Socket.connect();
+    const socket = await Socket.connect(server);
     try {
       socket.send({ type: "attach", pane_id: shell.pane, cols: 100, rows: 30 });
       await socket.waitFor((message) => message.type === "pty-data" && message.pane_id === shell.pane);
@@ -289,7 +379,7 @@ describe("WebSocket submit", () => {
   }, 30_000);
 
   it("sends a message typed right after a Stop only once the Stop reached the pane", async () => {
-    const socket = await Socket.connect();
+    const socket = await Socket.connect(server);
     try {
       socket.send({ type: "attach", pane_id: shell.pane, cols: 100, rows: 30 });
       await socket.waitFor((message) => message.type === "pty-data" && message.pane_id === shell.pane);
@@ -307,8 +397,8 @@ describe("WebSocket submit", () => {
 
   it("types nothing of a message that waited past its deadline behind another", async () => {
     // a deadline of 50ms: the second message waits longer than that behind the first one's gap
-    const hurried = createServer({ port: 0, stateDir: join(root, "push-hurried"), submitDeadlineMs: 50 });
-    const ws = new WebSocket(`ws://localhost:${hurried.port}/ws`);
+    const hurried = await launchServer({ test: { submitDeadlineMs: 50 } });
+    const ws = new WebSocket(`${hurried.url.replace(/^http/, "ws")}/ws`);
     const seen: any[] = [];
     ws.addEventListener("message", (event) => seen.push(JSON.parse(String((event as MessageEvent).data))));
     try {
@@ -325,12 +415,12 @@ describe("WebSocket submit", () => {
       expect(typed(shell, from)).toBe("first\r");
     } finally {
       ws.close();
-      hurried.stop();
+      await hurried.stop();
     }
   }, 30_000);
 
   it("still sends the Enter after the sender is gone", async () => {
-    const socket = await Socket.connect();
+    const socket = await Socket.connect(server);
     const from = chunks(shell).length;
     // closed right after the tap, as a phone that locks: the server finishes the send
     socket.send({ type: "submit", id: 6, pane_id: shell.pane, text: "gone", payload: "gone" });
@@ -341,8 +431,8 @@ describe("WebSocket submit", () => {
   }, 30_000);
 
   it("sends nothing typed or keyed by a connection that closed while it waited behind a message", async () => {
-    const gone = await Socket.connect();
-    const socket = await Socket.connect();
+    const gone = await Socket.connect(server);
+    const socket = await Socket.connect(server);
     try {
       gone.send({ type: "attach", pane_id: shell.pane, cols: 100, rows: 30 });
       await gone.waitFor((message) => message.type === "pty-data" && message.pane_id === shell.pane);
@@ -364,7 +454,7 @@ describe("WebSocket submit", () => {
   }, 30_000);
 
   it("answers a submit from an observe connection with read_only, typing nothing", async () => {
-    const socket = await Socket.connect();
+    const socket = await Socket.connect(server);
     try {
       const from = chunks(shell).length;
       socket.send({ type: "role", mode: "observe" });
@@ -380,9 +470,9 @@ describe("WebSocket submit", () => {
 });
 
 describe("a herdr without terminal attach (Windows)", () => {
-  let bare: { port: number; stop: () => void };
-  beforeAll(() => { bare = createServer({ port: 0, stateDir: join(root, "push-bare"), terminalAttach: false }); });
-  afterAll(() => bare?.stop());
+  let bare: LaunchedServer | undefined;
+  beforeAll(async () => { bare = await launchServer({ test: { terminalAttach: false } }); });
+  afterAll(async () => { await bare?.stop(); });
 
   it("mirrors the pane's screen: the pane's own grid first, then each changed screen, until the pane ends", async () => {
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
@@ -390,7 +480,7 @@ describe("a herdr without terminal attach (Windows)", () => {
     );
     workspaces.push(created.workspace.workspace_id);
     const pane = created.root_pane.pane_id;
-    const socket = await Socket.connect(bare.port);
+    const socket = await Socket.connect(bare);
     try {
       socket.send({ type: "attach", pane_id: pane, cols: 33, rows: 7, flow_control: "ack" });
       const geometry = await socket.waitFor((message) => message.type === "pane-geometry" && message.pane_id === pane);
@@ -406,7 +496,7 @@ describe("a herdr without terminal attach (Windows)", () => {
       await socket.waitFor((message) => message.type === "pty-data" && message.pane_id === pane && message.data.includes("mirror-42"));
       expect(socket.seen.filter((message) => message.type === "pane-geometry" && message.cols === 33)).toEqual([]);
       // a second viewer gets the grid, then the current screen at once
-      const late = await Socket.connect(bare.port);
+      const late = await Socket.connect(bare);
       try {
         late.send({ type: "attach", pane_id: pane, cols: 80, rows: 24 });
         const screen = await late.waitFor((message) => message.type === "pty-data" && message.pane_id === pane);
@@ -427,7 +517,7 @@ describe("a herdr without terminal attach (Windows)", () => {
     );
     workspaces.push(created.workspace.workspace_id);
     const pane = created.root_pane.pane_id;
-    const socket = await Socket.connect(bare.port);
+    const socket = await Socket.connect(bare);
     const shows = (text: string) => socket.waitFor((message) => message.type === "pty-data" && message.pane_id === pane && message.data.includes(text));
     try {
       socket.send({ type: "attach", pane_id: pane, cols: 80, rows: 24 });
@@ -454,7 +544,7 @@ describe("a herdr without terminal attach (Windows)", () => {
   }, 30_000);
 
   it("keeps unattached typing behind a message in flight: a Stop right after Send lands after its Enter", async () => {
-    const socket = await Socket.connect(bare.port);
+    const socket = await Socket.connect(bare);
     try {
       const from = chunks(shell).length;
       socket.send({ type: "submit", id: 21, pane_id: shell.pane, text: "one", payload: "one" });
@@ -470,32 +560,12 @@ describe("a herdr without terminal attach (Windows)", () => {
 });
 
 describe("typing without terminal attach, at the edges", () => {
-  it("takes its turn before herdr has said what it can do: a message sent meanwhile does not overtake it", async () => {
-    let answer!: (attach: boolean) => void;
-    const asked = new Promise<boolean>((resolve) => { answer = resolve; });
-    const unsure = createServer({ port: 0, stateDir: join(root, "push-unsure"), terminalAttach: () => asked });
-    const socket = await Socket.connect(unsure.port);
-    try {
-      const from = chunks(shell).length;
-      socket.send({ type: "submit", id: 23, pane_id: shell.pane, text: "one", payload: "one" });
-      socket.send({ type: "input", pane_id: shell.pane, text: "\u001b" });
-      socket.send({ type: "submit", id: 24, pane_id: shell.pane, text: "two", payload: "two" });
-      await socket.result(23);
-      answer(false);
-      await socket.result(24);
-      await received(shell, from, 2);
-      expect(typed(shell, from)).toBe("one\r\u001btwo\r");
-    } finally {
-      answer(false);
-      socket.close();
-      unsure.stop();
-    }
-  }, 30_000);
+  // "takes its turn before herdr has said what it can do" is in server/submit.herdr.test.ts: it holds herdr's answer in this process
 
   it("sends nothing typed by a connection that closed while it waited its turn", async () => {
-    const bare = createServer({ port: 0, stateDir: join(root, "push-gone"), terminalAttach: false });
-    const gone = await Socket.connect(bare.port);
-    const socket = await Socket.connect(bare.port);
+    const bare = await launchServer({ test: { terminalAttach: false } });
+    const gone = await Socket.connect(bare);
+    const socket = await Socket.connect(bare);
     try {
       const from = chunks(shell).length;
       gone.send({ type: "submit", id: 25, pane_id: shell.pane, text: "one", payload: "one" });
@@ -508,28 +578,29 @@ describe("typing without terminal attach, at the edges", () => {
       expect(typed(shell, from)).toBe("one\rtwo\r");
     } finally {
       socket.close();
-      bare.stop();
+      await bare.stop();
     }
   }, 30_000);
 });
 
 describe("herdr unreachable when a terminal is asked for", () => {
   it("answers the attach with an in-band error and attaches once herdr is back", async () => {
-    const asking = createServer({ port: 0, stateDir: join(root, "push-asking") });
-    const socket = await Socket.connect(asking.port);
-    const reachable = process.env["HERDR_SOCKET"];
+    // the server reaches herdr through a link to its socket: herdr is unreachable while the link is gone
+    const link = join(root, "herdr-link.sock");
+    symlinkSync(herdrSocketPath(), link);
+    const asking = await launchServer({ env: { HERDR_SOCKET: link } });
+    const socket = await Socket.connect(asking);
     try {
-      process.env["HERDR_SOCKET"] = join(root, "no-herdr-here.sock");
+      rmSync(link);
       socket.send({ type: "attach", pane_id: shell.pane, cols: 100, rows: 30 });
       const refused = await socket.waitFor((message) => message.type === "error");
       expect(refused.code).toBe("connect_failed");
-      process.env["HERDR_SOCKET"] = reachable;
+      symlinkSync(herdrSocketPath(), link);
       socket.send({ type: "attach", pane_id: shell.pane, cols: 100, rows: 30 });
       await socket.waitFor((message) => message.type === "pty-data" && message.pane_id === shell.pane);
     } finally {
-      process.env["HERDR_SOCKET"] = reachable;
       socket.close();
-      asking.stop();
+      await asking.stop();
     }
   }, 30_000);
 });

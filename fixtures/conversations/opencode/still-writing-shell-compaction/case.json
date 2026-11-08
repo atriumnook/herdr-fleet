@@ -1,0 +1,295 @@
+{
+  "about": "server/opencode-messages.test.ts: whether the end of the list is still being written > a shell command is while it runs, and so is a compaction: both change in place. stillWriting's input is the session's message list and its `now` the clock (`at`); whether it is still being written shows as whether the next poll reads it again: the poll after a synthetic message is put before the oldest (the session's time and newest message as they were) shows that message only when the list was still being written",
+  "steps": [
+    {
+      "at": 100000
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:00.001Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "bash",
+                "summary": "<c>",
+                "input": "<c>",
+                "output": ""
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:00.001Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    },
+    {
+      "api": {
+        "/api/session/ses_testsession0001/message?limit=100&order=desc": {
+          "status": 200,
+          "body": {
+            "data": [
+              {
+                "id": "msg_h",
+                "type": "shell",
+                "status": "running",
+                "command": "<c>",
+                "time": {
+                  "created": 1
+                }
+              },
+              {
+                "id": "msg_0readagain",
+                "type": "synthetic",
+                "time": {
+                  "created": 0
+                },
+                "text": "<read again>"
+              }
+            ],
+            "cursor": {
+              "previous": "eyJpZCI6Im1zZ19oIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+              "next": "eyJpZCI6Im1zZ18wcmVhZGFnYWluIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+            }
+          }
+        }
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "<read again>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:00.001Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "bash",
+                "summary": "<c>",
+                "input": "<c>",
+                "output": ""
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:00.001Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0002",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0002",
+        "version": "$v3"
+      }
+    },
+    {
+      "api": {
+        "/api/session/ses_testsession0002/message?limit=100&order=desc": {
+          "status": 200,
+          "body": {
+            "data": [
+              {
+                "id": "msg_c",
+                "type": "compaction",
+                "status": "running",
+                "reason": "auto",
+                "time": {
+                  "created": 1
+                }
+              },
+              {
+                "id": "msg_0readagain",
+                "type": "synthetic",
+                "time": {
+                  "created": 0
+                },
+                "text": "<read again>"
+              }
+            ],
+            "cursor": {
+              "previous": "eyJpZCI6Im1zZ19jIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+              "next": "eyJpZCI6Im1zZ18wcmVhZGFnYWluIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+            }
+          }
+        }
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0002",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "<read again>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0002",
+        "version": "$v4"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0003",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:00.001Z",
+            "parts": [
+              {
+                "kind": "compact",
+                "text": "<s>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0003",
+        "version": "$v5"
+      }
+    },
+    {
+      "api": {
+        "/api/session/ses_testsession0003/message?limit=100&order=desc": {
+          "status": 200,
+          "body": {
+            "data": [
+              {
+                "id": "msg_c",
+                "type": "compaction",
+                "status": "completed",
+                "reason": "auto",
+                "time": {
+                  "created": 1
+                },
+                "summary": "<s>"
+              },
+              {
+                "id": "msg_0readagain",
+                "type": "synthetic",
+                "time": {
+                  "created": 0
+                },
+                "text": "<read again>"
+              }
+            ],
+            "cursor": {
+              "previous": "eyJpZCI6Im1zZ19jIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+              "next": "eyJpZCI6Im1zZ18wcmVhZGFnYWluIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+            }
+          }
+        },
+        "/api/session/ses_testsession0003/message?limit=1&order=desc": {
+          "status": 200,
+          "body": {
+            "data": [
+              {
+                "id": "msg_c",
+                "type": "compaction",
+                "status": "completed",
+                "reason": "auto",
+                "time": {
+                  "created": 1
+                },
+                "summary": "<s>"
+              }
+            ],
+            "cursor": {
+              "previous": "eyJpZCI6Im1zZ19jIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+              "next": "eyJpZCI6Im1zZ19jIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+            }
+          }
+        }
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0003",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:00.001Z",
+            "parts": [
+              {
+                "kind": "compact",
+                "text": "<s>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0003",
+        "version": "$v5"
+      }
+    }
+  ]
+}

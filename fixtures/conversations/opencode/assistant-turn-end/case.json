@@ -1,0 +1,61 @@
+{
+  "about": "server/opencode-messages.test.ts: turns > an assistant turn ends where its last step did, not where the next prompt began. parseOpencodeMessages's input is the session's message list, read by a page; the turns compared, the first ids only as the cursor (null: the page begins at the beginning)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:07.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<user text>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:05.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<a>"
+              },
+              {
+                "kind": "text",
+                "text": "<b>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:06.500Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:08.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<user text>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null,
+          "context": {
+            "used": 110,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    }
+  ]
+}

@@ -1,0 +1,2446 @@
+{
+  "about": "server/chat-history.test.ts: omp-transcript: clear invalidates held/cached cursors and metadata, even before the next prompt (the last read after forgetTranscriptState, a cold read of the file as it ends, is the case clear-invalidates-cold)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 80"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 81"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 82"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 83"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 84"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 85"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 86"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 87"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 88"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 89"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 90"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 91"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 92"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 93"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 94"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 95"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 96"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 97"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 98"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 99"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 100"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 101"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 102"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 103"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 104"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 105"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 106"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 107"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 108"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 109"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 110"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 111"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 112"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 113"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 114"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 115"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 116"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 117"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 118"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 119"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 120"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 121"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 122"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 123"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 124"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 125"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 126"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 127"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 128"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 129"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": "$c1",
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "page": {
+        "before": "$c1"
+      },
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 30"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 31"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 32"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 33"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 34"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 35"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 36"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 37"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 38"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 39"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 40"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 41"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 42"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 43"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 44"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 45"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 46"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 47"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 48"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 49"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 50"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 51"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 52"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 53"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 54"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 55"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 56"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 57"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 58"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 59"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 60"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 61"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 62"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 63"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 64"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 65"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 66"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 67"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 68"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 69"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 70"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 71"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 72"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 73"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 74"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 75"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 76"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 77"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 78"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 79"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": "$c2",
+        "history_id": "$h",
+        "version": "$v2"
+      }
+    },
+    {
+      "append": "session.jsonl",
+      "text": "{\"type\":\"custom\",\"customType\":\"context_clear\""
+    },
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 80"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 81"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 82"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 83"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 84"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 85"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 86"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 87"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 88"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 89"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 90"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 91"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 92"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 93"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 94"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 95"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 96"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 97"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 98"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 99"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 100"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 101"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 102"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 103"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 104"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 105"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 106"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 107"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 108"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 109"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 110"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 111"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 112"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 113"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 114"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 115"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 116"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 117"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 118"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 119"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 120"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 121"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 122"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 123"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 124"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 125"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 126"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 127"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 128"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "old 129"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": "$c1",
+        "history_id": "$h",
+        "version": "$v3"
+      }
+    },
+    {
+      "append": "session.jsonl",
+      "text": "}"
+    },
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v4"
+      }
+    },
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "page": {
+        "before": "$c1"
+      },
+      "expected": {
+        "error": "HistoryChanged"
+      }
+    },
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "page": {
+        "from": "$c1"
+      },
+      "expected": {
+        "error": "HistoryChanged"
+      }
+    },
+    {
+      "append": "session.jsonl",
+      "text": "\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 0\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 1\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 2\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 3\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 4\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 5\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 6\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 7\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 8\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 9\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 10\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 11\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 12\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 13\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 14\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 15\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 16\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 17\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 18\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 19\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 20\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 21\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 22\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 23\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 24\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 25\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 26\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 27\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 28\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 29\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 30\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 31\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 32\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 33\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 34\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 35\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 36\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 37\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 38\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 39\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 40\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 41\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 42\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 43\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 44\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 45\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 46\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 47\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 48\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 49\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 50\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 51\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 52\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 53\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 54\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 55\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 56\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 57\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 58\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 59\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 60\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 61\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 62\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 63\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 64\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 65\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 66\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 67\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 68\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 69\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 70\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 71\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 72\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 73\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 74\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 75\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 76\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 77\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 78\"}}\n{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"new 79\"}}\n"
+    },
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 30"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 31"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 32"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 33"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 34"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 35"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 36"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 37"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 38"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 39"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 40"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 41"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 42"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 43"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 44"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 45"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 46"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 47"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 48"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 49"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 50"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 51"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 52"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 53"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 54"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 55"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 56"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 57"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 58"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 59"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 60"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 61"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 62"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 63"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 64"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 65"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 66"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 67"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 68"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 69"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 70"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 71"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 72"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 73"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 74"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 75"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 76"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 77"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 78"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 79"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": "$c3",
+        "history_id": "$h2",
+        "version": "$v5"
+      }
+    },
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "page": {
+        "before": "$c3"
+      },
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 0"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 1"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 2"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 3"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 4"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 5"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 6"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 7"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 8"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 9"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 10"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 11"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 12"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 13"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 14"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 15"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 16"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 17"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 18"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 19"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 20"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 21"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 22"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 23"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 24"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 25"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 26"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 27"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 28"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "new 29"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v6"
+      }
+    }
+  ]
+}

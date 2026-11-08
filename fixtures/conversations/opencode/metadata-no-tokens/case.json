@@ -1,0 +1,41 @@
+{
+  "about": "server/opencode-messages.test.ts: metadata > a step that reported no tokens says nothing of the context, so the one before it does. opencodeMetadata's input is the session's message list, its window function the service's model list; the page's metadata compared",
+  "steps": [
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:53.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<a>"
+              },
+              {
+                "kind": "text",
+                "text": "Interrupted"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:54.500Z"
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null,
+          "context": {
+            "used": 110,
+            "window": 200000
+          }
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    }
+  ]
+}

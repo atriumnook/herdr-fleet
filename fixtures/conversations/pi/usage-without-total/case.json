@@ -1,0 +1,116 @@
+{
+  "about": "server/conversation-metadata.test.ts: context use adds up a pi request itself when it states no total (as pi writes them, each entry also has an id and the parentId of the entry before it, and ends with a newline: a pi page reads the branch of the entry tree, which leaves out entries without an id and a last line without a newline (a line pi is still writing), and the metadata parse reads neither field)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "no-total.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 1700,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "total.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 1234,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "failed.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Error: 401"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 1700,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    },
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "aborted.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 1700,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h4",
+        "version": "$v4"
+      }
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "about": "server/pi.test.ts: a pi tool result's images reach the chat keeps an image a /tree navigated away from out of the chat and out of reach",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "image-off-branch.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "what is in this screenshot?"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:03.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "read",
+                "summary": "shot.png",
+                "input": "{\n  \"path\": \"shot.png\"\n}",
+                "output": "read 1 image",
+                "images": [
+                  {
+                    "media_type": "image/png",
+                    "ref": "pi:c1:0"
+                  }
+                ]
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:03.000Z"
+          }
+        ],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 11,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "append": "image-off-branch.jsonl",
+      "text": "{\"type\":\"message\",\"id\":\"a9\",\"parentId\":\"u1\",\"timestamp\":\"2026-09-30T00:20:00.000Z\",\"message\":{\"role\":\"assistant\",\"model\":\"qwen-test\",\"provider\":\"test\",\"stopReason\":\"stop\",\"usage\":{\"input\":5,\"output\":1},\"content\":[{\"type\":\"text\",\"text\":\"another answer entirely\"}]}}\n"
+    },
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "image-off-branch.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "what is in this screenshot?"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:20:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "another answer entirely"
+              }
+            ],
+            "end_ts": "2026-09-30T00:20:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 6,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 1,
+          "branches": 1,
+          "summary": null
+        },
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "image",
+      "source": "pi",
+      "path": "image-off-branch.jsonl",
+      "ref": "pi:c1:0",
+      "expected": null
+    }
+  ]
+}

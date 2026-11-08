@@ -1,0 +1,57 @@
+{
+  "about": "Issue #128: omp reads a tool result with pi's parser but without toolImages, so the image pi addresses is not on its tool part (the transcript of server/pi.test.ts: a pi tool result's images reach the chat addresses the image a call returned, and decodes it on request)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "image-result.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "what is in this screenshot?"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:03.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "read",
+                "summary": "shot.png",
+                "input": "{\n  \"path\": \"shot.png\"\n}",
+                "output": "read 1 image"
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:03.000Z"
+          }
+        ],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 10,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "toolOutput",
+      "source": "omp",
+      "path": "image-result.jsonl",
+      "ref": "c1",
+      "expected": "read 1 image"
+    }
+  ]
+}

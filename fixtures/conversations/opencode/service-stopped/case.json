@@ -1,0 +1,37 @@
+{
+  "about": "server/opencode-session.test.ts: when there is nothing to read > a service that is not running leaves the pane on its scrollback and starts nothing; nothing is recorded, so any GET would fail the case (the test: no call)",
+  "steps": [
+    {
+      "at": 100
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "error": "ConversationUnavailable",
+        "reason": "opencode_service_stopped"
+      }
+    },
+    {
+      "call": "toolOutput",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "msg_u0:0",
+      "expected": {
+        "error": "ConversationUnavailable",
+        "reason": "opencode_service_stopped"
+      }
+    },
+    {
+      "call": "image",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "msg_u0:0",
+      "expected": {
+        "error": "ConversationUnavailable",
+        "reason": "opencode_service_stopped"
+      }
+    }
+  ]
+}

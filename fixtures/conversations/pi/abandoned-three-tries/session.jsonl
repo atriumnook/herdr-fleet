@@ -1,0 +1,7 @@
+{"id":"s","parentId":null,"timestamp":"2026-09-30T00:00:00.000Z","type":"session","version":3,"cwd":"/work/project"}
+{"id":"u1","parentId":"s","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"asked"}]}}
+{"id":"a1","parentId":"u1","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"answer one"}],"stopReason":"stop"}}
+{"id":"u2","parentId":"s","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"asked again"}]}}
+{"id":"a2","parentId":"u2","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"answer two"}],"stopReason":"stop"}}
+{"id":"u3","parentId":"s","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"third try"}]}}
+{"id":"a3","parentId":"u3","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"answer three"}],"stopReason":"stop"}}

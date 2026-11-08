@@ -1,0 +1,38 @@
+{
+  "about": "server/opencode-session.test.ts: older pages > an anchor the service no longer has means the history changed, and the first message of a session is not that",
+  "steps": [
+    {
+      "at": 100
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "before": "msg_gone"
+      },
+      "expected": {
+        "error": "HistoryChanged"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "before": "msg_u0"
+      },
+      "expected": {
+        "source": "opencode-session",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    }
+  ]
+}

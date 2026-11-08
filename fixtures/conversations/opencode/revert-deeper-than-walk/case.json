@@ -1,0 +1,17 @@
+{
+  "about": "server/opencode-session.test.ts: a staged revert > a revert deeper than a walk reads is no empty chat: the pane stays on its scrollback",
+  "steps": [
+    {
+      "at": 100
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "error": "ConversationUnavailable",
+        "reason": "opencode_revert_too_deep"
+      }
+    }
+  ]
+}

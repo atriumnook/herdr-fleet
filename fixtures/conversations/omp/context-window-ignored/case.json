@@ -1,0 +1,28 @@
+{
+  "about": "server/conversation-metadata.test.ts: context use draws pi's ring against the window its own catalog states, and not against a guess (the omp half: read by the same code, it resolves no window)",
+  "piContextWindows": {
+    "lwsa/qwen-test": 215000
+  },
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "omp.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 8,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

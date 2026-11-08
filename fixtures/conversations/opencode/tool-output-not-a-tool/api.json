@@ -1,0 +1,54 @@
+{
+  "serviceRunning": true,
+  "get": {
+    "/api/session/ses_testsession0001/message/msg_a": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "msg_a",
+          "type": "assistant",
+          "agent": "build",
+          "model": {"id":"model-x","providerID":"prov-x","variant":"default"},
+          "time": {"created":34000,"completed":34500},
+          "finish": "tool-calls",
+          "cost": 0,
+          "tokens": {"input":10,"output":5,"reasoning":1,"cache":{"read":100,"write":0}},
+          "content": [{"type":"text","text":"<a>"},{"type":"tool","id":"c1","name":"bash","time":{"created":33000},"state":{"status":"completed","input":{},"content":[{"type":"text","text":"<out>"}],"metadata":{}}}]
+        }
+      }
+    },
+    "/api/session/ses_testsession0002/message/msg_a": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "msg_a",
+          "type": "assistant",
+          "agent": "build",
+          "model": {"id":"model-x","providerID":"prov-x","variant":"default"},
+          "time": {"created":34000,"completed":34500},
+          "finish": "tool-calls",
+          "cost": 0,
+          "tokens": {"input":10,"output":5,"reasoning":1,"cache":{"read":100,"write":0}},
+          "content": [{"type":"text","text":"<a>"},{"type":"tool","id":"c1","name":"bash","time":{"created":33000},"state":{"status":"completed","input":{},"content":[{"type":"text","text":"<out>"}],"metadata":{}}}]
+        }
+      }
+    },
+    "/api/session/ses_testsession0003/message/msg_u": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "msg_u",
+          "type": "user",
+          "time": {"created":35000},
+          "text": "<user text>"
+        }
+      }
+    },
+    "/api/session/ses_testsession0004/message/msg_none": {
+      "status": 404,
+      "body": {
+        "_tag": "MessageNotFoundError"
+      }
+    }
+  }
+}

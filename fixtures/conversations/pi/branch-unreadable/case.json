@@ -1,0 +1,23 @@
+{
+  "about": "server/pi-tree.test.ts: pi's entry tree holds nothing to show for an empty file (piBranchSegments answers null, and the page answers branch_unreadable; a file never written is transcript_missing before any branch is read)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "empty.jsonl",
+      "expected": {
+        "error": "ConversationUnavailable",
+        "reason": "branch_unreadable"
+      }
+    },
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "never-written.jsonl",
+      "expected": {
+        "error": "ConversationUnavailable",
+        "reason": "transcript_missing"
+      }
+    }
+  ]
+}

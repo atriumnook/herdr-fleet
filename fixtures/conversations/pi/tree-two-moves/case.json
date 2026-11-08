@@ -1,0 +1,99 @@
+{
+  "about": "server/pi-tree.test.ts: pi's entry tree tells two /tree moves apart when their branches share every range but the last (the cursor the original passes after the second move is a null cursor, which a case cannot pass: a page cursor is a string)",
+  "steps": [
+    {
+      "append": "session.jsonl",
+      "text": "{\"id\":\"a2\",\"parentId\":\"u1\",\"timestamp\":\"2026-09-30T00:00:00.000Z\",\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"the second\"}],\"stopReason\":\"stop\"}}\n"
+    },
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "question"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "the second"
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 1,
+          "branches": 1,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "append": "session.jsonl",
+      "text": "{\"id\":\"a3\",\"parentId\":\"u1\",\"timestamp\":\"2026-09-30T00:00:00.000Z\",\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"the third\"}],\"stopReason\":\"stop\"}}\n"
+    },
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "question"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "the third"
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 2,
+          "branches": 2,
+          "summary": null
+        },
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    }
+  ]
+}

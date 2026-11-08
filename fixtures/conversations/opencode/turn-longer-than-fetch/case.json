@@ -1,0 +1,1046 @@
+{
+  "about": "server/opencode-session.test.ts: the newest page > a turn longer than a fetch is read whole, back to the prompt that began it",
+  "steps": [
+    {
+      "at": 100
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.034Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_first>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.035Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_s0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s2>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s3>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s4>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s5>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s6>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s7>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s8>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s9>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s10>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s11>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s12>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s13>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s14>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s15>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s16>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s17>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s18>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s19>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s20>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s21>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s22>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s23>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s24>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s25>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s26>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s27>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s28>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s29>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s30>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s31>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s32>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s33>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s34>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s35>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s36>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s37>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s38>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s39>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s40>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s41>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s42>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s43>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s44>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s45>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s46>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s47>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s48>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s49>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s50>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s51>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s52>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s53>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s54>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s55>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s56>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s57>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s58>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s59>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s60>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s61>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s62>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s63>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s64>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s65>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s66>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s67>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s68>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s69>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s70>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s71>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s72>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s73>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s74>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s75>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s76>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s77>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s78>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s79>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s80>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s81>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s82>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s83>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s84>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s85>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s86>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s87>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s88>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s89>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s90>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s91>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s92>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s93>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s94>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s95>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s96>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s97>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s98>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s99>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s100>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s101>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s102>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s103>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s104>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s105>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s106>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s107>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s108>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s109>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s110>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s111>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s112>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s113>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s114>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s115>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s116>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s117>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s118>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s119>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s120>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s121>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s122>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s123>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s124>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s125>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s126>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s127>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s128>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s129>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s130>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s131>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s132>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s133>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s134>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s135>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s136>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s137>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s138>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s139>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s140>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s141>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s142>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s143>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s144>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s145>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s146>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s147>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s148>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s149>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s150>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s151>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s152>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s153>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s154>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s155>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s156>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s157>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s158>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s159>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s160>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s161>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s162>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s163>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s164>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s165>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s166>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s167>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s168>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s169>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s170>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s171>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s172>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s173>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s174>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s175>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s176>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s177>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s178>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s179>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s180>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s181>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s182>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s183>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s184>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s185>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s186>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s187>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s188>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s189>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s190>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s191>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s192>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s193>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s194>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s195>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s196>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s197>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s198>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s199>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s200>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s201>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s202>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s203>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s204>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s205>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s206>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s207>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s208>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s209>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s210>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s211>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s212>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s213>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s214>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s215>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s216>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s217>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s218>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s219>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s220>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s221>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s222>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s223>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s224>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s225>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s226>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s227>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s228>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s229>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s230>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s231>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s232>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s233>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s234>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s235>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s236>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s237>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s238>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s239>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s240>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s241>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s242>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s243>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s244>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s245>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s246>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s247>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s248>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_s249>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.285Z"
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null,
+          "context": {
+            "used": 100,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    }
+  ]
+}

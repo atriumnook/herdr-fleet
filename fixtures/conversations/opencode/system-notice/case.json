@@ -1,0 +1,57 @@
+{
+  "about": "server/opencode-messages.test.ts: what the runtime says > a system message is a notice, and a notice never sits inside an assistant turn. parseOpencodeMessages's input is the session's message list, read by a page; the turns compared, the first ids only as the cursor (null: the page begins at the beginning)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:21.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<user text>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:22.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Error: <why>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:22.500Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:23.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "<notice>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null,
+          "context": {
+            "used": 110,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    }
+  ]
+}

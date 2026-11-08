@@ -1,0 +1,52 @@
+{
+  "about": "server/opencode-messages.test.ts: what the runtime says > a notice shows its description, the summary meant for a transcript, before the text the model was told. parseOpencodeMessages's input is the session's message list, read by a page; the turns compared, the first ids only as the cursor (null: the page begins at the beginning)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:00.001Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "<described>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:00.002Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "<Instructions updated: source>"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:00.003Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "<only text>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    }
+  ]
+}
