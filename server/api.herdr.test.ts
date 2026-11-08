@@ -20,7 +20,7 @@ function serveInTestPorts(options: Omit<NonNullable<Parameters<typeof createServ
     try {
       return createServer({ ...options, port });
     } catch (error) {
-      if (!/EADDRINUSE/.test(String(error))) throw error;
+      if ((error as { code?: unknown }).code !== "EADDRINUSE") throw error;
     }
   }
   throw new Error("no free port in 7400-7499");
