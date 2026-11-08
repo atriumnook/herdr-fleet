@@ -5,7 +5,7 @@
   "expected": {
     "agent": "claude",
     "kind": "approval",
-    "title": "Command approval (broken on purpose)",
+    "title": "Command approval",
     "question": "Do you want to proceed?",
     "body": "cat <<EOF\nTip: hello\nEOF",
     "options": [
