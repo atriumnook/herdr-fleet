@@ -45,18 +45,17 @@ impl Pi {
         }
     }
 
-    /// The bytes of each range of the active branch that reads whole, in order; `None` when the
-    /// branch cannot be read. An output or an image is offered on the active branch only: one on a
-    /// branch a /tree abandoned is one the chat never showed.
-    fn branch_texts(&self, path: &Path) -> Option<Vec<String>> {
+    /// The text of each range of the active branch that reads whole, in order, each read when the
+    /// caller reaches it; `None` when the branch cannot be read. An output or an image is offered
+    /// on the active branch only: one on a branch a /tree abandoned is one the chat never showed.
+    fn branch_texts(&self, path: &Path) -> Option<impl Iterator<Item = String>> {
         let size = std::fs::metadata(path).ok()?.len();
         let branch = self.indexes.branch(path, size).ok()??;
         let mut file = File::open(path).ok()?;
         Some(
             branch
-                .iter()
-                .filter_map(|range| read_range(&mut file, range))
-                .collect(),
+                .into_iter()
+                .filter_map(move |range| read_range(&mut file, &range)),
         )
     }
 }
@@ -230,8 +229,7 @@ impl TranscriptFormat for Pi {
     /// Read on the active branch, the way the conversation is.
     fn tool_output(&self, place: &Path, reference: &str) -> Option<String> {
         self.branch_texts(place)?
-            .iter()
-            .find_map(|text| output_in_text(self, text, reference))
+            .find_map(|text| output_in_text(self, &text, reference))
     }
 
     fn output_in_entry(&self, entry: Value, reference: &str) -> Option<String> {

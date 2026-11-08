@@ -14,7 +14,7 @@ use protocol::AbandonedTurns;
 use protocol::js;
 use serde_json::Value;
 
-use crate::paging::file_stat;
+use crate::paging::{FileStat, file_stat};
 use crate::records::{parse_line, record, text};
 
 /// A branch longer than this is not returned at all: the page answers `branch_unreadable` and the
@@ -77,36 +77,21 @@ struct IndexState {
 }
 
 impl Indexes {
-    /// `f` over the tree of `path` as it stands; `Ok(None)` when the file cannot be stat'ed (TypeScript's
-    /// `piEntryIndex` answering null), `Err` when it went unreadable while it was indexed.
+    /// `f` over the tree of `path` as it stands; `Ok(None)` when the file cannot be stat'ed
+    /// (TypeScript's `piEntryIndex` answering null), `Err` when it went unreadable while it was
+    /// indexed.
     fn with_index<T>(&self, path: &Path, f: impl FnOnce(&Index) -> T) -> io::Result<Option<T>> {
         let Ok(meta) = fs::metadata(path) else {
             return Ok(None);
         };
         let stat = file_stat(&meta);
         let cached = self.lock().indexes.remove(path);
-        // an append cannot disturb what was scanned (parents precede children), but a rewrite, a
-        // truncation or an in-place replacement can, and only the tail check tells them apart; a
-        // file put in the old one's place is another file even where its tail reads the same
-        let index = match cached {
-            Some(mut index)
-                if index.node == stat.node
-                    && index.scanned <= stat.size
-                    && read_before(path, index.scanned)? == index.tail =>
-            {
-                extend(&mut index, path, stat.size)?;
-                index
-            }
-            _ => {
-                let mut index = Index {
-                    node: stat.node,
-                    entries: Vec::new(),
-                    children: HashMap::new(),
-                    scanned: 0,
-                    tail: Vec::new(),
-                };
-                extend(&mut index, path, stat.size)?;
-                index
+        let index = match refresh(cached, path, stat) {
+            Ok(index) => index,
+            Err(error) => {
+                // the index taken out is gone: the path no longer counts against the cap
+                self.lock().order.retain(|seen| seen != path);
+                return Err(error);
             }
         };
         let answer = f(&index);
@@ -155,6 +140,31 @@ impl Indexes {
     }
 }
 
+/// The index of the file as `stat` found it: `cached` extended by what was appended since, or a
+/// new one. An append cannot disturb what was scanned (parents precede children), but a rewrite, a
+/// truncation or an in-place replacement can, and only the tail check tells them apart; a file put
+/// in the old one's place is another file even where its tail reads the same.
+fn refresh(cached: Option<Index>, path: &Path, stat: FileStat) -> io::Result<Index> {
+    let mut index = match cached {
+        Some(index)
+            if index.node == stat.node
+                && index.scanned <= stat.size
+                && read_before(path, index.scanned)? == index.tail =>
+        {
+            index
+        }
+        _ => Index {
+            node: stat.node,
+            entries: Vec::new(),
+            children: HashMap::new(),
+            scanned: 0,
+            tail: Vec::new(),
+        },
+    };
+    extend(&mut index, path, stat.size)?;
+    Ok(index)
+}
+
 fn index_entry(line: &[u8], start: u64, end: u64) -> Option<Entry> {
     // the header and a torn fragment answer no sooner
     if !line.windows(4).any(|window| window == b"\"id\"") {
@@ -185,10 +195,14 @@ fn index_entry(line: &[u8], start: u64, end: u64) -> Option<Entry> {
 /// `scanned` always names a line boundary and the bytes before it never change.
 fn extend(index: &mut Index, path: &Path, size: u64) -> io::Result<()> {
     if index.scanned < size {
+        let unscanned = size - index.scanned;
         let mut file = File::open(path)?;
         file.seek(SeekFrom::Start(index.scanned))?;
-        let mut reader =
-            BufReader::with_capacity(INDEX_CHUNK_BYTES, file.take(size - index.scanned));
+        let mut reader = BufReader::with_capacity(
+            usize::try_from(unscanned)
+                .map_or(INDEX_CHUNK_BYTES, |bytes| bytes.min(INDEX_CHUNK_BYTES)),
+            file.take(unscanned),
+        );
         let mut line = Vec::new();
         loop {
             line.clear();
@@ -228,23 +242,51 @@ fn read_before(path: &Path, offset: u64) -> io::Result<Vec<u8>> {
     Ok(bytes)
 }
 
-/// The last append of each id.
-fn by_id(index: &Index) -> HashMap<&str, &Entry> {
-    index
-        .entries
-        .iter()
-        .map(|entry| (entry.id.as_str(), entry))
-        .collect()
+/// The tree as the file of `size` bytes holds it: the entries whose lines end within it. Another
+/// read may have indexed lines appended since `size` was taken; they are not part of this one.
+struct Tree<'a> {
+    index: &'a Index,
+    entries: &'a [Entry],
 }
 
-/// The leaf, when the tree holds one that the file of `size` bytes still holds.
-fn leaf(index: &Index, size: u64) -> Option<&Entry> {
-    index.entries.last().filter(|leaf| leaf.end <= size)
+impl<'a> Tree<'a> {
+    fn new(index: &'a Index, size: u64) -> Self {
+        let held = index.entries.partition_point(|entry| entry.end <= size);
+        Self {
+            index,
+            entries: &index.entries[..held],
+        }
+    }
+
+    /// The last entry written, which pi's leaf stands on.
+    fn leaf(&self) -> Option<&'a Entry> {
+        self.entries.last()
+    }
+
+    /// The last append of each id.
+    fn by_id(&self) -> HashMap<&'a str, &'a Entry> {
+        self.entries
+            .iter()
+            .map(|entry| (entry.id.as_str(), entry))
+            .collect()
+    }
+
+    /// The children of `id` in append order.
+    fn children(&self, id: &str) -> impl Iterator<Item = &'a Entry> + use<'a> {
+        let entries = self.entries;
+        self.index
+            .children
+            .get(id)
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
+            .filter_map(move |at| entries.get(*at))
+    }
 }
 
 fn branch_of(index: &Index, size: u64) -> Option<Vec<Range>> {
-    let leaf = leaf(index, size)?;
-    let by_id = by_id(index);
+    let tree = Tree::new(index, size);
+    let leaf = tree.leaf()?;
+    let by_id = tree.by_id();
     let mut chain = Vec::new();
     let mut seen = HashSet::new();
     let mut total = 0;
@@ -279,8 +321,9 @@ fn branch_of(index: &Index, size: u64) -> Option<Vec<Range>> {
 }
 
 fn abandoned_of(index: &Index, size: u64) -> Option<AbandonedTurns> {
-    let leaf = leaf(index, size)?;
-    let by_id = by_id(index);
+    let tree = Tree::new(index, size);
+    let leaf = tree.leaf()?;
+    let by_id = tree.by_id();
     let mut live: Vec<&str> = Vec::new();
     let mut on_live = HashSet::new();
     let mut next = Some(leaf);
@@ -294,14 +337,7 @@ fn abandoned_of(index: &Index, size: u64) -> Option<AbandonedTurns> {
             .as_deref()
             .and_then(|parent| by_id.get(parent).copied());
     }
-    let children = |id: &str| {
-        index
-            .children
-            .get(id)
-            .into_iter()
-            .flatten()
-            .map(|at| &index.entries[*at])
-    };
+    let children = |id: &str| tree.children(id);
     // a branch is a place the pointer was moved away from: a live entry with a child left behind
     let mut heads: Vec<&str> = Vec::new();
     for id in &live {
@@ -323,7 +359,7 @@ fn abandoned_of(index: &Index, size: u64) -> Option<AbandonedTurns> {
             && !on_live.contains(entry.id.as_str())
             && children(&entry.id).any(|child| !on_live.contains(child.id.as_str()))
     };
-    for entry in &index.entries {
+    for entry in tree.entries {
         if is_head(entry) && !heads.contains(&entry.id.as_str()) {
             heads.push(&entry.id);
         }
@@ -336,7 +372,7 @@ fn abandoned_of(index: &Index, size: u64) -> Option<AbandonedTurns> {
         let heads: HashSet<&str> = heads.into_iter().collect();
         let mut owned = HashSet::new();
         let mut counted = HashSet::new();
-        for entry in &index.entries {
+        for entry in tree.entries {
             let under_head = heads.contains(entry.id.as_str())
                 || entry
                     .parent
@@ -359,7 +395,7 @@ fn abandoned_of(index: &Index, size: u64) -> Option<AbandonedTurns> {
     }
     // pi's summary of an abandoned path sits on the branch that replaced it; the newest on the
     // live path wins, as a later /tree supersedes an earlier answer
-    let summary = index
+    let summary = tree
         .entries
         .iter()
         .filter(|entry| entry.kind == "branch_summary" && on_live.contains(entry.id.as_str()))
@@ -417,5 +453,47 @@ mod tests {
             }])
         );
         assert_eq!(branch_of(&two_entries(at_cap + 1), at_cap + 1), None);
+    }
+
+    // A read sees the file as it was when its size was taken: another read may already have
+    // indexed a line appended since (`Source::page` takes the size once, then asks for the branch
+    // and the abandoned turns). As of 20 bytes, `c` is not written yet: the leaf is `b`, on a
+    // straight line, and `c` (a child of `a` beside `b`) is no abandoned path yet.
+    #[test]
+    fn a_read_ignores_lines_appended_after_its_size() {
+        let mut children = HashMap::new();
+        children.insert("a".to_owned(), vec![1, 2]);
+        let index = Index {
+            node: String::new(),
+            entries: vec![
+                entry("a", None, 0, 10),
+                entry("b", Some("a"), 10, 20),
+                entry("c", Some("a"), 20, 30),
+            ],
+            children,
+            scanned: 30,
+            tail: Vec::new(),
+        };
+
+        assert_eq!(
+            branch_of(&index, 20),
+            Some(vec![Range { start: 0, end: 20 }])
+        );
+        assert_eq!(
+            abandoned_of(&index, 20),
+            Some(AbandonedTurns {
+                count: 0,
+                branches: 0,
+                summary: None
+            })
+        );
+        assert_eq!(
+            abandoned_of(&index, 30),
+            Some(AbandonedTurns {
+                count: 1,
+                branches: 1,
+                summary: None
+            })
+        );
     }
 }
