@@ -1,5 +1,5 @@
 {
-  "about": "agy 1.5.3 started with agentMode auto in --settings: its input shows and auto mode is set, so it is ready for the task (screen read from the CLI and laid out by hand)",
+  "about": "agy 1.5.3 started with agentMode auto in --settings: its input shows and auto mode is set, so it is ready for the task (read through herdr as the fleet reads it, from the logo down; the auto mode's hint sits in the input)",
   "adapter": "agy",
   "check": "inputReady",
   "expected": true

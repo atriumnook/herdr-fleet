@@ -306,6 +306,13 @@ export function cursorUsage(screen: string, now: number): UsageReading | undefin
 export const AGY_DENY = ["--force", "--force-with-lease", "--force-if-includes", "-f", "--mirror", "--delete", "-d", "--prune"]
   .map((flag) => `command(git push ${flag})`);
 
+/**
+ * agy's input: a `>` line between rules, empty or holding the auto mode's hint until something is
+ * typed (`> Auto mode: edits & safe commands auto-approved (shift+tab to cycle)`, as herdr reads it).
+ * A message or an option after `>` is not it.
+ */
+const AGY_INPUT = /^\s*>(?:\s+Auto mode: .*)?\s*$/m;
+
 /** an agy model id that names its level, as all in its model list do */
 const AGY_MODEL_LEVEL = /-(?:low|medium|high|xhigh|max)$/;
 
@@ -344,17 +351,16 @@ export const agyAdapter: AgentAdapter = {
       "--settings", JSON.stringify(agySettings(options.cwd)),
     ];
   },
-  // the mode from --settings is set some seconds after the input shows (`auto ·` before the model on
+  // the mode from --settings is set some seconds after the input shows (`auto · ` before the model on
   // its last line): a task typed before would run in the default mode, which asks before every command
   inputReady(screen) {
-    return /^\s*>\s*$/m.test(screen) && /\bauto · /.test(screen);
+    return AGY_INPUT.test(screen) && /\bauto · /.test(screen);
   },
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },
   question(screen) {
-    // its input is an empty `>` line between rules; a message or an option after `>` is not it
-    return openQuestion(screen, /^\s*>\s*$/m, [
+    return openQuestion(screen, AGY_INPUT, [
       [/Do you trust the contents of this project\?/, "Antigravity CLI asks whether to trust this folder."],
       [/You are currently not signed in/, "Antigravity CLI is not signed in."],
       [/Requesting permission for:/, "Antigravity CLI asks for permission to use a tool."],
