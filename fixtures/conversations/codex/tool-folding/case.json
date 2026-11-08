@@ -1,0 +1,68 @@
+{
+  "about": "server/codex.test.ts: Codex conversation records folds matched function/freeform tool output and commentary, keeping only the final answer outside",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Check"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Checking",
+                "phase": "commentary"
+              },
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "git status",
+                "input": "{\n  \"cmd\": \"git status\"\n}",
+                "output": "clean"
+              },
+              {
+                "kind": "tool",
+                "name": "apply_patch",
+                "summary": "apply_patch",
+                "input": "*** Begin Patch\n*** End Patch",
+                "output": "applied"
+              },
+              {
+                "kind": "text",
+                "text": "Verifying",
+                "phase": "commentary"
+              },
+              {
+                "kind": "text",
+                "text": "All fixed",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

@@ -1,0 +1,7 @@
+{"type":"event_msg","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Inspect"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"function_call","call_id":"long","name":"exec_command","arguments":"{\"cmd\":\"pwd\"}"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"function_call_output","call_id":"long","output":"done"}}
+{"type":"event_msg","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"agent_message","message":"Finished"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Finished"}],"phase":"final_answer"}}
+{"type":"event_msg","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"task_complete"}}

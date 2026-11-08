@@ -1,0 +1,1 @@
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"A backslash inside code is literal: `<oai-mem-citation>\\` and prose follows."}],"phase":"final_answer"}}

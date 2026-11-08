@@ -1,0 +1,8 @@
+{"type":"session_meta","payload":{"base_instructions":"internal system prompt"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"developer","content":[{"type":"output_text","text":"internal developer prompt"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"# AGENTS.md instructions for /project\n<INSTRUCTIONS>internal rules</INSTRUCTIONS>\n<environment_context>cwd</environment_context>"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<environment_context>cwd</environment_context>"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[null,{"type":"input_text","text":"<environment_context>cwd</environment_context>"},{"type":"input_text","text":"Fix chat"}]}}
+{"type":"event_msg","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"user_message","kind":"internal","message":"injected reminder"}}
+{"type":"event_msg","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"token_count","info":{"total":10}}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Fixed"}],"phase":"final_answer"}}

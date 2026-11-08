@@ -1,0 +1,21 @@
+{
+  "about": "server/conversation-metadata.test.ts: recorded conversation model settings does not carry an old effort into a Codex context that no longer reports one",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "second",
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

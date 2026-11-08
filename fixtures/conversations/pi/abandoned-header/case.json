@@ -1,0 +1,48 @@
+{
+  "about": "server/pi-tree.test.ts: pi's abandoned paths does not mistake pi's session header for a branch you navigated away from",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "the retried question"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "the answer in play"
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": "m",
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 2,
+          "branches": 1,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

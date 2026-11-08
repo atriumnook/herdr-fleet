@@ -1,0 +1,50 @@
+{
+  "about": "server/skill-activity.test.ts: chained skill invocations and a request-less one",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-02T00:00:00Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "/skill:a /skill:b"
+              },
+              {
+                "kind": "skill",
+                "skill": {
+                  "name": "a",
+                  "path": "/home/u/.omp/skills/a/SKILL.md",
+                  "evidence": "instructions",
+                  "status": "loaded"
+                }
+              },
+              {
+                "kind": "skill",
+                "skill": {
+                  "name": "b",
+                  "path": "/home/u/.omp/skills/b/SKILL.md",
+                  "evidence": "instructions",
+                  "status": "loaded"
+                }
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

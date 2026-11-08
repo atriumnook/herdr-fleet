@@ -1,0 +1,83 @@
+{
+  "about": "server/codex.test.ts: Codex conversation records hides complete directory-less AGENTS envelopes in event and model records",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "lf.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Check fixture"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Ready",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "crlf.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Check fixture"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Ready",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    }
+  ]
+}

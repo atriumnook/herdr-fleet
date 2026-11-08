@@ -1,0 +1,1 @@
+{"id":"e1","parentId":null,"type":"message","message":{"role":"assistant","model":"qwen-test","usage":{"input":4924,"output":198,"cacheRead":18400,"cacheWrite":1000,"reasoning":53,"totalTokens":24522}}}

@@ -1,0 +1,266 @@
+{
+  "about": "server/codex.test.ts: Codex conversation records preserves literal memory tags in inline code and code fences",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "example-1.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Match the literal tag `<oai-mem-citation>` in the parser.\nKeep this explanatory paragraph.",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "example-2.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "The block is `<oai-mem-citation>sample</oai-mem-citation>`.",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "example-3.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Use `` `<oai-mem-citation>` `` to quote the tag.",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "example-4.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "A backslash inside code is literal: `<oai-mem-citation>\\` and prose follows.",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h4",
+        "version": "$v4"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "example-5.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Example:\n```xml\n<oai-mem-citation>sample</oai-mem-citation>\n```\nExplanation follows.",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h5",
+        "version": "$v5"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "example-6.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Example:\n  ~~~~xml\n<oai-mem-citation>sample</oai-mem-citation>\n  ~~~\nStill code.\n  ~~~~~\nExplanation follows.",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h6",
+        "version": "$v6"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "example-7.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Example:\n````xml\n<oai-mem-citation>sample</oai-mem-citation>\n```\nStill code.\n````\nExplanation follows.",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h7",
+        "version": "$v7"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "example-8.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "An unfinished example:\n```xml\n<oai-mem-citation>literal tag",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h8",
+        "version": "$v8"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "example-9.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "An unfinished example:\n~~~xml\n<oai-mem-citation>literal tag",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h9",
+        "version": "$v9"
+      }
+    }
+  ]
+}

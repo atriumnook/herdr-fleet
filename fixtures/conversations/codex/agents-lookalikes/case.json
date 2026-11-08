@@ -1,0 +1,275 @@
+{
+  "about": "server/codex.test.ts: Codex conversation records preserves incomplete, similar and user-extended AGENTS messages",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-1-model.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "# AGENTS.md instructions\nExplain this"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-1-display.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "# AGENTS.md instructions\nExplain this"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-2-model.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "# AGENTS.md instructions-extra\n<INSTRUCTIONS>example</INSTRUCTIONS>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-2-display.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "# AGENTS.md instructions-extra\n<INSTRUCTIONS>example</INSTRUCTIONS>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h4",
+        "version": "$v4"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-3-model.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "# AGENTS.md instructions\nexample</INSTRUCTIONS>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h5",
+        "version": "$v5"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-3-display.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "# AGENTS.md instructions\nexample</INSTRUCTIONS>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h6",
+        "version": "$v6"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-4-model.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "# AGENTS.md instructions\n<INSTRUCTIONS>example</INSTRUCTIONS>\nPlease explain why this rule is wrong."
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h7",
+        "version": "$v7"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-4-display.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "# AGENTS.md instructions\n<INSTRUCTIONS>example</INSTRUCTIONS>\nPlease explain why this rule is wrong."
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h8",
+        "version": "$v8"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-5-model.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "# AGENTS.md instructions for /project\n<INSTRUCTIONS>example</INSTRUCTIONS>\nPlease explain."
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h9",
+        "version": "$v9"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-5-display.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "# AGENTS.md instructions for /project\n<INSTRUCTIONS>example</INSTRUCTIONS>\nPlease explain."
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h10",
+        "version": "$v10"
+      }
+    }
+  ]
+}

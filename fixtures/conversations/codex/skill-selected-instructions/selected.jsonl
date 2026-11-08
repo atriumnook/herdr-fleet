@@ -1,0 +1,4 @@
+{"type":"response_item","timestamp":"2026-09-27T00:00:01Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Please review"}]}}
+{"type":"response_item","timestamp":"2026-09-27T00:00:01Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<skill>\n<name>review</name>\n<path>/skills/review/SKILL.md</path>\nPRIVATE INSTRUCTIONS\n</skill>"}]}}
+{"type":"response_item","timestamp":"2026-09-27T00:00:01Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"<skill>\n<name>review</name>\n<path>/skills/review/SKILL.md</path>\nPRIVATE INSTRUCTIONS\n</skill>"}]}}
+{"type":"response_item","timestamp":"2026-09-27T00:00:01Z","payload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Reviewed"}]}}

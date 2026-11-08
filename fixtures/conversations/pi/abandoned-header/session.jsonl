@@ -1,0 +1,6 @@
+{"id":"session","parentId":null,"timestamp":"2026-09-30T00:00:00.000Z","type":"session","version":3,"cwd":"/work/project"}
+{"id":"m1","parentId":null,"timestamp":"2026-09-30T00:00:00.000Z","type":"model_change","provider":"p","modelId":"m"}
+{"id":"u1","parentId":"m1","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"the question"}]}}
+{"id":"a-gone","parentId":"u1","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"the abandoned answer"}],"stopReason":"stop"}}
+{"id":"u2","parentId":"m1","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"the retried question"}]}}
+{"id":"a-live","parentId":"u2","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"the answer in play"}],"stopReason":"stop"}}

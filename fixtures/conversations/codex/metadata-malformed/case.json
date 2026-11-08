@@ -1,0 +1,21 @@
+{
+  "about": "server/conversation-metadata.test.ts: recorded conversation model settings tolerates absent metadata, unexpected types and a torn append without losing valid settings (the Codex half; the scrollback half reads no transcript)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "recorded",
+          "reasoning_effort": "medium"
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

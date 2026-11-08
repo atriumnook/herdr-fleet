@@ -1,0 +1,2 @@
+{"type":"message","timestamp":"2026-09-27T00:00:00Z","message":{"role":"assistant","content":[{"type":"toolCall","id":"c1","name":"bash","arguments":{"command":"false"}}]}}
+{"type":"message","message":{"role":"toolResult","toolCallId":"c1","isError":true,"content":[{"type":"text","text":"exit 1"}]}}

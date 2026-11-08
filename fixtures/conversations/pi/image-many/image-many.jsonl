@@ -1,0 +1,4 @@
+{"type":"session","version":3,"id":"image-many","timestamp":"2026-09-30T00:00:00.000Z","cwd":"/work/project"}
+{"type":"message","id":"u1","parentId":null,"timestamp":"2026-09-30T00:00:02.000Z","message":{"role":"user","content":"what is in this screenshot?"}}
+{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-09-30T00:00:03.000Z","message":{"role":"assistant","model":"qwen-test","provider":"test","stopReason":"toolUse","usage":{"input":10,"output":1},"content":[{"type":"toolCall","id":"c1","name":"read","arguments":{"path":"shot.png"}}]}}
+{"type":"message","id":"r-c1","parentId":"a1","timestamp":"2026-09-30T00:00:04.000Z","message":{"role":"toolResult","toolCallId":"c1","toolName":"read","content":[{"type":"text","text":"read 1 image"},{"type":"image","mimeType":"image/png","data":"iVBORw0KGgo="},{"type":"image","mimeType":"image/svg+xml","data":"PHN2Zz4="},{"type":"image","mimeType":"image/jpeg","data":"/9j/4AAQSkZJRg=="}]}}

@@ -1,0 +1,2 @@
+{"id":"e1","parentId":null,"type":"thinking_level_change","thinkingLevel":"off"}
+{"id":"e2","parentId":"e1","type":"message","message":{"role":"assistant","model":"actual-response-model"}}

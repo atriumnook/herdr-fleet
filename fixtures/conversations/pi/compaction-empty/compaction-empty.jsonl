@@ -1,0 +1,3 @@
+{"type":"session","version":3,"id":"compaction-empty","timestamp":"2026-09-30T00:00:00.000Z","cwd":"/work/project"}
+{"type":"message","id":"u1","parentId":null,"timestamp":"2026-09-30T00:00:01.000Z","message":{"role":"user","content":"hello"}}
+{"type":"compaction","id":"c1","parentId":"u1","timestamp":"2026-09-30T00:00:02.000Z","summary":"","firstKeptEntryId":"u1"}

@@ -1,0 +1,1564 @@
+{
+  "about": "server/chat-history.test.ts: omp-transcript: a thinking-level change between the metadata head and the newest page sets the reasoning shown (its read after forgetTranscriptState is the first step, a cold read)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 80"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 81"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 82"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 83"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 84"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 85"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 86"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 87"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 88"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 89"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 90"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 91"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 92"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 93"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 94"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 95"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 96"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 97"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 98"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 99"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 100"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 101"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 102"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 103"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 104"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 105"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 106"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 107"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 108"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 109"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 110"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 111"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 112"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 113"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 114"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 115"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 116"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 117"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 118"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 119"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 120"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 121"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 122"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 123"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 124"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 125"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 126"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 127"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 128"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 129"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": "second",
+          "reasoning_effort": "medium"
+        },
+        "cursor": "$c1",
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "append": "session.jsonl",
+      "text": "{\"type\":\"thinking_level_change\",\"thinkingLevel\":\"low\"}\n"
+    },
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 80"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 81"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 82"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 83"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 84"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 85"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 86"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 87"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 88"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 89"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 90"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 91"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 92"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 93"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 94"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 95"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 96"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 97"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 98"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 99"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 100"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 101"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 102"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 103"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 104"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 105"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 106"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 107"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 108"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 109"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 110"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 111"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 112"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 113"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 114"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 115"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 116"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 117"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 118"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 119"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 120"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 121"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 122"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 123"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 124"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 125"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 126"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 127"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 128"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "turn 129"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": "second",
+          "reasoning_effort": "low"
+        },
+        "cursor": "$c1",
+        "history_id": "$h",
+        "version": "$v2"
+      }
+    },
+    {
+      "append": "session.jsonl",
+      "from": "after-clear.jsonl"
+    },
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 80"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 81"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 82"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 83"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 84"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 85"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 86"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 87"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 88"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 89"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 90"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 91"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 92"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 93"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 94"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 95"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 96"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 97"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 98"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 99"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 100"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 101"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 102"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 103"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 104"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 105"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 106"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 107"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 108"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 109"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 110"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 111"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 112"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 113"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 114"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 115"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 116"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 117"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 118"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 119"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 120"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 121"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 122"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 123"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 124"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 125"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 126"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 127"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 128"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after clear 129"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": "$c2",
+        "history_id": "$h2",
+        "version": "$v3"
+      }
+    }
+  ]
+}

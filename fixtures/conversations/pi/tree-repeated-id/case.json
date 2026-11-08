@@ -1,0 +1,38 @@
+{
+  "about": "server/pi-tree.test.ts: pi's entry tree ignores the header and entries without an id, and keeps the last of a repeated id (the original counts the byte ranges, one: the page shows that one entry, the repeat)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "an id reused"
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

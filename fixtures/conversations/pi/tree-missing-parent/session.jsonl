@@ -1,0 +1,2 @@
+{"id":"u2","parentId":"missing-parent","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"a turn whose parent never appears"}]}}
+{"id":"a2","parentId":"u2","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"answer"}],"stopReason":"stop"}}
