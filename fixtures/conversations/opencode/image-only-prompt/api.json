@@ -1,0 +1,34 @@
+{
+  "serviceRunning": true,
+  "get": {
+    "/api/session/ses_testsession0001": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "ses_testsession0001",
+          "time": {"created":1,"updated":1},
+          "tokens": {"input":0,"output":0},
+          "cost": 0
+        }
+      }
+    },
+    "/api/session/ses_testsession0001/message?limit=100&order=desc": {
+      "status": 200,
+      "body": {
+        "data": [
+          {"id":"msg_u","type":"user","time":{"created":25000},"text":"","files":[{"data":"<base64>","mime":"image/jpeg","source":{"type":"inline"}}]}
+        ],
+        "cursor": {
+          "previous": "eyJpZCI6Im1zZ191Iiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+          "next": "eyJpZCI6Im1zZ191Iiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+        }
+      }
+    },
+    "/api/model": {
+      "status": 200,
+      "body": {
+        "data": []
+      }
+    }
+  }
+}

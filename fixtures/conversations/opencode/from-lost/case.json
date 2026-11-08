@@ -1,0 +1,19 @@
+{
+  "about": "server/opencode-session.test.ts: polling from a held start > `from` the service has lost means the history changed",
+  "steps": [
+    {
+      "at": 100
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "from": "msg_lost"
+      },
+      "expected": {
+        "error": "HistoryChanged"
+      }
+    }
+  ]
+}

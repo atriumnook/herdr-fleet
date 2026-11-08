@@ -1,0 +1,30 @@
+{
+  "about": "server/opencode-session.test.ts: a staged revert > a held start the revert hides means the history changed",
+  "steps": [
+    {
+      "at": 100
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "from": "msg_u75"
+      },
+      "expected": {
+        "error": "HistoryChanged"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "before": "msg_u75"
+      },
+      "expected": {
+        "error": "HistoryChanged"
+      }
+    }
+  ]
+}

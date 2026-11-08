@@ -1,0 +1,11 @@
+{
+  "serviceRunning": true,
+  "get": {
+    "/api/session/ses_testsession0001": {
+      "status": 404,
+      "body": {
+        "_tag": "SessionNotFoundError"
+      }
+    }
+  }
+}

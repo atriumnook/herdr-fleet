@@ -1,0 +1,34 @@
+{
+  "serviceRunning": true,
+  "get": {
+    "/api/session/ses_testsession0001": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "ses_testsession0001",
+          "time": {"created":1,"updated":1},
+          "tokens": {"input":0,"output":0},
+          "cost": 0
+        }
+      }
+    },
+    "/api/session/ses_testsession0001/message?limit=100&order=desc": {
+      "status": 200,
+      "body": {
+        "data": [
+          {"id":"msg_a","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x","variant":"default"},"time":{"created":28000,"completed":28500},"finish":"tool-calls","cost":0,"tokens":{"input":10,"output":5,"reasoning":1,"cache":{"read":100,"write":0}},"content":[{"type":"tool","id":"c1","name":"edit","time":{"created":27000},"state":{"status":"error","input":{"filePath":"<p>","oldString":"<a>","newString":"<b>"},"error":{"type":"tool.execution","message":"<msg>"}}},{"type":"tool","id":"c2","name":"write","time":{"created":27000},"state":{"status":"error","input":{"filePath":"<p>"},"error":{"type":"tool.execution","message":"<msg>"},"content":[{"type":"text","text":"<partial>"}]}}]}
+        ],
+        "cursor": {
+          "previous": "eyJpZCI6Im1zZ19hIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+          "next": "eyJpZCI6Im1zZ19hIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+        }
+      }
+    },
+    "/api/model": {
+      "status": 200,
+      "body": {
+        "data": []
+      }
+    }
+  }
+}

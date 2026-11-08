@@ -1,0 +1,36 @@
+{
+  "serviceRunning": true,
+  "get": {
+    "/api/session/ses_testsession0001": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "ses_testsession0001",
+          "time": {"created":1,"updated":1},
+          "tokens": {"input":0,"output":0},
+          "cost": 0
+        }
+      }
+    },
+    "/api/session/ses_testsession0001/message?limit=100&order=desc": {
+      "status": 200,
+      "body": {
+        "data": [
+          {"id":"msg_t","type":"system","time":{"created":3},"text":"<only text>"},
+          {"id":"msg_i","type":"system","time":{"created":2},"text":"<instructions delta>","description":"<Instructions updated: source>"},
+          {"id":"msg_s","type":"synthetic","time":{"created":1},"text":"<what the model was told>","description":"<described>"}
+        ],
+        "cursor": {
+          "previous": "eyJpZCI6Im1zZ190Iiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+          "next": "eyJpZCI6Im1zZ19zIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+        }
+      }
+    },
+    "/api/model": {
+      "status": 200,
+      "body": {
+        "data": []
+      }
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "about": "server/opencode-session.test.ts: older pages > a cursor that is not a message id means the history changed",
+  "steps": [
+    {
+      "at": 100
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "before": "../x"
+      },
+      "expected": {
+        "error": "HistoryChanged"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "since": "x"
+      },
+      "expected": {
+        "error": "HistoryChanged"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "from": "msg u"
+      },
+      "expected": {
+        "error": "HistoryChanged"
+      }
+    }
+  ]
+}
