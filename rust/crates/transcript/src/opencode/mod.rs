@@ -3,13 +3,26 @@
 //! `server/opencode-messages.ts`). The core implements `OpencodeApi` with the CLI; the reader
 //! never starts a process itself (ADR 0107-crate-split).
 //!
-//! The types and the signatures are final (ADR 0192-phase-2-split, "OpenCode"); what the reader
-//! does is a stub until #204 writes it here.
+//! The types and the signatures: ADR 0192-phase-2-split, "OpenCode". The conversion of messages
+//! into turns is `messages.rs`, the reads and what is kept between them `session.rs`.
 
+use std::collections::hash_map::RandomState;
 use std::fmt;
-use std::sync::Arc;
+use std::hash::{BuildHasher, Hasher};
+use std::sync::{Arc, Mutex};
 
+use protocol::js::cut_utf16;
+
+use crate::records::{IMAGE_TYPES, decode_base64_leniently, record};
 use crate::{ConversationError, Image, Page, PageRequest};
+
+mod messages;
+mod session;
+#[cfg(test)]
+mod tests;
+mod time;
+
+use messages::{OPENCODE_REF, tool_output_of};
 
 /// The CLI's answers, as the core gets them: `opencode service status` and
 /// `opencode api GET <path>`. Synchronous: the core calls the reader in `spawn_blocking`.
@@ -46,39 +59,82 @@ impl std::error::Error for OpencodeError {}
 /// The epoch milliseconds the reader takes as now.
 pub type Clock = Box<dyn Fn() -> i64 + Send + Sync>;
 
+/// A whole output is still bounded: a page of it, not a log file (`TOOL_OUTPUT_MAX` of
+/// `server/conversation.ts`).
+const TOOL_OUTPUT_MAX: usize = 2_000_000;
+
 /// OpenCode sessions' readers, and what they keep between reads. Its methods take `&self`; the
 /// state is guarded by a lock held only while it is read or written, never during an
 /// `OpencodeApi` call, so one slow call does not hold up another pane.
 pub struct OpencodeConversations {
-    #[expect(dead_code, reason = "#204 reads the sessions through it")]
     api: Arc<dyn OpencodeApi>,
-    #[expect(dead_code, reason = "#204 reads the time through it")]
     now: Clock,
+    state: Mutex<session::State>,
+    /// differs in every process: a version is never the same as another process's
+    /// (`processVersion`)
+    process: String,
 }
 
 impl OpencodeConversations {
     pub fn new(api: Arc<dyn OpencodeApi>, now: Clock) -> Self {
-        Self { api, now }
+        let half = || {
+            let mut hasher = RandomState::new().build_hasher();
+            hasher.write_u8(0);
+            hasher.finish()
+        };
+        Self {
+            api,
+            now,
+            state: Mutex::default(),
+            process: format!("{:016x}{:016x}", half(), half()),
+        }
     }
 
-    /// One page of a session (`OpencodeConversations.page`); `working`: herdr says the pane is
-    /// busy.
+    /// One page of a session (`OpencodeConversations.page`): the newest without `before`, with
+    /// `from` kept while it is inside it; `working`: herdr says the pane is busy. Two reads of one
+    /// page at once each read it: sharing one read is the core's (ADR 0192-phase-2-split).
     pub fn page(
         &self,
-        _session_id: &str,
-        _working: bool,
-        _page: &PageRequest,
+        session_id: &str,
+        working: bool,
+        page: &PageRequest,
     ) -> Result<Page, ConversationError> {
-        todo!("#204: OpenCode sessions")
+        self.read(session_id, working, page)
     }
 
     /// The image a ref names, decoded; `Ok(None)` when there is none.
     pub fn image(
         &self,
-        _session_id: &str,
-        _reference: &str,
+        session_id: &str,
+        reference: &str,
     ) -> Result<Option<Image>, ConversationError> {
-        todo!("#204: OpenCode sessions")
+        let Some((message_id, index)) = parse_ref(reference) else {
+            return Ok(None);
+        };
+        let message = self.message(session_id, message_id)?.unwrap_or_default();
+        if message.get("type").and_then(serde_json::Value::as_str) != Some("user") {
+            return Ok(None);
+        }
+        let file = record(
+            message
+                .get("files")
+                .and_then(serde_json::Value::as_array)
+                .and_then(|files| files.get(index)),
+        );
+        let mime = file
+            .get("mime")
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default();
+        let Some(data) = file.get("data").and_then(serde_json::Value::as_str) else {
+            return Ok(None);
+        };
+        if !IMAGE_TYPES.contains(&mime) {
+            return Ok(None);
+        }
+        Ok(Some(Image {
+            media_type: mime.to_owned(),
+            bytes: decode_base64_leniently(data),
+        }))
     }
 
     /// The whole output of a tool call, by its ref; `Ok(None)` when there is none. Cut at 2,000,000
@@ -86,9 +142,24 @@ impl OpencodeConversations {
     /// so that the core needs no limit of its own.
     pub fn tool_output(
         &self,
-        _session_id: &str,
-        _reference: &str,
+        session_id: &str,
+        reference: &str,
     ) -> Result<Option<String>, ConversationError> {
-        todo!("#204: OpenCode sessions")
+        let Some((message_id, index)) = parse_ref(reference) else {
+            return Ok(None);
+        };
+        let Some(message) = self.message(session_id, message_id)? else {
+            return Ok(None);
+        };
+        Ok(tool_output_of(&message, index)
+            .map(|output| cut_utf16(&output, TOOL_OUTPUT_MAX).to_owned()))
     }
+}
+
+/// A ref's message id and index (`OPENCODE_REF`).
+fn parse_ref(reference: &str) -> Option<(&str, usize)> {
+    let found = OPENCODE_REF.captures(reference)?;
+    let message_id = found.get(1)?.as_str();
+    let index = found.get(2)?.as_str().parse().ok()?;
+    Some((message_id, index))
 }
