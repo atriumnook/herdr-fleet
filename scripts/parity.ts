@@ -3,7 +3,8 @@
  * every tracked file the globs below match must have one row in the table under "## 一覧", and the
  * table must have no other row. The successor column (引き継ぎ先) may hold only a criterion of the
  * plan, a crate's tests (`<crate> の crate のテスト`, a folder of rust/crates/), 「そのまま残す」,
- * 「なし: <理由>」, several of them joined by 「、」, or nothing yet.
+ * 「なし: <理由>」, several of them joined by 「、」, or nothing yet. A 「なし: <理由>」 is the last value of its
+ * cell, so its reason may hold 「、」 too.
  *
  * Not part of scripts/ci-tests.ts: a phase's gate runs it, so that a pull request adding a test file
  * need not edit parity.md (issue #134).
@@ -25,17 +26,27 @@ export function testFiles(tracked: string[]): string[] {
 
 export type Row = { file: string; successor: string; line: number };
 
-/** the rows of the table under "## 一覧": a file in backticks in the first cell, the successor in the second */
+/** the rows of the table under "## 一覧", up to the next heading: a file in backticks in the first cell, the successor in the second */
 export function rows(markdown: string): Row[] {
   const found: Row[] = [];
   let inList = false;
   markdown.split("\n").forEach((text, index) => {
-    if (text.startsWith("## ")) inList = text.trim() === "## 一覧";
+    if (text.startsWith("#")) inList = text.trim() === "## 一覧";
     if (!inList) return;
-    const cells = text.match(/^\|\s*`([^`]+)`\s*\|([^|]*)\|/);
-    if (cells) found.push({ file: cells[1]!, successor: cells[2]!.trim(), line: index + 1 });
+    const cells = text.match(/^\|\s*`([^`]+)`\s*\|((?:\\\||[^|])*)\|/);
+    if (cells) found.push({ file: cells[1]!, successor: cells[2]!.replaceAll("\\|", "|").trim(), line: index + 1 });
   });
   return found;
+}
+
+/** the values of one successor cell: split at 「、」, except inside the reason of a 「なし: <理由>」 */
+export function successors(cell: string): string[] {
+  const values: string[] = [];
+  for (const part of cell.split("、")) {
+    if (values.length && values[values.length - 1]!.startsWith("なし: ")) values[values.length - 1] += `、${part}`;
+    else values.push(part.trim());
+  }
+  return values;
 }
 
 /** whether one value of the successor column is one parity.md may hold */
@@ -58,8 +69,8 @@ export function problems(files: string[], table: Row[], crates: string[]): strin
   for (const row of listed.values()) if (!wanted.has(row.file)) found.push(`${PARITY}:${row.line}: extra row: ${row.file} is not a file the globs of ADR 0122 select`);
   for (const row of table) {
     if (row.successor === "") continue;
-    for (const value of row.successor.split("、")) {
-      if (!knownSuccessor(value.trim(), crates)) found.push(`${PARITY}:${row.line}: ${row.file}: unknown successor "${value.trim()}"`);
+    for (const value of successors(row.successor)) {
+      if (!knownSuccessor(value, crates)) found.push(`${PARITY}:${row.line}: ${row.file}: unknown successor "${value}"`);
     }
   }
   return found;
