@@ -87,6 +87,8 @@ const READY_SCREEN_POLL_MS = 250;
 export const USAGE_SCREEN_MS = 10_000;
 /** how long a project run without the person may stand still before its coordinator hears of it (superviseProjects) */
 export const QUIET_MS = 15 * 60_000;
+/** the window over which an agent's runs are looked at for an anomaly (superviseProjects) */
+export const ANOMALY_WINDOW_MS = 60 * 60_000;
 /** how soon the threads' questions are tried again while the person has a draft in the coordinator's input */
 export const DRAFT_RETRY_MS = 5_000;
 /** a run still `starting` may be inside a 30 s agent start: not-found is not its end yet */
@@ -215,6 +217,8 @@ export class Orchestrator {
   /** per thread: since when its lead is settled, and when GitHub was last asked about it */
   private readonly settledSince = new Map<string, number>();
   private readonly reconciledAt = new Map<string, number>();
+  /** per project coordinator and agent: when it last heard of an anomaly */
+  private readonly anomalyAt = new Map<string, number>();
   /** each run's state as last saved: a save that changes it is an event */
   private readonly savedStates = new Map<string, string>();
 
@@ -949,6 +953,7 @@ export class Orchestrator {
       const threads = this.list().filter((run) => isThread(run) && run.project === coordinator.project && isLive(run) && !run.landed);
       for (const thread of threads) await this.reconcileThread(thread as AgentRun & { project: string; branch: string }, now);
       const open = threads.filter((run) => isLive(run) && !run.landed);
+      await this.checkAnomalies(coordinator, now);
       const groups = new Set([coordinator.group, ...open.map((run) => run.group)]);
       const members = this.list().filter((run) => groups.has(run.group) && isLive(run));
       const moving = (run: AgentRun) => this.pending.has(run.id) || run.state === "working" || run.state === "starting";
@@ -988,12 +993,43 @@ export class Orchestrator {
   }
 
   /** The coordinator, free, hears that its project stands still; false when it could not be told now. */
-  private async callStandstill(coordinator: AgentRun, threads: AgentRun[], quietFor: number): Promise<boolean> {
+  private callStandstill(coordinator: AgentRun, threads: AgentRun[], quietFor: number): Promise<boolean> {
+    return this.tellWhenFree(coordinator, standstill(threads, quietFor));
+  }
+
+  /**
+   * An agent whose runs in this project kept failing to start, or ended without a HANDOFF (a pane
+   * closed under it, a crash), over the last ANOMALY_WINDOW_MS: two or more, and a third or more of
+   * its runs. The coordinator hears of it once per agent and window, with the run ids.
+   */
+  private async checkAnomalies(coordinator: AgentRun, now: number): Promise<void> {
+    const groups = new Set([coordinator.group, ...this.list().filter((run) => isThread(run) && run.project === coordinator.project).map((run) => run.group)]);
+    const byAgent = new Map<string, AgentRun[]>();
+    for (const run of this.list()) {
+      if (!groups.has(run.group) || run.role === PROJECT_ROLE || now - run.startedAt >= ANOMALY_WINDOW_MS) continue;
+      byAgent.set(run.agent, [...(byAgent.get(run.agent) ?? []), run]);
+    }
+    for (const [agent, runs] of byAgent) {
+      // failed; or a helper without a HANDOFF, settled (its start failed, or its turn ended on a question
+      // the adapter does not know, its pane kept) or ended. A lead stopped without one is not counted:
+      // the fleet closes a landed thread, and the person stops one, whatever its last turn left.
+      const bad = runs.filter((run) => run.state === "failed"
+        || (!run.interactive && run.result === undefined && !this.pending.has(run.id) && (isCompleted(run.state) || run.state === "stopped")));
+      const key = `${coordinator.id} ${agent}`;
+      if (bad.length < 2 || bad.length * 3 < runs.length || now - (this.anomalyAt.get(key) ?? -Infinity) < ANOMALY_WINDOW_MS) continue;
+      if (!(await this.tellWhenFree(coordinator, agentAnomaly(agent, bad, runs.length)))) continue;
+      this.anomalyAt.set(key, now);
+      this.deps.events?.({ kind: "anomaly", run: coordinator.id, project: coordinator.project!, agent, bad: bad.length, runs: runs.length });
+    }
+  }
+
+  /** `text` to the coordinator when it is free (no turn in flight, settled, no draft of the person's); false when it is not. */
+  private async tellWhenFree(coordinator: AgentRun, text: string): Promise<boolean> {
     if (this.delivering.has(coordinator.id)) return false;
     await this.reconcileLocks.get(coordinator.id);
     const live = await this.liveState(coordinator);
     if (!live || !isCompleted(live) || this.pending.has(coordinator.id) || await this.hasDraft(coordinator)) return false;
-    const sent = await this.submit(coordinator, standstill(threads, quietFor));
+    const sent = await this.submit(coordinator, text);
     return sent.state === "working";
   }
 
@@ -1283,6 +1319,10 @@ export class Orchestrator {
   private async readTurn(run: AgentRun, config: FleetConfig): Promise<void> {
     run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
     run.result = readResult(this.resultFile(run));
+    this.deps.events?.({
+      kind: "turn", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
+      ...(run.project ? { project: run.project } : {}), interactive: run.interactive, handoff: run.result !== undefined,
+    });
     // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
     // are spent; a turn that wrote its handoff did its work, whatever its screen quotes
     const turnError = run.result === undefined ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
@@ -1483,7 +1523,8 @@ export class Orchestrator {
       const error = run.lastError && (run.state === "failed" || run.state === "blocked" || run.state === "unknown") ? run.lastError.slice(0, 200) : undefined;
       this.deps.events?.({
         kind: "state", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
-        ...(run.project ? { project: run.project } : {}), ...(previous ? { from: previous } : {}), to: run.state, sent: this.pending.has(run.id), ...(error ? { error } : {}),
+        ...(run.project ? { project: run.project } : {}), interactive: run.interactive, ...(previous ? { from: previous } : {}), to: run.state, sent: this.pending.has(run.id),
+        ...(error ? { error } : {}),
       });
     }
     this.deps.onChanged?.(run);
@@ -1518,6 +1559,15 @@ export function standstill(threads: AgentRun[], quietFor: number): string {
     `[fleet] Nothing in this project has moved for ${Math.round(quietFor / 60_000)} minutes: you and every thread are settled. This comes from the fleet, not from the person.`,
     ...(threads.length ? threads.map((run) => `- ${threadLabel(run)}: ${run.state}${run.pr ? `, pull request #${run.pr.number} ${run.pr.state}` : ""}`) : ["- No thread is open."]),
     "Check the issues and the threads: start what can start, and send a settled thread what it still has to do. When everything left is blocked or done, say so as your instructions tell you.",
+  ].join("\n");
+}
+
+/** An agent whose runs kept failing to start or ending without a HANDOFF, as the coordinator of a project run without the person hears it. */
+export function agentAnomaly(agent: string, bad: AgentRun[], runs: number): string {
+  return [
+    `[fleet] ${agent}: ${bad.length} of ${runs} runs in this project over the last ${Math.round(ANOMALY_WINDOW_MS / 60_000)} minutes failed to start or ended without a HANDOFF. This comes from the fleet, not from the person.`,
+    ...bad.map((run) => `- ${run.id} (${run.role}${run.model ? `, ${run.model}` : ""}): ${run.state}${run.lastError ? ` — ${run.lastError.slice(0, 160)}` : ", no HANDOFF"}`),
+    `Until it is fixed, have the threads start that role on another CLI (--avoid ${agent}), and record this with the run ids where the project tracks its work, so the fleet can be fixed.`,
   ].join("\n");
 }
 
