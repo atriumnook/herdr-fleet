@@ -1258,15 +1258,19 @@ describe("a thread outlives its lead run", () => {
     expect(promptsTo(next).at(-1)).toBe("Also update the docs.");
   });
 
-  it("hides a candidate that failed to start in a restart behind the run that took the thread over", async () => {
+  it("hides a candidate that failed to start in a restart behind the run that took the thread over, without the landing step it was handed", async () => {
     const { fleet, runtime, registry, turn } = thread({ agents: [role("lead", { agent: "claude", fallbackModels: ["codex:", "pi:"], interactive: true, spawning: true })] });
     const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    // a merge the person pressed waits for the coordinator while the restart runs
+    registry.get(first.id)!.landing = { action: "merge", at: 1, sent: false };
     runtime.startImpl = async (options) => { if (options.kind === "codex") throw new FleetError("agent_start_failed", "codex is signed out"); return "idle"; };
     await turn(first, "idle");
     const next = registry.get(registry.get(first.id)!.replacedBy!)!;
     expect(next.agent).toBe("pi");
     const failed = registry.all().find((run) => run.agent === "codex")!;
     expect(failed).toMatchObject({ state: "failed", replacedBy: next.id });
+    // only the thread's lead holds the merge: the coordinator is not handed it twice, nor the thread closed on a hidden run
+    expect(registry.all().filter((run) => run.landing).map((run) => run.id)).toEqual([next.id]);
     expect((await fleet.threads({ cwd: "/repo" })).map((t) => t.run.id)).toEqual([next.id]);
   });
 

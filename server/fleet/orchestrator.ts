@@ -918,7 +918,7 @@ export class Orchestrator {
 
   /** The coordinator's turn ended: the merges it was handed, checked in git and on GitHub, and the threads that landed closed. */
   private async settleMerges(coordinator: AgentRun): Promise<void> {
-    const handed = this.deps.registry.all().filter((run) => run.landing?.sent && !run.landing.error && COORDINATOR_STEPS.has(run.landing.action)
+    const handed = this.deps.registry.all().filter((run) => !run.replacedBy && run.landing?.sent && !run.landing.error && COORDINATOR_STEPS.has(run.landing.action)
       && this.projectCoordinator(run)?.id === coordinator.id);
     for (const run of handed) {
       const thread = run as AgentRun & { project: string; branch: string };
@@ -1201,7 +1201,7 @@ export class Orchestrator {
     this.delivering.add(coordinator.id);
     try {
       const threads = this.deps.registry.all().filter((run) => run.notice && this.coordinatorOf(run)?.id === coordinator.id);
-      const landing = this.deps.registry.all().filter((run) => run.landing && !run.landing.sent && COORDINATOR_STEPS.has(run.landing.action) && this.projectCoordinator(run)?.id === coordinator.id);
+      const landing = this.deps.registry.all().filter((run) => !run.replacedBy && run.landing && !run.landing.sent && COORDINATOR_STEPS.has(run.landing.action) && this.projectCoordinator(run)?.id === coordinator.id);
       if ((!threads.length && !landing.length) || this.pending.has(coordinator.id) || !isLive(coordinator)) return;
       await this.reconcileLocks.get(coordinator.id);
       const live = await this.liveState(coordinator);
@@ -1451,11 +1451,13 @@ export class Orchestrator {
       this.deps.events?.({ ...base, error: reason.slice(0, 200) });
       return reason;
     } finally {
-      // a candidate that failed to start on the way is no lead of the thread: it points to the run that leads it
+      // a candidate that failed to start on the way is no lead of the thread: it points to the run that
+      // leads it, and gives back the landing step it was handed, which only that run holds
       const leader = next ?? run;
       for (const failed of this.list()) {
         if (failed.thread !== threadId(run) || failed.id === leader.id || failed.state !== "failed" || failed.replacedBy || failed.startedAt < since) continue;
         failed.replacedBy = leader.id;
+        delete failed.landing;
         this.save(failed);
       }
     }
