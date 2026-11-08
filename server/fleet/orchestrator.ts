@@ -210,8 +210,8 @@ export class Orchestrator {
   private readonly reconcileLocks = new Map<string, Promise<void>>();
   private readonly projectStarts = new Map<string, Promise<AgentRun>>();
   private readonly delivering = new Set<string>();
-  /** threads starting again on a new lead: neither run takes a landing step until it has */
-  private readonly restarting = new Set<string>();
+  /** per thread, its landing steps and restarts one at a time (onThread) */
+  private readonly threadLocks = new Map<string, Promise<void>>();
   private readonly draftRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
@@ -766,52 +766,68 @@ export class Orchestrator {
    * When the agent's turn ends, the fleet reads git and GitHub for whether the step happened.
    */
   async land(target: string, action: LandAction, options: { comments?: LineComment[] } = {}, group?: string, signal?: AbortSignal): Promise<AgentRun> {
-    const run = this.landable(target, group);
+    const asked = this.landable(target, group);
+    // a settlement still being handled finishes first: it may start the thread again on a new lead
+    await this.reconcileLocks.get(asked.id);
+    const { run, coordinator } = await this.onThread(threadId(asked), () => this.landStep(asked.id, action, options, group, signal));
+    if (!coordinator) return run;
+    await this.deliverNotices(coordinator);
+    return { ...this.get(run.id) };
+  }
+
+  /**
+   * The step on the thread's lead as the thread's lock found it, before or after a restart and never
+   * during one; a merge step comes back with the coordinator to tell once the lock is free.
+   */
+  private async landStep(id: string, action: LandAction, options: { comments?: LineComment[] }, group?: string, signal?: AbortSignal): Promise<{ run: AgentRun; coordinator?: AgentRun }> {
+    const run = this.landable(id, group);
     if (run.landed) throw new FleetError("thread_landed", `${run.name} was already ${run.landed}.`);
     if (action === "discard") {
       await this.closeThread(run, "discarded");
-      return { ...run };
+      return { run: { ...run } };
     }
     const handler = LEAD_STEPS.has(action) ? run : this.projectCoordinator(run);
     if (run.landing && !run.landing.error && run.landing.sent && handler && isLive(handler) && this.pending.has(handler.id)) {
       throw new FleetError("landing_busy", `${run.name} is still on ${run.landing.action}; wait for it to end.`);
     }
     const baseBranch = await this.baseBranchOf(run);
-    // checked after the branch is read, which a restart can outlast: one run holds a thread's steps
-    if (run.replacedBy) throw replaced(run);
-    if (this.restarting.has(threadId(run))) throw new FleetError("thread_restarting", `${run.name} is starting again on another CLI; press it again once it has.`);
     if (action === "merge-pr" && run.pr?.state !== "OPEN") throw new FleetError("no_pull_request", `${run.name} has no open pull request.`);
     if (action === "fix-ci" && !run.pr) throw new FleetError("no_pull_request", `${run.name} has no pull request.`);
     if (action === "comments" && !options.comments?.length) throw new FleetError("missing_comments", "comments are required");
     if (LEAD_STEPS.has(action)) {
       if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
-      await this.reconcileLocks.get(run.id);
-      if (run.replacedBy) throw replaced(run);
-      if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
       if (this.pending.has(run.id)) throw new FleetError("run_busy", `The lead of ${run.name} is working; wait for its turn to end.`);
       run.landing = { action, at: Date.now(), sent: true };
       this.save(run);
-      return this.notifyNow(run, leadStep(run, action, baseBranch, options.comments ?? []), signal);
+      return { run: await this.notifyNow(run, leadStep(run, action, baseBranch, options.comments ?? []), signal) };
     }
     run.landing = { action, at: Date.now(), sent: false };
     this.save(run);
     const coordinator = this.projectCoordinator(run);
     if (coordinator) {
       this.outbox.put({ about: run.id, slot: "landing", section: "steps", text: coordinatorStep(run, baseBranch), landingAt: run.landing.at });
-      await this.deliverNotices(coordinator);
-    } else {
-      // no coordinator lives: a new one starts with the step as its first task
-      run.landing.sent = true;
-      this.save(run);
-      try {
-        await this.startProject({ task: [STEPS_HEADER, `- ${coordinatorStep(run, baseBranch)}`].join("\n"), cwd: run.project }, signal);
-      } catch (error) {
-        run.landing = { ...run.landing, error: `No coordinator could start for the merge: ${error instanceof Error ? error.message : String(error)}` };
-        this.save(run);
-        throw error;
-      }
+      return { run, coordinator };
     }
-    return { ...this.get(run.id) };
+    // no coordinator lives: a new one starts with the step as its first task
+    run.landing.sent = true;
+    this.save(run);
+    try {
+      await this.startProject({ task: [STEPS_HEADER, `- ${coordinatorStep(run, baseBranch)}`].join("\n"), cwd: run.project }, signal);
+    } catch (error) {
+      run.landing = { ...run.landing, error: `No coordinator could start for the merge: ${error instanceof Error ? error.message : String(error)}` };
+      this.save(run);
+      throw error;
+    }
+    return { run: { ...this.get(run.id) } };
+  }
+
+  /** `work` once the thread's landing steps and restarts before it ended, and before the ones after it */
+  private onThread<T>(thread: string, work: () => Promise<T>): Promise<T> {
+    const result = (this.threadLocks.get(thread) ?? Promise.resolve()).then(work);
+    const settled = result.then(() => undefined, () => undefined);
+    this.threadLocks.set(thread, settled);
+    void settled.then(() => { if (this.threadLocks.get(thread) === settled) this.threadLocks.delete(thread); });
+    return result;
   }
 
   // ---- a thread's plan -------------------------------------------------------------------------
@@ -1473,14 +1489,18 @@ export class Orchestrator {
    * nothing of a restart, only of one that could not start, with the turn's usual news: this returns
    * why it could not.
    */
-  private async restartThread(run: AgentRun, lastMessage?: string): Promise<string | undefined> {
+  private restartThread(run: AgentRun, lastMessage?: string): Promise<string | undefined> {
+    // a landing step pressed before goes first: a discard leaves nothing to start again
+    return this.onThread(threadId(run), () => needsRestart(run) ? this.startThreadAgain(run, lastMessage) : Promise.resolve(undefined));
+  }
+
+  private async startThreadAgain(run: AgentRun, lastMessage?: string): Promise<string | undefined> {
     const why: "failed" | "no-report" = run.state === "failed" ? "failed" : "no-report";
     const avoid = [...new Set([...(run.avoid ?? []), run.agent])];
     const task = readResult(join(this.resultDir(run), TASK_FILE));
     const base = { kind: "restart" as const, run: run.id, project: run.project!, agent: run.agent, why };
     const since = Date.now();
     let next: AgentRun | undefined;
-    this.restarting.add(threadId(run));
     try {
       next = await this.spawnWithFallbacks({
         role: THREAD_ROLE, name: run.name, task: recoveryTask(run, this.resultDir(run), task, lastMessage), cwd: run.cwd, depth: run.depth - 1,
@@ -1521,7 +1541,6 @@ export class Orchestrator {
         delete failed.landing;
         this.save(failed);
       }
-      this.restarting.delete(threadId(run));
     }
   }
 
