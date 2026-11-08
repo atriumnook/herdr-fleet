@@ -6,27 +6,33 @@
 //! only grows at the end, so a position in it keeps naming the same turn while the file does. A
 //! page starts at a line that opens a turn and holds at most `MAX_PAGE_PROMPTS` prompts.
 //!
-//! This engine reads again on every call: the caches that make the newest page incremental
-//! (`liveScans`, `settledTurns`, the boundary scan's resumption, the answer cache, Codex's live
-//! turn) are #205's. What changes an answer is kept: a rewrite's generation, and where the history
-//! boundary lies.
+//! Between reads it keeps what makes a poll of the newest page cost the bytes appended since the
+//! last one (`server/conversation.ts:547-826, 1019-1075`): each file's rewrite generation, the
+//! answers, the history boundary scan, the turn starts of the newest page (`liveScans`), the turns
+//! before its last turn start (`settledTurns`) and the parse of a Codex live turn (`codexTurns`).
+//! What is kept is checked against the file before it is used: the stream it was read from, and
+//! the bytes just before where its read stopped, which a file rewritten rather than appended to no
+//! longer has. One `PagingCache` holds it for every source, with TypeScript's limits (ADR
+//! 0205-incremental-reads).
 
+use std::any::Any;
+use std::collections::VecDeque;
 use std::collections::hash_map::RandomState;
 use std::fs::{self, File, Metadata};
 use std::hash::{BuildHasher, Hasher};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use protocol::js;
-use protocol::{ConversationMetadata, ConversationTurn};
+use protocol::{AbandonedTurns, ConversationMetadata, ConversationSource, ConversationTurn};
 use sha2::{Digest, Sha256};
 
 use crate::errors::{ConversationError, UnavailableReason};
-use crate::format::{MetadataHead, StreamFile, TOOL_REF, TranscriptFormat};
+use crate::format::{LiveParser, MetadataHead, StreamFile, TOOL_REF, TranscriptFormat};
 use crate::records::{MAX_TURNS, parse_line};
 use crate::{Image, Page, PageRequest};
 
@@ -44,8 +50,27 @@ const MAX_PAGE_BYTES: u64 = 4 * TRANSCRIPT_WINDOW_BYTES;
 /// Settings recorded once at the start (an omp thinking level) sit before a tail window.
 pub(crate) const METADATA_HEAD_BYTES: u64 = 64 * 1024;
 
-/// How many files' rewrite generations a source remembers (`transcriptRevisions`).
+/// How many of each the cache remembers, the least recently stored dropped first: TypeScript's
+/// limits, for every source together as its module variables hold them.
+/// Files' rewrite generations (`transcriptRevisions`).
 const REMEMBERED_REVISIONS: usize = 64;
+/// Answers (`cache`).
+const REMEMBERED_ANSWERS: usize = 32;
+/// History boundary scans (`clearScans`).
+const REMEMBERED_CLEAR_SCANS: usize = 32;
+/// Turn starts of a newest page (`liveScans`).
+const REMEMBERED_LIVE_SCANS: usize = 32;
+/// Settled turns, by file and page start (`settledTurns`).
+const REMEMBERED_SETTLED: usize = 8;
+/// Parses of a Codex live turn (`codexTurns`).
+const REMEMBERED_LIVE_TURNS: usize = 8;
+/// The bytes the kept parses of live turns have read, together (`codexTurns`): the record count
+/// and the source bytes retained are both bounded, whatever a session's length.
+const LIVE_TURN_BYTES: u64 = 2 * TRANSCRIPT_WINDOW_BYTES;
+
+/// How many bytes before where a read stopped are kept to tell an append from a rewrite
+/// (`bytesBefore`).
+const TAIL_BYTES: u64 = 64;
 
 /// The setting records the boundary scan keeps for the pi family.
 const SETTING_TYPES: [&str; 2] = ["model_change", "thinking_level_change"];
@@ -152,12 +177,137 @@ struct Revision {
     generation: String,
 }
 
-/// The state a source keeps between calls. The lock is held only to read and write it, never
-/// while a file is read or parsed (ADR 0192-phase-2-split).
-#[derive(Default)]
+/// What the cache keeps of each kind, by key, the least recently stored first (TypeScript's
+/// `remember`): storing a key moves it last, and past the limit the first goes.
+struct Recent<K, V> {
+    limit: usize,
+    entries: VecDeque<(K, V)>,
+}
+
+impl<K: PartialEq, V> Recent<K, V> {
+    const fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            entries: VecDeque::new(),
+        }
+    }
+
+    fn get(&self, key: &K) -> Option<&V> {
+        self.entries
+            .iter()
+            .find(|(seen, _)| seen == key)
+            .map(|(_, value)| value)
+    }
+
+    fn take(&mut self, key: &K) -> Option<V> {
+        let at = self.entries.iter().position(|(seen, _)| seen == key)?;
+        self.entries.remove(at).map(|(_, value)| value)
+    }
+
+    fn remember(&mut self, key: K, value: V) {
+        self.take(&key);
+        self.entries.push_back((key, value));
+        if self.entries.len() > self.limit {
+            self.entries.pop_front();
+        }
+    }
+}
+
+/// An answer as it was given, for the same page asked of the same file state.
+struct Answer {
+    source: ConversationSource,
+    /// the file state the answer was read from: the stream's id, and for the newest page the
+    /// live file's size and times
+    signature: String,
+    turns: Vec<ConversationTurn>,
+    metadata: ConversationMetadata,
+    cursor: Option<String>,
+    abandoned: Option<AbandonedTurns>,
+}
+
+/// A setting record: its start and end in the stream, and the line.
+type Setting = (u64, u64, String);
+
+/// How far a file's history boundary scan has read (`clearScans`).
+struct ClearScan {
+    source: ConversationSource,
+    id: String,
+    /// complete lines up to here are scanned
+    scanned: u64,
+    floor: u64,
+    /// the bytes just before `scanned`
+    tail: Vec<u8>,
+    /// the latest record of each of `SETTING_TYPES`
+    settings: [Option<Setting>; 2],
+}
+
+/// The turn starts found in a newest page so far (`LiveScan`).
+struct LiveScan {
+    source: ConversationSource,
+    id: String,
+    /// complete lines up to here are scanned
+    scanned: u64,
+    /// turn starts in the scanned bytes, ascending, none before the window
+    starts: Vec<u64>,
+    /// the bytes just before `scanned`: a file rewritten rather than appended to no longer has
+    /// them
+    tail: Vec<u8>,
+}
+
+/// The turns of a newest page before its last turn start: a later append cannot change a turn
+/// that another has followed (`SettledTurns`).
+struct Settled {
+    source: ConversationSource,
+    id: String,
+    /// the turn start these turns end at
+    end: u64,
+    turns: Vec<ConversationTurn>,
+    metadata: ConversationMetadata,
+    /// the bytes just before `end`
+    tail: Vec<u8>,
+    /// the format's `Carry` after these turns (Claude's `peersSeen`)
+    carry: Box<dyn Any + Send>,
+}
+
+/// The parse of a Codex live turn so far (`LiveCodexTurn`).
+struct LiveTurn {
+    source: ConversationSource,
+    id: String,
+    start: u64,
+    /// complete lines up to here are parsed
+    scanned: u64,
+    /// the bytes just before `scanned`
+    boundary: Vec<u8>,
+    parser: Box<dyn LiveParser>,
+    /// the settings it started from: those of the text before the turn, which depend on where
+    /// the page starts
+    before: ConversationMetadata,
+    metadata: ConversationMetadata,
+}
+
+/// What the readers keep between calls. The lock is held only to read and write it, never while
+/// a file is read or parsed (ADR 0192-phase-2-split): what a read builds on is taken out, and put
+/// back once the read is done.
 struct PagingState {
-    /// by path, the least recently seen first
-    revisions: Vec<(PathBuf, Revision)>,
+    revisions: Recent<PathBuf, Revision>,
+    answers: Recent<String, Arc<Answer>>,
+    clear_scans: Recent<PathBuf, ClearScan>,
+    live_scans: Recent<PathBuf, LiveScan>,
+    settled: Recent<(PathBuf, u64), Settled>,
+    live_turns: Recent<PathBuf, LiveTurn>,
+}
+
+impl Default for PagingState {
+    fn default() -> Self {
+        Self {
+            revisions: Recent::new(REMEMBERED_REVISIONS),
+            answers: Recent::new(REMEMBERED_ANSWERS),
+            clear_scans: Recent::new(REMEMBERED_CLEAR_SCANS),
+            live_scans: Recent::new(REMEMBERED_LIVE_SCANS),
+            settled: Recent::new(REMEMBERED_SETTLED),
+            live_turns: Recent::new(REMEMBERED_LIVE_TURNS),
+        }
+    }
 }
 
 impl PagingState {
@@ -165,11 +315,7 @@ impl PagingState {
     /// (the same file, shorter, or as long but changed) starts a new one, and every cursor into
     /// the old contents stops naming a turn (`transcriptGeneration`).
     fn generation(&mut self, path: &Path, stat: &FileStat, ids: &ProcessIds) -> String {
-        let previous = self
-            .revisions
-            .iter()
-            .position(|(seen, _)| seen == path)
-            .map(|at| self.revisions.remove(at).1);
+        let previous = self.revisions.take(&path.to_path_buf());
         let same_file = previous
             .as_ref()
             .is_some_and(|previous| previous.node == stat.node);
@@ -183,7 +329,7 @@ impl PagingState {
             Some(previous) if same_file => previous.generation,
             _ => String::new(),
         };
-        self.revisions.push((
+        self.revisions.remember(
             path.to_path_buf(),
             Revision {
                 node: stat.node.clone(),
@@ -191,20 +337,79 @@ impl PagingState {
                 changed: stat.changed.clone(),
                 generation: generation.clone(),
             },
-        ));
-        if self.revisions.len() > REMEMBERED_REVISIONS {
-            self.revisions.remove(0);
-        }
+        );
         if generation.is_empty() {
             generation
         } else {
             format!("-{generation}")
         }
     }
+
+    /// Drops the oldest parses of live turns while those kept have read more than
+    /// `LIVE_TURN_BYTES` together, the one just stored too if it alone has.
+    fn bound_live_turns(&mut self) {
+        let mut retained: u64 = self
+            .live_turns
+            .entries
+            .iter()
+            .map(|(_, turn)| turn.scanned - turn.start)
+            .sum();
+        while retained > LIVE_TURN_BYTES {
+            let Some((_, turn)) = self.live_turns.entries.pop_front() else {
+                break;
+            };
+            retained -= turn.scanned - turn.start;
+        }
+    }
+}
+
+/// The paging cache of one `Transcripts`, which all its sources share: the limits are
+/// TypeScript's, for every source together.
+#[derive(Clone, Default)]
+pub(crate) struct PagingCache(Arc<Shared>);
+
+#[derive(Default)]
+struct Shared {
+    state: Mutex<PagingState>,
+    /// the bytes `read_file` has read: outside the lock, which counting never takes
+    bytes_read: AtomicU64,
+}
+
+impl PagingCache {
+    fn lock(&self) -> MutexGuard<'_, PagingState> {
+        self.0
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
+    /// The bytes the paging has read from transcript files, in all
+    /// (`Transcripts::paging_bytes_read`).
+    pub(crate) fn bytes_read(&self) -> u64 {
+        self.0.bytes_read.load(Ordering::Relaxed)
+    }
+
+    /// Reads at most `length` bytes of `path` from `offset` onto `out`, and counts them. The
+    /// paging reads a transcript file nowhere else, so the count misses none of its reads.
+    fn read_file(
+        &self,
+        path: &Path,
+        offset: u64,
+        length: u64,
+        out: &mut Vec<u8>,
+    ) -> io::Result<()> {
+        let mut handle = File::open(path)?;
+        handle.seek(SeekFrom::Start(offset))?;
+        let read = handle.take(length).read_to_end(out)?;
+        self.0.bytes_read.fetch_add(read as u64, Ordering::Relaxed);
+        Ok(())
+    }
 }
 
 /// The conversation as one byte stream.
 struct Stream {
+    /// where its reads are counted
+    cache: PagingCache,
     /// the live file's identity, its layout and where the history starts: cursors from any other
     /// stream are refused
     id: String,
@@ -225,15 +430,23 @@ impl Stream {
             if low >= high {
                 continue;
             }
-            let mut handle = File::open(&file.path)?;
-            handle.seek(SeekFrom::Start(file.offset + (low - file.start)))?;
-            handle.take(high - low).read_to_end(&mut out)?;
+            self.cache.read_file(
+                &file.path,
+                file.offset + (low - file.start),
+                high - low,
+                &mut out,
+            )?;
         }
         Ok(out)
     }
 
     fn text(&self, from: u64, to: u64) -> io::Result<String> {
         Ok(String::from_utf8_lossy(&self.read(from, to)?).into_owned())
+    }
+
+    /// The bytes just before `offset` (`bytesBefore`).
+    fn bytes_before(&self, offset: u64) -> io::Result<Vec<u8>> {
+        self.read(offset.saturating_sub(TAIL_BYTES), offset)
     }
 }
 
@@ -245,15 +458,15 @@ fn missing(_: io::Error) -> ConversationError {
 /// One source's transcripts, read through its format.
 pub(crate) struct Source<F: TranscriptFormat> {
     pub(crate) format: F,
-    state: Mutex<PagingState>,
+    cache: PagingCache,
     ids: ProcessIds,
 }
 
 impl<F: TranscriptFormat> Source<F> {
-    pub(crate) fn new(format: F) -> Self {
+    pub(crate) fn new(format: F, cache: &PagingCache) -> Self {
         Self {
             format,
-            state: Mutex::new(PagingState::default()),
+            cache: cache.clone(),
             ids: ProcessIds::new(),
         }
     }
@@ -269,7 +482,8 @@ impl<F: TranscriptFormat> Source<F> {
         let path = F::live_path(place);
         let (stat, generation) = self.identify(path)?;
         let mut stream = self.stream(place, &stat, &generation)?;
-        self.apply_history_boundary(&mut stream).map_err(missing)?;
+        self.apply_history_boundary(path, &mut stream)
+            .map_err(missing)?;
 
         // the answer is a function of the page asked for and the file's state, so they name it;
         // an older page never changes while the stream's id stays the same
@@ -287,6 +501,24 @@ impl<F: TranscriptFormat> Source<F> {
             format!("{}:{}:{}", stream.id, stat.size, stat.changed)
         };
         let version = self.answer_version(&key, &signature);
+        let cached = self
+            .cache
+            .lock()
+            .answers
+            .get(&key)
+            .filter(|answer| answer.source == F::SOURCE && answer.signature == signature)
+            .cloned();
+        if let Some(answer) = cached {
+            return Ok(Page {
+                source: F::SOURCE,
+                turns: answer.turns.clone(),
+                metadata: answer.metadata.clone(),
+                cursor: answer.cursor.clone(),
+                abandoned: answer.abandoned.clone(),
+                history_id: stream.id,
+                version,
+            });
+        }
 
         let (start, read) = self.locate(place, &stream, request)?;
         let cursor = (start > stream.floor).then(|| format!("{}:{start}", stream.id));
@@ -300,6 +532,17 @@ impl<F: TranscriptFormat> Source<F> {
         };
         // the abandoned turns live outside the branch's byte ranges, so the page cannot see them
         let abandoned = self.format.abandoned(place, stat.size);
+        // the signature is the stat from before the read: an append while it parsed makes the
+        // next read read again, never keeps a torn tail
+        let answer = Arc::new(Answer {
+            source: F::SOURCE,
+            signature,
+            turns: turns.clone(),
+            metadata: metadata.clone(),
+            cursor: cursor.clone(),
+            abandoned: abandoned.clone(),
+        });
+        self.cache.lock().answers.remember(key, answer);
         Ok(Page {
             source: F::SOURCE,
             turns,
@@ -338,10 +581,7 @@ impl<F: TranscriptFormat> Source<F> {
     /// grows is never seen to shrink, which would read as a rewrite. The lock covers one stat,
     /// never a read of the file's contents.
     fn identify(&self, path: &Path) -> Result<(FileStat, String), ConversationError> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut state = self.cache.lock();
         let stat = file_stat(&fs::metadata(path).map_err(missing)?);
         let generation = state.generation(path, &stat, &self.ids);
         Ok((stat, generation))
@@ -377,6 +617,7 @@ impl<F: TranscriptFormat> Source<F> {
         }
         let mark = self.format.layout_mark(&files);
         Ok(Stream {
+            cache: self.cache.clone(),
             id: format!("{}{mark}{generation}", stat.node),
             files,
             length,
@@ -386,9 +627,10 @@ impl<F: TranscriptFormat> Source<F> {
     }
 
     /// Sets the stream's floor after its last native reset and keeps the latest setting records
-    /// (`applyHistoryBoundary`): each line is scanned in bounded chunks, and a line longer than
-    /// the metadata head cannot be a reset.
-    fn apply_history_boundary(&self, stream: &mut Stream) -> io::Result<()> {
+    /// (`applyHistoryBoundary`): each appended line is scanned once, in bounded chunks, from where
+    /// the last scan of the same stream stopped, and a line longer than the metadata head cannot
+    /// be a reset.
+    fn apply_history_boundary(&self, path: &Path, stream: &mut Stream) -> io::Result<()> {
         let Some(mark) = self.format.clear_mark() else {
             return Ok(());
         };
@@ -397,9 +639,26 @@ impl<F: TranscriptFormat> Source<F> {
                 && parse_line(&String::from_utf8_lossy(line))
                     .is_some_and(|entry| self.format.is_clear(&entry))
         };
-        let mut floor = 0;
-        let mut settings: [Option<(u64, u64, String)>; 2] = [None, None];
-        let mut position = 0;
+        let kept = self.cache.lock().clear_scans.take(&path.to_path_buf());
+        let mut scan = match kept {
+            Some(scan)
+                if scan.source == F::SOURCE
+                    && scan.id == stream.id
+                    && scan.scanned <= stream.length
+                    && stream.bytes_before(scan.scanned)? == scan.tail =>
+            {
+                scan
+            }
+            _ => ClearScan {
+                source: F::SOURCE,
+                id: stream.id.clone(),
+                scanned: 0,
+                floor: 0,
+                tail: Vec::new(),
+                settings: [None, None],
+            },
+        };
+        let mut position = scan.scanned;
         let mut carry: Vec<u8> = Vec::new();
         let mut skipping = false;
         while position < stream.length {
@@ -411,7 +670,7 @@ impl<F: TranscriptFormat> Source<F> {
             while let Some(newline) = find(&bytes, b'\n', offset) {
                 let line = &bytes[offset..newline];
                 if !skipping && is_clear(line) {
-                    floor = base + offset as u64;
+                    scan.floor = base + offset as u64;
                 } else if !skipping
                     && self.format.keeps_settings()
                     && SETTING_TYPES
@@ -429,7 +688,7 @@ impl<F: TranscriptFormat> Source<F> {
                         .iter()
                         .position(|setting| Some(*setting) == kind.as_deref())
                     {
-                        settings[at] = Some((
+                        scan.settings[at] = Some((
                             base + offset as u64,
                             base + newline as u64,
                             text.into_owned(),
@@ -438,6 +697,7 @@ impl<F: TranscriptFormat> Source<F> {
                 }
                 skipping = false;
                 offset = newline + 1;
+                scan.scanned = base + offset as u64;
             }
             carry = bytes[offset..].to_vec();
             // an oversized data record cannot be a native reset
@@ -447,7 +707,14 @@ impl<F: TranscriptFormat> Source<F> {
             }
             position = end;
         }
-        // a valid final record is visible before its newline
+        scan.tail = stream.bytes_before(scan.scanned)?;
+        let floor = scan.floor;
+        stream.settings = scan.settings.iter().flatten().cloned().collect();
+        self.cache
+            .lock()
+            .clear_scans
+            .remember(path.to_path_buf(), scan);
+        // a valid final record is visible before its newline: it is scanned again once appended to
         stream.floor = if !skipping && !carry.is_empty() && is_clear(&carry) {
             stream.length - carry.len() as u64
         } else {
@@ -456,7 +723,6 @@ impl<F: TranscriptFormat> Source<F> {
         if stream.floor > 0 {
             stream.id = format!("{}-clear-{}", stream.id, radix36(stream.floor));
         }
-        stream.settings = settings.into_iter().flatten().collect();
         Ok(())
     }
 
@@ -498,7 +764,10 @@ impl<F: TranscriptFormat> Source<F> {
         // A chat that shows older pages holds the start of its newest turns and keeps every turn
         // after it while they are inside the newest page; once the newest page has moved past it,
         // the chat gets the newest page and fetches the turns between with `before` + `since`
-        match self.newest_page(stream).map_err(missing)? {
+        match self
+            .newest_page(F::live_path(place), stream)
+            .map_err(missing)?
+        {
             Some((newest, starts)) => {
                 let start = held.filter(|held| *held >= newest).unwrap_or(newest);
                 let (turns, metadata) = self
@@ -582,28 +851,66 @@ impl<F: TranscriptFormat> Source<F> {
     }
 
     /// The newest page's start and every turn start in it, or `None` when it starts mid-turn
-    /// (`newestPage`, read whole). A window that does not reach the floor starts at its edge,
-    /// where a line may be cut.
-    fn newest_page(&self, stream: &Stream) -> io::Result<Option<(u64, Vec<u64>)>> {
+    /// (`newestPage`, read whole). The turn starts found so far are kept, and only the bytes
+    /// appended since are scanned. A window that slid past the scanned bytes starts over at its
+    /// edge, where a line may be cut and never counts as a start.
+    fn newest_page(&self, path: &Path, stream: &Stream) -> io::Result<Option<(u64, Vec<u64>)>> {
         let from = stream
             .floor
             .max(stream.length.saturating_sub(TRANSCRIPT_WINDOW_BYTES));
-        let bytes = stream.read(from, stream.length)?;
-        let complete = bytes
-            .iter()
-            .rposition(|byte| *byte == b'\n')
-            .map_or(0, |newline| newline + 1);
-        let mut starts: Vec<u64> = self
-            .turn_starts(&bytes[..complete])
-            .into_iter()
-            .map(|offset| from + offset)
-            .collect();
-        // a last line still without its newline counts too
-        starts.extend(
-            self.turn_starts(&bytes[complete..])
+        let kept = self.cache.lock().live_scans.take(&path.to_path_buf());
+        let mut scan = match kept {
+            Some(scan)
+                if scan.source == F::SOURCE
+                    && scan.id == stream.id
+                    && scan.scanned <= stream.length
+                    && scan.scanned >= from
+                    && stream.bytes_before(scan.scanned)? == scan.tail =>
+            {
+                scan
+            }
+            _ => LiveScan {
+                source: F::SOURCE,
+                id: stream.id.clone(),
+                scanned: from,
+                starts: Vec::new(),
+                tail: stream.bytes_before(from)?,
+            },
+        };
+        let mut pending = Vec::new();
+        if scan.scanned < stream.length {
+            let bytes = stream.read(scan.scanned, stream.length)?;
+            let complete = bytes
+                .iter()
+                .rposition(|byte| *byte == b'\n')
+                .map_or(0, |newline| newline + 1);
+            let scanned = scan.scanned;
+            scan.starts.extend(
+                self.turn_starts(&bytes[..complete])
+                    .into_iter()
+                    .map(|offset| scanned + offset),
+            );
+            // a last line still without its newline counts now, and is scanned again once complete
+            pending = self
+                .turn_starts(&bytes[complete..])
                 .into_iter()
-                .map(|offset| from + complete as u64 + offset),
-        );
+                .map(|offset| scanned + complete as u64 + offset)
+                .collect();
+            scan.scanned += complete as u64;
+            scan.tail = stream.bytes_before(scan.scanned)?;
+        }
+        let stale = scan
+            .starts
+            .iter()
+            .position(|offset| *offset >= from)
+            .unwrap_or(scan.starts.len());
+        scan.starts.drain(..stale);
+        let mut starts = scan.starts.clone();
+        starts.extend(pending);
+        self.cache
+            .lock()
+            .live_scans
+            .remember(path.to_path_buf(), scan);
         let start = if starts.len() > MAX_PAGE_PROMPTS {
             Some(starts[starts.len() - MAX_PAGE_PROMPTS])
         } else if from == stream.floor {
@@ -615,7 +922,8 @@ impl<F: TranscriptFormat> Source<F> {
     }
 
     /// The newest page's turns from `start` (`liveTurns`): the settled ones, before the last turn
-    /// start, then the live last turn, each part parsed on its own and the settings folded across.
+    /// start, kept and extended by any turn that has since been followed, then the live last
+    /// turn, each part parsed on its own and the settings folded across.
     fn live_turns(
         &self,
         place: &F::Place,
@@ -623,23 +931,121 @@ impl<F: TranscriptFormat> Source<F> {
         start: u64,
         starts: &[u64],
     ) -> io::Result<(Vec<ConversationTurn>, ConversationMetadata)> {
+        let path = F::live_path(place);
+        // starts ascend: the last one, when it lies past the page start
         let last = start.max(starts.last().copied().unwrap_or(start));
-        let head = if start > stream.floor {
-            self.metadata_head(place, stream, start)?
-        } else {
-            String::new()
+        let key = (path.to_path_buf(), start);
+        let kept = self.cache.lock().settled.take(&key);
+        let mut settled = match kept {
+            Some(settled)
+                if settled.source == F::SOURCE
+                    && settled.id == stream.id
+                    && settled.end <= last
+                    && settled.carry.is::<F::Carry>()
+                    && stream.bytes_before(settled.end)? == settled.tail =>
+            {
+                settled
+            }
+            _ => {
+                let head = if start > stream.floor {
+                    self.metadata_head(place, stream, start)?
+                } else {
+                    String::new()
+                };
+                Settled {
+                    source: F::SOURCE,
+                    id: stream.id.clone(),
+                    end: start,
+                    turns: Vec::new(),
+                    metadata: self.format.metadata(&format!("{head}\n"), None),
+                    tail: stream.bytes_before(start)?,
+                    carry: Box::new(F::Carry::default()),
+                }
+            }
         };
-        let mut metadata = self.format.metadata(&format!("{head}\n"), None);
-        let mut carry = F::Carry::default();
-        let mut turns = Vec::new();
-        if start < last {
-            let text = stream.text(start, last)?;
-            turns = self.format.parse_turns(&text, &mut carry);
-            metadata = self.format.metadata(&text, Some(metadata));
+        let carry = settled
+            .carry
+            .downcast_mut::<F::Carry>()
+            .expect("the carry of its format, checked above");
+        if settled.end < last {
+            let text = stream.text(settled.end, last)?;
+            settled.turns.extend(self.format.parse_turns(&text, carry));
+            settled.metadata = self.format.metadata(&text, Some(settled.metadata));
+            settled.end = last;
+            settled.tail = stream.bytes_before(last)?;
+        }
+        // the live turn is parsed again on every read: what it delivers is kept only once it
+        // settles
+        let live_carry = carry.clone();
+        let mut turns = settled.turns.clone();
+        let before = settled.metadata.clone();
+        self.cache.lock().settled.remember(key, settled);
+        if let Some(parser) = self.format.live_parser() {
+            let (live, metadata) = self.live_turn(path, stream, last, before, parser)?;
+            turns.extend(live);
+            return Ok((turns, metadata));
         }
         let text = stream.text(last, stream.length)?;
-        turns.extend(self.format.parse_live(&text, carry));
-        let metadata = self.format.metadata(&text, Some(metadata));
+        turns.extend(self.format.parse_live(&text, live_carry));
+        let metadata = self.format.metadata(&text, Some(before));
+        Ok((turns, metadata))
+    }
+
+    /// The live turn from `start`, read incrementally through the format's live parser
+    /// (`codexLiveTurn`): its complete lines are parsed once, results for tools of earlier reads
+    /// included; `fresh` starts the parse when none of the same turn is kept. A parse kept is used
+    /// only from the same settings (`before`): two pages starting apart, such as a held start and
+    /// the newest page, share the live turn but not the settings before it. TypeScript checks the
+    /// turn's start alone, and answered a held page with the newest page's settings.
+    fn live_turn(
+        &self,
+        path: &Path,
+        stream: &Stream,
+        start: u64,
+        before: ConversationMetadata,
+        fresh: Box<dyn LiveParser>,
+    ) -> io::Result<(Vec<ConversationTurn>, ConversationMetadata)> {
+        let kept = self.cache.lock().live_turns.take(&path.to_path_buf());
+        let mut turn = match kept {
+            Some(turn)
+                if turn.source == F::SOURCE
+                    && turn.id == stream.id
+                    && turn.start == start
+                    && turn.before == before
+                    && turn.scanned <= stream.length
+                    && stream.bytes_before(turn.scanned)? == turn.boundary =>
+            {
+                turn
+            }
+            _ => LiveTurn {
+                source: F::SOURCE,
+                id: stream.id.clone(),
+                start,
+                scanned: start,
+                boundary: stream.bytes_before(start)?,
+                parser: fresh,
+                metadata: before.clone(),
+                before,
+            },
+        };
+        let bytes = stream.read(turn.scanned, stream.length)?;
+        let complete = bytes
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |newline| newline + 1);
+        if complete > 0 {
+            let text = String::from_utf8_lossy(&bytes[..complete]);
+            turn.parser.write(&text);
+            turn.metadata = self.format.metadata(&text, Some(turn.metadata));
+            turn.scanned += complete as u64;
+            turn.boundary = stream.bytes_before(turn.scanned)?;
+        }
+        let tail = String::from_utf8_lossy(&bytes[complete..]);
+        let turns = turn.parser.snapshot(&tail);
+        let metadata = self.format.metadata(&tail, Some(turn.metadata.clone()));
+        let mut state = self.cache.lock();
+        state.live_turns.remember(path.to_path_buf(), turn);
+        state.bound_live_turns();
         Ok((turns, metadata))
     }
 
@@ -647,9 +1053,8 @@ impl<F: TranscriptFormat> Source<F> {
     fn metadata_head(&self, place: &F::Place, stream: &Stream, start: u64) -> io::Result<String> {
         if self.format.metadata_head() == MetadataHead::LiveFileStart {
             let mut bytes = Vec::new();
-            File::open(F::live_path(place))?
-                .take(METADATA_HEAD_BYTES)
-                .read_to_end(&mut bytes)?;
+            self.cache
+                .read_file(F::live_path(place), 0, METADATA_HEAD_BYTES, &mut bytes)?;
             return Ok(String::from_utf8_lossy(&bytes).into_owned());
         }
         let end = start.min(stream.floor + METADATA_HEAD_BYTES);

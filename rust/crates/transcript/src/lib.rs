@@ -26,7 +26,7 @@ mod tool_output;
 
 pub use errors::{ConversationError, UnavailableReason};
 
-use paging::Source;
+use paging::{PagingCache, Source};
 
 /// The context window of a pi model, by its id and the provider that served it (TypeScript's
 /// `piContextWindow(model, provider)`, which reads pi's own model catalog); `None` when the
@@ -93,9 +93,11 @@ pub struct Image {
 }
 
 /// The transcript files' readers, and what they keep between reads. One value serves every pane:
-/// its methods take `&self`, and each source guards its state with a lock it holds only while it
-/// reads or writes that state, never while a file is read or parsed.
+/// its methods take `&self`, and each piece of state (the paging cache that all sources share, and
+/// each source's own) is guarded by a lock held only while that state is read or written, never
+/// while a file is read or parsed.
 pub struct Transcripts {
+    paging: PagingCache,
     claude: Source<claude::Claude>,
     codex: Source<codex::Codex>,
     pi: Source<pi::Pi>,
@@ -106,12 +108,26 @@ impl Transcripts {
     /// `pi_context_window` looks up a pi model's context window (ADR 0107-crate-split: the crate
     /// reads no catalog of its own).
     pub fn new(pi_context_window: PiContextWindow) -> Self {
+        // one paging cache for every source: TypeScript's limits hold for them together
+        let paging = PagingCache::default();
         Self {
-            claude: Source::new(claude::Claude),
-            codex: Source::new(codex::Codex),
-            pi: Source::new(pi::Pi::new(pi_context_window)),
-            omp: Source::new(omp::Omp),
+            claude: Source::new(claude::Claude, &paging),
+            codex: Source::new(codex::Codex, &paging),
+            pi: Source::new(pi::Pi::new(pi_context_window), &paging),
+            omp: Source::new(omp::Omp, &paging),
+            paging,
         }
+    }
+
+    /// The bytes the paging has read from transcript files through this value since `new`, summed
+    /// over every call and thread: the stream's ranges and the metadata head that `page` reads.
+    /// Not counted: what a source reads on its own (Codex's chain of rollouts, pi's branch index
+    /// and abandoned turns), nor what `image`, `tool_output` and `unanswered_questions` read. It
+    /// only grows: a caller measures a call by the difference around it. The tests check with it
+    /// that a read after an append reads the appended bytes, not the ones read before (ADR
+    /// 0205-incremental-reads).
+    pub fn paging_bytes_read(&self) -> u64 {
+        self.paging.bytes_read()
     }
 
     /// One page of a transcript, its metadata included. A cursor of another transcript, or of the
