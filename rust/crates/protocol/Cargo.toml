@@ -7,6 +7,9 @@ publish.workspace = true
 
 [dependencies]
 herdr-api.workspace = true
+regex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

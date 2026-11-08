@@ -27,6 +27,19 @@ child-process = { package = "herdr-fleet-child-process", path = "crates/child-pr
 orchestrator = { package = "herdr-fleet-orchestrator", path = "crates/orchestrator" }
 vt = { package = "herdr-fleet-vt", path = "crates/vt" }
 
+# External crates of the parsing crates (phase 2): versions, sources, licenses,
+# maintenance, build scripts and the rules for the differences from TypeScript
+# are in docs/rust-migration/adr/0193-phase-2-dependencies.md. Features merge
+# across the workspace, so serde_json's features are written here once.
+base64 = "0.23.1"
+regex = "1.13.1"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = { version = "1.0.154", features = ["float_roundtrip", "preserve_order"] }
+sha2 = { version = "0.11.1", default-features = false }
+unicode-normalization = "0.1.26"
+unicode-segmentation = "1.13.3"
+unicode-width = "0.2.3"
+
 # Every crate but herdr-fleet-vt opts in with `[lints] workspace = true`:
 # ADR 0107-crate-split keeps `unsafe` inside herdr-fleet-vt.
 [workspace.lints.rust]
