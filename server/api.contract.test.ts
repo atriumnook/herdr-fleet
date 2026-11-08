@@ -1,12 +1,13 @@
+// black-box: scripts/contract/launch.ts
 import { describe, expect, it, beforeAll, afterAll } from "bun:test";
 import { mkdtempSync, existsSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, join } from "node:path";
-import { createServer } from "./index.ts";
 import type { AgentKind, AgentStatus, ApiError, HealthAuth, PushKey, RemoteAccess, SessionSnapshot, PaneReadResult, WorkspaceCreated } from "../shared/protocol.ts";
 import { herdrRpc, ping, workspaceCreate, workspaceClose } from "./herdr/client.ts";
 import { paneGrid } from "./pane-grid.ts";
-import { loopbackPush, startFakePushService, type FakePushService } from "./push.fake.ts";
+import { startFakePushService, type FakePushService } from "./push.fake.ts";
+import { launchServer, type LaunchedServer, type LaunchSpec } from "../scripts/contract/launch.ts";
 
 /**
  * Contract test for herdr-fleet's HTTP + WS surface.
@@ -15,20 +16,38 @@ import { loopbackPush, startFakePushService, type FakePushService } from "./push
  * Tests never mutate a user's pane; mutation cases create labeled workspaces and close them in afterAll.
  * Every server here keeps its push state (VAPID key, subscriptions) in a temp dir: the
  * user's ~/.config/herdr-fleet holds their real devices, which a test must never page.
+ * Each server is started by scripts/contract/launch.ts and reached through its URL only (ADR 0122);
+ * what needs the server in this process is in server/api.herdr.test.ts.
  */
-let server: { port: number; stop: () => void };
+let server: LaunchedServer;
 const stateDir = mkdtempSync(join(tmpdir(), "herdr-fleet-contract-"));
 
-beforeAll(() => {
-  server = createServer({ port: 0, stateDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushEndpoint: loopbackPush });
+beforeAll(async () => {
+  server = await launchServer({
+    env: { HERDR_FLEET_STATE_DIR: stateDir },
+    test: { alertTiming: { short: 0, long: 0, longTurn: 0 }, acceptLoopbackPush: true },
+  });
 });
 
-afterAll(() => {
-  server?.stop();
+afterAll(async () => {
+  await server?.stop();
   rmSync(stateDir, { recursive: true, force: true });
 });
 
-const base = () => `http://localhost:${server.port}`;
+const base = () => server.url;
+const wsBase = () => server.url.replace(/^http/, "ws");
+/** the port a launched server listens on, from its URL */
+const portOf = (launched: LaunchedServer) => Number(new URL(launched.url).port);
+
+/** Starts a server of its own for `use`, and stops it afterwards. */
+async function withServer<T>(spec: LaunchSpec, use: (launched: LaunchedServer) => Promise<T>): Promise<T> {
+  const launched = await launchServer(spec);
+  try {
+    return await use(launched);
+  } finally {
+    await launched.stop();
+  }
+}
 
 describe("phone access", () => {
   it("says how a phone can reach this server, whatever Tailscale is doing on this machine", async () => {
@@ -36,23 +55,22 @@ describe("phone access", () => {
     expect(response.status).toBe(200);
     expect(response.headers.get("cache-control")).toBe("no-store");
     const access = (await response.json()) as RemoteAccess;
-    expect(access.port).toBe(server.port);
+    expect(access.port).toBe(portOf(server));
     expect(["missing", "stopped", "running"]).toContain(access.tailscale.state);
     if (access.tailscale.state !== "running") {
       expect(access.tailscale).toEqual({ state: access.tailscale.state, dns_name: null, serving_url: null, serve_command: null, serve_url: null });
     } else {
       // either an address already works, or there is a command to make one
       expect((access.tailscale.serving_url === null) !== (access.tailscale.serve_command === null)).toBe(true);
-      if (access.tailscale.serve_command !== null) expect(access.tailscale.serve_command).toContain(`http://127.0.0.1:${server.port}`);
+      if (access.tailscale.serve_command !== null) expect(access.tailscale.serve_command).toContain(`http://127.0.0.1:${portOf(server)}`);
     }
   });
 
   it("stays behind the token gate", async () => {
-    const protectedState = mkdtempSync(join(tmpdir(), "herdr-access-auth-"));
-    const protectedServer = createServer({ port: 0, stateDir: protectedState, token: "test-access-token" });
-    try {
-      expect((await fetch(`http://localhost:${protectedServer.port}/api/access`)).status).toBe(401);
-    } finally { protectedServer.stop(); rmSync(protectedState, { recursive: true, force: true }); }
+    // the launcher gives the server a new empty state folder of its own
+    await withServer({ env: { HERDR_FLEET_TOKEN: "test-access-token" } }, async (protectedServer) => {
+      expect((await fetch(`${protectedServer.url}/api/access`)).status).toBe(401);
+    });
   });
 });
 
@@ -493,7 +511,7 @@ describe("WebSocket /ws", () => {
     const paneId = qaPaneId!;
     expect(paneId).toBeTruthy();
 
-    const ws = new WebSocket(`ws://localhost:${server.port}/ws`);
+    const ws = new WebSocket(`${wsBase()}/ws`);
     const seen: any[] = [];
     const waitFor = (predicate: (msg: any) => boolean, label: string, ms: number) =>
       new Promise<any>((resolve, reject) => {
@@ -525,7 +543,7 @@ describe("WebSocket /ws", () => {
   }, 30000);
 
   it("rejects a malformed websocket frame without dropping the connection", async () => {
-    const ws = new WebSocket(`ws://localhost:${server.port}/ws`);
+    const ws = new WebSocket(`${wsBase()}/ws`);
     await new Promise<void>((resolve) => ws.addEventListener("open", () => resolve()));
     const errored = new Promise<any>((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error("no error frame within 5s")), 5000);
@@ -614,8 +632,8 @@ describe("WebSocket roles and status push", () => {
   });
 
   it("rejects input from a non-attached client and signals readiness to the owner", async () => {
-    const owner = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
-    const stranger = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const owner = await RecordingSocket.connect(`${wsBase()}/ws`);
+    const stranger = await RecordingSocket.connect(`${wsBase()}/ws`);
     try {
       owner.send({ type: "attach", pane_id: qaPaneId!, cols: 100, rows: 30 });
       await owner.waitFor((m) => m.type === "input-ready" && m.pane_id === qaPaneId, "input ready", 15_000);
@@ -635,8 +653,8 @@ describe("WebSocket roles and status push", () => {
 
   it("never resizes the shared pty for an observe connection, and read-only frames answer input, keys and resize", async () => {
     const paneId = qaPaneId!;
-    const operator = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
-    const observer = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const operator = await RecordingSocket.connect(`${wsBase()}/ws`);
+    const observer = await RecordingSocket.connect(`${wsBase()}/ws`);
 
     try {
       operator.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
@@ -673,10 +691,10 @@ describe("WebSocket roles and status push", () => {
   it("leaves the shared pty's size alone for an attach whose grid the chat lens covers", async () => {
     const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-keep-size" });
     const paneId = created.root_pane.pane_id;
-    const chat = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
-    const otherChat = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
-    const observer = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
-    const operator = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const chat = await RecordingSocket.connect(`${wsBase()}/ws`);
+    const otherChat = await RecordingSocket.connect(`${wsBase()}/ws`);
+    const observer = await RecordingSocket.connect(`${wsBase()}/ws`);
+    const operator = await RecordingSocket.connect(`${wsBase()}/ws`);
     // an observer re-attaching is told the grid the shared pty has now
     const grid = async () => {
       observer.seen.length = 0;
@@ -713,9 +731,9 @@ describe("WebSocket roles and status push", () => {
   it("leaves a pane at its own grid on attach, and lets the latest viewport to resize size it until it lets go", async () => {
     const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-own-grid" });
     const paneId = created.root_pane.pane_id;
-    const phone = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
-    const tablet = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
-    const desktop = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const phone = await RecordingSocket.connect(`${wsBase()}/ws`);
+    const tablet = await RecordingSocket.connect(`${wsBase()}/ws`);
+    const desktop = await RecordingSocket.connect(`${wsBase()}/ws`);
     // the size the program in the pane sees, read from its terminal
     const shellSees = async (want: { cols: number; rows: number }, label: string): Promise<void> => {
       const deadline = Date.now() + 10_000;
@@ -776,7 +794,7 @@ describe("WebSocket roles and status push", () => {
   it("applies a resize that arrives while the attach is still creating the pty", async () => {
     const created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-resize-creating" });
     const paneId = created.root_pane.pane_id;
-    const phone = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const phone = await RecordingSocket.connect(`${wsBase()}/ws`);
     try {
       // the phone attaches and sizes the pane before the terminal was looked up: both frames
       // are on the server before the pty exists
@@ -794,7 +812,7 @@ describe("WebSocket roles and status push", () => {
   }, 60_000);
 
   it("rejects an unknown role mode with an in-band error", async () => {
-    const client = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const client = await RecordingSocket.connect(`${wsBase()}/ws`);
     try {
       client.send({ type: "role", mode: "wat" });
       const error = await client.waitFor((m) => m.type === "error", "invalid_role error", 5000);
@@ -806,7 +824,7 @@ describe("WebSocket roles and status push", () => {
 
   it("pushes pane-status and pane-exited for a pane nobody is attached to", async () => {
     const paneId = qaPaneId!;
-    const watcher = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const watcher = await RecordingSocket.connect(`${wsBase()}/ws`);
     try {
       // the collector subscribed to this pane when it was created; prove it by pushing
       // status changes through herdr itself and seeing the frames. herdr tears down a
@@ -901,7 +919,7 @@ describe("WebSocket observer-first attach", () => {
     const own = await paneGrid(paneId);
     expect(own).not.toBeNull();
 
-    const observer = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const observer = await RecordingSocket.connect(`${wsBase()}/ws`);
     try {
       observer.send({ type: "role", mode: "observe" });
       await observer.waitFor((m) => m.type === "role-ack", "role-ack", 5000);
@@ -942,8 +960,8 @@ describe("WebSocket concurrent attach", () => {
 
   it("shares one pty between clients whose attaches to the same pane race", async () => {
     const paneId = racePaneId!;
-    const first = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
-    const second = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const first = await RecordingSocket.connect(`${wsBase()}/ws`);
+    const second = await RecordingSocket.connect(`${wsBase()}/ws`);
     try {
       // same tick: both attaches are in flight before either resolves the terminal
       first.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
@@ -1004,8 +1022,8 @@ describe("WebSocket client leaving mid-attach", () => {
   it("never pins the pty for a client that disconnects before its attach is ready", async () => {
     const { paneId, terminalId } = await createLeavePane("herdr-fleet-test-leave-close");
     expect(attachProcessCount(terminalId)).toBe(0);
-    const leaver = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
-    const stayer = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const leaver = await RecordingSocket.connect(`${wsBase()}/ws`);
+    const stayer = await RecordingSocket.connect(`${wsBase()}/ws`);
     try {
       // same tick: the close lands while the attach is still looking up the terminal
       leaver.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
@@ -1023,8 +1041,8 @@ describe("WebSocket client leaving mid-attach", () => {
   it("never pins the pty for a client that detaches before its attach is ready", async () => {
     const { paneId, terminalId } = await createLeavePane("herdr-fleet-test-leave-detach");
     expect(attachProcessCount(terminalId)).toBe(0);
-    const switcher = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
-    const stayer = await RecordingSocket.connect(`ws://localhost:${server.port}/ws`);
+    const switcher = await RecordingSocket.connect(`${wsBase()}/ws`);
+    const stayer = await RecordingSocket.connect(`${wsBase()}/ws`);
     try {
       // switching panes fast: the detach lands while the attach is still looking up the terminal
       switcher.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
@@ -1139,23 +1157,23 @@ describe("web push", () => {
     // manually reported statuses in owned panes. No Codex request or real device.
     let created: Awaited<ReturnType<typeof workspaceCreate>> | undefined;
     let probe: Awaited<ReturnType<typeof workspaceCreate>> | undefined;
-    let dir: string | undefined;
     let cleanupDevice: FakePushService | undefined;
-    let bridge: ReturnType<typeof createServer> | undefined;
+    let bridge: LaunchedServer | undefined;
     let watcher: RecordingSocket | undefined;
     try {
       created = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-codex-finish" });
       probe = await workspaceCreate({ cwd: tmpdir(), label: "herdr-fleet-test-codex-probe" });
       const paneId = created.root_pane.pane_id;
       const probeId = probe.root_pane.pane_id;
-      dir = mkdtempSync(join(tmpdir(), "herdr-fleet-codex-finish-"));
       const device = await startFakePushService();
       cleanupDevice = device;
       await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "unknown" });
-      bridge = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: dir, machines: false,
-        alertTiming: { short: 0, long: 0, longTurn: 0 }, pushEndpoint: loopbackPush });
-      const origin = `http://127.0.0.1:${bridge.port}`;
-      watcher = await RecordingSocket.connect(`ws://127.0.0.1:${bridge.port}/ws`);
+      bridge = await launchServer({
+        env: { HOST: "127.0.0.1", HERDR_FLEET_TOKEN: "" },
+        test: { machines: false, alertTiming: { short: 0, long: 0, longTurn: 0 }, acceptLoopbackPush: true },
+      });
+      const origin = bridge.url;
+      watcher = await RecordingSocket.connect(`${origin.replace(/^http/, "ws")}/ws`);
       const subscribe = await fetch(`${origin}/api/push/subscribe`, {
         method: "POST", headers: { "content-type": "application/json" },
         body: JSON.stringify({ subscription: device.subscription, alerts: { input: false, done: "always" } }),
@@ -1207,14 +1225,13 @@ describe("web push", () => {
       await device.waitFor((message) => message.payload.pane_id === paneId && finishes().length === 3, "handoff completion push", 5_000);
       expect(finishes()).toHaveLength(3);
     } finally {
-      if (bridge && cleanupDevice) await fetch(`http://127.0.0.1:${bridge.port}/api/push/subscribe`, {
+      if (bridge && cleanupDevice) await fetch(`${bridge.url}/api/push/subscribe`, {
         method: "DELETE", headers: { "content-type": "application/json" },
         body: JSON.stringify({ endpoint: cleanupDevice.subscription.endpoint }),
       }).catch(() => undefined);
       watcher?.close();
-      bridge?.stop();
+      await bridge?.stop();
       cleanupDevice?.stop();
-      if (dir) rmSync(dir, { recursive: true, force: true });
       if (created) await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
       if (probe) await workspaceClose(probe.workspace.workspace_id).catch(() => undefined);
     }
@@ -1235,23 +1252,22 @@ describe("web push", () => {
     const probe = await createPane("herdr-fleet-test-push-probe");
     const watchedId = watched.root_pane.pane_id;
     const probeId = probe.root_pane.pane_id;
-    const restartDir = mkdtempSync(join(tmpdir(), "herdr-fleet-restart-"));
     const device = await startFakePushService();
-    let restarted: { port: number; stop: () => void } | null = null;
+    let restarted: LaunchedServer | null = null;
     let watcher: RecordingSocket | null = null;
     try {
       await herdrRpc("pane.report_agent", { pane_id: watchedId, source: "manual", agent: "claude", state: "working" });
       const before = (await herdrRpc<{ snapshot: SessionSnapshot }>("session.snapshot", {})).snapshot;
       expect(before.panes.find((pane) => pane.pane_id === watchedId)?.agent_status).toBe("working");
 
-      restarted = createServer({ port: 0, stateDir: restartDir, alertTiming: { short: 0, long: 0, longTurn: 0 }, pushEndpoint: loopbackPush });
-      const subscribe = await fetch(`http://localhost:${restarted.port}/api/push/subscribe`, {
+      restarted = await launchServer({ test: { alertTiming: { short: 0, long: 0, longTurn: 0 }, acceptLoopbackPush: true } });
+      const subscribe = await fetch(`${restarted.url}/api/push/subscribe`, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ subscription: device.subscription }),
       });
       expect(subscribe.status).toBe(204);
-      watcher = await RecordingSocket.connect(`ws://localhost:${restarted.port}/ws`);
+      watcher = await RecordingSocket.connect(`${restarted.url.replace(/^http/, "ws")}/ws`);
 
       let live = false;
       for (let attempt = 0; attempt < 8 && !live; attempt += 1) {
@@ -1270,9 +1286,8 @@ describe("web push", () => {
       expect(pushed.payload.body).toBe("waiting for your input");
     } finally {
       watcher?.close();
-      restarted?.stop();
+      await restarted?.stop();
       device.stop();
-      rmSync(restartDir, { recursive: true, force: true });
       for (const created of [watched, probe]) {
         await herdrRpc("workspace.close", { workspace_id: created.workspace.workspace_id }).catch(() => undefined);
       }
@@ -1283,11 +1298,11 @@ describe("web push", () => {
 describe("pairing and identity", () => {
   /** no token: the gate is where the request comes from, who Tailscale says it is, or a paired device's cookie */
   const OWNER = "owner@example.com";
-  let open: { port: number; stop: () => void };
+  let open: LaunchedServer;
   const openState = mkdtempSync(join(tmpdir(), "herdr-pairing-"));
-  beforeAll(() => { open = createServer({ port: 0, stateDir: openState, tailscaleOwner: OWNER }); });
-  afterAll(() => { open?.stop(); rmSync(openState, { recursive: true, force: true }); });
-  const base = () => `http://127.0.0.1:${open.port}`;
+  beforeAll(async () => { open = await launchServer({ env: { HERDR_FLEET_STATE_DIR: openState }, test: { tailscaleOwner: OWNER } }); });
+  afterAll(async () => { await open?.stop(); rmSync(openState, { recursive: true, force: true }); });
+  const base = () => open.url;
   /** as if `tailscale serve` or a reverse proxy had forwarded it: the test client is on loopback, like a proxy */
   const proxied = (login?: string, extra: Record<string, string> = {}) => ({ "x-forwarded-for": "100.64.0.9", ...(login ? { "tailscale-user-login": login } : {}), ...extra });
   const auth = async (headers: Record<string, string> = {}) => ((await (await fetch(`${base()}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
@@ -1310,7 +1325,7 @@ describe("pairing and identity", () => {
       expect(await auth({ [name]: "https" })).toMatchObject({ authenticated: false, reason: "pairing_required" });
     }
     // this PC under its other names is still this PC
-    for (const host of [`localhost:${open.port}`, `herdr.localhost:${open.port}`, "localhost:5173"]) {
+    for (const host of [`localhost:${portOf(open)}`, `herdr.localhost:${portOf(open)}`, "localhost:5173"]) {
       expect(await auth({ host })).toMatchObject({ authenticated: true, via: "local" });
     }
   });
@@ -1335,20 +1350,13 @@ describe("pairing and identity", () => {
   });
 
   it("takes the login named in HERDR_FLEET_TAILSCALE_OWNER for the PC's own, as a tagged node needs", async () => {
-    const state = mkdtempSync(join(tmpdir(), "herdr-named-owner-"));
-    const before = process.env["HERDR_FLEET_TAILSCALE_OWNER"];
-    process.env["HERDR_FLEET_TAILSCALE_OWNER"] = " named@example.com ";
-    const named = createServer({ port: 0, stateDir: state });
-    try {
-      const at = async (headers: Record<string, string>) => ((await (await fetch(`http://127.0.0.1:${named.port}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
+    // the server reads the variable when it starts: a server started with it set (ADR 0122)
+    await withServer({ env: { HERDR_FLEET_TAILSCALE_OWNER: " named@example.com " } }, async (named) => {
+      const at = async (headers: Record<string, string>) => ((await (await fetch(`${named.url}/api/health?scope=bridge`, { headers })).json()) as { auth: HealthAuth }).auth;
       expect(await at(proxied("named@example.com"))).toMatchObject({ authenticated: true, via: "tailscale" });
       expect(await at(proxied("someone@example.com"))).toMatchObject({ authenticated: false, reason: "other_user" });
       expect(await at(proxied())).toMatchObject({ authenticated: false, reason: "pairing_required" });
-    } finally {
-      named.stop();
-      if (before === undefined) delete process.env["HERDR_FLEET_TAILSCALE_OWNER"]; else process.env["HERDR_FLEET_TAILSCALE_OWNER"] = before;
-      rmSync(state, { recursive: true, force: true });
-    }
+    });
   });
 
   it("never treats a Funnel request as open", async () => {
@@ -1395,10 +1403,8 @@ describe("pairing and identity", () => {
   });
 
   it("a configured token gates this PC and its Tailscale login, and a paired device gets past it", async () => {
-    const state = mkdtempSync(join(tmpdir(), "herdr-pairing-token-"));
-    const secured = createServer({ port: 0, stateDir: state, token: "t0k3n", tailscaleOwner: OWNER });
-    const at = (headers: Record<string, string> = {}) => fetch(`http://127.0.0.1:${secured.port}/api/health?scope=bridge`, { headers }).then((r) => r.json() as Promise<{ auth: HealthAuth }>).then((b) => b.auth);
-    try {
+    await withServer({ env: { HERDR_FLEET_TOKEN: "t0k3n" }, test: { tailscaleOwner: OWNER } }, async (secured) => {
+      const at = (headers: Record<string, string> = {}) => fetch(`${secured.url}/api/health?scope=bridge`, { headers }).then((r) => r.json() as Promise<{ auth: HealthAuth }>).then((b) => b.auth);
       expect(await at()).toMatchObject({ authenticated: false, reason: "token_required" });
       expect(await at({ authorization: "Bearer t0k3n" })).toMatchObject({ authenticated: true, via: "token" });
       // another proxy on this PC can pass a visitor's copy of the login header on: the token is asked for anyway
@@ -1406,15 +1412,15 @@ describe("pairing and identity", () => {
       expect(await at(proxied("someone@example.com"))).toMatchObject({ authenticated: false, reason: "token_required" });
       expect(await at({ ...proxied(OWNER), authorization: "Bearer t0k3n" })).toMatchObject({ authenticated: true, via: "token" });
       // health only reports the decision: the guarded routes and the upgrade must refuse the header too
-      expect((await fetch(`http://127.0.0.1:${secured.port}/api/session`, { headers: proxied(OWNER) })).status).toBe(401);
-      expect((await fetch(`http://127.0.0.1:${secured.port}/ws`, { headers: proxied(OWNER) })).status).toBe(401);
+      expect((await fetch(`${secured.url}/api/session`, { headers: proxied(OWNER) })).status).toBe(401);
+      expect((await fetch(`${secured.url}/ws`, { headers: proxied(OWNER) })).status).toBe(401);
       // a pairing started with the token lets a device in without it
-      const started = await fetch(`http://127.0.0.1:${secured.port}/api/devices/pair/start`, { method: "POST", headers: { ...guard, authorization: "Bearer t0k3n" } });
+      const started = await fetch(`${secured.url}/api/devices/pair/start`, { method: "POST", headers: { ...guard, authorization: "Bearer t0k3n" } });
       const { code } = (await started.json()) as { code: string };
-      const paired = await fetch(`http://127.0.0.1:${secured.port}/api/devices/pair`, { method: "POST", headers: guard, body: JSON.stringify({ code }) });
+      const paired = await fetch(`${secured.url}/api/devices/pair`, { method: "POST", headers: guard, body: JSON.stringify({ code }) });
       expect(paired.status).toBe(204);
       expect(await at({ cookie: (paired.headers.get("set-cookie") ?? "").split(";")[0]! })).toMatchObject({ authenticated: true, via: "device" });
-    } finally { secured.stop(); rmSync(state, { recursive: true, force: true }); }
+    });
   });
 });
 
@@ -1424,18 +1430,18 @@ describe("token auth", () => {
    * rest of the suite keeps proving that an empty token changes nothing.
    */
   const TOKEN = "s3cret";
-  let secured: { port: number; stop: () => void };
+  let secured: LaunchedServer;
 
-  beforeAll(() => {
-    secured = createServer({ port: 0, token: TOKEN, stateDir });
+  beforeAll(async () => {
+    secured = await launchServer({ env: { HERDR_FLEET_TOKEN: TOKEN, HERDR_FLEET_STATE_DIR: stateDir } });
   });
 
-  afterAll(() => {
-    secured?.stop();
+  afterAll(async () => {
+    await secured?.stop();
   });
 
-  const securedBase = () => `http://127.0.0.1:${secured.port}`;
-  const wsUrl = () => `ws://127.0.0.1:${secured.port}/ws`;
+  const securedBase = () => secured.url;
+  const wsUrl = () => `${secured.url.replace(/^http/, "ws")}/ws`;
 
   it("rejects an unauthenticated API call with 401 unauthorized", async () => {
     const res = await fetch(`${securedBase()}/api/session`);
@@ -1588,18 +1594,19 @@ describe("token auth", () => {
 });
 
 describe("bind address", () => {
-  let loopback: { port: number; stop: () => void };
+  let loopback: LaunchedServer;
 
-  beforeAll(() => {
-    loopback = createServer({ port: 0, hostname: "127.0.0.1", stateDir });
+  beforeAll(async () => {
+    loopback = await launchServer({ env: { HOST: "127.0.0.1", HERDR_FLEET_STATE_DIR: stateDir } });
   });
 
-  afterAll(() => {
-    loopback?.stop();
+  afterAll(async () => {
+    await loopback?.stop();
   });
 
   it("serves the API on the requested hostname", async () => {
-    const res = await fetch(`http://127.0.0.1:${loopback.port}/api/health`);
+    expect(new URL(loopback.url).hostname).toBe("127.0.0.1");
+    const res = await fetch(`http://127.0.0.1:${portOf(loopback)}/api/health`);
     expect(res.status).toBe(200);
   });
 });
@@ -1650,31 +1657,26 @@ describe("PC management API", () => {
     expect((await fetch(`${base()}/api/bridge`)).status).toBe(404);
   });
   it("gates PC metadata and SSE behind the existing token", async () => {
-    const stateDir = mkdtempSync(join(tmpdir(), "herdr-machine-auth-"));
-    const gated = createServer({ port: 0, token: "machine-test-secret", stateDir });
-    try {
-      for (const path of ["/api/machines", "/api/machines/events"]) expect((await fetch(`http://localhost:${gated.port}${path}`)).status).toBe(401);
-      const health = await fetch(`http://localhost:${gated.port}/api/health?scope=bridge`).then((r) => r.json()) as { auth: HealthAuth };
+    await withServer({ env: { HERDR_FLEET_TOKEN: "machine-test-secret" } }, async (gated) => {
+      for (const path of ["/api/machines", "/api/machines/events"]) expect((await fetch(`${gated.url}${path}`)).status).toBe(401);
+      const health = await fetch(`${gated.url}/api/health?scope=bridge`).then((r) => r.json()) as { auth: HealthAuth };
       expect(health.auth).toEqual({ required: true, authenticated: false, reason: "token_required" });
-    } finally { gated.stop(); rmSync(stateDir, { recursive: true, force: true }); }
+    });
   });
 });
 
 describe("terminal lens of a bridge without the PTY sidecar", () => {
   const TOKEN = "sidecar-test-secret";
-  /** what /api/health tells of herdr, from a server whose runtime has the sidecar or lacks it */
-  const told = async (sidecar: boolean) => {
-    const dir = mkdtempSync(join(tmpdir(), "herdr-fleet-sidecar-"));
-    const bridge = createServer({ port: 0, stateDir: dir, token: TOKEN, machines: false, sidecar });
-    try {
+  /** what /api/health tells of herdr, from a server that can run a pane's terminal on its own PTY (the sidecar) or cannot */
+  const told = (sidecar: boolean) =>
+    withServer({ env: { HERDR_FLEET_TOKEN: TOKEN }, test: { machines: false, localPty: sidecar } }, async (bridge) => {
       const get = async (path: string) => {
-        const response = await fetch(`http://localhost:${bridge.port}${path}`, { headers: { authorization: `Bearer ${TOKEN}` } });
+        const response = await fetch(`${bridge.url}${path}`, { headers: { authorization: `Bearer ${TOKEN}` } });
         expect(response.status).toBe(200);
         return (await response.json()) as { herdr: unknown };
       };
       return (await get("/api/health")).herdr;
-    } finally { bridge.stop(); rmSync(dir, { recursive: true, force: true }); }
-  };
+    });
 
   it("reports a mirror from /api/health though herdr itself can attach", async () => {
     const herdr = await ping();
@@ -1693,8 +1695,8 @@ describe("terminal lens of a bridge without the PTY sidecar", () => {
 
 it("refuses cross-origin changes while allowing same-origin and CLI requests", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-fleet-origin-"));
-  const instance = createServer({ port: 0, stateDir: root, token: "", tailscaleOwner: null, machines: false });
-  const base = `http://127.0.0.1:${instance.port}`;
+  const instance = await launchServer({ env: { HERDR_FLEET_STATE_DIR: root, HERDR_FLEET_TOKEN: "" }, test: { tailscaleOwner: null, machines: false } });
+  const base = instance.url;
   const created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-origin" });
   try {
     for (const path of ["pane/input", "pane/keys", "pane/close", "workspace/create", "push/subscribe"]) {
@@ -1706,49 +1708,5 @@ it("refuses cross-origin changes while allowing same-origin and CLI requests", a
       const response = await fetch(`${base}/api/pane/rename`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ pane_id: created.root_pane.pane_id, label: "allowed rename" }) });
       expect(response.status).toBe(200);
     }
-  } finally { instance.stop(); await workspaceClose(created.workspace.workspace_id); rmSync(root, { recursive: true, force: true }); }
-});
-
-describe("fleet change push", () => {
-  it("tells event-stream clients once after a burst of fleet run changes", async () => {
-    const dir = mkdtempSync(join(tmpdir(), "herdr-fleet-contract-fleet-"));
-    const { UsageTracker } = await import("./fleet/usage.ts");
-    let panes = 0;
-    const fleetServer = createServer({
-      port: 0, hostname: "127.0.0.1", token: "", stateDir: dir,
-      fleet: {
-        runtime: {
-          createLocation: async (options) => ({ paneId: `w9:p${++panes}`, cwd: options.cwd }),
-          start: async () => "idle", prompt: async () => "working", get: async () => "working", read: async () => "", screen: async () => "",
-          closePane: async () => {}, interrupt: async () => {}, focus: async () => {}, reportMetadata: async () => {},
-        },
-        agents: () => [{ name: "worker", description: "w", agent: "pi", systemPrompt: "", source: "bundled", filePath: "" }],
-        usage: new UsageTracker({ file: null }),
-      },
-    });
-    const abort = new AbortController();
-    try {
-      const url = `http://127.0.0.1:${fleetServer.port}`;
-      const events = await fetch(`${url}/api/machines/events`, { signal: abort.signal });
-      const reader = events.body!.getReader();
-      const decoder = new TextDecoder();
-      let text = "";
-      const spawned = await fetch(`${url}/api/fleet/spawn`, { method: "POST", headers: { "content-type": "application/json", "x-herdr-fleet": "1" }, body: JSON.stringify({ role: "worker", task: "t", cwd: dir }) });
-      expect(spawned.status).toBe(201);
-      const deadline = Date.now() + 3000;
-      while (!text.includes('"fleet-changed"') && Date.now() < deadline) text += decoder.decode((await reader.read()).value, { stream: true });
-      // a spawn saves its run several times; the burst arrives as one push
-      await Bun.sleep(400);
-      while (true) {
-        const next = await Promise.race([reader.read(), Bun.sleep(50).then(() => null)]);
-        if (!next || next.done) break;
-        text += decoder.decode(next.value, { stream: true });
-      }
-      expect(text.split('"fleet-changed"').length - 1).toBe(1);
-    } finally {
-      abort.abort();
-      fleetServer.stop();
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
+  } finally { await instance.stop(); await workspaceClose(created.workspace.workspace_id); rmSync(root, { recursive: true, force: true }); }
 });
