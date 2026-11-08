@@ -74,9 +74,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
-  for (const workspaceId of workspaces) await workspaceClose(workspaceId);
-  rmSync(root, { recursive: true, force: true });
+  // the workspaces and the folder go even when the server does not stop cleanly
+  try { await server?.stop(); } finally {
+    for (const workspaceId of workspaces) await workspaceClose(workspaceId);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 const read = async (target = paneId, from = server!): Promise<ConversationResponse> => {
@@ -141,9 +143,9 @@ it("resolves pi's context window from the agent dir pi reads its models from", a
     const withWindow = await read(paneId, withAgentDir);
     expect(withWindow.metadata?.context).toEqual({ used: 35, window: 200_000 });
   } finally {
-    await withAgentDir.stop();
     // the tests after this one read the session this file first held
     writeFileSync(transcript, turns("Check chat", "Answer one"));
+    await withAgentDir.stop();
   }
 });
 

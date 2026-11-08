@@ -39,9 +39,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
-  if (workspaceId) await workspaceClose(workspaceId);
-  rmSync(root, { recursive: true, force: true });
+  // the workspaces and the folder go even when the server does not stop cleanly
+  try { await server?.stop(); } finally {
+    if (workspaceId) await workspaceClose(workspaceId);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 const read = async (): Promise<ConversationResponse> => {

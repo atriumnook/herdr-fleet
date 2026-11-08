@@ -59,11 +59,17 @@ const codexRunning = async (paneId: string, not?: string): Promise<string> => {
   throw new Error(`no codex process in ${paneId}`);
 };
 
+/**
+ * A command line whose stand-in codex writes to the test's store. The server reads a pane's store
+ * from its codex process's CODEX_HOME first, so the value the shell would pass on is not left to chance.
+ */
+const inStore = (command: string) => `CODEX_HOME=${JSON.stringify(codexHome)} ${command}`;
+
 const pane = async (label: string, command: string, cwd = root): Promise<string> => {
   const created = await workspaceCreate({ cwd, label: `herdr-fleet-test-codex-binding-${label}` });
   workspaces.push(created.workspace.workspace_id);
   const paneId = created.root_pane.pane_id;
-  await herdrRpc("pane.send_text", { pane_id: paneId, text: `${command}\n` });
+  await herdrRpc("pane.send_text", { pane_id: paneId, text: `${inStore(command)}\n` });
   await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "working" });
   await codexRunning(paneId);
   return paneId;
@@ -135,9 +141,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
-  for (const id of workspaces) await workspaceClose(id);
-  rmSync(root, { recursive: true, force: true });
+  // the workspaces and the folder go even when the server does not stop cleanly
+  try { await server?.stop(); } finally {
+    for (const id of workspaces) await workspaceClose(id);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 it("reads a literal short first answer through the conversation endpoint (regression)", async () => {
@@ -235,7 +243,7 @@ it("keeps a matched rollout while tool output scrolls the answer away, and drops
   expect(lastAnswer(await read(paneId))).toBe(answers.matched);
   // another codex process in the pane is not the one that was matched
   await herdrRpc("pane.send_keys", { pane_id: paneId, keys: ["ctrl+c"] });
-  await herdrRpc("pane.send_text", { pane_id: paneId, text: `${join(root, "bin", "codex")}\n` });
+  await herdrRpc("pane.send_text", { pane_id: paneId, text: `${inStore(join(root, "bin", "codex"))}\n` });
   await codexRunning(paneId, first);
   expect((await read(paneId)).source).toBe("scrollback");
 }, 20_000);

@@ -101,9 +101,11 @@ process.stdin.resume();
 });
 
 afterAll(async () => {
-  await server?.stop();
-  for (const workspace of workspaces) await workspaceClose(workspace);
-  rmSync(root, { recursive: true, force: true });
+  // the workspaces and the folder go even when the server does not stop cleanly
+  try { await server?.stop(); } finally {
+    for (const workspace of workspaces) await workspaceClose(workspace);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 async function read(paneId: string, from = server!): Promise<ConversationResponse> {
