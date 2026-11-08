@@ -1422,6 +1422,36 @@ describe("a thread outlives its lead run", () => {
     restarted.stop();
   });
 
+  it("hands Merge into main the person pressed while the thread was starting again to the new lead and the coordinator", async () => {
+    const { fleet, runtime, registry, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main" } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    await turn(coordinator, "working");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    // the lead's turn fails, and the person presses Merge while its new lead starts
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    let starting = false;
+    runtime.startImpl = async (options) => { if (options.kind === "codex") { starting = true; await gate; } return "idle"; };
+    runtime.output = "API Error: 529 overloaded";
+    const failing = turn(first, "idle");
+    await until(() => starting, "the new lead starting");
+    await fleet.land(first.id, "merge");
+    release();
+    await failing;
+    await until(() => registry.get(first.id)!.replacedBy !== undefined, "the new lead");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(next.landing).toMatchObject({ action: "merge", sent: false });
+    runtime.output = "agent output";
+    await turn(coordinator, "idle");
+    expect(promptsTo(coordinator).filter((text) => text.includes("Merge into main"))).toHaveLength(1);
+    expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge", sent: true });
+  });
+
   it("tells the coordinator of a project run without the person nothing of a restart, and the replacement's turn as usual", async () => {
     const { fleet, registry, turn, report, promptsTo } = thread({ config: { autonomous: true } });
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });

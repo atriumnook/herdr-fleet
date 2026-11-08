@@ -1482,6 +1482,13 @@ export class Orchestrator {
         thread: { repo: run.project ?? null, owner: run.owner, base: run.base, baseBranch: run.baseBranch, takeover: { from: run, thread: threadId(run), task } },
       });
       run.replacedBy = next.id;
+      // the new run took the landing step over as it started: one the person pressed meanwhile, or one
+      // marked sent meanwhile, is the step it holds
+      const lead = this.deps.registry.get(next.id);
+      if (lead && run.landing) {
+        lead.landing = run.landing;
+        this.save(lead);
+      }
       // the thread's question and landing step went to the new run: the old one must not be landed too,
       // and a merge step the coordinator has not heard yet waits for it as the new run's
       this.outbox.drop(run.id, "news");
