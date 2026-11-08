@@ -44,15 +44,28 @@ function fleet() {
   const settings = new FleetSettingsStore({ agents: () => orchestrator.roles(resultsRoot), userDir: mkdtempSync(join(resultsRoot, "config-")) });
   const entrances = new EntranceStore({ command: "fleet", url: () => "http://127.0.0.1:7317", tokenRequired: false, home: mkdtempSync(join(resultsRoot, "home-")) });
   const models = new ModelCatalog({ workDir: "/nonexistent", adapter: (kind) => ({ models: kind === "codex" ? { complete: true, list: async () => [{ id: "gpt-6" }] } : undefined }) });
+  const reports: Array<{ cwd: string; hours: number; planned?: string }> = [];
+  const report = async (cwd: string, hours: number, planned?: string) => { reports.push({ cwd, hours, ...(planned ? { planned } : {}) }); return "# Factory metrics"; };
   const call = async (method: string, path: string, body?: unknown, headers: Record<string, string> = { "x-herdr-fleet": "1" }) => {
     const url = new URL(`http://127.0.0.1:7317/api/fleet${path}`);
-    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage, settings, entrances, models);
+    const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage, settings, entrances, models, report);
     return { status: response.status, body: await response.json() as Record<string, any> };
   };
-  return { call, state, usage, probes: () => probes };
+  return { call, state, usage, probes: () => probes, reports };
 }
 
 describe("fleet API", () => {
+  it("reports a project's factory metrics for the hours and planned label asked, and refuses a request it cannot answer", async () => {
+    const { call, reports } = fleet();
+    expect(await call("GET", "/report?cwd=%2Frepo&hours=6&planned_label=%5Ephase%3A")).toEqual({ status: 200, body: { report: "# Factory metrics" } });
+    expect(await call("GET", "/report?cwd=%2Frepo")).toMatchObject({ status: 200 });
+    expect(reports).toEqual([{ cwd: "/repo", hours: 6, planned: "^phase:" }, { cwd: "/repo", hours: 24 }]);
+    expect((await call("GET", "/report")).body).toMatchObject({ error: { code: "missing_cwd" } });
+    expect((await call("GET", "/report?cwd=%2Frepo&hours=0")).body).toMatchObject({ error: { code: "invalid_hours" } });
+    expect((await call("GET", "/report?cwd=%2Frepo&planned_label=%28")).body).toMatchObject({ error: { code: "invalid_planned_label" } });
+    expect(reports).toHaveLength(2);
+  });
+
   it("refuses a change without X-Herdr-Fleet: 1, which a page on another site cannot send", async () => {
     const { call } = fleet();
     expect((await call("POST", "/spawn", { role: "worker", task: "t" }, {})).status).toBe(403);

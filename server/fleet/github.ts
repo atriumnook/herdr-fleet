@@ -56,3 +56,25 @@ async function readChecks(repo: string, number: number): Promise<Pick<PullReques
   if (rows.some((row) => row.bucket === "pending")) return { checks: "pending" };
   return { checks: rows.some((row) => row.bucket === "pass") ? "pass" : "none" };
 }
+
+/** A pull request merged, as the factory's metrics read it. */
+export interface MergedPullRequest { number: number; title: string; mergedAt: string; baseRefName: string }
+/** An issue, as the factory's metrics read it. */
+export interface IssueSummary { number: number; title: string; createdAt: string; closedAt: string | null; labels: { name: string }[] }
+
+async function ghJson<T>(repo: string, args: string[]): Promise<T> {
+  let listed: Awaited<ReturnType<typeof gh>>;
+  try { listed = await gh(repo, args); } catch { throw new Error("The gh command is not installed."); }
+  if (!listed.ok) throw new Error(listed.error || `gh ${args.slice(0, 2).join(" ")} failed`);
+  return JSON.parse(listed.output) as T;
+}
+
+/** The repository's merged pull requests, the latest 200. */
+export function listMergedPullRequests(repo: string): Promise<MergedPullRequest[]> {
+  return ghJson(repo, ["pr", "list", "--state", "merged", "--limit", "200", "--json", "number,title,mergedAt,baseRefName"]);
+}
+
+/** The repository's issues, open and closed, the latest 500. */
+export function listIssues(repo: string): Promise<IssueSummary[]> {
+  return ghJson(repo, ["issue", "list", "--state", "all", "--limit", "500", "--json", "number,title,createdAt,closedAt,labels"]);
+}

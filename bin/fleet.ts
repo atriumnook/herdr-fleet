@@ -38,6 +38,9 @@ const USAGE = `usage: fleet <command> [options]
   roles [--cwd <dir>]              the roles that can be spawned
   usage [--refresh]                what each subscription has used, and which are cooling down
   usage clear [<key>]              end a cooldown: one account (agy:gemini), a CLI's (agy), or all
+  report [--hours <n>] [--planned-label <regex>] [--cwd <dir>]
+                                   this project's factory metrics: the person stepping in, standstills, failed starts per
+                                   agent, merged pull requests, issues found during the work (default: the last 24 hours)
 
   <agent> is a name, role, id or pane id. Add --json for machine-readable output.
   exit status: 0 settled, 1 failed or error, 2 usage, 4 blocked on a question, 124 wait timed out`;
@@ -195,6 +198,7 @@ async function main(argv: string[]): Promise<number> {
       refresh: { type: "boolean" }, avoid: { type: "string", multiple: true },
       title: { type: "string" }, goal: { type: "string" }, write: { type: "string", multiple: true }, "read-only": { type: "boolean" }, context: { type: "string" },
       done: { type: "string" }, verify: { type: "string" }, forbid: { type: "string" }, timebox: { type: "string" },
+      hours: { type: "string" }, "planned-label": { type: "string" },
     },
   });
   const json = values.json ?? false;
@@ -299,6 +303,14 @@ async function main(argv: string[]): Promise<number> {
       if (positionals.length) throw new CliError("fleet usage: the only subcommand is clear", 2);
       const { usage } = await call<{ usage: UsageEntry[] }>("POST", "/usage/refresh", { all: values.refresh ?? false });
       print(json, usage, () => usage.length ? usage.map(describeUsage).join("\n") : "no usage known yet");
+      return 0;
+    }
+    case "report": {
+      const hours = values.hours === undefined ? 24 : Number(values.hours);
+      if (!Number.isFinite(hours) || hours <= 0) throw new CliError("--hours must be a positive number", 2);
+      const planned = values["planned-label"] ? `&planned_label=${enc(values["planned-label"])}` : "";
+      const { report } = await call<{ report: string }>("GET", `/report?cwd=${enc(values.cwd ?? process.cwd())}&hours=${hours}${planned}`);
+      print(json, report, () => report);
       return 0;
     }
     default:

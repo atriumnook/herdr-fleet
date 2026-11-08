@@ -72,11 +72,14 @@ import { FleetSettingsStore } from "./fleet/settings.ts";
 import { EntranceStore } from "./fleet/entrances.ts";
 import { ModelCatalog } from "./fleet/models.ts";
 import { loadConfig, loadStandingOrders } from "./fleet/config.ts";
-import { Orchestrator, type OrchestratorDeps } from "./fleet/orchestrator.ts";
+import { Orchestrator, QUIET_MS, type OrchestratorDeps } from "./fleet/orchestrator.ts";
 import { defaultProbes, UsageTracker } from "./fleet/usage.ts";
 import { RunRegistry } from "./fleet/registry.ts";
-import { HerdrRuntime } from "./fleet/runtime.ts";
+import { FleetError, HerdrRuntime } from "./fleet/runtime.ts";
+import { gitBranch, gitRoot } from "./fleet/thread.ts";
 import { eventLog } from "./fleet/events.ts";
+import { metrics, readEvents, render as renderMetrics } from "./fleet/metrics.ts";
+import { listIssues, listMergedPullRequests } from "./fleet/github.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 
 const MAX_REPLAY_BYTES = 128 * 1024;
@@ -536,6 +539,17 @@ export function createServer(
     events: eventLog(join(options.stateDir ?? defaultStateDir(), "fleet-events.jsonl")),
     agentEnv: () => ({ HERDR_FLEET_URL: `http://127.0.0.1:${listeningPort}`, ...(token ? { HERDR_FLEET_TOKEN: token } : {}) }),
   });
+
+  /** a project's factory metrics: the fleet's event log and what GitHub says now (metrics.ts) */
+  const factoryReport = async (cwd: string, hours: number, planned?: string): Promise<string> => {
+    const project = await gitRoot(cwd);
+    if (!project) throw new FleetError("not_a_repository", `${cwd} is not in a git repository`);
+    const base = (await gitBranch(project)) ?? "HEAD";
+    const to = Date.now();
+    const [merged, issues] = await Promise.all([listMergedPullRequests(project), listIssues(project)]);
+    const events = readEvents(join(options.stateDir ?? defaultStateDir(), "fleet-events.jsonl"));
+    return renderMetrics(project, base, metrics({ events, project, base, from: to - hours * 3_600_000, to, quietMs: QUIET_MS, merged, issues, ...(planned ? { planned: new RegExp(planned) } : {}) }));
+  };
 
   /** the server's own folder for explanations: the person's limits are read from it, and the claude call runs in its `work` folder, one at a time */
   const explainRoot = join(options.stateDir ?? defaultStateDir(), "explain");
@@ -1107,7 +1121,7 @@ export function createServer(
       if (pathname === "/api/fleet" || pathname.startsWith("/api/fleet/")) {
         // a spawn waits for the agent to start, a wait for its turn: Bun's 10 s idle limit is too short
         bunServer.timeout(request, 0);
-        return handleFleetRequest(request, url, fleet, usage, settings, entrances, models);
+        return handleFleetRequest(request, url, fleet, usage, settings, entrances, models, factoryReport);
       }
       if (pathname === "/api/side-chats" || pathname.startsWith("/api/side-chats/")) {
         // the events stream stays open while the page shows the side chat

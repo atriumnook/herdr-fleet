@@ -1,6 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import type { TimedEvent } from "../server/fleet/events.ts";
-import { metrics, render } from "./factory-report.ts";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { TimedEvent } from "./events.ts";
+import { metrics, readEvents, render } from "./metrics.ts";
 
 const MIN = 60_000;
 const P = "/repo";
@@ -88,5 +91,12 @@ describe("factory metrics", () => {
     expect(anomalies).toContain("The person stepped in 2 times.");
     expect(anomalies).toContain("Stood still 30 minutes");
     expect(anomalies).toContain("agy: 2 of 2 starts failed or stopped before the task.");
+  });
+
+  it("reads the event log line by line, skipping a line that does not parse, and nothing from a missing file", () => {
+    const file = join(mkdtempSync(join(tmpdir(), "fleet-metrics-")), "fleet-events.jsonl");
+    expect(readEvents(file)).toEqual([]);
+    writeFileSync(file, '{"t":1,"kind":"person","run":"c","project":"/repo"}\n{"t":2,"kind":"per\n\n{"t":3,"kind":"standstill","run":"c","project":"/repo","quietMs":5}\n');
+    expect(readEvents(file).map((event) => event.t)).toEqual([1, 3]);
   });
 });
