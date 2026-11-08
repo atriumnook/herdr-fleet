@@ -89,7 +89,6 @@ export const USAGE_SCREEN_MS = 10_000;
 export const QUIET_MS = 15 * 60_000;
 /** the window over which an agent's runs are looked at for an anomaly (superviseProjects) */
 export const ANOMALY_WINDOW_MS = 60 * 60_000;
-const SETTLED_STATES = new Set(["idle", "done", "stopped", "failed"]);
 /** how soon the threads' questions are tried again while the person has a draft in the coordinator's input */
 export const DRAFT_RETRY_MS = 5_000;
 /** a run still `starting` may be inside a 30 s agent start: not-found is not its end yet */
@@ -1010,7 +1009,10 @@ export class Orchestrator {
       byAgent.set(run.agent, [...(byAgent.get(run.agent) ?? []), run]);
     }
     for (const [agent, runs] of byAgent) {
-      const bad = runs.filter((run) => run.state === "failed" || (run.state === "stopped" && run.result === undefined && !run.landed));
+      // failed; ended without a HANDOFF; or a helper settled without one (its start failed, or its turn
+      // ended on a question the adapter does not know), its pane kept
+      const bad = runs.filter((run) => run.state === "failed" || (run.state === "stopped" && run.result === undefined && !run.landed)
+        || (!run.interactive && isCompleted(run.state) && run.result === undefined && !this.pending.has(run.id)));
       const key = `${coordinator.id} ${agent}`;
       if (bad.length < 2 || bad.length * 3 < runs.length || now - (this.anomalyAt.get(key) ?? -Infinity) < ANOMALY_WINDOW_MS) continue;
       if (!(await this.tellWhenFree(coordinator, agentAnomaly(agent, bad, runs.length)))) continue;
@@ -1315,6 +1317,10 @@ export class Orchestrator {
   private async readTurn(run: AgentRun, config: FleetConfig): Promise<void> {
     run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
     run.result = readResult(this.resultFile(run));
+    this.deps.events?.({
+      kind: "turn", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
+      ...(run.project ? { project: run.project } : {}), interactive: run.interactive, handoff: run.result !== undefined,
+    });
     // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
     // are spent; a turn that wrote its handoff did its work, whatever its screen quotes
     const turnError = run.result === undefined ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
@@ -1509,7 +1515,7 @@ export class Orchestrator {
       this.deps.events?.({
         kind: "state", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
         ...(run.project ? { project: run.project } : {}), ...(previous ? { from: previous } : {}), to: run.state, sent: this.pending.has(run.id),
-        ...(SETTLED_STATES.has(run.state) ? { handoff: run.result !== undefined } : {}), ...(error ? { error } : {}),
+        ...(error ? { error } : {}),
       });
     }
     this.deps.onChanged?.(run);

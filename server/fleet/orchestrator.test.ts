@@ -1232,13 +1232,13 @@ describe("a project run without the person", () => {
   const QUIET = 120;
   const ANDON = "[fleet] Nothing in this project has moved";
 
-  function project() {
+  function project(config: Partial<FleetConfig> = {}) {
     const states = new Map<string, AgentState>();
     const removed: string[] = [];
     const events: FleetEvent[] = [];
     const git = { pr: null as Record<string, unknown> | null, reads: 0 };
     const harness = setup({
-      agents, gitRoot: async () => "/repo", config: { autonomous: true }, quietMs: QUIET, events: (event) => events.push(event),
+      agents, gitRoot: async () => "/repo", config: { autonomous: true, ...config }, quietMs: QUIET, events: (event) => events.push(event),
       landing: {
         gitBranch: async () => "rust",
         readPullRequest: async () => { git.reads += 1; return git.pr as never; },
@@ -1421,6 +1421,32 @@ describe("a project run without the person", () => {
     await turn(coordinator, "idle");
     await fleet.superviseProjects();
     expect(toCoordinator(coordinator)).toHaveLength(told + 1);
+  });
+
+  it("counts a helper whose turn settled without a HANDOFF, its pane kept, and records each turn's end once its handoff is read", async () => {
+    const { fleet, runtime, turn, toCoordinator, handoff, events } = project({ closeOnSettle: false });
+    runtime.output = ">\n? for shortcuts    auto · Gemini 4 Argon · medium";
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(thread, "ISSUES — waiting for the review");
+    await turn(thread, "idle");
+    await turn(coordinator, "idle");
+    const reviews = [];
+    for (let i = 0; i < 2; i++) reviews.push(await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: "/repo" }));
+    handoff(reviews[0]!, "PASS — no findings");
+    for (const review of reviews) await turn(review, "idle");
+    expect(events.filter((e) => e.kind === "turn" && e.role === "reviewer").map((e) => e.kind === "turn" && [e.run, e.handoff, e.interactive]))
+      .toEqual([[reviews[0]!.id, true, false], [reviews[1]!.id, false, false]]);
+    // one of two is not yet a third and two: a second such helper is
+    reviews.push(await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: "/repo" }));
+    await turn(reviews[2]!, "idle");
+    const told = toCoordinator(coordinator).length;
+    await fleet.superviseProjects();
+    const message = toCoordinator(coordinator)[told]!;
+    expect(message).toStartWith("[fleet] agy: 2 of 3 runs in this project over the last 60 minutes failed to start or ended without a HANDOFF.");
+    expect(message).toContain(`- ${reviews[1]!.id} (reviewer): idle, no HANDOFF`);
+    expect(fleet.get(reviews[1]!.id).state).toBe("idle");
   });
 
   it("leaves a project run with the person alone: no standstill call and no closing against GitHub", async () => {

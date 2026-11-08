@@ -51,7 +51,7 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
   const { project, from, to, quietMs } = input;
   const events = [...input.events].sort((a, b) => a.t - b.t);
   const runs = projectRuns(events, project);
-  const mine = events.filter((event) => (event.kind === "state" ? runs.has(event.run) : event.project === project));
+  const mine = events.filter((event) => (event.kind === "state" || event.kind === "turn" ? runs.has(event.run) : event.project === project));
   const inWindow = mine.filter((event) => event.t >= from && event.t <= to);
 
   // standstills: replay every state change, the ones before the window included, and find the stretches with no run moving
@@ -79,14 +79,17 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
     startsByAgent.set(agent, entry);
     return entry;
   };
-  /** each run's last state change in the window, and whether its start failed */
+  /** each run's last state change in the window, its open turn's end (cleared when it works again), and whether its start failed */
   const last = new Map<string, Extract<TimedEvent, { kind: "state" }>>();
+  const turnEnd = new Map<string, Extract<TimedEvent, { kind: "turn" }>>();
   const startFailed = new Set<string>();
   const ownTurns: Record<string, number> = {};
   let typedTurns = 0;
   for (const event of inWindow) {
+    if (event.kind === "turn") turnEnd.set(event.run, event);
     if (event.kind !== "state") continue;
     last.set(event.run, event);
+    if (event.to === "working") turnEnd.delete(event.run);
     if (event.from === undefined) entryOf(event.agent).starts += 1;
     // a start that failed, or that stopped before its task was sent
     if (!startFailed.has(event.run) && ((event.to === "failed" && event.from === "starting") || (event.error !== undefined && /not been sent|not ready/.test(event.error)))) {
@@ -98,9 +101,13 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
       else ownTurns[event.role] = (ownTurns[event.role] ?? 0) + 1;
     }
   }
-  // a run that ended (its pane closed, or it failed) without a HANDOFF, its start not counted already
+  // a run without a HANDOFF, its start not counted already: it ended (its pane closed, or it failed)
+  // with its last turn leaving none or cut off, or a helper's last turn left none and its pane was kept
   for (const event of last.values()) {
-    if (event.role !== "coordinator" && (event.to === "stopped" || event.to === "failed") && event.handoff === false && !startFailed.has(event.run)) entryOf(event.agent).lost += 1;
+    if (event.role === "coordinator" || startFailed.has(event.run)) continue;
+    const end = turnEnd.get(event.run);
+    const ended = event.to === "stopped" || event.to === "failed";
+    if ((ended && end?.handoff !== true) || (end && !end.handoff && !end.interactive)) entryOf(event.agent).lost += 1;
   }
   const starts = [...startsByAgent].map(([agent, { starts, failed, lost }]) => ({ agent, starts, failed, lost, anomaly: failed + lost >= 2 && (failed + lost) * 3 >= Math.max(starts, failed + lost) }))
     .sort((a, b) => a.agent.localeCompare(b.agent));
