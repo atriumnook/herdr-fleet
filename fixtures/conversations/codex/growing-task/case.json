@@ -1,5 +1,5 @@
 {
-  "about": "server/conversation.test.ts: incrementally reads one growing Codex task across split UTF-8, partial records and a rewrite\nSeven appends where the test's pseudo-random ones can cut: just before and just after a newline, inside a three-byte character, inside the four bytes of the emoji, inside a JSON escape, inside the second tool output, and the rest; each page is the page of a cold copy of the bytes so far (the test compares the two after each of its appends). Then the rewrite to model-b, and to the first two records",
+  "about": "server/conversation.test.ts: incrementally reads one growing Codex task across split UTF-8, partial records and a rewrite\nSeven appends at cuts chosen for this case, not the test's own (its appends are pseudo-random lengths that cut elsewhere): just before and just after a newline, inside a three-byte character, inside the four bytes of the emoji, inside a JSON escape, inside the second tool output, and the rest. Each page is the page of a cold copy of the bytes so far, which the test compares after each of its appends. Then the rewrite to model-b, and to the first two records",
   "steps": [
     {
       "append": "live.jsonl",
