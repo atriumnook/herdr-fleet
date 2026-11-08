@@ -53,6 +53,8 @@ export interface AgentRun {
   turnHead?: string;
   /** a reviewer's: the state of its folder's worktree when the fleet sent its last turn (github.ts worktreeState) */
   turnTree?: string;
+  /** a reviewer's: the fleet read its last turn settle, and that turn changed nothing in the worktree; nothing ran in it since */
+  reviewClean?: true;
   reportedHead?: string;
   /** a thread lead's: every CLI that wrote in the thread so far (its lead runs, helpers that edit, a reviewer whose turn saw the branch move) */
   writers?: FleetAgentKind[];

@@ -2520,6 +2520,23 @@ describe("merge authority", () => {
     expect(registry.get(other.id)!.writers).toEqual(["claude", "pi"]);
   });
 
+  it("count a reviewer as a writer while it works, and once a turn nobody sent ran in it after its review", async () => {
+    // a reviewer that talks in its pane: its pane stays after its turn, and the person can type there
+    const { registry, git, turn, reviewed } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi", interactive: true })]);
+    const { thread, reviewer } = await reviewed();
+    // the person types into the reviewer's pane after its clean review: what that turn writes is not compared
+    await turn(reviewer, "working");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review on a CLI other than claude, pi passed." });
+    // that turn ends: still not a review the fleet compared, and pi stays a writer of the thread
+    await turn(reviewer, "idle");
+    git.pr = { ...PR, checks: "pending" };
+    await turn(thread, "working");
+    git.pr = { ...PR };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")!.ok).toBe(false);
+  });
+
   it("let a merge the gate allowed wait for a live coordinator rather than start one, and never send it beside a merge the person pressed", async () => {
     const { fleet, registry, runtime, git, turn, to, reviewed } = project();
     const { coordinator, thread } = await reviewed();

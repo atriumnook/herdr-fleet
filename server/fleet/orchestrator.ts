@@ -1381,7 +1381,11 @@ export class Orchestrator {
         if (!isLive(run)) return;
         const previous = run.state;
         // a turn the fleet did not send starts (a helper's result woke the agent, or the person typed)
-        if (!pending && current === "working" && (isCompleted(previous) || previous === "blocked")) this.clearTurnFiles(run);
+        if (!pending && current === "working" && (isCompleted(previous) || previous === "blocked")) {
+          this.clearTurnFiles(run);
+          // a reviewer's turn nobody sent (the person typed, or it woke itself): what it writes is not compared
+          if (run.role === REVIEWER_ROLE) { delete run.reviewClean; run.turnHead ??= "unknown"; }
+        }
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
@@ -1445,6 +1449,8 @@ export class Orchestrator {
     const still = opened && head !== null && tree !== null && head === run.turnHead && tree === run.turnTree;
     if (run.outcome?.report && still) run.reportedHead = head!;
     else delete run.reportedHead;
+    if (still) run.reviewClean = true;
+    else delete run.reviewClean;
     // a worktree that changed in the turn, or one the fleet could not compare, may hold the reviewer's own writing
     if (opened && !still) this.noteWriter(run.group, run.agent);
     delete run.turnHead;
@@ -1458,15 +1464,16 @@ export class Orchestrator {
    */
   private async openReview(run: AgentRun): Promise<void> {
     if (run.turnHead !== undefined) this.noteWriter(run.group, run.agent);
+    delete run.reviewClean;
     const [head, tree] = await Promise.all([this.tools.headCommit(run.cwd).catch(() => null), this.tools.worktreeState(run.cwd).catch(() => null)]);
     // unknown stays open and never matches: the turn's review will not count
     run.turnHead = head ?? "unknown";
     run.turnTree = tree ?? "unknown";
   }
 
-  /** A run that ended without the fleet reading its turn: a reviewer's open turn may have written. */
+  /** A run that ended without the fleet reading its turn: a reviewer not known clean may have written. */
   private closeUnread(run: AgentRun): void {
-    if (run.role !== REVIEWER_ROLE || run.turnHead === undefined) return;
+    if (run.role !== REVIEWER_ROLE || run.reviewClean) return;
     this.noteWriter(run.group, run.agent);
     delete run.turnHead;
     delete run.turnTree;
@@ -1571,8 +1578,9 @@ export class Orchestrator {
       report: run.outcome?.report?.state,
       contract: run.contract ?? [],
       // the thread keeps who wrote in it; a run's own record says whether it could edit (a role file may have changed since)
-      writers: [...new Set([...(run.writers ?? []), run.agent, ...members.filter((member) => !member.readOnly && member.role !== REVIEWER_ROLE).map((member) => member.agent)])],
-      reviews: members.filter((member) => member.role === REVIEWER_ROLE).map((member) => ({
+      // a reviewer counts as a writer until the fleet saw its last turn leave the worktree as it was
+      writers: [...new Set([...(run.writers ?? []), run.agent, ...members.filter((member) => (!member.readOnly && member.role !== REVIEWER_ROLE) || (member.role === REVIEWER_ROLE && !member.reviewClean)).map((member) => member.agent)])],
+      reviews: members.filter((member) => member.role === REVIEWER_ROLE && member.reviewClean).map((member) => ({
         agent: member.agent, report: member.outcome?.report?.state, ...(member.reportedHead ? { head: member.reportedHead } : {}),
       })),
       head,
