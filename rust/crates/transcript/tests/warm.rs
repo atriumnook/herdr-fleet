@@ -991,3 +991,60 @@ fn keeps_64_rewrite_generations() {
     assert_ne!(newest(&transcripts, &omp(&paths[1])).history_id, ids[1]);
     assert_eq!(newest(&transcripts, &omp(&paths[0])).history_id, ids[0]);
 }
+
+// A held page start and the newest page share the live Codex turn but fold different settings
+// into it: a model recorded between the two starts, past the 64 KiB metadata head, is the newest
+// page's and not the held page's. By hand from `transcriptPage` read cold: the held page's model
+// is the one the head records (`m-head`), the newest page's the one recorded later (`m-late`).
+#[test]
+fn a_held_page_start_keeps_its_own_settings_in_the_live_codex_turn() {
+    let (root, _cleanup) = folder();
+    let path = root.join("rollout.jsonl");
+    let setting = |kind: &str, model: &str| {
+        format!(
+            "{}\n",
+            json!({ "type": kind, "payload": { "model": model } })
+        )
+    };
+    append(&path, &setting("session_meta", "m-head"));
+    let mut starts = Vec::new();
+    for task in 0..60 {
+        starts.push(size(&path));
+        append(&path, &codex_line("task_started", ""));
+        append(&path, &codex_line("user_message", &format!("task {task}")));
+        if task == 45 {
+            append(&path, &setting("turn_context", "m-late"));
+        }
+        append(
+            &path,
+            &codex_line(
+                "agent_message",
+                &format!("done {task} {}", "y".repeat(2_000)),
+            ),
+        );
+    }
+    assert!(
+        starts[45] > 64 * 1024,
+        "the later model lies past the metadata head"
+    );
+    let file = codex(&root, &path);
+    let held_page = |transcripts: &Transcripts, id: &str| {
+        transcripts
+            .page(
+                &file,
+                &PageRequest {
+                    from: Some(format!("{id}:{}", starts[50])),
+                    ..PageRequest::default()
+                },
+            )
+            .expect("the held page")
+    };
+    let warm = no_catalog();
+    let newest_page = newest(&warm, &file);
+    assert_eq!(newest_page.metadata.model.as_deref(), Some("m-late"));
+    let held = held_page(&warm, &newest_page.history_id);
+    let cold = held_page(&no_catalog(), &newest_page.history_id);
+    assert_eq!(cold.metadata.model.as_deref(), Some("m-head"));
+    assert_eq!(held.metadata, cold.metadata);
+    assert_eq!(held.turns, cold.turns);
+}

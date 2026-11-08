@@ -40,6 +40,8 @@ source ごとに上限を持つ案も、source の数で割る案も取らなか
 
 残したものは、使う前にファイルと照らす(TypeScript と同じ)。読んだ stream の id(inode、Codex の連なり、pi の枝、書き直しの世代、境目)が同じこと、読み終えた位置がファイルの長さを超えないこと、その位置の直前の 64 バイトが記録したものと同じことである。書き直されたファイルはこの 64 バイトを持たないので、最初から読み直す。
 
+TypeScript と 1 つだけ変えた。Codex の実行中のターンの解析は、解析を始めたときの metadata(ページの始まりからそのターンまでの設定)も記録し、同じ metadata から読むときだけ使う。TypeScript は、ターンの始まりが同じなら使う(`:762-765`)。保持した始まり(`from`)のページと新しいページは、最後のターンの始まりが同じでも、ページの始まりが違うので、その前の設定が違いうる。2 つのページの始まりの間に、64 KiB の metadata の head より後ろでモデルの記録があると、TypeScript の cache は保持した始まりのページに新しいページのモデルを答える(`/code-review` の指摘。`tests/warm.rs` の `a_held_page_start_keeps_its_own_settings_in_the_live_codex_turn` が、直す前の Rust で `m-late` を答えて落ちた。期待値の `m-head` は、TypeScript の cold read の決まりから手で出した)。読み直した答えと同じにするため、Rust では直した
+
 ### Mutex の持ち方
 
 lock を持つのは、項目を取り出すときと戻すときだけである。読み取りに使う項目は取り出してから lock を外し、ファイルを読んで解析し終えてから、lock を取り直して戻す。lock は文の中の一時的な値で取り、ファイルを読む `match` の外で外れる。例外は ADR `0196-transcript-interface` の決めた `Source::identify`(live file の stat を 1 回取る間)と、Codex の実行中のターンを戻して上限を当てる間で、どちらもファイルの中身を読まない。答えは `Arc` で持ち、lock の中では `Arc` を複製するだけにした(ターンの複製は lock の外)。

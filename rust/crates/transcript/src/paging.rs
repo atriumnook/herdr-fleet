@@ -279,6 +279,9 @@ struct LiveTurn {
     /// the bytes just before `scanned`
     boundary: Vec<u8>,
     parser: Box<dyn LiveParser>,
+    /// the settings it started from: those of the text before the turn, which depend on where
+    /// the page starts
+    before: ConversationMetadata,
     metadata: ConversationMetadata,
 }
 
@@ -990,7 +993,10 @@ impl<F: TranscriptFormat> Source<F> {
 
     /// The live turn from `start`, read incrementally through the format's live parser
     /// (`codexLiveTurn`): its complete lines are parsed once, results for tools of earlier reads
-    /// included; `fresh` starts the parse when none of the same turn is kept.
+    /// included; `fresh` starts the parse when none of the same turn is kept. A parse kept is used
+    /// only from the same settings (`before`): two pages starting apart, such as a held start and
+    /// the newest page, share the live turn but not the settings before it. TypeScript checks the
+    /// turn's start alone, and answered a held page with the newest page's settings.
     fn live_turn(
         &self,
         path: &Path,
@@ -1005,6 +1011,7 @@ impl<F: TranscriptFormat> Source<F> {
                 if turn.source == F::SOURCE
                     && turn.id == stream.id
                     && turn.start == start
+                    && turn.before == before
                     && turn.scanned <= stream.length
                     && stream.bytes_before(turn.scanned)? == turn.boundary =>
             {
@@ -1017,7 +1024,8 @@ impl<F: TranscriptFormat> Source<F> {
                 scanned: start,
                 boundary: stream.bytes_before(start)?,
                 parser: fresh,
-                metadata: before,
+                metadata: before.clone(),
+                before,
             },
         };
         let bytes = stream.read(turn.scanned, stream.length)?;
