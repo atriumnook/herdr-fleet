@@ -1,22 +1,17 @@
 # Builds the empty GPUI app (rust/prototypes/gpui-window) for macOS and Windows
 # (#111, ADR 0111-cross-build).
 #
-# Triggers: GitHub does not dispatch a workflow that is absent from the default
-# branch (main), and main is off limits to this work, so workflow_dispatch alone
-# could never run this file before the cutover. The pull_request trigger is
-# narrowed to pull requests against rust that change this file itself; to run
-# it, open a pull request that edits this file, and to run it again, push a
-# commit that edits this file. Pushes to thread branches and other pull
-# requests do not run the builds (plan, phase 6: macOS and Windows run by hand
-# only). The `gate` job enforces the "again" part: see there.
+# Runs by hand only (plan, phase 6: macOS and Windows run before a phase
+# gate and before the cutover): `gh workflow run rust-cross.yml --ref rust`.
+# ADR 0111 also ran it on pull requests that changed this file, expecting
+# GitHub to refuse a dispatch while the file is absent from the default branch
+# (main). GitHub dispatched it on rust (run 42410444613), so ADR
+# 0120-cross-build-dispatch-only dropped that pull_request trigger and the
+# `gate` job that served it.
 name: rust-cross
 
 on:
   workflow_dispatch:
-  pull_request:
-    branches: [rust]
-    paths:
-      - .github/workflows/rust-cross.yml
 
 permissions:
   contents: read
@@ -25,58 +20,8 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  # GitHub matches a pull_request `paths` filter against the whole pull
-  # request's diff, not against the pushed commits, so once a pull request
-  # changes this file every later push to it would start the builds. This job
-  # lets a push (`synchronize`) start them only when this file differs between
-  # the head before the push and the head after it. It compares the two commits
-  # with git on this one path (no list of file names: the compare API caps it
-  # at 300 files, and printing names would let a crafted name issue workflow
-  # commands), and builds when it cannot compare them (a force push can leave
-  # the old head out of the clone, and git can fail).
-  gate:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 5
-    outputs:
-      build: ${{ steps.check.outputs.build }}
-    steps:
-      # Whole history without the blobs of past commits; the checkout itself
-      # still fetches the blobs of the checked-out tree.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-          fetch-depth: 0
-          filter: blob:none
-      - id: check
-        shell: bash
-        env:
-          ACTION: ${{ github.event.action }}
-          BEFORE: ${{ github.event.before }}
-          AFTER: ${{ github.event.after }}
-        run: |
-          build=true
-          if [ "$ACTION" = synchronize ]; then
-            if git cat-file -e "$BEFORE^{commit}" 2>/dev/null && git cat-file -e "$AFTER^{commit}" 2>/dev/null; then
-              status=0
-              git diff --quiet --no-renames "$BEFORE" "$AFTER" -- .github/workflows/rust-cross.yml || status=$?
-              case $status in
-                0)
-                  build=false
-                  echo "The push leaves .github/workflows/rust-cross.yml unchanged."
-                  ;;
-                1) echo "The push changes .github/workflows/rust-cross.yml." ;;
-                *) echo "::warning::git diff failed with exit status $status, so the builds run." ;;
-              esac
-            else
-              echo "::warning::The head before or after the push is not in the clone, so the builds run."
-            fi
-          fi
-          echo "build=$build" | tee -a "$GITHUB_OUTPUT"
-
   build:
     name: build (${{ matrix.os }})
-    needs: gate
-    if: needs.gate.outputs.build == 'true'
     strategy:
       fail-fast: false
       matrix:
