@@ -8,7 +8,7 @@ import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 import type { FleetAgentKind, FleetSettings, FleetSettingsPatch, RoleCandidate, RoleSettings, ThinkingLevel } from "../../shared/fleet.ts";
 import { adapterFor, isAgentKind } from "./adapters.ts";
-import { DEFAULT_CONFIG, findProjectPath, mergeConfig, userFleetDir } from "./config.ts";
+import { DEFAULT_CONFIG, findProjectPath, isLanguageName, mergeConfig, userFleetDir } from "./config.ts";
 import { parseCandidate } from "./orchestrator.ts";
 import { FleetError } from "./runtime.ts";
 import { isThinkingLevel, type AgentDefinition, type FleetConfig, type RoleOverride } from "./types.ts";
@@ -80,6 +80,7 @@ export class FleetSettingsStore {
     return {
       file: this.file, roles,
       maxUsedPercent: user.maxUsedPercent, rateLimitCooldownMinutes: user.rateLimitCooldownMinutes, maxConcurrent: user.maxConcurrent, closeOnSettle: user.closeOnSettle,
+      language: user.language ?? "",
       projects: Object.entries(user.projects).filter(([, project]) => project.setup).map(([path, project]) => ({ path, setup: project.setup! })),
       readOnlyAgents,
     };
@@ -173,6 +174,11 @@ export function applyPatch(raw: Record<string, unknown>, patch: FleetSettingsPat
   if (patch.closeOnSettle !== undefined) {
     if (typeof patch.closeOnSettle !== "boolean") throw new FleetError("invalid_settings", "closeOnSettle must be true or false");
     next["closeOnSettle"] = patch.closeOnSettle;
+  }
+  if (patch.language !== undefined) {
+    if (typeof patch.language !== "string" || (patch.language.trim() && !isLanguageName(patch.language))) throw new FleetError("invalid_settings", "language must be a language's name: letters, spaces, hyphens and parentheses, up to 40 characters");
+    if (patch.language.trim()) next["language"] = patch.language.trim();
+    else delete next["language"];
   }
   if (patch.roles !== undefined) {
     if (!isObject(patch.roles)) throw new FleetError("invalid_settings", "roles must be an object");

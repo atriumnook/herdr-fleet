@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { createElement } from "react";
 import { renderToStaticMarkup as renderBare } from "react-dom/server";
 import { DEFAULT_SETTINGS, SettingsProvider } from "../../lib/settings.ts";
-import type { AgentRun, AgentState, PullRequest } from "../../../shared/fleet.ts";
+import type { AgentRun, AgentState, PullRequest, ReportState } from "../../../shared/fleet.ts";
 import { fleetScreenModel } from "../../ui/fleetView.ts";
 import { INITIAL_STATE, type UiState } from "../../ui/state.ts";
 import { FleetScreen, forRun } from "./FleetScreen.tsx";
@@ -11,6 +11,9 @@ import { ThreadCard } from "./ThreadCard.tsx";
 import { ProjectRail } from "./ProjectRail.tsx";
 import { UsageCapsule } from "./UsageCapsule.tsx";
 import { StateBadge } from "./format.tsx";
+
+/** a run whose last turn reported `state` (report.json) */
+const reported = (state: ReportState, summary: string, human_action?: string): Pick<AgentRun, "outcome"> => ({ outcome: { report: { state, summary, evidence: [], ...(human_action ? { human_action } : {}) } } });
 
 const NOW = Date.now();
 const run = (id: string, extra: Partial<AgentRun> = {}): AgentRun => ({
@@ -39,7 +42,7 @@ describe("Fleet screen views", () => {
       version: 1, writtenAt: 1, title: "Retry limit", why: ["retries spam the log"], scope: ["Drafts"],
       claims: [{ text: "A failed send is tried three times.", ask, children: [{ text: "retry.ts:3 · shouldRetry()", exhibit: { kind: "code" as const, path: "src/retry.ts", start: 3, end: 4, lines: ["function shouldRetry() {", "  return attempt < RETRIES;"] }, children: [] }] }],
     };
-    const thread = lead("t", { result: "BLOCKED — the plan waits", plan: { version: 1, asks: 1 } });
+    const thread = lead("t", { ...reported("blocked", "The plan waits.", "Answer the plan in the Plan tab."), plan: { version: 1, asks: 1 } });
     const html = screen(state([coordinator, thread], {
       fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null }, tab: "plan" },
       plan: { runId: "t", reading: { status: "ready", data }, drafts: {}, confirm: null, dropped: null, seq: 0 },
@@ -64,14 +67,14 @@ describe("Fleet screen views", () => {
   });
 
   it("draws the project conversation beside the Overview, its threads by what the person has to do", () => {
-    const html = screen(state([coordinator, lead("ask", { result: "BLOCKED — keep the old API?" }), lead("done", { result: "PASS", diff: { added: 24, removed: 9, files: 2 } }), lead("busy", { state: "working" })]));
+    const html = screen(state([coordinator, lead("ask", { ...reported("blocked", "Keep the old API?", "Keep the old API?") }), lead("done", { ...reported("ready", "Done."), diff: { added: 24, removed: 9, files: 2 } }), lead("busy", { state: "working" })]));
     expect(html).toContain("slot-conversation");
     expect(html).not.toContain("slot-side");
     expect(html).toContain("coordinator · claude");
     expect(html.indexOf('id="fleet-group-needs"')).toBeGreaterThan(-1);
     expect(html.indexOf('id="fleet-group-needs"')).toBeLessThan(html.indexOf('id="fleet-group-review"'));
     expect(html.indexOf('id="fleet-group-review"')).toBeLessThan(html.indexOf('id="fleet-group-working"'));
-    expect(html).toContain("BLOCKED — keep the old API?");
+    expect(html).toContain("Keep the old API?");
     expect(html).toContain("+24");
     // the Overview button carries the dot while a thread waits on the person
     expect(html).toContain("fleet-needs-dot");
@@ -87,7 +90,7 @@ describe("Fleet screen views", () => {
   });
 
   it("opens a thread in the Overview with its agents and its chat, and large in the middle when expanded", () => {
-    const runs = [coordinator, lead("t", { result: "PASS", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }] }), run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done" })];
+    const runs = [coordinator, lead("t", { ...reported("ready", "Done."), contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }] }), run("rev", { role: "reviewer", group: "g-t", agent: "cursor", state: "done" })];
     const open = (expanded: boolean) => screen(state(runs, { fleetView: { project: null, overview: true, open: { kind: "thread", runId: "t", member: null }, expanded, tab: "chat", settings: false } }));
     const beside = open(false);
     expect(beside).toContain("slot-conversation");
@@ -106,7 +109,7 @@ describe("Fleet screen views", () => {
 
   it("offers the steps that land a thread, and its chat, change and checks", () => {
     const opened = (target: AgentRun, extra: Partial<UiState> = {}) => screen(state([coordinator, target], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: target.id, member: null }, ...extra.fleetView }, ...extra }));
-    const review = opened(lead("t", { result: "PASS", baseBranch: "main", diff: { added: 3, removed: 1, files: 1 } }));
+    const review = opened(lead("t", { ...reported("ready", "Done."), baseBranch: "main", diff: { added: 3, removed: 1, files: 1 } }));
     expect(review).toContain(">Discard<");
     expect(review).toContain(">Merge into main<");
     expect(review).toContain(">Create PR<");
@@ -118,18 +121,18 @@ describe("Fleet screen views", () => {
     // the lead at work: its steps wait
     expect(opened(lead("t", { state: "working", diff: { added: 3, removed: 1, files: 1 } }))).toMatch(/disabled="" class="btn btn-primary"|class="btn btn-primary" disabled="">Create PR/);
     const pr: PullRequest = { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "fail", failing: ["test"] };
-    const landing = opened(lead("t", { result: "PASS", pr, landing: { action: "fix-ci", at: 1, sent: true } }));
+    const landing = opened(lead("t", { ...reported("ready", "Done."), pr, landing: { action: "fix-ci", at: 1, sent: true } }));
     expect(landing).toContain('href="https://github.com/o/r/pull/70"');
     expect(landing).toContain("PR #70");
     expect(landing).toContain("Lead is fixing CI…");
     expect(landing).not.toContain(">Create PR<");
     expect(landing).toContain(">Merge PR<");
     expect(landing).toContain("fleet-tab-alert");
-    expect(opened(lead("t", { result: "PASS", landed: "merged", resolvedAt: 1, state: "stopped", baseBranch: "main" }))).toContain("Merged into main");
+    expect(opened(lead("t", { ...reported("ready", "Done."), landed: "merged", resolvedAt: 1, state: "stopped", baseBranch: "main" }))).toContain("Merged into main");
   });
 
   it("draws a thread's change with the comments not sent yet, and its checks with the steps that settle them", () => {
-    const target = lead("t", { result: "PASS", baseBranch: "main", diff: { added: 1, removed: 1, files: 1 }, pr: { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "fail", failing: ["test", "lint"] } });
+    const target = lead("t", { ...reported("ready", "Done."), baseBranch: "main", diff: { added: 1, removed: 1, files: 1 }, pr: { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "fail", failing: ["test", "lint"] } });
     const diff = ["diff --git a/a.md b/a.md", "--- a/a.md", "+++ b/a.md", "@@ -1,2 +1,2 @@", " same", "-old", "+new"].join("\n");
     const landing = {
       runId: "t", diff: { status: "ready" as const, data: { diff, truncated: false } },
@@ -160,7 +163,7 @@ describe("Fleet screen views", () => {
 
   it("draws the Settings page in place of the project: each role's candidates and the one the fleet would start now", () => {
     const settings = {
-      file: "/home/me/.config/herdr-fleet/fleet.json", maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [], readOnlyAgents: ["claude" as const],
+      file: "/home/me/.config/herdr-fleet/fleet.json", maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, language: "", projects: [], readOnlyAgents: ["claude" as const],
       roles: [
         { name: "lead", description: "Owns one thread.", readOnly: false, changed: true, thinking: "high" as const, defaults: { candidates: [{ agent: "claude" as const }], thinking: "high" as const },
           candidates: [{ agent: "codex" as const, model: "gpt-6", skip: "codex has used 92% of its 5h limit" }, { agent: "claude" as const }] },

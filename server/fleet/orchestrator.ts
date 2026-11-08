@@ -1,13 +1,14 @@
-import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, copyFileSync, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
-import { findAgent } from "./agents.ts";
+import { contentHash, findAgent, roleVersion } from "./agents.ts";
 import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
-import { contractItems, FROM_PANE, handoffStatus, threadState, type LandAction, type LandingChecks, type LineComment, type PullRequest } from "../../shared/fleet.ts";
+import { contractItems, FROM_PANE, outcomeLine, threadState, type LandAction, type LandingChecks, type LandingStep, type LineComment, type PullRequest } from "../../shared/fleet.ts";
 import { readPullRequest, type PullRequestReading } from "./github.ts";
 import { checkAnswer, planAnswerMessage, preparePlan, readPlan, writePlan } from "./plan.ts";
+import { readReport, REPORT_FILE } from "./report.ts";
 import { planAsks, planOpen, type Plan } from "../../shared/plan.ts";
 import { branchHead, branchState, diffStat, diffText, excludeWorktrees, gitBranch, gitHead, gitRoot, isMerged, removeThread, runSetup, THREAD_WORKTREES, type SetupOutcome } from "./thread.ts";
 import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry.ts";
@@ -15,6 +16,7 @@ import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime
 import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadSummary } from "./types.ts";
 import type { ModelCatalog } from "./models.ts";
 import type { FleetEvent } from "./events.ts";
+import { Outbox, type Notice } from "./outbox.ts";
 import { usageKey, type UsageTracker } from "./usage.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -23,22 +25,31 @@ interface PendingTurn {
   /** a blocked turn was already reported to waiters; reset when it works again */
   blockedReported: boolean;
   generation: number;
-  /** when the prompt was handed to herdr; undefined until then */
+  /** when the prompt was handed to herdr; undefined until then, and for a turn a restart took over */
   submittedAt?: number;
+  /** when a restarted server took over this turn, which it found running without knowing its submission */
+  resumedAt?: number;
   /** herdr reported `working` for this turn at least once */
   sawWorking: boolean;
+  /** what the fleet sent: a thread's next lead run hears it if this one fails; unknown for a turn a restart took over */
+  text?: string;
 }
 
 /** the most of a result file a run keeps: a handoff, not a transcript */
 export const RESULT_MAX_BYTES = 64 * 1024;
 const RESULT_FILE = "handoff.md";
+/** a thread lead's task as the thread was given it, beside its result file: a later run of the thread reads it */
+const TASK_FILE = "task.md";
 
 /** A spawn whose configured fallbacks (candidate entries) are still untried: consulted if its first turn fails. */
 /** A spawn with its brief turned into the task and the paths it may write, ready to try candidates for. */
 type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[]; thread?: ThreadPlace };
 
 /** Where a thread works (the repository its worktree comes from, or none outside one), and the run that owns it. */
-interface ThreadPlace { repo: string | null; owner?: string; base?: string; baseBranch?: string }
+interface ThreadPlace { repo: string | null; owner?: string; base?: string; baseBranch?: string; takeover?: Takeover }
+
+/** A lead that takes a thread over from an earlier run of it: in that run's worktree and on its branch, with the thread's task. */
+interface Takeover { from: AgentRun; thread: string; task?: string }
 
 /** A thread to start: its lead gets the task, in a workspace (and worktree) of its own named by the title. */
 export interface ThreadRequest {
@@ -87,8 +98,6 @@ const READY_SCREEN_POLL_MS = 250;
 export const USAGE_SCREEN_MS = 10_000;
 /** how long a project run without the person may stand still before its coordinator hears of it (superviseProjects) */
 export const QUIET_MS = 15 * 60_000;
-/** the window over which an agent's runs are looked at for an anomaly (superviseProjects) */
-export const ANOMALY_WINDOW_MS = 60 * 60_000;
 /** how soon the threads' questions are tried again while the person has a draft in the coordinator's input */
 export const DRAFT_RETRY_MS = 5_000;
 /** a run still `starting` may be inside a 30 s agent start: not-found is not its end yet */
@@ -203,6 +212,8 @@ export class Orchestrator {
   private readonly reconcileLocks = new Map<string, Promise<void>>();
   private readonly projectStarts = new Map<string, Promise<AgentRun>>();
   private readonly delivering = new Set<string>();
+  /** per thread, its landing steps and restarts one at a time (onThread) */
+  private readonly threadLocks = new Map<string, Promise<void>>();
   private readonly draftRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
@@ -217,8 +228,6 @@ export class Orchestrator {
   /** per thread: since when its lead is settled, and when GitHub was last asked about it */
   private readonly settledSince = new Map<string, number>();
   private readonly reconciledAt = new Map<string, number>();
-  /** per project coordinator and agent: when it last heard of an anomaly */
-  private readonly anomalyAt = new Map<string, number>();
   /** each run's state as last saved: a save that changes it is an event */
   private readonly savedStates = new Map<string, string>();
 
@@ -226,6 +235,8 @@ export class Orchestrator {
   private readonly quietMs: number;
   private readonly readyScreenMs: number;
   private readonly tools: LandingTools;
+  /** the fleet's notices to its agents, kept until they went (outbox.ts) */
+  private readonly outbox: Outbox;
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.grace = deps.preVisualGraceMs ?? PRE_VISUAL_GRACE_MS;
@@ -237,6 +248,33 @@ export class Orchestrator {
     for (const run of deps.registry.all()) {
       run.result ??= readResult(this.resultFile(run));
       this.savedStates.set(run.id, run.state);
+      // a turn still running when the last server stopped is read as it settles, like one this server
+      // sent: herdr may not have shown it yet (the prompt was being pasted), or ended it while no
+      // server listened and sends no event for it
+      if (run.state === "working") {
+        this.generations.set(run.id, 1);
+        this.pending.set(run.id, { armed: true, blockedReported: false, generation: 1, resumedAt: Date.now(), sawWorking: false });
+        this.armSettleCheck(run, 1);
+      }
+    }
+    // a notice about a run the registry dropped refers to nothing its hearer can look up
+    this.outbox = new Outbox(join(dirname(deps.resultsDir), "fleet-outbox.json"));
+    this.outbox.prune((notice) => deps.registry.get(notice.about) !== undefined && !this.staleStep(notice));
+    // runs saved before the outbox kept a thread's news on the run
+    for (const run of deps.registry.all()) {
+      if (run.notice === undefined) continue;
+      this.queueNews(run, run.notice);
+      delete run.notice;
+      deps.registry.upsert(run);
+    }
+    // merge steps the person pressed that are neither sent nor queued (saved before the outbox, or the
+    // server stopped between saving one and queuing it), in the order pressed. A delivered step is
+    // marked sent before it leaves the outbox. The branch is the one the thread recorded: a
+    // constructor cannot wait for git, and baseBranchOf falls back to main as well.
+    const unsent = deps.registry.all().filter((run) => !run.replacedBy && run.landing && !run.landing.sent && !run.landing.error && COORDINATOR_STEPS.has(run.landing.action)
+      && run.branch && !this.outbox.pending((notice) => notice.about === run.id && notice.slot === "landing").length);
+    for (const run of unsent.sort((a, b) => a.landing!.at - b.landing!.at)) {
+      this.outbox.put({ about: run.id, slot: "landing", section: "steps", text: coordinatorStep(run as AgentRun & { branch: string }, run.baseBranch ?? "main"), landingAt: run.landing!.at });
     }
   }
 
@@ -269,8 +307,12 @@ export class Orchestrator {
     rmSync(this.undeliveredFile(run), { force: true });
   }
 
+  private resultDir(run: AgentRun): string {
+    return join(this.deps.resultsDir, run.id);
+  }
+
   private resultFile(run: AgentRun): string {
-    return join(this.deps.resultsDir, run.id, RESULT_FILE);
+    return join(this.resultDir(run), RESULT_FILE);
   }
 
   list(group?: string): AgentRun[] {
@@ -285,8 +327,14 @@ export class Orchestrator {
   /** A run of `group`, or a thread a run of `group` started: each thread is a fleet of its own, which its owner still reaches. */
   get(target: string, group?: string): AgentRun {
     const owned = (run: AgentRun | undefined) => run?.owner && this.deps.registry.get(run.owner)?.group === group ? run : undefined;
-    const run = this.deps.registry.resolve(target, group) ?? (group === undefined ? undefined : owned(this.deps.registry.resolve(target)));
+    let run = this.deps.registry.resolve(target, group) ?? (group === undefined ? undefined : owned(this.deps.registry.resolve(target)));
     if (!run) throw new FleetError("run_not_found", `Unknown fleet agent: ${target}`);
+    // a thread outlives its lead runs: an earlier run's id reaches the lead that took it over
+    for (let hops = 0; isThread(run) && run.replacedBy && hops < 32; hops++) {
+      const next = this.deps.registry.get(run.replacedBy);
+      if (!next) break;
+      run = next;
+    }
     return run;
   }
 
@@ -361,10 +409,9 @@ export class Orchestrator {
     if (request.callerRun && !caller) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
     const cwd = resolve(request.cwd ?? process.cwd());
     const project = caller?.project ?? await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
-    return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project).map((run) => {
+    return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project && !run.replacedBy).map((run) => {
       const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
-      const status = run.result ? handoffStatus(run.result) : undefined;
-      return { run, state: threadState(run), ...(status ? { status } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
+      return { run, state: threadState(run), ...(run.outcome ? { status: outcomeLine(run.outcome) } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
     });
   }
 
@@ -454,6 +501,9 @@ export class Orchestrator {
     const id = makeId();
     const herdrName = makeHerdrName(request.group, definition.name, id);
     const displayName = request.name?.trim() || definition.name;
+    const takeover = request.thread?.takeover;
+    // a lead that takes a thread over works on the thread's branch; a thread's first lead gets one of its own
+    const branch = takeover ? takeover.from.branch : worktree && request.thread ? `fleet/${id}` : undefined;
     const env = { ...this.deps.agentEnv(), ...adapter.env?.({ resultDir: join(this.deps.resultsDir, id), fleetCommand: this.deps.fleetCommand, model, readOnly: definition.edits === false, merges: definition.name === PROJECT_ROLE }), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
 
     // the budget counts runs across fleets: the check and the first save must not interleave
@@ -481,11 +531,12 @@ export class Orchestrator {
       const now = Date.now();
       run = {
         id, name: displayName, role: definition.name, agent: kind, group: request.group, herdrName, paneId: location.paneId, workspaceId: location.workspaceId,
-        cwd: location.cwd, model, thinking, fallbackFrom, state: "starting", depth, interactive, worktree, startedAt: now, updatedAt: now,
-        ...(worktree && request.thread ? { branch: `fleet/${id}` } : {}),
+        cwd: location.cwd, model, thinking, fallbackFrom, state: "starting", depth, interactive, worktree: takeover ? takeover.from.worktree : worktree, startedAt: now, updatedAt: now,
+        ...(branch ? { branch } : {}),
         ...(request.thread?.repo ? { project: request.thread.repo } : {}), ...(request.thread?.owner ? { owner: request.thread.owner } : {}),
-        ...(worktree && request.thread?.base ? { base: request.thread.base } : {}),
-        ...(worktree && request.thread?.baseBranch ? { baseBranch: request.thread.baseBranch } : {}),
+        ...(branch && request.thread?.base ? { base: request.thread.base } : {}),
+        ...(branch && request.thread?.baseBranch ? { baseBranch: request.thread.baseBranch } : {}),
+        ...(takeover ? carried(takeover, request.avoid) : {}),
         ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
       };
       this.save(run);
@@ -497,9 +548,16 @@ export class Orchestrator {
     const resultDir = join(this.deps.resultsDir, run.id);
     mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
     mkdirSync(resultDir, { mode: 0o700 });
+    if (definition.name === THREAD_ROLE && request.thread) {
+      const threadTask = takeover ? takeover.task : request.task;
+      if (threadTask) writeFileSync(join(resultDir, TASK_FILE), threadTask, { mode: 0o600 });
+      if (takeover) this.carryFiles(takeover.from, run);
+    }
     // a project's coordinator talks with the person, who reads its reply: no agent reads a handoff of it
     const resultFile = definition.name === PROJECT_ROLE ? undefined : join(resultDir, RESULT_FILE);
-    const instructions = this.instructions(definition, displayName, request.group, canSpawn, resultFile, adapter, this.deps.standingOrders?.(request.cwd) ?? "");
+    const standing = this.deps.standingOrders?.(request.cwd) ?? "";
+    this.deps.events?.({ kind: "role", run: run.id, ...roleVersion(definition), ...(standing ? { standing: contentHash(standing) } : {}) });
+    const instructions = this.instructions(definition, displayName, request.group, canSpawn, resultFile, adapter, standing, config.language);
     if (adapter.instructionsInPrompt) {
       mkdirSync(this.deps.instructionsDir, { recursive: true, mode: 0o700 });
       writeFileSync(this.undeliveredFile(run), instructions, { mode: 0o600 });
@@ -571,6 +629,16 @@ export class Orchestrator {
     }
   }
 
+  /**
+   * What a lead that takes a thread over starts from: the run before's contract, as its own to bring
+   * up to date (read as a result is, never through a symlink), and the thread's plan.
+   */
+  private carryFiles(from: AgentRun, to: AgentRun): void {
+    const contract = readResult(join(this.resultDir(from), CONTRACT_FILE));
+    if (contract) writeFileSync(join(this.resultDir(to), CONTRACT_FILE), `${contract}\n`, { mode: 0o600 });
+    try { copyFileSync(this.planFile(from), this.planFile(to)); } catch { /* the thread has no plan */ }
+  }
+
   /** The user's setup command in the thread's fresh worktree; a failure fails the run before its lead starts. */
   private async setUp(run: AgentRun, command: string, signal?: AbortSignal): Promise<void> {
     const outcome = await (this.deps.runSetup ?? runSetup)(run.cwd, command, signal);
@@ -600,7 +668,7 @@ export class Orchestrator {
     }
   }
 
-  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string | undefined, adapter: AgentAdapter, standing: string): string {
+  private instructions(definition: AgentDefinition, name: string, group: string, canSpawn: boolean, resultFile: string | undefined, adapter: AgentAdapter, standing: string, language?: string): string {
     const fleet = this.deps.fleetCommand;
     return [
       definition.systemPrompt,
@@ -623,13 +691,21 @@ export class Orchestrator {
       ...(definition.edits === false && adapter.readOnlyNote ? [adapter.readOnlyNote({ merges: definition.name === PROJECT_ROLE, fleetCommand: fleet })] : []),
       ...(resultFile ? [
         `Your result file is ${resultFile}.`,
+        `Your report file is ${join(dirname(resultFile), REPORT_FILE)}.`,
         ...(definition.edits === false
           ? [adapter.readOnlyEditsResult
-            ? "You edit no file but your result file: write that with your file-editing tool, which is limited to it."
-            : "You edit no file, and your file-editing tools are off: write your result file with a shell command."]
+            ? "You edit no file but your result file and your report file: write them with your file-editing tool, which is limited to their folder."
+            : "You edit no file, and your file-editing tools are off: write your result file and your report file with a shell command."]
           : []),
-        "At the end of each delegated turn, write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section.",
-        "The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED, and the evidence for it (what you ran and what it showed). Under ISSUES, list every issue you can prove, not only the first. Then: outcome, changed files, verification, unresolved questions.",
+        "At the end of each turn, write your report file, replacing what it holds: one JSON object with \"state\": progress, waiting, ready, blocked, failed or dropped; \"summary\": one or two sentences; \"evidence\": a list of what you ran and what it showed; and \"human_action\": one concrete question for the person, only when the person must act.",
+        "The states: progress, you are still at it and go on by yourself; waiting, your turn is done and you wait for a helper's result or a message; ready, the task is done and checked; blocked, you cannot go on without the person; failed, you tried and could not do it; dropped, there is nothing to do (it does not reproduce, or something else superseded it).",
+        "The fleet takes your turn's outcome from your report file alone: a turn that ends without a valid one counts as no report, whatever your reply says.",
+        "Also write a compact HANDOFF section to your result file, replacing what it holds, and end your reply with the same section: outcome, changed files, verification, unresolved questions. List every issue you can prove, not only the first.",
+      ] : []),
+      ...(language ? [
+        "",
+        "## The person's language",
+        `The person reads ${language}. Write in ${language} what the person reads: your replies to the person, a plan, a question for the person, a thread lead's HANDOFF and contract, and pull request titles and bodies. Write tasks and messages for other agents in English. Keep code, commands, paths, identifiers, quoted output and the status word PASS, ISSUES or BLOCKED as they are. Commit messages and code comments follow the repository's own conventions.`,
       ] : []),
       ...(standing ? ["", "## Standing orders", "The person who runs this fleet gives these to every agent. Follow them in every turn. Every agent of the fleet gets them, so a task you hand on need not repeat them.", standing] : []),
     ].join("\n");
@@ -638,9 +714,11 @@ export class Orchestrator {
   // ---- turns -------------------------------------------------------------------------------
 
   async send(target: string, message: string, group?: string, signal?: AbortSignal): Promise<AgentRun> {
-    const run = this.get(target, group);
-    // a settlement still being handled (the fleet may be reading the usage in the pane) finishes first
-    await this.reconcileLocks.get(run.id);
+    const asked = this.get(target, group);
+    // a settlement still being handled (the fleet may be reading the usage in the pane, or starting a
+    // thread's next lead run) finishes first; the run it leaves to talk to is read after it
+    await this.reconcileLocks.get(asked.id);
+    const run = this.get(asked.id, group);
     if (!isLive(run)) throw new FleetError("run_ended", `${run.name} has ${run.state}; start a new agent instead.`);
     return this.submit(run, message, signal);
   }
@@ -700,11 +778,25 @@ export class Orchestrator {
    * When the agent's turn ends, the fleet reads git and GitHub for whether the step happened.
    */
   async land(target: string, action: LandAction, options: { comments?: LineComment[] } = {}, group?: string, signal?: AbortSignal): Promise<AgentRun> {
-    const run = this.landable(target, group);
+    const asked = this.landable(target, group);
+    // a settlement still being handled finishes first: it may start the thread again on a new lead
+    await this.reconcileLocks.get(asked.id);
+    const { run, coordinator } = await this.onThread(threadId(asked), () => this.landStep(asked.id, action, options, group, signal));
+    if (!coordinator) return run;
+    await this.deliverNotices(coordinator);
+    return { ...this.get(run.id) };
+  }
+
+  /**
+   * The step on the thread's lead as the thread's lock found it, before or after a restart and never
+   * during one; a merge step comes back with the coordinator to tell once the lock is free.
+   */
+  private async landStep(id: string, action: LandAction, options: { comments?: LineComment[] }, group?: string, signal?: AbortSignal): Promise<{ run: AgentRun; coordinator?: AgentRun }> {
+    const run = this.landable(id, group);
     if (run.landed) throw new FleetError("thread_landed", `${run.name} was already ${run.landed}.`);
     if (action === "discard") {
       await this.closeThread(run, "discarded");
-      return { ...run };
+      return { run: { ...run } };
     }
     const handler = LEAD_STEPS.has(action) ? run : this.projectCoordinator(run);
     if (run.landing && !run.landing.error && run.landing.sent && handler && isLive(handler) && this.pending.has(handler.id)) {
@@ -716,29 +808,38 @@ export class Orchestrator {
     if (action === "comments" && !options.comments?.length) throw new FleetError("missing_comments", "comments are required");
     if (LEAD_STEPS.has(action)) {
       if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
-      await this.reconcileLocks.get(run.id);
       if (this.pending.has(run.id)) throw new FleetError("run_busy", `The lead of ${run.name} is working; wait for its turn to end.`);
       run.landing = { action, at: Date.now(), sent: true };
       this.save(run);
-      return this.submit(run, leadStep(run, action, baseBranch, options.comments ?? []), signal);
+      return { run: await this.notifyNow(run, leadStep(run, action, baseBranch, options.comments ?? []), signal) };
     }
     run.landing = { action, at: Date.now(), sent: false };
     this.save(run);
     const coordinator = this.projectCoordinator(run);
-    if (coordinator) await this.deliverNotices(coordinator);
-    else {
-      // no coordinator lives: a new one starts with the step as its first task
-      run.landing.sent = true;
-      this.save(run);
-      try {
-        await this.startProject({ task: [STEPS_HEADER, `- ${coordinatorStep(run, baseBranch)}`].join("\n"), cwd: run.project }, signal);
-      } catch (error) {
-        run.landing = { ...run.landing, error: `No coordinator could start for the merge: ${error instanceof Error ? error.message : String(error)}` };
-        this.save(run);
-        throw error;
-      }
+    if (coordinator) {
+      this.outbox.put({ about: run.id, slot: "landing", section: "steps", text: coordinatorStep(run, baseBranch), landingAt: run.landing.at });
+      return { run, coordinator };
     }
-    return { ...this.get(run.id) };
+    // no coordinator lives: a new one starts with the step as its first task
+    run.landing.sent = true;
+    this.save(run);
+    try {
+      await this.startProject({ task: [STEPS_HEADER, `- ${coordinatorStep(run, baseBranch)}`].join("\n"), cwd: run.project }, signal);
+    } catch (error) {
+      run.landing = { ...run.landing, error: `No coordinator could start for the merge: ${error instanceof Error ? error.message : String(error)}` };
+      this.save(run);
+      throw error;
+    }
+    return { run: { ...this.get(run.id) } };
+  }
+
+  /** `work` once the thread's landing steps and restarts before it ended, and before the ones after it */
+  private onThread<T>(thread: string, work: () => Promise<T>): Promise<T> {
+    const result = (this.threadLocks.get(thread) ?? Promise.resolve()).then(work);
+    const settled = result.then(() => undefined, () => undefined);
+    this.threadLocks.set(thread, settled);
+    void settled.then(() => { if (this.threadLocks.get(thread) === settled) this.threadLocks.delete(thread); });
+    return result;
   }
 
   // ---- a thread's plan -------------------------------------------------------------------------
@@ -790,10 +891,12 @@ export class Orchestrator {
     if (plan.closedAt !== undefined) throw new FleetError("plan_closed", `The lead of ${run.name} went on without answers to version ${plan.version} of its plan.`);
     if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
     await this.reconcileLocks.get(run.id);
+    if (run.replacedBy) throw replaced(run);
+    if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
     if (this.pending.has(run.id)) throw new FleetError("run_busy", `The lead of ${run.name} is working; wait for its turn to end.`);
     // the turn is under way before anything awaits again, so a second answer finds the lead busy;
     // the plan counts as answered once the message reached the lead
-    const sent = await this.submit(run, planAnswerMessage(plan, answer), signal);
+    const sent = await this.notifyNow(run, planAnswerMessage(plan, answer), signal);
     // submit answers a refusal without throwing: herdr would not type into a lead on its approval
     // screen, or the prompt failed. The answers did not arrive, so the plan still takes them.
     // (a prompt typed that left the lead on an approval screen did arrive: its turn is pending)
@@ -802,10 +905,7 @@ export class Orchestrator {
       throw new FleetError("answer_not_delivered", `The answers did not reach the lead of ${run.name}: ${sent.lastError ?? "its pane refused them"}.`);
     }
     // the question the coordinator was still to hear was this plan: the person answered it
-    if (run.notice !== undefined) {
-      delete run.notice;
-      this.save(run);
-    }
+    this.outbox.drop(run.id, "news");
     // the lead may have handed over a newer plan meanwhile: only the version answered is marked
     let current: Plan | undefined;
     try { current = readPlan(file); } catch { current = undefined; }
@@ -877,27 +977,46 @@ export class Orchestrator {
 
   /** The coordinator's turn ended: the merges it was handed, checked in git and on GitHub, and the threads that landed closed. */
   private async settleMerges(coordinator: AgentRun): Promise<void> {
-    const handed = this.deps.registry.all().filter((run) => run.landing?.sent && !run.landing.error && COORDINATOR_STEPS.has(run.landing.action)
+    const handed = this.deps.registry.all().filter((run) => !run.replacedBy && run.landing?.sent && !run.landing.error && COORDINATOR_STEPS.has(run.landing.action)
       && this.projectCoordinator(run)?.id === coordinator.id);
+    // a restart of the thread under way finishes first: its new lead holds the step then
     for (const run of handed) {
-      const thread = run as AgentRun & { project: string; branch: string };
       const step = run.landing!;
-      try {
-        if (step.action === "merge") {
-          const baseBranch = await this.baseBranchOf(thread);
-          if (await this.tools.isMerged(thread.project, thread.branch, baseBranch)) await this.closeThread(thread, "merged");
-          else run.landing = { ...step, error: `${thread.branch} is not in ${baseBranch} after the coordinator's turn; its reply says why.` };
-        } else {
-          const reading = await this.readPullRequest(thread);
-          if (reading?.state === "MERGED") await this.mergedOnGitHub(thread, reading);
-          else run.landing = { ...step, error: `Pull request #${run.pr?.number ?? "?"} is not merged after the coordinator's turn; its reply says why.` };
-        }
-      } catch (failure) {
-        run.landing = { ...step, error: failure instanceof Error ? failure.message : String(failure) };
-      }
-      run.updatedAt = Date.now();
-      this.save(run);
+      await this.onLead(run, (thread) => this.settleMerge(thread, step));
     }
+  }
+
+  /** A merge step handed to the coordinator, settled on the thread's lead while it still holds that step. */
+  private async settleMerge(thread: AgentRun & { project: string; branch: string }, handed: LandingStep): Promise<void> {
+    const step = thread.landing;
+    if (!step?.sent || step.error || step.action !== handed.action || step.at !== handed.at) return;
+    try {
+      if (step.action === "merge") {
+        const baseBranch = await this.baseBranchOf(thread);
+        if (await this.tools.isMerged(thread.project, thread.branch, baseBranch)) await this.closeThread(thread, "merged");
+        else thread.landing = { ...step, error: `${thread.branch} is not in ${baseBranch} after the coordinator's turn; its reply says why.` };
+      } else {
+        const reading = await this.readPullRequest(thread);
+        if (reading?.state === "MERGED") await this.mergedOnGitHub(thread, reading);
+        else thread.landing = { ...step, error: `Pull request #${thread.pr?.number ?? "?"} is not merged after the coordinator's turn; its reply says why.` };
+      }
+    } catch (failure) {
+      thread.landing = { ...step, error: failure instanceof Error ? failure.message : String(failure) };
+    }
+    thread.updatedAt = Date.now();
+    this.save(thread);
+  }
+
+  /**
+   * `work` on the thread `run` belongs to, under its lock (onThread) and with its lead as the lock
+   * found it: a restart before it may have handed the thread to a new run, which the run before must
+   * not close. A thread that closed meanwhile is left alone.
+   */
+  private onLead<T>(run: AgentRun, work: (lead: AgentRun & { project: string; branch: string }) => Promise<T>): Promise<T | undefined> {
+    return this.onThread(threadId(run), async () => {
+      const lead = this.get(run.id) as AgentRun & { project: string; branch: string };
+      return lead.landed ? undefined : work(lead);
+    });
   }
 
   /** A thread whose pull request GitHub merged: closed, its branch deleted when GitHub merged the commit it is at here. */
@@ -917,17 +1036,19 @@ export class Orchestrator {
    * OPEN), and the thread closes as the lead's turn ends (finalize, settleUnsentTurn).
    */
   async refreshPullRequests(): Promise<void> {
-    for (const run of this.list().filter((each) => isThread(each) && each.pr?.state === "OPEN" && !each.landed)) {
+    for (const run of this.list().filter((each) => isThread(each) && each.pr?.state === "OPEN" && !each.landed && !each.replacedBy)) {
       const thread = run as AgentRun & { project: string; branch: string };
       try {
         const reading = await this.readPullRequest(thread);
         if (reading?.state !== "MERGED") continue;
         if (this.deps.config(run.cwd).autonomous) {
-          run.notice = threadMerged(run);
-          run.updatedAt = Date.now();
-          this.save(run);
+          this.queueNews(run, threadMerged(run));
           void this.tellCoordinator(run);
-        } else if (!this.pending.has(run.id) && run.state !== "working") await this.mergedOnGitHub(thread, reading);
+        } else {
+          await this.onLead(thread, async (lead) => {
+            if (!this.pending.has(lead.id) && lead.state !== "working") await this.mergedOnGitHub(lead, reading);
+          });
+        }
       } catch {
         // GitHub could not be asked: the reading kept stands until the next try
       }
@@ -953,7 +1074,6 @@ export class Orchestrator {
       const threads = this.list().filter((run) => isThread(run) && run.project === coordinator.project && isLive(run) && !run.landed);
       for (const thread of threads) await this.reconcileThread(thread as AgentRun & { project: string; branch: string }, now);
       const open = threads.filter((run) => isLive(run) && !run.landed);
-      await this.checkAnomalies(coordinator, now);
       const groups = new Set([coordinator.group, ...open.map((run) => run.group)]);
       const members = this.list().filter((run) => groups.has(run.group) && isLive(run));
       const moving = (run: AgentRun) => this.pending.has(run.id) || run.state === "working" || run.state === "starting";
@@ -982,11 +1102,15 @@ export class Orchestrator {
     try {
       const reading = await this.readPullRequest(thread);
       if (reading?.state !== "MERGED") return;
-      await this.mergedOnGitHub(thread, reading);
-      this.deps.events?.({ kind: "reconciled", run: thread.id, project: thread.project, ...(thread.pr ? { pr: thread.pr.number } : {}) });
-      thread.notice = threadClosedAfterMerge(thread, now - since);
-      this.save(thread);
-      void this.tellCoordinator(thread);
+      const closed = await this.onLead(thread, async (lead) => {
+        if (this.pending.has(lead.id) || lead.state === "working" || lead.state === "starting") return undefined;
+        await this.mergedOnGitHub(lead, reading);
+        return lead;
+      });
+      if (!closed) return;
+      this.deps.events?.({ kind: "reconciled", run: closed.id, project: closed.project, ...(closed.pr ? { pr: closed.pr.number } : {}) });
+      this.queueNews(closed, threadClosedAfterMerge(closed, now - since));
+      void this.tellCoordinator(closed);
     } catch {
       // GitHub could not be asked: the next quiet period asks again
     }
@@ -997,40 +1121,13 @@ export class Orchestrator {
     return this.tellWhenFree(coordinator, standstill(threads, quietFor));
   }
 
-  /**
-   * An agent whose runs in this project kept failing to start, or ended without a HANDOFF (a pane
-   * closed under it, a crash), over the last ANOMALY_WINDOW_MS: two or more, and a third or more of
-   * its runs. The coordinator hears of it once per agent and window, with the run ids.
-   */
-  private async checkAnomalies(coordinator: AgentRun, now: number): Promise<void> {
-    const groups = new Set([coordinator.group, ...this.list().filter((run) => isThread(run) && run.project === coordinator.project).map((run) => run.group)]);
-    const byAgent = new Map<string, AgentRun[]>();
-    for (const run of this.list()) {
-      if (!groups.has(run.group) || run.role === PROJECT_ROLE || now - run.startedAt >= ANOMALY_WINDOW_MS) continue;
-      byAgent.set(run.agent, [...(byAgent.get(run.agent) ?? []), run]);
-    }
-    for (const [agent, runs] of byAgent) {
-      // failed; or a helper without a HANDOFF, settled (its start failed, or its turn ended on a question
-      // the adapter does not know, its pane kept) or ended. A lead stopped without one is not counted:
-      // the fleet closes a landed thread, and the person stops one, whatever its last turn left.
-      const bad = runs.filter((run) => run.state === "failed"
-        || (!run.interactive && run.result === undefined && !this.pending.has(run.id) && (isCompleted(run.state) || run.state === "stopped")));
-      const key = `${coordinator.id} ${agent}`;
-      if (bad.length < 2 || bad.length * 3 < runs.length || now - (this.anomalyAt.get(key) ?? -Infinity) < ANOMALY_WINDOW_MS) continue;
-      if (!(await this.tellWhenFree(coordinator, agentAnomaly(agent, bad, runs.length)))) continue;
-      this.anomalyAt.set(key, now);
-      this.deps.events?.({ kind: "anomaly", run: coordinator.id, project: coordinator.project!, agent, bad: bad.length, runs: runs.length });
-    }
-  }
-
   /** `text` to the coordinator when it is free (no turn in flight, settled, no draft of the person's); false when it is not. */
   private async tellWhenFree(coordinator: AgentRun, text: string): Promise<boolean> {
     if (this.delivering.has(coordinator.id)) return false;
     await this.reconcileLocks.get(coordinator.id);
     const live = await this.liveState(coordinator);
     if (!live || !isCompleted(live) || this.pending.has(coordinator.id) || await this.hasDraft(coordinator)) return false;
-    const sent = await this.submit(coordinator, text);
-    return sent.state === "working";
+    return this.typed(coordinator, await this.notifyNow(coordinator, text));
   }
 
   /**
@@ -1046,7 +1143,7 @@ export class Orchestrator {
       this.save(member);
       this.settleWaiters(member);
     }
-    const kept = await this.tools.removeThread(thread.project, join(thread.project, THREAD_WORKTREES, thread.id), thread.branch, { force: how === "discarded", branchMerged });
+    const kept = await this.tools.removeThread(thread.project, join(thread.project, THREAD_WORKTREES, threadId(thread)), thread.branch, { force: how === "discarded", branchMerged });
     thread.landed = how;
     thread.resolvedAt = Date.now();
     if (kept) thread.landing = { action: how === "discarded" ? "discard" : thread.landing?.action ?? "merge", at: Date.now(), sent: true, error: kept };
@@ -1116,10 +1213,9 @@ export class Orchestrator {
     this.clearSettleCheck(run.id);
     const generation = (this.generations.get(run.id) ?? 0) + 1;
     this.generations.set(run.id, generation);
-    const pending: PendingTurn = { armed: false, blockedReported: false, generation, sawWorking: false };
+    const pending: PendingTurn = { armed: false, blockedReported: false, generation, sawWorking: false, text };
     this.pending.set(run.id, pending);
-    // a result file found when the turn settles is this turn's
-    rmSync(this.resultFile(run), { force: true });
+    this.clearTurnFiles(run);
     const instructions = this.undelivered(run);
     try {
       const submitted = await this.deps.runtime.prompt(run.herdrName, instructions ? `${instructions}\n\n## Task\n\n${text}` : text, signal);
@@ -1130,15 +1226,8 @@ export class Orchestrator {
       pending.armed = true;
       pending.submittedAt = Date.now();
       pending.sawWorking = submitted === "working";
-      if (submitted !== "working") {
-        // a turn fast enough to settle before the TUI ever flips may send no further event: look
-        // again after the grace period. Keyed by generation, so a follow-up send never inherits it.
-        const timer = setTimeout(() => {
-          this.settleChecks.delete(run.id);
-          if (this.pending.get(run.id)?.generation === generation) void this.reconcileRun(run);
-        }, this.grace);
-        this.settleChecks.set(run.id, timer);
-      }
+      // a turn fast enough to settle before the TUI ever flips may send no further event
+      if (submitted !== "working") this.armSettleCheck(run, generation);
       return { ...run };
     } catch (error) {
       this.dropPending(run.id);
@@ -1157,6 +1246,12 @@ export class Orchestrator {
     }
   }
 
+  /** A turn starts: a result file and a report found when it settles are this turn's. */
+  private clearTurnFiles(run: AgentRun): void {
+    rmSync(this.resultFile(run), { force: true });
+    rmSync(join(this.resultDir(run), REPORT_FILE), { force: true });
+  }
+
   // ---- the threads' questions, for their project's coordinator -------------------------------
 
   /** Who hears a thread's questions: the run that started it while it lives, else the project's live coordinator. */
@@ -1171,6 +1266,38 @@ export class Orchestrator {
     if (coordinator) await this.deliverNotices(coordinator);
   }
 
+  /** A thread's news for whoever hears it, kept until it went; none takes back the news not yet sent. */
+  private queueNews(thread: AgentRun, text: string | undefined): void {
+    if (text) this.outbox.put({ about: thread.id, slot: "news", section: "news", text });
+    else this.outbox.drop(thread.id, "news");
+  }
+
+  /** Who hears a queued notice now: a merge step the project's coordinator, news whoever hears the thread. */
+  private hearerOf(notice: Notice): AgentRun | undefined {
+    const about = this.deps.registry.get(notice.about);
+    if (!about) return undefined;
+    return notice.section === "steps" ? this.projectCoordinator(about) : this.coordinatorOf(about);
+  }
+
+  /** a merge step the thread no longer waits on: another step, a discard or a close took its place */
+  private staleStep(notice: Notice): boolean {
+    if (notice.landingAt === undefined) return false;
+    const landing = this.deps.registry.get(notice.about)?.landing;
+    return landing?.at !== notice.landingAt || landing.sent === true || landing.error !== undefined;
+  }
+
+  /** `text` to `run` now, written to the outbox before it is typed: the run as submit left it. */
+  private async notifyNow(run: AgentRun, text: string, signal?: AbortSignal): Promise<AgentRun> {
+    let sent: AgentRun = { ...run };
+    await this.outbox.sendNow(run.id, text, async (each) => this.typed(run, sent = await this.submit(run, each, signal)));
+    return sent;
+  }
+
+  /** the text reached the run: its turn runs, or waits on an approval screen the text brought up */
+  private typed(run: AgentRun, sent: AgentRun): boolean {
+    return sent.state === "working" || (sent.state === "blocked" && this.pending.has(run.id));
+  }
+
   /**
    * Every thread's question waiting for `coordinator`, in one message, once it is free: no turn of the
    * fleet's in flight, herdr calls it settled (a person's turn shows as working), and no draft of the
@@ -1181,38 +1308,31 @@ export class Orchestrator {
     if (this.delivering.has(coordinator.id)) return;
     this.delivering.add(coordinator.id);
     try {
-      const threads = this.deps.registry.all().filter((run) => run.notice && this.coordinatorOf(run)?.id === coordinator.id);
-      const landing = this.deps.registry.all().filter((run) => run.landing && !run.landing.sent && COORDINATOR_STEPS.has(run.landing.action) && this.projectCoordinator(run)?.id === coordinator.id);
-      if ((!threads.length && !landing.length) || this.pending.has(coordinator.id) || !isLive(coordinator)) return;
+      const due = () => {
+        this.outbox.prune((notice) => !this.staleStep(notice));
+        return this.outbox.pending((notice) => this.hearerOf(notice)?.id === coordinator.id);
+      };
+      if (!due().length || this.pending.has(coordinator.id) || !isLive(coordinator)) return;
       await this.reconcileLocks.get(coordinator.id);
       const live = await this.liveState(coordinator);
       if (!live || !isCompleted(live) || this.pending.has(coordinator.id)) return;
       if (await this.hasDraft(coordinator)) return this.retryNotices(coordinator);
-      const told = threads.map((run) => ({ id: run.id, notice: run.notice }));
-      const steps = await Promise.all(landing.map(async (run) => {
-        const thread = run as AgentRun & { project: string; branch: string };
-        return { id: run.id, at: run.landing!.at, text: coordinatorStep(thread, await this.baseBranchOf(thread)) };
-      }));
-      const news = this.deps.config(coordinator.cwd).autonomous ? NEWS_HEADER : QUESTIONS_HEADER;
-      const message = [
-        ...(told.length ? [news, ...told.map((each) => `- ${each.notice}`)] : []),
-        ...(steps.length ? [STEPS_HEADER, ...steps.map((step) => `- ${step.text}`)] : []),
-      ].join("\n");
-      const sent = await this.submit(coordinator, message);
-      if (sent.state !== "working") return;
-      for (const step of steps) {
-        const run = this.deps.registry.get(step.id);
-        if (!run?.landing || run.landing.at !== step.at) continue;
-        run.landing.sent = true;
-        this.save(run);
-      }
-      for (const news of told) {
-        const run = this.deps.registry.get(news.id);
-        // a question that came while this went out waits for the next message
-        if (!run || run.notice !== news.notice) continue;
-        run.notice = undefined;
-        this.save(run);
-      }
+      // read again after the waits: the person may have thrown a thread away meanwhile
+      const notices = due();
+      const headers = { news: this.deps.config(coordinator.cwd).autonomous ? NEWS_HEADER : QUESTIONS_HEADER, steps: STEPS_HEADER };
+      await this.outbox.deliver(notices, headers, async (text) => {
+        if (!this.typed(coordinator, await this.submit(coordinator, text))) return false;
+        // marked sent before the steps leave the outbox, on the run that holds each now (a thread that
+        // started again while this was typed moved its step to the new lead): a restart in between finds them sent
+        const holders = new Map(this.outbox.pending().map((notice) => [notice.seq, notice.about]));
+        for (const notice of notices) {
+          const run = notice.landingAt === undefined ? undefined : this.deps.registry.get(holders.get(notice.seq) ?? notice.about);
+          if (!run?.landing || run.landing.at !== notice.landingAt) continue;
+          run.landing.sent = true;
+          this.save(run);
+        }
+        return true;
+      });
     } finally {
       this.delivering.delete(coordinator.id);
     }
@@ -1268,11 +1388,14 @@ export class Orchestrator {
         const pending = this.pending.get(run.id);
         if (pending && reported === "working") pending.sawWorking = true;
         // the paste is still going and herdr still answers with the idle from before: not a
-        // settlement. The check scheduled at submission looks again after the grace period.
-        if (pending?.armed && !pending.sawWorking && isCompleted(reported) && pending.submittedAt !== undefined && Date.now() - pending.submittedAt < this.grace) return;
+        // settlement. The check scheduled at submission (or at a restart) looks again after the grace period.
+        const since = pending?.submittedAt ?? pending?.resumedAt;
+        if (pending?.armed && !pending.sawWorking && isCompleted(reported) && since !== undefined && Date.now() - since < this.grace) return;
         const current = await this.observed(run, reported);
         if (!isLive(run)) return;
         const previous = run.state;
+        // a turn the fleet did not send starts (a helper's result woke the agent, or the person typed)
+        if (!pending && current === "working" && (isCompleted(previous) || previous === "blocked")) this.clearTurnFiles(run);
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
@@ -1299,9 +1422,17 @@ export class Orchestrator {
     this.dropPending(run.id);
     const config = this.deps.config(run.cwd);
     await this.readTurn(run, config);
-    if (isThread(run)) {
-      this.closeStalePlan(run, pending);
-      await this.settleThreadTurn(run, config);
+    if (isThread(run)) await this.readThreadWork(run);
+    // a thread whose lead run failed or left no report goes on in a new run first, from the contract
+    // and change the turn left: what it leaves undone (a landing step, an open plan, the coordinator's
+    // news) is the new run's
+    const restartError = needsRestart(run) ? await this.restartThread(run, pending.text) : undefined;
+    if (isThread(run) && !run.replacedBy) {
+      // a turn that failed or left no report went nowhere; a lead taking a thread over starts with
+      // its plan still open, and keeps it so while it reports blocked on it
+      const report = run.outcome?.report;
+      if (report && !(pending.generation === 1 && run.thread && report.state === "blocked")) this.closeStalePlan(run, pending);
+      await this.settleThreadTurn(run, config, restartError);
     }
     run.updatedAt = Date.now();
     this.save(run);
@@ -1309,23 +1440,29 @@ export class Orchestrator {
     if (isCompleted(run.state)) await this.readUsageScreen(run, config);
     const plan = this.spawnPlans.get(run.id);
     this.spawnPlans.delete(run.id);
-    if (run.state === "failed" && plan && pending.generation === 1) await this.respawn(run, plan);
+    // a helper's failed first turn starts again on the next configured model (a thread's, in a new lead run above)
+    if (!isThread(run) && run.state === "failed" && plan && pending.generation === 1) await this.respawn(run, plan);
     this.settleWaiters(run);
     await this.closeOnSettle(run, config);
-    if (run.notice) void this.tellCoordinator(run);
+    if (this.outbox.holds(run.id)) void this.tellCoordinator(run);
   }
 
   /** What a settled turn left: the screen, the handoff, and the API failure it may have ended on. */
   private async readTurn(run: AgentRun, config: FleetConfig): Promise<void> {
     run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
     run.result = readResult(this.resultFile(run));
+    // a project's coordinator talks with the person and keeps no result folder: it reports nothing
+    run.outcome = run.role === PROJECT_ROLE ? undefined : readReport(this.resultDir(run));
+    // the thread made progress: the CLIs its runs failed on before get another chance
+    if (run.outcome?.report) delete run.avoid;
     this.deps.events?.({
       kind: "turn", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
       ...(run.project ? { project: run.project } : {}), interactive: run.interactive, handoff: run.result !== undefined,
+      ...(run.outcome ? { report: run.outcome.report?.state ?? "none" } : {}),
     });
     // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
-    // are spent; a turn that wrote its handoff did its work, whatever its screen quotes
-    const turnError = run.result === undefined ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
+    // are spent; a turn that wrote its report did its work, whatever its screen quotes
+    const turnError = !run.outcome?.report ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
     if (turnError && isCompleted(run.state)) {
       run.state = "failed";
       run.lastError = turnError;
@@ -1334,20 +1471,28 @@ export class Orchestrator {
     }
   }
 
-  /** A thread's settled turn: its contract, its change and its pull request, and what its coordinator hears. */
-  private async settleThreadTurn(run: AgentRun, config: FleetConfig): Promise<void> {
-    const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
-    run.contract = contract ? contractItems(contract) : undefined;
-    const base = run.baseBranch ?? run.base;
-    const diff = base ? await (this.deps.diffStat ?? diffStat)(run.cwd, base) : null;
-    run.diff = diff ?? undefined;
+  /**
+   * A thread's settled turn: its landing step and pull request, and what its coordinator hears, with
+   * why the thread could not start again when it could not (its contract and change are read before).
+   */
+  private async settleThreadTurn(run: AgentRun, config: FleetConfig, restartError?: string): Promise<void> {
     if (run.landing?.sent && !run.landing.error && LEAD_STEPS.has(run.landing.action)) await this.settleLeadStep(run);
     // without the person, a lead opens and merges its own pull request: read it as its turn ends
     else if (run.pr?.state === "OPEN" || (config.autonomous && !run.landed)) {
       const reading = await this.readPullRequest(run).catch(() => null);
       if (config.autonomous && reading?.state === "MERGED" && !run.landed) await this.mergedOnGitHub(run as AgentRun & { project: string; branch: string }, reading);
     }
-    run.notice = threadQuestion(run) ?? (config.autonomous ? threadTurnEnded(run) : undefined);
+    const news = threadQuestion(run) ?? (config.autonomous ? threadTurnEnded(run) : undefined);
+    this.queueNews(run, news && restartError ? `${news}\n  The fleet could not start the thread again on another CLI: ${restartError}` : news);
+  }
+
+  /** What a thread's lead left in its worktree as its turn settled: its contract and its change since the base. */
+  private async readThreadWork(run: AgentRun): Promise<void> {
+    const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
+    run.contract = contract ? contractItems(contract) : undefined;
+    const base = run.baseBranch ?? run.base;
+    const diff = base ? await (this.deps.diffStat ?? diffStat)(run.cwd, base) : null;
+    run.diff = diff ?? undefined;
   }
 
   /**
@@ -1359,11 +1504,78 @@ export class Orchestrator {
     const config = this.deps.config(run.cwd);
     if (!config.autonomous) return;
     await this.readTurn(run, config);
-    await this.settleThreadTurn(run, config);
+    await this.readThreadWork(run);
+    const restartError = needsRestart(run) ? await this.restartThread(run) : undefined;
+    if (!run.replacedBy) await this.settleThreadTurn(run, config, restartError);
     run.updatedAt = Date.now();
     this.save(run);
     this.settleWaiters(run);
-    if (run.notice) void this.tellCoordinator(run);
+    if (this.outbox.holds(run.id)) void this.tellCoordinator(run);
+  }
+
+  /**
+   * A thread's lead whose run failed or whose turn ended without a report: the thread goes on in a
+   * new run of its lead, on a CLI none of its runs failed on since its last report, in the same
+   * worktree, branch and fleet (dsh-superagent's new Assignment of the same Ticket). Its task says
+   * what happened, where the run before left its handoff, contract and report, and to check before
+   * repeating an outside action; the thread's task and the fleet's last message follow. Once it has
+   * the task, the old run's pane closes, so one lead works in the worktree. The coordinator hears
+   * nothing of a restart, only of one that could not start, with the turn's usual news: this returns
+   * why it could not.
+   */
+  private restartThread(run: AgentRun, lastMessage?: string): Promise<string | undefined> {
+    // a landing step pressed before goes first: a discard leaves nothing to start again
+    return this.onThread(threadId(run), () => needsRestart(run) ? this.startThreadAgain(run, lastMessage) : Promise.resolve(undefined));
+  }
+
+  private async startThreadAgain(run: AgentRun, lastMessage?: string): Promise<string | undefined> {
+    const why: "failed" | "no-report" = run.state === "failed" ? "failed" : "no-report";
+    const avoid = [...new Set([...(run.avoid ?? []), run.agent])];
+    const task = readResult(join(this.resultDir(run), TASK_FILE));
+    const base = { kind: "restart" as const, run: run.id, project: run.project!, agent: run.agent, why };
+    const since = Date.now();
+    let next: AgentRun | undefined;
+    try {
+      next = await this.spawnWithFallbacks({
+        role: THREAD_ROLE, name: run.name, task: recoveryTask(run, this.resultDir(run), task, lastMessage), cwd: run.cwd, depth: run.depth - 1,
+        group: run.group, worktree: false, interactive: true, avoid,
+        thread: { repo: run.project ?? null, owner: run.owner, base: run.base, baseBranch: run.baseBranch, takeover: { from: run, thread: threadId(run), task } },
+      });
+      run.replacedBy = next.id;
+      // the new run took the landing step over as it started: a step marked sent meanwhile goes as marked
+      const lead = this.deps.registry.get(next.id);
+      if (lead?.landing && run.landing && lead.landing.at === run.landing.at) {
+        lead.landing = run.landing;
+        this.save(lead);
+      }
+      // the thread's question and landing step went to the new run: the old one must not be landed too,
+      // and a merge step the coordinator has not heard yet waits for it as the new run's
+      this.outbox.drop(run.id, "news");
+      this.outbox.move(run.id, next.id);
+      delete run.landing;
+      await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
+      if (isLive(run)) run.state = "stopped";
+      this.dropPending(run.id);
+      this.deps.events?.({ ...base, by: next.id, to: next.agent });
+      run.updatedAt = Date.now();
+      this.save(run);
+      return undefined;
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      this.deps.events?.({ ...base, error: reason.slice(0, 200) });
+      return reason;
+    } finally {
+      // a candidate that failed to start on the way is no lead of the thread: it points to the run that
+      // leads it, and gives back the landing step it was handed, which only that run holds
+      const leader = next ?? run;
+      for (const failed of this.list()) {
+        if (failed.thread !== threadId(run) || failed.id === leader.id || failed.state !== "failed" || failed.replacedBy || failed.startedAt < since) continue;
+        failed.replacedBy = leader.id;
+        delete failed.landing;
+        this.save(failed);
+      }
+    }
   }
 
   /**
@@ -1424,14 +1636,14 @@ export class Orchestrator {
   }
 
   /**
-   * A non-interactive run's pane, once its turn settled with its handoff written. A turn that ended
+   * A non-interactive run's pane, once its turn settled with its report written. A turn that ended
    * without one keeps its pane: a question the adapter does not know reads as a finished turn
    * (herdr reports agy's file access screen as done), and closing it would end the agent there,
    * where the person or its lead can still see what stopped it and send it on.
    */
   private async closeOnSettle(run: AgentRun, config: FleetConfig): Promise<void> {
     if (!config.closeOnSettle || run.interactive || !isCompleted(run.state) || this.pending.has(run.id)) return;
-    if (run.result === undefined) return;
+    if (!run.outcome?.report) return;
     const live = await this.liveState(run);
     if (live && isCompleted(live)) await this.closeSettledPane(run);
   }
@@ -1489,6 +1701,15 @@ export class Orchestrator {
     this.save(run);
   }
 
+  /** Looks at the run again after the grace period. Keyed by generation, so a follow-up send never inherits it. */
+  private armSettleCheck(run: AgentRun, generation: number): void {
+    const timer = setTimeout(() => {
+      this.settleChecks.delete(run.id);
+      if (this.pending.get(run.id)?.generation === generation) void this.reconcileRun(run);
+    }, this.grace);
+    this.settleChecks.set(run.id, timer);
+  }
+
   private clearSettleCheck(runId: string): void {
     const timer = this.settleChecks.get(runId);
     if (!timer) return;
@@ -1533,16 +1754,56 @@ export class Orchestrator {
 
 const isThread = (run: AgentRun): boolean => run.role === THREAD_ROLE && run.project !== undefined;
 
+/** A message for a lead run that a new run took the thread over from while it was asked. */
+function replaced(run: AgentRun): FleetError {
+  return new FleetError("run_ended", `The lead of ${run.name} failed or left no report, and the fleet started the thread again as ${run.replacedBy}; press it again there.`);
+}
+
+/** A thread's id: its first lead run's, which names its worktree and branch, whichever run leads it now. */
+const threadId = (run: AgentRun): string => run.thread ?? run.id;
+
+/** A thread's settled lead whose run failed or whose turn left no report, and the thread still open: it goes on in a new run. */
+const needsRestart = (run: AgentRun): boolean => isThread(run) && !run.landed && !run.replacedBy && (run.state === "failed" || run.outcome?.report === null);
+
+/** What a lead that takes a thread over carries from the run before: the thread, what the fleet knows of its landing, and the CLIs to pass over. */
+function carried({ from, thread }: Takeover, avoid: AgentKind[] | undefined): Partial<AgentRun> {
+  const { pr, plan, landing, contract, diff } = from;
+  return {
+    thread, ...(avoid?.length ? { avoid } : {}),
+    ...(pr ? { pr } : {}), ...(plan ? { plan } : {}), ...(landing ? { landing } : {}), ...(contract ? { contract } : {}), ...(diff ? { diff } : {}),
+  };
+}
+
+/** The check before any outside action that a lead taking a thread over is told to make (dsh-superagent's recovery note). */
+export const RECOVERY_NOTE = "Check the worktree, git history and GitHub before repeating any outside action (push, PR, comment).";
+
+/** The first task of a lead that takes a thread over from `run`. */
+export function recoveryTask(run: AgentRun, resultDir: string, task: string | undefined, lastMessage: string | undefined): string {
+  const how = run.state === "failed"
+    ? `failed: ${(run.lastError ?? "its turn failed").replace(/\.$/, "")}`
+    : `ended its turn without a report (${run.outcome?.report === null ? run.outcome.problem : "no report"})`;
+  // the message that started the run before is the thread's task, or this note: neither is repeated
+  const last = lastMessage?.trim();
+  const repeat = !last || last === task || last.startsWith("[fleet] You take over the thread");
+  return [
+    `[fleet] You take over the thread "${run.name}" from run ${run.id} on ${run.agent}, which ${how}. This comes from the fleet, not from the person.`,
+    `Your folder is the thread's worktree${run.branch ? ` on ${run.branch}` : ""}, where the run before left its work. It left its handoff, contract and report, as far as it wrote them, in ${resultDir}: read them. Your contract starts as its contract; bring it up to date.`,
+    RECOVERY_NOTE,
+    ...(task ? ["", "The thread's task:", "", task] : []),
+    ...(repeat ? [] : ["", "The fleet's last message to the run before:", "", last]),
+  ].join("\n");
+}
+
 function threadLabel(run: AgentRun): string {
   return `"${run.name}" (${run.id}${run.branch ? `, ${run.branch}` : ""})`;
 }
 
 /**
  * A thread's settled turn that asks nothing, as the coordinator of a project run without the person
- * hears it: the HANDOFF's status line and contract, or how the turn failed, and where the rest is.
+ * hears it: its report and contract, or how the turn failed, and where the rest is.
  */
 export function threadTurnEnded(run: AgentRun): string {
-  const status = run.state === "failed" ? `FAILED — ${run.lastError ?? "the turn failed"}` : (run.result ? handoffStatus(run.result) : undefined) ?? "no HANDOFF status line";
+  const status = run.state === "failed" ? `failed — ${run.lastError ?? "the turn failed"}` : run.outcome ? outcomeLine(run.outcome) : "no report";
   const contract = run.contract?.length ? `\n  Contract: ${run.contract.map((item) => `${item.id} ${item.state === "met" ? "✓" : item.state === "unmet" ? "✗" : "…"}`).join(" ")}` : "";
   const pr = run.pr ? `\n  Pull request #${run.pr.number}: ${run.pr.state}${run.landed === "merged" ? ", and the thread is closed" : ""}` : "";
   return `${threadLabel(run)} ended its turn: ${status}${contract}${pr}`;
@@ -1559,15 +1820,6 @@ export function standstill(threads: AgentRun[], quietFor: number): string {
     `[fleet] Nothing in this project has moved for ${Math.round(quietFor / 60_000)} minutes: you and every thread are settled. This comes from the fleet, not from the person.`,
     ...(threads.length ? threads.map((run) => `- ${threadLabel(run)}: ${run.state}${run.pr ? `, pull request #${run.pr.number} ${run.pr.state}` : ""}`) : ["- No thread is open."]),
     "Check the issues and the threads: start what can start, and send a settled thread what it still has to do. When everything left is blocked or done, say so as your instructions tell you.",
-  ].join("\n");
-}
-
-/** An agent whose runs kept failing to start or ending without a HANDOFF, as the coordinator of a project run without the person hears it. */
-export function agentAnomaly(agent: string, bad: AgentRun[], runs: number): string {
-  return [
-    `[fleet] ${agent}: ${bad.length} of ${runs} runs in this project over the last ${Math.round(ANOMALY_WINDOW_MS / 60_000)} minutes failed to start or ended without a HANDOFF. This comes from the fleet, not from the person.`,
-    ...bad.map((run) => `- ${run.id} (${run.role}${run.model ? `, ${run.model}` : ""}): ${run.state}${run.lastError ? ` — ${run.lastError.slice(0, 160)}` : ", no HANDOFF"}`),
-    `Until it is fixed, have the threads start that role on another CLI (--avoid ${agent}), and record this with the run ids where the project tracks its work, so the fleet can be fixed.`,
   ].join("\n");
 }
 
@@ -1622,17 +1874,21 @@ export function coordinatorStep(run: AgentRun & { branch: string }, baseBranch: 
 const QUESTION_MAX_CHARS = 4000;
 
 /**
- * A thread's settled turn that asks the person something, as its coordinator hears it: the whole
- * HANDOFF, which holds the question, the options and what the lead and the architect make of it.
- * Every other outcome reaches the person on the thread list and in push notifications.
+ * A thread's settled turn whose report asks the person something (blocked, or a human_action), as
+ * its coordinator hears it: the question, and the whole HANDOFF, which holds the options and what
+ * the lead and the architect make of it. Every other outcome reaches the person on the thread list
+ * and in push notifications.
  */
 export function threadQuestion(run: AgentRun): string | undefined {
-  if (run.state === "failed" || !run.result || !/^BLOCKED\b/.test(handoffStatus(run.result) ?? "")) return undefined;
-  const handoff = run.result.length > QUESTION_MAX_CHARS ? `${run.result.slice(0, QUESTION_MAX_CHARS)}\n[cut at ${QUESTION_MAX_CHARS} characters]` : run.result;
+  const report = run.outcome?.report;
+  if (run.state === "failed" || !report || (report.state !== "blocked" && report.human_action === undefined)) return undefined;
+  const result = run.result ?? "";
+  const handoff = result.length > QUESTION_MAX_CHARS ? `${result.slice(0, QUESTION_MAX_CHARS)}\n[cut at ${QUESTION_MAX_CHARS} characters]` : result;
   const plan = run.plan && planOpen(run.plan)
     ? `\nIts plan (version ${run.plan.version}, ${run.plan.asks} decision${run.plan.asks === 1 ? "" : "s"}) waits for the person in the thread's Plan tab on the Fleet screen: point them there, and do not answer it yourself.`
     : "";
-  return `${threadLabel(run)} asks the person:\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}${plan}`;
+  const quoted = handoff ? `\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}` : "";
+  return `${threadLabel(run)} asks the person: ${report.human_action ?? report.summary}${quoted}${plan}`;
 }
 
 /**

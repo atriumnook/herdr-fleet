@@ -1,4 +1,4 @@
-import { handoffStatus, modelListed, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type LandAction, type LineComment, type ModelListing, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
+import { currentLead, modelListed, needsPerson, outcomeLine, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type LandAction, type LineComment, type ModelListing, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import { parseDiff, type DiffLine } from "./diff.ts";
 import { isEnded, planDraft, type ConfirmedStep, type PlanDraft, type ThreadTab, type UiState } from "./state.ts";
@@ -387,8 +387,10 @@ export function fleetScreenModel(state: FleetState, now: number): FleetScreenMod
   const closableGroups = [...new Set(runs.filter((run) => !run.interactive && run.state === "done").map((run) => run.group))].sort();
   const project = projectsOf(state);
   const view = state.fleetView;
-  const threadRuns = project.selected === null ? [] : runs.filter((run) => run.role === THREAD_ROLE && run.project === project.selected);
-  const rows = threadRuns.map((run) => threadRow(run, view.open?.kind === "thread" && view.open.runId === run.id, state));
+  // a thread outlives its lead runs: it shows as the run that leads it now
+  const threadRuns = project.selected === null ? [] : runs.filter((run) => run.role === THREAD_ROLE && run.project === project.selected && !run.replacedBy);
+  const openLead = view.open?.kind === "thread" ? currentLead(runs, view.open.runId)?.id : undefined;
+  const rows = threadRuns.map((run) => threadRow(run, openLead === run.id, state));
   const byRecent = (a: ThreadRowModel, b: ThreadRowModel) => b.updatedAt - a.updatedAt;
   const coordinatorRun = coordinatorOf(runs, project.selected);
   const inThreads = new Set(runs.filter((run) => run.role === THREAD_ROLE).map((run) => run.group));
@@ -481,7 +483,7 @@ export function projectsOf(state: Pick<UiState, "runs" | "fleetView">): { list: 
   if (chosen !== null && known === undefined) paths.push(chosen);
   const selected = known ?? chosen ?? paths[0] ?? null;
   const list = paths.map((path) => {
-    const threads = runs.filter((run) => run.project === path && run.role === THREAD_ROLE).map(threadState);
+    const threads = runs.filter((run) => run.project === path && run.role === THREAD_ROLE && !run.replacedBy).map(threadState);
     const dot = threads.some((s) => s === "waiting" || s === "failed") ? "needs" : threads.some((s) => s === "working") ? "working"
       : runs.some((run) => run.project === path) ? "idle" : "none";
     return { path, name: baseName(path), dot, selected: path === selected } as ProjectModel;
@@ -491,11 +493,12 @@ export function projectsOf(state: Pick<UiState, "runs" | "fleetView">): { list: 
 
 function threadRow(run: AgentRun, selected: boolean, fleet: Pick<FleetState, "plan">): ThreadRowModel {
   const state = threadState(run);
-  const status = run.result ? handoffStatus(run.result) : undefined;
+  const report = run.outcome?.report;
   const group: ThreadRowModel["group"] = state === "waiting" || state === "failed" ? "needs" : state === "review" || state === "landing" || state === "working" || state === "resolved" ? state : "idle";
   const failing = run.pr?.state === "OPEN" && run.pr.checks === "fail" ? `PR #${run.pr.number}: ${(run.pr.failing ?? []).join(", ")}` : undefined;
   const question = state === "failed" ? run.lastError : state !== "waiting" ? undefined
-    : run.state === "blocked" ? run.lastError : status?.startsWith("BLOCKED") ? status : run.landing?.error ?? failing ?? status;
+    : run.state === "blocked" ? run.lastError : report && needsPerson(report) ? report.human_action ?? report.summary
+    : run.landing?.error ?? failing ?? (run.outcome ? outcomeLine(run.outcome) : undefined);
   return {
     id: run.id, title: run.name, state, group, ...THREAD_BADGE[state], agent: run.agent, branch: run.branch, diff: run.diff, contract: run.contract ?? [], ...(run.pr ? { pr: run.pr } : {}),
     ...(question ? { question } : {}), startedAt: run.startedAt, updatedAt: run.updatedAt, selected,
@@ -505,9 +508,10 @@ function threadRow(run: AgentRun, selected: boolean, fleet: Pick<FleetState, "pl
 
 function openRun(runs: AgentRun[], view: UiState["fleetView"], fleet: FleetState): OpenRunModel | null {
   const open = view.open;
-  const run = open ? runs.find((candidate) => candidate.id === open.runId) : undefined;
+  const run = !open ? undefined : open.kind === "thread" ? currentLead(runs, open.runId) : runs.find((candidate) => candidate.id === open.runId);
   if (!open || !run) return null;
-  const helpers = open.kind === "thread" ? runs.filter((other) => other.group === run.group && other.id !== run.id) : [];
+  // the thread's agents: its helpers, not the lead runs it outlived
+  const helpers = open.kind === "thread" ? runs.filter((other) => other.group === run.group && other.id !== run.id && !(other.role === THREAD_ROLE && other.replacedBy)) : [];
   const member = open.member === null ? undefined : helpers.find((helper) => helper.id === open.member);
   const shown = member ?? run;
   const state = open.kind === "thread" ? threadState(run) : undefined;
@@ -608,7 +612,7 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
   ] : [];
   const threadChecks: CheckModel[] = [
     { kind: "contract", tone: !run.contract?.length ? "none" : contractOpen ? "warn" : "ok", items: run.contract ?? [] },
-    { kind: "review", tone: reviewers.length ? "ok" : "warn", reviewers: reviewers.map((helper) => ({ agent: helper.agent, ...(helper.result && handoffStatus(helper.result) ? { status: handoffStatus(helper.result) } : {}) })) },
+    { kind: "review", tone: reviewers.length ? "ok" : "warn", reviewers: reviewers.map((helper) => ({ agent: helper.agent, ...(helper.outcome ? { status: outcomeLine(helper.outcome) } : {}) })) },
     { kind: "comments", tone: comments.length ? "warn" : "ok", count: comments.length, ...(comments.length ? { action: "comments" as const } : {}) },
   ];
   const pr = checks?.pr ?? run.pr;
@@ -632,7 +636,7 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
     attention: comments.length > 0 || (prOpen && run.pr?.checks === "fail") || run.landing?.error !== undefined,
     confirm: confirm ? {
       action: confirm.action, running: confirm.status === "running", ...(confirm.error ? { error: confirm.error } : {}),
-      worktree: `${run.project}/.herdr-fleet/worktrees/${run.id}`, ...(checks ? { ahead: checks.ahead } : {}),
+      worktree: `${run.project}/.herdr-fleet/worktrees/${run.thread ?? run.id}`, ...(checks ? { ahead: checks.ahead } : {}),
     } : null,
   };
 }
