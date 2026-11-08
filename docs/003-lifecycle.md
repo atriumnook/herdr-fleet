@@ -73,7 +73,7 @@ The table drives three things that today are worked out separately:
 The fleet tells the coordinator only what it has to act on (Built):
 
 - A thread's question for the person: a BLOCKED report, with its plan's place on the Fleet screen when one waits. The coordinator asks the person, or passes on what the person already decided. It never answers a plan itself.
-- The landing steps the person pressed that are the coordinator's to carry out: the merges. Planned: under gated merge authority, also a thread whose gate conditions all hold, for the coordinator to merge.
+- The landing steps the person pressed that are the coordinator's to carry out: the merges and the revert. Under gated merge authority, also a thread whose gate conditions all hold, for the coordinator to merge, under a header that says the gate allowed it.
 - In an autonomous project (`"autonomous": true` in the project's or the person's `fleet.json`) also: every turn a thread ends, with its status line, contract and pull request; a pull request found merged; a thread the fleet closed against GitHub; a standstill; and an anomaly.
 
 A notice goes out when its receiver is free: no turn of the fleet's in flight, herdr calls it settled, and no draft of the person's in its input; with a draft, the fleet tries again a few seconds later. Several threads' notices go out together, in one message.
@@ -125,4 +125,4 @@ Built: `fleet report` computes a project's metrics from the fleet's event log, w
 
 Planned (slice B, in progress): each run records the version of its role file and of the standing orders, and the report counts starts, failures and lost runs per role version, so a change to what the models read can be measured.
 
-Planned: every merge the coordinator makes on its own under gated merge authority is an event, and the report counts the change failure rate (such merges later reverted) and the time to restore (002).
+Built: every merge is an event with who made it, and every revert the fleet saw on the Revert step; the report counts the merges the gate made, the change failure rate (such merges later reverted) and the time to restore (002).
