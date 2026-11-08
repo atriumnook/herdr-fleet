@@ -7,7 +7,7 @@ use regex::Regex;
 
 use super::NOT_PROMPT_TEXT;
 use crate::text::{
-    NUMBERED_OPTION, NumberedRow, SELECTED, clean_line, is_divider, js_regex, parse_numbered_rows,
+    NUMBERED_OPTION, NumberedRow, SELECTED, is_divider, js_regex, parse_numbered_rows,
     sequential_rows,
 };
 
@@ -58,13 +58,13 @@ pub(super) struct Menu {
 /// only the lines that row wraps onto (right under it, indented past its number). Anything else
 /// there (another hint, a new prompt, an input box) may be what takes the keys now, so it is no
 /// menu. A wrapped label is no guess here, since every row starts with its own number. `shown` are
-/// the indices of the lines that are neither blank nor rules.
-pub(super) fn find(lines: &[String], shown: &[usize]) -> Option<Menu> {
-    let clean = |index: usize| clean_line(&lines[index]);
+/// the indices of the lines that are neither blank nor rules, `cleaned` each line's `clean_line`.
+pub(super) fn find(lines: &[String], cleaned: &[String], shown: &[usize]) -> Option<Menu> {
+    let clean = |index: usize| cleaned[index].as_str();
     let last_row = *shown
         .iter()
         .rev()
-        .find(|&&index| NUMBERED_OPTION.is_match(&clean(index)))?;
+        .find(|&&index| NUMBERED_OPTION.is_match(clean(index)))?;
     let hint_index = *shown.last()?;
     if hint_index == last_row {
         return None;
@@ -72,10 +72,10 @@ pub(super) fn find(lines: &[String], shown: &[usize]) -> Option<Menu> {
     let hint = clean(hint_index);
     // a hint that says to choose, and no input field ("Password:", "Choice: 2"): a numbered list
     // in the agent's output is not a menu
-    if !MENU_HINT.is_match(&hint)
-        || SELECTED.is_match(&hint)
-        || NOT_PROMPT_TEXT.is_match(&hint)
-        || is_input_field(&hint)
+    if !MENU_HINT.is_match(hint)
+        || SELECTED.is_match(hint)
+        || NOT_PROMPT_TEXT.is_match(hint)
+        || is_input_field(hint)
     {
         return None;
     }
@@ -101,7 +101,7 @@ pub(super) fn find(lines: &[String], shown: &[usize]) -> Option<Menu> {
     while start > 0 && !clean(start - 1).is_empty() && !is_divider(&lines[start - 1]) {
         start -= 1;
     }
-    while start < last_row && !NUMBERED_OPTION.is_match(&clean(start)) {
+    while start < last_row && !NUMBERED_OPTION.is_match(clean(start)) {
         start += 1;
     }
     let mut rows = parse_numbered_rows(lines, start, end);
@@ -122,7 +122,7 @@ pub(super) fn find(lines: &[String], shown: &[usize]) -> Option<Menu> {
         .collect();
     let last = rows.len() - 1;
     for (at, row) in rows.iter_mut().enumerate() {
-        let wrapped: Vec<String> = (row.row.line_index + 1..next_lines[at])
+        let wrapped: Vec<&str> = (row.row.line_index + 1..next_lines[at])
             .map(clean)
             .filter(|line| !line.is_empty())
             .collect();
@@ -135,15 +135,15 @@ pub(super) fn find(lines: &[String], shown: &[usize]) -> Option<Menu> {
             return None;
         }
         // the key may end the row's first line, with a description wrapped under it
-        if std::iter::once(&row.row.label)
-            .chain(&wrapped)
+        if std::iter::once(row.row.label.as_str())
+            .chain(wrapped.iter().copied())
             .any(|line| LETTER_KEY.is_match(line))
         {
             return None;
         }
         for line in wrapped {
             row.row.label.push(' ');
-            row.row.label.push_str(&line);
+            row.row.label.push_str(line);
         }
     }
     Some(Menu { start, rows })
@@ -152,6 +152,7 @@ pub(super) fn find(lines: &[String], shown: &[usize]) -> Option<Menu> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text::clean_line;
 
     #[test]
     fn an_input_field_counts_what_follows_its_colon_in_utf16_code_units() {
@@ -189,7 +190,8 @@ mod tests {
 
     fn labels(text: &str) -> Option<Vec<String>> {
         let lines = lines(text);
-        find(&lines, &shown(&lines))
+        let cleaned: Vec<String> = lines.iter().map(|line| clean_line(line)).collect();
+        find(&lines, &cleaned, &shown(&lines))
             .map(|menu| menu.rows.into_iter().map(|row| row.row.label).collect())
     }
 

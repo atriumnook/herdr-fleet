@@ -66,19 +66,27 @@ impl Choice {
     }
 }
 
+/// What a last-resort card says, before its id is read off the screen.
+struct Draft<'a> {
+    responder: Responder,
+    title: &'static str,
+    question: &'a str,
+    body: Option<String>,
+    choices: Vec<Choice>,
+}
+
 /// `parseFallbackPrompt`.
 pub(crate) fn parse(agent: &str, screen: &str) -> ParsedPrompt {
     let lines = screen_lines(screen);
+    let cleaned: Vec<String> = lines.iter().map(|line| clean_line(line)).collect();
     let shown: Vec<usize> = (0..lines.len())
-        .filter(|&index| !clean_line(&lines[index]).is_empty() && !is_divider(&lines[index]))
+        .filter(|&index| !cleaned[index].is_empty() && !is_divider(&lines[index]))
         .collect();
-    let shown_lines: Vec<String> = shown
-        .iter()
-        .map(|&index| clean_line(&lines[index]))
-        .collect();
+    let shown_lines: Vec<String> = shown.iter().map(|&index| cleaned[index].clone()).collect();
     let steady = Steady::new(agent, &shown_lines);
+    let finish = |draft: Draft| card_of(agent, draft, &shown_lines, &steady);
 
-    if let Some(menu) = menu::find(&lines, &shown) {
+    if let Some(menu) = menu::find(&lines, &cleaned, &shown) {
         let above: Vec<String> = shown
             .iter()
             .zip(&shown_lines)
@@ -99,16 +107,13 @@ pub(crate) fn parse(agent: &str, screen: &str) -> ParsedPrompt {
             .collect();
         // the body is every other line above the rows, so a changed command above a same-looking
         // menu is another card; the display cap applies after the hash
-        return card_of(
-            agent,
-            Responder::Menu,
-            "Waiting for your answer",
-            question.unwrap_or("The agent is waiting for your answer."),
-            without_line(&above, question),
+        return finish(Draft {
+            responder: Responder::Menu,
+            title: "Waiting for your answer",
+            question: question.unwrap_or("The agent is waiting for your answer."),
+            body: without_line(&above, question),
             choices,
-            &shown_lines,
-            &steady,
-        );
+        });
     }
 
     let last = &shown_lines[shown_lines.len().saturating_sub(16)..];
@@ -136,16 +141,13 @@ pub(crate) fn parse(agent: &str, screen: &str) -> ParsedPrompt {
         Choice::key("Enter", Key::Enter),
         Choice::key("Esc", Key::Escape),
     ]);
-    card_of(
-        agent,
-        Responder::Keys,
-        "Waiting for input",
-        question.unwrap_or("The agent is waiting for input."),
-        without_line(last, question),
+    finish(Draft {
+        responder: Responder::Keys,
+        title: "Waiting for input",
+        question: question.unwrap_or("The agent is waiting for input."),
+        body: without_line(last, question),
         choices,
-        &shown_lines,
-        &steady,
-    )
+    })
 }
 
 /// The question among `lines`: the last that asks, or else the last.
@@ -175,17 +177,14 @@ fn without_line(lines: &[String], question: Option<&str>) -> Option<String> {
 /// The card, its id reading the whole visible screen (`screenCard`, server/prompt.ts:1353-1361): a
 /// changed command, footer or wrapped label anywhere on it makes an answer to the old card stale. A
 /// working line's spinner, time and token count are the one thing it leaves out.
-#[allow(clippy::too_many_arguments)]
-fn card_of(
-    agent: &str,
-    responder: Responder,
-    title: &str,
-    question: &str,
-    body: Option<String>,
-    choices: Vec<Choice>,
-    shown_lines: &[String],
-    steady: &Steady,
-) -> ParsedPrompt {
+fn card_of(agent: &str, draft: Draft, shown_lines: &[String], steady: &Steady) -> ParsedPrompt {
+    let Draft {
+        responder,
+        title,
+        question,
+        body,
+        choices,
+    } = draft;
     let screen = FallbackScreen {
         question: steady.read(question).to_owned(),
         body: body.as_deref().map(|body| steady.read_lines(body)),
