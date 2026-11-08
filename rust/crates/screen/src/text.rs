@@ -639,8 +639,8 @@ mod tests {
         }
     }
 
-    /// Issue #218: what Bun 1.4.4's `Bun.stringWidth` returns for the marks, emoji sequences and
-    /// grapheme rules that unicode-width counts otherwise (measured with Bun 1.4.4).
+    /// Issue #218: what Bun 1.4.4's `Bun.stringWidth` returns for spacing marks, emoji sequences
+    /// and each case of its grapheme width rules (measured with Bun 1.4.4).
     #[test]
     fn counts_marks_and_emoji_sequences_as_bun_string_width() {
         let table = [
@@ -695,6 +695,27 @@ mod tests {
         ];
         for (text, width) in table {
             assert_eq!(string_width(text), width, "{text:?}");
+        }
+    }
+
+    /// The columns of a preview's lines as `indexAtColumn` sums them (server/prompt.ts:428-433):
+    /// `Bun.stringWidth` of each segment `Intl.Segmenter` gives, and of the whole line (Bun 1.4.4).
+    /// unicode-segmentation's graphemes are not Bun's: `U+0600 a U+FE0F` is one segment, which Bun
+    /// counts as 1.
+    #[test]
+    fn sums_the_widths_of_graphemes_as_bun_and_intl_segmenter_do() {
+        let table = [
+            ("❯ 1. किताब  ┌──", 13, 13),
+            ("  2. 🇯🇵 flag   │ x", 18, 18),
+            ("  3. 👨\u{200d}👩\u{200d}👧 family │", 16, 16),
+            ("\u{600}a\u{fe0f} b", 3, 3),
+            ("क्ष ❤\u{200d} e\u{301} │", 9, 9),
+            ("1\u{fe0f}\u{20e3} 🇦\u{301} ├", 7, 7),
+        ];
+        for (line, summed, whole) in table {
+            let sum: usize = graphemes(line).map(|(_, g)| string_width(g)).sum();
+            assert_eq!(sum, summed, "{line:?}");
+            assert_eq!(string_width(line), whole, "{line:?}");
         }
     }
 
