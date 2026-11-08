@@ -157,9 +157,11 @@ describe("agy adapter", () => {
   });
 
   it("refuses a force push and a push that deletes a remote branch, and lets an ordinary push through", () => {
-    const rule = new RegExp(/^command\(regex:(.*)\)$/.exec(AGY_DENY[0]!)![1]!);
-    for (const line of ["git push --force", "git push -f origin x", "git push origin x --force-with-lease", "git push -uf origin x", "git push --mirror", "git push origin --delete x", "git push -d origin x", "git push origin :x", "git push origin +x", "git push --prune origin"]) expect(line).toMatch(rule);
-    for (const line of ["git push", "git push -u origin fleet/t1", "git push origin HEAD:refs/heads/x", "git status --force", "git pushd"]) expect(line).not.toMatch(rule);
+    // agy matches a command rule as a prefix of the command line, word by word
+    const words = AGY_DENY.map((rule) => /^command\((.*)\)$/.exec(rule)![1]!.split(" "));
+    const refused = (line: string) => words.some((rule) => rule.every((word, i) => line.split(/\s+/)[i] === word));
+    for (const line of ["git push --force origin main", "git push -f origin x", "git push --force-with-lease", "git push --mirror", "git push --delete origin x", "git push -d origin x", "git push --prune origin"]) expect(refused(line)).toBe(true);
+    for (const line of ["git push", "git push -u origin fleet/t1", "git push origin HEAD:refs/heads/x", "git status --force", "git pushd -f"]) expect(refused(line)).toBe(false);
   });
 
 });

@@ -299,11 +299,12 @@ export function cursorUsage(screen: string, now: number): UsageReading | undefin
  * What agy is told to refuse in every mode (`permissions.deny`, which wins over its auto mode's
  * approvals): a force push and a push that deletes a remote branch, as the opencode rules refuse
  * them. Best effort, like those: the shell stays open, and only the usual spellings are matched.
- * agy matches a `regex:` rule against the whole command line, in Go's regexp syntax.
+ * A rule is a prefix of the command line, matched word by word, so a flag is refused only right
+ * after `git push` (`git push origin x --force` goes through). A `regex:` rule, which the docs
+ * describe, refused nothing in agy 1.5.3, not even `regex:git push.*--force.*`; a prefix did.
  */
-export const AGY_DENY = [
-  String.raw`command(regex:^git\s+push\b.*\s(--force\S*|--mirror|--delete|--prune\S*|-[A-Za-z]*[fd][A-Za-z]*|\+\S+|:\S+)(\s.*)?$)`,
-];
+export const AGY_DENY = ["--force", "--force-with-lease", "--force-if-includes", "-f", "--mirror", "--delete", "-d", "--prune"]
+  .map((flag) => `command(git push ${flag})`);
 
 /** The session settings agy is started with in `cwd` (see agyAdapter). */
 export function agySettings(cwd: string): Record<string, unknown> {
