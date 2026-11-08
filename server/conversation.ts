@@ -602,7 +602,9 @@ const TURN_MARK: Record<TranscriptSource, Buffer> = {
  * Does this line open a turn? Pages start at such lines, so a page never splits
  * a turn: a Codex task (its prompt, duplicate records and tool calls all follow
  * task_started), a Claude or omp prompt (tool results answer the turn before it),
- * and the same for pi, whose prompts are `message` records with a user role.
+ * and the same for pi, whose prompts are `message` records with a user role. A Claude
+ * entry holding a tool result never opens one, also when it carries a new prompt: the
+ * result must be parsed with its call (#141).
  */
 function opensTurn(source: TranscriptSource, line: string): boolean {
   let entry: { type?: unknown; isMeta?: unknown; isCompactSummary?: unknown; payload?: { type?: unknown }; message?: { role?: unknown; content?: unknown } };
@@ -619,8 +621,7 @@ function opensTurn(source: TranscriptSource, line: string): boolean {
   const content = entry.message?.content;
   if (typeof content === "string") return !isCommandEntry(content);
   if (!Array.isArray(content)) return false;
-  // a tool result answers the turn before it, also when a new prompt shares its entry: a page
-  // starting there would parse the result apart from its call and lose the output (#141)
+  // a page starting here would parse the result apart from its call and lose the output
   if (content.some((block: { type?: unknown } | null) => block?.type === "tool_result")) return false;
   return content.some((block: { type?: unknown; text?: unknown } | null) =>
     block?.type === "text" && typeof block.text === "string" && !isCommandEntry(block.text.trim()));
