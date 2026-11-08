@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
-import { findAgent } from "./agents.ts";
+import { contentHash, findAgent, roleVersion } from "./agents.ts";
 import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
 import { contractItems, FROM_PANE, handoffStatus, threadState, type LandAction, type LandingChecks, type LineComment, type PullRequest } from "../../shared/fleet.ts";
 import { readPullRequest, type PullRequestReading } from "./github.ts";
@@ -499,7 +499,9 @@ export class Orchestrator {
     mkdirSync(resultDir, { mode: 0o700 });
     // a project's coordinator talks with the person, who reads its reply: no agent reads a handoff of it
     const resultFile = definition.name === PROJECT_ROLE ? undefined : join(resultDir, RESULT_FILE);
-    const instructions = this.instructions(definition, displayName, request.group, canSpawn, resultFile, adapter, this.deps.standingOrders?.(request.cwd) ?? "");
+    const standing = this.deps.standingOrders?.(request.cwd) ?? "";
+    this.deps.events?.({ kind: "role", run: run.id, ...roleVersion(definition), ...(standing ? { standing: contentHash(standing) } : {}) });
+    const instructions = this.instructions(definition, displayName, request.group, canSpawn, resultFile, adapter, standing);
     if (adapter.instructionsInPrompt) {
       mkdirSync(this.deps.instructionsDir, { recursive: true, mode: 0o700 });
       writeFileSync(this.undeliveredFile(run), instructions, { mode: 0o600 });
