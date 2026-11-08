@@ -58,9 +58,13 @@ impl RecordedOpencodeApi {
             replies: Mutex::new(HashMap::new()),
             unrecorded: Mutex::new(Vec::new()),
         };
+        // `recorded["get"] ?? {}`: a null is no replies, as a missing field is
         let empty = Value::Object(serde_json::Map::new());
         api.set(
-            recorded.get("get").unwrap_or(&empty),
+            recorded
+                .get("get")
+                .filter(|replies| !replies.is_null())
+                .unwrap_or(&empty),
             &format!("{place} get"),
         )?;
         Ok(api)
@@ -206,6 +210,18 @@ fn a_path_not_recorded_fails_naming_it() {
         ))
     );
     assert_eq!(api.unrecorded(), vec!["/y?limit=1&order=desc".to_owned()]);
+}
+
+// `recorded["get"] ?? {}` of scripts/conversation-fixtures.ts:287: a null `get` records no reply.
+#[test]
+fn a_null_get_records_no_reply() {
+    let api = RecordedOpencodeApi::new(
+        &serde_json::json!({ "serviceRunning": false, "get": null }),
+        "api.json",
+    )
+    .expect("a valid api.json");
+    assert_eq!(api.service_running(), Ok(false));
+    assert!(api.get("/api/model").is_err());
 }
 
 #[test]
