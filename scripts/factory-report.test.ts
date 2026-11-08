@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
 import type { TimedEvent } from "../server/fleet/events.ts";
-import { ledger, render } from "./factory-report.ts";
+import { metrics, render } from "./factory-report.ts";
 
 const MIN = 60_000;
 const P = "/repo";
@@ -45,8 +45,8 @@ const merged = [
   { number: 7, title: "into another branch", mergedAt: new Date(44 * MIN).toISOString(), baseRefName: "main" },
 ];
 
-describe("factory ledger", () => {
-  const result = ledger({ events, project: P, base: "rust", from: 0, to: 80 * MIN, quietMs: 15 * MIN, merged, issues });
+describe("factory metrics", () => {
+  const result = metrics({ events, project: P, base: "rust", from: 0, to: 80 * MIN, quietMs: 15 * MIN, merged, issues, planned: /^(phase:|tracking$)/ });
 
   it("counts the person stepping in: messages through the fleet and turns typed into the coordinator's pane", () => {
     expect(result.interventions).toEqual({ messages: 1, typedTurns: 1 });
@@ -73,6 +73,13 @@ describe("factory ledger", () => {
     expect(result.found.map((issue) => issue.number)).toEqual([2]);
     expect(result.reconciled).toBe(1);
     expect(result.standstillCalls).toBe(1);
+  });
+
+  it("lists every issue opened in the window when no planned label is given", () => {
+    const all = metrics({ events, project: P, base: "rust", from: 0, to: 80 * MIN, quietMs: 15 * MIN, merged, issues });
+    expect(all.found.map((issue) => issue.number)).toEqual([1, 2]);
+    expect(render(P, "rust", all)).toContain("- Issues opened: 2");
+    expect(render(P, "rust", result)).toContain("- Issues opened without a planned label (^(phase:|tracking$)): 1");
   });
 
   it("puts the anomalies first", () => {

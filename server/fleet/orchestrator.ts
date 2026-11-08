@@ -152,7 +152,7 @@ export interface OrchestratorDeps {
   /** refuses a model the CLI does not offer, before the run starts (models.ts) */
   models?: Pick<ModelCatalog, "unknown">;
   onChanged?: (run: AgentRun) => void;
-  /** what happened, for the factory's ledger (events.ts) */
+  /** what happened, for the factory's metrics (events.ts) */
   events?: (event: FleetEvent) => void;
 }
 

@@ -1,8 +1,8 @@
 /**
- * The factory's ledger for one project: what the fleet's event log (server/fleet/events.ts) and
+ * The factory's metrics for one project, as a report: what the fleet's event log (server/fleet/events.ts) and
  * GitHub say about a stretch of time, in Markdown, anomalies first. Reads only.
  *
- *   bun scripts/factory-report.ts [--project <repo>] [--base <branch>] [--hours 24] [--events <file>] [--quiet-minutes 15]
+ *   bun scripts/factory-report.ts [--project <repo>] [--base <branch>] [--hours 24] [--events <file>] [--quiet-minutes 15] [--planned-label <regex>]
  *
  * --project defaults to the git root of the working folder, --base to the branch checked out there
  * (the threads' base: pull requests merged elsewhere are not this project's), --events to
@@ -13,8 +13,9 @@
  * - starts per agent and how many failed or stopped at a question, and the agents where that is
  *   an anomaly (two or more, and a third or more of the starts);
  * - turns an agent started by itself (not sent by the fleet), per role;
- * - threads closed against GitHub, pull requests merged, issues closed, and issues opened without a
- *   phase label (found during the work: each is a defect to trace to the change that let it in).
+ * - threads closed against GitHub, pull requests merged into the base, issues closed, and the issues
+ *   opened (with --planned-label <regex>, those without a planned label: found during the work, each
+ *   a defect to trace to the change that let it in).
  * The event log starts when the fleet first wrote it: earlier time is not counted.
  */
 import { existsSync, readFileSync } from "node:fs";
@@ -26,7 +27,7 @@ import { defaultStateDir } from "../server/state-dir.ts";
 export interface PullRequestRow { number: number; title: string; mergedAt: string; baseRefName: string }
 export interface IssueRow { number: number; title: string; createdAt: string; closedAt: string | null; labels: { name: string }[] }
 
-export interface Ledger {
+export interface FactoryMetrics {
   from: number;
   to: number;
   logStart?: number;
@@ -39,6 +40,8 @@ export interface Ledger {
   merged: PullRequestRow[];
   closed: IssueRow[];
   found: IssueRow[];
+  /** the labels of planned issues, as given (--planned-label) */
+  planned?: string;
 }
 
 const MOVING = new Set(["working", "starting"]);
@@ -52,7 +55,7 @@ function projectRuns(events: TimedEvent[], project: string): Set<string> {
   return runs;
 }
 
-export function ledger(input: { events: TimedEvent[]; project: string; base: string; from: number; to: number; quietMs: number; merged: PullRequestRow[]; issues: IssueRow[] }): Ledger {
+export function metrics(input: { events: TimedEvent[]; project: string; base: string; from: number; to: number; quietMs: number; merged: PullRequestRow[]; issues: IssueRow[]; planned?: RegExp }): FactoryMetrics {
   const { project, from, to, quietMs } = input;
   const events = [...input.events].sort((a, b) => a.t - b.t);
   const runs = projectRuns(events, project);
@@ -61,7 +64,7 @@ export function ledger(input: { events: TimedEvent[]; project: string; base: str
 
   // standstills: replay every state change, the ones before the window included, and find the stretches with no run moving
   const states = new Map<string, string>();
-  const standstills: Ledger["standstills"] = [];
+  const standstills: FactoryMetrics["standstills"] = [];
   const logStart = mine[0]?.t;
   let stillSince: number | undefined = logStart !== undefined ? Math.max(logStart, from) : undefined;
   const close = (at: number) => {
@@ -113,24 +116,25 @@ export function ledger(input: { events: TimedEvent[]; project: string; base: str
     reconciled: inWindow.filter((event) => event.kind === "reconciled").length,
     merged: input.merged.filter((pr) => pr.baseRefName === input.base && within(pr.mergedAt)),
     closed: input.issues.filter((issue) => within(issue.closedAt)),
-    found: input.issues.filter((issue) => within(issue.createdAt) && !issue.labels.some((label) => /^(phase:|tracking$)/.test(label.name))),
+    ...(input.planned ? { planned: input.planned.source } : {}),
+    found: input.issues.filter((issue) => within(issue.createdAt) && !issue.labels.some((label) => input.planned?.test(label.name))),
   };
 }
 
 const clock = (at: number) => new Date(at).toLocaleString("sv-SE").slice(0, 16);
 const minutes = (ms: number) => Math.round(ms / 60_000);
 
-export function render(project: string, base: string, ledger: Ledger): string {
+export function render(project: string, base: string, metrics: FactoryMetrics): string {
   const anomalies = [
-    ...(ledger.interventions.messages + ledger.interventions.typedTurns > 0 ? [`The person stepped in ${ledger.interventions.messages + ledger.interventions.typedTurns} times.`] : []),
-    ...ledger.standstills.map((still) => `Stood still ${minutes(still.to - still.from)} minutes (${clock(still.from)} to ${clock(still.to)}).`),
-    ...ledger.starts.filter((row) => row.anomaly).map((row) => `${row.agent}: ${row.failed} of ${row.starts} starts failed or stopped before the task.`),
+    ...(metrics.interventions.messages + metrics.interventions.typedTurns > 0 ? [`The person stepped in ${metrics.interventions.messages + metrics.interventions.typedTurns} times.`] : []),
+    ...metrics.standstills.map((still) => `Stood still ${minutes(still.to - still.from)} minutes (${clock(still.from)} to ${clock(still.to)}).`),
+    ...metrics.starts.filter((row) => row.anomaly).map((row) => `${row.agent}: ${row.failed} of ${row.starts} starts failed or stopped before the task.`),
   ];
-  const standstillTotal = ledger.standstills.reduce((sum, still) => sum + (still.to - still.from), 0);
+  const standstillTotal = metrics.standstills.reduce((sum, still) => sum + (still.to - still.from), 0);
   return [
-    `# Factory ledger: ${project} (${base})`,
+    `# Factory metrics: ${project} (${base})`,
     "",
-    `${clock(ledger.from)} to ${clock(ledger.to)}${ledger.logStart !== undefined && ledger.logStart > ledger.from ? ` (the event log starts ${clock(ledger.logStart)})` : ledger.logStart === undefined ? " (no events for this project)" : ""}`,
+    `${clock(metrics.from)} to ${clock(metrics.to)}${metrics.logStart !== undefined && metrics.logStart > metrics.from ? ` (the event log starts ${clock(metrics.logStart)})` : metrics.logStart === undefined ? " (no events for this project)" : ""}`,
     "",
     "## Anomalies",
     "",
@@ -138,22 +142,22 @@ export function render(project: string, base: string, ledger: Ledger): string {
     "",
     "## Without the person",
     "",
-    `- The person stepped in: ${ledger.interventions.messages} messages through the fleet, ${ledger.interventions.typedTurns} turns typed into the coordinator's pane`,
-    `- Stood still: ${ledger.standstills.length} times, ${minutes(standstillTotal)} minutes in all; the coordinator was called ${ledger.standstillCalls} times`,
-    `- Threads closed against GitHub: ${ledger.reconciled}`,
-    `- Turns an agent started by itself: ${Object.entries(ledger.ownTurns).map(([role, count]) => `${role} ${count}`).join(", ") || "none"}`,
+    `- The person stepped in: ${metrics.interventions.messages} messages through the fleet, ${metrics.interventions.typedTurns} turns typed into the coordinator's pane`,
+    `- Stood still: ${metrics.standstills.length} times, ${minutes(standstillTotal)} minutes in all; the coordinator was called ${metrics.standstillCalls} times`,
+    `- Threads closed against GitHub: ${metrics.reconciled}`,
+    `- Turns an agent started by itself: ${Object.entries(metrics.ownTurns).map(([role, count]) => `${role} ${count}`).join(", ") || "none"}`,
     "",
     "## Starts per agent",
     "",
     "| Agent | Starts | Failed or stopped before the task |",
     "|---|---|---|",
-    ...(ledger.starts.length ? ledger.starts.map((row) => `| ${row.agent} | ${row.starts} | ${row.failed}${row.anomaly ? " (anomaly)" : ""} |`) : ["| none | 0 | 0 |"]),
+    ...(metrics.starts.length ? metrics.starts.map((row) => `| ${row.agent} | ${row.starts} | ${row.failed}${row.anomaly ? " (anomaly)" : ""} |`) : ["| none | 0 | 0 |"]),
     "",
     "## Output",
     "",
-    `- Pull requests merged: ${ledger.merged.length}${ledger.merged.length ? ` (${ledger.merged.map((pr) => `#${pr.number}`).join(", ")})` : ""}`,
-    `- Issues closed: ${ledger.closed.length}`,
-    `- Issues found during the work (no phase label): ${ledger.found.length}${ledger.found.length ? `: ${ledger.found.map((issue) => `#${issue.number} ${issue.title}`).join("; ")}` : ""}`,
+    `- Pull requests merged: ${metrics.merged.length}${metrics.merged.length ? ` (${metrics.merged.map((pr) => `#${pr.number}`).join(", ")})` : ""}`,
+    `- Issues closed: ${metrics.closed.length}`,
+    `- Issues opened${metrics.planned ? ` without a planned label (${metrics.planned})` : ""}: ${metrics.found.length}${metrics.found.length ? `: ${metrics.found.map((issue) => `#${issue.number} ${issue.title}`).join("; ")}` : ""}`,
     "",
   ].join("\n");
 }
@@ -165,7 +169,7 @@ function gh<T>(project: string, args: string[]): T {
 }
 
 if (import.meta.main) {
-  const { values } = parseArgs({ options: { project: { type: "string" }, base: { type: "string" }, hours: { type: "string" }, events: { type: "string" }, "quiet-minutes": { type: "string" } } });
+  const { values } = parseArgs({ options: { project: { type: "string" }, base: { type: "string" }, "planned-label": { type: "string" }, hours: { type: "string" }, events: { type: "string" }, "quiet-minutes": { type: "string" } } });
   const root = Bun.spawnSync(["git", "-c", "core.fsmonitor=false", "rev-parse", "--show-toplevel"], { stdout: "pipe" }).stdout.toString().trim();
   const project = values.project ?? root;
   if (!project) throw new Error("--project is required outside a git repository");
@@ -178,5 +182,5 @@ if (import.meta.main) {
     : [];
   const merged = gh<PullRequestRow[]>(project, ["pr", "list", "--state", "merged", "--limit", "200", "--json", "number,title,mergedAt,baseRefName"]);
   const issues = gh<IssueRow[]>(project, ["issue", "list", "--state", "all", "--limit", "500", "--json", "number,title,createdAt,closedAt,labels"]);
-  console.log(render(project, base, ledger({ events, project, base, from, to, quietMs: Number(values["quiet-minutes"] ?? 15) * 60_000, merged, issues })));
+  console.log(render(project, base, metrics({ events, project, base, from, to, quietMs: Number(values["quiet-minutes"] ?? 15) * 60_000, merged, issues, ...(values["planned-label"] ? { planned: new RegExp(values["planned-label"]) } : {}) })));
 }

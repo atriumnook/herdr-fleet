@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 
 /**
  * What happened in the fleet, one JSON object per line, appended and never rewritten: the raw data
- * the factory's ledger is computed from (scripts/factory-report.ts). The run registry keeps each
+ * the factory's metrics are computed from (scripts/factory-report.ts). The run registry keeps each
  * run's last state only; this keeps every change, so how long a project stood still, how often the
  * person stepped in and how often an agent failed to start can be counted afterwards.
  *
@@ -29,7 +29,7 @@ export function eventLog(file: string): (event: FleetEvent) => void {
       if (!ready) { mkdirSync(dirname(file), { recursive: true, mode: 0o700 }); ready = true; }
       appendFileSync(file, `${JSON.stringify({ t: Date.now(), ...event })}\n`, { mode: 0o600 });
     } catch {
-      // the ledger misses one event; the run itself goes on
+      // the metrics miss one event; the run itself goes on
     }
   };
 }
