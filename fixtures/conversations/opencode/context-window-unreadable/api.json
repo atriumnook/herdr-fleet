@@ -1,0 +1,43 @@
+{
+  "serviceRunning": true,
+  "get": {
+    "/api/session/ses_testsession0001": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "ses_testsession0001",
+          "time": {"created":1,"updated":1},
+          "tokens": {"input":0,"output":0},
+          "cost": 0
+        }
+      }
+    },
+    "/api/session/ses_testsession0001/message?limit=100&order=desc": {
+      "status": 200,
+      "body": {
+        "data": [
+          {"id":"msg_a2_2","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x"},"time":{"created":10190,"completed":10191},"finish":"tool-calls","tokens":{"input":10,"output":1,"reasoning":0,"cache":{"read":90,"write":0}},"content":[{"type":"text","text":"<msg_a2_2>"}]},
+          {"id":"msg_a2_1","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x"},"time":{"created":10189,"completed":10190},"finish":"tool-calls","tokens":{"input":10,"output":1,"reasoning":0,"cache":{"read":90,"write":0}},"content":[{"type":"text","text":"<msg_a2_1>"}]},
+          {"id":"msg_a2_0","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x"},"time":{"created":10188,"completed":10189},"finish":"tool-calls","tokens":{"input":10,"output":1,"reasoning":0,"cache":{"read":90,"write":0}},"content":[{"type":"text","text":"<msg_a2_0>"}]},
+          {"id":"msg_u2","type":"user","time":{"created":10187},"text":"<msg_u2>"},
+          {"id":"msg_a1_2","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x"},"time":{"created":10186,"completed":10187},"finish":"tool-calls","tokens":{"input":10,"output":1,"reasoning":0,"cache":{"read":90,"write":0}},"content":[{"type":"text","text":"<msg_a1_2>"}]},
+          {"id":"msg_a1_1","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x"},"time":{"created":10185,"completed":10186},"finish":"tool-calls","tokens":{"input":10,"output":1,"reasoning":0,"cache":{"read":90,"write":0}},"content":[{"type":"text","text":"<msg_a1_1>"}]},
+          {"id":"msg_a1_0","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x"},"time":{"created":10184,"completed":10185},"finish":"tool-calls","tokens":{"input":10,"output":1,"reasoning":0,"cache":{"read":90,"write":0}},"content":[{"type":"text","text":"<msg_a1_0>"}]},
+          {"id":"msg_u1","type":"user","time":{"created":10183},"text":"<msg_u1>"},
+          {"id":"msg_a0_2","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x"},"time":{"created":10182,"completed":10183},"finish":"tool-calls","tokens":{"input":10,"output":1,"reasoning":0,"cache":{"read":90,"write":0}},"content":[{"type":"text","text":"<msg_a0_2>"}]},
+          {"id":"msg_a0_1","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x"},"time":{"created":10181,"completed":10182},"finish":"tool-calls","tokens":{"input":10,"output":1,"reasoning":0,"cache":{"read":90,"write":0}},"content":[{"type":"text","text":"<msg_a0_1>"}]},
+          {"id":"msg_a0_0","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x"},"time":{"created":10180,"completed":10181},"finish":"tool-calls","tokens":{"input":10,"output":1,"reasoning":0,"cache":{"read":90,"write":0}},"content":[{"type":"text","text":"<msg_a0_0>"}]},
+          {"id":"msg_u0","type":"user","time":{"created":10179},"text":"<msg_u0>"}
+        ],
+        "cursor": {
+          "previous": "eyJpZCI6Im1zZ19hMl8yIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+          "next": "eyJpZCI6Im1zZ191MCIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6Im5leHQifQ"
+        }
+      }
+    },
+    "/api/model": {
+      "status": 500,
+      "body": {}
+    }
+  }
+}

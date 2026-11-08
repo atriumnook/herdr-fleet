@@ -1,0 +1,45 @@
+{
+  "serviceRunning": true,
+  "get": {
+    "/api/session/ses_testsession0001": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "ses_testsession0001",
+          "time": {"created":1,"updated":1},
+          "tokens": {"input":0,"output":0},
+          "cost": 0
+        }
+      }
+    },
+    "/api/session/ses_testsession0001/message?cursor=eyJpZCI6Im1zZ19nb25lIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9&limit=100": {
+      "status": 200,
+      "body": {
+        "data": []
+      }
+    },
+    "/api/session/ses_testsession0001/message/msg_gone": {
+      "status": 404,
+      "body": {
+        "_tag": "MessageNotFoundError"
+      }
+    },
+    "/api/session/ses_testsession0001/message?cursor=eyJpZCI6Im1zZ191MCIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6Im5leHQifQ&limit=100": {
+      "status": 200,
+      "body": {
+        "data": []
+      }
+    },
+    "/api/session/ses_testsession0001/message/msg_u0": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "msg_u0",
+          "type": "user",
+          "time": {"created":4162},
+          "text": "<msg_u0>"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,193 @@
+{
+  "about": "server/opencode-messages.test.ts: whether the end of the list is still being written > the newest step decides, not an older one. stillWriting's input is the session's message list and its `now` the clock (`at`); whether it is still being written shows as whether the next poll reads it again: the poll after a synthetic message is put before the oldest (the session's time and newest message as they were) shows that message only when the list was still being written",
+  "steps": [
+    {
+      "at": 100000
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:00.001Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<a>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:49.500Z"
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null,
+          "context": {
+            "used": 110,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    },
+    {
+      "api": {
+        "/api/session/ses_testsession0001/message?limit=100&order=desc": {
+          "status": 200,
+          "body": {
+            "data": [
+              {
+                "id": "msg_a2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x",
+                  "variant": "default"
+                },
+                "time": {
+                  "created": 49000,
+                  "completed": 49500
+                },
+                "finish": "tool-calls",
+                "cost": 0,
+                "tokens": {
+                  "input": 10,
+                  "output": 5,
+                  "reasoning": 1,
+                  "cache": {
+                    "read": 100,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<a>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x",
+                  "variant": "default"
+                },
+                "time": {
+                  "created": 1
+                },
+                "finish": "tool-calls",
+                "cost": 0,
+                "tokens": {
+                  "input": 10,
+                  "output": 5,
+                  "reasoning": 1,
+                  "cache": {
+                    "read": 100,
+                    "write": 0
+                  }
+                },
+                "content": []
+              },
+              {
+                "id": "msg_0readagain",
+                "type": "synthetic",
+                "time": {
+                  "created": 0
+                },
+                "text": "<read again>"
+              }
+            ],
+            "cursor": {
+              "previous": "eyJpZCI6Im1zZ19hMiIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6InByZXZpb3VzIn0",
+              "next": "eyJpZCI6Im1zZ18wcmVhZGFnYWluIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+            }
+          }
+        },
+        "/api/session/ses_testsession0001/message?limit=1&order=desc": {
+          "status": 200,
+          "body": {
+            "data": [
+              {
+                "id": "msg_a2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x",
+                  "variant": "default"
+                },
+                "time": {
+                  "created": 49000,
+                  "completed": 49500
+                },
+                "finish": "tool-calls",
+                "cost": 0,
+                "tokens": {
+                  "input": 10,
+                  "output": 5,
+                  "reasoning": 1,
+                  "cache": {
+                    "read": 100,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<a>"
+                  }
+                ]
+              }
+            ],
+            "cursor": {
+              "previous": "eyJpZCI6Im1zZ19hMiIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6InByZXZpb3VzIn0",
+              "next": "eyJpZCI6Im1zZ19hMiIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6Im5leHQifQ"
+            }
+          }
+        }
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:00.001Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<a>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:49.500Z"
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null,
+          "context": {
+            "used": 110,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    }
+  ]
+}

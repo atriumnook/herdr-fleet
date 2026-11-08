@@ -1,0 +1,2084 @@
+{
+  "about": "server/opencode-session.test.ts: older pages > a gap of more than a fetch is read on until `since`, not answered as a changed history",
+  "steps": [
+    {
+      "at": 100
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.027Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u55>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.028Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a55_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a55_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a55_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.031Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.031Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u56>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.032Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a56_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a56_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a56_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.035Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.035Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u57>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.036Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a57_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a57_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a57_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.039Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.039Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u58>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.040Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a58_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a58_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a58_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.043Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.043Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u59>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.044Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a59_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a59_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a59_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.047Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.047Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u60>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.048Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a60_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a60_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a60_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.051Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.051Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u61>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.052Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a61_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a61_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a61_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.055Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.055Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u62>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.056Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a62_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a62_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a62_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.059Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.059Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u63>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.060Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a63_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a63_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a63_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.063Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.063Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u64>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.064Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a64_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a64_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a64_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.067Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.067Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u65>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.068Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a65_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a65_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a65_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.071Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.071Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u66>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.072Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a66_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a66_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a66_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.075Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.075Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u67>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.076Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a67_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a67_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a67_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.079Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.079Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u68>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.080Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a68_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a68_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a68_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.083Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.083Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u69>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.084Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a69_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a69_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a69_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.087Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.087Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u70>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.088Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a70_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a70_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a70_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.091Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.091Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u71>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.092Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a71_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a71_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a71_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.095Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.095Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u72>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.096Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a72_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a72_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a72_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.099Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.099Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u73>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.100Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a73_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a73_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a73_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.103Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.103Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u74>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.104Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a74_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a74_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a74_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.107Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.107Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u75>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.108Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a75_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a75_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a75_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.111Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.111Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u76>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.112Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a76_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a76_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a76_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.115Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.115Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u77>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.116Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a77_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a77_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a77_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.119Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.119Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u78>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.120Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a78_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a78_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a78_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.123Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.123Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u79>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.124Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a79_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a79_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a79_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.127Z"
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null,
+          "context": {
+            "used": 100,
+            "window": null
+          }
+        },
+        "cursor": "msg_u55",
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "before": "msg_u55",
+        "since": "msg_u10"
+      },
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.847Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u10>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.848Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a10_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a10_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a10_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.851Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.851Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u11>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.852Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a11_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a11_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a11_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.855Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.855Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u12>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.856Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a12_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a12_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a12_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.859Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.859Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u13>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.860Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a13_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a13_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a13_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.863Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.863Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u14>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.864Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a14_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a14_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a14_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.867Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.867Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u15>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.868Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a15_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a15_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a15_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.871Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.871Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u16>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.872Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a16_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a16_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a16_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.875Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.875Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u17>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.876Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a17_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a17_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a17_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.879Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.879Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u18>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.880Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a18_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a18_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a18_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.883Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.883Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u19>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.884Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a19_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a19_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a19_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.887Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.887Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u20>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.888Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a20_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a20_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a20_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.891Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.891Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u21>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.892Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a21_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a21_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a21_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.895Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.895Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u22>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.896Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a22_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a22_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a22_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.899Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.899Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u23>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.900Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a23_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a23_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a23_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.903Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.903Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u24>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.904Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a24_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a24_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a24_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.907Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.907Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u25>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.908Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a25_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a25_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a25_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.911Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.911Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u26>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.912Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a26_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a26_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a26_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.915Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.915Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u27>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.916Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a27_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a27_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a27_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.919Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.919Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u28>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.920Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a28_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a28_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a28_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.923Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.923Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u29>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.924Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a29_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a29_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a29_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.927Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.927Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u30>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.928Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a30_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a30_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a30_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.931Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.931Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u31>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.932Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a31_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a31_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a31_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.935Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.935Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u32>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.936Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a32_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a32_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a32_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.939Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.939Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u33>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.940Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a33_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a33_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a33_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.943Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.943Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u34>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.944Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a34_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a34_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a34_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.947Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.947Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u35>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.948Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a35_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a35_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a35_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.951Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.951Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u36>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.952Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a36_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a36_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a36_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.955Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.955Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u37>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.956Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a37_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a37_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a37_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.959Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.959Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u38>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.960Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a38_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a38_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a38_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.963Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.963Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u39>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.964Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a39_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a39_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a39_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.967Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.967Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u40>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.968Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a40_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a40_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a40_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.971Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.971Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u41>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.972Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a41_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a41_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a41_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.975Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.975Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u42>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.976Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a42_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a42_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a42_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.979Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.979Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u43>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.980Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a43_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a43_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a43_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.983Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.983Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u44>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.984Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a44_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a44_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a44_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.987Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.987Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u45>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.988Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a45_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a45_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a45_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.991Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.991Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u46>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.992Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a46_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a46_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a46_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.995Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.995Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u47>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:01.996Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a47_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a47_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a47_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:01.999Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:01.999Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u48>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a48_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a48_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a48_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.003Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.003Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u49>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.004Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a49_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a49_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a49_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.007Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.007Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u50>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.008Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a50_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a50_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a50_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.011Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.011Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u51>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.012Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a51_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a51_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a51_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.015Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.015Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u52>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.016Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a52_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a52_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a52_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.019Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.019Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u53>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.020Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a53_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a53_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a53_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.023Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:02.023Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u54>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:02.024Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a54_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a54_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a54_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:02.027Z"
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null,
+          "context": {
+            "used": 100,
+            "window": null
+          }
+        },
+        "cursor": "msg_u10",
+        "history_id": "ses_testsession0001",
+        "version": "$v2"
+      }
+    }
+  ]
+}

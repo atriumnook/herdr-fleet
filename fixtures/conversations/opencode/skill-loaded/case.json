@@ -1,0 +1,69 @@
+{
+  "about": "server/opencode-messages.test.ts: what the runtime says > a loaded skill is skill activity under its name, not its id. parseOpencodeMessages's input is the session's message list, read by a page; the turns compared, the first ids only as the cursor (null: the page begins at the beginning)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:00.001Z",
+            "parts": [
+              {
+                "kind": "skill",
+                "skill": {
+                  "name": "<skill name>",
+                  "evidence": "instructions",
+                  "status": "loaded"
+                }
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:00.001Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0002",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:00.001Z",
+            "parts": [
+              {
+                "kind": "skill",
+                "skill": {
+                  "name": "<skill id>",
+                  "evidence": "instructions",
+                  "status": "loaded"
+                }
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:00.001Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0002",
+        "version": "$v2"
+      }
+    }
+  ]
+}

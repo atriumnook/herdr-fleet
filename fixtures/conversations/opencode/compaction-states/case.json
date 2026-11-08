@@ -1,0 +1,76 @@
+{
+  "about": "server/opencode-messages.test.ts: what the runtime says > a completed compaction is the summary it left; a running one shows nothing; a failed one says so. parseOpencodeMessages's input is the session's message list, read by a page; the turns compared, the first ids only as the cursor (null: the page begins at the beginning)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:00.001Z",
+            "parts": [
+              {
+                "kind": "compact",
+                "text": "<summary>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0002",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0002",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0003",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:00.003Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Error: compaction failed: <why>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:00.003Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0003",
+        "version": "$v3"
+      }
+    }
+  ]
+}

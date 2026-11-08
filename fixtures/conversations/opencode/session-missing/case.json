@@ -1,0 +1,28 @@
+{
+  "about": "server/opencode-session.test.ts: when there is nothing to read > a session the service does not have is the scrollback, or a changed history when a cursor was held",
+  "steps": [
+    {
+      "at": 100
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "error": "ConversationUnavailable",
+        "reason": "opencode_session_missing"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "from": "msg_u1"
+      },
+      "expected": {
+        "error": "HistoryChanged"
+      }
+    }
+  ]
+}

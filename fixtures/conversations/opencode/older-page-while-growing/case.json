@@ -1,0 +1,4659 @@
+{
+  "about": "server/opencode-session.test.ts: older pages > an older page does not change while the session grows",
+  "steps": [
+    {
+      "at": 100
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.394Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u55>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.395Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a55_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a55_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a55_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.398Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.398Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u56>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.399Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a56_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a56_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a56_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.402Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.402Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u57>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.403Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a57_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a57_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a57_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.406Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.406Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u58>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.407Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a58_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a58_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a58_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.410Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.410Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u59>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.411Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a59_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a59_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a59_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.414Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.414Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u60>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.415Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a60_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a60_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a60_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.418Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.418Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u61>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.419Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a61_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a61_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a61_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.422Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.422Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u62>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.423Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a62_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a62_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a62_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.426Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.426Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u63>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.427Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a63_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a63_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a63_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.430Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.430Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u64>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.431Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a64_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a64_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a64_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.434Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.434Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u65>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.435Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a65_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a65_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a65_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.438Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.438Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u66>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.439Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a66_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a66_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a66_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.442Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.442Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u67>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.443Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a67_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a67_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a67_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.446Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.446Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u68>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.447Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a68_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a68_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a68_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.450Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.450Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u69>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.451Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a69_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a69_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a69_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.454Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.454Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u70>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.455Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a70_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a70_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a70_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.458Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.458Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u71>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.459Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a71_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a71_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a71_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.462Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.462Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u72>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.463Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a72_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a72_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a72_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.466Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.466Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u73>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.467Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a73_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a73_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a73_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.470Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.470Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u74>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.471Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a74_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a74_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a74_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.474Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.474Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u75>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.475Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a75_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a75_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a75_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.478Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.478Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u76>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.479Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a76_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a76_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a76_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.482Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.482Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u77>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.483Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a77_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a77_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a77_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.486Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.486Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u78>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.487Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a78_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a78_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a78_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.490Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.490Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u79>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.491Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a79_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a79_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a79_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.494Z"
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null,
+          "context": {
+            "used": 100,
+            "window": null
+          }
+        },
+        "cursor": "msg_u55",
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "before": "msg_u55"
+      },
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.294Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u30>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.295Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a30_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a30_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a30_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.298Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.298Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u31>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.299Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a31_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a31_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a31_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.302Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.302Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u32>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.303Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a32_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a32_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a32_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.306Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.306Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u33>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.307Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a33_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a33_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a33_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.310Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.310Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u34>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.311Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a34_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a34_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a34_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.314Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.314Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u35>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.315Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a35_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a35_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a35_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.318Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.318Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u36>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.319Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a36_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a36_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a36_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.322Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.322Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u37>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.323Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a37_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a37_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a37_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.326Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.326Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u38>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.327Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a38_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a38_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a38_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.330Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.330Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u39>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.331Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a39_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a39_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a39_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.334Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.334Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u40>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.335Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a40_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a40_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a40_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.338Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.338Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u41>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.339Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a41_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a41_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a41_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.342Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.342Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u42>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.343Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a42_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a42_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a42_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.346Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.346Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u43>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.347Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a43_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a43_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a43_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.350Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.350Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u44>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.351Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a44_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a44_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a44_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.354Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.354Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u45>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.355Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a45_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a45_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a45_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.358Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.358Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u46>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.359Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a46_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a46_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a46_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.362Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.362Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u47>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.363Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a47_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a47_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a47_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.366Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.366Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u48>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.367Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a48_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a48_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a48_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.370Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.370Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u49>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.371Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a49_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a49_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a49_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.374Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.374Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u50>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.375Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a50_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a50_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a50_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.378Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.378Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u51>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.379Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a51_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a51_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a51_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.382Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.382Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u52>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.383Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a52_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a52_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a52_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.386Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.386Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u53>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.387Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a53_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a53_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a53_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.390Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.390Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u54>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.391Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a54_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a54_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a54_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.394Z"
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null,
+          "context": {
+            "used": 100,
+            "window": null
+          }
+        },
+        "cursor": "msg_u30",
+        "history_id": "ses_testsession0001",
+        "version": "$v2"
+      }
+    },
+    {
+      "api": {
+        "/api/session/ses_testsession0001": {
+          "status": 200,
+          "body": {
+            "data": {
+              "id": "ses_testsession0001",
+              "time": {
+                "created": 1,
+                "updated": 2
+              },
+              "tokens": {
+                "input": 0,
+                "output": 0
+              },
+              "cost": 0
+            }
+          }
+        },
+        "/api/session/ses_testsession0001/message?limit=100&order=desc": {
+          "status": 200,
+          "body": {
+            "data": [
+              {
+                "id": "msg_a0_2_new",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4497,
+                  "completed": 4498
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a0_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a0_1_new",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4496,
+                  "completed": 4497
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a0_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a0_0_new",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4495,
+                  "completed": 4496
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a0_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u0_new",
+                "type": "user",
+                "time": {
+                  "created": 4494
+                },
+                "text": "<msg_u0>"
+              },
+              {
+                "id": "msg_a79_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4493,
+                  "completed": 4494
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a79_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a79_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4492,
+                  "completed": 4493
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a79_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a79_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4491,
+                  "completed": 4492
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a79_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u79",
+                "type": "user",
+                "time": {
+                  "created": 4490
+                },
+                "text": "<msg_u79>"
+              },
+              {
+                "id": "msg_a78_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4489,
+                  "completed": 4490
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a78_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a78_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4488,
+                  "completed": 4489
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a78_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a78_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4487,
+                  "completed": 4488
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a78_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u78",
+                "type": "user",
+                "time": {
+                  "created": 4486
+                },
+                "text": "<msg_u78>"
+              },
+              {
+                "id": "msg_a77_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4485,
+                  "completed": 4486
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a77_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a77_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4484,
+                  "completed": 4485
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a77_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a77_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4483,
+                  "completed": 4484
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a77_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u77",
+                "type": "user",
+                "time": {
+                  "created": 4482
+                },
+                "text": "<msg_u77>"
+              },
+              {
+                "id": "msg_a76_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4481,
+                  "completed": 4482
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a76_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a76_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4480,
+                  "completed": 4481
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a76_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a76_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4479,
+                  "completed": 4480
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a76_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u76",
+                "type": "user",
+                "time": {
+                  "created": 4478
+                },
+                "text": "<msg_u76>"
+              },
+              {
+                "id": "msg_a75_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4477,
+                  "completed": 4478
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a75_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a75_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4476,
+                  "completed": 4477
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a75_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a75_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4475,
+                  "completed": 4476
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a75_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u75",
+                "type": "user",
+                "time": {
+                  "created": 4474
+                },
+                "text": "<msg_u75>"
+              },
+              {
+                "id": "msg_a74_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4473,
+                  "completed": 4474
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a74_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a74_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4472,
+                  "completed": 4473
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a74_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a74_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4471,
+                  "completed": 4472
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a74_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u74",
+                "type": "user",
+                "time": {
+                  "created": 4470
+                },
+                "text": "<msg_u74>"
+              },
+              {
+                "id": "msg_a73_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4469,
+                  "completed": 4470
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a73_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a73_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4468,
+                  "completed": 4469
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a73_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a73_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4467,
+                  "completed": 4468
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a73_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u73",
+                "type": "user",
+                "time": {
+                  "created": 4466
+                },
+                "text": "<msg_u73>"
+              },
+              {
+                "id": "msg_a72_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4465,
+                  "completed": 4466
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a72_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a72_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4464,
+                  "completed": 4465
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a72_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a72_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4463,
+                  "completed": 4464
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a72_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u72",
+                "type": "user",
+                "time": {
+                  "created": 4462
+                },
+                "text": "<msg_u72>"
+              },
+              {
+                "id": "msg_a71_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4461,
+                  "completed": 4462
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a71_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a71_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4460,
+                  "completed": 4461
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a71_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a71_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4459,
+                  "completed": 4460
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a71_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u71",
+                "type": "user",
+                "time": {
+                  "created": 4458
+                },
+                "text": "<msg_u71>"
+              },
+              {
+                "id": "msg_a70_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4457,
+                  "completed": 4458
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a70_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a70_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4456,
+                  "completed": 4457
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a70_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a70_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4455,
+                  "completed": 4456
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a70_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u70",
+                "type": "user",
+                "time": {
+                  "created": 4454
+                },
+                "text": "<msg_u70>"
+              },
+              {
+                "id": "msg_a69_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4453,
+                  "completed": 4454
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a69_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a69_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4452,
+                  "completed": 4453
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a69_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a69_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4451,
+                  "completed": 4452
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a69_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u69",
+                "type": "user",
+                "time": {
+                  "created": 4450
+                },
+                "text": "<msg_u69>"
+              },
+              {
+                "id": "msg_a68_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4449,
+                  "completed": 4450
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a68_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a68_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4448,
+                  "completed": 4449
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a68_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a68_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4447,
+                  "completed": 4448
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a68_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u68",
+                "type": "user",
+                "time": {
+                  "created": 4446
+                },
+                "text": "<msg_u68>"
+              },
+              {
+                "id": "msg_a67_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4445,
+                  "completed": 4446
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a67_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a67_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4444,
+                  "completed": 4445
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a67_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a67_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4443,
+                  "completed": 4444
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a67_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u67",
+                "type": "user",
+                "time": {
+                  "created": 4442
+                },
+                "text": "<msg_u67>"
+              },
+              {
+                "id": "msg_a66_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4441,
+                  "completed": 4442
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a66_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a66_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4440,
+                  "completed": 4441
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a66_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a66_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4439,
+                  "completed": 4440
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a66_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u66",
+                "type": "user",
+                "time": {
+                  "created": 4438
+                },
+                "text": "<msg_u66>"
+              },
+              {
+                "id": "msg_a65_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4437,
+                  "completed": 4438
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a65_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a65_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4436,
+                  "completed": 4437
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a65_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a65_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4435,
+                  "completed": 4436
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a65_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u65",
+                "type": "user",
+                "time": {
+                  "created": 4434
+                },
+                "text": "<msg_u65>"
+              },
+              {
+                "id": "msg_a64_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4433,
+                  "completed": 4434
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a64_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a64_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4432,
+                  "completed": 4433
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a64_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a64_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4431,
+                  "completed": 4432
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a64_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u64",
+                "type": "user",
+                "time": {
+                  "created": 4430
+                },
+                "text": "<msg_u64>"
+              },
+              {
+                "id": "msg_a63_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4429,
+                  "completed": 4430
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a63_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a63_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4428,
+                  "completed": 4429
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a63_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a63_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4427,
+                  "completed": 4428
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a63_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u63",
+                "type": "user",
+                "time": {
+                  "created": 4426
+                },
+                "text": "<msg_u63>"
+              },
+              {
+                "id": "msg_a62_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4425,
+                  "completed": 4426
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a62_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a62_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4424,
+                  "completed": 4425
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a62_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a62_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4423,
+                  "completed": 4424
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a62_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u62",
+                "type": "user",
+                "time": {
+                  "created": 4422
+                },
+                "text": "<msg_u62>"
+              },
+              {
+                "id": "msg_a61_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4421,
+                  "completed": 4422
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a61_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a61_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4420,
+                  "completed": 4421
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a61_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a61_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4419,
+                  "completed": 4420
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a61_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u61",
+                "type": "user",
+                "time": {
+                  "created": 4418
+                },
+                "text": "<msg_u61>"
+              },
+              {
+                "id": "msg_a60_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4417,
+                  "completed": 4418
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a60_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a60_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4416,
+                  "completed": 4417
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a60_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a60_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4415,
+                  "completed": 4416
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a60_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u60",
+                "type": "user",
+                "time": {
+                  "created": 4414
+                },
+                "text": "<msg_u60>"
+              },
+              {
+                "id": "msg_a59_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4413,
+                  "completed": 4414
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a59_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a59_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4412,
+                  "completed": 4413
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a59_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a59_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4411,
+                  "completed": 4412
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a59_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u59",
+                "type": "user",
+                "time": {
+                  "created": 4410
+                },
+                "text": "<msg_u59>"
+              },
+              {
+                "id": "msg_a58_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4409,
+                  "completed": 4410
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a58_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a58_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4408,
+                  "completed": 4409
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a58_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a58_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4407,
+                  "completed": 4408
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a58_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u58",
+                "type": "user",
+                "time": {
+                  "created": 4406
+                },
+                "text": "<msg_u58>"
+              },
+              {
+                "id": "msg_a57_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4405,
+                  "completed": 4406
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a57_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a57_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4404,
+                  "completed": 4405
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a57_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a57_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4403,
+                  "completed": 4404
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a57_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u57",
+                "type": "user",
+                "time": {
+                  "created": 4402
+                },
+                "text": "<msg_u57>"
+              },
+              {
+                "id": "msg_a56_2",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4401,
+                  "completed": 4402
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a56_2>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a56_1",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4400,
+                  "completed": 4401
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a56_1>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_a56_0",
+                "type": "assistant",
+                "agent": "build",
+                "model": {
+                  "id": "model-x",
+                  "providerID": "prov-x"
+                },
+                "time": {
+                  "created": 4399,
+                  "completed": 4400
+                },
+                "finish": "tool-calls",
+                "tokens": {
+                  "input": 10,
+                  "output": 1,
+                  "reasoning": 0,
+                  "cache": {
+                    "read": 90,
+                    "write": 0
+                  }
+                },
+                "content": [
+                  {
+                    "type": "text",
+                    "text": "<msg_a56_0>"
+                  }
+                ]
+              },
+              {
+                "id": "msg_u56",
+                "type": "user",
+                "time": {
+                  "created": 4398
+                },
+                "text": "<msg_u56>"
+              }
+            ],
+            "cursor": {
+              "previous": "eyJpZCI6Im1zZ19hMF8yX25ldyIsIm9yZGVyIjoiZGVzYyIsImRpcmVjdGlvbiI6InByZXZpb3VzIn0",
+              "next": "eyJpZCI6Im1zZ191NTYiLCJvcmRlciI6ImRlc2MiLCJkaXJlY3Rpb24iOiJuZXh0In0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "before": "msg_u55"
+      },
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.294Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u30>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.295Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a30_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a30_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a30_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.298Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.298Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u31>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.299Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a31_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a31_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a31_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.302Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.302Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u32>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.303Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a32_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a32_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a32_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.306Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.306Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u33>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.307Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a33_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a33_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a33_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.310Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.310Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u34>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.311Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a34_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a34_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a34_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.314Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.314Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u35>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.315Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a35_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a35_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a35_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.318Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.318Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u36>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.319Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a36_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a36_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a36_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.322Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.322Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u37>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.323Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a37_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a37_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a37_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.326Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.326Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u38>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.327Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a38_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a38_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a38_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.330Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.330Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u39>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.331Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a39_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a39_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a39_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.334Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.334Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u40>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.335Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a40_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a40_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a40_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.338Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.338Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u41>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.339Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a41_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a41_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a41_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.342Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.342Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u42>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.343Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a42_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a42_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a42_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.346Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.346Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u43>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.347Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a43_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a43_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a43_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.350Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.350Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u44>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.351Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a44_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a44_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a44_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.354Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.354Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u45>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.355Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a45_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a45_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a45_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.358Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.358Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u46>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.359Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a46_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a46_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a46_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.362Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.362Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u47>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.363Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a47_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a47_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a47_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.366Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.366Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u48>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.367Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a48_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a48_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a48_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.370Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.370Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u49>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.371Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a49_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a49_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a49_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.374Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.374Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u50>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.375Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a50_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a50_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a50_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.378Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.378Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u51>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.379Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a51_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a51_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a51_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.382Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.382Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u52>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.383Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a52_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a52_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a52_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.386Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.386Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u53>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.387Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a53_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a53_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a53_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.390Z"
+          },
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:04.390Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_u54>"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:04.391Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<msg_a54_0>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a54_1>"
+              },
+              {
+                "kind": "text",
+                "text": "<msg_a54_2>"
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:04.394Z"
+          }
+        ],
+        "metadata": {
+          "model": "prov-x/model-x",
+          "reasoning_effort": null,
+          "context": {
+            "used": 100,
+            "window": null
+          }
+        },
+        "cursor": "msg_u30",
+        "history_id": "ses_testsession0001",
+        "version": "$v2"
+      }
+    }
+  ]
+}

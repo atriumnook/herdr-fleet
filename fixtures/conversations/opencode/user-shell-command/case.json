@@ -1,0 +1,59 @@
+{
+  "about": "server/opencode-messages.test.ts: tools > a user's shell command is a bash call in the assistant's turn. parseOpencodeMessages's input is the session's message list, read by a page; the turns compared, the first ids only as the cursor (null: the page begins at the beginning). toolOutputOf's message is the one the service answers for the ref's message id (no message: a 404)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": "1970-01-01T00:00:00.001Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "bash",
+                "summary": "<cmd>",
+                "input": "<cmd>",
+                "output": "<out>"
+              },
+              {
+                "kind": "tool",
+                "name": "bash",
+                "summary": "<cmd>",
+                "input": "<cmd>",
+                "output": "<out>",
+                "error": true
+              },
+              {
+                "kind": "tool",
+                "name": "bash",
+                "summary": "<cmd>",
+                "input": "<cmd>",
+                "output": "<out>",
+                "error": true
+              }
+            ],
+            "end_ts": "1970-01-01T00:00:00.002Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "toolOutput",
+      "source": "opencode",
+      "sessionId": "ses_testsession0002",
+      "ref": "msg_h1:0",
+      "expected": "xxxxx"
+    }
+  ]
+}

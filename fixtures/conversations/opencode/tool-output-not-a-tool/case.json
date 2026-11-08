@@ -1,0 +1,33 @@
+{
+  "about": "server/opencode-messages.test.ts: tools > the whole output of anything that is not a tool call is null. toolOutputOf's message is the one the service answers for the ref's message id (no message: a 404)",
+  "steps": [
+    {
+      "call": "toolOutput",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "ref": "msg_a:0",
+      "expected": null
+    },
+    {
+      "call": "toolOutput",
+      "source": "opencode",
+      "sessionId": "ses_testsession0002",
+      "ref": "msg_a:5",
+      "expected": null
+    },
+    {
+      "call": "toolOutput",
+      "source": "opencode",
+      "sessionId": "ses_testsession0003",
+      "ref": "msg_u:0",
+      "expected": null
+    },
+    {
+      "call": "toolOutput",
+      "source": "opencode",
+      "sessionId": "ses_testsession0004",
+      "ref": "msg_none:0",
+      "expected": null
+    }
+  ]
+}

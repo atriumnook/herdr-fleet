@@ -1,0 +1,32 @@
+{
+  "about": "server/opencode-messages.test.ts: turns > a message of a kind a later version adds, and the switches and the idle marker, make no turn. parseOpencodeMessages's input is the session's message list, read by a page; the turns compared, the first ids only as the cursor (null: the page begins at the beginning)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "expected": {
+        "source": "opencode-session",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "1970-01-01T00:00:16.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "<user text>"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "ses_testsession0001",
+        "version": "$v1"
+      }
+    }
+  ]
+}

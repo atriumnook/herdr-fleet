@@ -1,0 +1,20 @@
+{
+  "about": "server/opencode-session.test.ts: older pages > a `since` the walk never meets means the history changed",
+  "steps": [
+    {
+      "at": 100
+    },
+    {
+      "call": "page",
+      "source": "opencode",
+      "sessionId": "ses_testsession0001",
+      "page": {
+        "before": "msg_u2",
+        "since": "msg_gone"
+      },
+      "expected": {
+        "error": "HistoryChanged"
+      }
+    }
+  ]
+}

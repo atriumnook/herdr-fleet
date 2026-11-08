@@ -1,0 +1,57 @@
+{
+  "serviceRunning": true,
+  "get": {
+    "/api/session/ses_testsession0001": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "ses_testsession0001",
+          "time": {"created":1,"updated":1},
+          "tokens": {"input":0,"output":0},
+          "cost": 0
+        }
+      }
+    },
+    "/api/session/ses_testsession0001/message?limit=100&order=desc": {
+      "status": 200,
+      "body": {
+        "data": [
+          {"id":"msg_a","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x","variant":"default"},"time":{"created":44000,"completed":44500},"finish":"tool-calls","cost":0,"tokens":{"input":10,"output":5,"reasoning":1,"cache":{"read":100,"write":0}},"content":[{"type":"tool","id":"c","name":"bash","time":{"created":43000},"state":{"status":"running","input":{},"metadata":{}}}]}
+        ],
+        "cursor": {
+          "previous": "eyJpZCI6Im1zZ19hIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+          "next": "eyJpZCI6Im1zZ19hIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+        }
+      }
+    },
+    "/api/model": {
+      "status": 200,
+      "body": {
+        "data": []
+      }
+    },
+    "/api/session/ses_testsession0002": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "ses_testsession0002",
+          "time": {"created":1,"updated":1},
+          "tokens": {"input":0,"output":0},
+          "cost": 0
+        }
+      }
+    },
+    "/api/session/ses_testsession0002/message?limit=100&order=desc": {
+      "status": 200,
+      "body": {
+        "data": [
+          {"id":"msg_a","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x","variant":"default"},"time":{"created":45000,"completed":45500},"finish":"tool-calls","cost":0,"tokens":{"input":10,"output":5,"reasoning":1,"cache":{"read":100,"write":0}},"content":[{"type":"tool","id":"c","name":"bash","time":{"created":44000},"state":{"status":"streaming","input":""}}]}
+        ],
+        "cursor": {
+          "previous": "eyJpZCI6Im1zZ19hIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoicHJldmlvdXMifQ",
+          "next": "eyJpZCI6Im1zZ19hIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9"
+        }
+      }
+    }
+  }
+}

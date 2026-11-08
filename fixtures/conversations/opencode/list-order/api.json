@@ -1,0 +1,37 @@
+{
+  "serviceRunning": true,
+  "get": {
+    "/api/session/ses_testsession0001": {
+      "status": 200,
+      "body": {
+        "data": {
+          "id": "ses_testsession0001",
+          "time": {"created":1,"updated":1},
+          "tokens": {"input":0,"output":0},
+          "cost": 0
+        }
+      }
+    },
+    "/api/session/ses_testsession0001/message?limit=100&order=desc": {
+      "status": 200,
+      "body": {
+        "data": [
+          {"id":"msg_bbb","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x","variant":"default"},"time":{"created":15000,"completed":15500},"finish":"tool-calls","cost":0,"tokens":{"input":10,"output":5,"reasoning":1,"cache":{"read":100,"write":0}},"content":[{"type":"text","text":"<b>"}]},
+          {"id":"msg_mmm","type":"user","time":{"created":14000},"text":"<user text>"},
+          {"id":"msg_aaa","type":"assistant","agent":"build","model":{"id":"model-x","providerID":"prov-x","variant":"default"},"time":{"created":13000,"completed":13500},"finish":"tool-calls","cost":0,"tokens":{"input":10,"output":5,"reasoning":1,"cache":{"read":100,"write":0}},"content":[{"type":"text","text":"<a>"}]},
+          {"id":"msg_zzz","type":"user","time":{"created":12000},"text":"<user text>"}
+        ],
+        "cursor": {
+          "previous": "eyJpZCI6Im1zZ19iYmIiLCJvcmRlciI6ImRlc2MiLCJkaXJlY3Rpb24iOiJwcmV2aW91cyJ9",
+          "next": "eyJpZCI6Im1zZ196enoiLCJvcmRlciI6ImRlc2MiLCJkaXJlY3Rpb24iOiJuZXh0In0"
+        }
+      }
+    },
+    "/api/model": {
+      "status": 200,
+      "body": {
+        "data": []
+      }
+    }
+  }
+}
