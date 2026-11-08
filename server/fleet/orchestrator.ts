@@ -852,7 +852,7 @@ export class Orchestrator {
     try {
       await this.startProject({ task: [STEPS_HEADER, `- ${coordinatorStep(run, baseBranch)}`].join("\n"), cwd: run.project }, signal);
     } catch (error) {
-      run.landing = { ...run.landing, error: `No coordinator could start for the merge: ${error instanceof Error ? error.message : String(error)}` };
+      run.landing = { ...run.landing, error: `No coordinator could start for the ${action === "revert" ? "revert" : "merge"}: ${error instanceof Error ? error.message : String(error)}` };
       this.save(run);
       throw error;
     }
@@ -1365,10 +1365,11 @@ export class Orchestrator {
       if (!live || !isCompleted(live) || this.pending.has(coordinator.id)) return;
       if (await this.hasDraft(coordinator)) return this.retryNotices(coordinator);
       // a merge the gate allowed goes out only while the gate still holds for the same pull request and commit
+      // (one withdrawn carries an error now, and due() prunes its notice as stale)
       for (const notice of due().filter((each) => each.section === "gate")) {
         const run = this.deps.registry.get(notice.about);
         if (!run || run.landing?.at !== notice.landingAt) continue;
-        if (!(await this.gateStillHolds(run))) this.outbox.drop(run.id, "landing");
+        await this.gateStillHolds(run);
       }
       // read again after the waits: the person may have thrown a thread away meanwhile. One merge the
       // gate allowed at a time, and never beside a merge the person pressed, which would move the base
@@ -1679,6 +1680,8 @@ export class Orchestrator {
     const step = run.landing!;
     let reading: Awaited<ReturnType<typeof this.readGate>>;
     try { reading = await this.readGate(run); } catch { reading = null; }
+    // the person pressed a step of their own meanwhile: it took the gate's place, and stays
+    if (run.landing !== step) return false;
     if (reading?.gate.ok && reading.gate.head === step.head && reading.pr === step.pr) return true;
     if (reading) run.gate = reading.gate;
     const why = !reading ? "the project's merges are the person's now" : !reading.gate.ok ? reading.gate.checks.filter((check) => !check.ok).map((check) => check.detail).join(" ")

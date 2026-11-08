@@ -347,6 +347,8 @@ describe("opencode adapter", () => {
         "git revert -m 1 --no-edit abc0001 def0002", "git revert -m 1 --no-edit abc0001 -X theirs", "git revert -m 1 --no-edit --no-commit", "git revert abc0001", "git revert --continue",
         "git push origin main --force", "git push origin main -f", "git push origin +main", "git push origin main:main", "git push origin :main", "git push origin -d main", "git push origin --delete main",
         "git push origin HEAD", "git push origin main other", "git push evil main", "git push --force origin main", "git push origin main > f", "git push origin ../x",
+        // the bare forms (a trailing pattern ` *` matches them too), and a range or a `..` in a branch name
+        "git push origin", "git revert -m 1 --no-edit", "gh pr merge 12 --merge --match-head-commit", "git push origin main/..", "git push origin a..b", "git revert -m 1 --no-edit abc0001..def0002",
       ]) expect([text, shell(rules, text)]).toEqual([text, "deny"]);
     });
   });

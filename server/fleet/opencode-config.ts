@@ -81,14 +81,15 @@ const GITHUB_QUERIES = ["gh pr view *", "gh pr checks *", "gh pr list *", "gh ru
  */
 const MERGE_COMMANDS = [
   ...Array.from({ length: 6 }, (_, i) => `gh pr merge ${"?".repeat(i + 1)} --merge`),
-  ...Array.from({ length: 6 }, (_, i) => `gh pr merge ${"?".repeat(i + 1)} --merge --match-head-commit *`),
+  // ` ?*`, not ` *`: a trailing ` *` also matches the line without its last word
+  ...Array.from({ length: 6 }, (_, i) => `gh pr merge ${"?".repeat(i + 1)} --merge --match-head-commit ?*`),
   "git pull --ff-only",
   "git merge --no-ff fleet/*",
   "git merge --no-ff agents/*",
   "git merge --abort",
-  "git revert -m 1 --no-edit *",
+  "git revert -m 1 --no-edit ?*",
   "git revert --abort",
-  "git push origin *",
+  "git push origin ?*",
 ];
 
 /**
@@ -108,8 +109,8 @@ const DENIED_AFTER_FLEET = [
   "git * /*", "git * ~*", "git * ../*", "git * ..", "git *=/*",
   "git merge --no-ff * ?*",
   // a revert takes one commit; a push one branch, never forced, deleted or as a refspec
-  "git revert -m 1 --no-edit * ?*", "git revert -m 1 --no-edit *-*",
-  "git push origin * ?*", "git push origin -*", "git push origin +*", "git push origin *:*", "git push origin HEAD",
+  "git revert -m 1 --no-edit * ?*", "git revert -m 1 --no-edit *-*", "git revert -m 1 --no-edit *..*",
+  "git push origin * ?*", "git push origin -*", "git push origin +*", "git push origin *:*", "git push origin *..*", "git push origin HEAD",
   "gh *--web*", "gh *--watch*", "gh pr merge *-* --merge", "gh pr merge *-* --merge --match-head-commit *",
   "gh pr merge * --merge --match-head-commit * ?*", "gh pr merge * --merge --match-head-commit *-*",
 ];

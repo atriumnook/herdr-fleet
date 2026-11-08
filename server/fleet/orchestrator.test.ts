@@ -3092,6 +3092,27 @@ describe("merge authority", () => {
     expect(registry.get(thread.id)!.landing!.error).toBe("The gate no longer held when the coordinator was free: the branch's pull request is #13 now, not #12");
   });
 
+  it("keep a merge the person pressed while the gate was read again, in place of the gate's", async () => {
+    const { fleet, registry, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    await turn(coordinator, "working");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", sent: false });
+    // the coordinator is free: the gate is read again, slowly, and no longer holds
+    git.slow = 80;
+    git.compare = { files: ["src/parser.rs"], lines: 900, behind: 0 };
+    const freed = turn(coordinator, "idle");
+    await Bun.sleep(GRACE + 30);
+    // meanwhile the person presses Merge PR themselves
+    await fleet.land(thread.id, "merge-pr");
+    await freed;
+    await until(() => to(coordinator).length >= 2, "the person's merge goes out");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ action: "merge-pr", sent: true });
+    expect(registry.get(thread.id)!.landing!.by).toBeUndefined();
+    expect(registry.get(thread.id)!.landing!.error).toBeUndefined();
+    expect(to(coordinator).at(-1)).toStartWith("[fleet] The person pressed these on the Fleet screen.");
+  });
+
   it("hand one merge the gate allowed at a time, and the next once the coordinator is free again", async () => {
     const { fleet, registry, root, turn, to, reviewed } = project();
     const { coordinator, thread } = await reviewed();
