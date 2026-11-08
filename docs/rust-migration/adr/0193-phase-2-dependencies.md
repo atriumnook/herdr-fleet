@@ -113,9 +113,14 @@ Rust の書き方: 文字列を UTF-16 の code unit ごとに下位 8 ビット
 S1 は `text.rs` に次の 2 つを置き、S2〜S4 はそれを使う。
 
 - grapheme の幅: 制御文字(U+0000〜U+001F、U+007F、U+0080〜U+009F)だけからなる grapheme は 0、それ以外は unicode-width の `str::width`
-- 文字列の幅: 先にエスケープシーケンスを除く。除くのは、CSI(`ESC [` か U+009B から、U+0040〜U+007E の終わりの文字まで)、OSC(`ESC ]` から、BEL か `ESC \` まで。終わりがなければ文字列の終わりまで)、ほかの `ESC` である。ほかの `ESC` は、次の文字が U+0020〜U+002F なら、その範囲の文字が続く間と、そのあとの 1 文字(どの文字でも)まで、次の文字が U+0030〜U+007E ならその 1 文字まで、それ以外なら `ESC` だけを除く。残りから制御文字を除き、unicode-width の `str::width` で数える
+- 文字列の幅: Bun 1.4.4 の `Bun.stringWidth`(`src/jsc/bindings/stringWidth.cpp` の `visibleUTF16Width`、tag `bun-v1.4.4`、commit `38afee6c`)と同じく、エスケープの始まりの文字(ESC、U+009B、U+009D、U+0090、U+0098、U+009E、U+009F)に当たったら、そこから `src/jsc/bindings/ANSIHelpers.h` の `consumeANSI`(244〜436 行、`Utf8 = false` の側)の状態機械で読んだ範囲を 0 として飛ばす。残りの文字から制御文字を除き、unicode-width の `str::width` で数える。S1 はこの状態機械を、状態(`start`、`gotEsc`、`ignoreNextChar`、`inCsi`、`inOsc`、`inOscGotEsc`、`needSt`、`needStGotEsc`)と遷移ごとに写す。状態機械の主な決まりは次のとおり
+  - CSI(`ESC [` か U+009B)は U+0040〜U+007E の文字で終わる。OSC(`ESC ]` か U+009D)は BEL か ST(U+009C か `ESC \`)で終わる。DCS・SOS・PM・APC(`ESC P`・`ESC X`・`ESC ^`・`ESC _` か U+0090・U+0098・U+009E・U+009F)は ST で終わる。終わりがなければ文字列の終わりまで
+  - どの途中でも、CAN(U+0018)と SUB(U+001A)はその文字ごとシーケンスを取り消す。ESC は途中のシーケンスを終わらせて、新しいシーケンスを始める
+  - ほかの `ESC` は、次の文字が U+0020〜U+002F なら、その 1 文字とそのあとの 1 文字(ESC でなければどの文字でも)まで、U+0030〜U+007E か U+009C ならその 1 文字まで、それ以外なら `ESC` だけを飛ばす
+  - シーケンスのすぐあとに別のシーケンスが続けば、続けて飛ばす
+  - Bun は UTF-16 の code unit で状態機械を回すが、BMP の外の文字が状態機械に渡るのは `ignoreNextChar` の 1 文字だけで、Bun はその前半のサロゲートを飛ばし、残る後半のサロゲートの幅は 0 になる。Rust で文字ごとに回して、その文字を丸ごと飛ばしても幅は同じになる
 
-この規則を scratchpad の Rust で書き、上の 998 行すべてと、次の 23 の文字列で `Bun.stringWidth` と同じ値になることを確かめた。S1 のテストの期待値は、この表から取る。
+この規則を scratchpad の Rust で書き、上の 998 行すべて、次の 27 の文字列、エスケープに関わる 25 種類の文字(ESC、`[`、`]`、`P`、`X`、`^`、`_`、`(`、`\`、BEL、CAN、SUB、U+009B、U+009C、U+009D、U+0090、`a`、`1`、`;`、`m`、`é`、`😀`、空白、DEL、`7`)を 1〜7 個ランダムに並べた 60,000 の文字列で、`Bun.stringWidth` と同じ値になることを確かめた。S1 のテストの期待値は、この表から取る。
 
 | 文字列 | Bun 1.4.4 の `Bun.stringWidth` | unicode-width の `str::width` |
 |---|---|---|
@@ -142,6 +147,10 @@ S1 は `text.rs` に次の 2 つを置き、S2〜S4 はそれを使う。
 | `a ESC SP b`(SP は空白) | 1 | 4 |
 | `a ESC DEL b` | 2 | 4 |
 | `a ESC`(文字列の終わり) | 1 | 2 |
+| `a ESC U+009B CAN b` | 2 | 4 |
+| `a ESC U+009B SUB b` | 2 | 4 |
+| `a ESC(( b` | 2 | 5 |
+| `a ESC P b`(DCS の終わりがない) | 1 | 4 |
 
 表の文字列の空白は読みやすくするためのもので、実際の文字列には含まない(`a ESC[31m b` は `"a\x1b[31mb"`)。ただし `a ESC é b` の é のあとの空白と、`SP` は実際の空白である。
 
@@ -221,4 +230,4 @@ S1 は `text.rs` に次の 2 つを置き、S2〜S4 はそれを使う。
 - 文字の幅と grapheme の比べ方: Bun のスクリプトが `fixtures/screens/*/*/screen.txt` を読み、出てくるすべての code point の `Bun.stringWidth`、すべての行(そのままと `ANSI_RE` を除いたもの)の `Intl.Segmenter`(granularity `grapheme`)の区切り、各 grapheme と行全体の `Bun.stringWidth` を JSON に書いた。scratchpad の Rust のプログラム(unicode-width 0.2.3、unicode-segmentation 1.13.3)がそれを読み、`char::width`、`str::width`、`graphemes(true)` と比べた。結果は上の「文字の幅と grapheme」のとおり
 - 正規表現と JSON の違いは、scratchpad の Rust のプログラム(regex 1.13.1、serde_json 1.0.154 と `preserve_order`、base64 0.23.1)と Bun 1.4.4 で、上に書いた入力ごとに答えを出して比べた。数の書き方(120,014 の数)、base64 の決まり(表の 18 の入力)、`/:\s*\S{0,3}$/` の書き換え(21,845 の文字列)は、決まりを Rust で書いて Bun の答えと比べ、どれもすべて一致した
 - `float_roundtrip`: `rust/crates/protocol/tests/types.rs` の `a_number_reads_as_javascripts_json_parse_reads_it` が、feature なしで `left: Some(1.0)` で失敗し、足したあとに通った。`Cargo.lock` は変わらなかった
-- レビュー(PR の codex のレビュアーと `/code-review high`)で、`float_roundtrip`、配列の添字の形のキーの順序、数の桁の選び方、f64 を超える数、base64 の ASCII でない文字、回数の指定、ESC のあとの文字、最後の行の `\r` の決まりの誤りと抜けを指摘され、上のとおりに直した
+- レビュー(PR の codex のレビュアー 2 回と `/code-review high`)で、`float_roundtrip`、配列の添字の形のキーの順序、数の桁の選び方、f64 を超える数、base64 の ASCII でない文字、回数の指定、エスケープシーケンスの読み方(CAN・SUB の取り消し、DCS など)、最後の行の `\r` の決まりの誤りと抜けを指摘され、上のとおりに直した。エスケープシーケンスの読み方は、Bun 1.4.4 のソース(GitHub の `oven-sh/bun` の tag `bun-v1.4.4`)を読んで、その状態機械を写す決まりにした
