@@ -17,7 +17,7 @@ use super::messages::{
 };
 use super::time::InvalidTime;
 use super::{OpencodeConversations, OpencodeError};
-use crate::records::{MAX_TURNS, Row, record};
+use crate::records::{MAX_TURNS, Row, record, text};
 use crate::{ConversationError, Page, PageRequest, UnavailableReason};
 
 /// Messages asked of the CLI at a time, and how many a page holds at least (it also reaches back
@@ -119,14 +119,9 @@ pub(super) fn before_cursor(id: &str) -> String {
     ))
 }
 
-/// A field that is a string.
-fn string<'a>(row: &'a Row, field: &str) -> Option<&'a str> {
-    row.get(field).and_then(Value::as_str)
-}
-
 /// `message.id === id` of JavaScript, for an id that is a string.
 fn has_id(message: &Row, id: &str) -> bool {
-    string(message, "id") == Some(id)
+    text(message, "id") == Some(id)
 }
 
 /// `a === b` of JavaScript for two JSON values: an object or an array is never the same as another.
@@ -140,29 +135,9 @@ fn strictly_equal(a: Option<&Value>, b: Option<&Value>) -> bool {
     }
 }
 
-/// A value as `Array.prototype.join` writes it: null and a missing value as nothing. Only told
-/// apart from another, never shown.
-fn joined(value: Option<&Value>) -> String {
-    match value {
-        None | Some(Value::Null) => String::new(),
-        Some(Value::String(text)) => text.clone(),
-        Some(Value::Bool(flag)) => flag.to_string(),
-        Some(Value::Number(number)) => match number.as_f64() {
-            Some(0.0) => "0".to_owned(),
-            Some(whole) if whole.fract() == 0.0 && whole.abs() < 1e21 => format!("{whole:.0}"),
-            _ => number.to_string(),
-        },
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|item| joined(Some(item)))
-            .collect::<Vec<_>>()
-            .join(","),
-        Some(Value::Object(_)) => "[object Object]".to_owned(),
-    }
-}
-
 /// What a change to the session can touch: when it was written, when it went idle, what it used,
-/// where it was reverted to.
+/// where it was reverted to. Only compared with the marker before, never shown: each field as
+/// JSON stands in for TypeScript's `Array.prototype.join`.
 fn marks(session: &Row) -> String {
     let time = record(session.get("time"));
     let tokens = record(session.get("tokens"));
@@ -174,21 +149,26 @@ fn marks(session: &Row) -> String {
         session.get("cost"),
         record(session.get("revert")).get("messageID"),
     ]
-    .map(joined)
+    .map(|value| serde_json::to_string(&value).expect("a JSON value as text"))
     .join(":")
 }
 
 /// The bytes of a pasted image are not kept: the chat asks for one by ref (`image`), and a page of
 /// them is megabytes.
-fn slim(value: &Value) -> Row {
-    let mut message = record(Some(value)).clone();
-    if string(&message, "type") == Some("user")
+fn slim(value: Value) -> Row {
+    let Value::Object(mut message) = value else {
+        return Row::new();
+    };
+    if text(&message, "type") == Some("user")
         && let Some(Value::Array(files)) = message.get_mut("files")
     {
         for file in files.iter_mut() {
-            let mut slimmed = record(Some(file)).clone();
-            slimmed.insert("data".to_owned(), Value::String(String::new()));
-            *file = Value::Object(slimmed);
+            if !file.is_object() {
+                *file = Value::Object(Row::new());
+            }
+            if let Value::Object(file) = file {
+                file.insert("data".to_owned(), Value::String(String::new()));
+            }
         }
     }
     message
@@ -199,6 +179,14 @@ fn data(body: &Value) -> &[Value] {
     match record(Some(body)).get("data") {
         Some(Value::Array(rows)) => rows,
         _ => &[],
+    }
+}
+
+/// The `data` array of a body, taken out of it; else none.
+fn take_data(body: &mut Value) -> Vec<Value> {
+    match body.get_mut("data").map(Value::take) {
+        Some(Value::Array(rows)) => rows,
+        _ => Vec::new(),
     }
 }
 
@@ -287,7 +275,7 @@ impl OpencodeConversations {
             encode_uri_component(session_id)
         ))?;
         let first = record(data(&body).first());
-        Ok(string(first, "id").unwrap_or_default().to_owned())
+        Ok(text(first, "id").unwrap_or_default().to_owned())
     }
 
     /// The context windows of the service's model list; empty when it cannot be read. Kept ten
@@ -312,11 +300,11 @@ impl OpencodeConversations {
                 let model = record(Some(value));
                 let context = record(model.get("limit")).get("context");
                 let (Some(context), Some(provider)) =
-                    (context.and_then(Value::as_f64), string(model, "providerID"))
+                    (context.and_then(Value::as_f64), text(model, "providerID"))
                 else {
                     continue;
                 };
-                for id in [string(model, "modelID"), string(model, "id")]
+                for id in [text(model, "modelID"), text(model, "id")]
                     .into_iter()
                     .flatten()
                 {
@@ -357,7 +345,7 @@ impl OpencodeConversations {
                 )
             });
         };
-        let revert = string(record(session.get("revert")), "messageID").map(str::to_owned);
+        let revert = text(record(session.get("revert")), "messageID").map(str::to_owned);
 
         let held: Arc<Newest>;
         let walked: Vec<Row>;
@@ -492,35 +480,34 @@ impl OpencodeConversations {
         revert: Option<String>,
         cached: Option<&Newest>,
     ) -> Result<Newest, ConversationError> {
-        let settle = |messages: Vec<Row>, end: bool, hidden: HashSet<String>, newest_id: &str| {
-            let writing = still_writing(&messages, (self.now)());
-            let kept = messages.len() > KEEP_MESSAGES;
-            let messages = if kept {
-                messages[messages.len() - KEEP_MESSAGES..].to_vec()
-            } else {
-                messages
+        let settle =
+            |mut messages: Vec<Row>, end: bool, hidden: HashSet<String>, newest_id: &str| {
+                let writing = still_writing(&messages, (self.now)());
+                let kept = messages.len() > KEEP_MESSAGES;
+                if kept {
+                    messages.drain(..messages.len() - KEEP_MESSAGES);
+                }
+                Newest {
+                    marker: format!("{base}:{newest_id}"),
+                    messages,
+                    end: end && !kept,
+                    hidden,
+                    revert: revert.clone(),
+                    writing,
+                }
             };
-            Newest {
-                marker: format!("{base}:{newest_id}"),
-                messages,
-                end: end && !kept,
-                hidden,
-                revert: revert.clone(),
-                writing,
-            }
-        };
         if let Some(cached) = cached
             && revert.is_none()
             && cached.revert.is_none()
         {
-            let body = self.api.get(&format!(
+            let mut body = self.api.get(&format!(
                 "/api/session/{}/message?limit={FETCH_MESSAGES}&order=desc",
                 encode_uri_component(session_id)
             ))?;
-            let read: Vec<Row> = data(&body).iter().rev().map(slim).collect();
+            let read: Vec<Row> = take_data(&mut body).into_iter().rev().map(slim).collect();
             let newest_id = read
                 .last()
-                .and_then(|message| string(message, "id"))
+                .and_then(|message| text(message, "id"))
                 .unwrap_or_default()
                 .to_owned();
             if read.len() < FETCH_MESSAGES {
@@ -633,7 +620,7 @@ impl OpencodeConversations {
                     Some(cursor) => format!("&cursor={}", encode_uri_component(cursor)),
                 }
             );
-            let body = match self.api.get(&path) {
+            let mut body = match self.api.get(&path) {
                 Ok(body) => body,
                 // the service refuses a cursor it cannot read
                 Err(OpencodeError::Http { status: 400, .. }) if cursor.is_some() => {
@@ -641,15 +628,17 @@ impl OpencodeConversations {
                 }
                 Err(error) => return Err(error.into()),
             };
-            let rows = data(&body);
+            let next = text(record(record(Some(&body)).get("cursor")), "next").map(str::to_owned);
+            let rows = take_data(&mut body);
+            let listed = rows.len();
             if fetched == 1 && cursor.is_none() {
-                newest_id = string(record(rows.first()), "id")
+                newest_id = text(record(rows.first()), "id")
                     .unwrap_or_default()
                     .to_owned();
             }
             for value in rows {
                 let message = slim(value);
-                let id = string(&message, "id").unwrap_or_default();
+                let id = text(&message, "id").unwrap_or_default();
                 if reverting {
                     if from.revert == Some(id) {
                         reverting = false;
@@ -662,9 +651,8 @@ impl OpencodeConversations {
                 }
                 collected.push(message);
             }
-            let next = string(record(record(Some(&body)).get("cursor")), "next");
             // fewer than asked for is the last page
-            let Some(next) = next.filter(|_| rows.len() >= FETCH_MESSAGES) else {
+            let Some(next) = next.filter(|_| listed >= FETCH_MESSAGES) else {
                 end = true;
                 break;
             };
@@ -680,7 +668,7 @@ impl OpencodeConversations {
             if fetched >= MAX_FETCHES {
                 break;
             }
-            cursor = Some(next.to_owned());
+            cursor = Some(next);
             fetched += 1;
         }
         collected.reverse();
