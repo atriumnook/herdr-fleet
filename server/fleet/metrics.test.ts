@@ -19,9 +19,13 @@ const events: TimedEvent[] = [
   state(4, "c", "coordinator", "claude", "working", "idle", true),
   state(5, "r", "reviewer", "agy", undefined, "starting", false),
   state(6, "r", "reviewer", "agy", "starting", "idle", false, { error: "Agent started but is not ready for prompts; the task has not been sent." }),
-  state(7, "r", "reviewer", "agy", undefined, "starting", false),
-  state(8, "r", "reviewer", "agy", "starting", "failed", false, { error: "Unknown model x" }),
-  state(10, "l", "lead", "claude", "working", "idle", true),
+  state(7, "r3", "reviewer", "agy", undefined, "starting", false),
+  state(8, "r3", "reviewer", "agy", "starting", "failed", false, { error: "Unknown model x" }),
+  // a claude reviewer whose pane closed before it wrote anything
+  state(9, "r2", "reviewer", "claude", undefined, "starting", false, { group: "g-lead" } as Partial<TimedEvent>),
+  state(9.5, "r2", "reviewer", "claude", "starting", "working", true, { group: "g-lead" } as Partial<TimedEvent>),
+  state(9.9, "r2", "reviewer", "claude", "working", "stopped", false, { group: "g-lead", handoff: false } as Partial<TimedEvent>),
+  state(10, "l", "lead", "claude", "working", "idle", true, { handoff: true }),
   // 10 to 40: nothing moves (30 minutes); then the lead resumes by itself
   state(40, "l", "lead", "claude", "idle", "working", false),
   state(45, "l", "lead", "claude", "working", "done", false),
@@ -59,10 +63,10 @@ describe("factory metrics", () => {
     expect(result.standstills).toEqual([{ from: 10 * MIN, to: 40 * MIN }, { from: 54 * MIN, to: 80 * MIN }]);
   });
 
-  it("counts starts per agent, the failed ones and the ones stopped before the task, and calls an anomaly", () => {
+  it("counts runs per agent, the starts that failed or stopped before the task, the runs that ended without a HANDOFF, and calls an anomaly", () => {
     expect(result.starts).toEqual([
-      { agent: "agy", starts: 2, failed: 2, anomaly: true },
-      { agent: "claude", starts: 2, failed: 0, anomaly: false },
+      { agent: "agy", starts: 2, failed: 2, lost: 0, anomaly: true },
+      { agent: "claude", starts: 3, failed: 0, lost: 1, anomaly: false },
     ]);
   });
 
@@ -90,7 +94,7 @@ describe("factory metrics", () => {
     const anomalies = text.slice(text.indexOf("## Anomalies"), text.indexOf("## Without the person"));
     expect(anomalies).toContain("The person stepped in 2 times.");
     expect(anomalies).toContain("Stood still 30 minutes");
-    expect(anomalies).toContain("agy: 2 of 2 starts failed or stopped before the task.");
+    expect(anomalies).toContain("agy: of 2 runs, 2 failed or stopped before the task and 0 ended without a HANDOFF.");
   });
 
   it("reads the event log line by line, skipping a line that does not parse, and nothing from a missing file", () => {

@@ -1227,7 +1227,7 @@ describe("owners", () => {
 });
 
 describe("a project run without the person", () => {
-  const agents = [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true })];
+  const agents = [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true }), role("reviewer", { agent: "agy" })];
   const NEWS = "[fleet] Threads ended a turn. These come from the fleet, not from the person.";
   const QUIET = 120;
   const ANDON = "[fleet] Nothing in this project has moved";
@@ -1392,6 +1392,35 @@ describe("a project run without the person", () => {
     await Bun.sleep(QUIET + 20);
     await fleet.superviseProjects();
     expect(events.filter((e) => e.kind === "standstill")).toMatchObject([{ kind: "standstill", run: coordinator.id, project: "/repo" }]);
+  });
+
+  it("tells the coordinator once when an agent's runs keep ending without a HANDOFF, with the run ids", async () => {
+    const { fleet, runtime, turn, toCoordinator, handoff, events } = project();
+    runtime.output = ">\n? for shortcuts    auto · Gemini 4 Argon · medium";
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(thread, "ISSUES — waiting for the review");
+    await turn(thread, "idle");
+    await turn(coordinator, "idle");
+    // two reviews on agy whose panes closed before they wrote anything, and one that did its work
+    const lost = [];
+    for (let i = 0; i < 3; i++) lost.push(await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: "/repo" }));
+    handoff(lost[2]!, "PASS — no findings");
+    await turn(lost[2]!, "idle");
+    fleet.onPaneEnded(lost[0]!.paneId);
+    fleet.onPaneEnded(lost[1]!.paneId);
+    const told = toCoordinator(coordinator).length;
+    await fleet.superviseProjects();
+    const message = toCoordinator(coordinator)[told]!;
+    expect(message).toStartWith("[fleet] agy: 2 of 3 runs in this project over the last 60 minutes failed to start or ended without a HANDOFF.");
+    expect(message).toContain(`- ${lost[0]!.id} (reviewer): stopped, no HANDOFF`);
+    expect(message).toContain("--avoid agy");
+    expect(events.filter((e) => e.kind === "anomaly")).toEqual([{ kind: "anomaly", run: coordinator.id, project: "/repo", agent: "agy", bad: 2, runs: 3 }]);
+    // once per agent and window
+    await turn(coordinator, "idle");
+    await fleet.superviseProjects();
+    expect(toCoordinator(coordinator)).toHaveLength(told + 1);
   });
 
   it("leaves a project run with the person alone: no standstill call and no closing against GitHub", async () => {

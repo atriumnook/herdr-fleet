@@ -1,7 +1,7 @@
 /**
  * The factory's metrics for one project, from the fleet's event log (events.ts) and what GitHub
  * says: how often the person stepped in, the stretches the project stood still, starts per agent
- * with the failed ones and the anomalies, the turns agents started by themselves, the threads
+ * with the failed ones, the runs that ended without a HANDOFF, and the anomalies, the turns agents started by themselves, the threads
  * closed against GitHub, the pull requests merged into the project's base, the issues closed and
  * the issues opened (without a planned label, when one is given: found during the work). Pure:
  * `fleet report` (api.ts) and scripts/factory-report.ts read the inputs and hand them in.
@@ -25,7 +25,8 @@ export interface FactoryMetrics {
   interventions: { messages: number; typedTurns: number };
   standstills: Array<{ from: number; to: number }>;
   standstillCalls: number;
-  starts: Array<{ agent: string; starts: number; failed: number; anomaly: boolean }>;
+  /** per agent: runs started, starts that failed or stopped before the task, runs that ended without a HANDOFF */
+  starts: Array<{ agent: string; starts: number; failed: number; lost: number; anomaly: boolean }>;
   ownTurns: Record<string, number>;
   reconciled: number;
   merged: PullRequestRow[];
@@ -72,28 +73,36 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
   }
   close(to);
 
-  const startsByAgent = new Map<string, { starts: number; failed: number }>();
+  const startsByAgent = new Map<string, { starts: number; failed: number; lost: number }>();
+  const entryOf = (agent: string) => {
+    const entry = startsByAgent.get(agent) ?? { starts: 0, failed: 0, lost: 0 };
+    startsByAgent.set(agent, entry);
+    return entry;
+  };
+  /** each run's last state change in the window, and whether its start failed */
+  const last = new Map<string, Extract<TimedEvent, { kind: "state" }>>();
+  const startFailed = new Set<string>();
   const ownTurns: Record<string, number> = {};
   let typedTurns = 0;
   for (const event of inWindow) {
     if (event.kind !== "state") continue;
-    if (event.from === undefined) {
-      const entry = startsByAgent.get(event.agent) ?? { starts: 0, failed: 0 };
-      entry.starts += 1;
-      startsByAgent.set(event.agent, entry);
-    }
+    last.set(event.run, event);
+    if (event.from === undefined) entryOf(event.agent).starts += 1;
     // a start that failed, or that stopped before its task was sent
-    if ((event.to === "failed" && event.from === "starting") || (event.error !== undefined && /not been sent|not ready/.test(event.error))) {
-      const entry = startsByAgent.get(event.agent) ?? { starts: 0, failed: 0 };
-      entry.failed += 1;
-      startsByAgent.set(event.agent, entry);
+    if (!startFailed.has(event.run) && ((event.to === "failed" && event.from === "starting") || (event.error !== undefined && /not been sent|not ready/.test(event.error)))) {
+      startFailed.add(event.run);
+      entryOf(event.agent).failed += 1;
     }
     if (event.to === "working" && event.from !== undefined && event.from !== "starting" && !event.sent) {
       if (event.role === "coordinator") typedTurns += 1;
       else ownTurns[event.role] = (ownTurns[event.role] ?? 0) + 1;
     }
   }
-  const starts = [...startsByAgent].map(([agent, { starts, failed }]) => ({ agent, starts, failed, anomaly: failed >= 2 && failed * 3 >= Math.max(starts, failed) }))
+  // a run that ended (its pane closed, or it failed) without a HANDOFF, its start not counted already
+  for (const event of last.values()) {
+    if (event.role !== "coordinator" && (event.to === "stopped" || event.to === "failed") && event.handoff === false && !startFailed.has(event.run)) entryOf(event.agent).lost += 1;
+  }
+  const starts = [...startsByAgent].map(([agent, { starts, failed, lost }]) => ({ agent, starts, failed, lost, anomaly: failed + lost >= 2 && (failed + lost) * 3 >= Math.max(starts, failed + lost) }))
     .sort((a, b) => a.agent.localeCompare(b.agent));
 
   const within = (at: string | null) => at !== null && Date.parse(at) >= from && Date.parse(at) <= to;
@@ -119,7 +128,7 @@ export function render(project: string, base: string, metrics: FactoryMetrics): 
   const anomalies = [
     ...(metrics.interventions.messages + metrics.interventions.typedTurns > 0 ? [`The person stepped in ${metrics.interventions.messages + metrics.interventions.typedTurns} times.`] : []),
     ...metrics.standstills.map((still) => `Stood still ${minutes(still.to - still.from)} minutes (${clock(still.from)} to ${clock(still.to)}).`),
-    ...metrics.starts.filter((row) => row.anomaly).map((row) => `${row.agent}: ${row.failed} of ${row.starts} starts failed or stopped before the task.`),
+    ...metrics.starts.filter((row) => row.anomaly).map((row) => `${row.agent}: of ${row.starts} runs, ${row.failed} failed or stopped before the task and ${row.lost} ended without a HANDOFF.`),
   ];
   const standstillTotal = metrics.standstills.reduce((sum, still) => sum + (still.to - still.from), 0);
   return [
@@ -140,9 +149,9 @@ export function render(project: string, base: string, metrics: FactoryMetrics): 
     "",
     "## Starts per agent",
     "",
-    "| Agent | Starts | Failed or stopped before the task |",
-    "|---|---|---|",
-    ...(metrics.starts.length ? metrics.starts.map((row) => `| ${row.agent} | ${row.starts} | ${row.failed}${row.anomaly ? " (anomaly)" : ""} |`) : ["| none | 0 | 0 |"]),
+    "| Agent | Starts | Failed or stopped before the task | Ended without a HANDOFF |",
+    "|---|---|---|---|",
+    ...(metrics.starts.length ? metrics.starts.map((row) => `| ${row.agent} | ${row.starts} | ${row.failed} | ${row.lost}${row.anomaly ? " (anomaly)" : ""} |`) : ["| none | 0 | 0 | 0 |"]),
     "",
     "## Output",
     "",

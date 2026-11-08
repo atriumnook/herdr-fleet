@@ -10,14 +10,19 @@ import { dirname } from "node:path";
  * No message text, handoff or screen goes in: only ids, roles, agents, models, states and times.
  */
 export type FleetEvent =
-  /** a run's state changed (`from` is absent for a new run); `sent` says whether a turn the fleet sent is open */
-  | { kind: "state"; run: string; role: string; agent: string; model?: string; group: string; project?: string; from?: string; to: string; sent: boolean; error?: string }
+  /**
+   * a run's state changed (`from` is absent for a new run); `sent` says whether a turn the fleet sent
+   * is open; `handoff`, on a settled or ended run, whether its result file holds a HANDOFF
+   */
+  | { kind: "state"; run: string; role: string; agent: string; model?: string; group: string; project?: string; from?: string; to: string; sent: boolean; handoff?: boolean; error?: string }
   /** the person wrote to a project's coordinator through the fleet (`fleet project`, the Fleet screen) */
   | { kind: "person"; run: string; project: string }
   /** a project run without the person stood still and its coordinator was told (superviseProjects) */
   | { kind: "standstill"; run: string; project: string; quietMs: number }
   /** a thread the fleet closed because GitHub showed its pull request merged (superviseProjects) */
-  | { kind: "reconciled"; run: string; project: string; pr?: number };
+  | { kind: "reconciled"; run: string; project: string; pr?: number }
+  /** an agent whose runs kept failing to start or ending without a HANDOFF, and the coordinator told (superviseProjects) */
+  | { kind: "anomaly"; run: string; project: string; agent: string; bad: number; runs: number };
 
 export type TimedEvent = FleetEvent & { t: number };
 
