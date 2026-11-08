@@ -84,6 +84,8 @@ export const READY_SCREEN_MS = 15_000;
 const READY_SCREEN_POLL_MS = 250;
 /** how long a CLI's usage screen (cursor's `/usage`) may take to show */
 export const USAGE_SCREEN_MS = 10_000;
+/** how long a project run without the person may stand still before its coordinator hears of it (superviseProjects) */
+export const QUIET_MS = 15 * 60_000;
 /** how soon the threads' questions are tried again while the person has a draft in the coordinator's input */
 export const DRAFT_RETRY_MS = 5_000;
 /** a run still `starting` may be inside a 30 s agent start: not-found is not its end yet */
@@ -142,6 +144,8 @@ export interface OrchestratorDeps {
   usageScreenMs?: number;
   /** DRAFT_RETRY_MS; tests shorten it */
   draftRetryMs?: number;
+  /** QUIET_MS; tests shorten it */
+  quietMs?: number;
   /** what each account has used: candidates without usage left are skipped, rate limits start cooldowns */
   usage?: Pick<UsageTracker, "unavailable" | "noteFailure" | "claimScreen" | "record">;
   /** refuses a model the CLI does not offer, before the run starts (models.ts) */
@@ -202,14 +206,22 @@ export class Orchestrator {
   /** the concurrency check and the run's first save happen as one step */
   private spawnGate: Promise<void> = Promise.resolve();
   private stopped = false;
+  /** per project coordinator: since when it and its threads stand still, and whether it heard of that */
+  private readonly quietSince = new Map<string, number>();
+  private readonly andonSent = new Set<string>();
+  /** per thread: since when its lead is settled, and when GitHub was last asked about it */
+  private readonly settledSince = new Map<string, number>();
+  private readonly reconciledAt = new Map<string, number>();
 
   private readonly grace: number;
+  private readonly quietMs: number;
   private readonly readyScreenMs: number;
   private readonly tools: LandingTools;
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.grace = deps.preVisualGraceMs ?? PRE_VISUAL_GRACE_MS;
     this.readyScreenMs = deps.readyScreenMs ?? READY_SCREEN_MS;
+    this.quietMs = deps.quietMs ?? QUIET_MS;
     this.tools = { ...LANDING_TOOLS, ...deps.landing };
     this.pruneResults();
     // a restart read the runs back without their results: the result files hold them
@@ -907,6 +919,69 @@ export class Orchestrator {
   }
 
   /**
+   * The projects run without the person, looked after (the server calls this after
+   * refreshPullRequests). Two things only the person noticed before:
+   * - the fleet's records against GitHub: a thread whose pull request GitHub shows merged, while its
+   *   lead stayed settled through the quiet period, is closed and its coordinator told (a merge seen
+   *   at once may come from a lead that broke off its turn to wait, and goes on after it);
+   * - a standstill: when the coordinator and every run of its threads stayed settled through the
+   *   quiet period, the coordinator hears of it once, with where each thread stands. It hears again
+   *   only after a thread moved: its own answer is no reason, so a project where everything left is
+   *   blocked or done is not called on and on.
+   * It asks GitHub nothing about a thread more often than once per quiet period, and writes nothing.
+   */
+  async superviseProjects(): Promise<void> {
+    const now = Date.now();
+    for (const coordinator of this.list().filter((run) => run.role === PROJECT_ROLE && run.project && isLive(run))) {
+      if (!this.deps.config(coordinator.cwd).autonomous) continue;
+      const threads = this.list().filter((run) => isThread(run) && run.project === coordinator.project && isLive(run) && !run.landed);
+      for (const thread of threads) await this.reconcileThread(thread as AgentRun & { project: string; branch: string }, now);
+      const open = threads.filter((run) => isLive(run) && !run.landed);
+      const groups = new Set([coordinator.group, ...open.map((run) => run.group)]);
+      const members = this.list().filter((run) => groups.has(run.group) && isLive(run));
+      const moving = (run: AgentRun) => this.pending.has(run.id) || run.state === "working" || run.state === "starting";
+      if (members.some((run) => run.id !== coordinator.id && moving(run))) this.andonSent.delete(coordinator.id);
+      if (members.some(moving)) { this.quietSince.set(coordinator.id, now); continue; }
+      const since = this.quietSince.get(coordinator.id);
+      if (since === undefined) { this.quietSince.set(coordinator.id, now); continue; }
+      if (now - since < this.quietMs || this.andonSent.has(coordinator.id)) continue;
+      if (await this.callStandstill(coordinator, open, now - since)) this.andonSent.add(coordinator.id);
+    }
+  }
+
+  /** A settled thread's pull request, read once per quiet period: merged on GitHub, the thread closes. */
+  private async reconcileThread(thread: AgentRun & { project: string; branch: string }, now: number): Promise<void> {
+    if (this.pending.has(thread.id) || thread.state === "working" || thread.state === "starting") {
+      this.settledSince.delete(thread.id);
+      return;
+    }
+    const since = this.settledSince.get(thread.id);
+    if (since === undefined) { this.settledSince.set(thread.id, now); return; }
+    if (now - since < this.quietMs || now - (this.reconciledAt.get(thread.id) ?? 0) < this.quietMs) return;
+    this.reconciledAt.set(thread.id, now);
+    try {
+      const reading = await this.readPullRequest(thread);
+      if (reading?.state !== "MERGED") return;
+      await this.mergedOnGitHub(thread, reading);
+      thread.notice = threadClosedAfterMerge(thread, now - since);
+      this.save(thread);
+      void this.tellCoordinator(thread);
+    } catch {
+      // GitHub could not be asked: the next quiet period asks again
+    }
+  }
+
+  /** The coordinator, free, hears that its project stands still; false when it could not be told now. */
+  private async callStandstill(coordinator: AgentRun, threads: AgentRun[], quietFor: number): Promise<boolean> {
+    if (this.delivering.has(coordinator.id)) return false;
+    await this.reconcileLocks.get(coordinator.id);
+    const live = await this.liveState(coordinator);
+    if (!live || !isCompleted(live) || this.pending.has(coordinator.id) || await this.hasDraft(coordinator)) return false;
+    const sent = await this.submit(coordinator, standstill(threads, quietFor));
+    return sent.state === "working";
+  }
+
+  /**
    * A thread that landed or was thrown away: its agents' panes close, its worktree and branch go
    * (a discard forces both), and it is resolved. What git kept is said on the thread.
    */
@@ -1403,6 +1478,20 @@ export function threadTurnEnded(run: AgentRun): string {
 /** A thread's pull request the polling found merged, as the coordinator of a project run without the person hears it. */
 export function threadMerged(run: AgentRun): string {
   return `${threadLabel(run)} merged pull request #${run.pr?.number ?? "?"}; the thread closes once its lead's turn ends`;
+}
+
+/** A project run without the person that stood still, as its coordinator hears it, with where each open thread stands. */
+export function standstill(threads: AgentRun[], quietFor: number): string {
+  return [
+    `[fleet] Nothing in this project has moved for ${Math.round(quietFor / 60_000)} minutes: you and every thread are settled. This comes from the fleet, not from the person.`,
+    ...(threads.length ? threads.map((run) => `- ${threadLabel(run)}: ${run.state}${run.pr ? `, pull request #${run.pr.number} ${run.pr.state}` : ""}`) : ["- No thread is open."]),
+    "Check the issues and the threads: start what can start, and send a settled thread what it still has to do. When everything left is blocked or done, say so as your instructions tell you.",
+  ].join("\n");
+}
+
+/** A thread the fleet closed against GitHub, as its coordinator hears it. */
+export function threadClosedAfterMerge(run: AgentRun, settledFor: number): string {
+  return `${threadLabel(run)}: GitHub shows pull request #${run.pr?.number ?? "?"} merged and its lead stayed settled ${Math.round(settledFor / 60_000)} minutes, so the fleet closed the thread. Close its issue if it is still open.`;
 }
 
 const QUESTIONS_HEADER = "[fleet] Threads ask the person. These come from the fleet, not from the person.";
