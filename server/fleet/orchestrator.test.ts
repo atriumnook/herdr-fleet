@@ -1784,6 +1784,57 @@ describe("a thread outlives its lead run", () => {
     expect(removed).toEqual([`/repo/.herdr-fleet/worktrees/${first.id}`]);
   });
 
+  it("settles a handed merge on its new lead when the restart finishes while an earlier merge is read", async () => {
+    let firstBranch = "";
+    let merged = false;
+    let reading = false;
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    const { fleet, runtime, registry, events, turn, report } = thread({ landing: {
+      gitBranch: async () => "main", branchHead: async () => "c0ffee", mergeCommitOf: async () => "abc0001",
+      isMerged: async (_repo, branch) => {
+        if (merged && branch === firstBranch) { reading = true; await gate; }
+        return merged;
+      },
+      removeThread: async () => undefined,
+    } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const threads: AgentRun[] = [];
+    for (const title of ["A", "B"]) {
+      const run = await fleet.startThread({ title, task: "t", cwd: "/repo", callerRun: coordinator.id });
+      report(run, { state: "ready", summary: "Fixed.", evidence: [] });
+      await turn(run, "idle");
+      threads.push(run);
+    }
+    const [first, second] = threads as [AgentRun, AgentRun];
+    firstBranch = first.branch!;
+    await turn(coordinator, "working");
+    for (const run of threads) await fleet.land(run.id, "merge");
+    await turn(coordinator, "idle");
+    await until(() => threads.every((run) => registry.get(run.id)!.landing?.sent), "both merges handed");
+    merged = true;
+    const settling = turn(coordinator, "idle");
+    try {
+      await until(() => reading, "the first merge being read");
+      await turn(second, "working");
+      await fleet.send(second.id, "go on");
+      runtime.output = "API Error: 529 overloaded";
+      await turn(second, "idle");
+      await until(() => registry.get(second.id)!.replacedBy !== undefined, "the second thread's new lead");
+      expect(fleet.get(second.id).landing).toMatchObject({ action: "merge", sent: true });
+      expect(registry.get(second.id)!.landing).toBeUndefined();
+    } finally { runtime.output = "agent output"; release(); }
+    await settling;
+    await fleet.reconcileAll();
+    const next = fleet.get(second.id);
+    expect(registry.get(first.id)!.landed).toBe("merged");
+    expect(next).toMatchObject({ agent: "codex", landed: "merged" });
+    expect(next.landing).toBeUndefined();
+    expect(registry.get(second.id)!.landed).toBeUndefined();
+    expect(events.filter((event) => event.kind === "merge").map((event) => event.run).sort()).toEqual([first.id, next.id].sort());
+  });
+
   it("leaves the new lead's worktree alone when a pull request merged on GitHub is read while the thread starts again", async () => {
     const git = { state: "OPEN" };
     const removed: string[] = [];

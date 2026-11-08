@@ -1014,11 +1014,9 @@ export class Orchestrator {
   /** The coordinator's turn ended: the merges it was handed, checked in git and on GitHub, and the threads that landed closed. */
   private async settleMerges(coordinator: AgentRun): Promise<void> {
     const handed = this.deps.registry.all().filter((run) => !run.replacedBy && run.landing?.sent && !run.landing.error && COORDINATOR_STEPS.has(run.landing.action)
-      && this.projectCoordinator(run)?.id === coordinator.id);
+      && this.projectCoordinator(run)?.id === coordinator.id).map((run) => ({ run, step: run.landing! }));
     // a restart of the thread under way finishes first: its new lead holds the step then
-    for (const run of handed) {
-      const step = run.landing;
-      if (!step) continue;
+    for (const { run, step } of handed) {
       await this.onLead(run, (thread) => this.settleMerge(thread, step), step.action === "revert");
     }
   }
