@@ -1,5 +1,6 @@
 /**
- * Compares docs/rust-migration/parity.md with the test files ADR 0122-parity-criteria says it lists:
+ * Compares docs/rust-migration/parity.md with the test files ADR 0122-parity-criteria says it lists (its manual
+ * checks as ADR 0169-parity-live-checks widened them):
  * every tracked file the globs below match must have one row in the table under "## 一覧", and the
  * table must have no other row. The successor column (引き継ぎ先) may hold only a criterion of the
  * plan, a crate's tests (`<crate> の crate のテスト`, a folder of rust/crates/), 「そのまま残す」,
@@ -16,7 +17,7 @@ import { resolve } from "node:path";
 
 const REPO = resolve(import.meta.dir, "..");
 const PARITY = "docs/rust-migration/parity.md";
-const GLOBS = ["**/*.test.ts", "**/*.test.tsx", "scripts/*-regression.ts", "scripts/*-qa.ts", "e2e/*.ts", "scripts/opencode-live-check.ts", "scripts/pty-compare.ts"].map((glob) => new Bun.Glob(glob));
+const GLOBS = ["**/*.test.ts", "**/*.test.tsx", "scripts/*-regression.ts", "scripts/*-qa.ts", "e2e/*.ts", "scripts/*-live-check.ts", "scripts/pty-compare.ts"].map((glob) => new Bun.Glob(glob));
 const CRITERIA = ["画面の corpus", "会話ログの corpus", "fleet CLI の契約", "HTTP/WS の契約", "安全上の判定の表", "UI の回帰"];
 
 /** the tracked files parity.md must list */
