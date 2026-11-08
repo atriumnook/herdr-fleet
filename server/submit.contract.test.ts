@@ -184,7 +184,7 @@ function herdrProxy(path: string, upstream: string) {
         const at = holds.findIndex((entry) => entry.method === request.method && entry.paneId === request.params?.pane_id);
         const [held] = at < 0 ? [] : holds.splice(at, 1);
         held?.reach();
-        void (held?.released ?? Promise.resolve()).then(() => Bun.connect<undefined>({
+        const connect = () => void Bun.connect<undefined>({
           unix: upstream,
           socket: {
             // a client gone before herdr answered the connect leaves no connection to herdr behind
@@ -194,7 +194,9 @@ function herdrProxy(path: string, upstream: string) {
             close() { end(down); },
             error() { end(down); },
           },
-        })).catch(() => end(down));
+        }).catch(() => end(down));
+        // only a held call waits: every other one goes on to herdr at once, as before
+        if (held) void held.released.then(connect); else connect();
       },
       drain,
       close(down) { down.data.closed = true; down.data.up?.end(); },
