@@ -224,7 +224,6 @@ static NUMBERED_MARK: LazyLock<Regex> = LazyLock::new(|| js_regex(r"^\[[ xX✓�
 
 /// `parseNumberedRows`: the numbered rows among lines `start..end`, each with the description a
 /// narrow pane wraps under it, up to the next blank line or rule.
-#[allow(dead_code)] // the readers of Claude, Codex and the last resort use it (#197, #198, #199)
 pub(crate) fn parse_numbered_rows<T: AsRef<str>>(
     lines: &[T],
     start: usize,
@@ -272,7 +271,6 @@ pub(crate) fn parse_numbered_rows<T: AsRef<str>>(
 /// `menuRows`: a menu's rows among numbered lines read from well above it: the last run that counts
 /// up from 1, among the lines numbered in the column of the row the cursor is on (or of the last
 /// row, without one).
-#[allow(dead_code)] // the readers of Claude and Codex use it (#197, #198)
 pub(crate) fn menu_rows<T: AsRef<str>>(lines: &[T], start: usize, end: usize) -> Vec<NumberedRow> {
     let rows = parse_numbered_rows(lines, start, end);
     // `line.replace(ANSI_RE, "").search(/\d/)`, in UTF-16 code units
@@ -299,7 +297,6 @@ pub(crate) fn menu_rows<T: AsRef<str>>(lines: &[T], start: usize, end: usize) ->
 }
 
 /// `sequentialRows`: rows numbered 1, 2, 3 and on, and at least one.
-#[allow(dead_code)] // the readers of Claude, Codex and the last resort use it (#197, #198, #199)
 pub(crate) fn sequential_rows(rows: &[NumberedRow]) -> bool {
     !rows.is_empty()
         && rows
@@ -348,7 +345,6 @@ pub(crate) fn ends<T: AsRef<str>>(shown: &[T], pattern: &Regex) -> bool {
 /// `Intl.Segmenter`'s graphemes of `text` (granularity `grapheme`), each with its byte index.
 /// unicode-segmentation's extended graphemes split every line of the screen corpus as it does (ADR
 /// 0193-phase-2-dependencies).
-#[allow(dead_code)] // Claude's reader of option previews uses it (#197)
 pub(crate) fn graphemes(text: &str) -> impl Iterator<Item = (usize, &str)> {
     text.grapheme_indices(true)
 }
@@ -451,7 +447,6 @@ fn consume_escape(chars: &[char], at: usize) -> usize {
 /// sequences take none, read as Bun reads them; the rest is split into graphemes by Bun's own rules
 /// and each grapheme counted as Bun's `GraphemeState::width` counts it (ADR 0218-bun-string-width).
 /// Bun carries the grapheme across an escape sequence, so `❤ ESC[31m U+FE0F` is 2 columns.
-#[allow(dead_code)] // Claude's reader of option previews uses it (#197)
 pub(crate) fn string_width(text: &str) -> usize {
     let chars: Vec<char> = text.chars().collect();
     let mut counter = WidthCounter::default();

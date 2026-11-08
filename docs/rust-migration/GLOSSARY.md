@@ -28,7 +28,8 @@ _Avoid_: bot、worker(worker は役割の名前)
 _Avoid_: ツール、モデル
 
 **エージェントの種類(agent kind)**:
-エージェント CLI を区別する名前(`pi`、`claude`、`codex`、`cursor`、`agy`、`opencode`)。
+エージェント CLI を区別する名前(`pi`、`claude`、`codex`、`cursor`、`agy`、`opencode`)。Rust の型の名前は `FleetAgentKind`。
+_Avoid_: `AgentKind`(HTTP の応答で、種類と表示名を組にした型の名前)
 
 **エージェントの状態(agent status)**:
 herdr がペインのエージェントについて報告する状態(`idle`、`working`、`blocked`、`done`、`unknown`)。
@@ -52,6 +53,18 @@ _Avoid_: ダイアログ、モーダル
 **カード(card)**:
 承認画面を解析して、チャットに選択肢として出したもの。カードの答えは、ペインに送るキー入力に変わる。
 
+**解析した承認画面(parsed prompt)**:
+承認画面を解析した結果の値で、カードと、そのカードの答え方を合わせて持つ。Rust の型の名前は `ParsedPrompt`。カードだけを複写しても、答え方は付いてこない。
+_Avoid_: プロンプト(単独で書くと、エージェントに渡す指示文と区別できない)
+
+**答え方(answering)**:
+カードの答えを、ペインに送るキー入力に変える決まり。カーソルのある行、選択肢ごとのキー、自由入力と複数選択の送り方からなる。承認画面を解析したときに決まる。Rust の型の名前は `Answering`。
+_Avoid_: responder(カードを読んだ読み手の名前。答え方そのものではない)
+
+**content id**:
+カードが示す内容(エージェント、種類、問い、本文、選択肢など)から作る、カードの名前。同じ内容のカードは同じ content id を持ち、カーソルの位置は含まない。ただし、どのエージェントの決まった形にも当たらない画面を汎用のメニューとして読んだカード(fallback のカード)は、読んだ画面全体も材料にするので、カーソルが動くと content id が変わる。
+_Avoid_: カードの id(Web UI が受け取る id は、core が問いごとに作り直した別の値)
+
 **画面の判定(screen check)**:
 fleet がエージェントの画面を見て下す判定(起動の失敗、herdr が `idle` と報告する間の問い、入力欄が出たか、入力欄の書きかけ、ターンの失敗)。エージェントの種類ごとに異なる。
 
@@ -61,6 +74,10 @@ fleet がエージェントの画面を見て下す判定(起動の失敗、herd
 **transcript**:
 エージェント CLI が自分で保存する会話の記録。herdr-fleet は読むだけで書かない。
 _Avoid_: ログ、履歴、セッション
+
+**transcript の形式(transcript format)**:
+transcript をファイルから読むエージェント CLI(Claude Code、Codex、pi、omp)ごとの、transcript の読み方(ファイルの場所、ターンの区切り方、履歴の境目)。これらの CLI の会話のページを作る処理は、形式を通してだけ CLI ごとの違いに触れる。Rust の trait の名前は `TranscriptFormat`。OpenCode の会話は CLI の API から読むので、この形式を持たない。
+_Avoid_: パーサー(transcript の 1 行を読む処理は形式の一部)
 
 **会話(conversation)**:
 transcript から組み立てた、チャットに出す形の発言の並び。

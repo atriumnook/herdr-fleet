@@ -2,8 +2,7 @@
 //! parts of `server/conversation-metadata.ts` and `server/conversation.ts`), so paging, rendering
 //! and on-demand results read records the same way.
 //!
-//! pi and omp share one parser (`parse_omp_transcript`). What omp does not use is moved here for
-//! the sources that do (#201 to #205), and #206 removes its `allow(dead_code)`.
+//! pi and omp share one parser (`parse_omp_transcript`).
 
 use std::collections::HashMap;
 
@@ -61,7 +60,6 @@ pub(crate) fn result_text(value: Option<&Value>) -> String {
 pub(crate) const MAX_TURNS: usize = 100;
 
 /// The image types a chat shows; anything else stays out of the page.
-#[allow(dead_code)]
 pub(crate) const IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 
 /// The first of these fields that is a string (TypeScript's `string(...values)`).
@@ -232,7 +230,6 @@ const PI_IMAGE_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "imag
 
 /// The `index`th image of the tool result answering `tool_call_id`, as (media type, base64 data).
 /// `message` must come from `pi_message`: the page's ref was built from the normalised content.
-#[allow(dead_code)]
 pub(crate) fn pi_image_block(
     message: &Row,
     tool_call_id: &str,
@@ -626,7 +623,6 @@ pub(crate) fn metadata_start(before: Option<ConversationMetadata>) -> Conversati
 /// `Buffer.from(text, "base64")` of Node: never fails, reads both alphabets, skips what is in
 /// neither, stops at the first `=`, drops a last lone character (the rules and Bun's answers:
 /// ADR 0193-phase-2-dependencies, "寛容な base64 の復号").
-#[allow(dead_code)]
 pub(crate) fn decode_base64_leniently(text: &str) -> Vec<u8> {
     // each UTF-16 code unit as its low byte, as Node's latin1 does
     let bytes: Vec<u8> = text.encode_utf16().map(|unit| unit as u8).collect();
