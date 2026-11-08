@@ -107,16 +107,32 @@ const paste = (text: string) => `\u001b[200~${text}\u001b[201~`;
 
 interface ProxiedRead { paneId: string; source: string }
 interface Leg { up: Bun.Socket<undefined> | null; held: Buffer[]; overriding: boolean; closed: boolean }
+interface Hold { method: string; paneId: string; reach: () => void; released: Promise<void> }
 
 /**
  * A unix socket in front of the test herdr: herdr's own socket cannot be made to show a pane's
  * viewport other than it is, nor asked what it was read for. One upstream connection per client
  * connection, bytes passed on as they come (a subscription stays open). Each pane.read is kept in
- * order, and `viewport` answers a pane's text read of its visible screen in herdr's place.
+ * order, and `viewport` answers a pane's text read of its visible screen in herdr's place. `hold`
+ * keeps the next call of a method for a pane from herdr until the test lets it go.
  */
 function herdrProxy(path: string, upstream: string) {
   const reads: ProxiedRead[] = [];
   const viewport = new Map<string, string>();
+  const holds: Hold[] = [];
+  /** `reached` settles when the next `method` call for `paneId` comes; herdr gets it once `release` is called */
+  const hold = (method: string, paneId: string) => {
+    const reached = Promise.withResolvers<void>();
+    const released = Promise.withResolvers<void>();
+    const entry: Hold = { method, paneId, reach: reached.resolve, released: released.promise };
+    holds.push(entry);
+    const release = (): void => {
+      const index = holds.indexOf(entry);
+      if (index >= 0) holds.splice(index, 1);
+      released.resolve();
+    };
+    return { reached: reached.promise, release };
+  };
   // a write the kernel took only part of: the rest goes out on drain, and an end waits for it
   const backlog = new Map<object, { chunks: Buffer[]; end: boolean }>();
   const push = (to: Bun.Socket<any>, chunk: Buffer): void => {
@@ -165,7 +181,10 @@ function herdrProxy(path: string, upstream: string) {
             return;
           }
         }
-        void Bun.connect<undefined>({
+        const at = holds.findIndex((entry) => entry.method === request.method && entry.paneId === request.params?.pane_id);
+        const [held] = at < 0 ? [] : holds.splice(at, 1);
+        held?.reach();
+        const connect = () => void Bun.connect<undefined>({
           unix: upstream,
           socket: {
             // a client gone before herdr answered the connect leaves no connection to herdr behind
@@ -176,12 +195,14 @@ function herdrProxy(path: string, upstream: string) {
             error() { end(down); },
           },
         }).catch(() => end(down));
+        // only a held call waits: every other one goes on to herdr at once, as before
+        if (held) void held.released.then(connect); else connect();
       },
       drain,
       close(down) { down.data.closed = true; down.data.up?.end(); },
     },
   });
-  return { reads, viewport, stop: () => listener.stop(true) };
+  return { reads, viewport, hold, stop: () => listener.stop(true) };
 }
 
 const collapsedCodexScreen = "\n• Queued follow-up inputs\n  ? 1 question\n    alt+↑ to answer\n› Ask Codex to do anything\n";
@@ -396,8 +417,12 @@ describe("WebSocket submit", () => {
   }, 30_000);
 
   it("types nothing of a message that waited past its deadline behind another", async () => {
-    // a deadline of 50ms: the second message waits longer than that behind the first one's gap
-    const hurried = await launchServer({ test: { submitDeadlineMs: 50 } });
+    // The first message's Enter is held at the proxy until the second has waited longer than the deadline
+    // behind it. The deadline binds the first message too, and has to cover only its own herdr calls before
+    // it types: 50ms did not on a loaded machine, and the first message answered submit_timeout (#180).
+    const deadlineMs = 1_000;
+    const hurried = await launchServer({ env: { HERDR_SOCKET: join(root, "herdr.sock") }, test: { submitDeadlineMs: deadlineMs } });
+    const enter = proxy!.hold("pane.send_keys", shell.pane);
     const ws = new WebSocket(`${hurried.url.replace(/^http/, "ws")}/ws`);
     const seen: any[] = [];
     ws.addEventListener("message", (event) => seen.push(JSON.parse(String((event as MessageEvent).data))));
@@ -407,13 +432,22 @@ describe("WebSocket submit", () => {
       const from = chunks(shell).length;
       ws.send(JSON.stringify({ type: "submit", id: 1, pane_id: shell.pane, text: "first", payload: "first" }));
       ws.send(JSON.stringify({ type: "submit", id: 2, pane_id: shell.pane, text: "late", payload: "late" }));
+      // the first message typed its text in time; the second reached the server before that, behind it.
+      // A first message that ended before its Enter (it answered submit_timeout) fails the expectations below.
+      let reached = false;
+      void enter.reached.then(() => { reached = true; });
+      const first = () => seen.find((message) => message.type === "submit-result" && message.id === 1);
+      for (let i = 0; i < 100 && !reached && !first(); i++) await Bun.sleep(50);
+      if (reached) await Bun.sleep(deadlineMs + 100);
+      enter.release();
       let late: any;
       for (let i = 0; i < 100 && !(late = seen.find((message) => message.type === "submit-result" && message.id === 2)); i++) await Bun.sleep(50);
-      expect(seen.find((message) => message.type === "submit-result" && message.id === 1)).toMatchObject({ ok: true });
+      expect(first()).toMatchObject({ ok: true });
       expect(late).toMatchObject({ ok: false, code: "submit_timeout" });
       await Bun.sleep(SUBMIT_DELAY_MS * 3);
       expect(typed(shell, from)).toBe("first\r");
     } finally {
+      enter.release();
       ws.close();
       await hurried.stop();
     }
