@@ -3,12 +3,12 @@
 
 use std::sync::LazyLock;
 
-use protocol::{InteractivePromptOption, PromptKind};
+use protocol::PromptKind;
 use regex::Regex;
 
 use crate::ParsedPrompt;
-use crate::answer::{Answering, Key, Multiple, OptionKeys, Typed};
-use crate::card::{self, CardFields};
+use crate::answer::{Answering, Key, Multiple, Typed};
+use crate::card::{self, CardFields, option};
 use crate::text::{
     clean_line, ends, find_last_index, find_menu_dividers, js_regex, nearest_question,
     parse_border_menu, screen_lines, visible_lines, wrapped,
@@ -37,13 +37,6 @@ static APPROVAL_ROW: LazyLock<Regex> =
     LazyLock::new(|| js_regex("(?i)^([›>❯•])?{s}*(Approve|Deny)$"));
 static APPROVAL_TAIL: LazyLock<Regex> =
     LazyLock::new(|| js_regex("(?i)^(?:[›>❯•]{s}*)?(?:Approve|Deny)$|esc{.}*cancel"));
-
-fn option(label: String) -> InteractivePromptOption {
-    InteractivePromptOption {
-        label,
-        description: None,
-    }
-}
 
 /// `parseOmpQuestion`: a bordered menu between two rules over omp's hint, ending in its
 /// "Other (type your own)" row.
@@ -90,8 +83,6 @@ fn parse_question(screen: &str) -> Option<ParsedPrompt> {
         fallback: false,
     };
     let answering = Answering {
-        selected,
-        options: OptionKeys::Menu { escape: None },
         // a multiple choice of omp's takes no typed answer
         typed: (!multi_select).then(|| Typed {
             row: custom,
@@ -108,6 +99,7 @@ fn parse_question(screen: &str) -> Option<ParsedPrompt> {
             toggle: Key::Space,
             finish: vec![Key::Tab, Key::Enter],
         }),
+        ..Answering::menu(selected)
     };
     Some(card::finish(
         "omp",
@@ -154,18 +146,12 @@ fn parse_approval(screen: &str) -> Option<ParsedPrompt> {
         queued: None,
         fallback: false,
     };
-    let answering = Answering {
-        selected: selected[0],
-        options: OptionKeys::Menu { escape: None },
-        typed: None,
-        multiple: None,
-    };
     Some(card::finish(
         "omp",
         fields,
         None,
         Responder::Approval,
-        answering,
+        Answering::menu(selected[0]),
     ))
 }
 

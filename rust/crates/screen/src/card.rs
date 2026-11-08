@@ -1,11 +1,13 @@
 //! A parsed card: the public card with its content id, how it takes its answer, and which reader
 //! read it (`finishPrompt` and `publicPrompt`, server/prompt.ts:198-230).
 
+use std::fmt::Write;
+
 use protocol::{InteractivePrompt, InteractivePromptOption, PromptKind, QueuedState, js};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
-use crate::answer::Answering;
+use crate::answer::{Answering, OptionKeys};
 use crate::{claude, codex, fallback, omp, pi};
 
 /// The longest body a card shows, in UTF-16 code units (server/prompt.ts:211). The id reads all of
@@ -87,7 +89,7 @@ impl From<fallback::Responder> for Responder {
 
 /// What a card says, as its parser read it: the public card without its id, its agent and
 /// `multi_select` (which is whether its answering takes several options), the body whole.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct CardFields {
     pub kind: PromptKind,
     pub title: String,
@@ -102,7 +104,7 @@ pub(crate) struct CardFields {
 /// What else the id of a last-resort card reads (server/prompt.ts:1348-1361): its question and body
 /// with the working line's ticking parts blanked, the whole visible screen read so, and which of its
 /// lines was read as the working line.
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) struct FallbackScreen {
     pub question: String,
     pub body: Option<String>,
@@ -114,10 +116,25 @@ pub(crate) struct FallbackScreen {
 #[derive(Serialize)]
 struct IdInput<'a> {
     agent: &'a str,
-    #[serde(flatten)]
-    fields: &'a CardFields,
+    kind: PromptKind,
+    title: &'a str,
+    question: &'a str,
+    body: Option<&'a str>,
+    options: &'a [InteractivePromptOption],
     multi_select: bool,
-    fallback_screen: Option<&'a FallbackScreen>,
+    custom_option_index: Option<usize>,
+    queued: Option<QueuedState>,
+    fallback: bool,
+    /// a last-resort card's screen and the place of its working line
+    screen: Option<(&'a str, Option<usize>)>,
+}
+
+/// An option of a card: a label without a description.
+pub(crate) fn option(label: impl Into<String>) -> InteractivePromptOption {
+    InteractivePromptOption {
+        label: label.into(),
+        description: None,
+    }
 }
 
 /// The card named by its content: the sha256 of everything it says, the body before it is cut
@@ -133,25 +150,38 @@ pub(crate) fn finish(
     answering: Answering,
 ) -> ParsedPrompt {
     let multi_select = answering.multiple.is_some();
-    let hashed = match &fallback {
-        Some(screen) => CardFields {
-            question: screen.question.clone(),
-            body: screen.body.clone(),
-            ..fields.clone()
-        },
-        None => fields.clone(),
-    };
+    if let OptionKeys::Steps(steps) = &answering.options {
+        debug_assert_eq!(
+            steps.len(),
+            fields.options.len(),
+            "one list of steps for each option"
+        );
+    }
     let input = IdInput {
         agent,
-        fields: &hashed,
+        kind: fields.kind,
+        title: &fields.title,
+        question: fallback
+            .as_ref()
+            .map_or(&fields.question, |screen| &screen.question),
+        body: match &fallback {
+            Some(screen) => screen.body.as_deref(),
+            None => fields.body.as_deref(),
+        },
+        options: &fields.options,
         multi_select,
-        fallback_screen: fallback.as_ref(),
+        custom_option_index: fields.custom_option_index,
+        queued: fields.queued,
+        fallback: fields.fallback,
+        screen: fallback
+            .as_ref()
+            .map(|screen| (screen.screen.as_str(), screen.working)),
     };
     let json = serde_json::to_vec(&input).expect("a card's fields write as JSON");
-    let id = Sha256::digest(&json)
-        .iter()
-        .map(|byte| format!("{byte:02x}"))
-        .collect();
+    let mut id = String::with_capacity(64);
+    for byte in Sha256::digest(&json) {
+        write!(id, "{byte:02x}").expect("a String takes what is written");
+    }
     let CardFields {
         kind,
         title,
@@ -185,7 +215,7 @@ pub(crate) fn finish(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::answer::{Key, Multiple, OptionKeys};
+    use crate::answer::{Key, Multiple};
 
     fn fields(question: &str, body: Option<&str>) -> CardFields {
         CardFields {

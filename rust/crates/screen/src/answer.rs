@@ -7,20 +7,37 @@ use std::fmt;
 
 use protocol::js;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 use crate::ParsedPrompt;
 
-/// An answer to a card: exactly one of the three. TypeScript's `PromptAnswer` without the pane and
-/// the card's id. The indices are JavaScript numbers as they come: whether they are whole and in
-/// range is checked here, as TypeScript does.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+/// An answer to a card, as the request's JSON gave it: TypeScript's `PromptAnswer` without the pane
+/// and the card's id, each of its three fields absent or there with whatever value it holds, `null`
+/// included (TypeScript tells them apart with `!== undefined`). Whether exactly one is there, and
+/// whether it is a string, an array or a whole number in range, `answer_keys` checks with
+/// TypeScript's messages and in its order. Made from the JSON only (`From<Value>`): JavaScript's
+/// `JSON.parse` keeps the last of two same keys, as `Value` does, and a body that is no object holds
+/// no answer.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[serde(from = "Value")]
 pub struct Answer {
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub option_index: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub option_indices: Option<Vec<f64>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub custom_text: Option<String>,
+    option_index: Option<Value>,
+    option_indices: Option<Value>,
+    custom_text: Option<Value>,
+}
+
+impl From<Value> for Answer {
+    fn from(answer: Value) -> Self {
+        let mut fields = match answer {
+            Value::Object(fields) => fields,
+            _ => Map::new(),
+        };
+        Answer {
+            option_index: fields.remove("option_index"),
+            option_indices: fields.remove("option_indices"),
+            custom_text: fields.remove("custom_text"),
+        }
+    }
 }
 
 /// One step of an answer: keys pressed one after another, or text typed into the pane. In JSON,
@@ -86,6 +103,10 @@ impl Serialize for Key {
 pub enum InvalidAnswer {
     /// none of the three answers, or more than one
     NotExactlyOne,
+    /// a typed answer that is not a string
+    CustomTextNotString,
+    /// several options that are not an array
+    OptionIndicesNotArray,
     /// a typed answer that is blank, or to a card that takes none
     NoCustomAnswer,
     /// several options for a card of a single choice, or none
@@ -101,6 +122,8 @@ impl fmt::Display for InvalidAnswer {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             InvalidAnswer::NotExactlyOne => "Exactly one answer is required.",
+            InvalidAnswer::CustomTextNotString => "Custom text must be a string.",
+            InvalidAnswer::OptionIndicesNotArray => "Option indices must be an array.",
             InvalidAnswer::NoCustomAnswer => "This prompt does not accept a custom answer.",
             InvalidAnswer::NoSelections => "This prompt requires one or more selections.",
             InvalidAnswer::OutsideRange => "An option index is outside the displayed range.",
@@ -124,6 +147,18 @@ pub(crate) struct Answering {
     /// how several options are picked; `None` for a card of a single choice. The card's
     /// `multi_select` is whether this is there.
     pub multiple: Option<Multiple>,
+}
+
+impl Answering {
+    /// A menu of a single choice that takes no typed answer, its cursor on row `selected`.
+    pub(crate) fn menu(selected: usize) -> Self {
+        Answering {
+            selected,
+            options: OptionKeys::Menu { escape: None },
+            typed: None,
+            multiple: None,
+        }
+    }
 }
 
 /// How one option is picked.
@@ -174,7 +209,8 @@ fn key_steps(keys: impl IntoIterator<Item = Key>) -> Vec<AnswerStep> {
 }
 
 /// A JavaScript number that `Number.isInteger` takes and that is at least 0 and below `len`.
-fn index_in(value: f64, len: usize) -> Option<usize> {
+fn index_in(value: &Value, len: usize) -> Option<usize> {
+    let value = value.as_f64()?;
     (value.is_finite() && value.fract() == 0.0 && value >= 0.0 && value < len as f64)
         .then_some(value as usize)
 }
@@ -199,7 +235,7 @@ pub fn answer_keys(
     }
 
     if let Some(text) = &answer.custom_text {
-        let text = js::trim(text);
+        let text = js::trim(text.as_str().ok_or(InvalidAnswer::CustomTextNotString)?);
         let Some(typed) = answering.typed.as_ref().filter(|_| !text.is_empty()) else {
             return Err(InvalidAnswer::NoCustomAnswer);
         };
@@ -214,12 +250,15 @@ pub fn answer_keys(
     }
 
     if let Some(indices) = &answer.option_indices {
+        let indices = indices
+            .as_array()
+            .ok_or(InvalidAnswer::OptionIndicesNotArray)?;
         let Some(multiple) = answering.multiple.as_ref().filter(|_| !indices.is_empty()) else {
             return Err(InvalidAnswer::NoSelections);
         };
         let desired = indices
             .iter()
-            .map(|index| index_in(*index, card.options.len()))
+            .map(|index| index_in(index, card.options.len()))
             .collect::<Option<BTreeSet<usize>>>()
             .ok_or(InvalidAnswer::OutsideRange)?;
         let checked: BTreeSet<usize> = multiple.checked.iter().copied().collect();
@@ -238,11 +277,15 @@ pub fn answer_keys(
 
     let index = answer
         .option_index
+        .as_ref()
         .and_then(|index| index_in(index, card.options.len()))
         .filter(|index| Some(*index) != card.custom_option_index && !card.multi_select)
         .ok_or(InvalidAnswer::InvalidOptionIndex)?;
     Ok(match &answering.options {
-        OptionKeys::Steps(steps) => steps[index].clone(),
+        OptionKeys::Steps(steps) => steps
+            .get(index)
+            .cloned()
+            .ok_or(InvalidAnswer::InvalidOptionIndex)?,
         OptionKeys::Menu {
             escape: Some(escape),
         } if *escape == index => key_steps([Key::Escape]),

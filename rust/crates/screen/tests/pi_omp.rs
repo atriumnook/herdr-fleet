@@ -38,7 +38,7 @@ fn answer(json: &str) -> Answer {
 }
 
 /// server/prompt.test.ts, `rejects invalid answer shapes`. The TypeScript test asks a Claude card;
-/// these checks come before anything the agent decides (server/prompt.ts:1165-1166, 1195, 1218), so
+/// these checks come before anything the agent decides (server/prompt.ts:1165-1169, 1194-1195, 1218), so
 /// pi's card answers them the same. The TypeScript test matches part of each message; the whole
 /// message is the one server/prompt.ts throws.
 #[test]
@@ -55,15 +55,13 @@ fn rejects_invalid_answer_shapes() {
     assert!(outside.contains("valid option index"));
     assert_eq!(outside, "A valid option index is required.");
 
-    // `{ custom_text: 42 }` and `{ option_indices: null }` are refused as well, before answer_keys
-    // is called: a number is no `String`, so the answer does not read (TypeScript: "Custom text must
-    // be a string."), and a null reads as no `option_indices`, which leaves no answer at all
-    // (TypeScript: "Option indices must be an array.").
-    assert!(serde_json::from_str::<Answer>(r#"{"custom_text": 42}"#).is_err());
-    assert_eq!(
-        refused(answer(r#"{"option_indices": null}"#)),
-        "Exactly one answer is required."
-    );
+    let text = refused(answer(r#"{"custom_text": 42}"#));
+    assert!(text.contains("must be a string"));
+    assert_eq!(text, "Custom text must be a string.");
+
+    let null = refused(answer(r#"{"option_indices": null}"#));
+    assert!(null.contains("must be an array"));
+    assert_eq!(null, "Option indices must be an array.");
 }
 
 #[test]
@@ -123,7 +121,34 @@ fn the_runner_checks_which_cases_share_a_card() {
     let failures = common::failures(&[&first, &alone], "PiOmp");
     assert_eq!(
         failures,
-        [r#"pi/second: its card has the same id as {"pi/first"}, and sameIdAs names {}"#]
+        [r#"pi/second: its card has the same id as ["pi/first"], and sameIdAs names []"#]
+    );
+}
+
+#[test]
+fn the_runner_compares_same_id_as_as_the_case_lists_it() {
+    // the TypeScript test compares the list itself: a repeated name is not the list of the twins
+    let first = pi_case("pi/first", pi_select_spec(&["pi/second", "pi/second"]));
+    let second = pi_case("pi/second", pi_select_spec(&["pi/first"]));
+    let failures = common::failures(&[&first, &second], "PiOmp");
+    assert_eq!(
+        failures,
+        [
+            r#"pi/first: its card has the same id as ["pi/second"], and sameIdAs names ["pi/second", "pi/second"]"#
+        ]
+    );
+}
+
+#[test]
+fn the_runner_refuses_a_parse_without_an_agent() {
+    // scripts/screen-fixtures.ts `agentOf`: an empty agent is none
+    let case = pi_case(
+        "other/nameless",
+        serde_json::json!({"call": "parseInteractivePrompt", "agent": "", "expected": null}),
+    );
+    assert_eq!(
+        common::failures(&[&case], "PiOmp"),
+        ["other/nameless: Some(ParseInteractivePrompt) needs an agent"]
     );
 }
 
@@ -248,5 +273,73 @@ fn answers_omps_cards_as_typescript_does() {
     assert_eq!(
         keys(OMP_APPROVAL, "omp", r#"{"option_index": 0}"#),
         steps(r#"[{"keys":["enter"]}]"#)
+    );
+}
+
+/// server/prompt.ts:1165-1166: a field given as null is given, so beside another answer it makes
+/// two. The messages and keys are what TypeScript's answerKeys returns for the same answers to the
+/// same card (Bun 1.4.4).
+#[test]
+fn a_null_field_is_an_answer_given() {
+    for json in [
+        r#"{"option_index": 0, "option_indices": null}"#,
+        r#"{"option_index": 0, "custom_text": null}"#,
+        r#"{"option_index": 0, "custom_text": 42}"#,
+    ] {
+        assert_eq!(
+            refused(answer(json)),
+            "Exactly one answer is required.",
+            "{json}"
+        );
+    }
+    assert_eq!(
+        refused(answer(r#"{"option_index": null}"#)),
+        "A valid option index is required."
+    );
+    assert_eq!(
+        refused(answer(r#"{"option_index": "0"}"#)),
+        "A valid option index is required."
+    );
+    assert_eq!(
+        refused(answer(r#"{"option_indices": ["a"]}"#)),
+        "This prompt requires one or more selections."
+    );
+    // JSON.parse keeps the last of two same keys; a body that is no object holds no answer
+    let prompt = parse_interactive_prompt("pi", PI_SELECT).unwrap();
+    assert_eq!(
+        serde_json::to_string(
+            &answer_keys(
+                &prompt,
+                &answer(r#"{"option_index": 0, "option_index": 1}"#)
+            )
+            .unwrap()
+        )
+        .unwrap(),
+        r#"[{"keys":["down"]},{"keys":["enter"]}]"#
+    );
+    assert_eq!(refused(answer("[1]")), "Exactly one answer is required.");
+    let zero = Answer::from(serde_json::json!({"pane_id": "p", "option_index": -0.0}));
+    assert_eq!(
+        serde_json::to_string(&answer_keys(&prompt, &zero).unwrap()).unwrap(),
+        r#"[{"keys":["enter"]}]"#
+    );
+}
+
+/// What a client writes (protocol's PromptAnswer) reads as the same answer: the two types name the
+/// three fields each on their own.
+#[test]
+fn a_prompt_answer_written_by_a_client_reads_as_an_answer() {
+    let written = protocol::PromptAnswer {
+        pane_id: "p".into(),
+        prompt_id: "id".into(),
+        option_index: Some(2.0),
+        option_indices: None,
+        custom_text: None,
+    };
+    let read: Answer = serde_json::from_value(serde_json::to_value(&written).unwrap()).unwrap();
+    let prompt = parse_interactive_prompt("pi", PI_SELECT).unwrap();
+    assert_eq!(
+        serde_json::to_string(&answer_keys(&prompt, &read).unwrap()).unwrap(),
+        r#"[{"keys":["down"]},{"keys":["down"]},{"keys":["enter"]}]"#
     );
 }

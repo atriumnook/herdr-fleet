@@ -118,7 +118,12 @@ pub fn load_cases() -> Vec<Case> {
             if !dir.is_dir() {
                 continue;
             }
-            let name = dir.strip_prefix(&root).unwrap().display().to_string();
+            // `<agent>/<case>` on every platform, as `sameIdAs` names a case
+            let name = format!(
+                "{}/{}",
+                group.file_name().unwrap().to_string_lossy(),
+                dir.file_name().unwrap().to_string_lossy()
+            );
             let screen = fs::read_to_string(dir.join("screen.txt"))
                 .unwrap_or_else(|error| panic!("{name}: screen.txt: {error}"));
             let json = fs::read_to_string(dir.join("case.json"))
@@ -185,8 +190,10 @@ fn call(case: &Case) -> Result<Outcome, String> {
         return Ok(Outcome::Value(value));
     }
     let agent = || {
+        // `agentOf` of scripts/screen-fixtures.ts: an empty name is no agent either
         spec.agent
             .as_deref()
+            .filter(|agent| !agent.is_empty())
             .ok_or_else(|| format!("{:?} needs an agent", spec.call))
     };
     Ok(match spec.call {
@@ -310,8 +317,9 @@ fn mismatch(case: &Case, result: &Evaluated) -> Option<String> {
     None
 }
 
-/// For each case whose call returned a card, the other cases whose card has the same id.
-fn same_ids<'a>(evaluated: &BTreeMap<&'a str, Evaluated>) -> BTreeMap<&'a str, BTreeSet<&'a str>> {
+/// For each case whose call returned a card, the other cases whose card has the same id, sorted by
+/// name.
+fn same_ids<'a>(evaluated: &BTreeMap<&'a str, Evaluated>) -> BTreeMap<&'a str, Vec<&'a str>> {
     let mut by_id: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (name, result) in evaluated {
         if let Some(id) = &result.id {
@@ -390,7 +398,9 @@ pub fn failures(mine: &[&Case], what: &str) -> Vec<String> {
     }
     let same = same_ids(&evaluated);
     for case in mine {
-        let named: BTreeSet<&str> = case
+        // as the case lists them: the TypeScript test compares the list, its order and any
+        // repeated name included, with the sorted names of the other cases (server/screen-fixtures.test.ts:32)
+        let named: Vec<&str> = case
             .spec
             .same_id_as
             .iter()

@@ -4,12 +4,12 @@
 
 use std::sync::LazyLock;
 
-use protocol::{InteractivePromptOption, PromptKind, js};
+use protocol::{PromptKind, js};
 use regex::Regex;
 
 use crate::ParsedPrompt;
-use crate::answer::{Answering, Key, OptionKeys, Typed};
-use crate::card::{self, CardFields};
+use crate::answer::{Answering, Key, Typed};
+use crate::card::{self, CardFields, option};
 use crate::text::{
     clean_line, find_last_index, is_divider, js_regex, screen_lines, strip_ansi, visible_lines,
     wrapped,
@@ -68,22 +68,6 @@ static INDENTED: LazyLock<Regex> = LazyLock::new(|| Regex::new("^ {2,}").unwrap(
 /// pi's own footer under `/model` and every dialog: the pane's folder, then its context meter. A
 /// hint may have this many of its lines under it.
 const FOOTER_LINES: usize = 2;
-
-fn option(label: String) -> InteractivePromptOption {
-    InteractivePromptOption {
-        label,
-        description: None,
-    }
-}
-
-fn menu(selected: usize) -> Answering {
-    Answering {
-        selected,
-        options: OptionKeys::Menu { escape: None },
-        typed: None,
-        multiple: None,
-    }
-}
 
 /// `hintAtEnd`: whether a hint is the last thing before the footer, allowing for a phone's pane
 /// wrapping it over up to `span` lines.
@@ -268,7 +252,7 @@ fn parse_model(screen: &str) -> Option<ParsedPrompt> {
         fields,
         None,
         Responder::Model,
-        menu(selected),
+        Answering::menu(selected),
     ))
 }
 
@@ -302,7 +286,7 @@ pub(crate) fn parse_pi_dialog(screen: &str, moved: bool) -> Option<ParsedPrompt>
             title: body.unwrap_or_default(),
             question: title.unwrap_or_default(),
             body: None,
-            options: vec![option("Type your answer".into())],
+            options: vec![option("Type your answer")],
             custom_option_index: Some(0),
             queued: None,
             fallback: false,
@@ -316,7 +300,7 @@ pub(crate) fn parse_pi_dialog(screen: &str, moved: bool) -> Option<ParsedPrompt>
                 before: vec![Key::CtrlK, Key::CtrlU],
                 after: vec![Key::Enter],
             }),
-            ..menu(0)
+            ..Answering::menu(0)
         };
         return Some(card::finish(
             "pi",
@@ -379,7 +363,13 @@ pub(crate) fn parse_pi_dialog(screen: &str, moved: bool) -> Option<ParsedPrompt>
     } else {
         Responder::Question
     };
-    Some(card::finish("pi", fields, None, responder, menu(cursor)))
+    Some(card::finish(
+        "pi",
+        fields,
+        None,
+        responder,
+        Answering::menu(cursor),
+    ))
 }
 
 /// `promptTailIsActive` for pi's cards: the hint is the last thing before pi's footer. A dialog
@@ -392,5 +382,62 @@ pub(crate) fn tail_is_active(responder: Responder, screen: &str) -> bool {
             hint_at_end(&shown, &MENU_HINT_AT_END, FOOTER_LINES, 4)
                 || hint_at_end(&shown, &INPUT_HINT_AT_END, FOOTER_LINES, 4)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// pi's select from `fixtures/screens/pi/reads-an-extensions-select-as-its-options-in-pis-own-order`,
+    /// with the cursor on `row`.
+    fn select(row: Option<usize>) -> String {
+        let rows = ["Allow once", "Always allow", "Block"]
+            .iter()
+            .enumerate()
+            .map(|(index, label)| {
+                let mark = if Some(index) == row { "→" } else { " " };
+                format!(" {mark} {label}\n")
+            })
+            .collect::<String>();
+        format!(
+            "{rule}\n\n Allow dangerous command?\n\n{rows} ↑↓ navigate  enter select  escape/ctrl+c cancel\n{rule}\n{rule}\n/tmp/app\n0.0%/215k (auto)                                        some-model • medium\n",
+            rule = "─".repeat(40)
+        )
+    }
+
+    /// What TypeScript's `parsePiDialog(screen, moved)` returns for these screens (Bun 1.4.4): with
+    /// `moved`, the cursor may stand on any row and the card navigates from there; without, a
+    /// cursor off the first row gives no card.
+    #[test]
+    fn a_dialog_moved_through_by_an_answer_is_read_where_its_cursor_stands() {
+        let moved = parse_pi_dialog(&select(Some(1)), true).expect("a card");
+        assert_eq!(moved.answering().selected, 1);
+        let labels: Vec<_> = moved
+            .card()
+            .options
+            .iter()
+            .map(|option| option.label.as_str())
+            .collect();
+        assert_eq!(labels, ["Allow once", "Always allow", "Block"]);
+        let keys = crate::answer_keys(
+            &moved,
+            &crate::Answer::from(serde_json::json!({"option_index": 2})),
+        )
+        .unwrap();
+        assert_eq!(
+            serde_json::to_string(&keys).unwrap(),
+            r#"[{"keys":["down"]},{"keys":["enter"]}]"#
+        );
+
+        assert!(parse_pi_dialog(&select(Some(1)), false).is_none());
+        assert_eq!(
+            parse_pi_dialog(&select(Some(0)), true)
+                .expect("a card")
+                .answering()
+                .selected,
+            0
+        );
+        assert!(parse_pi_dialog(&select(None), true).is_none());
     }
 }

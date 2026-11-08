@@ -462,22 +462,29 @@ fn consume_escape(chars: &[char], at: usize) -> usize {
 /// The terminal columns `text` takes, as `Bun.stringWidth` counts them (Bun 1.4.4,
 /// `visibleUTF16Width`): escape sequences take none, read as Bun reads them, and control characters
 /// take none; unicode-width counts the rest (ADR 0193-phase-2-dependencies, "文字の幅と grapheme").
+/// A control character ends a grapheme and an escape sequence does not (Bun carries the grapheme
+/// across a sequence, `UTF16WidthAccumulator`), so the text between two control characters is
+/// counted as one piece: `❤ TAB U+FE0F` is 1 column, `❤ ESC[31m U+FE0F` is 2.
 #[allow(dead_code)] // Claude's reader of option previews uses it (#197)
 pub(crate) fn string_width(text: &str) -> usize {
     let chars: Vec<char> = text.chars().collect();
-    let mut visible = String::new();
+    let mut width = 0;
+    let mut piece = String::new();
     let mut index = 0;
     while index < chars.len() {
         if starts_escape(chars[index]) {
             index = consume_escape(&chars, index);
             continue;
         }
-        if !is_control(chars[index]) {
-            visible.push(chars[index]);
+        if is_control(chars[index]) {
+            width += piece.width();
+            piece.clear();
+        } else {
+            piece.push(chars[index]);
         }
         index += 1;
     }
-    visible.width()
+    width + piece.width()
 }
 
 #[cfg(test)]
@@ -641,6 +648,11 @@ mod tests {
             ("a\x1b\u{9b}\x1ab", 2),
             ("a\x1b((b", 2),
             ("a\x1bPb", 1),
+            // a control character ends the grapheme, an escape sequence does not (Bun 1.4.4)
+            ("❤\t\u{fe0f}", 1),
+            ("❤\x1b[31m\u{fe0f}", 2),
+            ("e\x07\u{301}", 1),
+            ("👨\0\u{200d}👩", 4),
         ];
         for (text, width) in table {
             assert_eq!(string_width(text), width, "{text:?}");
