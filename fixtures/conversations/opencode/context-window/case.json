@@ -1,5 +1,5 @@
 {
-  "about": "server/opencode-session.test.ts: context window > is the service's limit for the model the newest step used, asked once; the test counts the model list's reads, the case compares the pages",
+  "about": "server/opencode-session.test.ts: context window > is the service's limit for the model the newest step used, asked once; the test counts the model list reads: here, after the first poll, the model list answers 500, so a reader that asks it again draws no window and fails the case",
   "steps": [
     {
       "at": 100
@@ -110,6 +110,14 @@
         "cursor": null,
         "history_id": "ses_testsession0001",
         "version": "$v1"
+      }
+    },
+    {
+      "api": {
+        "/api/model": {
+          "status": 500,
+          "body": {}
+        }
       }
     },
     {

@@ -1,5 +1,5 @@
 {
-  "about": "server/opencode-session.test.ts: what costs a call > a pane that is working is read at every poll: the service does not say what another server runs; the test counts the calls, the case compares the pages",
+  "about": "server/opencode-session.test.ts: what costs a call > a pane that is working is read at every poll: the service does not say what another server runs; the test counts the calls: here the look at the newest message is not recorded, so a reader that takes a working pane for one at rest and asks it fails the case (working-in-place-change shows the reading again as returned values)",
   "steps": [
     {
       "at": 100

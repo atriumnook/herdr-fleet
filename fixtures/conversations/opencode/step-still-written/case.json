@@ -1,5 +1,5 @@
 {
-  "about": "server/opencode-session.test.ts: what costs a call > a step still being written is read again, and once it ends the page settles; the test counts the calls, the case compares the pages (running-step-reread shows the reading again as returned values)",
+  "about": "server/opencode-session.test.ts: what costs a call > a step still being written is read again, and once it ends the page settles; the test counts the calls: here the poll while the step is written asks no look at the newest message (not recorded then, so asking it fails the case), and after the page settles the message list answers 500, so a reader that reads it again fails the case (running-step-reread shows the reading again as returned values)",
   "steps": [
     {
       "at": 100
@@ -186,6 +186,14 @@
         "cursor": null,
         "history_id": "ses_testsession0001",
         "version": "$v2"
+      }
+    },
+    {
+      "api": {
+        "/api/session/ses_testsession0001/message?limit=100&order=desc": {
+          "status": 500,
+          "body": {}
+        }
       }
     },
     {

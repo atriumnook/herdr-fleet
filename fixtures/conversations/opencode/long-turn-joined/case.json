@@ -1,5 +1,5 @@
 {
-  "about": "server/opencode-session.test.ts: what costs a call > a long turn that is still going is joined to what is held, not walked again from its start; the test counts the calls, the case compares the pages",
+  "about": "server/opencode-session.test.ts: what costs a call > a long turn that is still going is joined to what is held, not walked again from its start; the test counts the calls: here, after the first poll, the older pages (the cursor paths) answer 500, so a reader that walks the turn again from its start rather than joining the newest hundred fails the case",
   "steps": [
     {
       "at": 100
@@ -1041,6 +1041,18 @@
         "cursor": null,
         "history_id": "ses_testsession0001",
         "version": "$v1"
+      }
+    },
+    {
+      "api": {
+        "/api/session/ses_testsession0001/message?cursor=eyJpZCI6Im1zZ19zMTUwIiwib3JkZXIiOiJkZXNjIiwiZGlyZWN0aW9uIjoibmV4dCJ9&limit=100": {
+          "status": 500,
+          "body": {}
+        },
+        "/api/session/ses_testsession0001/message?cursor=eyJpZCI6Im1zZ19zNTAiLCJvcmRlciI6ImRlc2MiLCJkaXJlY3Rpb24iOiJuZXh0In0&limit=100": {
+          "status": 500,
+          "body": {}
+        }
       }
     },
     {

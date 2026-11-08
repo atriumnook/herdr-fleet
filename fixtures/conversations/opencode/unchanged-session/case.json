@@ -1,5 +1,5 @@
 {
-  "about": "server/opencode-session.test.ts: what costs a call > an unchanged session at rest costs a look at its newest message, not a read; the test counts the calls, the case compares the pages and their version",
+  "about": "server/opencode-session.test.ts: what costs a call > an unchanged session at rest costs a look at its newest message, not a read; the test counts the calls: here, after the first poll, the message list answers 500, so a reader that reads it again rather than looking at the newest message fails the case",
   "steps": [
     {
       "at": 100
@@ -110,6 +110,14 @@
         "cursor": null,
         "history_id": "ses_testsession0001",
         "version": "$v1"
+      }
+    },
+    {
+      "api": {
+        "/api/session/ses_testsession0001/message?limit=100&order=desc": {
+          "status": 500,
+          "body": {}
+        }
       }
     },
     {
