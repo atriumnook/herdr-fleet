@@ -1,0 +1,14 @@
+{"type":"response_item","payload":{"type":"function_call","call_id":"c1","name":"exec_command","arguments":"{\"cmd\":\"step 1\"}"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"c1","output":"Chunk ID: 1\nWall time: 0.0 seconds\nProcess exited with code 1\nOutput:\n"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"c2","name":"exec_command","arguments":"{\"cmd\":\"step 2\"}"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"c2","output":"Process exited with code 0\nOutput:\nok"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"c3","name":"exec_command","arguments":"{\"cmd\":\"step 3\"}"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"c3","output":"{\"output\":\"boom\",\"metadata\":{\"exit_code\":2}}"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"c4","name":"exec_command","arguments":"{\"cmd\":\"step 4\"}"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"c4","output":"Script failed\nError: x"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"c5","name":"exec_command","arguments":"{\"cmd\":\"step 5\"}"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"c5","output":"apply_patch verification failed: Failed to find expected lines in /x"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"c6","name":"exec_command","arguments":"{\"cmd\":\"step 6\"}"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"c6","output":"Script completed\nProcess exited with code 1"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"c7","name":"exec_command","arguments":"{\"cmd\":\"step 7\"}"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"c7","output":"{\"accepted\":true}"}}

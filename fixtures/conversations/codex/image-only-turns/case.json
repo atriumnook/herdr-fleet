@@ -1,0 +1,192 @@
+{
+  "about": "server/codex-images.test.ts: preserves image-only Codex turns and pairs event/response copies in either order\nThe local image paths are words in the records, never read: no image call reads them",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "empty-display-first.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/png",
+                "ref": "codex-da9f18e2d28cdbf107da86298c33d0c726121f69a94b79ad6d0096eee727b235"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "empty-model-first.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/png",
+                "ref": "codex-da9f18e2d28cdbf107da86298c33d0c726121f69a94b79ad6d0096eee727b235"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-display-first.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/png",
+                "ref": "codex-da9f18e2d28cdbf107da86298c33d0c726121f69a94b79ad6d0096eee727b235"
+              },
+              {
+                "kind": "text",
+                "text": "What is this?"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "text-model-first.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/png",
+                "ref": "codex-da9f18e2d28cdbf107da86298c33d0c726121f69a94b79ad6d0096eee727b235"
+              },
+              {
+                "kind": "text",
+                "text": "What is this?"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h4",
+        "version": "$v4"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "two-displays.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/png",
+                "ref": "codex-04335c603bdb76b2743ded528ae7df197352d47d55c15593751b66629117e844"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/png",
+                "ref": "codex-c24cbc10b93d4915c0e578b6dcc942bffe3f8f22cf8332fd487ae4eb5610949b"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h5",
+        "version": "$v5"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "model-only.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/png",
+                "ref": "codex-3d13b4f3ae760186a2e29ce8917f21ebd8ddab1af6b901a838b5b3e5122a3c0c"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h6",
+        "version": "$v6"
+      }
+    }
+  ]
+}

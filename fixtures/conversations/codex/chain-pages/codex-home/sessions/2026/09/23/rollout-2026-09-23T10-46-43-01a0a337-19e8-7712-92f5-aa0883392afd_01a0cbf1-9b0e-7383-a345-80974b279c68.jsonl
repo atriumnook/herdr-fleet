@@ -1,0 +1,31 @@
+{"type":"session_meta","payload":{"source":"cli","thread_source":"user","history_base":{"thread_id":"01a0a337-19e8-7712-92f5-aa0883392afd","end_ordinal_exclusive":181,"end_byte_offset":25254}}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 60"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 60"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 61"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 61"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 62"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 62"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 63"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 63"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 64"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 64"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 65"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 65"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 66"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 66"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 67"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 67"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 68"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 68"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 69"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 69"}]}}

@@ -1,0 +1,4 @@
+{"type":"response_item","payload":{"type":"custom_tool_call","call_id":"p","name":"apply_patch","input":"*** Begin Patch\n*** Update File: src/a.ts\n@@\n-x\n+y\n*** End Patch\n"}}
+{"type":"response_item","payload":{"type":"custom_tool_call_output","call_id":"p","output":"Success. Updated the following files:\nM src/a.ts"}}
+{"type":"response_item","payload":{"type":"function_call","call_id":"c","name":"exec_command","arguments":"{\"cmd\":\"false\"}"}}
+{"type":"response_item","payload":{"type":"function_call_output","call_id":"c","output":"Process exited with code 1\nOutput:\n"}}

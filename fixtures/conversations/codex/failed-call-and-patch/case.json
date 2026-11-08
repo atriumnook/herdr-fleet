@@ -1,0 +1,43 @@
+{
+  "about": "server/codex.test.ts: Codex tool calls that failed, and patches marks the failed call and sums a patch up by its files",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "assistant",
+            "ts": null,
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "apply_patch",
+                "summary": "src/a.ts",
+                "input": "*** Begin Patch\n*** Update File: src/a.ts\n@@\n-x\n+y\n*** End Patch\n",
+                "output": "Success. Updated the following files:\nM src/a.ts"
+              },
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "false",
+                "input": "{\n  \"cmd\": \"false\"\n}",
+                "output": "Process exited with code 1\nOutput:\n",
+                "error": true
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

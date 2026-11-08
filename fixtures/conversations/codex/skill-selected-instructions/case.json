@@ -1,0 +1,96 @@
+{
+  "about": "server/skill-activity.test.ts: Codex selected instructions become assistant skill evidence, not a user bubble or exposed prompt\nThe transcripts; selectedSkill on strings is left to the test",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "selected.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Please review"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "skill",
+                "skill": {
+                  "name": "review",
+                  "path": "/skills/review/SKILL.md",
+                  "evidence": "instructions",
+                  "status": "loaded"
+                }
+              },
+              {
+                "kind": "text",
+                "text": "Reviewed",
+                "phase": "final_answer"
+              }
+            ],
+            "end_ts": "2026-09-27T00:00:01Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "mixed.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Actual prompt"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "skill",
+                "skill": {
+                  "name": "review",
+                  "path": "/skills/review/SKILL.md",
+                  "evidence": "instructions",
+                  "status": "loaded"
+                }
+              }
+            ],
+            "end_ts": "2026-09-27T00:00:01Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    }
+  ]
+}
