@@ -1,6 +1,6 @@
 {
   "autonomous": true,
   "roles": {
-    "reviewer": { "agent": "codex", "model": "gpt-6.1-sol", "fallbackModels": ["claude:"] }
+    "reviewer": { "agent": "agy", "model": "gemini-4-argon-medium", "fallbackModels": ["codex:gpt-6.1-sol", "claude:"] }
   }
 }
