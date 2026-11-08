@@ -1,0 +1,21 @@
+{
+  "about": "server/conversation-metadata.test.ts: recorded conversation model settings uses the latest Codex turn context, not the session's initial model",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "current",
+          "reasoning_effort": "xhigh"
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

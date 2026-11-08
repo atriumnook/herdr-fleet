@@ -1,0 +1,101 @@
+{
+  "about": "server/codex-images.test.ts: strips Codex's native image envelope but keeps user-typed lookalikes",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "envelope.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/png",
+                "ref": "codex-3d13b4f3ae760186a2e29ce8917f21ebd8ddab1af6b901a838b5b3e5122a3c0c"
+              },
+              {
+                "kind": "text",
+                "text": "[Image #1]"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "pasted.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/png",
+                "ref": "codex-3d13b4f3ae760186a2e29ce8917f21ebd8ddab1af6b901a838b5b3e5122a3c0c"
+              },
+              {
+                "kind": "image",
+                "media_type": "image/gif",
+                "ref": "codex-9d1e7fed1595eac0b6350ab15c827b5be61f279c759ab888158939d24f3d8bb1"
+              },
+              {
+                "kind": "text",
+                "text": "[Image #1] [Image #2] compare these"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "control.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "I typed <image name=x> and </image> literally."
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    }
+  ]
+}

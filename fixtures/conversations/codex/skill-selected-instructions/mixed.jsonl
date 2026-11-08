@@ -1,0 +1,1 @@
+{"type":"response_item","timestamp":"2026-09-27T00:00:01Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Actual prompt"},{"type":"input_text","text":"<skill>\n<name>review</name>\n<path>/skills/review/SKILL.md</path>\nPRIVATE INSTRUCTIONS\n</skill>"}]}}

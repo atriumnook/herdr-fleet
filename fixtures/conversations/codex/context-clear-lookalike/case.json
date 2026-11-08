@@ -1,0 +1,42 @@
+{
+  "about": "server/chat-history.test.ts: only explicit complete reset records clear history; compaction and quoted commands do not (the Codex half: omp's context_clear record is no reset in a Codex rollout)\nThe record isContextClear is given in the test, between two prompts of a rollout: neither prompt is cleared",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "before"
+              }
+            ]
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "after"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

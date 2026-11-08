@@ -1,0 +1,104 @@
+{
+  "about": "server/skill-activity.test.ts: Codex literal read calls update immutable snapshots on success/failure and ignore shell lookalikes\nThe writes as appends, each followed by a page; codexReadCall on commands is left to the test",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Please review"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "cat '/skills/review/SKILL.md'",
+                "input": "{\n  \"cmd\": \"cat '/skills/review/SKILL.md'\"\n}",
+                "output": "",
+                "skill": {
+                  "name": "review",
+                  "path": "/skills/review/SKILL.md",
+                  "evidence": "instructions",
+                  "status": "requested"
+                }
+              }
+            ],
+            "end_ts": "2026-09-27T00:00:01Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "append": "rollout.jsonl",
+      "text": "{\"type\":\"response_item\",\"timestamp\":\"2026-09-27T00:00:01Z\",\"payload\":{\"type\":\"function_call_output\",\"call_id\":\"one\",\"output\":\"Process exited with code 1\\nNo such file\"}}\n"
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Please review"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-27T00:00:01Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "exec_command",
+                "summary": "cat '/skills/review/SKILL.md'",
+                "input": "{\n  \"cmd\": \"cat '/skills/review/SKILL.md'\"\n}",
+                "output": "Process exited with code 1\nNo such file",
+                "skill": {
+                  "name": "review",
+                  "path": "/skills/review/SKILL.md",
+                  "evidence": "instructions",
+                  "status": "failed"
+                },
+                "error": true
+              }
+            ],
+            "end_ts": "2026-09-27T00:00:01Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v2"
+      }
+    }
+  ]
+}

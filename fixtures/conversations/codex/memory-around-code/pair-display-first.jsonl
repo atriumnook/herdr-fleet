@@ -1,0 +1,2 @@
+{"type":"event_msg","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"agent_message","message":"Before `<oai-mem-citation>` after\n~~~xml\n<oai-mem-citation>sample</oai-mem-citation>\n~~~\nDone"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"<oai-mem-citation>first</oai-mem-citation>Before `<oai-mem-citation>` after\n~~~xml\n<oai-mem-citation>sample</oai-mem-citation>\n~~~\nDone\n<oai-mem-citation>unfinished"}],"phase":"final_answer"}}

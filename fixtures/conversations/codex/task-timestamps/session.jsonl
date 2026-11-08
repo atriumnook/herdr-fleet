@@ -1,0 +1,5 @@
+{"type":"event_msg","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"task_started","started_at":"2026-09-22T01:00:00.000Z"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"Check"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:06.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Done"}],"phase":"final_answer"}}
+{"type":"event_msg","timestamp":"2026-09-22T01:00:07.000Z","payload":{"type":"task_complete"}}
+{"type":"event_msg","timestamp":"2026-09-22T02:00:00.000Z","payload":{"type":"user_message","message":"Next"}}

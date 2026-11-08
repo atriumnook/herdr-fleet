@@ -40,6 +40,29 @@
       "ref": "codex-0000000000000000000000000000000000000000000000000000000000000000",
       "cwd": ".",
       "expected": null
+    },
+    {
+      "rewrite": "assets/shot.png",
+      "text": "<html>not an image</html>"
+    },
+    {
+      "call": "image",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "ref": "codex-1bc8ef93098d0ae5e4054b63010ae4f481f526177f07fdacedf4e8490a448f79",
+      "cwd": ".",
+      "expected": null
+    },
+    {
+      "remove": "assets/shot.png"
+    },
+    {
+      "call": "image",
+      "source": "codex",
+      "path": "rollout.jsonl",
+      "ref": "codex-1bc8ef93098d0ae5e4054b63010ae4f481f526177f07fdacedf4e8490a448f79",
+      "cwd": ".",
+      "expected": null
     }
   ]
 }
