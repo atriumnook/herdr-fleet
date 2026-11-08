@@ -76,6 +76,7 @@ import { Orchestrator, type OrchestratorDeps } from "./fleet/orchestrator.ts";
 import { defaultProbes, UsageTracker } from "./fleet/usage.ts";
 import { RunRegistry } from "./fleet/registry.ts";
 import { HerdrRuntime } from "./fleet/runtime.ts";
+import { eventLog } from "./fleet/events.ts";
 import { handleMachineRequest } from "./machine-api.ts";
 
 const MAX_REPLAY_BYTES = 128 * 1024;
@@ -532,6 +533,7 @@ export function createServer(
     fleetCommand: FLEET_COMMAND,
     usage,
     onChanged: fleetChanged,
+    events: eventLog(join(options.stateDir ?? defaultStateDir(), "fleet-events.jsonl")),
     agentEnv: () => ({ HERDR_FLEET_URL: `http://127.0.0.1:${listeningPort}`, ...(token ? { HERDR_FLEET_TOKEN: token } : {}) }),
   });
 
@@ -2029,12 +2031,15 @@ export function createServer(
     regridMoved().catch(() => undefined).finally(() => { layoutPolling = false; });
   }, LAYOUT_POLL_MS);
   layoutTimer.unref();
-  // the threads' open pull requests: their checks, and a merge the person made on GitHub
+  // the threads' open pull requests: their checks, and a merge the person made on GitHub; then the
+  // projects run without the person: their records against GitHub, and a standstill
   let pullRequestsPolling = false;
   const pullRequestTimer = setInterval(() => {
     if (pullRequestsPolling) return;
     pullRequestsPolling = true;
-    fleet.refreshPullRequests().catch(() => undefined).finally(() => { pullRequestsPolling = false; });
+    fleet.refreshPullRequests().catch(() => undefined)
+      .then(() => fleet.superviseProjects()).catch(() => undefined)
+      .finally(() => { pullRequestsPolling = false; });
   }, PULL_REQUEST_POLL_MS);
   pullRequestTimer.unref();
 

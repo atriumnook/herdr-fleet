@@ -1,9 +1,9 @@
 import { describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
 import { opencodeGitEnv } from "./opencode-config.ts";
-import { adapterFor, cursorUsage, type PaneContext, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
+import { AGY_DENY, adapterFor, cursorUsage, type PaneContext, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
 
-const base = { name: "impl", systemPromptFile: "/tmp/i.md", systemPrompt: "Be brief.\nSay \"done\".", resultDir: "/state/results/r1" };
+const base = { name: "impl", systemPromptFile: "/tmp/i.md", systemPrompt: "Be brief.\nSay \"done\".", resultDir: "/state/results/r1", cwd: "/repo/.herdr-fleet/worktrees/t1" };
 
 describe("pi adapter", () => {
   const pi = adapterFor("pi");
@@ -145,8 +145,29 @@ describe("agy adapter", () => {
   const agy = adapterFor("agy");
 
   it("takes the model and effort, with instructions in the first prompt", () => {
-    expect(agy.launchArgs({ ...base, model: "gemini-3.8-pro", thinking: "xhigh" })).toEqual(["--model", "gemini-3.8-pro", "--effort", "high", "--mode", "accept-edits", "--add-dir", "/state/results/r1"]);
+    expect(agy.launchArgs({ ...base, model: "gemini-3.8-pro", thinking: "xhigh" }).slice(0, 6)).toEqual(["--model", "gemini-3.8-pro", "--effort", "high", "--add-dir", "/state/results/r1"]);
     expect(agy.instructionsInPrompt).toBe(true);
+  });
+
+  it("leaves the level to a model id that names one, as agy drops such a model given --effort as well", () => {
+    expect(agy.launchArgs({ ...base, model: "gemini-4-argon-medium", thinking: "high" }).slice(0, 3)).toEqual(["--model", "gemini-4-argon-medium", "--add-dir"]);
+    expect(agy.launchArgs({ ...base, model: "claude-sonnet-5-5-low:max" }).slice(0, 3)).toEqual(["--model", "claude-sonnet-5-5-low", "--add-dir"]);
+    expect(agy.launchArgs({ ...base, thinking: "high" }).slice(0, 2)).toEqual(["--effort", "high"]);
+  });
+
+  it("trusts the run's own folder and runs in auto mode in the sandbox, for the session only", () => {
+    const args = agy.launchArgs(base);
+    expect(args).not.toContain("--mode");
+    const settings = JSON.parse(args[args.indexOf("--settings") + 1]!);
+    expect(settings).toEqual({ trustedWorkspaces: ["/repo/.herdr-fleet/worktrees/t1"], agentMode: "auto", enableTerminalSandbox: true, permissions: { deny: AGY_DENY } });
+  });
+
+  it("refuses a force push and a push that deletes a remote branch, and lets an ordinary push through", () => {
+    // agy matches a command rule as a prefix of the command line, word by word
+    const words = AGY_DENY.map((rule) => /^command\((.*)\)$/.exec(rule)![1]!.split(" "));
+    const refused = (line: string) => words.some((rule) => rule.every((word, i) => line.split(/\s+/)[i] === word));
+    for (const line of ["git push --force origin main", "git push -f origin x", "git push --force-with-lease", "git push --mirror", "git push --delete origin x", "git push -d origin x", "git push --prune origin"]) expect(refused(line)).toBe(true);
+    for (const line of ["git push", "git push -u origin fleet/t1", "git push origin HEAD:refs/heads/x", "git status --force", "git pushd -f"]) expect(refused(line)).toBe(false);
   });
 
 });

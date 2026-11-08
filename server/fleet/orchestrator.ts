@@ -14,6 +14,7 @@ import { makeGroupId, makeHerdrName, makeId, type RunRegistry } from "./registry
 import { abortableDelay, abortError, FleetError, isAbortError, type AgentRuntime } from "./runtime.ts";
 import { THINKING_LEVELS, requireThinkingLevel, type AgentDefinition, type AgentKind, type AgentRun, type AgentState, type FleetConfig, type RoleOverride, type SkippedCandidate, type SpawnRequest, type ThinkingLevel, type ThreadSummary } from "./types.ts";
 import type { ModelCatalog } from "./models.ts";
+import type { FleetEvent } from "./events.ts";
 import { usageKey, type UsageTracker } from "./usage.ts";
 
 /** One delegated turn, from the prompt until it settles. */
@@ -84,6 +85,8 @@ export const READY_SCREEN_MS = 15_000;
 const READY_SCREEN_POLL_MS = 250;
 /** how long a CLI's usage screen (cursor's `/usage`) may take to show */
 export const USAGE_SCREEN_MS = 10_000;
+/** how long a project run without the person may stand still before its coordinator hears of it (superviseProjects) */
+export const QUIET_MS = 15 * 60_000;
 /** how soon the threads' questions are tried again while the person has a draft in the coordinator's input */
 export const DRAFT_RETRY_MS = 5_000;
 /** a run still `starting` may be inside a 30 s agent start: not-found is not its end yet */
@@ -142,11 +145,15 @@ export interface OrchestratorDeps {
   usageScreenMs?: number;
   /** DRAFT_RETRY_MS; tests shorten it */
   draftRetryMs?: number;
+  /** QUIET_MS; tests shorten it */
+  quietMs?: number;
   /** what each account has used: candidates without usage left are skipped, rate limits start cooldowns */
   usage?: Pick<UsageTracker, "unavailable" | "noteFailure" | "claimScreen" | "record">;
   /** refuses a model the CLI does not offer, before the run starts (models.ts) */
   models?: Pick<ModelCatalog, "unknown">;
   onChanged?: (run: AgentRun) => void;
+  /** what happened, for the factory's metrics (events.ts) */
+  events?: (event: FleetEvent) => void;
 }
 
 /** What landing a thread reads and changes in git and on GitHub. */
@@ -202,18 +209,31 @@ export class Orchestrator {
   /** the concurrency check and the run's first save happen as one step */
   private spawnGate: Promise<void> = Promise.resolve();
   private stopped = false;
+  /** per project coordinator: since when it and its threads stand still, and whether it heard of that */
+  private readonly quietSince = new Map<string, number>();
+  private readonly andonSent = new Set<string>();
+  /** per thread: since when its lead is settled, and when GitHub was last asked about it */
+  private readonly settledSince = new Map<string, number>();
+  private readonly reconciledAt = new Map<string, number>();
+  /** each run's state as last saved: a save that changes it is an event */
+  private readonly savedStates = new Map<string, string>();
 
   private readonly grace: number;
+  private readonly quietMs: number;
   private readonly readyScreenMs: number;
   private readonly tools: LandingTools;
 
   constructor(private readonly deps: OrchestratorDeps) {
     this.grace = deps.preVisualGraceMs ?? PRE_VISUAL_GRACE_MS;
     this.readyScreenMs = deps.readyScreenMs ?? READY_SCREEN_MS;
+    this.quietMs = deps.quietMs ?? QUIET_MS;
     this.tools = { ...LANDING_TOOLS, ...deps.landing };
     this.pruneResults();
     // a restart read the runs back without their results: the result files hold them
-    for (const run of deps.registry.all()) run.result ??= readResult(this.resultFile(run));
+    for (const run of deps.registry.all()) {
+      run.result ??= readResult(this.resultFile(run));
+      this.savedStates.set(run.id, run.state);
+    }
   }
 
   /** A result folder outlives its pane but not its run: once the registry dropped the run, it goes. So do undelivered instructions. */
@@ -314,7 +334,10 @@ export class Orchestrator {
     const previous = this.projectStarts.get(project) ?? Promise.resolve();
     const started = previous.catch(() => {}).then(async () => {
       const live = this.deps.registry.all().find((run) => run.role === PROJECT_ROLE && run.project === project && isLive(run));
-      if (live) return this.send(live.id, task, undefined, signal);
+      if (live) {
+        this.deps.events?.({ kind: "person", run: live.id, project });
+        return this.send(live.id, task, undefined, signal);
+      }
       return this.launch({
         role: PROJECT_ROLE, name: `${basename(project)} · fleet`, task, cwd: project, depth: 0,
         group: makeGroupId(), worktree: false, interactive: true,
@@ -489,7 +512,7 @@ export class Orchestrator {
         run.state = await this.deps.runtime.start({
           kind, name: herdrName, paneId: run.paneId, signal, startupError: (screen) => adapter.startupError(screen),
           args: [
-            ...adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir }),
+            ...adapter.launchArgs({ model, thinking, tools: definition.tools, name: displayName, systemPromptFile: promptFile, systemPrompt: instructions, resultDir, cwd: run.cwd }),
             ...(definition.edits === false ? adapter.readOnlyArgs ?? [] : []),
           ],
         });
@@ -882,17 +905,95 @@ export class Orchestrator {
    * The open pull requests, read again: their checks, and whether the person merged or closed one
    * on GitHub. A merged one closes its thread once its lead is not at work. The server calls this
    * from time to time; it asks GitHub nothing while no thread has an open pull request.
+   *
+   * Without the person, the lead merges its own pull request and goes on (it closes the issue and
+   * writes its HANDOFF), and a turn that broke off to wait looks settled in between: the thread
+   * stays open, the coordinator hears of the merge once (the reading kept on the run is no longer
+   * OPEN), and the thread closes as the lead's turn ends (finalize, settleUnsentTurn).
    */
   async refreshPullRequests(): Promise<void> {
     for (const run of this.list().filter((each) => isThread(each) && each.pr?.state === "OPEN" && !each.landed)) {
       const thread = run as AgentRun & { project: string; branch: string };
       try {
         const reading = await this.readPullRequest(thread);
-        if (reading?.state === "MERGED" && !this.pending.has(run.id) && run.state !== "working") await this.mergedOnGitHub(thread, reading);
+        if (reading?.state !== "MERGED") continue;
+        if (this.deps.config(run.cwd).autonomous) {
+          run.notice = threadMerged(run);
+          run.updatedAt = Date.now();
+          this.save(run);
+          void this.tellCoordinator(run);
+        } else if (!this.pending.has(run.id) && run.state !== "working") await this.mergedOnGitHub(thread, reading);
       } catch {
         // GitHub could not be asked: the reading kept stands until the next try
       }
     }
+  }
+
+  /**
+   * The projects run without the person, looked after (the server calls this after
+   * refreshPullRequests). Two things only the person noticed before:
+   * - the fleet's records against GitHub: a thread whose pull request GitHub shows merged, while its
+   *   lead stayed settled through the quiet period, is closed and its coordinator told (a merge seen
+   *   at once may come from a lead that broke off its turn to wait, and goes on after it);
+   * - a standstill: when the coordinator and every run of its threads stayed settled through the
+   *   quiet period, the coordinator hears of it once, with where each thread stands. It hears again
+   *   only after a thread moved: its own answer is no reason, so a project where everything left is
+   *   blocked or done is not called on and on.
+   * It asks GitHub nothing about a thread more often than once per quiet period, and writes nothing.
+   */
+  async superviseProjects(): Promise<void> {
+    const now = Date.now();
+    for (const coordinator of this.list().filter((run) => run.role === PROJECT_ROLE && run.project && isLive(run))) {
+      if (!this.deps.config(coordinator.cwd).autonomous) continue;
+      const threads = this.list().filter((run) => isThread(run) && run.project === coordinator.project && isLive(run) && !run.landed);
+      for (const thread of threads) await this.reconcileThread(thread as AgentRun & { project: string; branch: string }, now);
+      const open = threads.filter((run) => isLive(run) && !run.landed);
+      const groups = new Set([coordinator.group, ...open.map((run) => run.group)]);
+      const members = this.list().filter((run) => groups.has(run.group) && isLive(run));
+      const moving = (run: AgentRun) => this.pending.has(run.id) || run.state === "working" || run.state === "starting";
+      if (members.some((run) => run.id !== coordinator.id && moving(run))) this.andonSent.delete(coordinator.id);
+      if (members.some(moving)) { this.quietSince.set(coordinator.id, now); continue; }
+      const since = this.quietSince.get(coordinator.id);
+      if (since === undefined) { this.quietSince.set(coordinator.id, now); continue; }
+      if (now - since < this.quietMs || this.andonSent.has(coordinator.id)) continue;
+      if (await this.callStandstill(coordinator, open, now - since)) {
+        this.andonSent.add(coordinator.id);
+        this.deps.events?.({ kind: "standstill", run: coordinator.id, project: coordinator.project!, quietMs: now - since });
+      }
+    }
+  }
+
+  /** A settled thread's pull request, read once per quiet period: merged on GitHub, the thread closes. */
+  private async reconcileThread(thread: AgentRun & { project: string; branch: string }, now: number): Promise<void> {
+    if (this.pending.has(thread.id) || thread.state === "working" || thread.state === "starting") {
+      this.settledSince.delete(thread.id);
+      return;
+    }
+    const since = this.settledSince.get(thread.id);
+    if (since === undefined) { this.settledSince.set(thread.id, now); return; }
+    if (now - since < this.quietMs || now - (this.reconciledAt.get(thread.id) ?? 0) < this.quietMs) return;
+    this.reconciledAt.set(thread.id, now);
+    try {
+      const reading = await this.readPullRequest(thread);
+      if (reading?.state !== "MERGED") return;
+      await this.mergedOnGitHub(thread, reading);
+      this.deps.events?.({ kind: "reconciled", run: thread.id, project: thread.project, ...(thread.pr ? { pr: thread.pr.number } : {}) });
+      thread.notice = threadClosedAfterMerge(thread, now - since);
+      this.save(thread);
+      void this.tellCoordinator(thread);
+    } catch {
+      // GitHub could not be asked: the next quiet period asks again
+    }
+  }
+
+  /** The coordinator, free, hears that its project stands still; false when it could not be told now. */
+  private async callStandstill(coordinator: AgentRun, threads: AgentRun[], quietFor: number): Promise<boolean> {
+    if (this.delivering.has(coordinator.id)) return false;
+    await this.reconcileLocks.get(coordinator.id);
+    const live = await this.liveState(coordinator);
+    if (!live || !isCompleted(live) || this.pending.has(coordinator.id) || await this.hasDraft(coordinator)) return false;
+    const sent = await this.submit(coordinator, standstill(threads, quietFor));
+    return sent.state === "working";
   }
 
   /**
@@ -1055,8 +1156,9 @@ export class Orchestrator {
         const thread = run as AgentRun & { project: string; branch: string };
         return { id: run.id, at: run.landing!.at, text: coordinatorStep(thread, await this.baseBranchOf(thread)) };
       }));
+      const news = this.deps.config(coordinator.cwd).autonomous ? NEWS_HEADER : QUESTIONS_HEADER;
       const message = [
-        ...(told.length ? ["[fleet] Threads ask the person. These come from the fleet, not from the person.", ...told.map((news) => `- ${news.notice}`)] : []),
+        ...(told.length ? [news, ...told.map((each) => `- ${each.notice}`)] : []),
         ...(steps.length ? [STEPS_HEADER, ...steps.map((step) => `- ${step.text}`)] : []),
       ].join("\n");
       const sent = await this.submit(coordinator, message);
@@ -1133,9 +1235,11 @@ export class Orchestrator {
         if (pending?.armed && !pending.sawWorking && isCompleted(reported) && pending.submittedAt !== undefined && Date.now() - pending.submittedAt < this.grace) return;
         const current = await this.observed(run, reported);
         if (!isLive(run)) return;
+        const previous = run.state;
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
+        else if (!pending && previous === "working" && isCompleted(run.state) && isThread(run)) await this.settleUnsentTurn(run);
         // free again, after the fleet's turn or the person's: the questions of the threads it hears for
         if (!this.pending.has(run.id) && isCompleted(run.state)) void this.deliverNotices(run);
       } catch (error) {
@@ -1157,27 +1261,10 @@ export class Orchestrator {
     if (this.pending.get(run.id)?.generation !== pending.generation) return;
     this.dropPending(run.id);
     const config = this.deps.config(run.cwd);
-    run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
-    run.result = readResult(this.resultFile(run));
-    // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
-    // are spent; a turn that wrote its handoff did its work, whatever its screen quotes
-    const turnError = run.result === undefined ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
-    if (turnError && isCompleted(run.state)) {
-      run.state = "failed";
-      run.lastError = turnError;
-      // a rate limit sits the account out: the re-spawn below and later spawns pass it over
-      this.deps.usage?.noteFailure(run.agent, run.model, turnError, config.rateLimitCooldownMinutes);
-    }
+    await this.readTurn(run, config);
     if (isThread(run)) {
       this.closeStalePlan(run, pending);
-      run.notice = threadQuestion(run);
-      const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
-      run.contract = contract ? contractItems(contract) : undefined;
-      const base = run.baseBranch ?? run.base;
-      const diff = base ? await (this.deps.diffStat ?? diffStat)(run.cwd, base) : null;
-      run.diff = diff ?? undefined;
-      if (run.landing?.sent && !run.landing.error && LEAD_STEPS.has(run.landing.action)) await this.settleLeadStep(run);
-      else if (run.pr?.state === "OPEN") await this.readPullRequest(run).catch(() => undefined);
+      await this.settleThreadTurn(run, config);
     }
     run.updatedAt = Date.now();
     this.save(run);
@@ -1188,6 +1275,53 @@ export class Orchestrator {
     if (run.state === "failed" && plan && pending.generation === 1) await this.respawn(run, plan);
     this.settleWaiters(run);
     await this.closeOnSettle(run, config);
+    if (run.notice) void this.tellCoordinator(run);
+  }
+
+  /** What a settled turn left: the screen, the handoff, and the API failure it may have ended on. */
+  private async readTurn(run: AgentRun, config: FleetConfig): Promise<void> {
+    run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
+    run.result = readResult(this.resultFile(run));
+    // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
+    // are spent; a turn that wrote its handoff did its work, whatever its screen quotes
+    const turnError = run.result === undefined ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
+    if (turnError && isCompleted(run.state)) {
+      run.state = "failed";
+      run.lastError = turnError;
+      // a rate limit sits the account out: the re-spawn and later spawns pass it over
+      this.deps.usage?.noteFailure(run.agent, run.model, turnError, config.rateLimitCooldownMinutes);
+    }
+  }
+
+  /** A thread's settled turn: its contract, its change and its pull request, and what its coordinator hears. */
+  private async settleThreadTurn(run: AgentRun, config: FleetConfig): Promise<void> {
+    const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
+    run.contract = contract ? contractItems(contract) : undefined;
+    const base = run.baseBranch ?? run.base;
+    const diff = base ? await (this.deps.diffStat ?? diffStat)(run.cwd, base) : null;
+    run.diff = diff ?? undefined;
+    if (run.landing?.sent && !run.landing.error && LEAD_STEPS.has(run.landing.action)) await this.settleLeadStep(run);
+    // without the person, a lead opens and merges its own pull request: read it as its turn ends
+    else if (run.pr?.state === "OPEN" || (config.autonomous && !run.landed)) {
+      const reading = await this.readPullRequest(run).catch(() => null);
+      if (config.autonomous && reading?.state === "MERGED" && !run.landed) await this.mergedOnGitHub(run as AgentRun & { project: string; branch: string }, reading);
+    }
+    run.notice = threadQuestion(run) ?? (config.autonomous ? threadTurnEnded(run) : undefined);
+  }
+
+  /**
+   * A thread's turn the fleet did not send ended: its agent started it itself (a helper's result
+   * woke it after a turn that broke off to wait) or the person typed in its pane. Without the
+   * person, nothing else tells the coordinator, which waits for this news to go on.
+   */
+  private async settleUnsentTurn(run: AgentRun): Promise<void> {
+    const config = this.deps.config(run.cwd);
+    if (!config.autonomous) return;
+    await this.readTurn(run, config);
+    await this.settleThreadTurn(run, config);
+    run.updatedAt = Date.now();
+    this.save(run);
+    this.settleWaiters(run);
     if (run.notice) void this.tellCoordinator(run);
   }
 
@@ -1335,6 +1469,15 @@ export class Orchestrator {
 
   private save(run: AgentRun): void {
     this.deps.registry.upsert(run);
+    const previous = this.savedStates.get(run.id);
+    if (previous !== run.state) {
+      this.savedStates.set(run.id, run.state);
+      const error = run.lastError && (run.state === "failed" || run.state === "blocked" || run.state === "unknown") ? run.lastError.slice(0, 200) : undefined;
+      this.deps.events?.({
+        kind: "state", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
+        ...(run.project ? { project: run.project } : {}), ...(previous ? { from: previous } : {}), to: run.state, sent: this.pending.has(run.id), ...(error ? { error } : {}),
+      });
+    }
     this.deps.onChanged?.(run);
   }
 }
@@ -1344,6 +1487,40 @@ const isThread = (run: AgentRun): boolean => run.role === THREAD_ROLE && run.pro
 function threadLabel(run: AgentRun): string {
   return `"${run.name}" (${run.id}${run.branch ? `, ${run.branch}` : ""})`;
 }
+
+/**
+ * A thread's settled turn that asks nothing, as the coordinator of a project run without the person
+ * hears it: the HANDOFF's status line and contract, or how the turn failed, and where the rest is.
+ */
+export function threadTurnEnded(run: AgentRun): string {
+  const status = run.state === "failed" ? `FAILED — ${run.lastError ?? "the turn failed"}` : (run.result ? handoffStatus(run.result) : undefined) ?? "no HANDOFF status line";
+  const contract = run.contract?.length ? `\n  Contract: ${run.contract.map((item) => `${item.id} ${item.state === "met" ? "✓" : item.state === "unmet" ? "✗" : "…"}`).join(" ")}` : "";
+  const pr = run.pr ? `\n  Pull request #${run.pr.number}: ${run.pr.state}${run.landed === "merged" ? ", and the thread is closed" : ""}` : "";
+  return `${threadLabel(run)} ended its turn: ${status}${contract}${pr}`;
+}
+
+/** A thread's pull request the polling found merged, as the coordinator of a project run without the person hears it. */
+export function threadMerged(run: AgentRun): string {
+  return `${threadLabel(run)} merged pull request #${run.pr?.number ?? "?"}; the thread closes once its lead's turn ends`;
+}
+
+/** A project run without the person that stood still, as its coordinator hears it, with where each open thread stands. */
+export function standstill(threads: AgentRun[], quietFor: number): string {
+  return [
+    `[fleet] Nothing in this project has moved for ${Math.round(quietFor / 60_000)} minutes: you and every thread are settled. This comes from the fleet, not from the person.`,
+    ...(threads.length ? threads.map((run) => `- ${threadLabel(run)}: ${run.state}${run.pr ? `, pull request #${run.pr.number} ${run.pr.state}` : ""}`) : ["- No thread is open."]),
+    "Check the issues and the threads: start what can start, and send a settled thread what it still has to do. When everything left is blocked or done, say so as your instructions tell you.",
+  ].join("\n");
+}
+
+/** A thread the fleet closed against GitHub, as its coordinator hears it. */
+export function threadClosedAfterMerge(run: AgentRun, settledFor: number): string {
+  return `${threadLabel(run)}: GitHub shows pull request #${run.pr?.number ?? "?"} merged and its lead stayed settled ${Math.round(settledFor / 60_000)} minutes, so the fleet closed the thread. Close its issue if it is still open.`;
+}
+
+const QUESTIONS_HEADER = "[fleet] Threads ask the person. These come from the fleet, not from the person.";
+/** a project run without the person: its coordinator hears every turn a thread ends */
+const NEWS_HEADER = "[fleet] Threads ended a turn. These come from the fleet, not from the person.";
 
 /** How the coordinator hears the landing steps the person pressed. */
 const STEPS_HEADER = "[fleet] The person pressed these on the Fleet screen. Each is the person's approval for that step only.";

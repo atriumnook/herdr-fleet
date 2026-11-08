@@ -1,6 +1,6 @@
 # TypeScript のテストの引き継ぎ先
 
-TypeScript 版のテストのファイルごとに、そのテストが Rust 版でどの検査に引き継がれるか(引き継ぎ先)を書く。計画(`docs/rust-migration/plan.md`)の「一致を確かめる基準」が、この一覧を置くと決めている。引き継ぎ先のない行が残っている間は、切り替えの準備ができていない(計画の段階 7 の完了条件「parity.md の全行に引き継ぎ先がある」)。行にするファイルと引き継ぎ先の値は、ADR `0122-parity-criteria` の「parity.md」に従う。
+TypeScript 版のテストのファイルごとに、そのテストが Rust 版でどの検査に引き継がれるか(引き継ぎ先)を書く。計画(`docs/rust-migration/plan.md`)の「一致を確かめる基準」が、この一覧を置くと決めている。引き継ぎ先のない行が残っている間は、切り替えの準備ができていない(計画の段階 7 の完了条件「parity.md の全行に引き継ぎ先がある」)。行にするファイルと引き継ぎ先の値は、ADR `0122-parity-criteria` の「parity.md」に従う(手で走らせる検査の glob だけは ADR `0169-parity-live-checks`)。
 
 - 作った日: 2026-11-08(Issue #134。段階 1 のほかの Issue #123〜#133 がマージされたあとの `rust`)
 - 一覧とファイルの突き合わせ: `bun scripts/parity.ts`。下の「一覧」の行と、下の「行にするファイル」の glob が `git ls-files` から選んだファイルを比べ、欠けた行、余った行、2 回出た行、決まった値でない引き継ぎ先を挙げて、終了コード 1 で終わる
@@ -13,7 +13,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - `*.test.ts` と `*.test.tsx`(どのフォルダーでも)
 - `scripts/*-regression.ts`、`scripts/*-qa.ts`(ブラウザーで画面を確かめる回帰検査)
 - `e2e/*.ts`
-- 手で走らせる検査の `scripts/opencode-live-check.ts` と `scripts/pty-compare.ts`
+- 手で走らせる検査の `scripts/*-live-check.ts`(実物の CLI を起動して確かめる検査。今は `scripts/agy-live-check.ts` と `scripts/opencode-live-check.ts`)と `scripts/pty-compare.ts`。`scripts/*-live-check.ts` の glob は ADR `0169-parity-live-checks` で広げた
 
 ### 除いたファイル
 
@@ -63,6 +63,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `bin/fleet-cli-fixtures.test.ts` | fleet CLI の契約 | |
 | `bin/fleet.test.ts` | fleet CLI の契約 | |
 | `e2e/fleet-live.ts` | | |
+| `scripts/agy-live-check.ts` | | |
 | `scripts/android-ime-regression.ts` | | |
 | `scripts/chat-browser-qa.ts` | | |
 | `scripts/chat-conversation-regression.ts` | UI の回帰 | |
@@ -82,6 +83,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `scripts/devices-regression.ts` | UI の回帰 | |
 | `scripts/directory-browser-regression.ts` | UI の回帰 | |
 | `scripts/droplet-regression.ts` | UI の回帰 | |
+| `scripts/factory-report.test.ts` | | |
 | `scripts/file-viewer-regression.ts` | | |
 | `scripts/fleet-screen-regression.ts` | UI の回帰 | |
 | `scripts/generate-protocol-types.test.ts` | | |
@@ -146,7 +148,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/explain.test.ts` | 安全上の判定の表 | 20 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/file-view.test.ts` | 安全上の判定の表 | 8 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/files.test.ts` | HTTP/WS の契約 | 5 件の `it`(下の「一部だけが移ったファイル」) |
-| `server/fleet/adapters.test.ts` | 画面の corpus、安全上の判定の表 | 33 件の `it`(下の「一部だけが移ったファイル」) |
+| `server/fleet/adapters.test.ts` | 画面の corpus、安全上の判定の表 | 36 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/fleet/agents.test.ts` | | |
 | `server/fleet/api.test.ts` | | |
 | `server/fleet/brief.test.ts` | | |
@@ -441,7 +443,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - 画面の corpus: 17 件の `it`(コミット `e486a83` で corpus の件にし、このファイルから消した)
 - 安全上の判定の表: 1 件の `it`
 
-残った部分(33 件。引き継ぎ先は未定):
+残った部分(36 件。引き継ぎ先は未定。`takes the model and effort, with instructions in the first prompt` のすぐあとの 3 件は、Issue #169 で main から取り込んだ `it`):
 
 - launches with the model at its thinking level, the role's tools, a fleet name and the instruction file
 - keeps a :level the model already carries
@@ -459,6 +461,9 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - reads the pager as cursor-agent 2026.09.23 drew it under ja_JP
 - reads the narrow layout, a reset date in the next year, and nothing before the pager shows
 - takes the model and effort, with instructions in the first prompt
+- leaves the level to a model id that names one, as agy drops such a model given --effort as well
+- trusts the run's own folder and runs in auto mode in the sandbox, for the session only
+- refuses a force push and a push that deletes a remote branch, and lets an ordinary push through
 - starts the TUI standalone and takes everything else in its config: no model flag, no thinking level, instructions in the first prompt
 - never writes an ask, and never allows everything
 - is the default agent, with its rules and the guard plugin of this pane alone

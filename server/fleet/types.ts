@@ -87,6 +87,11 @@ export interface FleetConfig {
   defaultWaitTimeoutMs: number;
   /** close a non-interactive agent's pane once its turn settles */
   closeOnSettle: boolean;
+  /**
+   * the project runs without the person: its coordinator hears each turn its threads end, not only
+   * their questions, and a thread whose pull request is merged closes as its lead's turn ends
+   */
+  autonomous: boolean;
   /** a spawn candidate is skipped while any limit window of its account is used this much (percent) */
   maxUsedPercent: number;
   /** how long an account sits out after a rate limit whose message names no time */
