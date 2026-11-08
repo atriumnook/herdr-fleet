@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { checkFile, MARKER, markedFiles, unmarkedContractFiles } from "./check-imports.ts";
 
@@ -64,5 +64,15 @@ describe("the black-box import check", () => {
 
   it("finds no contract test of the repository without the marker", () => {
     expect(unmarkedContractFiles()).toEqual([]);
+  });
+
+  it("reports a contract test of the repository whose first line is not the marker", () => {
+    const unmarked = `scripts/contract/unmarked-${process.pid}.contract.test.ts`;
+    writeFileSync(resolve(import.meta.dir, "../..", unmarked), `// written by check-imports.test.ts and removed after it\n${MARKER}\n`);
+    try {
+      expect(unmarkedContractFiles()).toEqual([unmarked]);
+    } finally {
+      rmSync(resolve(import.meta.dir, "../..", unmarked));
+    }
   });
 });
