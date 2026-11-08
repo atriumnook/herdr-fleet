@@ -306,6 +306,9 @@ export function cursorUsage(screen: string, now: number): UsageReading | undefin
 export const AGY_DENY = ["--force", "--force-with-lease", "--force-if-includes", "-f", "--mirror", "--delete", "-d", "--prune"]
   .map((flag) => `command(git push ${flag})`);
 
+/** an agy model id that names its level, as all in its model list do */
+const AGY_MODEL_LEVEL = /-(?:low|medium|high|xhigh|max)$/;
+
 /** The session settings agy is started with in `cwd` (see agyAdapter). */
 export function agySettings(cwd: string): Record<string, unknown> {
   return { trustedWorkspaces: [cwd], agentMode: "auto", enableTerminalSandbox: true, permissions: { deny: AGY_DENY } };
@@ -331,7 +334,9 @@ export const agyAdapter: AgentAdapter = {
   models: { complete: true, list: listAgyModels },
   launchArgs(options) {
     const { model, thinking } = splitThinking(options.model, options.thinking);
-    const effort = effortFor(thinking, { low: "low", medium: "medium", high: "high", max: "max" });
+    // agy's model ids name their level (`gemini-4-argon-medium`): with --effort as well, agy drops
+    // the model for its default one (agy 1.5.3), so the id's level stands and the role's goes
+    const effort = model && AGY_MODEL_LEVEL.test(model) ? undefined : effortFor(thinking, { low: "low", medium: "medium", high: "high", max: "max" });
     return [
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
@@ -357,7 +362,9 @@ export const agyAdapter: AgentAdapter = {
   },
   readyError(screen) {
     const unknown = /model (\S+) is not recognized as a known model/.exec(screen);
-    return unknown ? `Unknown model ${unknown[1]}: Antigravity CLI would run its default model instead.` : undefined;
+    if (unknown) return `Unknown model ${unknown[1]}: Antigravity CLI would run its default model instead.`;
+    const conflict = /--model (\S+) conflicts with --effort=(\S+?)\./.exec(screen);
+    return conflict ? `The model ${conflict[1]} does not take the level ${conflict[2]}: Antigravity CLI would run its default model instead.` : undefined;
   },
   turnError(output) {
     return lastMatch(output, /^\s*(?:Error|error): (.+)$/gm);
