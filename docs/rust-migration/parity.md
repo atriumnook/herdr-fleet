@@ -35,7 +35,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `なし: <理由>` | 引き継ぎ先を持たない。理由を書く |
 | 空欄 | まだ決まっていない。段階 7 までに埋める(ADR `0122-parity-criteria`) |
 
-「残った部分」は、1 つのファイルの一部の `it` だけが引き継ぎ先に移ったときに、移らずに残った `it` の数を書く。そのファイルの、移った `it` と残った `it` は、下の「一部だけが移ったファイル」に並べる。残った `it` の引き継ぎ先は、段階 1 ではまだ決まっていない。
+「残った部分」は、1 つのファイルの一部だけが引き継ぎ先に移ったときに、移らずに残ったものを書く。残ったものは 2 種類ある: 名前がどの `about` にも出ない `it` と、`about` に名前は出るが、その `about` が「一部の assert は元のテストに残る」と書いた `it` である。後者は「`it` の一部」と数える。そのファイルの、移った `it` と残ったものは、下の「一部だけが移ったファイル」に並べる。残ったものの引き継ぎ先は、段階 1 ではまだ決まっていない。
 
 ### 段階 1 で埋めた行
 
@@ -47,7 +47,11 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - `*.contract.test.ts`: `HTTP/WS の契約`。どのファイルも先頭に `// black-box: scripts/contract/launch.ts` の印があり、`bun scripts/contract/check-imports.ts` が、印のないものと、決まった範囲の外を import するものを拒む
 - 基準の runner を TypeScript 版に当てるテスト: `server/screen-fixtures.test.ts` は `画面の corpus`、`server/conversation-fixtures.test.ts` は `会話ログの corpus`、`bin/fleet-cli-fixtures.test.ts` は `fleet CLI の契約`、`scripts/security-fixtures/*.test.ts` は `安全上の判定の表`
 - `scripts/ui-regression.ts` と、それが import する回帰検査: `UI の回帰`。計画の「UI の回帰」は `bun run test:ui` で、`test:ui` はビルドのあとに `scripts/ui-regression.ts` を走らせる(`package.json`)。`ui-regression.ts` が import しない回帰検査と `*-qa.ts` は、`test:ui` に入っていないので空欄にした
-- corpus の件の `about` に名前の出たテストのファイル: その corpus の基準。`fixtures/screens/` と `fixtures/conversations/` の `case.json`、`fixtures/fleet-cli/*.json`、`fixtures/security/` の表の `about` が「`<ファイル>: <it の名前>`」と書いた `it` を、移った `it` とした。`about` の名前は `describe` の名前を前に付けることがあるので、`about` の名前が `it` の名前を含んでいれば当たったとする。名前に `${…}` を含む `it`(値ごとに `it` を作るもの)は、`${…}` を任意の文字列として当てる
+- corpus の件の `about` に名前の出たテストのファイル: その corpus の基準。`fixtures/screens/` と `fixtures/conversations/` の `case.json`、`fixtures/fleet-cli/*.json`、`fixtures/security/` の表の `about` の各行が「`<ファイル>: <it の名前>`」と書いた `it` を、移った `it` とした(1 つの `about` が、行を分けて、または「; 」でつないで、いくつかの `it` を挙げることがある)。`about` の名前と `it` の名前は、次のどれかで当たったとする
+  - `about` の名前が `it` の名前を含む(`about` は `describe` の名前を前に付けることがある)
+  - `about` の名前から、末尾の括弧書きと、最後の ` > ` までの `describe` の名前を除いた 20 文字以上の部分を、`it` の名前が含む(`about` が `it` の名前を短く書いた場合)
+  - 名前に `${…}` を含む `it`(値ごとに `it` を作るもの)は、`${…}` を任意の文字列として当てる
+- 移った `it` のうち、`about` が「元のテストに残る」部分を書いたもの(「stays in the test」「left to the test」「left out」「which a case cannot」など)は、`about` を 1 件ずつ読んで「一部だけが移ったファイル」に残った部分として書いた。「(the Claude half)」のように 1 つの `it` を source ごとの件に分けたものは、どの部分も corpus にあるので、残った部分にしない
 - `server/files.test.ts` の 1 件(never runs a command the repository's own config names (core.fsmonitor)): `HTTP/WS の契約`。ADR `0122-parity-criteria` が、同じ件を black-box にして `server/device-access.contract.test.ts` に足すと決め、Issue #125(PR #142)で足した
 
 画面の corpus は段階 1 より前の #103 で作った。そのとき corpus の件にした `it` は、`server/prompt.test.ts`(106 件、コミット `5442691`)と `server/fleet/adapters.test.ts`(17 件、コミット `e486a83`)から消した。ほかの corpus と表に移した `it` は、元のファイルにも残している(ADR `0122-parity-criteria` の「既存の TypeScript のテストは消さない」)。
@@ -124,16 +128,16 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/claude-store.test.ts` | | |
 | `server/claude-turn-boundaries.test.ts` | 会話ログの corpus | |
 | `server/codex-binding.contract.test.ts` | HTTP/WS の契約 | |
-| `server/codex-images.test.ts` | 会話ログの corpus | |
+| `server/codex-images.test.ts` | 会話ログの corpus | 1 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/codex-processes.test.ts` | | |
 | `server/codex.contract.test.ts` | HTTP/WS の契約 | |
-| `server/codex.test.ts` | 会話ログの corpus | 33 件の `it`(下の「一部だけが移ったファイル」) |
+| `server/codex.test.ts` | 会話ログの corpus | 33 件の `it`、5 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/collector.test.ts` | | |
 | `server/commands.test.ts` | | |
 | `server/completion.test.ts` | | |
 | `server/conversation-fixtures.test.ts` | 会話ログの corpus | |
-| `server/conversation-metadata.test.ts` | 会話ログの corpus | |
-| `server/conversation.test.ts` | 会話ログの corpus | 9 件の `it`(下の「一部だけが移ったファイル」) |
+| `server/conversation-metadata.test.ts` | 会話ログの corpus | 1 件の `it` の一部(下の「一部だけが移ったファイル」) |
+| `server/conversation.test.ts` | 会話ログの corpus | 5 件の `it`、4 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/device-access.contract.test.ts` | HTTP/WS の契約 | |
 | `server/device-access.herdr.test.ts` | | |
 | `server/devices.test.ts` | | |
@@ -155,7 +159,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/fleet/runtime.herdr.test.ts` | | |
 | `server/fleet/settings.test.ts` | | |
 | `server/fleet/thread.test.ts` | | |
-| `server/fleet/usage.test.ts` | 安全上の判定の表 | 25 件の `it`(下の「一部だけが移ったファイル」) |
+| `server/fleet/usage.test.ts` | 安全上の判定の表 | 24 件の `it`、1 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/herdr-marker.test.ts` | | |
 | `server/herdr/client.test.ts` | | |
 | `server/machines-refresh.test.ts` | | |
@@ -165,17 +169,17 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/omp.contract.test.ts` | HTTP/WS の契約 | |
 | `server/opencode-cli.test.ts` | | |
 | `server/opencode-conversation.test.ts` | 会話ログの corpus | 3 件の `it`(下の「一部だけが移ったファイル」) |
-| `server/opencode-messages.test.ts` | 会話ログの corpus | |
-| `server/opencode-session.test.ts` | 会話ログの corpus | 3 件の `it`(下の「一部だけが移ったファイル」) |
+| `server/opencode-messages.test.ts` | 会話ログの corpus | 1 件の `it` の一部(下の「一部だけが移ったファイル」) |
+| `server/opencode-session.test.ts` | 会話ログの corpus | 3 件の `it`、2 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/output-window.test.ts` | | |
 | `server/output.contract.test.ts` | HTTP/WS の契約 | |
 | `server/output.herdr.test.ts` | | |
 | `server/pane-grid.contract.test.ts` | HTTP/WS の契約 | |
 | `server/pane-grid.test.ts` | | |
 | `server/pi-models.test.ts` | | |
-| `server/pi-tree.test.ts` | 会話ログの corpus | 8 件の `it`(下の「一部だけが移ったファイル」) |
+| `server/pi-tree.test.ts` | 会話ログの corpus | 3 件の `it`、5 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/pi.contract.test.ts` | HTTP/WS の契約 | |
-| `server/pi.test.ts` | 会話ログの corpus | 7 件の `it`(下の「一部だけが移ったファイル」) |
+| `server/pi.test.ts` | 会話ログの corpus | 7 件の `it`、1 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/ping.contract.test.ts` | HTTP/WS の契約 | |
 | `server/process-start.test.ts` | | |
 | `server/projects.test.ts` | | |
@@ -190,7 +194,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/side-chat-context.test.ts` | | |
 | `server/side-chat.test.ts` | | |
 | `server/side-terminal.test.ts` | | |
-| `server/skill-activity.test.ts` | 会話ログの corpus | 1 件の `it`(下の「一部だけが移ったファイル」) |
+| `server/skill-activity.test.ts` | 会話ログの corpus | 1 件の `it`、4 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/submit.contract.test.ts` | HTTP/WS の契約 | |
 | `server/submit.herdr.test.ts` | | |
 | `server/tailscale.test.ts` | | |
@@ -277,13 +281,31 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 
 ## 一部だけが移ったファイル
 
-移った `it` の数と、残った `it` の名前を並べる。名前は、テストのファイルに書かれたとおり(`${…}` を含む)。
+ファイルごとに、移った `it` の数と、残ったもの(一部の assert が元のテストに残る `it` と、残った `it`)の名前を並べる。名前は、テストのファイルに書かれたとおり(`${…}` を含む)。
+
+### `server/codex-images.test.ts`
+
+移った部分:
+
+- 会話ログの corpus: 4 件の `it`
+
+移った `it` のうち、一部の assert が元のテストにだけ残るもの(1 件。残った assert の引き継ぎ先は未定):
+
+- fetches only referenced raster images within the retained history and bounds local reads: ローカルの画像の大きさの上限 8 MiB(件に 8 MiB を超えるファイルを置かない)。根拠: `fixtures/conversations/codex/image` の `about`
 
 ### `server/codex.test.ts`
 
 移った部分:
 
 - 会話ログの corpus: 28 件の `it`
+
+移った `it` のうち、一部の assert が元のテストにだけ残るもの(5 件。残った assert の引き継ぎ先は未定):
+
+- reads a paginated rollout through the history it continues, without the turns a backtrack discarded: 小さいバイト数の予算での読み取り(`codexHistoryTail`、画面との照合に使う)。根拠: `fixtures/conversations/codex/chain-backtrack` の `about`
+- shows less history, never the wrong one, when no rollout holds a cut, and finds it once one does: 欠けた連なりの期限が切れたあと(`forgetHistoryChains`、時計)に、現れた rollout を見つける部分。根拠: `fixtures/conversations/codex/chain-missing-cut` の `about`
+- bounds tool output and history and tolerates malformed or partially written records: `parseCodexTranscript` の 100 ターンの上限(`maxTurns`)。根拠: `fixtures/conversations/codex/malformed-and-bounds` の `about`
+- bounds citation parsing with many unmatched backtick lengths: 解析にかかる時間の上限(1 秒未満)。根拠: `fixtures/conversations/codex/memory-backtick-runs` の `about`
+- scans a rollout once however many ask at the same time: 2 つの読み手が同時に読んでも、追記を 1 回だけ読むこと。根拠: `fixtures/conversations/codex/questions-appended-ask` の `about`
 
 残った部分(33 件。引き継ぎ先は未定):
 
@@ -321,19 +343,32 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - preserves a literal footer-shaped final paragraph without native chrome
 - skips known Codex notices before the submitted prompt (regression)
 
+### `server/conversation-metadata.test.ts`
+
+移った部分:
+
+- 会話ログの corpus: 12 件の `it`
+
+移った `it` のうち、一部の assert が元のテストにだけ残るもの(1 件。残った assert の引き継ぎ先は未定):
+
+- tolerates absent metadata, unexpected types and a torn append without losing valid settings: scrollback を読む部分(transcript を読まない)。根拠: `fixtures/conversations/codex/metadata-malformed` の `about`
+
 ### `server/conversation.test.ts`
 
 移った部分:
 
-- 会話ログの corpus: 41 件の `it`
+- 会話ログの corpus: 45 件の `it`
 
-残った部分(9 件。引き継ぎ先は未定):
+移った `it` のうち、一部の assert が元のテストにだけ残るもの(4 件。残った assert の引き継ぎ先は未定):
 
-- drops slash-command bookkeeping entries
+- refuses a cursor once the rollouts before the live file change, instead of pointing at other turns: 欠けた連なりの期限が切れたあと(`forgetHistoryChains`、時計)に rollout が現れる部分。根拠: `fixtures/conversations/codex/chain-missing-cut-pages` の `about`
+- expands inherited Codex tool output without exposing output discarded by a backtrack: 読めなくなった rollout の場所にフォルダーを置く部分(件はファイルを消す)。根拠: `fixtures/conversations/codex/inherited-tool-output` の `about`
+- trims a huge tool result and caps the turn list: `parseOmpTranscript` のターンの数の上限(`maxTurns`。ページは使わない)。根拠: `fixtures/conversations/omp/huge-tool-result` の `about`
+- incrementally reads one growing Codex task across split UTF-8, partial records and a rewrite: 疑似乱数の長さで切って追記する部分(件は 7 つの決まった位置で切る)。根拠: `fixtures/conversations/codex/growing-task` の `about`
+
+残った部分(5 件。引き継ぎ先は未定):
+
 - strips escapes in time linear in a malformed answer's length
-- keeps thinking blocks in transcript order
-- keeps thinking parts while ignoring title/session headers
-- skips an image-only user part instead of an empty turn
 - accepts the path herdr reports only inside the user's own store
 - accepts a Windows PC's native path, and refuses the same ways out
 - reads one window for the newest page even when no turn starts in it; an older page reaches the turn's start
@@ -477,9 +512,13 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 
 移った部分:
 
-- 安全上の判定の表: 2 件の `it`
+- 安全上の判定の表: 3 件の `it`
 
-残った部分(25 件。引き継ぎ先は未定):
+移った `it` のうち、一部の assert が元のテストにだけ残るもの(1 件。残った assert の引き継ぎ先は未定):
+
+- agy runs in its own emptied folder, without an API key or herdr session, and with its self-update held off: `AGY_CLI_DISABLE_AUTO_UPDATE` を足して自己更新を止める部分(表は `childEnv` の環境だけを比べる)。根拠: `fixtures/security/child-process/childEnv.json` の `about`
+
+残った部分(24 件。引き継ぎ先は未定):
 
 - splits agy by model group, and pi and opencode by provider; the other CLIs are one account each
 - reads codex app-server's primary and secondary windows (codex-cli 0.157.0)
@@ -487,7 +526,6 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - reads Claude Code's /usage: the shared windows, not a per-model one, with their reset in the named zone
 - takes a reset with no year as the next one, keeps a window whose reset it cannot read, and reads nothing from an API-key session
 - asks claude for /usage without keeping a session or loading the person's settings, and fails on an error answer
-- agy runs in its own emptied folder, without an API key or herdr session, and with its self-update held off
 - refuses a link in place of the folder, and leaves what it points at alone
 - is null for other failures and undefined for a rate limit that names no time
 - takes an ISO time, a relative one or the next clock time
@@ -534,11 +572,26 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - the label is read from the pane's agent session when the pane has none of its own
 - with no service running it is read from its scrollback, and the output and image are none
 
+### `server/opencode-messages.test.ts`
+
+移った部分:
+
+- 会話ログの corpus: 34 件の `it`
+
+移った `it` のうち、一部の assert が元のテストにだけ残るもの(1 件。残った assert の引き継ぎ先は未定):
+
+- an ended step is not: 空の一覧の `stillWriting`。根拠: `fixtures/conversations/opencode/still-writing-ended` の `about`
+
 ### `server/opencode-session.test.ts`
 
 移った部分:
 
 - 会話ログの corpus: 37 件の `it`
+
+移った `it` のうち、一部の assert が元のテストにだけ残るもの(2 件。残った assert の引き継ぎ先は未定):
+
+- a cursor the service refuses means the history changed; any other failure stays one: JSON でない応答の失敗(記録した応答では書けない)。根拠: `fixtures/conversations/opencode/cursor-refused` の `about`
+- is null when the model list cannot be read: モデルの一覧が普通の Error を投げる場合(件では 500 の応答にした)。根拠: `fixtures/conversations/opencode/context-window-unreadable` の `about`
 
 残った部分(3 件。引き継ぎ先は未定):
 
@@ -550,17 +603,20 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 
 移った部分:
 
-- 会話ログの corpus: 21 件の `it`
+- 会話ログの corpus: 26 件の `it`
 
-残った部分(8 件。引き継ぎ先は未定):
+移った `it` のうち、一部の assert が元のテストにだけ残るもの(5 件。残った assert の引き継ぎ先は未定):
+
+- shows only the branch the leaf stands on after /tree: バイトの範囲の数(`piBranchSegments`)。根拠: `fixtures/conversations/pi/tree-abandoned-branch` の `about`
+- moves the conversation when a /tree branch is appended, and invalidates the page: 追記のあとに、最初のページの null の cursor を渡す部分(件の cursor は文字列だけ)。根拠: `fixtures/conversations/pi/tree-branch-appended` の `about`
+- tells two /tree moves apart when their branches share every range but the last: 2 回目の移動のあとに null の cursor を渡す部分(件の cursor は文字列だけ)。根拠: `fixtures/conversations/pi/tree-two-moves` の `about`
+- starts over when the file is rewritten or cut, so a stale tree cannot be read: 索引の entry の数。根拠: `fixtures/conversations/pi/tree-rewritten` の `about`
+- reads a straight line as the whole file: バイトの範囲(`piBranchSegments`)。根拠: `fixtures/conversations/pi/tree-straight-line` の `about`
+
+残った部分(3 件。引き継ぎ先は未定):
 
 - indexes an append without rereading what it already scanned
-- names the branch a turn was abandoned into
-- counts the turns a branch left behind, on both sides of the live path
-- counts a turn once however many branches it was abandoned into
 - says nothing rather than guess at a tree it cannot walk
-- names the turns no page of the conversation can reach
-- says nothing for a session no /tree touched
 - indexes the entries around a record longer than several read chunks
 
 ### `server/pi.test.ts`
@@ -568,6 +624,10 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 移った部分:
 
 - 会話ログの corpus: 11 件の `it`
+
+移った `it` のうち、一部の assert が元のテストにだけ残るもの(1 件。残った assert の引き継ぎ先は未定):
+
+- starts a fresh history when /new or /resume moves the pane to another file: 2 つ目のファイルに、最初のページの null の cursor を渡す部分(件の cursor は文字列だけ)。根拠: `fixtures/conversations/pi/new-session-file` の `about`
 
 残った部分(7 件。引き継ぎ先は未定):
 
@@ -670,6 +730,13 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 移った部分:
 
 - 会話ログの corpus: 11 件の `it`
+
+移った `it` のうち、一部の assert が元のテストにだけ残るもの(4 件。残った assert の引き継ぎ先は未定):
+
+- Codex literal read calls update immutable snapshots on success/failure and ignore shell lookalikes: コマンドの文字列に `codexReadCall` を直接当てる部分。根拠: `fixtures/conversations/codex/skill-literal-read` の `about`
+- Codex native completed read events work through code-mode wrappers, deduplicate and survive incremental snapshots: item に `codexReadSkills` を直接当てる部分。根拠: `fixtures/conversations/codex/skill-native-read` の `about`
+- Codex selected instructions become assistant skill evidence, not a user bubble or exposed prompt: 文字列に `selectedSkill` を直接当てる部分。根拠: `fixtures/conversations/codex/skill-selected-instructions` の `about`
+- the legacy &lt;skill> form, and text that only looks like an invocation, as pi reads them: `skillInvocationPrompt` だけを呼ぶ部分。根拠: `fixtures/conversations/omp/skill-lookalike` の `about`
 
 残った部分(1 件。引き継ぎ先は未定):
 
