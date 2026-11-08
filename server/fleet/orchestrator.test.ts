@@ -102,6 +102,9 @@ function setup(options: SetupOptions = {}) {
 }
 
 const spawn = (fleet: Orchestrator, extra: Record<string, unknown> = {}) => fleet.spawn({ role: "worker", task: "do it", group: "g1", cwd: "/work", ...extra });
+/** what an agent writes as its turn's report: report.json beside its handoff */
+const writeReport = (root: string, id: string, state: string, summary: string, human_action?: string) =>
+  writeFileSync(join(root, "results", id, "report.json"), JSON.stringify({ state, summary, evidence: [], ...(human_action ? { human_action } : {}) }));
 const until = async (check: () => boolean, label: string, ms = 2000) => {
   const deadline = Date.now() + ms;
   while (!check()) { if (Date.now() > deadline) throw new Error(`timed out: ${label}`); await Bun.sleep(5); }
@@ -117,8 +120,10 @@ describe("spawn", () => {
     expect(runtime.instructions[0]).toContain("You are worker.");
     expect(runtime.instructions[0]).toContain("fleet send <name-or-id>");
     expect(runtime.instructions[0]).toContain("Do not start other agents.");
-    // a caller reads the status line first, without the whole report
-    expect(runtime.instructions[0]).toContain("The HANDOFF opens with one status line, PASS, ISSUES or BLOCKED");
+    // the outcome is a report file the fleet reads, not a status line in prose
+    expect(runtime.instructions[0]).toContain(`Your report file is ${join(root, "results", run.id, "report.json")}.`);
+    expect(runtime.instructions[0]).toContain('"state": progress, waiting, ready, blocked, failed or dropped');
+    expect(runtime.instructions[0]).not.toMatch(/PASS|ISSUES|BLOCKED/);
     expect(runtime.prompts).toEqual([{ name: run.herdrName, text: "do it" }]);
     // the instruction file is gone once the agent has read it at startup
     expect(require("node:fs").readdirSync(root).filter((name: string) => name.startsWith("herdr-fleet-"))).toEqual([]);
@@ -239,11 +244,12 @@ describe("spawn", () => {
 });
 
 describe("turns", () => {
-  it("settles a turn when herdr reports it finished, hands the output to the waiter, and closes a non-interactive pane that wrote its handoff", async () => {
+  it("settles a turn when herdr reports it finished, hands the output to the waiter, and closes a non-interactive pane that wrote its report", async () => {
     const { fleet, runtime, root } = setup();
     const run = await spawn(fleet);
     const waiting = fleet.wait(run.id, 2000, "g1");
     writeFileSync(join(root, "results", run.id, "handoff.md"), "PASS — done");
+    writeFileSync(join(root, "results", run.id, "report.json"), JSON.stringify({ state: "ready", summary: "Done.", evidence: [] }));
     runtime.getStatus = "done";
     runtime.output = "work\nHANDOFF: done";
     fleet.onPaneStatus(run.paneId);
@@ -555,7 +561,7 @@ describe("usage routing", () => {
     expect(run).toMatchObject({ agent: "claude", model: "sonnet" });
     expect(run.skipped).toEqual([{ candidate: "codex:gpt-6", reason: "codex cannot be kept from editing files" }]);
     expect(runtime.starts[0]!.args.join(" ")).toContain("--disallowedTools Edit,Write,NotebookEdit");
-    expect(runtime.instructions[0]).toContain("your file-editing tools are off: write your result file with a shell command");
+    expect(runtime.instructions[0]).toContain("your file-editing tools are off: write your result file and your report file with a shell command");
   });
 
   it("holds a pi role that edits nothing with pi's own denylist, whatever tools the role lists", async () => {
@@ -625,8 +631,8 @@ describe("usage routing", () => {
       const { fleet, runtime, root } = setup({ agents: [role("worker", { agent: "cursor", interactive })], usage });
       runtime.output = INPUT;
       const run = await spawn(fleet);
-      // a turn that wrote its handoff: only such a turn's pane closes on settle
-      writeFileSync(join(root, "results", run.id, "handoff.md"), "PASS — done");
+      // a turn that wrote its report: only such a turn's pane closes on settle
+      writeFileSync(join(root, "results", run.id, "report.json"), JSON.stringify({ state: "ready", summary: "Done.", evidence: [] }));
       runtime.promptImpl = async (name, text) => {
         runtime.prompts.push({ name, text });
         if (text === "/usage") {
@@ -742,12 +748,29 @@ describe("result files", () => {
     expect((await settle(fleet, runtime, run)).result).toBeUndefined();
   });
 
-  it("does not fail a turn that wrote its result, whatever error its screen quotes", async () => {
+  it("does not fail a turn that wrote its report, whatever error its screen quotes", async () => {
     const { fleet, runtime, root } = setup({ agents: [role("reviewer", { interactive: true })] });
     const run = await spawn(fleet, { role: "reviewer" });
     runtime.output = "Error: tests failed before the fix";
-    writeFileSync(resultFileOf(root, run.id), "outcome: fixed");
+    writeFileSync(join(root, "results", run.id, "report.json"), JSON.stringify({ state: "ready", summary: "Fixed.", evidence: [] }));
     expect((await settle(fleet, runtime, run)).state).toBe("idle");
+  });
+
+  it("takes a turn's outcome from report.json alone, and calls a turn without one 'no report', whatever its handoff says", async () => {
+    const events: FleetEvent[] = [];
+    const { fleet, runtime, root } = setup({ agents: [role("reviewer", { interactive: true })], events: (event) => events.push(event) });
+    const run = await spawn(fleet, { role: "reviewer" });
+    writeFileSync(resultFileOf(root, run.id), "## HANDOFF\nPASS — no findings");
+    expect((await settle(fleet, runtime, run)).outcome).toEqual({ report: null, problem: "report.json is missing." });
+    runtime.getStatus = "working";
+    await fleet.send(run.id, "again", "g1");
+    writeFileSync(join(root, "results", run.id, "report.json"), JSON.stringify({ state: "ready", summary: "Reviewed.", evidence: ["no findings"] }));
+    expect((await settle(fleet, runtime, run)).outcome).toEqual({ report: { state: "ready", summary: "Reviewed.", evidence: ["no findings"] } });
+    // the next turn starts without the report of the one before
+    runtime.getStatus = "working";
+    await fleet.send(run.id, "and again", "g1");
+    expect((await settle(fleet, runtime, run)).outcome).toEqual({ report: null, problem: "report.json is missing." });
+    expect(events.filter((e) => e.kind === "turn").map((e) => e.kind === "turn" && e.report)).toEqual(["none", "ready", "none"]);
   });
 
   it("never reads a result through a symlink, and cuts a long one short", async () => {
@@ -806,7 +829,7 @@ describe("agent kinds", () => {
     expect(config).toMatchObject({ model: "p/m", share: "disabled", update: "disable", default_agent: "fleet-readonly" });
     expect(config.agents["fleet-readonly"].permissions).toContainEqual({ action: "edit", resource: `${join(root, "results")}/${run.id}/*`, effect: "allow" });
     expect(runtime.starts[0]).toMatchObject({ kind: "opencode", args: ["--standalone"] });
-    expect(runtime.prompts[0]!.text).toContain("write that with your file-editing tool");
+    expect(runtime.prompts[0]!.text).toContain("write them with your file-editing tool, which is limited to their folder");
     expect(runtime.prompts[0]!.text).toContain("git diff --no-ext-diff --no-textconv");
     expect(runtime.prompts[0]!.text).not.toContain("gh pr merge");
   });
@@ -961,17 +984,17 @@ describe("threads", () => {
     await expect(fleet.startThread({ title: "t", task: "t", callerRun: "nobody" })).rejects.toMatchObject({ code: "run_not_found" });
   });
 
-  it("are listed for their project, with the HANDOFF's status line and the contract's state", async () => {
+  it("are listed for their project, with the last report and the contract's state", async () => {
     const { fleet, registry, root } = setup({ agents: [lead, role("worker")], gitRoot: async (cwd) => cwd.startsWith("/repo") ? "/repo" : null });
     const fixed = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
     const fresh = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo/docs" });
     await fleet.startThread({ title: "Elsewhere", task: "t", cwd: "/other" });
     await spawn(fleet, { cwd: "/repo" });
-    registry.upsert({ ...registry.get(fixed.id)!, state: "idle", result: "## HANDOFF\n**PASS** — bun test: 12 pass\nOutcome: fixed" });
+    registry.upsert({ ...registry.get(fixed.id)!, state: "idle", result: "## HANDOFF\nOutcome: fixed", outcome: { report: { state: "ready", summary: "bun test: 12 pass", evidence: [] } } });
     writeFileSync(join(root, "results", fixed.id, "contract.md"), "- [x] A1 no duplicate — evidence: test\n- [ ] A2 docs\n- [!] A3 old clients — evidence: none\n");
     const threads = await fleet.threads({ cwd: "/repo/src" });
     expect(threads.map((t) => t.run.id)).toEqual([fixed.id, fresh.id]);
-    expect(threads[0]).toMatchObject({ state: "review", status: "PASS — bun test: 12 pass", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }, { id: "A3", state: "unmet" }] });
+    expect(threads[0]).toMatchObject({ state: "review", status: "ready — bun test: 12 pass", contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }, { id: "A3", state: "unmet" }] });
     expect(threads[1]!.status).toBeUndefined();
     expect(threads[1]!.contract).toBeUndefined();
   });
@@ -1045,6 +1068,122 @@ describe("threads", () => {
   });
 });
 
+describe("a thread outlives its lead run", () => {
+  // the bundled lead's candidates: claude, then codex
+  const lead = role("lead", { agent: "claude", fallbackModels: ["codex:"], interactive: true, spawning: true });
+  const NOTE = "Check the worktree, git history and GitHub before repeating any outside action (push, PR, comment).";
+
+  function thread(options: SetupOptions = {}) {
+    const states = new Map<string, AgentState>();
+    const events: FleetEvent[] = [];
+    const harness = setup({ agents: [lead, role("coordinator", { agent: "claude", interactive: true, spawning: true })], gitRoot: async () => "/repo", gitHead: async () => "abc1234", events: (event) => events.push(event), ...options });
+    harness.runtime.getImpl = async (name) => states.get(name) ?? "working";
+    const turn = async (run: AgentRun, state: AgentState) => {
+      states.set(run.herdrName, state);
+      await Bun.sleep(GRACE + 5);
+      harness.fleet.onPaneStatus(run.paneId);
+      await Bun.sleep(30);
+    };
+    const write = (run: AgentRun, file: string, text: string) => writeFileSync(join(harness.root, "results", run.id, file), text);
+    const report = (run: AgentRun, value: Record<string, unknown>) => write(run, "report.json", JSON.stringify(value));
+    const promptsTo = (run: AgentRun) => harness.runtime.prompts.filter((p) => p.name === run.herdrName).map((p) => p.text);
+    return { ...harness, states, events, turn, write, report, promptsTo };
+  }
+
+  it("goes on in a new run on another CLI when its lead's turn ended without a report, in the same worktree, with the recovery note", async () => {
+    const { fleet, runtime, registry, root, events, turn, write, promptsTo } = thread();
+    const first = await fleet.startThread({ title: "Fix", task: "Fix the duplicate notification.", cwd: "/repo" });
+    // a HANDOFF that says PASS is prose: without report.json the turn has no report
+    write(first, "handoff.md", "## HANDOFF\nPASS — bun test: 12 pass");
+    write(first, "contract.md", "- [x] A1 no duplicate — evidence: test\n");
+    await turn(first, "idle");
+    const old = registry.get(first.id)!;
+    expect(old.outcome).toEqual({ report: null, problem: "report.json is missing." });
+    expect(old.replacedBy).toBeDefined();
+    expect(old.state).toBe("stopped");
+    expect(runtime.closed).toContain(first.paneId);
+    const next = registry.get(old.replacedBy!)!;
+    expect(next).toMatchObject({ role: "lead", name: "Fix", agent: "codex", group: first.group, branch: `fleet/${first.id}`, thread: first.id, project: "/repo", base: "abc1234", cwd: first.cwd, depth: first.depth, state: "working" });
+    // no second worktree: the new run opens in the thread's own
+    expect(runtime.locations[1]).toMatchObject({ cwd: first.cwd, worktree: false });
+    expect(runtime.locations[1]!.path).toBeUndefined();
+    const [task] = promptsTo(next);
+    expect(task).toStartWith(`[fleet] You take over the thread "Fix" from run ${first.id} on claude, which ended its turn without a report (report.json is missing.). This comes from the fleet, not from the person.`);
+    expect(task).toContain(NOTE);
+    expect(task).toContain(join(root, "results", first.id));
+    expect(task).toContain("The thread's task:\n\nFix the duplicate notification.");
+    // its first turn's message was the task: it is not repeated
+    expect(task).not.toContain("The fleet's last message");
+    expect(readFileSync(join(root, "results", next.id, "contract.md"), "utf8")).toBe("- [x] A1 no duplicate — evidence: test\n");
+    expect(events.filter((e) => e.kind === "restart")).toEqual([{ kind: "restart", run: first.id, project: "/repo", agent: "claude", why: "no-report", by: next.id, to: "codex" }]);
+    // the thread is known by its first id: the fleet's commands and the thread list reach its current lead
+    expect(fleet.get(first.id).id).toBe(next.id);
+    expect((await fleet.threads({ cwd: "/repo" })).map((t) => t.run.id)).toEqual([next.id]);
+  });
+
+  it("goes on in a new run when its lead's run failed, with the fleet's last message, and stops once every CLI of the role failed since its last report", async () => {
+    const { fleet, runtime, registry, events, turn, promptsTo } = thread({ agents: [role("lead", { agent: "claude", fallbackModels: ["codex:", "pi:"], interactive: true, spawning: true })] });
+    const first = await fleet.startThread({ title: "Fix", task: "Fix it.", cwd: "/repo" });
+    await turn(first, "idle");
+    const second = registry.get(registry.get(first.id)!.replacedBy!)!;
+    await turn(second, "working");
+    await fleet.send(second.id, "Also update the docs.");
+    // an API failure the CLI gave up on: the run failed
+    runtime.output = "■ stream disconnected before completion";
+    await turn(second, "idle");
+    expect(registry.get(second.id)).toMatchObject({ state: "failed", lastError: "stream disconnected before completion" });
+    const third = registry.get(registry.get(second.id)!.replacedBy!)!;
+    expect(third).toMatchObject({ agent: "pi", thread: first.id, branch: `fleet/${first.id}`, avoid: ["claude", "codex"] });
+    const [task] = promptsTo(third);
+    expect(task).toStartWith(`[fleet] You take over the thread "Fix" from run ${second.id} on codex, which failed: stream disconnected before completion.`);
+    expect(task).toContain("The thread's task:\n\nFix it.");
+    expect(task).toContain("The fleet's last message to the run before:\n\nAlso update the docs.");
+    // every CLI of the role failed since the thread's last report: nothing is left to restart on
+    runtime.output = "agent output";
+    await turn(third, "idle");
+    expect(registry.get(third.id)!.replacedBy).toBeUndefined();
+    expect(registry.get(third.id)!.state).toBe("idle");
+    expect(events.filter((e) => e.kind === "restart").map((e) => e.kind === "restart" && [e.why, e.agent, e.to ?? e.error])).toEqual([
+      ["no-report", "claude", "codex"], ["failed", "codex", "pi"],
+      ["no-report", "pi", "No candidate is usable: default: the caller keeps claude out; codex:: the caller keeps codex out; pi:: the caller keeps pi out"],
+    ]);
+    expect(threadState(registry.get(third.id)!)).toBe("waiting");
+  });
+
+  it("stays with its lead when the report says ready, blocked, failed or waiting: a failed report waits for the person", async () => {
+    const { fleet, registry, turn, report } = thread();
+    const runs: AgentRun[] = [];
+    for (const state of ["ready", "blocked", "failed", "waiting"]) {
+      const run = await fleet.startThread({ title: state, task: "t", cwd: "/repo" });
+      report(run, { state, summary: `${state} summary`, evidence: ["bun test"], ...(state === "blocked" ? { human_action: "Keep the old API?" } : {}) });
+      await turn(run, "idle");
+      runs.push(run);
+    }
+    expect(runs.map((run) => registry.get(run.id)!.replacedBy)).toEqual([undefined, undefined, undefined, undefined]);
+    expect(runs.map((run) => threadState(registry.get(run.id)!))).toEqual(["review", "waiting", "waiting", "idle"]);
+  });
+
+  it("tells the coordinator of a project run without the person nothing of a restart, and the replacement's turn as usual", async () => {
+    const { fleet, registry, turn, report, promptsTo } = thread({ config: { autonomous: true } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(first, "idle");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(registry.get(first.id)!.notice).toBeUndefined();
+    await turn(coordinator, "idle");
+    expect(promptsTo(coordinator)).toEqual(["go"]);
+    expect(next.owner).toBe(coordinator.id);
+    expect(next.avoid).toEqual(["claude"]);
+    report(next, { state: "ready", summary: "Fixed.", evidence: ["bun test: 3 pass"] });
+    await turn(next, "idle");
+    // a report: the CLIs that failed before get another chance at the next restart
+    expect(registry.get(next.id)!.avoid).toBeUndefined();
+    await turn(coordinator, "idle");
+    expect(promptsTo(coordinator)[1]).toContain(`"Fix" (${next.id}, fleet/${first.id}) ended its turn: ready — Fixed.`);
+  });
+});
+
 describe("projects", () => {
   const coordinator = role("coordinator", { model: "claude:sonnet", interactive: true, spawning: true, edits: false });
 
@@ -1107,26 +1246,32 @@ describe("thread questions", () => {
       writeFileSync(join(harness.root, "results", run.id, "handoff.md"), text);
       if (contract) writeFileSync(join(harness.root, "results", run.id, "contract.md"), contract);
     };
-    return { ...harness, states, turn, toCoordinator, handoff };
+    const report = (run: AgentRun, value: Record<string, unknown>) => writeFileSync(join(harness.root, "results", run.id, "report.json"), JSON.stringify(value));
+    /** the lead's turn ends on a question for the person: a blocked report, and its HANDOFF */
+    const ask = (run: AgentRun, question: string, text = `## HANDOFF\n${question}`) => {
+      report(run, { state: "blocked", summary: question, evidence: [], human_action: question });
+      handoff(run, text);
+    };
+    return { ...harness, states, turn, toCoordinator, handoff, report, ask };
   }
 
-  const asks = (run: AgentRun, handoff: string) => `- "${run.name}" (${run.id}, fleet/${run.id}) asks the person:\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}`;
+  const asks = (run: AgentRun, question: string, handoff = `## HANDOFF\n${question}`) => `- "${run.name}" (${run.id}, fleet/${run.id}) asks the person: ${question}\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}`;
   const HEADER = "[fleet] Threads ask the person. These come from the fleet, not from the person.";
 
-  it("reach the coordinator once it is free, with the whole HANDOFF", async () => {
-    const { fleet, registry, turn, toCoordinator, handoff } = project();
+  it("reach the coordinator once it is free, with the report's question and the whole HANDOFF", async () => {
+    const { fleet, registry, turn, toCoordinator, ask } = project();
     const coordinator = await fleet.startProject({ task: "fix the retry", cwd: "/repo" });
     await turn(coordinator, "idle");
     const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
-    const text = "## HANDOFF\nBLOCKED — keep the old retry API?\nOptions: A keep it (recommended), B drop it\nArchitect: callers in two packages use it";
-    handoff(thread, text);
+    const text = "## HANDOFF\nKeep the old retry API?\nOptions: A keep it (recommended), B drop it\nArchitect: callers in two packages use it";
+    ask(thread, "Keep the old retry API?", text);
     await turn(thread, "idle");
-    expect(toCoordinator(coordinator)).toEqual(["fix the retry", [HEADER, asks(thread, text)].join("\n")]);
+    expect(toCoordinator(coordinator)).toEqual(["fix the retry", [HEADER, asks(thread, "Keep the old retry API?", text)].join("\n")]);
     expect(registry.get(thread.id)!.notice).toBeUndefined();
   });
 
-  it("are only questions: a PASS, an ISSUES, a failure and a wait on the screen go to the thread list and push notifications", async () => {
-    const { fleet, registry, turn, toCoordinator, handoff, states } = project();
+  it("are only questions: a ready or failed report, no report, a failure and a wait on the screen go to the thread list and push notifications", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff, report, states } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
     const done = await fleet.startThread({ title: "Done", task: "t", cwd: "/repo", callerRun: coordinator.id });
@@ -1134,8 +1279,10 @@ describe("thread questions", () => {
     const silent = await fleet.startThread({ title: "Silent", task: "t", cwd: "/repo", callerRun: coordinator.id });
     const screen = await fleet.startThread({ title: "Screen", task: "t", cwd: "/repo", callerRun: coordinator.id });
     const ended = await fleet.startThread({ title: "Ended", task: "t", cwd: "/repo", callerRun: coordinator.id });
-    handoff(done, "PASS — bun test: 12 pass");
-    handoff(issues, "ISSUES — 2 tests fail");
+    // a HANDOFF that reads like a question is prose: only the report says the person is asked
+    handoff(done, "BLOCKED — or is it?");
+    report(done, { state: "ready", summary: "bun test: 12 pass", evidence: [] });
+    report(issues, { state: "failed", summary: "2 tests fail", evidence: [] });
     await turn(done, "idle");
     await turn(issues, "idle");
     await turn(silent, "idle");
@@ -1148,28 +1295,28 @@ describe("thread questions", () => {
   });
 
   it("wait while the coordinator works, its own turn or the person's, and then go out together", async () => {
-    const { fleet, registry, turn, toCoordinator, handoff } = project();
+    const { fleet, registry, turn, toCoordinator, ask } = project();
     const coordinator = await fleet.startProject({ task: "two things", cwd: "/repo" });
     const first = await fleet.startThread({ title: "One", task: "t", cwd: "/repo", callerRun: coordinator.id });
     const second = await fleet.startThread({ title: "Two", task: "t", cwd: "/repo", callerRun: coordinator.id });
-    handoff(first, "BLOCKED — which log format?");
-    handoff(second, "BLOCKED — may the old flag go?");
+    ask(first, "Which log format?");
+    ask(second, "May the old flag go?");
     await turn(first, "idle");
     await turn(second, "idle");
     // the fleet's own turn is still running
     expect(toCoordinator(coordinator)).toEqual(["two things"]);
-    expect(registry.get(first.id)!.notice).toContain("BLOCKED — which log format?");
+    expect(registry.get(first.id)!.notice).toContain("Which log format?");
     await turn(coordinator, "idle");
-    expect(toCoordinator(coordinator)[1]).toBe([HEADER, asks(first, "BLOCKED — which log format?"), asks(second, "BLOCKED — may the old flag go?")].join("\n"));
+    expect(toCoordinator(coordinator)[1]).toBe([HEADER, asks(first, "Which log format?"), asks(second, "May the old flag go?")].join("\n"));
     await turn(coordinator, "idle");
     // the person typed in its pane: herdr says working, with no turn of the fleet's
     await turn(coordinator, "working");
     await fleet.send(first.id, "JSON");
-    handoff(first, "BLOCKED — one file or one per day?");
+    ask(first, "One file or one per day?");
     await turn(first, "idle");
     expect(toCoordinator(coordinator)).toHaveLength(2);
     await turn(coordinator, "idle");
-    expect(toCoordinator(coordinator)).toEqual([expect.anything(), expect.anything(), [HEADER, asks(first, "BLOCKED — one file or one per day?")].join("\n")]);
+    expect(toCoordinator(coordinator)).toEqual([expect.anything(), expect.anything(), [HEADER, asks(first, "One file or one per day?")].join("\n")]);
   });
 
   it("wait while the person has a draft in the coordinator's input, and go out once it is gone", async () => {
@@ -1185,7 +1332,7 @@ describe("thread questions", () => {
     await Bun.sleep(GRACE + 5);
     fleet.onPaneStatus(coordinator.paneId);
     const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
-    writeFileSync(join(root, "results", thread.id, "handoff.md"), "BLOCKED — which one?");
+    writeFileSync(join(root, "results", thread.id, "report.json"), JSON.stringify({ state: "blocked", summary: "Which one?", evidence: [], human_action: "Which one?" }));
     states.set(thread.herdrName, "idle");
     await Bun.sleep(GRACE + 5);
     fleet.onPaneStatus(thread.paneId);
@@ -1195,15 +1342,15 @@ describe("thread questions", () => {
     runtime.screens.set(coordinator.herdrName, "❯\u00a0\x1b[2mTry \"fix lint errors\"\x1b[0m");
     await Bun.sleep(80);
     expect(toCoordinator()).toHaveLength(2);
-    expect(toCoordinator()[1]).toContain("BLOCKED — which one?");
+    expect(toCoordinator()[1]).toContain("asks the person: Which one?");
     fleet.stop();
   });
 
   it("carry a long HANDOFF cut, the rest left in the result file", async () => {
-    const { fleet, registry, turn, handoff } = project();
+    const { fleet, registry, turn, ask } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
-    handoff(thread, `BLOCKED — which one?\n${"x".repeat(5000)}`);
+    ask(thread, "Which one?", `Which one?\n${"x".repeat(5000)}`);
     await turn(thread, "idle");
     const notice = registry.get(thread.id)!.notice!;
     expect(notice).toEndWith("[cut at 4000 characters]");
@@ -1211,26 +1358,26 @@ describe("thread questions", () => {
   });
 
   it("are kept while no coordinator lives, for the project's next one", async () => {
-    const { fleet, registry, turn, toCoordinator, handoff } = project();
+    const { fleet, registry, turn, toCoordinator, ask } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
     const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
     fleet.onPaneEnded(coordinator.paneId);
-    handoff(thread, "BLOCKED — which one?");
+    ask(thread, "Which one?");
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.notice).toContain("BLOCKED — which one?");
+    expect(registry.get(thread.id)!.notice).toContain("Which one?");
     const next = await fleet.startProject({ task: "and now?", cwd: "/repo" });
     expect(toCoordinator(next)).toEqual(["and now?"]);
     await turn(next, "idle");
-    expect(toCoordinator(next)[1]).toBe([HEADER, asks(thread, "BLOCKED — which one?")].join("\n"));
+    expect(toCoordinator(next)[1]).toBe([HEADER, asks(thread, "Which one?")].join("\n"));
     expect(registry.get(thread.id)!.notice).toBeUndefined();
   });
 
   it("are kept across a restart", async () => {
-    const { fleet, registry, turn, root, handoff } = project();
+    const { fleet, registry, turn, root, ask } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
-    handoff(thread, "BLOCKED — which one?");
+    ask(thread, "Which one?");
     await turn(thread, "idle");
     fleet.stop();
     const reloaded = new RunRegistry(join(root, "runs.json"));
@@ -1285,67 +1432,71 @@ describe("a project run without the person", () => {
       writeFileSync(join(harness.root, "results", run.id, "handoff.md"), text);
       if (contract) writeFileSync(join(harness.root, "results", run.id, "contract.md"), contract);
     };
-    return { ...harness, states, turn, toCoordinator, handoff, git, removed, events };
+    const report = (run: AgentRun, value: Record<string, unknown>) => writeFileSync(join(harness.root, "results", run.id, "report.json"), JSON.stringify(value));
+    return { ...harness, states, turn, toCoordinator, handoff, report, git, removed, events };
   }
 
-  it("tells the coordinator every turn a thread ends, with its status line and contract, not only its questions", async () => {
-    const { fleet, registry, turn, toCoordinator, handoff } = project();
+  it("tells the coordinator every turn a thread ends, with its report and contract, not only its questions", async () => {
+    const { fleet, registry, turn, toCoordinator, handoff, report } = project();
     // the coordinator's own turn is still running while both threads end
     const coordinator = await fleet.startProject({ task: "port the parser", cwd: "/repo" });
     const done = await fleet.startThread({ title: "Done", task: "t", cwd: "/repo", callerRun: coordinator.id });
     const issues = await fleet.startThread({ title: "Issues", task: "t", cwd: "/repo", callerRun: coordinator.id });
-    handoff(done, "## HANDOFF\nPASS — cargo test: 40 pass", "- [x] A1 parses — evidence: test\n- [!] A2 fast — evidence: none");
-    handoff(issues, "ISSUES — 2 cases fail");
+    handoff(done, "## HANDOFF\nOutcome: parses", "- [x] A1 parses — evidence: test\n- [!] A2 fast — evidence: none");
+    report(done, { state: "ready", summary: "cargo test: 40 pass", evidence: ["cargo test"] });
+    report(issues, { state: "failed", summary: "2 cases fail", evidence: ["cargo test"] });
     await turn(done, "idle");
     await turn(issues, "idle");
     await turn(coordinator, "idle");
     expect(toCoordinator(coordinator)[1]).toBe([
       NEWS,
-      `- "${done.name}" (${done.id}, fleet/${done.id}) ended its turn: PASS — cargo test: 40 pass\n  Contract: A1 ✓ A2 ✗`,
-      `- "${issues.name}" (${issues.id}, fleet/${issues.id}) ended its turn: ISSUES — 2 cases fail`,
+      `- "${done.name}" (${done.id}, fleet/${done.id}) ended its turn: ready — cargo test: 40 pass\n  Contract: A1 ✓ A2 ✗`,
+      `- "${issues.name}" (${issues.id}, fleet/${issues.id}) ended its turn: failed — 2 cases fail`,
     ].join("\n"));
     for (const run of [done, issues]) expect(registry.get(run.id)!.notice).toBeUndefined();
   });
 
   it("closes a thread whose lead merged its own pull request as the lead's turn ends, and says so", async () => {
-    const { fleet, registry, turn, toCoordinator, handoff, git, removed } = project();
+    const { fleet, registry, turn, toCoordinator, report, git, removed } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
     const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
     git.pr = { number: 7, url: "https://github.com/o/r/pull/7", state: "MERGED", checks: "pass", head: "c0ffee" };
-    handoff(thread, "PASS — merged #7 into rust");
+    report(thread, { state: "ready", summary: "Merged #7 into rust.", evidence: [] });
     await turn(thread, "idle");
     expect(registry.get(thread.id)!.landed).toBe("merged");
     expect(removed).toEqual([thread.branch!]);
     await turn(coordinator, "idle");
-    expect(toCoordinator(coordinator)[1]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) ended its turn: PASS — merged #7 into rust\n  Pull request #7: MERGED, and the thread is closed`].join("\n"));
+    expect(toCoordinator(coordinator)[1]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) ended its turn: ready — Merged #7 into rust.\n  Pull request #7: MERGED, and the thread is closed`].join("\n"));
   });
 
   it("tells the coordinator of a turn the thread's agent started itself, as its helpers' results woke it", async () => {
-    const { fleet, registry, turn, toCoordinator, handoff, git, removed } = project();
+    const { fleet, registry, turn, toCoordinator, handoff, report, git, removed } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
     const thread = await fleet.startThread({ title: "Split", task: "t", cwd: "/repo", callerRun: coordinator.id });
-    // the lead's turn breaks off while it waits for its helpers: no HANDOFF yet
+    // the lead's turn breaks off while it waits for its helpers: it reports waiting
+    report(thread, { state: "waiting", summary: "Waiting for the helpers.", evidence: [] });
     await turn(thread, "idle");
-    expect(toCoordinator(coordinator)[1]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) ended its turn: no HANDOFF status line`].join("\n"));
+    expect(toCoordinator(coordinator)[1]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) ended its turn: waiting — Waiting for the helpers.`].join("\n"));
     await turn(coordinator, "idle");
     // the helpers' results start the next turn: the fleet sent nothing
     await turn(thread, "working");
     git.pr = { number: 9, url: "https://github.com/o/r/pull/9", state: "MERGED", checks: "pass", head: "c0ffee" };
-    handoff(thread, "PASS — merged #9 into rust", "- [x] A1 split — evidence: #9");
+    handoff(thread, "## HANDOFF\nOutcome: split", "- [x] A1 split — evidence: #9");
+    report(thread, { state: "ready", summary: "Merged #9 into rust.", evidence: [] });
     await turn(thread, "idle");
     expect(registry.get(thread.id)!).toMatchObject({ landed: "merged", contract: [{ id: "A1", state: "met" }] });
     expect(removed).toEqual([thread.branch!]);
-    expect(toCoordinator(coordinator)[2]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) ended its turn: PASS — merged #9 into rust\n  Contract: A1 ✓\n  Pull request #9: MERGED, and the thread is closed`].join("\n"));
+    expect(toCoordinator(coordinator)[2]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) ended its turn: ready — Merged #9 into rust.\n  Contract: A1 ✓\n  Pull request #9: MERGED, and the thread is closed`].join("\n"));
   });
 
   it("does not tell the coordinator again while a thread stays settled", async () => {
-    const { fleet, turn, toCoordinator, handoff } = project();
+    const { fleet, turn, toCoordinator, report } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
     const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
-    handoff(thread, "ISSUES — 1 case fails");
+    report(thread, { state: "failed", summary: "1 case fails", evidence: [] });
     await turn(thread, "idle");
     await turn(coordinator, "idle");
     await turn(thread, "idle");
@@ -1421,75 +1572,44 @@ describe("a project run without the person", () => {
     expect(events.filter((e) => e.kind === "standstill")).toMatchObject([{ kind: "standstill", run: coordinator.id, project: "/repo" }]);
   });
 
-  it("tells the coordinator once when an agent's runs keep ending without a HANDOFF, with the run ids", async () => {
-    const { fleet, runtime, turn, toCoordinator, handoff, events } = project();
+  it("no longer tells the coordinator of an agent whose runs end without a report, as #184 did", async () => {
+    const { fleet, runtime, turn, toCoordinator, handoff, report, events } = project();
     runtime.output = ">\n? for shortcuts    auto · Gemini 4 Argon · medium";
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
     const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
-    handoff(thread, "ISSUES — waiting for the review");
+    report(thread, { state: "waiting", summary: "Waiting for the review.", evidence: [] });
     await turn(thread, "idle");
     await turn(coordinator, "idle");
     // two reviews on agy whose panes closed before they wrote anything, and one that did its work
     const lost = [];
     for (let i = 0; i < 3; i++) lost.push(await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: "/repo" }));
-    handoff(lost[2]!, "PASS — no findings");
+    handoff(lost[2]!, "no findings");
+    report(lost[2]!, { state: "ready", summary: "No findings.", evidence: [] });
     await turn(lost[2]!, "idle");
     fleet.onPaneEnded(lost[0]!.paneId);
     fleet.onPaneEnded(lost[1]!.paneId);
-    const told = toCoordinator(coordinator).length;
-    await fleet.superviseProjects();
-    const message = toCoordinator(coordinator)[told]!;
-    expect(message).toStartWith("[fleet] agy: 2 of 3 runs in this project over the last 60 minutes failed to start or ended without a HANDOFF.");
-    expect(message).toContain(`- ${lost[0]!.id} (reviewer): stopped, no HANDOFF`);
-    expect(message).toContain("--avoid agy");
-    expect(events.filter((e) => e.kind === "anomaly")).toEqual([{ kind: "anomaly", run: coordinator.id, project: "/repo", agent: "agy", bad: 2, runs: 3 }]);
-    // once per agent and window
-    await turn(coordinator, "idle");
-    await fleet.superviseProjects();
-    expect(toCoordinator(coordinator)).toHaveLength(told + 1);
-  });
-
-  it("does not count leads stopped without a HANDOFF, as the fleet closes a landed thread and the person stops one", async () => {
-    const { fleet, runtime, turn, toCoordinator } = project();
-    runtime.output = ">\n? for shortcuts    auto · Gemini 4 Argon · medium";
-    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
-    await turn(coordinator, "idle");
-    const threads = [];
-    for (const title of ["One", "Two"]) threads.push(await fleet.startThread({ title, task: "t", cwd: "/repo", callerRun: coordinator.id }));
-    for (const thread of threads) { await turn(thread, "idle"); fleet.onPaneEnded(thread.paneId); }
-    // the threads' news reaches the coordinator one turn at a time: it is free once both are read
-    await turn(coordinator, "idle");
-    await turn(coordinator, "idle");
     await turn(coordinator, "idle");
     const told = toCoordinator(coordinator).length;
     await fleet.superviseProjects();
-    expect(toCoordinator(coordinator).slice(told).filter((text) => text.includes("without a HANDOFF"))).toEqual([]);
+    expect(toCoordinator(coordinator).slice(told)).toEqual([]);
+    expect(events.filter((e) => (e.kind as string) === "anomaly")).toEqual([]);
   });
 
-  it("counts a helper whose turn settled without a HANDOFF, its pane kept, and records each turn's end once its handoff is read", async () => {
-    const { fleet, runtime, turn, toCoordinator, handoff, events } = project({ closeOnSettle: false });
+  it("records each turn's end with the report read, and keeps the pane of a helper whose turn settled without one", async () => {
+    const { fleet, runtime, turn, report, events } = project({ closeOnSettle: false });
     runtime.output = ">\n? for shortcuts    auto · Gemini 4 Argon · medium";
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
     const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
-    handoff(thread, "ISSUES — waiting for the review");
+    report(thread, { state: "waiting", summary: "Waiting for the review.", evidence: [] });
     await turn(thread, "idle");
-    await turn(coordinator, "idle");
     const reviews = [];
     for (let i = 0; i < 2; i++) reviews.push(await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: "/repo" }));
-    handoff(reviews[0]!, "PASS — no findings");
+    report(reviews[0]!, { state: "ready", summary: "No findings.", evidence: [] });
     for (const review of reviews) await turn(review, "idle");
-    expect(events.filter((e) => e.kind === "turn" && e.role === "reviewer").map((e) => e.kind === "turn" && [e.run, e.handoff, e.interactive]))
-      .toEqual([[reviews[0]!.id, true, false], [reviews[1]!.id, false, false]]);
-    // one of two is not yet a third and two: a second such helper is
-    reviews.push(await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: "/repo" }));
-    await turn(reviews[2]!, "idle");
-    const told = toCoordinator(coordinator).length;
-    await fleet.superviseProjects();
-    const message = toCoordinator(coordinator)[told]!;
-    expect(message).toStartWith("[fleet] agy: 2 of 3 runs in this project over the last 60 minutes failed to start or ended without a HANDOFF.");
-    expect(message).toContain(`- ${reviews[1]!.id} (reviewer): idle, no HANDOFF`);
+    expect(events.filter((e) => e.kind === "turn" && e.role === "reviewer").map((e) => e.kind === "turn" && [e.run, e.report, e.interactive]))
+      .toEqual([[reviews[0]!.id, "ready", false], [reviews[1]!.id, "none", false]]);
     expect(fleet.get(reviews[1]!.id).state).toBe("idle");
   });
 
@@ -1600,12 +1720,12 @@ describe("landing", () => {
       await Bun.sleep(30);
     };
     const to = (run: AgentRun) => harness.runtime.prompts.filter((p) => p.name === run.herdrName).map((p) => p.text);
-    /** a coordinator, and a thread of its that ended a turn with a PASS */
+    /** a coordinator, and a thread of its that ended a turn reporting ready */
     const ready = async () => {
       const coordinator = await harness.fleet.startProject({ task: "fix the retry", cwd: "/repo" });
       await turn(coordinator, "idle");
       const thread = await harness.fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
-      writeFileSync(join(harness.root, "results", thread.id, "handoff.md"), "PASS — bun test: 12 pass");
+      writeReport(harness.root, thread.id, "ready", "bun test: 12 pass");
       await turn(thread, "idle");
       return { coordinator, thread };
     };
@@ -1627,7 +1747,7 @@ describe("landing", () => {
   });
 
   it("hand Create PR to the lead as the person's approval to push and open it, and keep the pull request it opened", async () => {
-    const { fleet, registry, turn, to, ready, git } = project();
+    const { fleet, registry, root, turn, to, ready, git } = project();
     const { thread } = await ready();
     await fleet.land(thread.id, "pr");
     const message = to(thread).at(-1)!;
@@ -1639,6 +1759,7 @@ describe("landing", () => {
     // a second step waits for the lead's turn to end
     await expect(fleet.land(thread.id, "update")).rejects.toMatchObject({ code: "landing_busy" });
     git.pr = PR;
+    writeReport(root, thread.id, "ready", "Opened #70.");
     await turn(thread, "idle");
     const landed = registry.get(thread.id)!;
     expect(landed.pr).toEqual({ number: 70, url: PR.url, state: "OPEN", checks: "pending" });
@@ -1812,13 +1933,13 @@ describe("plans", () => {
       await Bun.sleep(30);
     };
     const to = (run: AgentRun) => harness.runtime.prompts.filter((p) => p.name === run.herdrName).map((p) => p.text);
-    /** a coordinator, and a thread whose lead handed over a plan and ended its turn BLOCKED */
+    /** a coordinator, and a thread whose lead handed over a plan and ended its turn blocked */
     const planned = async () => {
       const coordinator = await harness.fleet.startProject({ task: "fix the retry", cwd: "/repo" });
       await turn(coordinator, "idle");
       const thread = await harness.fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
       const plan = harness.fleet.submitPlan(thread.id, PLAN);
-      writeFileSync(join(harness.root, "results", thread.id, "handoff.md"), "BLOCKED — the plan waits for the person");
+      writeReport(harness.root, thread.id, "blocked", "The plan waits for the person.", "Answer the plan in the Plan tab.");
       await turn(thread, "idle");
       return { coordinator, thread, plan };
     };
@@ -1873,13 +1994,13 @@ describe("plans", () => {
     fleet.stop();
   });
 
-  it("hold the thread waiting only through the BLOCKED turn: a lead that did not stop is ready for review", async () => {
+  it("hold the thread waiting only through the blocked turn: a lead that did not stop is ready for review", async () => {
     const { fleet, registry, root, turn } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
     const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
     fleet.submitPlan(thread.id, PLAN);
-    writeFileSync(join(root, "results", thread.id, "handoff.md"), "PASS — built without waiting");
+    writeReport(root, thread.id, "ready", "Built without waiting.");
     await turn(thread, "idle");
     expect(threadState(registry.get(thread.id)!)).toBe("review");
     // the plan was written in that turn: it still takes answers
@@ -1892,20 +2013,20 @@ describe("plans", () => {
     const { coordinator, thread } = await planned();
     // the coordinator passes on a decision the person made in its conversation instead
     await fleet.send(thread.id, "The person chose five retries.");
-    writeFileSync(join(root, "results", thread.id, "handoff.md"), "PASS — five retries");
+    writeReport(root, thread.id, "ready", "Five retries.");
     await turn(thread, "idle");
     const run = registry.get(thread.id)!;
     expect(run.plan!.closedAt).toBeNumber();
     expect(JSON.parse(readFileSync(join(root, "fleet-plans", `${thread.id}.json`), "utf8")).closedAt).toBeNumber();
     expect(threadState(run)).toBe("review");
     await expect(fleet.answerPlan(thread.id, { version: 1 })).rejects.toMatchObject({ code: "plan_closed" });
-    // a BLOCKED turn after it asks about something else: the closed plan is not pointed to again
+    // a blocked turn after it asks about something else: the closed plan is not pointed to again
     await fleet.send(thread.id, "go on");
-    writeFileSync(join(root, "results", thread.id, "handoff.md"), "BLOCKED — which branch?");
+    writeReport(root, thread.id, "blocked", "Which branch?", "Which branch?");
     await turn(thread, "idle");
     // the coordinator, still on the first question's turn, hears it once that turn ends
     await turn(coordinator, "idle");
-    expect(to(coordinator).at(-1)).toContain("which branch?");
+    expect(to(coordinator).at(-1)).toContain("asks the person: Which branch?");
     expect(to(coordinator).at(-1)).not.toContain("Plan tab");
     fleet.stop();
   });
@@ -1916,7 +2037,7 @@ describe("plans", () => {
     // the coordinator is at work, so the thread's question waits for it
     const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
     fleet.submitPlan(thread.id, PLAN);
-    writeFileSync(join(root, "results", thread.id, "handoff.md"), "BLOCKED — the plan waits for the person");
+    writeReport(root, thread.id, "blocked", "The plan waits for the person.", "Answer the plan in the Plan tab.");
     await turn(thread, "idle");
     expect(registry.get(thread.id)!.notice).toContain("Plan tab");
     await fleet.answerPlan(thread.id, { version: 1 });

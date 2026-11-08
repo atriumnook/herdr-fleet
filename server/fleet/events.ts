@@ -29,8 +29,11 @@ export type FleetEvent =
   | { kind: "standstill"; run: string; project: string; quietMs: number }
   /** a thread the fleet closed because GitHub showed its pull request merged (superviseProjects) */
   | { kind: "reconciled"; run: string; project: string; pr?: number }
-  /** an agent whose runs kept failing to start or ending without a HANDOFF, and the coordinator told (superviseProjects) */
-  | { kind: "anomaly"; run: string; project: string; agent: string; bad: number; runs: number };
+  /**
+   * a thread's lead run failed, or ended a turn without a report, and the fleet started the thread
+   * again: `by` the new run on CLI `to`, or `error` when none could start
+   */
+  | { kind: "restart"; run: string; project: string; agent: string; why: "failed" | "no-report"; by?: string; to?: string; error?: string };
 
 export type TimedEvent = FleetEvent & { t: number };
 

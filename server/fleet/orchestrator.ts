@@ -1,4 +1,4 @@
-import { closeSync, constants, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, copyFileSync, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
@@ -28,18 +28,25 @@ interface PendingTurn {
   submittedAt?: number;
   /** herdr reported `working` for this turn at least once */
   sawWorking: boolean;
+  /** what the fleet sent: a thread's next lead run hears it if this one fails */
+  text: string;
 }
 
 /** the most of a result file a run keeps: a handoff, not a transcript */
 export const RESULT_MAX_BYTES = 64 * 1024;
 const RESULT_FILE = "handoff.md";
+/** a thread lead's task as the thread was given it, beside its result file: a later run of the thread reads it */
+const TASK_FILE = "task.md";
 
 /** A spawn whose configured fallbacks (candidate entries) are still untried: consulted if its first turn fails. */
 /** A spawn with its brief turned into the task and the paths it may write, ready to try candidates for. */
 type PlannedSpawn = Omit<SpawnRequest, "brief" | "task"> & { group: string; task: string; write?: string[]; thread?: ThreadPlace };
 
 /** Where a thread works (the repository its worktree comes from, or none outside one), and the run that owns it. */
-interface ThreadPlace { repo: string | null; owner?: string; base?: string; baseBranch?: string }
+interface ThreadPlace { repo: string | null; owner?: string; base?: string; baseBranch?: string; takeover?: Takeover }
+
+/** A lead that takes a thread over from an earlier run of it: in that run's worktree and on its branch, with the thread's task. */
+interface Takeover { from: AgentRun; thread: string; task?: string }
 
 /** A thread to start: its lead gets the task, in a workspace (and worktree) of its own named by the title. */
 export interface ThreadRequest {
@@ -88,8 +95,6 @@ const READY_SCREEN_POLL_MS = 250;
 export const USAGE_SCREEN_MS = 10_000;
 /** how long a project run without the person may stand still before its coordinator hears of it (superviseProjects) */
 export const QUIET_MS = 15 * 60_000;
-/** the window over which an agent's runs are looked at for an anomaly (superviseProjects) */
-export const ANOMALY_WINDOW_MS = 60 * 60_000;
 /** how soon the threads' questions are tried again while the person has a draft in the coordinator's input */
 export const DRAFT_RETRY_MS = 5_000;
 /** a run still `starting` may be inside a 30 s agent start: not-found is not its end yet */
@@ -218,8 +223,6 @@ export class Orchestrator {
   /** per thread: since when its lead is settled, and when GitHub was last asked about it */
   private readonly settledSince = new Map<string, number>();
   private readonly reconciledAt = new Map<string, number>();
-  /** per project coordinator and agent: when it last heard of an anomaly */
-  private readonly anomalyAt = new Map<string, number>();
   /** each run's state as last saved: a save that changes it is an event */
   private readonly savedStates = new Map<string, string>();
 
@@ -290,8 +293,14 @@ export class Orchestrator {
   /** A run of `group`, or a thread a run of `group` started: each thread is a fleet of its own, which its owner still reaches. */
   get(target: string, group?: string): AgentRun {
     const owned = (run: AgentRun | undefined) => run?.owner && this.deps.registry.get(run.owner)?.group === group ? run : undefined;
-    const run = this.deps.registry.resolve(target, group) ?? (group === undefined ? undefined : owned(this.deps.registry.resolve(target)));
+    let run = this.deps.registry.resolve(target, group) ?? (group === undefined ? undefined : owned(this.deps.registry.resolve(target)));
     if (!run) throw new FleetError("run_not_found", `Unknown fleet agent: ${target}`);
+    // a thread outlives its lead runs: an earlier run's id reaches the lead that took it over
+    for (let hops = 0; isThread(run) && run.replacedBy && hops < 32; hops++) {
+      const next = this.deps.registry.get(run.replacedBy);
+      if (!next) break;
+      run = next;
+    }
     return run;
   }
 
@@ -366,7 +375,7 @@ export class Orchestrator {
     if (request.callerRun && !caller) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
     const cwd = resolve(request.cwd ?? process.cwd());
     const project = caller?.project ?? await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
-    return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project).map((run) => {
+    return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project && !run.replacedBy).map((run) => {
       const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
       return { run, state: threadState(run), ...(run.outcome ? { status: outcomeLine(run.outcome) } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
     });
@@ -458,6 +467,9 @@ export class Orchestrator {
     const id = makeId();
     const herdrName = makeHerdrName(request.group, definition.name, id);
     const displayName = request.name?.trim() || definition.name;
+    const takeover = request.thread?.takeover;
+    // a lead that takes a thread over works on the thread's branch; a thread's first lead gets one of its own
+    const branch = takeover ? takeover.from.branch : worktree && request.thread ? `fleet/${id}` : undefined;
     const env = { ...this.deps.agentEnv(), ...adapter.env?.({ resultDir: join(this.deps.resultsDir, id), fleetCommand: this.deps.fleetCommand, model, readOnly: definition.edits === false, merges: definition.name === PROJECT_ROLE }), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
 
     // the budget counts runs across fleets: the check and the first save must not interleave
@@ -485,11 +497,12 @@ export class Orchestrator {
       const now = Date.now();
       run = {
         id, name: displayName, role: definition.name, agent: kind, group: request.group, herdrName, paneId: location.paneId, workspaceId: location.workspaceId,
-        cwd: location.cwd, model, thinking, fallbackFrom, state: "starting", depth, interactive, worktree, startedAt: now, updatedAt: now,
-        ...(worktree && request.thread ? { branch: `fleet/${id}` } : {}),
+        cwd: location.cwd, model, thinking, fallbackFrom, state: "starting", depth, interactive, worktree: takeover ? takeover.from.worktree : worktree, startedAt: now, updatedAt: now,
+        ...(branch ? { branch } : {}),
         ...(request.thread?.repo ? { project: request.thread.repo } : {}), ...(request.thread?.owner ? { owner: request.thread.owner } : {}),
-        ...(worktree && request.thread?.base ? { base: request.thread.base } : {}),
-        ...(worktree && request.thread?.baseBranch ? { baseBranch: request.thread.baseBranch } : {}),
+        ...(branch && request.thread?.base ? { base: request.thread.base } : {}),
+        ...(branch && request.thread?.baseBranch ? { baseBranch: request.thread.baseBranch } : {}),
+        ...(takeover ? carried(takeover, request.avoid) : {}),
         ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
       };
       this.save(run);
@@ -501,6 +514,11 @@ export class Orchestrator {
     const resultDir = join(this.deps.resultsDir, run.id);
     mkdirSync(this.deps.resultsDir, { recursive: true, mode: 0o700 });
     mkdirSync(resultDir, { mode: 0o700 });
+    if (definition.name === THREAD_ROLE && request.thread) {
+      const threadTask = takeover ? takeover.task : request.task;
+      if (threadTask) writeFileSync(join(resultDir, TASK_FILE), threadTask, { mode: 0o600 });
+      if (takeover) this.carryFiles(takeover.from, run);
+    }
     // a project's coordinator talks with the person, who reads its reply: no agent reads a handoff of it
     const resultFile = definition.name === PROJECT_ROLE ? undefined : join(resultDir, RESULT_FILE);
     const instructions = this.instructions(definition, displayName, request.group, canSpawn, resultFile, adapter, this.deps.standingOrders?.(request.cwd) ?? "");
@@ -573,6 +591,16 @@ export class Orchestrator {
     } finally {
       rmSync(promptDir, { recursive: true, force: true });
     }
+  }
+
+  /**
+   * What a lead that takes a thread over starts from: the run before's contract, as its own to bring
+   * up to date (read as a result is, never through a symlink), and the thread's plan.
+   */
+  private carryFiles(from: AgentRun, to: AgentRun): void {
+    const contract = readResult(join(this.resultDir(from), CONTRACT_FILE));
+    if (contract) writeFileSync(join(this.resultDir(to), CONTRACT_FILE), `${contract}\n`, { mode: 0o600 });
+    try { copyFileSync(this.planFile(from), this.planFile(to)); } catch { /* the thread has no plan */ }
   }
 
   /** The user's setup command in the thread's fresh worktree; a failure fails the run before its lead starts. */
@@ -960,7 +988,6 @@ export class Orchestrator {
       const threads = this.list().filter((run) => isThread(run) && run.project === coordinator.project && isLive(run) && !run.landed);
       for (const thread of threads) await this.reconcileThread(thread as AgentRun & { project: string; branch: string }, now);
       const open = threads.filter((run) => isLive(run) && !run.landed);
-      await this.checkAnomalies(coordinator, now);
       const groups = new Set([coordinator.group, ...open.map((run) => run.group)]);
       const members = this.list().filter((run) => groups.has(run.group) && isLive(run));
       const moving = (run: AgentRun) => this.pending.has(run.id) || run.state === "working" || run.state === "starting";
@@ -1004,32 +1031,6 @@ export class Orchestrator {
     return this.tellWhenFree(coordinator, standstill(threads, quietFor));
   }
 
-  /**
-   * An agent whose runs in this project kept failing to start, or ended without a HANDOFF (a pane
-   * closed under it, a crash), over the last ANOMALY_WINDOW_MS: two or more, and a third or more of
-   * its runs. The coordinator hears of it once per agent and window, with the run ids.
-   */
-  private async checkAnomalies(coordinator: AgentRun, now: number): Promise<void> {
-    const groups = new Set([coordinator.group, ...this.list().filter((run) => isThread(run) && run.project === coordinator.project).map((run) => run.group)]);
-    const byAgent = new Map<string, AgentRun[]>();
-    for (const run of this.list()) {
-      if (!groups.has(run.group) || run.role === PROJECT_ROLE || now - run.startedAt >= ANOMALY_WINDOW_MS) continue;
-      byAgent.set(run.agent, [...(byAgent.get(run.agent) ?? []), run]);
-    }
-    for (const [agent, runs] of byAgent) {
-      // failed; or a helper without a HANDOFF, settled (its start failed, or its turn ended on a question
-      // the adapter does not know, its pane kept) or ended. A lead stopped without one is not counted:
-      // the fleet closes a landed thread, and the person stops one, whatever its last turn left.
-      const bad = runs.filter((run) => run.state === "failed"
-        || (!run.interactive && run.result === undefined && !this.pending.has(run.id) && (isCompleted(run.state) || run.state === "stopped")));
-      const key = `${coordinator.id} ${agent}`;
-      if (bad.length < 2 || bad.length * 3 < runs.length || now - (this.anomalyAt.get(key) ?? -Infinity) < ANOMALY_WINDOW_MS) continue;
-      if (!(await this.tellWhenFree(coordinator, agentAnomaly(agent, bad, runs.length)))) continue;
-      this.anomalyAt.set(key, now);
-      this.deps.events?.({ kind: "anomaly", run: coordinator.id, project: coordinator.project!, agent, bad: bad.length, runs: runs.length });
-    }
-  }
-
   /** `text` to the coordinator when it is free (no turn in flight, settled, no draft of the person's); false when it is not. */
   private async tellWhenFree(coordinator: AgentRun, text: string): Promise<boolean> {
     if (this.delivering.has(coordinator.id)) return false;
@@ -1053,7 +1054,7 @@ export class Orchestrator {
       this.save(member);
       this.settleWaiters(member);
     }
-    const kept = await this.tools.removeThread(thread.project, join(thread.project, THREAD_WORKTREES, thread.id), thread.branch, { force: how === "discarded", branchMerged });
+    const kept = await this.tools.removeThread(thread.project, join(thread.project, THREAD_WORKTREES, threadId(thread)), thread.branch, { force: how === "discarded", branchMerged });
     thread.landed = how;
     thread.resolvedAt = Date.now();
     if (kept) thread.landing = { action: how === "discarded" ? "discard" : thread.landing?.action ?? "merge", at: Date.now(), sent: true, error: kept };
@@ -1123,7 +1124,7 @@ export class Orchestrator {
     this.clearSettleCheck(run.id);
     const generation = (this.generations.get(run.id) ?? 0) + 1;
     this.generations.set(run.id, generation);
-    const pending: PendingTurn = { armed: false, blockedReported: false, generation, sawWorking: false };
+    const pending: PendingTurn = { armed: false, blockedReported: false, generation, sawWorking: false, text };
     this.pending.set(run.id, pending);
     // a result file and a report found when the turn settles are this turn's
     rmSync(this.resultFile(run), { force: true });
@@ -1317,7 +1318,9 @@ export class Orchestrator {
     if (isCompleted(run.state)) await this.readUsageScreen(run, config);
     const plan = this.spawnPlans.get(run.id);
     this.spawnPlans.delete(run.id);
-    if (run.state === "failed" && plan && pending.generation === 1) await this.respawn(run, plan);
+    // a thread goes on in a new run of its lead; a helper's first turn on the next configured model
+    if (needsRestart(run)) await this.restartThread(run, pending.text);
+    else if (run.state === "failed" && plan && pending.generation === 1) await this.respawn(run, plan);
     this.settleWaiters(run);
     await this.closeOnSettle(run, config);
     if (run.notice) void this.tellCoordinator(run);
@@ -1329,6 +1332,8 @@ export class Orchestrator {
     run.result = readResult(this.resultFile(run));
     // a project's coordinator talks with the person and keeps no result folder: it reports nothing
     run.outcome = run.role === PROJECT_ROLE ? undefined : readReport(this.resultDir(run));
+    // the thread made progress: the CLIs its runs failed on before get another chance
+    if (run.outcome?.report) delete run.avoid;
     this.deps.events?.({
       kind: "turn", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
       ...(run.project ? { project: run.project } : {}), interactive: run.interactive, handoff: run.result !== undefined,
@@ -1373,8 +1378,45 @@ export class Orchestrator {
     await this.settleThreadTurn(run, config);
     run.updatedAt = Date.now();
     this.save(run);
+    if (needsRestart(run)) await this.restartThread(run);
     this.settleWaiters(run);
     if (run.notice) void this.tellCoordinator(run);
+  }
+
+  /**
+   * A thread's lead whose run failed or whose turn ended without a report: the thread goes on in a
+   * new run of its lead, on a CLI none of its runs failed on since its last report, in the same
+   * worktree, branch and fleet (dsh-superagent's new Assignment of the same Ticket). Its task says
+   * what happened, where the run before left its handoff, contract and report, and to check before
+   * repeating an outside action; the thread's task and the fleet's last message follow. Once it has
+   * the task, the old run's pane closes, so one lead works in the worktree. The coordinator hears
+   * nothing of a restart, only of one that could not start, with the turn's usual news.
+   */
+  private async restartThread(run: AgentRun, lastMessage?: string): Promise<void> {
+    const why: "failed" | "no-report" = run.state === "failed" ? "failed" : "no-report";
+    const avoid = [...new Set([...(run.avoid ?? []), run.agent])];
+    const task = readResult(join(this.resultDir(run), TASK_FILE));
+    const base = { kind: "restart" as const, run: run.id, project: run.project!, agent: run.agent, why };
+    try {
+      const next = await this.spawnWithFallbacks({
+        role: THREAD_ROLE, name: run.name, task: recoveryTask(run, this.resultDir(run), task, lastMessage), cwd: run.cwd, depth: run.depth - 1,
+        group: run.group, worktree: false, interactive: true, avoid,
+        thread: { repo: run.project ?? null, owner: run.owner, base: run.base, baseBranch: run.baseBranch, takeover: { from: run, thread: threadId(run), task } },
+      });
+      run.replacedBy = next.id;
+      delete run.notice;
+      await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
+      if (isLive(run)) run.state = "stopped";
+      this.dropPending(run.id);
+      this.deps.events?.({ ...base, by: next.id, to: next.agent });
+    } catch (error) {
+      if (isAbortError(error)) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      if (run.notice) run.notice = `${run.notice}\n  The fleet could not start the thread again on another CLI: ${reason}`;
+      this.deps.events?.({ ...base, error: reason.slice(0, 200) });
+    }
+    run.updatedAt = Date.now();
+    this.save(run);
   }
 
   /**
@@ -1544,6 +1586,41 @@ export class Orchestrator {
 
 const isThread = (run: AgentRun): boolean => run.role === THREAD_ROLE && run.project !== undefined;
 
+/** A thread's id: its first lead run's, which names its worktree and branch, whichever run leads it now. */
+const threadId = (run: AgentRun): string => run.thread ?? run.id;
+
+/** A thread's settled lead whose run failed or whose turn left no report, and the thread still open: it goes on in a new run. */
+const needsRestart = (run: AgentRun): boolean => isThread(run) && !run.landed && !run.replacedBy && (run.state === "failed" || run.outcome?.report === null);
+
+/** What a lead that takes a thread over carries from the run before: the thread, what the fleet knows of its landing, and the CLIs to pass over. */
+function carried({ from, thread }: Takeover, avoid: AgentKind[] | undefined): Partial<AgentRun> {
+  const { pr, plan, landing, contract, diff } = from;
+  return {
+    thread, ...(avoid?.length ? { avoid } : {}),
+    ...(pr ? { pr } : {}), ...(plan ? { plan } : {}), ...(landing ? { landing } : {}), ...(contract ? { contract } : {}), ...(diff ? { diff } : {}),
+  };
+}
+
+/** The check before any outside action that a lead taking a thread over is told to make (dsh-superagent's recovery note). */
+export const RECOVERY_NOTE = "Check the worktree, git history and GitHub before repeating any outside action (push, PR, comment).";
+
+/** The first task of a lead that takes a thread over from `run`. */
+export function recoveryTask(run: AgentRun, resultDir: string, task: string | undefined, lastMessage: string | undefined): string {
+  const how = run.state === "failed"
+    ? `failed: ${(run.lastError ?? "its turn failed").replace(/\.$/, "")}`
+    : `ended its turn without a report (${run.outcome?.report === null ? run.outcome.problem : "no report"})`;
+  // the message that started the run before is the thread's task, or this note: neither is repeated
+  const last = lastMessage?.trim();
+  const repeat = !last || last === task || last.startsWith("[fleet] You take over the thread");
+  return [
+    `[fleet] You take over the thread "${run.name}" from run ${run.id} on ${run.agent}, which ${how}. This comes from the fleet, not from the person.`,
+    `Your folder is the thread's worktree${run.branch ? ` on ${run.branch}` : ""}, where the run before left its work. It left its handoff, contract and report, as far as it wrote them, in ${resultDir}: read them. Your contract starts as its contract; bring it up to date.`,
+    RECOVERY_NOTE,
+    ...(task ? ["", "The thread's task:", "", task] : []),
+    ...(repeat ? [] : ["", "The fleet's last message to the run before:", "", last]),
+  ].join("\n");
+}
+
 function threadLabel(run: AgentRun): string {
   return `"${run.name}" (${run.id}${run.branch ? `, ${run.branch}` : ""})`;
 }
@@ -1570,15 +1647,6 @@ export function standstill(threads: AgentRun[], quietFor: number): string {
     `[fleet] Nothing in this project has moved for ${Math.round(quietFor / 60_000)} minutes: you and every thread are settled. This comes from the fleet, not from the person.`,
     ...(threads.length ? threads.map((run) => `- ${threadLabel(run)}: ${run.state}${run.pr ? `, pull request #${run.pr.number} ${run.pr.state}` : ""}`) : ["- No thread is open."]),
     "Check the issues and the threads: start what can start, and send a settled thread what it still has to do. When everything left is blocked or done, say so as your instructions tell you.",
-  ].join("\n");
-}
-
-/** An agent whose runs kept failing to start or ending without a HANDOFF, as the coordinator of a project run without the person hears it. */
-export function agentAnomaly(agent: string, bad: AgentRun[], runs: number): string {
-  return [
-    `[fleet] ${agent}: ${bad.length} of ${runs} runs in this project over the last ${Math.round(ANOMALY_WINDOW_MS / 60_000)} minutes failed to start or ended without a HANDOFF. This comes from the fleet, not from the person.`,
-    ...bad.map((run) => `- ${run.id} (${run.role}${run.model ? `, ${run.model}` : ""}): ${run.state}${run.lastError ? ` — ${run.lastError.slice(0, 160)}` : ", no HANDOFF"}`),
-    `Until it is fixed, have the threads start that role on another CLI (--avoid ${agent}), and record this with the run ids where the project tracks its work, so the fleet can be fixed.`,
   ].join("\n");
 }
 

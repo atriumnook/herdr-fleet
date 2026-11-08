@@ -387,8 +387,10 @@ export function fleetScreenModel(state: FleetState, now: number): FleetScreenMod
   const closableGroups = [...new Set(runs.filter((run) => !run.interactive && run.state === "done").map((run) => run.group))].sort();
   const project = projectsOf(state);
   const view = state.fleetView;
-  const threadRuns = project.selected === null ? [] : runs.filter((run) => run.role === THREAD_ROLE && run.project === project.selected);
-  const rows = threadRuns.map((run) => threadRow(run, view.open?.kind === "thread" && view.open.runId === run.id, state));
+  // a thread outlives its lead runs: it shows as the run that leads it now
+  const threadRuns = project.selected === null ? [] : runs.filter((run) => run.role === THREAD_ROLE && run.project === project.selected && !run.replacedBy);
+  const openLead = view.open?.kind === "thread" ? currentLead(runs, view.open.runId)?.id : undefined;
+  const rows = threadRuns.map((run) => threadRow(run, openLead === run.id, state));
   const byRecent = (a: ThreadRowModel, b: ThreadRowModel) => b.updatedAt - a.updatedAt;
   const coordinatorRun = coordinatorOf(runs, project.selected);
   const inThreads = new Set(runs.filter((run) => run.role === THREAD_ROLE).map((run) => run.group));
@@ -481,12 +483,23 @@ export function projectsOf(state: Pick<UiState, "runs" | "fleetView">): { list: 
   if (chosen !== null && known === undefined) paths.push(chosen);
   const selected = known ?? chosen ?? paths[0] ?? null;
   const list = paths.map((path) => {
-    const threads = runs.filter((run) => run.project === path && run.role === THREAD_ROLE).map(threadState);
+    const threads = runs.filter((run) => run.project === path && run.role === THREAD_ROLE && !run.replacedBy).map(threadState);
     const dot = threads.some((s) => s === "waiting" || s === "failed") ? "needs" : threads.some((s) => s === "working") ? "working"
       : runs.some((run) => run.project === path) ? "idle" : "none";
     return { path, name: baseName(path), dot, selected: path === selected } as ProjectModel;
   });
   return { list, selected };
+}
+
+/** The run that leads a thread now: `id`, or the lead that took the thread over from it. */
+function currentLead(runs: AgentRun[], id: string): AgentRun | undefined {
+  let run = runs.find((candidate) => candidate.id === id);
+  for (let hops = 0; run?.role === THREAD_ROLE && run.replacedBy && hops < 32; hops++) {
+    const next = runs.find((candidate) => candidate.id === run!.replacedBy);
+    if (!next) break;
+    run = next;
+  }
+  return run;
 }
 
 function threadRow(run: AgentRun, selected: boolean, fleet: Pick<FleetState, "plan">): ThreadRowModel {
@@ -506,7 +519,7 @@ function threadRow(run: AgentRun, selected: boolean, fleet: Pick<FleetState, "pl
 
 function openRun(runs: AgentRun[], view: UiState["fleetView"], fleet: FleetState): OpenRunModel | null {
   const open = view.open;
-  const run = open ? runs.find((candidate) => candidate.id === open.runId) : undefined;
+  const run = !open ? undefined : open.kind === "thread" ? currentLead(runs, open.runId) : runs.find((candidate) => candidate.id === open.runId);
   if (!open || !run) return null;
   const helpers = open.kind === "thread" ? runs.filter((other) => other.group === run.group && other.id !== run.id) : [];
   const member = open.member === null ? undefined : helpers.find((helper) => helper.id === open.member);

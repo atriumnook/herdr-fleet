@@ -120,6 +120,14 @@ describe("the projects, their threads and the run open in the Overview", () => {
     expect(model.resolved.map((row) => row.id)).toEqual(["over"]);
   });
 
+  it("shows a thread as the lead run that took it over, and keeps the thread open on that run", () => {
+    const runs = [coordinator(), lead("t", { state: "stopped", replacedBy: "t2" }), lead("t2", { group: "g-t", branch: "fleet/t", thread: "t", agent: "codex", state: "working" })];
+    const model = fleetScreenModel(withRuns(runs, { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null } } }), NOW);
+    const rows = model.threadGroups.flatMap((group) => group.rows);
+    expect(rows.map((row) => [row.id, row.selected])).toEqual([["t2", true]]);
+    expect(model.open).toMatchObject({ runId: "t2", agent: "codex" });
+  });
+
   it("asks for a project's first message while no coordinator lives there", () => {
     const model = fleetScreenModel(withRuns([coordinator({ state: "stopped" }), lead("t")]), NOW);
     expect(model.coordinator).toBeNull();

@@ -48,8 +48,12 @@ export interface AgentRun {
   outcome?: TurnOutcome;
   /** the model this run replaced after a configured fallback */
   fallbackFrom?: string;
-  /** the run that took this run's task over after its first turn failed */
+  /** the run that took this run's task over: after a first turn that failed, or, for a thread's lead, a run that failed or a turn without a report */
   replacedBy?: string;
+  /** the thread a lead took over from an earlier run of it: that first run's id, which names the thread's worktree and branch */
+  thread?: string;
+  /** the CLIs a thread's lead runs failed on, or ended a turn without a report on, since the thread's last report: its next restart passes them over */
+  avoid?: FleetAgentKind[];
   /** candidates passed over before this one: no usage left, cooling down, or failed to start */
   skipped?: SkippedCandidate[];
   /** a thread lead's branch, when its thread works on a worktree */
