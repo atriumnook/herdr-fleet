@@ -104,19 +104,46 @@ fn the_fleet_agent_kinds_are_the_six_adapters() {
 
 #[test]
 fn a_usage_reading_keeps_the_camel_case_names_and_leaves_an_unknown_reset_out() {
+    // TypeScript keeps any finite number (server/fleet/usage.ts:192, 200): Codex's reset is its
+    // seconds times 1000
     let reading = json!({
         "windows": [
-            {"name": "5h", "usedPercent": 12.5, "resetsAt": 1_767_225_600_000_i64},
+            {"name": "5h", "usedPercent": 12.5, "resetsAt": 1_767_225_600_000.5},
             {"name": "weekly", "usedPercent": 40},
         ],
         "readAt": 1_767_222_000_000_i64,
     });
     let typed: UsageReading = serde_json::from_value(reading.clone()).unwrap();
     assert_eq!(typed.windows[1].resets_at, None);
-    // 40 reads back as the f64 40.0; as values the two are the same number
+    assert_eq!(typed.windows[0].resets_at, Some(1_767_225_600_000.5));
+    // a whole number reads back as an f64 (40 as 40.0); as values the two are the same number
     let back = serde_json::to_value(&typed).unwrap();
     assert_eq!(back["windows"][1]["usedPercent"].as_f64(), Some(40.0));
     assert_eq!(back["windows"][0], reading["windows"][0]);
-    assert_eq!(back["readAt"], reading["readAt"]);
+    assert_eq!(back["readAt"].as_f64(), Some(1_767_222_000_000.0));
     assert!(back["windows"][1].get("resetsAt").is_none());
+}
+
+#[test]
+fn a_number_reads_as_javascripts_json_parse_reads_it() {
+    // JSON.parse keeps 0.9999999999999999 (Number.isInteger is false under Bun 1.4.4); serde_json
+    // without `float_roundtrip` reads 1.0, and the screen would take option 1
+    let answer = r#"{"pane_id":"p","prompt_id":"id","option_index":0.9999999999999999}"#;
+    let typed: PromptAnswer = serde_json::from_str(answer).unwrap();
+    assert_eq!(typed.option_index, Some(0.999_999_999_999_999_9));
+    assert_ne!(typed.option_index, Some(1.0));
+    // the bits Bun's JSON.parse and Rust's str::parse give 8.971135692166839e-150
+    let value: Value = serde_json::from_str("8.971135692166839e-150").unwrap();
+    assert_eq!(value.as_f64().unwrap().to_bits(), 0x20fd_5db4_3a77_6693);
+}
+
+#[test]
+fn a_context_count_is_any_positive_number_the_transcript_recorded() {
+    // server/conversation-metadata.ts:8 keeps any positive finite number as it is recorded, so a
+    // Codex `total_tokens` of 1.5 answers `{"used": 1.5, "window": 200000}`
+    let metadata = json!({"model": "gpt", "reasoning_effort": null, "context": {"used": 1.5, "window": 200000}});
+    let typed = serde_json::from_value::<ConversationMetadata>(metadata);
+    let back = serde_json::to_value(typed.unwrap()).unwrap();
+    assert_eq!(back["context"]["used"].as_f64(), Some(1.5));
+    assert_eq!(back["context"]["window"].as_f64(), Some(200_000.0));
 }

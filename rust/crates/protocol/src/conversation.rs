@@ -126,7 +126,7 @@ pub struct ImageRef {
 }
 
 /// Latest model settings actually recorded by this agent.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ConversationMetadata {
     #[serde(deserialize_with = "Option::deserialize")]
     pub model: Option<String>,
@@ -140,12 +140,13 @@ pub struct ConversationMetadata {
 }
 
 /// Tokens of the model's context the last request filled. `window` is `None` when the transcript
-/// does not say it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+/// does not say it. Both are numbers as the transcript recorded them, which TypeScript keeps
+/// whatever positive finite number they are (`server/conversation-metadata.ts:8`).
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct ContextUsage {
-    pub used: u64,
+    pub used: f64,
     #[serde(deserialize_with = "Option::deserialize")]
-    pub window: Option<u64>,
+    pub window: Option<f64>,
 }
 
 /// GET /api/pane/conversation: native conversation with settings, or scrollback fallback.

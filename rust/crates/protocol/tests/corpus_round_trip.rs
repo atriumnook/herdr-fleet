@@ -112,11 +112,29 @@ const CARD_CALLS: [&str; 3] = [
     "codexQueuedPrompt",
 ];
 
+/// The calls of the screen corpus that return no card: a boolean and a suggestion's text. An
+/// adapter's look at the screen (`adapter` and `check`) returns no card either.
+const OTHER_SCREEN_CALLS: [&str; 2] = ["codexQuestionsCollapsed", "parseClaudeSuggestion"];
+
+/// The calls of the conversation corpus whose answer has no protocol type: an image and a tool's
+/// whole output.
+const OTHER_CONVERSATION_CALLS: [&str; 2] = ["image", "toolOutput"];
+
 #[test]
 fn screen_corpus_cards_questions_and_answers() {
     let mut check = Check::default();
     for (name, spec) in cases("screens") {
         let call = spec["call"].as_str().unwrap_or("");
+        // a call this test does not know may return a card it would never read
+        let known = CARD_CALLS.contains(&call)
+            || OTHER_SCREEN_CALLS.contains(&call)
+            || (call.is_empty() && spec.get("adapter").is_some());
+        if !known {
+            check.failures.push(format!(
+                "{name}: a call this test does not know: {:?}",
+                spec["call"]
+            ));
+        }
         if let Some(card) = spec["expected"]
             .as_object()
             .filter(|_| CARD_CALLS.contains(&call))
@@ -163,10 +181,12 @@ fn conversation_corpus_pages_and_unanswered_questions() {
                         &format!("{what}: turns"),
                         &page["turns"],
                     );
-                    check.round_trip::<ConversationMetadata>(
-                        &format!("{what}: metadata"),
-                        &page["metadata"],
-                    );
+                    if let Some(metadata) = page.get("metadata") {
+                        check.round_trip::<ConversationMetadata>(
+                            &format!("{what}: metadata"),
+                            metadata,
+                        );
+                    }
                     if let Some(abandoned) = page.get("abandoned") {
                         check
                             .round_trip::<AbandonedTurns>(&format!("{what}: abandoned"), abandoned);
@@ -183,11 +203,16 @@ fn conversation_corpus_pages_and_unanswered_questions() {
                     check
                         .round_trip::<Vec<QueuedQuestion>>(&format!("{what}: questions"), expected);
                 }
-                _ => {}
+                Some("page") => {} // a failure: `{"error": …}`
+                Some(call) if OTHER_CONVERSATION_CALLS.contains(&call) => {}
+                Some(call) => check
+                    .failures
+                    .push(format!("{what}: a call this test does not know: {call}")),
+                None => {} // a change to a file of the case, or OpenCode's replies or clock
             }
         }
     }
-    // 418 pages (their turns, metadata and the page itself), 49 of them with `abandoned`, and 6
-    // answers of unanswered questions in the corpus at 82f36ce
+    // 418 pages (their turns, metadata and the page itself; every page has metadata), 49 of them
+    // with `abandoned`, and 6 answers of unanswered questions in the corpus at 82f36ce
     check.report(418 * 3 + 49 + 6);
 }

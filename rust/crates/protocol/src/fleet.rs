@@ -21,15 +21,16 @@ pub struct UsageWindow {
     pub name: String,
     #[serde(rename = "usedPercent")]
     pub used_percent: f64,
-    /// Epoch milliseconds; unknown for some sources.
+    /// Epoch milliseconds, a JavaScript number (Codex's seconds times 1000 may have a fraction);
+    /// unknown for some sources.
     #[serde(rename = "resetsAt", default, skip_serializing_if = "Option::is_none")]
-    pub resets_at: Option<i64>,
+    pub resets_at: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UsageReading {
     pub windows: Vec<UsageWindow>,
-    /// Epoch milliseconds.
+    /// Epoch milliseconds, a JavaScript number.
     #[serde(rename = "readAt")]
-    pub read_at: i64,
+    pub read_at: f64,
 }
