@@ -267,9 +267,8 @@ impl<F: TranscriptFormat> Source<F> {
         request: &PageRequest,
     ) -> Result<Page, ConversationError> {
         let path = F::live_path(place);
-        let meta = fs::metadata(path).map_err(missing)?;
-        let stat = file_stat(&meta);
-        let mut stream = self.stream(place, &stat)?;
+        let (stat, generation) = self.identify(path)?;
+        let mut stream = self.stream(place, &stat, &generation)?;
         self.apply_history_boundary(&mut stream).map_err(missing)?;
 
         // the answer is a function of the page asked for and the file's state, so they name it;
@@ -334,7 +333,26 @@ impl<F: TranscriptFormat> Source<F> {
     }
 
     /// The stream of `place` as the live file stands (`transcriptStream`).
-    fn stream(&self, place: &F::Place, stat: &FileStat) -> Result<Stream, ConversationError> {
+    /// The live file's stat and the generation of its contents, both taken under the lock: reads
+    /// in several threads record their stats in the order they took them, so a file that only
+    /// grows is never seen to shrink, which would read as a rewrite. The lock covers one stat,
+    /// never a read of the file's contents.
+    fn identify(&self, path: &Path) -> Result<(FileStat, String), ConversationError> {
+        let mut state = self
+            .state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let stat = file_stat(&fs::metadata(path).map_err(missing)?);
+        let generation = state.generation(path, &stat, &self.ids);
+        Ok((stat, generation))
+    }
+
+    fn stream(
+        &self,
+        place: &F::Place,
+        stat: &FileStat,
+        generation: &str,
+    ) -> Result<Stream, ConversationError> {
         let path = F::live_path(place);
         let segments = self.format.segments(place, stat.size)?;
         let mut files = Vec::new();
@@ -358,11 +376,6 @@ impl<F: TranscriptFormat> Source<F> {
             length += end - segment.start;
         }
         let mark = self.format.layout_mark(&files);
-        let generation = self
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
-            .generation(path, stat, &self.ids);
         Ok(Stream {
             id: format!("{}{mark}{generation}", stat.node),
             files,
