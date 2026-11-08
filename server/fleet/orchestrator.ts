@@ -619,6 +619,7 @@ export class Orchestrator {
         : "Do not start other agents.",
       "If an agent is blocked on an approval or a question, read its output and escalate to the human; never answer a blocked prompt yourself.",
       "Treat herdr's 'unknown' as uncertainty, not completion.",
+      ...(adapter.note ? [adapter.note] : []),
       ...(definition.edits === false && adapter.readOnlyNote ? [adapter.readOnlyNote({ merges: definition.name === PROJECT_ROLE, fleetCommand: fleet })] : []),
       ...(resultFile ? [
         `Your result file is ${resultFile}.`,
@@ -1422,8 +1423,15 @@ export class Orchestrator {
     this.settleWaiters(run);
   }
 
+  /**
+   * A non-interactive run's pane, once its turn settled with its handoff written. A turn that ended
+   * without one keeps its pane: a question the adapter does not know reads as a finished turn
+   * (herdr reports agy's file access screen as done), and closing it would end the agent there,
+   * where the person or its lead can still see what stopped it and send it on.
+   */
   private async closeOnSettle(run: AgentRun, config: FleetConfig): Promise<void> {
     if (!config.closeOnSettle || run.interactive || !isCompleted(run.state) || this.pending.has(run.id)) return;
+    if (run.result === undefined) return;
     const live = await this.liveState(run);
     if (live && isCompleted(live)) await this.closeSettledPane(run);
   }
