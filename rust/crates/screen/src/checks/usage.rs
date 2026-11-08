@@ -42,13 +42,15 @@ pub(super) fn cursor_usage(screen: &str, now: i64) -> Option<UsageReading> {
         (None, Some(numeric)) => Some((number(&numeric[1]) - 1, number(&numeric[2]))),
         (None, None) => None,
     };
-    let resets_at = date.map(|(month, day)| {
-        let year = utc_year(now);
-        let at = date_utc(year, month, day);
+    // a time outside JavaScript's dates is NaN, which `resetsAt <= now` and `resetsAt ? ...` take
+    // as false: no reset date
+    let resets_at = date.and_then(|(month, day)| {
+        let year = utc_year(now)?;
+        let at = date_utc(year, month, day)?;
         if at <= now {
             date_utc(year + 1, month, day)
         } else {
-            at
+            Some(at)
         }
     });
     Some(UsageReading {
@@ -62,17 +64,27 @@ pub(super) fn cursor_usage(screen: &str, now: i64) -> Option<UsageReading> {
     })
 }
 
-/// `Date.UTC(year, month, day)` for a month from 0: a month or a day out of its range rolls into the
-/// next or the previous ones, as ECMAScript's MakeDay does.
-fn date_utc(year: i64, month: i64, day: i64) -> i64 {
+/// The largest distance from the epoch of a JavaScript date, in milliseconds (ECMAScript's TimeClip).
+const MAX_TIME: u64 = 8_640_000_000_000_000;
+
+/// `Date.UTC(year, month, day)` for a month from 0, `None` where it is NaN (past TimeClip's range). A
+/// year from 0 to 99 is 1900 and on (MakeFullYear), and a month or a day out of its range rolls into
+/// the next or the previous ones (MakeDay).
+fn date_utc(year: i64, month: i64, day: i64) -> Option<i64> {
+    let year = if (0..=99).contains(&year) {
+        1900 + year
+    } else {
+        year
+    };
     let year = year + month.div_euclid(12);
     let month = month.rem_euclid(12) + 1;
-    (days_from_civil(year, month, 1) + day - 1) * DAY_MS
+    let time = (days_from_civil(year, month, 1) + day - 1).checked_mul(DAY_MS)?;
+    (time.unsigned_abs() <= MAX_TIME).then_some(time)
 }
 
-/// `new Date(ms).getUTCFullYear()`.
-fn utc_year(ms: i64) -> i64 {
-    civil_year(ms.div_euclid(DAY_MS))
+/// `new Date(ms).getUTCFullYear()`, `None` where it is NaN.
+fn utc_year(ms: i64) -> Option<i64> {
+    (ms.unsigned_abs() <= MAX_TIME).then(|| civil_year(ms.div_euclid(DAY_MS)))
 }
 
 /// The days from 1970-01-01 to the first of `month` (1 to 12) of `year`, in the proleptic Gregorian
@@ -104,22 +116,33 @@ fn civil_year(days: i64) -> i64 {
 mod tests {
     use super::{date_utc, utc_year};
 
-    /// The values are what Bun 1.4.4 gives for `Date.UTC` and `getUTCFullYear`.
+    /// The values are what Bun 1.4.4 gives for `Date.UTC` and `getUTCFullYear` (NaN is `None`).
     #[test]
     fn counts_days_as_javascripts_date_does() {
-        assert_eq!(date_utc(1970, 0, 1), 0);
-        assert_eq!(date_utc(2026, 9, 23), 1_792_713_600_000);
+        assert_eq!(date_utc(1970, 0, 1), Some(0));
+        assert_eq!(date_utc(2026, 9, 23), Some(1_792_713_600_000));
         // February 29 of a year without one is March 1
-        assert_eq!(date_utc(2027, 1, 29), 1_803_859_200_000);
-        assert_eq!(date_utc(2024, 1, 29), 1_709_164_800_000);
+        assert_eq!(date_utc(2027, 1, 29), Some(1_803_859_200_000));
+        assert_eq!(date_utc(2024, 1, 29), Some(1_709_164_800_000));
         // month 12 and day 0 roll over
-        assert_eq!(date_utc(2026, 12, 5), 1_799_107_200_000);
-        assert_eq!(date_utc(2026, -1, 0), 1_764_460_800_000);
-        assert_eq!(date_utc(1969, 11, 31), -86_400_000);
-        assert_eq!(utc_year(0), 1970);
-        assert_eq!(utc_year(-1), 1969);
-        assert_eq!(utc_year(1_798_761_599_999), 2026);
-        assert_eq!(utc_year(1_798_761_600_000), 2027);
-        assert_eq!(utc_year(951_782_400_000), 2000);
+        assert_eq!(date_utc(2026, 12, 5), Some(1_799_107_200_000));
+        assert_eq!(date_utc(2026, -1, 0), Some(1_764_460_800_000));
+        assert_eq!(date_utc(1969, 11, 31), Some(-86_400_000));
+        // the years 0 to 99 are 1900 to 1999
+        assert_eq!(date_utc(99, 0, 1), Some(915_148_800_000));
+        assert_eq!(date_utc(0, 0, 1), Some(-2_208_988_800_000));
+        assert_eq!(date_utc(100, 0, 1), Some(-59_011_459_200_000));
+        // the first and last days of JavaScript's dates, and the days past them
+        assert_eq!(date_utc(275_760, 8, 13), Some(8_640_000_000_000_000));
+        assert_eq!(date_utc(275_760, 8, 14), None);
+        assert_eq!(date_utc(-271_821, 3, 20), Some(-8_640_000_000_000_000));
+        assert_eq!(date_utc(-271_821, 3, 19), None);
+        assert_eq!(utc_year(0), Some(1970));
+        assert_eq!(utc_year(-1), Some(1969));
+        assert_eq!(utc_year(1_798_761_599_999), Some(2026));
+        assert_eq!(utc_year(1_798_761_600_000), Some(2027));
+        assert_eq!(utc_year(951_782_400_000), Some(2000));
+        assert_eq!(utc_year(8_640_000_000_000_001), None);
+        assert_eq!(utc_year(i64::MIN), None);
     }
 }

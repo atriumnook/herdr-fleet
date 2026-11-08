@@ -91,11 +91,12 @@ fn reads_the_narrow_layout_a_reset_date_in_the_next_year_and_nothing_before_the_
 /// What TypeScript's `cursorUsage` returns for usage screens the tests above do not hold (Bun 1.4.4):
 /// a day or a month past the end rolls over as `Date.UTC` rolls it, a reset at `now` is the next
 /// year's, the last `Included` and the last date of each spelling count (the English one first),
-/// `\b` and `\s` are JavaScript's.
+/// `\b` and `\s` are JavaScript's, and the years 0 to 99 and the times past JavaScript's dates are
+/// read as `Date.UTC` reads them.
 #[test]
 fn reads_usage_screens_as_typescript_does() {
     let at = OCT_4_2026_7H;
-    let cases: [(&str, i64, Option<UsageReading>); 16] = [
+    let cases: [(&str, i64, Option<UsageReading>); 22] = [
         (
             "Included 12% used\nResets Feb 31",
             at,
@@ -163,6 +164,42 @@ fn reads_usage_screens_as_typescript_does() {
             "Included 9% used Resets Feb 29",
             1_803_859_200_000,
             Some(monthly(9.0, Some(1_835_395_200_000.0), 1_803_859_200_000)),
+        ),
+        // in the year 99, Date.UTC takes the next year, 100, as is, and 99 as 1999
+        (
+            "Included 1% used Resets Jan 1",
+            -59_042_995_200_000,
+            Some(monthly(1.0, Some(915_148_800_000.0), -59_042_995_200_000)),
+        ),
+        // past the last day of JavaScript's dates the reset date is NaN, and left out
+        (
+            "Included 1% used Resets Sep 14",
+            8_640_000_000_000_000,
+            Some(monthly(1.0, None, 8_640_000_000_000_000)),
+        ),
+        (
+            "Included 1% used Resets Sep 13",
+            8_639_999_913_600_000,
+            Some(monthly(
+                1.0,
+                Some(8_640_000_000_000_000.0),
+                8_639_999_913_600_000,
+            )),
+        ),
+        (
+            "Included 1% used Resets Sep 12",
+            8_639_999_913_600_000,
+            Some(monthly(1.0, None, 8_639_999_913_600_000)),
+        ),
+        (
+            "Included 1% used Resets Jan 1",
+            i64::MAX,
+            Some(monthly(1.0, None, i64::MAX)),
+        ),
+        (
+            "Included 1% used Resets Jan 1",
+            i64::MIN,
+            Some(monthly(1.0, None, i64::MIN)),
         ),
     ];
     for (screen, now, expected) in cases {
@@ -330,6 +367,7 @@ const RECORDED: &str = r##"
 ["pi","turnError","Error: gave up\n","gave up"]
 ["pi","turnError","  Error: indented  \n  3ms  ","indented"]
 ["pi","turnError","\u25a0\nfoo",null]
+["pi","turnError","\u25a0\n\u25a0 actual",null]
 ["pi","turnError","\u25a0 \nfoo",null]
 ["pi","turnError","\u25a0\n\n  wrapped reason  ",null]
 ["pi","turnError","\u25a0\r\nfoo",null]
@@ -364,6 +402,7 @@ const RECORDED: &str = r##"
 ["claude","turnError","Error: gave up\n",null]
 ["claude","turnError","  Error: indented  \n  3ms  ",null]
 ["claude","turnError","\u25a0\nfoo",null]
+["claude","turnError","\u25a0\n\u25a0 actual",null]
 ["claude","turnError","\u25a0 \nfoo",null]
 ["claude","turnError","\u25a0\n\n  wrapped reason  ",null]
 ["claude","turnError","\u25a0\r\nfoo",null]
@@ -398,6 +437,7 @@ const RECORDED: &str = r##"
 ["codex","turnError","Error: gave up\n",null]
 ["codex","turnError","  Error: indented  \n  3ms  ",null]
 ["codex","turnError","\u25a0\nfoo","foo"]
+["codex","turnError","\u25a0\n\u25a0 actual","\u25a0 actual"]
 ["codex","turnError","\u25a0 \nfoo","foo"]
 ["codex","turnError","\u25a0\n\n  wrapped reason  ","wrapped reason"]
 ["codex","turnError","\u25a0\r\nfoo","foo"]
@@ -432,6 +472,7 @@ const RECORDED: &str = r##"
 ["cursor","turnError","Error: gave up\n","gave up"]
 ["cursor","turnError","  Error: indented  \n  3ms  ","indented"]
 ["cursor","turnError","\u25a0\nfoo",null]
+["cursor","turnError","\u25a0\n\u25a0 actual",null]
 ["cursor","turnError","\u25a0 \nfoo",null]
 ["cursor","turnError","\u25a0\n\n  wrapped reason  ",null]
 ["cursor","turnError","\u25a0\r\nfoo",null]
@@ -466,6 +507,7 @@ const RECORDED: &str = r##"
 ["agy","turnError","Error: gave up\n","gave up"]
 ["agy","turnError","  Error: indented  \n  3ms  ","indented"]
 ["agy","turnError","\u25a0\nfoo",null]
+["agy","turnError","\u25a0\n\u25a0 actual",null]
 ["agy","turnError","\u25a0 \nfoo",null]
 ["agy","turnError","\u25a0\n\n  wrapped reason  ",null]
 ["agy","turnError","\u25a0\r\nfoo",null]
@@ -500,6 +542,7 @@ const RECORDED: &str = r##"
 ["opencode","turnError","Error: gave up\n",null]
 ["opencode","turnError","  Error: indented  \n  3ms  ","indented"]
 ["opencode","turnError","\u25a0\nfoo",null]
+["opencode","turnError","\u25a0\n\u25a0 actual",null]
 ["opencode","turnError","\u25a0 \nfoo",null]
 ["opencode","turnError","\u25a0\n\n  wrapped reason  ",null]
 ["opencode","turnError","\u25a0\r\nfoo",null]
@@ -642,7 +685,7 @@ const RECORDED: &str = r##"
 fn answers_screens_as_typescripts_adapters_do() {
     let mut failures = Vec::new();
     let rows: Vec<&str> = RECORDED.lines().filter(|line| !line.is_empty()).collect();
-    assert_eq!(rows.len(), 407);
+    assert_eq!(rows.len(), 413);
     for row in rows {
         let (kind, look, screen, expected): (FleetAgentKind, String, String, Value) =
             serde_json::from_str(row).unwrap();
