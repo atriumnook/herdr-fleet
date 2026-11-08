@@ -8,7 +8,7 @@ const NUMBERED = /^(\d{3})-[a-z0-9-]+\.md$/;
 
 /** The link targets of a markdown text, outside code: inline `[text](target)` and reference `[ref]: target`. */
 function linkTargets(markdown: string): string[] {
-  const prose = markdown.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, "").replace(/`[^`\n]*`/g, "");
+  const prose = markdown.replace(/^(```|~~~)[^\n]*\n[\s\S]*?^\1[^\n]*$/gm, "").replace(/(`+)[^\n]*?\1/g, "");
   const inline = [...prose.matchAll(/\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)/g)].map((m) => m[1]!);
   const reference = [...prose.matchAll(/^\s{0,3}\[[^\]]+\]:\s*<?(\S+?)>?(?:\s|$)/gm)].map((m) => m[1]!);
   return [...inline, ...reference];
@@ -55,7 +55,7 @@ describe("numbered docs", () => {
       writeFileSync(join(root, "docs", "000-philosophy.md"), [
         "Read [the domain](001-domain.md) next.",
         "See [the glossary](../GLOSSARY.md), [the web](https://example.com/002-x.md) and [below](#why).",
-        "In code, `[not a link](001-domain.md)` is text.",
+        "In code, `[not a link](001-domain.md)` is text, and so is `` `x` [not a link](001-domain.md) `` in a longer span.",
       ].join("\n"));
       writeFileSync(join(root, "docs", "001-domain.md"), [
         "Built on [000](000-philosophy.md#what-follows) and [the guide](guide.md).",
