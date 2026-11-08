@@ -74,3 +74,60 @@ jobs:
             echo "::error::screen and transcript allow clippy's disallowed lints only under tests/"
             exit 1
           fi
+
+  # ADR 0194-ts-corpus-job: the TypeScript implementation must still pass the
+  # screen and conversation corpora, so that a pull request that changes a case
+  # to fit the Rust answer, and not the TypeScript code with it, turns red.
+  ts-corpus:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        shell: bash
+    env:
+      BUN_VERSION: 1.4.4
+      # The line for bun-linux-x64.zip in SHASUMS256.txt of the bun-v1.4.4 release.
+      BUN_SHA256: bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # No action installs bun (ADR 0110-workspace-and-ci uses checkout alone):
+      # the release zip is checked against the pinned sha256 before it is opened.
+      # When the release download URL fails (it answered 504 for this asset on
+      # 2026-11-08), the same asset is taken through the REST API: the release
+      # of the tag names the asset's id. The sha256 check is the same whichever
+      # URL served the zip. Each attempt has a time limit and each fetch stops
+      # retrying after 150 s, so that the three fetches end (in 630 s at most)
+      # before the job's timeout. Every fetch writes to a file: curl rewinds a
+      # file before a retry, but not a pipe.
+      - name: Install bun
+        run: |
+          dir="$RUNNER_TEMP/bun"
+          mkdir -p "$dir"
+          fetch() {
+            curl --fail --silent --show-error --location --retry 3 --retry-max-time 150 \
+              --connect-timeout 15 --max-time 60 "$@"
+          }
+          if fetch --output "$dir/bun.zip" \
+              "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip"; then
+            echo "downloaded from the release download URL"
+          else
+            echo "::warning::the release download URL failed; taking the same asset through the REST API"
+            api="https://api.github.com/repos/oven-sh/bun/releases"
+            fetch --output "$dir/release.json" "$api/tags/bun-v$BUN_VERSION"
+            id=$(jq --exit-status '.assets[] | select(.name == "bun-linux-x64.zip") | .id' "$dir/release.json")
+            fetch --header 'Accept: application/octet-stream' --output "$dir/bun.zip" "$api/assets/$id"
+            echo "downloaded from $api/assets/$id"
+          fi
+          echo "$BUN_SHA256  $dir/bun.zip" | sha256sum --check --strict -
+          unzip -q "$dir/bun.zip" -d "$dir"
+          echo "$dir/bun-linux-x64" >> "$GITHUB_PATH"
+      - name: bun --version
+        run: test "$(bun --version)" = "$BUN_VERSION"
+      # Both test files run without node_modules, so there is no `bun install`.
+      # HERDR_TEST_MODE=unit keeps the preload (scripts/test-herdr.ts) from
+      # starting herdr, and HERDR_SOCKET points at a socket that does not exist.
+      - name: Screen and conversation corpora on the TypeScript implementation
+        run: HERDR_TEST_MODE=unit HERDR_SOCKET=/nonexistent/herdr.sock bun test server/screen-fixtures.test.ts server/conversation-fixtures.test.ts
