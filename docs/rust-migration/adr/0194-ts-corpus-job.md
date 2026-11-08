@@ -31,7 +31,7 @@ ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確�
   2. bun を入れる(下の「bun の入れ方」)
   3. `bun --version` が `1.4.4` を返すことを確かめる
   4. `HERDR_TEST_MODE=unit HERDR_SOCKET=/nonexistent/herdr.sock bun test server/screen-fixtures.test.ts server/conversation-fixtures.test.ts`
-- `bun install` はしない。2 つのテストは node_modules を使わず、依存を入れると、依存のライフサイクルスクリプトや npm の取得が CI に入る。`bun test` は、node_modules がなくても import できないパッケージを npm から取得しない(bun 1.4.4 で確かめた。「確かめたこと」)ので、`--no-install` は付けない
+- `bun install` はしない。2 つのテストは node_modules を使わない。依存を入れると、npm からの取得が job に加わり、その取得の失敗でも job が赤になる。`bun test` は、node_modules がなくても import できないパッケージを npm から取得しない(bun 1.4.4 で確かめた。「確かめたこと」)ので、`--no-install` は付けない
 - job の環境に置く `HERDR_*` は、テストのコマンドに付けた `HERDR_TEST_MODE=unit` と、存在しない socket を指す `HERDR_SOCKET` の 2 つだけで、どちらもそのコマンドにだけ渡す。job の `env` に置くのは `BUN_VERSION`、`BUN_SHA256`、`BUN_ASSET_ID` だけ
 - cache は置かない。bun の zip は 51,794,595 バイトで、2 つのテストは手元で 0.7 秒で終わる。cache が節約できるのは zip の取得だけで、cache の action を足すと第三者の action が増える
 - ruleset で `ts-corpus` を必須の check にはしない(決まりで設定を変えないため)。merge の前の関門は、決まりの関門 2 のとおり、エージェントが `gh pr checks <番号> --watch` で workflow のすべての job の結果を読むことで守る
@@ -39,12 +39,12 @@ ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確�
 ### bun の入れ方
 
 - 取得する: `https://github.com/oven-sh/bun/releases/download/bun-v1.4.4/bun-linux-x64.zip` を `curl --fail --location --retry 3` で `$RUNNER_TEMP/bun/bun.zip` に保存する。この URL が失敗したら、同じ asset を REST API の `https://api.github.com/repos/oven-sh/bun/releases/assets/665259752`(`Accept: application/octet-stream`)から取得する。665259752 は、`gh api repos/oven-sh/bun/releases/tags/bun-v1.4.4` が返す `bun-linux-x64.zip` の asset の id で、workflow の `BUN_ASSET_ID` に書く。どちらの URL から取っても、次の照合は同じ
-  - 2 つ目の URL を置く理由: 2026-11-08 の作業中、`releases/download` の URL は、手元からも runner からも、`bun-linux-x64.zip` に 10 分以上 HTTP 504 を返し続けた(runner の run は https://github.com/atriumnook/herdr-fleet/actions/runs/42464358524 と https://github.com/atriumnook/herdr-fleet/actions/runs/42465082588)。同じ時刻に、同じ release の `SHASUMS256.txt` と `bun-darwin-aarch64.zip` は 302 を返し、REST API の asset の URL は `bun-linux-x64.zip` を返した。GitHub Status は `All Systems Operational` だった。この取得の失敗は TypeScript の実装とも件とも関係がないので、job の赤にしない
+  - 2 つ目の URL を置く理由: 2026-11-08 の作業中、`releases/download` の URL は、手元からも runner からも、`bun-linux-x64.zip` に 10 分以上 HTTP 504 を返し続けた(runner の run は https://github.com/atriumnook/herdr-fleet/actions/runs/42464358524 と https://github.com/atriumnook/herdr-fleet/actions/runs/42465082588)。同じ時刻に、同じ release の `SHASUMS256.txt` と `bun-darwin-aarch64.zip` は 302 を返し、REST API の asset の URL は `bun-linux-x64.zip` を返した。GitHub Status は `All Systems Operational` だった。この取得の失敗は TypeScript の実装とも件とも関係がない。2 つ目の URL で取れれば、job はこの失敗で赤にならない
   - REST API の URL を 1 つ目にしない理由: 認証のない REST API の呼び出しは、IP ごとに 1 時間 60 回までに制限される。runner の IP はほかの利用者と共有されうるので、毎回の取得に使うと、制限で失敗しうる。認証に `GITHUB_TOKEN` を使えば制限は緩むが、この job は secrets を使わない
 - 照合する: release `bun-v1.4.4` の `SHASUMS256.txt` にある `bun-linux-x64.zip` の行の sha256(`bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c`)を workflow の `BUN_SHA256` に書き、`sha256sum --check --strict` で比べる。一致しなければ、zip を開く前に job が失敗する
 - 開く: `unzip` で `$RUNNER_TEMP/bun/bun-linux-x64/bun` に取り出し、そのフォルダーを `$GITHUB_PATH` に足す
 - 版は 1.4.4 にする。fleet が使う bun(`~/.local/share/mise/installs/bun/1.4.4`)と同じ版で、手元と CI で同じ版の TypeScript の実装の答えを比べるため
-- `bun-linux-x64.zip`(AVX2 を使う版)を使う。GitHub がホストする `ubuntu-24.04` の x64 の runner は AVX2 を持つ。`baseline`(AVX2 を使わない版)は、AVX2 のない CPU で動かすためのもので、要らない
+- `bun-linux-x64.zip`(AVX2 を使う版)を使う。GitHub がホストする `ubuntu-24.04` の x64 の runner で、この版がテストを通した(「確かめたこと」)。`baseline`(AVX2 を使わない版)は、AVX2 のない CPU で動かすためのもので、要らない
 - 版を上げるときは、`BUN_VERSION`、`BUN_SHA256`、`BUN_ASSET_ID` を同じ PR で変え、新しい sha256 を、その release の `SHASUMS256.txt` から取る。この ADR を置き換える ADR を書く
 
 ### 件と TypeScript の実装の両方が誤っていたとき
@@ -89,3 +89,7 @@ ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確�
   - workflow の値のまま: `downloaded from https://api.github.com/repos/oven-sh/bun/releases/assets/665259752`、`bun.zip: 完了`、終了コード 0 で、`$GITHUB_PATH` に `…/bun/bun-linux-x64` が書かれた
   - `BUN_SHA256` を 0 が 64 個の値にする: `sha256sum: 警告: 1 個の計算したチェックサムが一致しませんでした` で終了コード 1。zip は開かれず、`$GITHUB_PATH` に何も書かれなかった
   - `BUN_VERSION` を存在しない版に、`BUN_ASSET_ID` を 1 にする(両方の URL が失敗する): `::error::bun-linux-x64.zip could not be downloaded from either URL` で終了コード 1
+- PR の run で確かめた(PR の途中の commit。わざと変えた期待値は、次の commit で戻した)
+  - 緑: https://github.com/atriumnook/herdr-fleet/actions/runs/42465384924 。1 つ目の URL が 504 で、`downloaded from https://api.github.com/repos/oven-sh/bun/releases/assets/665259752`、`/home/runner/work/_temp/bun/bun.zip: OK`、`582 pass`。job は 21 秒で終わった
+  - 赤: https://github.com/atriumnook/herdr-fleet/actions/runs/42465449664 。上と同じ件の `title` を `"Command approval (broken on purpose)"` に変えた commit で、`(fail) screen corpus > claude/a-command-line-that-reads-tip-is-part-of-a-scrolled-approval-1`、`581 pass`、`1 fail`、`Process completed with exit code 1.`
+  - 戻したあとの緑: https://github.com/atriumnook/herdr-fleet/actions/runs/42465520043 。`ts-corpus` と `linux` がどちらも success
