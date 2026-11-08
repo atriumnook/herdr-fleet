@@ -15,7 +15,7 @@ use crate::card::{self, CardFields, option};
 use crate::text::{
     NUMBERED_OPTION, NumberedRow, clean_line, clean_lines, ends, find_last_index, is_divider,
     js_regex, menu_rows, nearest_question, normalize_text, parse_numbered_rows, screen_lines,
-    sequential_rows, visible_lines, wrapped,
+    sequential_rows, wrapped,
 };
 
 pub(crate) use queue::{queued_prompt, queued_question_count};
@@ -73,8 +73,9 @@ static NONE_OF_THE_ABOVE: LazyLock<Regex> =
 static OTHER: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)^Other(?-u:\b)").unwrap());
 /// A question's label and its description, two spaces or more apart.
 static TWO_SPACES: LazyLock<Regex> = LazyLock::new(|| js_regex("{s}{2,}"));
-/// "Question 2/3" over one of several questions.
-static PROGRESS: LazyLock<Regex> =
+/// "Question 2/3" over one of several questions, whose numbers make the title. Case-sensitive, as
+/// server/prompt.ts:289 is; the progress line `nearest_question` skips is matched in any case.
+static QUESTION_PROGRESS: LazyLock<Regex> =
     LazyLock::new(|| Regex::new("^Question ([0-9]+)/([0-9]+)").unwrap());
 /// "Trust this folder? Codex can read, …": the question, then what it explains.
 static QUESTION_AND_MORE: LazyLock<Regex> = LazyLock::new(|| js_regex(r"^({.}*?\?){s}+({.}+)$"));
@@ -187,7 +188,7 @@ fn parse_question(screen: &str) -> Option<ParsedPrompt> {
     let progress = lines[first.saturating_sub(6)..first]
         .iter()
         .find_map(|line| {
-            PROGRESS
+            QUESTION_PROGRESS
                 .captures(&clean_line(line))
                 .map(|found| (found[1].to_owned(), found[2].to_owned()))
         });
@@ -398,7 +399,10 @@ fn parse_approval(screen: &str) -> Option<ParsedPrompt> {
 /// blank lines included.
 pub(crate) fn tail_is_active(responder: Responder, screen: &str) -> bool {
     let cleaned = clean_lines(screen);
-    let shown = visible_lines(screen);
+    let shown: Vec<&String> = cleaned
+        .iter()
+        .filter(|line| !line.is_empty() && !is_divider(line))
+        .collect();
     match responder {
         Responder::Menu => ends(&shown, &CONTINUE_HINT),
         Responder::Question => ends(&shown, &ASK_HINT),
