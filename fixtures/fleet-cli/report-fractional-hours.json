@@ -1,0 +1,30 @@
+{
+  "about": "report sends a fractional --hours as given, neither rounded nor refused",
+  "argv": [
+    "report",
+    "--hours",
+    "0.5"
+  ],
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "report": "# Factory metrics"
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/report?cwd=$CWD&hours=0.5",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "# Factory metrics\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

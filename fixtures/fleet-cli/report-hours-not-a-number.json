@@ -1,0 +1,14 @@
+{
+  "about": "report refuses --hours that is not a number as a usage error, before it sends anything",
+  "argv": [
+    "report",
+    "--hours",
+    "later"
+  ],
+  "expected": {
+    "requests": [],
+    "stdout": "",
+    "stderr": "fleet: --hours must be a positive number\n",
+    "exitCode": 2
+  }
+}
