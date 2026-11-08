@@ -42,14 +42,18 @@ afterAll(async () => {
 
 const wsUrl = (target: LaunchedServer) => `${target.url.replace(/^http/, "ws")}/ws`;
 
-/** a server of the test's own, stopped when `use` is done */
+/** a server of the test's own, stopped when `use` is done; a failing `use` is reported before a failing stop */
 async function withServer<T>(spec: LaunchSpec, use: (launched: LaunchedServer) => Promise<T>): Promise<T> {
   const launched = await launchServer(spec);
+  let result: T;
   try {
-    return await use(launched);
-  } finally {
-    await launched.stop();
+    result = await use(launched);
+  } catch (error) {
+    await launched.stop().catch(() => {});
+    throw error;
   }
+  await launched.stop();
+  return result;
 }
 
 async function until(check: () => boolean, label: string, timeout = 10_000): Promise<void> {

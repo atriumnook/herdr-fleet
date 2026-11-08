@@ -40,18 +40,22 @@ afterAll(async () => {
 
 /**
  * A server on the scripted herdr at `herdrPath`, with a short read-race budget, so a wait for the
- * other bridge outlasts it; stopped when `use` is done.
+ * other bridge outlasts it; stopped when `use` is done. A failing `use` is reported before a failing stop.
  */
 async function withThird<T>(herdrPath: string, use: (third: LaunchedServer) => Promise<T>): Promise<T> {
   const third = await launchServer({
     env: { HERDR_FLEET_TOKEN: "", HERDR_FLEET_HERDR_BIN: herdrPath },
     test: { attachHeldRetryMs: 200, attachRetryForMs: 300 },
   });
+  let result: T;
   try {
-    return await use(third);
-  } finally {
-    await third.stop();
+    result = await use(third);
+  } catch (error) {
+    await third.stop().catch(() => {});
+    throw error;
   }
+  await third.stop();
+  return result;
 }
 
 async function until(check: () => boolean, label: string, timeout = 15_000): Promise<void> {

@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, it } from "bun:test";
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,26 +15,30 @@ import type { ClientMessage, ServerMessage } from "../shared/protocol.ts";
 
 /**
  * createServer on the first port in 7400-7499 it can bind. Another test process can take a port
- * between the check and the bind, so a port in use is skipped as the launcher does.
+ * between the check and the bind, so a port in use is skipped as the launcher does. Bun names
+ * the port in use in the error's code; its message only asks "Is port N in use?".
  */
 function serveInTestPorts(options: Omit<NonNullable<Parameters<typeof createServer>[0]>, "port">): ReturnType<typeof createServer> {
   for (const port of candidatePorts()) {
     try {
       return createServer({ ...options, port });
     } catch (error) {
-      if (!/EADDRINUSE/.test(String(error))) throw error;
+      if ((error as { code?: unknown }).code !== "EADDRINUSE") throw error;
     }
   }
   throw new Error("no free port in 7400-7499");
 }
 
 const root = mkdtempSync(join(tmpdir(), "herdr-output-herdr-"));
-const server = serveInTestPorts({ hostname: "127.0.0.1", token: "", stateDir: root });
+let server: ReturnType<typeof createServer>;
 const workspaces: string[] = [];
 const sockets: WebSocket[] = [];
+beforeAll(() => {
+  server = serveInTestPorts({ hostname: "127.0.0.1", token: "", stateDir: root });
+});
 afterAll(async () => {
   for (const socket of sockets) socket.close();
-  server.stop();
+  server?.stop();
   for (const workspace of workspaces) await herdrRpc("workspace.close", { workspace_id: workspace });
   rmSync(root, { recursive: true, force: true });
 });
