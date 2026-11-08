@@ -1,0 +1,585 @@
+//! A `Transcripts` that keeps reading answers as a new one does (#205, ADR 0192-phase-2-split:
+//! "1 つの `Transcripts` で読み続けた答えが、毎回新しい `Transcripts` で読んだ答えと同じ").
+//!
+//! Two checks, both against the conversation corpus of the file sources (claude, codex, pi, omp):
+//! - every step of every case runs against one `Transcripts`, as the corpus runner does, and each
+//!   call is asked again of a new `Transcripts` made for that call alone;
+//! - every transcript file of the corpus grows a piece at a time (cut mid-line too), and the
+//!   newest page and the page before it are read after each piece, of the one value and of a new
+//!   one.
+//!
+//! What is compared: the turns, the metadata, the abandoned turns, and the byte position of the
+//! cursor. Not `history_id` and `version`: a rewrite's generation is found only by a value that
+//! remembers the read before it, and `version` names the process too.
+//!
+//! A cursor is the stream's id and a byte position: the new value's id lacks the generation of a
+//! rewrite the old one saw. So a cursor of the stream the warm read answered from is passed to the
+//! cold read with the id that a new value gives that stream; a cursor the warm read refused is
+//! passed as it is, and the cold read must refuse it too. A warm read that wrongly refuses a
+//! cursor is found by the corpus tests, which compare the warm reads with the expected values.
+
+// The runner writes the case's files: it copies a case into a temporary folder and runs the steps
+// that change a file (append, replace, rewrite, remove), as the corpus runner of `common` does.
+// clippy.toml forbids writing files in this crate; ADR 0122-parity-criteria ("段階 2 への注意")
+// allows it in a runner's module with the reason, ADR 0107-crate-split allows temporary files in
+// tests, and ADR 0205-incremental-reads records this runner.
+#![allow(clippy::disallowed_methods, clippy::disallowed_types)]
+
+mod common;
+
+use std::collections::HashMap;
+use std::collections::hash_map::RandomState;
+use std::fs::{self, File, FileTimes, OpenOptions};
+use std::hash::{BuildHasher, Hasher};
+use std::io::Write as _;
+use std::path::{Component, Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, SystemTime};
+
+use herdr_fleet_transcript::{
+    CodexRollout, ConversationError, FileSource, PageRequest, PiContextWindow, Transcripts,
+};
+use serde_json::{Map, Value, json};
+
+const FILE_SOURCES: [&str; 4] = ["claude", "codex", "pi", "omp"];
+
+/// A file larger than this grows in the corpus steps alone: each piece is read cold whole.
+const GROWN_FILE_MAX: u64 = 1024 * 1024;
+
+#[test]
+fn reading_on_answers_as_a_new_value_does_at_every_step_of_the_corpus() {
+    let mut failures = Vec::new();
+    let mut calls = 0;
+    for case in common::load_cases() {
+        if !FILE_SOURCES.contains(&case.source.as_str()) {
+            continue;
+        }
+        match run_case(&case) {
+            Ok((count, mut found)) => {
+                calls += count;
+                failures.append(&mut found);
+            }
+            Err(error) => failures.push(error),
+        }
+    }
+    assert!(calls > 0, "the corpus has no call of a file source");
+    assert!(
+        failures.is_empty(),
+        "{} step(s) answered otherwise warm than cold:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+#[test]
+fn reading_on_answers_as_a_new_value_does_while_a_transcript_grows() {
+    let mut failures = Vec::new();
+    let mut grown = 0;
+    for case in common::load_cases() {
+        if !FILE_SOURCES.contains(&case.source.as_str()) {
+            continue;
+        }
+        for file in transcript_files(&case.dir) {
+            let size = fs::metadata(&file).map_or(0, |meta| meta.len());
+            if size == 0 || size > GROWN_FILE_MAX {
+                continue;
+            }
+            let name = format!(
+                "{} {}",
+                case.name,
+                file.strip_prefix(&case.dir).unwrap_or(&file).display()
+            );
+            match grow(&case, &file, &name) {
+                Ok(mut found) => failures.append(&mut found),
+                Err(error) => failures.push(error),
+            }
+            grown += 1;
+        }
+    }
+    assert!(grown > 0, "the corpus has no transcript file");
+    assert!(
+        failures.is_empty(),
+        "{} read(s) answered otherwise warm than cold:\n{}",
+        failures.len(),
+        failures.join("\n")
+    );
+}
+
+/// The `.jsonl` files of a case folder, at any depth.
+fn transcript_files(dir: &Path) -> Vec<PathBuf> {
+    let mut found = Vec::new();
+    let mut folders = vec![dir.to_path_buf()];
+    while let Some(folder) = folders.pop() {
+        let Ok(entries) = fs::read_dir(&folder) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                folders.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "jsonl") {
+                found.push(path);
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// Grows a copy of `file` a piece at a time: after each piece, the newest page and the page
+/// before it, warm and cold.
+fn grow(case: &common::Case, file: &Path, name: &str) -> Result<Vec<String>, String> {
+    let bytes = fs::read(file).map_err(|error| format!("{name}: {error}"))?;
+    let root = temporary_root();
+    let _cleanup = Cleanup(root.clone());
+    let folder = root.join("case");
+    fs::create_dir_all(folder.join("codex-home")).map_err(|error| format!("{name}: {error}"))?;
+    let path = folder.join("grown.jsonl");
+    let target = file_source(&case.source, path.clone(), &folder);
+    let windows = pi_context_windows(&case.spec);
+    let warm = Transcripts::new(windows.clone().context_window());
+    let mut failures = Vec::new();
+    let mut written = 0;
+    for (at, end) in cuts(&bytes).into_iter().enumerate() {
+        OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut out| out.write_all(&bytes[written..end]))
+            .map_err(|error| format!("{name}: {error}"))?;
+        written = end;
+        let place = format!("{name} after {end} of {} bytes (piece {at})", bytes.len());
+        let newest = PageRequest::default();
+        let warm_newest = warm.page(&target, &newest);
+        let cold_newest = Transcripts::new(windows.clone().context_window()).page(&target, &newest);
+        compare(
+            &format!("{place}, the newest page"),
+            &page_value(&warm_newest),
+            &page_value(&cold_newest),
+            &mut failures,
+        );
+        let Ok(page) = &warm_newest else { continue };
+        let Some(cursor) = page.cursor.clone() else {
+            continue;
+        };
+        let warm_before = warm.page(
+            &target,
+            &PageRequest {
+                before: Some(cursor.clone()),
+                ..PageRequest::default()
+            },
+        );
+        let cold_id = cold_newest
+            .as_ref()
+            .ok()
+            .map(|page| page.history_id.as_str());
+        let cold_before = Transcripts::new(windows.clone().context_window()).page(
+            &target,
+            &PageRequest {
+                before: Some(cold_cursor(&cursor, Some(&page.history_id), cold_id)),
+                ..PageRequest::default()
+            },
+        );
+        compare(
+            &format!("{place}, the page before the newest"),
+            &page_value(&warm_before),
+            &page_value(&cold_before),
+            &mut failures,
+        );
+    }
+    Ok(failures)
+}
+
+/// Where a file grows to, piece by piece: cuts of uneven sizes, mid-line and at line ends, the
+/// last one its whole length.
+fn cuts(bytes: &[u8]) -> Vec<usize> {
+    const PIECES: usize = 12;
+    let mut cuts = Vec::new();
+    for piece in 1..PIECES {
+        let at = bytes.len() * piece / PIECES;
+        // every other cut moves to the end of its line, the others stay mid-line
+        let at = if piece % 2 == 0 {
+            bytes[at..]
+                .iter()
+                .position(|byte| *byte == b'\n')
+                .map_or(bytes.len(), |newline| at + newline + 1)
+        } else {
+            at
+        };
+        if cuts.last().is_none_or(|last| at > *last) && at < bytes.len() {
+            cuts.push(at);
+        }
+    }
+    cuts.push(bytes.len());
+    cuts
+}
+
+/// The cursor `cursor` as the cold read is given it: of the stream the warm read answered from
+/// (`warm_id`), with the id a new value gives that stream (`cold_id`); any other as it is.
+fn cold_cursor(cursor: &str, warm_id: Option<&str>, cold_id: Option<&str>) -> String {
+    match (cursor.rsplit_once(':'), warm_id, cold_id) {
+        (Some((id, offset)), Some(warm), Some(cold)) if id == warm => format!("{cold}:{offset}"),
+        _ => cursor.to_owned(),
+    }
+}
+
+/// What a read answered, as compared: a page without `history_id` and `version`, its cursor as
+/// the byte position alone; a failure as the error it is.
+fn page_value(result: &Result<herdr_fleet_transcript::Page, ConversationError>) -> Value {
+    match result {
+        Ok(page) => {
+            let mut value = serde_json::to_value(page).expect("a page as JSON");
+            if let Value::Object(fields) = &mut value {
+                fields.remove("history_id");
+                fields.remove("version");
+                let position = page
+                    .cursor
+                    .as_deref()
+                    .and_then(|cursor| cursor.rsplit_once(':'))
+                    .map(|(_, offset)| offset.to_owned());
+                fields.insert("cursor".to_owned(), json!(position));
+            }
+            value
+        }
+        Err(error) => json!({ "error": format!("{error:?}") }),
+    }
+}
+
+fn compare(place: &str, warm: &Value, cold: &Value, failures: &mut Vec<String>) {
+    if warm != cold {
+        failures.push(format!("{place}:\n  warm: {warm}\n  cold: {cold}"));
+    }
+}
+
+/// pi's model catalog as the case states it (`<provider>/<model>` keys), never the machine's.
+#[derive(Clone)]
+struct Windows(HashMap<String, HashMap<String, f64>>);
+
+impl Windows {
+    fn context_window(self) -> PiContextWindow {
+        Box::new(move |model, provider| self.0.get(provider?)?.get(model).copied())
+    }
+}
+
+fn pi_context_windows(spec: &Map<String, Value>) -> Windows {
+    let mut providers: HashMap<String, HashMap<String, f64>> = HashMap::new();
+    for (key, tokens) in spec
+        .get("piContextWindows")
+        .and_then(Value::as_object)
+        .into_iter()
+        .flatten()
+    {
+        if let (Some((provider, model)), Some(tokens)) = (key.split_once('/'), tokens.as_f64()) {
+            providers
+                .entry(provider.to_owned())
+                .or_default()
+                .insert(model.to_owned(), tokens);
+        }
+    }
+    Windows(providers)
+}
+
+fn file_source(source: &str, path: PathBuf, folder: &Path) -> FileSource {
+    match source {
+        "claude" => FileSource::Claude(path),
+        "codex" => FileSource::Codex(CodexRollout {
+            path,
+            home: folder.join("codex-home"),
+            cwd: folder.to_path_buf(),
+        }),
+        "pi" => FileSource::Pi(path),
+        _ => FileSource::Omp(path),
+    }
+}
+
+/// The values a case names (`$name`), as the warm reads gave them: a cursor a step passes is the
+/// warm read's.
+#[derive(Default)]
+struct Names(HashMap<String, String>);
+
+fn is_name(text: &str) -> bool {
+    let mut chars = text.chars();
+    chars.next() == Some('$')
+        && chars
+            .next()
+            .is_some_and(|first| first.is_ascii_alphabetic() || first == '_')
+        && chars.all(|rest| rest.is_ascii_alphanumeric() || rest == '_')
+}
+
+/// Runs a case's steps in a new temporary folder: each call against the case's one `Transcripts`
+/// and against a new one. Returns the number of calls and the calls that answered otherwise.
+fn run_case(case: &common::Case) -> Result<(usize, Vec<String>), String> {
+    let root = temporary_root();
+    let _cleanup = Cleanup(root.clone());
+    let folder = root.join("case");
+    copy_case(&case.dir, &folder, true)?;
+    let windows = pi_context_windows(&case.spec);
+    let warm = Transcripts::new(windows.clone().context_window());
+    let mut names = Names::default();
+    let mut failures = Vec::new();
+    let mut calls = 0;
+    let steps = case
+        .spec
+        .get("steps")
+        .and_then(Value::as_array)
+        .map_or(&[][..], Vec::as_slice);
+    for (index, step) in steps.iter().enumerate() {
+        let place = format!("{} step {index}", case.name);
+        let step = step.as_object().expect("a validated step");
+        if step.contains_key("call") {
+            calls += 1;
+            let (warm_value, cold_value) =
+                call(step, &folder, &warm, &windows, &mut names, &place)?;
+            compare(&place, &warm_value, &cold_value, &mut failures);
+        } else if step.contains_key("at") || step.contains_key("api") {
+            // OpenCode's steps: no file source reads them
+        } else {
+            change(case, &folder, step, index, &place)?;
+        }
+    }
+    Ok((calls, failures))
+}
+
+/// A call step, warm and then cold: what each answered, as compared.
+fn call(
+    step: &Map<String, Value>,
+    folder: &Path,
+    warm: &Transcripts,
+    windows: &Windows,
+    names: &mut Names,
+    place: &str,
+) -> Result<(Value, Value), String> {
+    let field = |name: &str| {
+        step.get(name)
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .to_owned()
+    };
+    let cold = || Transcripts::new(windows.clone().context_window());
+    let path = inside(folder, &field("path"), place)?;
+    let rollout = CodexRollout {
+        path: path.clone(),
+        home: folder.join("codex-home"),
+        cwd: match step.get("cwd").and_then(Value::as_str) {
+            Some(cwd) => inside(folder, cwd, place)?,
+            None => folder.to_path_buf(),
+        },
+    };
+    let file = match field("source").as_str() {
+        "codex" => FileSource::Codex(rollout.clone()),
+        source => file_source(source, path, folder),
+    };
+    match field("call").as_str() {
+        "page" => {
+            let mut request = Vec::new();
+            for (key, cursor) in step
+                .get("page")
+                .and_then(Value::as_object)
+                .into_iter()
+                .flatten()
+            {
+                let cursor = cursor.as_str().unwrap_or_default();
+                let cursor = if is_name(cursor) {
+                    names.0.get(cursor).cloned().ok_or_else(|| {
+                        format!("{place} page.{key}: {cursor} is passed before a step names it")
+                    })?
+                } else {
+                    cursor.to_owned()
+                };
+                request.push((key.clone(), cursor));
+            }
+            let warm_answer = warm.page(&file, &page_request(&request));
+            // a new value's id of the stream the warm read answered from
+            let (warm_id, cold_id) = match &warm_answer {
+                Ok(page) => (
+                    Some(page.history_id.clone()),
+                    cold()
+                        .page(&file, &PageRequest::default())
+                        .ok()
+                        .map(|page| page.history_id),
+                ),
+                Err(_) => (None, None),
+            };
+            let cold_request: Vec<(String, String)> = request
+                .iter()
+                .map(|(key, cursor)| {
+                    (
+                        key.clone(),
+                        cold_cursor(cursor, warm_id.as_deref(), cold_id.as_deref()),
+                    )
+                })
+                .collect();
+            let cold_answer = cold().page(&file, &page_request(&cold_request));
+            if let (Ok(page), Some(expected)) = (
+                &warm_answer,
+                step.get("expected").and_then(Value::as_object),
+            ) {
+                for (field, value) in [
+                    ("cursor", page.cursor.clone()),
+                    ("history_id", Some(page.history_id.clone())),
+                ] {
+                    if let (Some(Value::String(name)), Some(value)) = (expected.get(field), value)
+                        && is_name(name)
+                    {
+                        names.0.entry(name.clone()).or_insert(value);
+                    }
+                }
+            }
+            Ok((page_value(&warm_answer), page_value(&cold_answer)))
+        }
+        "toolOutput" => Ok((
+            json!(warm.tool_output(&file, &field("ref"))),
+            json!(cold().tool_output(&file, &field("ref"))),
+        )),
+        "image" => {
+            let image = |found: Option<herdr_fleet_transcript::Image>| {
+                found.map_or(
+                    Value::Null,
+                    |image| json!({ "mediaType": image.media_type, "bytes": image.bytes }),
+                )
+            };
+            Ok((
+                image(warm.image(&file, &field("ref"))),
+                image(cold().image(&file, &field("ref"))),
+            ))
+        }
+        _ => Ok((
+            serde_json::to_value(warm.unanswered_questions(&rollout)).expect("questions as JSON"),
+            serde_json::to_value(cold().unanswered_questions(&rollout)).expect("questions as JSON"),
+        )),
+    }
+}
+
+fn page_request(fields: &[(String, String)]) -> PageRequest {
+    let mut request = PageRequest::default();
+    for (key, cursor) in fields {
+        match key.as_str() {
+            "before" => request.before = Some(cursor.clone()),
+            "since" => request.since = Some(cursor.clone()),
+            _ => request.from = Some(cursor.clone()),
+        }
+    }
+    request
+}
+
+/// Runs a step that changes a file of the case, as the corpus runner does (`Run::change` of
+/// `common`).
+fn change(
+    case: &common::Case,
+    folder: &Path,
+    step: &Map<String, Value>,
+    index: usize,
+    place: &str,
+) -> Result<(), String> {
+    let fail = |error: std::io::Error| format!("{place}: {error}");
+    if let Some(path) = step.get("remove").and_then(Value::as_str) {
+        return fs::remove_file(inside(folder, path, place)?).map_err(fail);
+    }
+    let kind = ["append", "replace", "rewrite"]
+        .into_iter()
+        .find(|kind| step.contains_key(*kind))
+        .ok_or_else(|| format!("{place}: not a step this runner knows"))?;
+    let target = inside(folder, step[kind].as_str().unwrap_or_default(), place)?;
+    let bytes = match step.get("from").and_then(Value::as_str) {
+        Some(from) => fs::read(inside(&case.dir, from, place)?).map_err(fail)?,
+        None => step
+            .get("text")
+            .and_then(Value::as_str)
+            .unwrap_or_default()
+            .as_bytes()
+            .to_vec(),
+    };
+    match kind {
+        "append" => OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&target)
+            .and_then(|mut file| file.write_all(&bytes))
+            .map_err(fail),
+        "replace" => {
+            let next = target
+                .parent()
+                .unwrap_or(folder)
+                .join(format!(".replace-{index}"));
+            fs::write(&next, &bytes)
+                .and_then(|()| fs::rename(&next, &target))
+                .map_err(fail)
+        }
+        _ => {
+            // a rewrite is found by size, mtime and ctime, and two writes can share one mtime tick
+            let before = fs::metadata(&target)
+                .and_then(|meta| meta.modified())
+                .map_err(fail)?;
+            fs::write(&target, &bytes).map_err(fail)?;
+            let at = before.max(SystemTime::now()) + Duration::from_secs(1);
+            File::options()
+                .write(true)
+                .open(&target)
+                .and_then(|file| file.set_times(FileTimes::new().set_accessed(at).set_modified(at)))
+                .map_err(fail)
+        }
+    }
+}
+
+/// A path of the case, inside its folder; an error when it leads outside.
+fn inside(folder: &Path, path: &str, place: &str) -> Result<PathBuf, String> {
+    let mut full = PathBuf::new();
+    for component in folder.join(path).components() {
+        match component {
+            Component::ParentDir => {
+                full.pop();
+            }
+            Component::CurDir => {}
+            other => full.push(other),
+        }
+    }
+    if full != folder && !full.starts_with(folder) {
+        return Err(format!("{place}: \"{path}\" is outside the case folder"));
+    }
+    Ok(full)
+}
+
+/// A new folder no other run uses, under the system's temporary folder.
+fn temporary_root() -> PathBuf {
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    loop {
+        let mut hasher = RandomState::new().build_hasher();
+        hasher.write_u64(COUNTER.fetch_add(1, Ordering::Relaxed));
+        let root = std::env::temp_dir().join(format!("herdr-warm-{:016x}", hasher.finish()));
+        match fs::create_dir(&root) {
+            Ok(()) => return root,
+            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(error) => panic!("{}: {error}", root.display()),
+        }
+    }
+}
+
+/// Removes a temporary folder however its run ends.
+struct Cleanup(PathBuf);
+
+impl Drop for Cleanup {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+/// Copies a folder's files, but case.json at its top, byte for byte.
+fn copy_case(from: &Path, to: &Path, top: bool) -> Result<(), String> {
+    fs::create_dir_all(to).map_err(|error| format!("{}: {error}", to.display()))?;
+    let entries = fs::read_dir(from).map_err(|error| format!("{}: {error}", from.display()))?;
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("{}: {error}", from.display()))?;
+        let name = entry.file_name();
+        if top && name == "case.json" {
+            continue;
+        }
+        let path = entry.path();
+        if path.is_dir() {
+            copy_case(&path, &to.join(&name), false)?;
+        } else {
+            fs::copy(&path, to.join(&name))
+                .map_err(|error| format!("{}: {error}", path.display()))?;
+        }
+    }
+    Ok(())
+}
