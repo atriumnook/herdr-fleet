@@ -88,6 +88,8 @@ jobs:
       BUN_VERSION: 1.4.4
       # The line for bun-linux-x64.zip in SHASUMS256.txt of the bun-v1.4.4 release.
       BUN_SHA256: bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c
+      # The id of the same asset in the REST API (releases/tags/bun-v1.4.4).
+      BUN_ASSET_ID: 665259752
     steps:
       # actions/checkout v7.0.1
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
@@ -95,12 +97,27 @@ jobs:
           persist-credentials: false
       # No action installs bun (ADR 0110-workspace-and-ci uses checkout alone):
       # the release zip is checked against the pinned sha256 before it is opened.
+      # When the release download URL fails (it answered 504 for this asset on
+      # 2026-11-08), the same asset is taken through the REST API; the sha256
+      # check is the same whichever URL served it.
       - name: Install bun
         run: |
           dir="$RUNNER_TEMP/bun"
           mkdir -p "$dir"
-          curl --fail --silent --show-error --location --retry 3 --output "$dir/bun.zip" \
-            "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip"
+          for url in \
+              "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip" \
+              "https://api.github.com/repos/oven-sh/bun/releases/assets/$BUN_ASSET_ID"; do
+            if curl --fail --silent --show-error --location --retry 3 \
+                --header 'Accept: application/octet-stream' --output "$dir/bun.zip" "$url"; then
+              echo "downloaded from $url"
+              break
+            fi
+            rm -f "$dir/bun.zip"
+          done
+          if [ ! -f "$dir/bun.zip" ]; then
+            echo "::error::bun-linux-x64.zip could not be downloaded from either URL"
+            exit 1
+          fi
           echo "$BUN_SHA256  $dir/bun.zip" | sha256sum --check --strict -
           unzip -q "$dir/bun.zip" -d "$dir"
           echo "$dir/bun-linux-x64" >> "$GITHUB_PATH"
