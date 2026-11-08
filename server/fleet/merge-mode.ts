@@ -16,14 +16,16 @@ const MAX_PROTECTED = 50;
 const MAX_PATTERN_CHARS = 200;
 
 /**
- * What a gated merge never touches, whatever the person lists: the gate itself (its conditions, the
- * reads they rest on, access control, the coordinator's merge rules and its OpenCode guard), the
- * project's own fleet files (its roles and standing orders tell the agents how to merge), and its
- * CI, which a change could rewrite to pass its own checks.
+ * What a gated merge never touches, whatever the person lists: the gate itself and what enforces it
+ * (its conditions, the reads they rest on, the orchestrator that evaluates them and hands the merge
+ * on, where the setting is read and written, access control, the merge rules of the coordinator and
+ * the lead, and the OpenCode guard and rules), the project's own fleet files (its roles and standing
+ * orders tell the agents how to merge), and its CI, which a change could rewrite to pass its own checks.
  */
 export const ALWAYS_PROTECTED: readonly string[] = [
-  ".herdr-fleet/**", ".github/**",
-  "server/fleet/merge-mode.ts", "server/fleet/github.ts", "server/access.ts", "agents/coordinator.md", "opencode/fleet-guard/**",
+  ".herdr-fleet/", ".github/",
+  "server/fleet/merge-mode.ts", "server/fleet/github.ts", "server/fleet/orchestrator.ts", "server/fleet/config.ts", "server/fleet/settings.ts",
+  "server/fleet/opencode-config.ts", "server/access.ts", "agents/coordinator.md", "agents/lead.md", "opencode/",
 ];
 
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -74,26 +76,33 @@ export interface GateFacts {
   /** the state of the lead's latest report */
   report?: ReportState;
   contract: ContractItem[];
-  /** the CLIs that wrote the change: every lead run of the thread and every helper that edits */
+  /** the CLIs that wrote the change: every run of the thread that could edit files */
   writers: FleetAgentKind[];
-  /** the thread's reviewer runs: their CLI, the state of their latest report, and when that turn ended */
-  reviews: Array<{ agent: FleetAgentKind; report?: ReportState; at: number }>;
-  /** the branch's latest commit here, and when it was made (epoch ms); null when git could not say */
+  /** the thread's reviews by runs that could not edit: their CLI, the state of their latest report, and the commit the branch was at when it ended */
+  reviews: Array<{ agent: FleetAgentKind; report?: ReportState; head?: string }>;
+  /** the branch's latest commit here; null when git could not say */
   head: string | null;
-  headAt: number | null;
-  /** the pull request as GitHub has it, with the commit its branch is at there */
-  pr?: Pick<PullRequest, "state" | "checks"> & { head?: string };
-  /** lines added and removed since the base branch, and the files they are in; null when git could not say */
+  /** the base branch the thread lands on, under the gate */
+  base: string;
+  /** the pull request as GitHub has it: the commit its branch is at, the branch it targets, and whether its checks were read */
+  pr?: Pick<PullRequest, "state" | "checks"> & { head?: string; base?: string; checksRead?: boolean };
+  /**
+   * what the pull request delivers, as GitHub compares its commit with the base branch there: lines
+   * added and removed, the files they are in, and the commits the base has that it does not; null
+   * when GitHub could not say
+   */
   lines: number | null;
   files: string[] | null;
-  /** commits the base branch has that the branch does not; null when GitHub could not say */
   behind: number | null;
 }
 
-/** A pattern as the person writes it: a folder ending in `/` stands for everything below it. */
+/**
+ * A pattern as the person writes it: a folder ending in `/` stands for itself and everything below
+ * it, as does one ending in `/**` (a symlink in the folder's place is a change to the folder).
+ */
 function matches(pattern: string, file: string): boolean {
-  const glob = pattern.endsWith("/") ? `${pattern}**` : pattern;
-  return new Bun.Glob(glob.replace(/^\.\//, "")).match(file);
+  const glob = pattern.replace(/^\.\//, "").replace(/\/$/, "/**");
+  return (glob.endsWith("/**") && file === glob.slice(0, -3)) || new Bun.Glob(glob).match(file);
 }
 
 /** Every condition of the gate, each with what was found; the merge goes ahead only when all hold. */
@@ -101,24 +110,24 @@ export function evaluateGate(authority: Extract<MergeAuthority, { mode: "gated" 
   const contractMet = facts.contract.length > 0 && facts.contract.every((item) => item.state === "met");
   const writers = new Set(facts.writers);
   const passed = facts.reviews.filter((review) => !writers.has(review.agent) && review.report === "ready");
-  const fresh = facts.headAt === null ? [] : passed.filter((review) => review.at > facts.headAt!);
+  const fresh = facts.head === null ? [] : passed.filter((review) => review.head === facts.head);
   const touched = facts.files?.filter((file) => [...ALWAYS_PROTECTED, ...authority.protected].some((pattern) => matches(pattern, file))) ?? [];
   const checks: GateCheck[] = [
     { id: "report", ok: facts.report === "ready", detail: facts.report === "ready" ? "The lead's latest report is ready." : `The lead's latest report is ${facts.report ?? "missing"}, not ready.` },
     {
       id: "review", ok: fresh.length > 0,
-      detail: fresh.length ? `A review on ${fresh[0]!.agent} passed after the latest commit.`
-        : passed.length ? `The review on ${passed.map((each) => each.agent).join(", ")} ended before the latest commit.`
+      detail: fresh.length ? `A review on ${fresh[0]!.agent} passed at the branch's latest commit.`
+        : passed.length ? `The review on ${passed.map((each) => each.agent).join(", ")} was of another commit than the branch's latest.`
           : `No review on a CLI other than ${[...writers].join(", ") || "the writer's"} passed.`,
     },
-    checksCondition(facts.pr, facts.head, facts.report === "ready" && contractMet),
+    checksCondition(facts.pr, facts.head, facts.base, facts.report === "ready" && contractMet),
     {
       id: "size", ok: facts.lines !== null && facts.lines <= authority.maxLines,
-      detail: facts.lines === null ? "git could not count the change's lines." : `The change has ${facts.lines} lines${facts.lines <= authority.maxLines ? "," : ", over"} the limit of ${authority.maxLines}.`,
+      detail: facts.lines === null ? "GitHub could not count the pull request's lines." : `The change has ${facts.lines} lines${facts.lines <= authority.maxLines ? "," : ", over"} the limit of ${authority.maxLines}.`,
     },
     {
       id: "paths", ok: facts.files !== null && touched.length === 0,
-      detail: facts.files === null ? "git could not list the changed files." : touched.length ? `It touches protected paths: ${touched.slice(0, 5).join(", ")}${touched.length > 5 ? ", …" : ""}.` : "It touches no protected path.",
+      detail: facts.files === null ? "GitHub could not list the pull request's files." : touched.length ? `It touches protected paths: ${touched.slice(0, 5).join(", ")}${touched.length > 5 ? ", …" : ""}.` : "It touches no protected path.",
     },
     {
       id: "fresh", ok: facts.behind === 0,
@@ -128,11 +137,13 @@ export function evaluateGate(authority: Extract<MergeAuthority, { mode: "gated" 
   return { ok: checks.every((check) => check.ok), checks };
 }
 
-function checksCondition(pr: GateFacts["pr"], head: string | null, recordedPassed: boolean): GateCheck {
+function checksCondition(pr: GateFacts["pr"], head: string | null, base: string, recordedPassed: boolean): GateCheck {
   if (pr?.state !== "OPEN") return { id: "checks", ok: false, detail: "The thread has no open pull request." };
+  if (pr.base !== base) return { id: "checks", ok: false, detail: `The pull request targets ${pr.base ?? "a branch GitHub did not name"}, not ${base}.` };
   // what is merged is the pull request's commit: what was measured here must be that commit
   if (!head || pr.head !== head) return { id: "checks", ok: false, detail: "The pull request is not at the branch's latest commit here: it has commits that are not pushed, or GitHub has others." };
   if (pr.checks === "pass") return { id: "checks", ok: true, detail: "The pull request's checks passed." };
+  if (pr.checks === "none" && !pr.checksRead) return { id: "checks", ok: false, detail: "GitHub could not say which checks the pull request has." };
   if (pr.checks === "none") return { id: "checks", ok: recordedPassed, detail: recordedPassed ? "The pull request has no checks, and the lead's contract is met." : "The pull request has no checks, and the lead's contract is not met." };
   return { id: "checks", ok: false, detail: `The pull request's checks are ${pr.checks === "fail" ? "failing" : "still running"}.` };
 }

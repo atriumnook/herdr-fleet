@@ -46,18 +46,18 @@ Every merge waits for the person unless the person decided otherwise for that pr
 | `person` (default) | Every merge waits for the person. herdr-fleet's own main uses this |
 | `gated` | For a thread that lands on one of the listed `branches`, the coordinator merges on its own only when every condition below holds; otherwise the merge waits for the person, as in `person`. Any other branch is `person`. The rust project's rust branch will use this |
 
-Under `gated`, a thread's lead is told to push its branch and open its pull request itself once its report is ready and a review passed, and never to merge it. The fleet evaluates the conditions when the lead's turn ends, and again when the pull request's checks come to pass, reading git and `gh` only; when all hold, it hands the coordinator Merge PR as the gate's (Built). The conditions, all of which must hold:
+Under `gated`, a thread's lead is told to push its branch and open its pull request itself once its report is ready and a review passed, and never to merge it. The fleet evaluates the conditions when the lead's turn ends, and again when the pull request's checks come to pass, reading git and `gh` only. What it measures is the commit the pull request is at, compared on GitHub with the base branch there. When all hold, it hands the coordinator Merge PR as the gate's, pinned to that commit (`gh pr merge --match-head-commit`); it evaluates the gate again just before the coordinator is free to take it, and withdraws the step when the gate no longer holds for that commit (Built). The conditions, all of which must hold:
 
 1. The lead's latest report is ready.
-2. A reviewer on a CLI that none of the thread's writers (its lead runs and editing helpers) used reported ready, in a turn that ended after the branch's latest commit.
-3. The pull request's checks pass, or, where it has none, the lead's contract is met.
-4. The change has at most `maxLines` lines, added and removed; `maxLines` defaults to 200, as dsh's delivery rule.
-5. It touches none of the protected paths the person lists, nor the gate itself and what it rests on, which always wait for the person: the project's `.herdr-fleet/` and `.github/`, and herdr-fleet's `server/fleet/merge-mode.ts`, `server/fleet/github.ts`, `server/access.ts`, `agents/coordinator.md` and `opencode/fleet-guard/`.
+2. A reviewer whose run could not edit files, on a CLI that none of the thread's runs that could edit used, reported ready in a turn that ended with the branch at the commit being merged. Whether a run could edit is recorded when it starts.
+3. The pull request targets the thread's base branch and is at the branch's latest commit, and its checks pass; where GitHub says it has none, the lead's contract is met. Checks GitHub could not be asked about do not count as none.
+4. The pull request has at most `maxLines` lines, added and removed; `maxLines` defaults to 200, as dsh's delivery rule.
+5. It touches none of the protected paths the person lists, nor the gate itself and what enforces it, which always wait for the person: the project's `.herdr-fleet/` and `.github/` (the folders themselves too, so a symlink in their place counts), and herdr-fleet's `server/fleet/merge-mode.ts`, `github.ts`, `orchestrator.ts`, `config.ts`, `settings.ts` and `opencode-config.ts`, `server/access.ts`, `agents/coordinator.md`, `agents/lead.md` and `opencode/`.
 6. The branch has the base branch's latest commits on GitHub.
 
 The thread keeps the result, and the Checks tab shows it. A pull request without a merge gate's pass waits for the person's Merge PR.
 
-**Safety comes from undo, not approval.** Every merge is a merge commit (`git merge --no-ff`, `gh pr merge --merge`), so `git revert -m 1 <merge>` undoes it. Every merge goes to the event log with who made it (`person`, `gate` or `github`) and its merge commit, and `fleet report` counts the gate's merges, how many were later reverted (the change failure rate) and the time from each such merge to its revert (the time to restore, as DORA defines them, measured from the merge). A merged thread whose merge commit the fleet knows offers Revert on the Fleet screen (005) (all Built).
+**Safety comes from undo, not approval.** Every merge is a merge commit (`git merge --no-ff`, `gh pr merge --merge`), so `git revert -m 1 <merge>` undoes it. Every merge goes to the event log with who made it (`person`, `gate` or `github`) and its merge commit, and `fleet report` counts the gate's merges, how many were later reverted (the change failure rate) and the time from each such merge to its revert (the time to restore, as DORA defines them, measured from the merge). A merged thread whose merge commit the fleet knows (GitHub's, or here the merge whose second parent is the thread's branch) offers Revert on the Fleet screen (005); a revert of a pull request's merge counts once GitHub's base branch has it (all Built).
 
 ## What the fleet server does itself
 

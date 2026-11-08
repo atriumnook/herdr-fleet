@@ -27,8 +27,11 @@ async function gh(cwd: string, args: string[]): Promise<{ ok: boolean; output: s
   }
 }
 
-/** A pull request and the commit its branch is at on GitHub, with its merge commit once merged. */
-export type PullRequestReading = PullRequest & { head: string; mergeCommit?: string };
+/**
+ * A pull request and the commit its branch is at on GitHub, the branch it targets, its merge commit
+ * once merged, and whether its checks were read (`checks: "none"` from a failed read is not "no checks").
+ */
+export type PullRequestReading = PullRequest & { head: string; base?: string; mergeCommit?: string; checksRead?: boolean };
 
 /**
  * The pull request of `branch` in the repository at `repo`, with its checks; null when the branch
@@ -37,7 +40,7 @@ export type PullRequestReading = PullRequest & { head: string; mergeCommit?: str
 export async function readPullRequest(repo: string, branch: string): Promise<PullRequestReading | null> {
   let viewed: Awaited<ReturnType<typeof gh>>;
   try {
-    viewed = await gh(repo, ["pr", "view", branch, "--json", "number,url,state,headRefOid,mergeCommit"]);
+    viewed = await gh(repo, ["pr", "view", branch, "--json", "number,url,state,headRefOid,baseRefName,mergeCommit"]);
   } catch {
     throw new Error("The gh command is not installed.");
   }
@@ -45,22 +48,30 @@ export async function readPullRequest(repo: string, branch: string): Promise<Pul
     if (/no pull requests found/i.test(viewed.error)) return null;
     throw new Error(viewed.error.split("\n")[0] || "gh could not read the pull request.");
   }
-  const pr = JSON.parse(viewed.output) as { number: number; url: string; state: PullRequest["state"]; headRefOid: string; mergeCommit?: { oid?: string } | null };
-  const checks = pr.state === "OPEN" ? await readChecks(repo, pr.number) : { checks: "none" as const };
+  const pr = JSON.parse(viewed.output) as { number: number; url: string; state: PullRequest["state"]; headRefOid: string; baseRefName?: string; mergeCommit?: { oid?: string } | null };
+  const checks = pr.state === "OPEN" ? await readChecks(repo, pr.number) : { checks: "none" as const, read: false };
   const mergeCommit = pr.state === "MERGED" && typeof pr.mergeCommit?.oid === "string" && SHA.test(pr.mergeCommit.oid) ? pr.mergeCommit.oid : undefined;
-  return { number: pr.number, url: pr.url, state: pr.state, head: pr.headRefOid, ...checks, ...(mergeCommit ? { mergeCommit } : {}) };
+  const { read, ...summed } = checks;
+  return {
+    number: pr.number, url: pr.url, state: pr.state, head: pr.headRefOid, ...summed, checksRead: read,
+    ...(typeof pr.baseRefName === "string" ? { base: pr.baseRefName } : {}), ...(mergeCommit ? { mergeCommit } : {}),
+  };
 }
 
-/** A pull request's checks, summed up: any failing (by name), else any still running, else passed, or none at all. */
-async function readChecks(repo: string, number: number): Promise<Pick<PullRequest, "checks" | "failing">> {
+/**
+ * A pull request's checks, summed up: any failing (by name), else any still running, else passed,
+ * or none at all; `read` says whether gh answered, so a failed read is not taken for no checks.
+ */
+async function readChecks(repo: string, number: number): Promise<Pick<PullRequest, "checks" | "failing"> & { read: boolean }> {
   // gh exits 1 when a check failed and 8 while one runs, and prints them either way
   const listed = await gh(repo, ["pr", "checks", String(number), "--json", "name,bucket"]);
   let rows: Array<{ name: string; bucket: string }>;
-  try { rows = JSON.parse(listed.output); } catch { return { checks: "none" }; }
+  try { rows = JSON.parse(listed.output); } catch { return { checks: "none", read: /no checks reported/i.test(listed.error) }; }
+  if (!Array.isArray(rows)) return { checks: "none", read: false };
   const failing = rows.filter((row) => row.bucket === "fail" || row.bucket === "cancel").map((row) => row.name);
-  if (failing.length) return { checks: "fail", failing };
-  if (rows.some((row) => row.bucket === "pending")) return { checks: "pending" };
-  return { checks: rows.some((row) => row.bucket === "pass") ? "pass" : "none" };
+  if (failing.length) return { checks: "fail", failing, read: true };
+  if (rows.some((row) => row.bucket === "pending")) return { checks: "pending", read: true };
+  return { checks: rows.some((row) => row.bucket === "pass") ? "pass" : "none", read: true };
 }
 
 /** A pull request merged, as the factory's metrics read it. */
@@ -99,53 +110,65 @@ async function gitOutput(cwd: string, args: string[], timeoutMs = 10_000): Promi
   }
 }
 
+/** the most files GitHub's compare lists: a change with more is not measured */
+const COMPARE_MAX_FILES = 300;
+
 /**
- * What the worktree at `cwd` changed since it left `base`, as the gate measures it: the files, each
- * by its path (a rename counts as the old path and the new), and the lines added and removed in all.
+ * What a pull request delivers, as GitHub compares the commit `head` with `base` there: the files it
+ * changes (a rename counts as the old path and the new), the lines added and removed in all, and
+ * how many commits `base` has that `head` does not. Null when GitHub cannot say, or lists so many
+ * files that it may have cut the list.
  */
-export async function changeOf(cwd: string, base: string): Promise<{ files: string[]; lines: number } | null> {
-  if (!BRANCH.test(base)) return null;
-  const output = await gitOutput(cwd, ["diff", "--numstat", "--no-renames", "-z", "--merge-base", base, "--"]);
-  if (output === null) return null;
-  const files: string[] = [];
-  let lines = 0;
-  for (const row of output.split("\0").filter(Boolean)) {
-    const [added, removed, ...path] = row.split("\t");
-    if (!path.length) continue;
-    files.push(path.join("\t"));
-    // a binary file counts no lines
-    lines += (/^\d+$/.test(added ?? "") ? Number(added) : 0) + (/^\d+$/.test(removed ?? "") ? Number(removed) : 0);
-  }
-  return { files, lines };
-}
-
-/** When the commit the worktree at `cwd` is at was made (epoch ms), and which commit that is. */
-export async function headCommit(cwd: string): Promise<{ sha: string; at: number } | null> {
-  const [sha, seconds] = (await gitOutput(cwd, ["log", "-1", "--format=%H %ct", "HEAD"]))?.trim().split(" ") ?? [];
-  return sha && SHA.test(sha) && seconds && /^\d+$/.test(seconds) ? { sha, at: Number(seconds) * 1000 } : null;
-}
-
-/** How many commits `base` has on GitHub that `head` does not; null when GitHub cannot say. */
-export async function behindOnGitHub(repo: string, base: string, head: string): Promise<number | null> {
+export async function compareOnGitHub(repo: string, base: string, head: string): Promise<{ files: string[]; lines: number; behind: number } | null> {
   if (!BRANCH.test(base) || !SHA.test(head)) return null;
+  let compared: Awaited<ReturnType<typeof gh>>;
   try {
-    const compared = await gh(repo, ["api", `repos/{owner}/{repo}/compare/${base}...${head}`, "--jq", ".behind_by"]);
-    const behind = compared.output.trim();
-    return compared.ok && /^\d+$/.test(behind) ? Number(behind) : null;
+    compared = await gh(repo, ["api", `repos/{owner}/{repo}/compare/${base}...${head}`, "--jq", "{behind: .behind_by, files: [.files[]? | {f: .filename, p: .previous_filename, a: .additions, d: .deletions}]}"]);
+  } catch {
+    return null;
+  }
+  if (!compared.ok) return null;
+  let parsed: { behind?: unknown; files?: Array<{ f?: unknown; p?: unknown; a?: unknown; d?: unknown }> };
+  try { parsed = JSON.parse(compared.output); } catch { return null; }
+  if (typeof parsed.behind !== "number" || !Array.isArray(parsed.files) || parsed.files.length >= COMPARE_MAX_FILES) return null;
+  const files = new Set<string>();
+  let lines = 0;
+  for (const file of parsed.files) {
+    if (typeof file.f !== "string" || typeof file.a !== "number" || typeof file.d !== "number") return null;
+    files.add(file.f);
+    if (typeof file.p === "string") files.add(file.p);
+    lines += file.a + file.d;
+  }
+  return { files: [...files], lines, behind: parsed.behind };
+}
+
+/** Whether `base` on GitHub holds `commit` (null when GitHub cannot say): a revert pushed there, say. */
+export async function onGitHub(repo: string, base: string, commit: string): Promise<boolean | null> {
+  if (!BRANCH.test(base) || !SHA.test(commit)) return null;
+  try {
+    const compared = await gh(repo, ["api", `repos/{owner}/{repo}/compare/${commit}...${base}`, "--jq", ".status"]);
+    const status = compared.output.trim();
+    return compared.ok && status ? status === "identical" || status === "ahead" : null;
   } catch {
     return null;
   }
 }
 
-/** The merge commit that brought `head` into `base` here (git merge --no-ff), or null when git finds none. */
+/** The commit the worktree at `cwd` is at, or null. */
+export async function headCommit(cwd: string): Promise<string | null> {
+  const sha = (await gitOutput(cwd, ["rev-parse", "HEAD"]))?.trim();
+  return sha && SHA.test(sha) ? sha : null;
+}
+
+/**
+ * The merge commit that brought `head` into `base` here (git merge --no-ff): the one whose merged
+ * parent, the second, is `head`. Null when there is none, as after a fast-forward, or more than one.
+ */
 export async function mergeCommitOf(repo: string, head: string, base: string): Promise<string | null> {
   if (!BRANCH.test(base) || !SHA.test(head)) return null;
-  const merges = (await gitOutput(repo, ["rev-list", "--merges", "--ancestry-path", "--reverse", `${head}..refs/heads/${base}`]))?.split("\n").filter(Boolean) ?? [];
-  for (const merge of merges.slice(0, 20)) {
-    const parents = (await gitOutput(repo, ["rev-list", "--parents", "-n", "1", merge]))?.trim().split(" ").slice(1) ?? [];
-    if (parents.includes(head)) return merge;
-  }
-  return null;
+  const merges = (await gitOutput(repo, ["rev-list", "--merges", "--parents", "--ancestry-path", `${head}..refs/heads/${base}`]))?.split("\n").filter(Boolean) ?? [];
+  const found = merges.map((line) => line.split(" ")).filter((shas) => shas[2] === head).map((shas) => shas[0]!);
+  return found.length === 1 ? found[0]! : null;
 }
 
 /** The commit on `base` here that reverts `commit` (git revert's own message names it), or null. */

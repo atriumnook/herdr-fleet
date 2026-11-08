@@ -46,8 +46,10 @@ export interface AgentRun {
   result?: string;
   /** what its last settled turn reported (report.json), or that it reported nothing; none for a run without a result file */
   outcome?: TurnOutcome;
-  /** when the turn that left `outcome` ended (epoch ms) */
-  reportedAt?: number;
+  /** the commit its folder was at when the turn that left `outcome` ended, kept for a run that edits no file (a review) */
+  reportedHead?: string;
+  /** the run's role kept it from editing files when it started */
+  readOnly?: true;
   /** the model this run replaced after a configured fallback */
   fallbackFrom?: string;
   /** the run that took this run's task over: after a first turn that failed, or, for a thread's lead, a run that failed or a turn without a report */
@@ -143,8 +145,9 @@ export interface LandingStep {
   action: LandAction;
   at: number;
   sent?: boolean;
-  /** a merge the person did not press: the fleet found every condition of the project's gate held */
+  /** a merge the person did not press: the fleet found every condition of the project's gate held, for the pull request at commit `head` */
   by?: "gate";
+  head?: string;
   /** the step did not go as asked: what the fleet found */
   error?: string;
 }
