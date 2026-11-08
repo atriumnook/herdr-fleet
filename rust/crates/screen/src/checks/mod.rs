@@ -3,9 +3,10 @@
 //!
 //! TypeScript reads lines with the `m` flag (`/^\s*Error: (.+)$/gm`). Here each line, split where
 //! JavaScript ends a line (`\n`, `\r`, U+2028, U+2029), is matched without it (ADR
-//! 0193-phase-2-dependencies, "`m` フラグ"). In these patterns only a `\s*` next to `^` or `$` can run
-//! past a line's end, over lines of whitespace alone: such a match takes the same text into its
-//! groups as the line's own match, and starts no later than that line, with whitespace alone
+//! 0193-phase-2-dependencies, "`m` フラグ"). In these patterns only a run of `\s` can go past a
+//! line's end (`^\s*`, `\s*$`, and agy's `>\s+Auto mode:`), so a match that does still matches on the
+//! line that holds the pattern's other characters (`Error:`, `■`, `>`) alone. Its groups take no line
+//! end, so they hold the same text, and where it starts before that line, whitespace alone lies
 //! between. So the answers are TypeScript's, U+2028 included, which `(?mR)` does not end a line at.
 
 mod adapters;
