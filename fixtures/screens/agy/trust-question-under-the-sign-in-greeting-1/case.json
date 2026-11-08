@@ -1,0 +1,6 @@
+{
+  "about": "agy 1.5.3 asks to trust a new folder below the greeting it shows while it signs in: the trust question, not the sign-in (screen read from the CLI and laid out by hand)",
+  "adapter": "agy",
+  "check": "question",
+  "expected": "Antigravity CLI asks whether to trust this folder."
+}

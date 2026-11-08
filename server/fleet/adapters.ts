@@ -18,6 +18,8 @@ export interface LaunchOptions {
   systemPrompt: string;
   /** the run's result folder: outside the workspace, so a CLI that confines writes is told it may write there */
   resultDir: string;
+  /** the folder the agent works in (a thread's worktree), for a CLI that trusts folders one path at a time */
+  cwd: string;
 }
 
 /** What the fleet knows when it creates a pane, before the agent starts in it. */
@@ -294,8 +296,44 @@ export function cursorUsage(screen: string, now: number): UsageReading | undefin
 }
 
 /**
+ * What agy is told to refuse in every mode (`permissions.deny`, which wins over its auto mode's
+ * approvals): a force push and a push that deletes a remote branch, as the opencode rules refuse
+ * them. Best effort, like those: the shell stays open, and only the usual spellings are matched.
+ * A rule is a prefix of the command line, matched word by word, so a flag is refused only right
+ * after `git push` (`git push origin x --force` goes through). A `regex:` rule, which the docs
+ * describe, refused nothing in agy 1.5.3, not even `regex:git push.*--force.*`; a prefix did.
+ */
+export const AGY_DENY = ["--force", "--force-with-lease", "--force-if-includes", "-f", "--mirror", "--delete", "-d", "--prune"]
+  .map((flag) => `command(git push ${flag})`);
+
+/**
+ * agy's input: a `>` line between rules, empty or holding the auto mode's hint until something is
+ * typed (`> Auto mode: edits & safe commands auto-approved (shift+tab to cycle)`, as herdr reads it).
+ * A message or an option after `>` is not it.
+ */
+const AGY_INPUT = /^\s*>(?:\s+Auto mode: .*)?\s*$/m;
+
+/** an agy model id that names its level, as all in its model list do */
+const AGY_MODEL_LEVEL = /-(?:low|medium|high|xhigh|max)$/;
+
+/** The session settings agy is started with in `cwd` (see agyAdapter). */
+export function agySettings(cwd: string): Record<string, unknown> {
+  return { trustedWorkspaces: [cwd], agentMode: "auto", enableTerminalSandbox: true, permissions: { deny: AGY_DENY } };
+}
+
+/**
  * Antigravity CLI: no instruction option. herdr reports its trust, sign-in and approval screens as
  * idle, and an unknown model is swapped for the default one with only a warning.
+ *
+ * Its settings for the session go in `--settings` (kept for the session, never saved to the person's
+ * settings.json, which agy also writes):
+ * - `trustedWorkspaces`: agy trusts a folder only by its exact path, a subfolder of a trusted one
+ *   included, and asks for each new one, so a thread's new worktree would stop at that question.
+ * - `agentMode: "auto"`: edits and safe commands go through, commands that leave the terminal
+ *   sandbox are reviewed by a separate agent, irreversible ones are asked. `--mode auto` is decided
+ *   before the sign-in is read and falls back to the default mode (agy 1.5.3); the setting is not.
+ * - `enableTerminalSandbox`: auto mode needs it.
+ * Checked against the real CLI by scripts/agy-live-check.ts.
  */
 export const agyAdapter: AgentAdapter = {
   kind: "agy",
@@ -303,21 +341,26 @@ export const agyAdapter: AgentAdapter = {
   models: { complete: true, list: listAgyModels },
   launchArgs(options) {
     const { model, thinking } = splitThinking(options.model, options.thinking);
-    const effort = effortFor(thinking, { low: "low", medium: "medium", high: "high", max: "max" });
+    // agy's model ids name their level (`gemini-4-argon-medium`): with --effort as well, agy drops
+    // the model for its default one (agy 1.5.3), so the id's level stands and the role's goes
+    const effort = model && AGY_MODEL_LEVEL.test(model) ? undefined : effortFor(thinking, { low: "low", medium: "medium", high: "high", max: "max" });
     return [
       ...(model ? ["--model", model] : []),
       ...(effort ? ["--effort", effort] : []),
-      // agy has no auto mode: edits go through, commands are asked
-      "--mode", "accept-edits",
       "--add-dir", options.resultDir,
+      "--settings", JSON.stringify(agySettings(options.cwd)),
     ];
+  },
+  // the mode from --settings is set some seconds after the input shows (`auto · ` before the model on
+  // its last line): a task typed before would run in the default mode, which asks before every command
+  inputReady(screen) {
+    return AGY_INPUT.test(screen) && /\bauto · /.test(screen);
   },
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },
   question(screen) {
-    // its input is an empty `>` line between rules; a message or an option after `>` is not it
-    return openQuestion(screen, /^\s*>\s*$/m, [
+    return openQuestion(screen, AGY_INPUT, [
       [/Do you trust the contents of this project\?/, "Antigravity CLI asks whether to trust this folder."],
       [/You are currently not signed in/, "Antigravity CLI is not signed in."],
       [/Requesting permission for:/, "Antigravity CLI asks for permission to use a tool."],
@@ -325,7 +368,9 @@ export const agyAdapter: AgentAdapter = {
   },
   readyError(screen) {
     const unknown = /model (\S+) is not recognized as a known model/.exec(screen);
-    return unknown ? `Unknown model ${unknown[1]}: Antigravity CLI would run its default model instead.` : undefined;
+    if (unknown) return `Unknown model ${unknown[1]}: Antigravity CLI would run its default model instead.`;
+    const conflict = /--model (\S+) conflicts with --effort=(\S+?)\./.exec(screen);
+    return conflict ? `The model ${conflict[1]} does not take the level ${conflict[2]}: Antigravity CLI would run its default model instead.` : undefined;
   },
   turnError(output) {
     return lastMatch(output, /^\s*(?:Error|error): (.+)$/gm);

@@ -31,10 +31,10 @@ Rust 版が正しいかは、エージェントの判断ではなく、次の基
 | 基準 | 中身 | 状態 |
 |---|---|---|
 | 画面の corpus | `fixtures/screens/`。承認画面の解析と adapter の画面の判定(`scripts/screen-fixtures.ts`) | あり(#103) |
-| 会話ログの corpus | claude・codex・pi・opencode・omp の会話ログ → 会話の構造 | 段階 1 で作る |
-| fleet CLI の契約 | argv → HTTP の要求 → 応答 → 標準出力と終了コード | 段階 1 で作る |
-| HTTP/WS の契約 | 今の `*.contract.test.ts` を black-box のテストにしたもの。テストは、起動の指定(launch spec)で自分が起動したサーバー(TypeScript か Rust を選べる)に、URL を通してだけ話す。すでに動いているサーバーには向けない(ADR `0122-parity-criteria`) | 段階 1 で作る |
-| 安全上の判定の表 | アクセス制御、ファイル表示の範囲、push の宛先、子プロセスの環境変数、git の設定 → 判定 | 段階 1 で作る |
+| 会話ログの corpus | claude・codex・pi・opencode・omp の会話ログ → 会話の構造 | あり(#123、#127〜#129) |
+| fleet CLI の契約 | argv → HTTP の要求 → 応答 → 標準出力と終了コード | あり(#124) |
+| HTTP/WS の契約 | 今の `*.contract.test.ts` を black-box のテストにしたもの。テストは、起動の指定(launch spec)で自分が起動したサーバー(TypeScript か Rust を選べる)に、URL を通してだけ話す。すでに動いているサーバーには向けない(ADR `0122-parity-criteria`) | あり(#125、#130〜#133) |
+| 安全上の判定の表 | アクセス制御、ファイル表示の範囲、push の宛先、子プロセスの環境変数、git の設定 → 判定 | あり(#126) |
 | UI の回帰 | `bun run test:ui`、`scripts/fleet-screen-regression.ts` を Rust の core に向けて走らせる | 段階 4 で使う |
 
 どの TypeScript のテストが、どの基準または Rust のテストに引き継がれたかは、`docs/rust-migration/parity.md` に一覧で残す。一覧に引き継ぎ先のないテストが残っている間は、切り替えの準備ができていない。
