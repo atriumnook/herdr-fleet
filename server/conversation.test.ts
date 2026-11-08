@@ -543,6 +543,74 @@ describe("transcript pages", () => {
   });
 
 
+  it("keeps a tool's output when its result shares the entry with a new prompt, as parseClaudeTranscript does (#141)", () => {
+    const lines = [
+      { type: "assistant", message: { content: [{ type: "tool_use", id: "t", name: "Read", input: {} }] } },
+      { type: "user", message: { content: [null, { type: "tool_result", tool_use_id: "t", content: "result" }, { type: "text", text: "Actual request" }] } },
+      { type: "assistant", message: { content: [{ type: "text", text: "on it" }] } },
+    ].map((entry) => JSON.stringify(entry)).join("\n");
+    for (const tail of ["", "\n"]) {
+      const path = join(temp(), "mixed.jsonl");
+      writeFileSync(path, `${lines}${tail}`);
+      const page = transcriptPage("claude-transcript", path);
+      expect(page.turns[0]?.parts[0]).toMatchObject({ kind: "tool", output: "result" });
+      expect(page.turns).toEqual(parseClaudeTranscript(lines, Infinity));
+    }
+  });
+
+  it("reads a growing file's newest page incrementally, exactly as a cold read of it, when prompts share their entry with a tool result (#141)", () => {
+    const root = temp();
+    const path = join(root, "session.jsonl");
+    /** the turn before calls a tool, and the prompt is written with its result */
+    const mixedTurn = (n: number) => [
+      { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: `m${n}`, name: "Bash", input: { command: `late ${n}` } }] } },
+      { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: `m${n}`, content: `late ${n}` }, { type: "text", text: `prompt ${n}` }] } },
+      { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: `answer ${n}` }] } },
+    ].map((entry) => JSON.stringify(entry)).join("\n");
+    const whole = Buffer.from(`${Array.from({ length: 80 }, (_, n) => n % 2 === 0 ? claudeTurn(n) : mixedTurn(n)).join("\n")}\n`);
+    writeFileSync(path, whole.subarray(0, 1000));
+    // appends of every size, cut mid-line too, so the settled turns and the live one meet at mixed entries
+    for (let at = 1000, step = 1; at < whole.length; step = (step * 7) % 997 + 1) {
+      appendFileSync(path, whole.subarray(at, at + step * 23));
+      at += step * 23;
+      const cold = join(root, `cold-${at}.jsonl`);
+      copyFileSync(path, cold);
+      const live = transcriptPage("claude-transcript", path);
+      const reference = transcriptPage("claude-transcript", cold);
+      rmSync(cold);
+      expect(texts(live.turns)).toEqual(texts(reference.turns));
+      expect(live.cursor?.split(":").at(-1)).toBe(reference.cursor?.split(":").at(-1));
+    }
+    const final = texts(transcriptPage("claude-transcript", path).turns);
+    expect(final.filter((text) => text.includes("[]"))).toEqual([]);
+    expect(final.at(-1)).toBe("answer 79");
+  });
+
+  it("pages back through prompts that share their entry with a tool result without losing the outputs (#141)", () => {
+    const path = join(temp(), "session.jsonl");
+    /** the turn before calls a tool, and the prompt is written with its result */
+    const mixedTurn = (n: number) => [
+      { type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: `m${n}`, name: "Bash", input: { command: `late ${n}` } }] } },
+      { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: `m${n}`, content: `late ${n}` }, { type: "text", text: `prompt ${n}` }] } },
+      { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: `answer ${n}` }] } },
+    ].map((entry) => JSON.stringify(entry)).join("\n");
+    // 120 turns end on a mixed prompt (the newest page's last turn); 121 put the older pages' edges on mixed prompts
+    for (const length of [120, 121]) {
+      const whole = Array.from({ length }, (_, n) => n % 2 === 0 ? claudeTurn(n) : mixedTurn(n)).join("\n");
+      writeFileSync(path, `${whole}\n`);
+      const seen: string[] = [];
+      let page = transcriptPage("claude-transcript", path);
+      for (let pages = 0; ; pages++) {
+        expect(pages).toBeLessThan(20);
+        seen.unshift(...texts(page.turns));
+        if (!page.cursor) break;
+        page = transcriptPage("claude-transcript", path, { before: page.cursor });
+      }
+      expect(seen).toEqual(texts(parseClaudeTranscript(whole, Infinity)));
+      expect(seen.filter((text) => text.includes("[]"))).toEqual([]);
+    }
+  });
+
   it("reads a growing file's newest page incrementally, exactly as a cold read of it", () => {
     const root = temp();
     const path = join(root, "session.jsonl");
