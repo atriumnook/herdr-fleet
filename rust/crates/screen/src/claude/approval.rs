@@ -228,23 +228,25 @@ fn panel(
     // command block and the dashed rule under that), still say it is an approval. The dashed rule is
     // the last divider over the question, the block right above it, and only the panel's own few
     // lines (never Claude's or the user's text) between it and the question
-    let above: Vec<String> = above_question
-        .iter()
-        .map(|line| js::trim(&strip_ansi(line)).to_owned())
-        .collect();
-    let dash_index = find_last_index(&above, |line, _| is_divider(line));
     let scrolled = rule_index.is_none()
         && call_index.is_none()
         && hint_below.is_some_and(|hint| HINT_LINE.is_match(&clean_line(&lines[hint])))
-        && dash_index.is_some_and(|dash| {
-            dash >= 1
-                && question_index - dash <= 8
-                && DASHED_RULE.is_match(&above[dash])
-                && COMMAND_BLOCK.is_match(&above[dash - 1])
-                && above[dash + 1..]
-                    .iter()
-                    .all(|line| !OWN_TEXT.is_match(line))
-        });
+        && {
+            // read only when neither the rule nor the call is found
+            let above: Vec<String> = above_question
+                .iter()
+                .map(|line| js::trim(&strip_ansi(line)).to_owned())
+                .collect();
+            find_last_index(&above, |line, _| is_divider(line)).is_some_and(|dash| {
+                dash >= 1
+                    && question_index - dash <= 8
+                    && DASHED_RULE.is_match(&above[dash])
+                    && COMMAND_BLOCK.is_match(&above[dash - 1])
+                    && above[dash + 1..]
+                        .iter()
+                        .all(|line| !OWN_TEXT.is_match(line))
+            })
+        };
     let from = match rule_index {
         _ if scrolled => 0,
         Some(rule) if question_index - rule <= PANEL_MAX => rule + 1,

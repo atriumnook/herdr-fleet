@@ -132,7 +132,8 @@ pub(super) fn parse(screen: &str) -> Option<ParsedPrompt> {
         _ if on_submit => last,
         Some(at) if submit && at == last => at + 1,
         Some(at) => at,
-        None => unreachable!("one row has the cursor when Submit does not"),
+        // the check of the cursor above leaves no such screen; one would get no card, as in TypeScript
+        None => return None,
     };
     let current = tabs.as_ref().and_then(|bar| Some((bar, bar.current()?)));
     let title = match current {

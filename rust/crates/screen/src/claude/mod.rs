@@ -124,7 +124,8 @@ fn line_before(lines: &[String], end: usize, pattern: &Regex) -> bool {
 fn without_tasks(shown: &[String], hint_ends: impl Fn(&[String], usize) -> bool) -> &[String] {
     let mut end = shown.len();
     if let Some(head) = find_last_index(shown, |line, _| TASKS_HEAD.is_match(line)) {
-        // `Number(…)`: a count too long for a u64 is still a number, as large as it reads
+        // `Number(…)`, read as an f64: a count of any length is a number, as large as it reads (a
+        // string of digits always parses as an f64, so the fallback is never taken)
         let total: f64 = TASKS_HEAD.captures(&shown[head]).unwrap()[1]
             .parse()
             .unwrap_or(f64::INFINITY);
