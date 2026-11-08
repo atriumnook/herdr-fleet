@@ -94,6 +94,8 @@ export interface FleetConfig {
    * their questions, and a thread whose pull request is merged closes as its lead's turn ends
    */
   autonomous: boolean;
+  /** the language the person reads, such as Japanese: what the agents write for the person is in it; unset, they choose */
+  language?: string;
   /** a spawn candidate is skipped while any limit window of its account is used this much (percent) */
   maxUsedPercent: number;
   /** how long an account sits out after a rate limit whose message names no time */

@@ -137,7 +137,46 @@ describe("factory metrics", () => {
     const anomalies = text.slice(text.indexOf("## Anomalies"), text.indexOf("## Without the person"));
     expect(anomalies).toContain("The person stepped in 2 times.");
     expect(anomalies).toContain("Stood still 30 minutes");
-    expect(anomalies).toContain("agy: of 3 runs, 2 failed or stopped before the task and 1 ended without a HANDOFF.");
+    expect(anomalies).toContain("agy: of 3 runs, 2 failed or stopped before the task and 1 ended without a report.");
+  });
+
+  it("counts per agent the turns that ended without a report, and the lead runs the fleet restarted: started, not started, and later ready", () => {
+    const reported = (t: number, run: string, role: string, agent: string, report: string): TimedEvent =>
+      ({ ...turnEnd(t, run, role, agent, role === "lead", report !== "none"), report }) as TimedEvent;
+    const log: TimedEvent[] = [
+      state(0, "l1", "lead", "claude", undefined, "starting", false),
+      state(1, "l1", "lead", "claude", "starting", "working", true),
+      state(2, "l1", "lead", "claude", "working", "idle", true),
+      reported(2, "l1", "lead", "claude", "none"),
+      { t: 2 * MIN, kind: "restart", run: "l1", project: P, agent: "claude", why: "no-report", by: "l2", to: "codex" },
+      state(2, "l2", "lead", "codex", undefined, "starting", false),
+      state(3, "l2", "lead", "codex", "starting", "working", true),
+      state(5, "l2", "lead", "codex", "working", "idle", true),
+      reported(5, "l2", "lead", "codex", "ready"),
+      // another thread, whose lead failed with no CLI left to restart it on
+      state(6, "l3", "lead", "codex", undefined, "starting", false),
+      state(6.5, "l3", "lead", "codex", "starting", "working", true),
+      state(7, "l3", "lead", "codex", "working", "failed", true, { error: "quota" }),
+      reported(7, "l3", "lead", "codex", "none"),
+      { t: 7 * MIN, kind: "restart", run: "l3", project: P, agent: "codex", why: "failed", error: "No candidate is usable" },
+      // a helper that reported, and a turn logged before reports were (it counts for neither)
+      state(7.5, "r5", "reviewer", "claude", undefined, "starting", false),
+      reported(8, "r5", "reviewer", "claude", "ready"),
+      state(8.5, "r6", "reviewer", "claude", undefined, "starting", false),
+      turnEnd(9, "r6", "reviewer", "claude", false, true),
+    ];
+    const counted = metrics({ events: log, project: P, base: "rust", from: 0, to: 10 * MIN, quietMs: 15 * MIN, merged: [], issues: [] });
+    expect(counted.reports).toEqual([{ agent: "claude", turns: 2, none: 1 }, { agent: "codex", turns: 2, none: 1 }]);
+    expect(counted.restarts).toEqual({ started: 1, failed: 1, ready: 1 });
+    // l1's last turn left no report: a lead counts now that leads report, as l3 failed does
+    expect(counted.starts).toEqual([
+      { agent: "claude", starts: 3, failed: 0, lost: 1, anomaly: false },
+      { agent: "codex", starts: 2, failed: 0, lost: 1, anomaly: false },
+    ]);
+    const text = render(P, "rust", counted);
+    expect(text).toContain("- Lead runs the fleet restarted on another CLI: 1 (1 could not start); replacements that later reported ready: 1");
+    expect(text).toContain("| Agent | Turns that ended | Without a report |");
+    expect(text).toContain("| codex | 2 | 1 |");
   });
 
   it("reads the event log line by line, skipping a line that does not parse, and nothing from a missing file", () => {

@@ -1,5 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import type { ReportState } from "../../shared/fleet.ts";
 
 /**
  * What happened in the fleet, one JSON object per line, appended and never rewritten: the raw data
@@ -17,10 +18,11 @@ export type FleetEvent =
   | { kind: "state"; run: string; role: string; agent: string; model?: string; group: string; project?: string; interactive?: boolean; from?: string; to: string; sent: boolean; error?: string }
   /**
    * a run's turn ended and the fleet read what it left: `handoff`, whether its result file holds a
-   * HANDOFF; `interactive`, whether the run talks in its pane (a lead may end a turn to wait, with no
-   * HANDOFF yet), where a helper's turn without one did not finish its task
+   * HANDOFF; `report`, the state its report.json gave, or `none` without a valid one (absent for a
+   * run that keeps no result folder, and in events written before reports); `interactive`, whether
+   * the run talks in its pane
    */
-  | { kind: "turn"; run: string; role: string; agent: string; model?: string; group: string; project?: string; interactive: boolean; handoff: boolean }
+  | { kind: "turn"; run: string; role: string; agent: string; model?: string; group: string; project?: string; interactive: boolean; handoff: boolean; report?: ReportState | "none" }
   /**
    * the role a run started with: its file, where that came from (bundled, the user's, the project's)
    * and the file's version (agents.ts roleVersion), and the version of the standing orders it was
@@ -33,8 +35,11 @@ export type FleetEvent =
   | { kind: "standstill"; run: string; project: string; quietMs: number }
   /** a thread the fleet closed because GitHub showed its pull request merged (superviseProjects) */
   | { kind: "reconciled"; run: string; project: string; pr?: number }
-  /** an agent whose runs kept failing to start or ending without a HANDOFF, and the coordinator told (superviseProjects) */
-  | { kind: "anomaly"; run: string; project: string; agent: string; bad: number; runs: number };
+  /**
+   * a thread's lead run failed, or ended a turn without a report, and the fleet started the thread
+   * again: `by` the new run on CLI `to`, or `error` when none could start
+   */
+  | { kind: "restart"; run: string; project: string; agent: string; why: "failed" | "no-report"; by?: string; to?: string; error?: string };
 
 export type TimedEvent = FleetEvent & { t: number };
 
