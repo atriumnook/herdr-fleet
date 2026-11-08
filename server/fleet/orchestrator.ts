@@ -24,8 +24,10 @@ interface PendingTurn {
   /** a blocked turn was already reported to waiters; reset when it works again */
   blockedReported: boolean;
   generation: number;
-  /** when the prompt was handed to herdr; undefined until then */
+  /** when the prompt was handed to herdr; undefined until then, and for a turn a restart took over */
   submittedAt?: number;
+  /** when a restarted server took over this turn, which it found running without knowing its submission */
+  resumedAt?: number;
   /** herdr reported `working` for this turn at least once */
   sawWorking: boolean;
   /** what the fleet sent: a thread's next lead run hears it if this one fails */
@@ -241,6 +243,14 @@ export class Orchestrator {
     for (const run of deps.registry.all()) {
       run.result ??= readResult(this.resultFile(run));
       this.savedStates.set(run.id, run.state);
+      // a turn still running when the last server stopped is read as it settles, like one this server
+      // sent: herdr may not have shown it yet (the prompt was being pasted), or ended it while no
+      // server listened and sends no event for it
+      if (run.state === "working") {
+        this.generations.set(run.id, 1);
+        this.pending.set(run.id, { armed: true, blockedReported: false, generation: 1, resumedAt: Date.now(), sawWorking: false });
+        this.armSettleCheck(run, 1);
+      }
     }
   }
 
@@ -1150,15 +1160,8 @@ export class Orchestrator {
       pending.armed = true;
       pending.submittedAt = Date.now();
       pending.sawWorking = submitted === "working";
-      if (submitted !== "working") {
-        // a turn fast enough to settle before the TUI ever flips may send no further event: look
-        // again after the grace period. Keyed by generation, so a follow-up send never inherits it.
-        const timer = setTimeout(() => {
-          this.settleChecks.delete(run.id);
-          if (this.pending.get(run.id)?.generation === generation) void this.reconcileRun(run);
-        }, this.grace);
-        this.settleChecks.set(run.id, timer);
-      }
+      // a turn fast enough to settle before the TUI ever flips may send no further event
+      if (submitted !== "working") this.armSettleCheck(run, generation);
       return { ...run };
     } catch (error) {
       this.dropPending(run.id);
@@ -1294,8 +1297,9 @@ export class Orchestrator {
         const pending = this.pending.get(run.id);
         if (pending && reported === "working") pending.sawWorking = true;
         // the paste is still going and herdr still answers with the idle from before: not a
-        // settlement. The check scheduled at submission looks again after the grace period.
-        if (pending?.armed && !pending.sawWorking && isCompleted(reported) && pending.submittedAt !== undefined && Date.now() - pending.submittedAt < this.grace) return;
+        // settlement. The check scheduled at submission (or at a restart) looks again after the grace period.
+        const since = pending?.submittedAt ?? pending?.resumedAt;
+        if (pending?.armed && !pending.sawWorking && isCompleted(reported) && since !== undefined && Date.now() - since < this.grace) return;
         const current = await this.observed(run, reported);
         if (!isLive(run)) return;
         const previous = run.state;
@@ -1591,6 +1595,15 @@ export class Orchestrator {
     run.lastError = "Spawn cancelled.";
     run.updatedAt = Date.now();
     this.save(run);
+  }
+
+  /** Looks at the run again after the grace period. Keyed by generation, so a follow-up send never inherits it. */
+  private armSettleCheck(run: AgentRun, generation: number): void {
+    const timer = setTimeout(() => {
+      this.settleChecks.delete(run.id);
+      if (this.pending.get(run.id)?.generation === generation) void this.reconcileRun(run);
+    }, this.grace);
+    this.settleChecks.set(run.id, timer);
   }
 
   private clearSettleCheck(runId: string): void {
