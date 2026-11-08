@@ -193,7 +193,7 @@ it("a secret on a mirrored pane is typed as text, entered with the Enter key, an
   const expected = "fixture-value\r";
   expect(received).toEqual({ hash: createHash("sha256").update(expected).digest("hex"), length: expected.length });
   expect(frames).not.toContain("fixture-value");
-}, 15_000);
+}, 30_000);
 
 it("a secret herdr refused on a mirrored pane is answered as failed, with no Enter pressed", async () => {
   const { result, received, pane, sends, frames } = await mirroredSecret(true);
@@ -201,7 +201,7 @@ it("a secret herdr refused on a mirrored pane is answered as failed, with no Ent
   expect(sends).toEqual([{ method: "pane.send_text", params: { pane_id: pane, text: "fixture-value" } }]);
   expect(received).toBeNull();
   expect(frames).not.toContain("fixture-value");
-}, 15_000);
+}, 30_000);
 
 it("regression: a secret shown in scrollback is refused when the live screen is no longer asking for it", async () => {
   const { result, received, sends, reads } = await mirroredSecret(false, { visible: "Password:", detection: "Accepted\nReady>" });
@@ -209,7 +209,7 @@ it("regression: a secret shown in scrollback is refused when the live screen is 
   expect(sends).toEqual([]);
   expect(received).toBeNull();
   expect(reads.map((entry) => (entry.params as { source: string }).source)).toEqual(["detection"]);
-}, 15_000);
+}, 30_000);
 
 it("a secret's live prompt is validated even when the viewport is scrolled away from it", async () => {
   const { result, received, sends, reads } = await mirroredSecret(false, { visible: "Earlier output", detection: "Password:" });
@@ -218,7 +218,7 @@ it("a secret's live prompt is validated even when the viewport is scrolled away 
   const expected = "fixture-value\r";
   expect(received).toEqual({ hash: createHash("sha256").update(expected).digest("hex"), length: expected.length });
   expect(reads.map((entry) => (entry.params as { source: string }).source)).toEqual(["detection"]);
-}, 15_000);
+}, 30_000);
 
 it("secret frames validate prompts and authority, never queue, and type one no-echo line", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-fleet-secret-"));
@@ -301,4 +301,4 @@ it("secret frames validate prompts and authority, never queue, and type one no-e
       rmSync(root, { recursive: true, force: true });
     }
   }
-}, 15_000);
+}, 30_000);

@@ -43,7 +43,7 @@ it("takes its turn before herdr has said what it can do: a message sent meanwhil
 
   let answer!: (attach: boolean) => void;
   const asked = new Promise<boolean>((resolve) => { answer = resolve; });
-  const unsure = createServer({ port: candidatePorts().next().value!, stateDir: join(root, "state"), tailscaleOwner: null, terminalAttach: () => asked });
+  const unsure = createServer({ port: candidatePorts().next().value!, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), tailscaleOwner: null, terminalAttach: () => asked });
   const ws = new WebSocket(`ws://127.0.0.1:${unsure.port}/ws`);
   const seen: any[] = [];
   ws.addEventListener("message", (event) => seen.push(JSON.parse(String((event as MessageEvent).data))));
