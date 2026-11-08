@@ -258,6 +258,9 @@ export class Orchestrator {
         this.pending.set(run.id, { armed: true, blockedReported: false, generation: 1, resumedAt: Date.now(), sawWorking: false });
         this.armSettleCheck(run, 1);
       }
+      // a lead whose settled turn left no report and that still leads its thread was held back for an
+      // agent it started (or no CLI was left to start it again on): its own next turn is read too
+      else if (isThread(run) && isLive(run) && !run.replacedBy && !run.landed && run.outcome?.report === null) this.waitingLeads.add(run.id);
     }
     // a notice about a run the registry dropped refers to nothing its hearer can look up
     this.outbox = new Outbox(join(dirname(deps.resultsDir), "fleet-outbox.json"));
@@ -1401,7 +1404,8 @@ export class Orchestrator {
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
-        else if (!pending && previous === "working" && isCompleted(run.state) && isThread(run)) await this.settleUnsentTurn(run);
+        // a lead that broke off to wait may start its next turn at an approval, which herdr shows without working first
+        else if (!pending && (previous === "working" || (previous === "blocked" && this.waitingLeads.has(run.id))) && isCompleted(run.state) && isThread(run)) await this.settleUnsentTurn(run);
         // free again, after the fleet's turn or the person's: the questions of the threads it hears for
         if (!this.pending.has(run.id) && isCompleted(run.state)) void this.deliverNotices(run);
       } catch (error) {
