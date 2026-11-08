@@ -47,6 +47,8 @@ export interface AgentAdapter {
   launchArgs(options: LaunchOptions): string[];
   /** argv that takes the CLI's file-editing tools away, for a role that edits nothing; absent where the CLI cannot be held to that */
   readonly readOnlyArgs?: readonly string[];
+  /** what to tell every agent on this CLI, whatever its role: a limit of the CLI the agent would otherwise spend its turn finding out */
+  readonly note?: string;
   /** what to tell a role that edits nothing, for a CLI that refuses the commands it may not run without saying which it may */
   readonly readOnlyNote?: (context: Pick<PaneContext, "merges" | "fleetCommand">) => string;
   /** under `readOnlyArgs` the CLI's editing tool stays on for the result file alone, so a shell command to write it is not needed (and would be asked) */
@@ -313,6 +315,14 @@ export const AGY_DENY = ["--force", "--force-with-lease", "--force-if-includes",
  */
 const AGY_INPUT = /^\s*>(?:\s+Auto mode: .*)?\s*$/m;
 
+/**
+ * agy's terminal sandbox hides what lies outside the workspace and the --add-dir folders: a worktree's
+ * git data in the repository, and tools installed under the home folder (mise), the bun that runs the
+ * fleet command among them (agy 1.5.3; --add-dir does not reach the sandbox). The sandbox stays; the
+ * agent is told, so it neither retries nor asks to leave it, and says what it could not run.
+ */
+const AGY_SANDBOX_NOTE = "Your terminal runs in Antigravity CLI's sandbox, which hides the repository's git data and the tools installed under the home folder: git, the project's test runner and build, and the fleet command fail there. Do not look for ways around it or ask to run outside the sandbox. Read files with your file tools, work from the diff and the check output your caller gives you, and say in your HANDOFF which checks you could not run, so your caller runs them.";
+
 /** an agy model id that names its level, as all in its model list do */
 const AGY_MODEL_LEVEL = /-(?:low|medium|high|xhigh|max)$/;
 
@@ -332,12 +342,15 @@ export function agySettings(cwd: string): Record<string, unknown> {
  * - `agentMode: "auto"`: edits and safe commands go through, commands that leave the terminal
  *   sandbox are reviewed by a separate agent, irreversible ones are asked. `--mode auto` is decided
  *   before the sign-in is read and falls back to the default mode (agy 1.5.3); the setting is not.
- * - `enableTerminalSandbox`: auto mode needs it.
+ * - `enableTerminalSandbox`: commands run in agy's terminal sandbox, which hides git's data and the
+ *   person's tools (AGY_SANDBOX_NOTE). Auto mode is set without it as well (agy 1.5.3), but the
+ *   fleet keeps it: what agy may reach stays its workspace.
  * Checked against the real CLI by scripts/agy-live-check.ts.
  */
 export const agyAdapter: AgentAdapter = {
   kind: "agy",
   instructionsInPrompt: true,
+  note: AGY_SANDBOX_NOTE,
   models: { complete: true, list: listAgyModels },
   launchArgs(options) {
     const { model, thinking } = splitThinking(options.model, options.thinking);

@@ -860,6 +860,15 @@ describe("agent kinds", () => {
     expect(runtime.prompts).toEqual([]);
   });
 
+  it("tells an agent on agy that its sandboxed terminal runs no git, no project tool and no fleet command, and no other CLI's agent", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy" }), role("reviewer", { agent: "claude" })] });
+    runtime.output = "──\n>\n──\n? for shortcuts    auto · Gemini 4 Argon · medium";
+    await spawn(fleet);
+    expect(runtime.prompts[0]!.text).toContain("Your terminal runs in Antigravity CLI's sandbox");
+    await spawn(fleet, { role: "reviewer" });
+    expect(runtime.instructions.join("\n")).not.toContain("Antigravity CLI's sandbox");
+  });
+
   it("keeps the instructions for the first prompt a person sends after a block at startup", async () => {
     const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy" })] });
     runtime.output = "Do you trust the contents of this project?\n> Yes, I trust this folder";
