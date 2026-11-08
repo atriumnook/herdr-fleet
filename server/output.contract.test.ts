@@ -28,6 +28,8 @@ let server: LaunchedServer;
 const workspaces: string[] = [];
 const sockets: WebSocket[] = [];
 beforeAll(async () => {
+  mkdirSync(zshStartup);
+  writeFileSync(join(zshStartup, ".zshrc"), "");
   server = await launchServer({ env: { HERDR_FLEET_TOKEN: "" } });
 });
 afterAll(async () => {
@@ -65,19 +67,18 @@ async function until(check: () => boolean, label: string, timeout = 10_000): Pro
 }
 
 /**
- * The home the panes' shell starts from: the person's shell configuration is no input of these
- * tests, which type commands into the shell. A configuration may hold every new shell back before
- * it reads a key, past the tests' deadlines: zsh-abbr's job queue in /tmp makes each new zsh wait
- * up to 30 s for a shell that was closed while it started, as the panes the tests close are (#168).
- * The empty .zshrc keeps zsh from asking its new-user questions.
+ * Where the panes' zsh reads its startup files from (ZDOTDIR): these tests type commands into the
+ * shell, and the person's own zsh files are no input of them. Those may hold every new shell back
+ * before it reads a key, past the tests' deadlines: zsh-abbr's job queue in /tmp makes each new zsh
+ * wait up to 30 s for a shell that was closed while it started, as the panes the tests close are
+ * (#168). HOME stays the person's, for the programs the tests run. The empty .zshrc keeps zsh from
+ * asking its new-user questions.
  */
-const shellHome = join(root, "home");
-mkdirSync(shellHome);
-writeFileSync(join(shellHome, ".zshrc"), "");
+const zshStartup = join(root, "zsh");
 
 async function pane(): Promise<string> {
   const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
-    "workspace.create", { label: "herdr-fleet-test-output", cwd: root, focus: false, env: { HOME: shellHome, ZDOTDIR: shellHome } },
+    "workspace.create", { label: "herdr-fleet-test-output", cwd: root, focus: false, env: { ZDOTDIR: zshStartup } },
   );
   workspaces.push(created.workspace.workspace_id);
   return created.root_pane.pane_id;
