@@ -1,0 +1,68 @@
+{
+  "about": "server/conversation.test.ts: omp transcript records ends a turn at a background result the runtime delivers, so the answer before it stays the answer",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-01T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "run it in the background"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-10-01T00:00:01.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Started; here is the summary."
+              }
+            ],
+            "end_ts": "2026-10-01T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-10-01T00:05:00.000Z",
+            "parts": [
+              {
+                "kind": "notice",
+                "text": "Background job bg_1 has completed.\nPASS all"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-10-01T00:05:02.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "CI is green."
+              },
+              {
+                "kind": "text",
+                "text": "Still green."
+              }
+            ],
+            "end_ts": "2026-10-01T00:06:01.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

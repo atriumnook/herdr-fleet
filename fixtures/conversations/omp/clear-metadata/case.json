@@ -1,0 +1,21 @@
+{
+  "about": "server/chat-history.test.ts: metadata clears old context and ignores hidden assistant usage",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

@@ -1,0 +1,61 @@
+{
+  "about": "server/pi-tree.test.ts: pi's entry tree starts over when the file is rewritten or cut, so a stale tree cannot be read (the original counts the index's entries; the page shows what the cut file holds: no whole entry, so no branch)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "one"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "two"
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "rewrite": "session.jsonl",
+      "text": "{\"id\":\"s\",\"parentId\":null,\"timestamp\":\"2026-09-30T00:00:00.0"
+    },
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "session.jsonl",
+      "expected": {
+        "error": "ConversationUnavailable",
+        "reason": "branch_unreadable"
+      }
+    }
+  ]
+}

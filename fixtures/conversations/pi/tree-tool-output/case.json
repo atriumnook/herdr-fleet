@@ -1,0 +1,100 @@
+{
+  "about": "server/pi-tree.test.ts: pi's entry tree reads a tool's output along the branch, and never one a /tree left behind",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "list the files"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "bash",
+                "summary": "ls",
+                "input": "{\n  \"command\": \"ls\"\n}",
+                "output": "the first output, kept"
+              },
+              {
+                "kind": "text",
+                "text": "the answer in play"
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:00.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "what about the other folder"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "tool",
+                "name": "bash",
+                "summary": "ls",
+                "input": "{\n  \"command\": \"ls\"\n}",
+                "output": "the newest output"
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 2,
+          "branches": 1,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "toolOutput",
+      "source": "pi",
+      "path": "session.jsonl",
+      "ref": "call-1",
+      "expected": "the first output, kept"
+    },
+    {
+      "call": "toolOutput",
+      "source": "pi",
+      "path": "session.jsonl",
+      "ref": "call-3",
+      "expected": "the newest output"
+    },
+    {
+      "call": "toolOutput",
+      "source": "pi",
+      "path": "session.jsonl",
+      "ref": "call-2",
+      "expected": null
+    }
+  ]
+}

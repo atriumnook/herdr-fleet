@@ -1,0 +1,7 @@
+{"id":"s","parentId":null,"timestamp":"2026-09-30T00:00:00.000Z","type":"session","version":3,"cwd":"/work/project"}
+{"id":"u1","parentId":"MISSING","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"detached question"}]}}
+{"id":"a-detached","parentId":"u1","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"detached answer"}],"stopReason":"stop"}}
+{"id":"u2","parentId":"s","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"the question"}]}}
+{"id":"a-gone","parentId":"u2","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"the abandoned answer"}],"stopReason":"stop"}}
+{"id":"u3","parentId":"s","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"user","content":[{"type":"text","text":"the retried question"}]}}
+{"id":"a-live","parentId":"u3","timestamp":"2026-09-30T00:00:00.000Z","type":"message","message":{"role":"assistant","content":[{"type":"text","text":"the answer in play"}],"stopReason":"stop"}}

@@ -1,0 +1,1 @@
+{"type":"message","message":{"role":"assistant","model":"qwen-test","provider":"lwsa","usage":{"input":1,"output":2,"cacheRead":3,"cacheWrite":4}}}

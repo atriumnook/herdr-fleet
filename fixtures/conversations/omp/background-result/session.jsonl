@@ -1,0 +1,7 @@
+{"type":"message","timestamp":"2026-10-01T00:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"run it in the background"}]}}
+{"type":"message","timestamp":"2026-10-01T00:00:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Started; here is the summary."}]}}
+{"type":"custom_message","customType":"async-result","display":true,"timestamp":"2026-10-01T00:05:00.000Z","content":"<system-notice>\nBackground job bg_1 has completed.\nPASS all\n</system-notice>"}
+{"type":"message","timestamp":"2026-10-01T00:05:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"CI is green."}]}}
+{"type":"custom_message","customType":"async-result","display":false,"timestamp":"2026-10-01T00:06:00.000Z","content":"<system-notice>hidden</system-notice>"}
+{"type":"custom","customType":"workflow-intent-diff","data":{"route":"direct"}}
+{"type":"message","timestamp":"2026-10-01T00:06:01.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Still green."}]}}

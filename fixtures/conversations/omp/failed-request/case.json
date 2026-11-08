@@ -1,0 +1,43 @@
+{
+  "about": "server/conversation.test.ts: omp transcript records shows a failed request's error instead of an empty answer",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-25T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "hi"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-25T00:00:01.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "Error: 401 Authentication Failed"
+              }
+            ],
+            "end_ts": "2026-09-25T00:00:01.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

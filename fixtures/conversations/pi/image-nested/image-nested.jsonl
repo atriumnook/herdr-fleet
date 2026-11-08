@@ -1,0 +1,3 @@
+{"type":"session","version":3,"id":"image-nested","timestamp":"2026-09-30T00:00:00.000Z","cwd":"/work/project"}
+{"type":"message","id":"u1","parentId":null,"timestamp":"2026-09-30T00:00:02.000Z","message":{"role":"user","content":"what is in this screenshot?"}}
+{"type":"message","id":"a1","parentId":"u1","timestamp":"2026-09-30T00:00:03.000Z","message":{"role":"assistant","model":"qwen-test","provider":"test","stopReason":"toolUse","usage":{"input":10,"output":1},"content":[{"type":"toolCall","id":"c1","name":"read","arguments":{}},{"type":"toolResult","toolCallId":"c1","toolName":"read","content":[{"type":"image","mimeType":"image/png","data":"iVBORw0KGgo="}]}]}}

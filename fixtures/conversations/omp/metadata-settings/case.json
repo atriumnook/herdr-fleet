@@ -1,0 +1,37 @@
+{
+  "about": "server/conversation-metadata.test.ts: recorded conversation model settings updates independent omp/pi model and thinking settings, including off (the omp half)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "changes.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "second",
+          "reasoning_effort": "max"
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "off.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "actual-response-model",
+          "reasoning_effort": "off"
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "about": "server/conversation-metadata.test.ts: context use reads pi's usage shape, which names the same fields omp does (as pi writes them, each entry also has an id and the parentId of the entry before it, and ends with a newline: a pi page reads the branch of the entry tree, which leaves out entries without an id and a last line without a newline (a line pi is still writing), and the metadata parse reads neither field)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "usage.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 24522,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

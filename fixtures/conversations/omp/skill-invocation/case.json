@@ -1,0 +1,52 @@
+{
+  "about": "server/skill-activity.test.ts: an omp skill invocation reads as the request, with the skill on it",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-10-02T00:00:00Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "compare the three apps"
+              },
+              {
+                "kind": "skill",
+                "skill": {
+                  "name": "ulw-research",
+                  "path": "/home/u/.omp/skills/ulw-research/SKILL.md",
+                  "evidence": "instructions",
+                  "status": "loaded"
+                }
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-10-02T00:00:05Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "On it."
+              }
+            ],
+            "end_ts": "2026-10-02T00:00:05Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

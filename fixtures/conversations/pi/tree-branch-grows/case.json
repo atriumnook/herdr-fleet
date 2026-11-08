@@ -1,0 +1,84 @@
+{
+  "about": "server/pi-tree.test.ts: pi's entry tree keeps history_id stable while a branch only grows",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "question"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "append": "session.jsonl",
+      "text": "{\"id\":\"a1\",\"parentId\":\"u1\",\"timestamp\":\"2026-09-30T00:00:00.000Z\",\"type\":\"message\",\"message\":{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"answer\"}],\"stopReason\":\"stop\"}}\n"
+    },
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "question"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer"
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v2"
+      }
+    }
+  ]
+}

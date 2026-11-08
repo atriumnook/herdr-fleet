@@ -1,0 +1,21 @@
+{
+  "about": "server/chat-history.test.ts: only explicit complete reset records clear history; compaction and quoted commands do not (the omp record, read as a page after a prompt: it clears the prompt)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "omp",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "omp-transcript",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

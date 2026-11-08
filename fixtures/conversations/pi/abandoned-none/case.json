@@ -1,0 +1,48 @@
+{
+  "about": "server/pi-tree.test.ts: pi's abandoned paths finds nothing abandoned in a straight line, and says so rather than staying silent\nserver/pi-tree.test.ts: the abandoned count on the page says nothing for a session no /tree touched",
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "session.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "first"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-30T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer one"
+              }
+            ],
+            "end_ts": "2026-09-30T00:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

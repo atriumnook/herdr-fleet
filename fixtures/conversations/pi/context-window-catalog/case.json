@@ -1,0 +1,58 @@
+{
+  "about": "server/conversation-metadata.test.ts: context use draws pi's ring against the window its own catalog states, and not against a guess (the pi half; as pi writes them, each entry also has an id and the parentId of the entry before it, and ends with a newline: a pi page reads the branch of the entry tree, which leaves out entries without an id and a last line without a newline (a line pi is still writing), and the metadata parse reads neither field)",
+  "piContextWindows": {
+    "lwsa/qwen-test": 215000
+  },
+  "steps": [
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "answered.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 100000,
+            "window": 215000
+          }
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "pi",
+      "path": "changed.jsonl",
+      "expected": {
+        "source": "pi-transcript",
+        "turns": [],
+        "metadata": {
+          "model": "qwen-test",
+          "reasoning_effort": null,
+          "context": {
+            "used": 100000,
+            "window": null
+          }
+        },
+        "cursor": null,
+        "abandoned": {
+          "count": 0,
+          "branches": 0,
+          "summary": null
+        },
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    }
+  ]
+}

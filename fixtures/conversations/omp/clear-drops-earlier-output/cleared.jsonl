@@ -1,0 +1,3 @@
+{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","id":"old","name":"Read","arguments":{}}]}}
+{"type":"message","message":{"role":"toolResult","content":"old output","toolCallId":"old"}}
+{"type":"custom","customType":"context_clear"}

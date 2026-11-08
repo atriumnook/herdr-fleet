@@ -1,0 +1,1 @@
+{"type":"message","message":{"role":"assistant","content":[{"type":"toolCall","id":"c","name":"read","arguments":{"file_path":"/tmp/x"}}]}}
