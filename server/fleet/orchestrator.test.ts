@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { DEFAULT_CONFIG, mergeConfig } from "./config.ts";
 import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES, type LandingTools } from "./orchestrator.ts";
 import type { FleetEvent } from "./events.ts";
+import { Outbox } from "./outbox.ts";
 import { RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, type AgentMetadata, type AgentRuntime, type CreateLocationOptions, type RuntimeLocation, type StartOptions } from "./runtime.ts";
 import type { AgentDefinition, AgentRun, AgentState, FleetConfig } from "./types.ts";
@@ -100,6 +101,10 @@ function setup(options: SetupOptions = {}) {
   });
   return { fleet, runtime, registry, root, config };
 }
+
+/** the news about `run` its coordinator has not been given yet, read from the outbox's file */
+const noticeOf = (registry: RunRegistry, run: AgentRun) => new Outbox(join(dirname(registry.filePath!), "fleet-outbox.json"))
+  .pending((notice) => notice.about === run.id && notice.slot === "news").at(-1)?.text;
 
 const spawn = (fleet: Orchestrator, extra: Record<string, unknown> = {}) => fleet.spawn({ role: "worker", task: "do it", group: "g1", cwd: "/work", ...extra });
 /** what an agent writes as its turn's report: report.json beside its handoff */
@@ -1424,6 +1429,320 @@ describe("a thread outlives its lead run", () => {
     expect(registry.get(other.id)!.plan!.closedAt).toBeUndefined();
   });
 
+  it("hands Merge into main the coordinator has not heard yet to it once, though the thread started again meanwhile", async () => {
+    const { fleet, runtime, registry, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main" } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    // the person talks with the coordinator: the merge waits, and the lead's next turn fails meanwhile
+    await turn(coordinator, "working");
+    await fleet.land(first.id, "merge");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    runtime.output = "API Error: 529 overloaded";
+    await turn(first, "idle");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(next.landing).toMatchObject({ action: "merge", sent: false });
+    runtime.output = "agent output";
+    await turn(coordinator, "idle");
+    expect(promptsTo(coordinator)).toEqual(["go", [
+      "[fleet] The person pressed these on the Fleet screen. Each is the person's approval for that step only.",
+      `- Merge into main for thread "Fix" (${first.id}, fleet/${first.id}): when this checkout is clean and on main, git merge --no-ff fleet/${first.id}. On a conflict, git merge --abort and tell the person.`,
+    ].join("\n")]);
+    expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge", sent: true });
+    await turn(coordinator, "idle");
+    expect(promptsTo(coordinator)).toHaveLength(2);
+  });
+
+  it("hands Merge into main to the coordinator once after the server restarts, though the thread started again before", async () => {
+    const { fleet, runtime, registry, root, states, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main" } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    await turn(coordinator, "working");
+    await fleet.land(first.id, "merge");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    runtime.output = "API Error: 529 overloaded";
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeDefined();
+    runtime.output = "agent output";
+    fleet.stop();
+    const restarted = new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG,
+      agents: () => [lead, role("coordinator", { agent: "claude", interactive: true, spawning: true })], fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+      landing: { gitBranch: async () => "main" },
+    });
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await until(() => promptsTo(coordinator).length === 2, "the merge after the restart");
+    expect(promptsTo(coordinator)[1]).toBe([
+      "[fleet] The person pressed these on the Fleet screen. Each is the person's approval for that step only.",
+      `- Merge into main for thread "Fix" (${first.id}, fleet/${first.id}): when this checkout is clean and on main, git merge --no-ff fleet/${first.id}. On a conflict, git merge --abort and tell the person.`,
+    ].join("\n"));
+    restarted.stop();
+  });
+
+  it("marks Merge into main sent on the new lead when the thread started again while the coordinator was being told", async () => {
+    const { fleet, runtime, registry, root, states, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main" } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    // the merge is being typed into the coordinator while the lead's next turn fails and the thread starts again
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    let typing = false;
+    runtime.promptImpl = async (name, text) => {
+      runtime.prompts.push({ name, text });
+      if (name === coordinator.herdrName && text.includes("Merge into main")) { typing = true; await gate; }
+      return "working";
+    };
+    const merging = fleet.land(first.id, "merge");
+    await until(() => typing, "the merge being typed");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    runtime.output = "API Error: 529 overloaded";
+    await turn(first, "idle");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    release();
+    await merging;
+    expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge", sent: true });
+    // the server restarts: the merge went out, and does not go again
+    runtime.output = "agent output";
+    runtime.promptImpl = undefined;
+    fleet.stop();
+    const restarted = new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG,
+      agents: () => [lead, role("coordinator", { agent: "claude", interactive: true, spawning: true })], fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+      landing: { gitBranch: async () => "main" },
+    });
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await Bun.sleep(50);
+    expect(promptsTo(coordinator).filter((text) => text.includes("Merge into main"))).toHaveLength(1);
+    restarted.stop();
+  });
+
+  it("hands Merge into main pressed while the thread starts again to the new lead once it holds the thread", async () => {
+    const { fleet, runtime, registry, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main" } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    await turn(coordinator, "working");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    // the lead's turn fails, and the person presses Merge while its new lead starts
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    let starting = false;
+    runtime.startImpl = async (options) => { if (options.kind === "codex") { starting = true; await gate; } return "idle"; };
+    runtime.output = "API Error: 529 overloaded";
+    const failing = turn(first, "idle");
+    await until(() => starting, "the new lead starting");
+    let pressed = false;
+    const merging = fleet.land(first.id, "merge").then((run) => { pressed = true; return run; });
+    await Bun.sleep(20);
+    expect(pressed).toBe(false);
+    release();
+    await failing;
+    const run = await merging;
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(run.id).toBe(next.id);
+    expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge", sent: false });
+    expect(registry.get(first.id)!.landing).toBeUndefined();
+    runtime.output = "agent output";
+    await turn(coordinator, "idle");
+    expect(promptsTo(coordinator).filter((text) => text.includes("Merge into main"))).toHaveLength(1);
+    expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge", sent: true });
+  });
+
+  it("starts the thread again only once a Merge into main pressed before has its branch read, so the new lead holds it", async () => {
+    let readBranch = () => {};
+    const branchRead = new Promise<void>((resolveRead) => { readBranch = resolveRead; });
+    let holdBranch = false;
+    let reading = false;
+    const { fleet, runtime, registry, turn, report, promptsTo } = thread({ landing: {
+      gitBranch: async () => { if (!holdBranch) return null; reading = true; await branchRead; return "main"; },
+    } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    await turn(coordinator, "working");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    // the person presses Merge, and the lead's turn fails while the branch is read
+    holdBranch = true;
+    const merging = fleet.land(first.id, "merge");
+    await until(() => reading, "the base branch being read");
+    runtime.output = "API Error: 529 overloaded";
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+    holdBranch = false;
+    readBranch();
+    await merging;
+    await until(() => registry.get(first.id)!.replacedBy !== undefined, "the new lead");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(next.landing).toMatchObject({ action: "merge", sent: false });
+    // pressed again, on the lead that holds the thread: the newer step replaces it
+    registry.upsert({ ...registry.get(next.id)!, pr: { number: 7, url: "https://github.com/o/r/pull/7", state: "OPEN", checks: "pass" } });
+    await fleet.land(first.id, "merge-pr");
+    runtime.output = "agent output";
+    await turn(coordinator, "idle");
+    const steps = promptsTo(coordinator).slice(1);
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toContain("gh pr merge 7 --merge");
+    expect(steps[0]).not.toContain("Merge into main");
+  });
+
+  it("puts a step pressed on the new lead while it starts after the merge the old run handed it", async () => {
+    const { fleet, runtime, registry, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main" } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    registry.upsert({ ...registry.get(first.id)!, pr: { number: 7, url: "https://github.com/o/r/pull/7", state: "OPEN", checks: "pass" } });
+    await turn(coordinator, "working");
+    await fleet.land(first.id, "merge");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    let starting = false;
+    runtime.startImpl = async (options) => { if (options.kind === "codex") { starting = true; await gate; } return "idle"; };
+    runtime.output = "API Error: 529 overloaded";
+    const failing = turn(first, "idle");
+    await until(() => starting, "the new lead starting");
+    // the new lead is listed while it starts, and the person presses Merge PR on it
+    const next = registry.all().find((run) => run.thread === first.id && run.id !== first.id)!;
+    const pressing = fleet.land(next.id, "merge-pr");
+    release();
+    await failing;
+    await pressing;
+    expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge-pr", sent: false });
+    runtime.output = "agent output";
+    await turn(coordinator, "idle");
+    const steps = promptsTo(coordinator).slice(1);
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toContain("gh pr merge 7 --merge");
+    expect(steps[0]).not.toContain("Merge into main");
+  });
+
+  it("discards the thread on its new lead when Discard was pressed while it started again, and hands on no merge", async () => {
+    const { fleet, runtime, registry, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main", removeThread: async () => undefined } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    await turn(coordinator, "working");
+    await fleet.land(first.id, "merge");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    let starting = false;
+    runtime.startImpl = async (options) => { if (options.kind === "codex") { starting = true; await gate; } return "idle"; };
+    runtime.output = "API Error: 529 overloaded";
+    const failing = turn(first, "idle");
+    await until(() => starting, "the new lead starting");
+    const discarding = fleet.land(first.id, "discard");
+    release();
+    await failing;
+    await discarding;
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(registry.get(next.id)).toMatchObject({ landed: "discarded", state: "stopped" });
+    runtime.output = "agent output";
+    await turn(coordinator, "idle");
+    expect(promptsTo(coordinator).filter((text) => text.includes("Merge into main"))).toHaveLength(0);
+  });
+
+  it("hands a step pressed during a second restart of the thread to the lead that restart starts", async () => {
+    const { fleet, runtime, registry, turn, report, promptsTo } = thread({ agents: [role("lead", { agent: "claude", fallbackModels: ["codex:", "pi:"], interactive: true, spawning: true }), role("coordinator", { agent: "claude", interactive: true, spawning: true })], landing: { gitBranch: async () => "main" } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    await turn(coordinator, "working");
+    // the first restart is still closing the old pane when the new lead's first turn fails too
+    let close = () => {};
+    const closing = new Promise<void>((resolveClose) => { close = resolveClose; });
+    let start = () => {};
+    const starting = new Promise<void>((resolveStart) => { start = resolveStart; });
+    let closed = false;
+    let started = false;
+    runtime.closePane = async (id) => { runtime.closed.push(id); if (id === first.paneId) { closed = true; await closing; } };
+    runtime.startImpl = async (options) => { if (options.kind === "pi") { started = true; await starting; } return "idle"; };
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    runtime.output = "API Error: 529 overloaded";
+    const firstFailing = turn(first, "idle");
+    await until(() => closed, "the first restart closing the old pane");
+    const second = registry.get(registry.get(first.id)!.replacedBy!)!;
+    runtime.output = "■ stream disconnected before completion";
+    const secondFailing = turn(second, "idle");
+    close();
+    await firstFailing;
+    await until(() => started, "the third lead starting");
+    let pressed = false;
+    const merging = fleet.land(second.id, "merge").then((run) => { pressed = true; return run; });
+    await Bun.sleep(20);
+    expect(pressed).toBe(false);
+    start();
+    await secondFailing;
+    const run = await merging;
+    const third = registry.get(registry.get(second.id)!.replacedBy!)!;
+    expect(run.id).toBe(third.id);
+    expect(third.landing).toMatchObject({ action: "merge", sent: false });
+    runtime.output = "agent output";
+    await turn(coordinator, "idle");
+    expect(promptsTo(coordinator).filter((text) => text.includes("Merge into main"))).toHaveLength(1);
+  });
+
+  it("reads the branch for a step pressed on the starting new lead only once it holds the thread", async () => {
+    let reading = false;
+    // no branch recorded on the thread: a step reads it
+    const { fleet, runtime, registry, turn, report } = thread({ landing: { gitBranch: async () => { reading = true; return null; } } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    await turn(coordinator, "working");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    let starting = false;
+    runtime.startImpl = async (options) => { if (options.kind === "codex") { starting = true; await gate; } return "idle"; };
+    runtime.output = "API Error: 529 overloaded";
+    const failing = turn(first, "idle");
+    await until(() => starting, "the new lead starting");
+    const next = registry.all().find((run) => run.thread === first.id && run.id !== first.id)!;
+    reading = false;
+    const merging = fleet.land(next.id, "merge");
+    await Bun.sleep(20);
+    expect(reading).toBe(false);
+    release();
+    await failing;
+    await merging;
+    expect(reading).toBe(true);
+    expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge", sent: false });
+  });
+
   it("tells the coordinator of a project run without the person nothing of a restart, and the replacement's turn as usual", async () => {
     const { fleet, registry, turn, report, promptsTo } = thread({ config: { autonomous: true } });
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
@@ -1431,7 +1750,7 @@ describe("a thread outlives its lead run", () => {
     const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
     await turn(first, "idle");
     const next = registry.get(registry.get(first.id)!.replacedBy!)!;
-    expect(registry.get(first.id)!.notice).toBeUndefined();
+    expect(noticeOf(registry, first)).toBeUndefined();
     await turn(coordinator, "idle");
     expect(promptsTo(coordinator)).toEqual(["go"]);
     expect(next.owner).toBe(coordinator.id);
@@ -1528,7 +1847,7 @@ describe("thread questions", () => {
     ask(thread, "Keep the old retry API?", text);
     await turn(thread, "idle");
     expect(toCoordinator(coordinator)).toEqual(["fix the retry", [HEADER, asks(thread, "Keep the old retry API?", text)].join("\n")]);
-    expect(registry.get(thread.id)!.notice).toBeUndefined();
+    expect(noticeOf(registry, thread)).toBeUndefined();
   });
 
   it("are only questions: a ready or failed report, no report, a failure and a wait on the screen go to the thread list and push notifications", async () => {
@@ -1552,7 +1871,7 @@ describe("thread questions", () => {
     states.set(coordinator.herdrName, "idle");
     await turn(coordinator, "idle");
     expect(toCoordinator(coordinator)).toEqual(["go"]);
-    for (const run of [done, issues, silent, screen, ended]) expect(registry.get(run.id)!.notice).toBeUndefined();
+    for (const run of [done, issues, silent, screen, ended]) expect(noticeOf(registry, run)).toBeUndefined();
   });
 
   it("wait while the coordinator works, its own turn or the person's, and then go out together", async () => {
@@ -1566,7 +1885,7 @@ describe("thread questions", () => {
     await turn(second, "idle");
     // the fleet's own turn is still running
     expect(toCoordinator(coordinator)).toEqual(["two things"]);
-    expect(registry.get(first.id)!.notice).toContain("Which log format?");
+    expect(noticeOf(registry, first)).toContain("Which log format?");
     await turn(coordinator, "idle");
     expect(toCoordinator(coordinator)[1]).toBe([HEADER, asks(first, "Which log format?"), asks(second, "May the old flag go?")].join("\n"));
     await turn(coordinator, "idle");
@@ -1613,7 +1932,7 @@ describe("thread questions", () => {
     const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
     ask(thread, "Which one?", `Which one?\n${"x".repeat(5000)}`);
     await turn(thread, "idle");
-    const notice = registry.get(thread.id)!.notice!;
+    const notice = noticeOf(registry, thread)!;
     expect(notice).toEndWith("[cut at 4000 characters]");
     expect(notice.length).toBeLessThan(4200);
   });
@@ -1626,12 +1945,12 @@ describe("thread questions", () => {
     fleet.onPaneEnded(coordinator.paneId);
     ask(thread, "Which one?");
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.notice).toContain("Which one?");
+    expect(noticeOf(registry, thread)).toContain("Which one?");
     const next = await fleet.startProject({ task: "and now?", cwd: "/repo" });
     expect(toCoordinator(next)).toEqual(["and now?"]);
     await turn(next, "idle");
     expect(toCoordinator(next)[1]).toBe([HEADER, asks(thread, "Which one?")].join("\n"));
-    expect(registry.get(thread.id)!.notice).toBeUndefined();
+    expect(noticeOf(registry, thread)).toBeUndefined();
   });
 
   it("are kept across a restart", async () => {
@@ -1641,9 +1960,56 @@ describe("thread questions", () => {
     ask(thread, "Which one?");
     await turn(thread, "idle");
     fleet.stop();
-    const reloaded = new RunRegistry(join(root, "runs.json"));
-    expect(reloaded.get(thread.id)!.notice).toBe(registry.get(thread.id)!.notice);
-    expect(reloaded.get(thread.id)!.notice).toContain("asks the person");
+    expect(noticeOf(registry, thread)).toContain("asks the person");
+    expect(new RunRegistry(join(root, "runs.json")).get(thread.id)!.notice).toBeUndefined();
+  });
+
+  it("typed into a coordinator that then waits on an approval screen went out, and are not sent again", async () => {
+    const { fleet, runtime, turn, toCoordinator, ask } = project();
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    runtime.promptStatus = "blocked";
+    ask(thread, "Which one?");
+    await turn(thread, "idle");
+    expect(toCoordinator(coordinator)).toEqual(["go", [HEADER, asks(thread, "Which one?")].join("\n")]);
+    runtime.promptStatus = "working";
+    await turn(coordinator, "blocked");
+    await turn(coordinator, "idle");
+    expect(toCoordinator(coordinator)).toHaveLength(2);
+  });
+
+  it("written while the coordinator works reach it once after a restart, in the order they were written, and never again", async () => {
+    const { fleet, runtime, states, root, turn, toCoordinator, ask } = project();
+    const coordinator = await fleet.startProject({ task: "two things", cwd: "/repo" });
+    // started first, asks second: the order is the questions', not the threads'
+    const later = await fleet.startThread({ title: "Two", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const sooner = await fleet.startThread({ title: "One", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    ask(sooner, "Which log format?");
+    await turn(sooner, "idle");
+    ask(later, "May the old flag go?");
+    await turn(later, "idle");
+    expect(toCoordinator(coordinator)).toEqual(["two things"]);
+    fleet.stop();
+    const restart = () => new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG, agents: () => agents, fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+    });
+    const restarted = restart();
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await until(() => toCoordinator(coordinator).length === 2, "the questions after the restart");
+    expect(toCoordinator(coordinator)[1]).toBe([HEADER, asks(sooner, "Which log format?"), asks(later, "May the old flag go?")].join("\n"));
+    // its turn ends, and the server restarts again: nothing is sent twice
+    await Bun.sleep(GRACE + 5);
+    restarted.onPaneStatus(coordinator.paneId);
+    await Bun.sleep(30);
+    restarted.stop();
+    const again = restart();
+    await again.reconcileAll();
+    await Bun.sleep(30);
+    expect(toCoordinator(coordinator)).toHaveLength(2);
+    again.stop();
   });
 });
 
@@ -1714,7 +2080,7 @@ describe("a project run without the person", () => {
       `- "${done.name}" (${done.id}, fleet/${done.id}) ended its turn: ready — cargo test: 40 pass\n  Contract: A1 ✓ A2 ✗`,
       `- "${issues.name}" (${issues.id}, fleet/${issues.id}) ended its turn: failed — 2 cases fail`,
     ].join("\n"));
-    for (const run of [done, issues]) expect(registry.get(run.id)!.notice).toBeUndefined();
+    for (const run of [done, issues]) expect(noticeOf(registry, run)).toBeUndefined();
   });
 
   it("closes a thread whose pull request was merged on GitHub as the lead's turn ends, and says so", async () => {
@@ -2083,6 +2449,134 @@ describe("landing", () => {
     await expect(fleet.land(thread.id, "merge")).rejects.toMatchObject({ code: "thread_landed" });
   });
 
+  it("keep Merge into main for the coordinator across a restart, and drop it once the person threw the thread away", async () => {
+    const { fleet, runtime, root, turn, to, ready, states } = project();
+    const { coordinator, thread } = await ready();
+    const other = await fleet.startThread({ title: "Other", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(coordinator, "working");
+    await fleet.land(thread.id, "merge");
+    await fleet.land(other.id, "merge");
+    fleet.stop();
+    const restarted = new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG, agents: () => agents, fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+      landing: { gitBranch: async () => "main", removeThread: async () => undefined },
+    });
+    await restarted.land(other.id, "discard");
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await until(() => to(coordinator).length === 2, "the merge after the restart");
+    expect(to(coordinator)[1]).toContain(`Merge into main for thread "Fix" (${thread.id}`);
+    expect(to(coordinator)[1]).not.toContain(other.id);
+    await until(() => new RunRegistry(join(root, "runs.json")).get(thread.id)!.landing?.sent === true, "the merge marked sent");
+    expect(new RunRegistry(join(root, "runs.json")).get(thread.id)!.landing).toMatchObject({ action: "merge" });
+    restarted.stop();
+  });
+
+  it("leave out a merge the person threw away while the coordinator was being read", async () => {
+    const { fleet, runtime, turn, to, ready } = project();
+    const { coordinator, thread } = await ready();
+    await turn(coordinator, "working");
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    runtime.getImpl = async (name) => { if (name === coordinator.herdrName) await gate; return "idle"; };
+    const merging = fleet.land(thread.id, "merge");
+    await Bun.sleep(10);
+    await fleet.land(thread.id, "discard");
+    release();
+    await merging;
+    await Bun.sleep(30);
+    expect(to(coordinator)).toEqual(["fix the retry"]);
+  });
+
+  it("send a merge marked sent once, though the server stopped before it left the outbox", async () => {
+    const { fleet, runtime, root, turn, to, ready, states } = project();
+    const { coordinator, thread } = await ready();
+    await turn(coordinator, "working");
+    await fleet.land(thread.id, "merge");
+    const queued = readFileSync(join(root, "fleet-outbox.json"), "utf8");
+    await turn(coordinator, "idle");
+    expect(to(coordinator)).toHaveLength(2);
+    fleet.stop();
+    // the outbox as it stood when the server stopped: the step marked sent in the registry, still in the file
+    writeFileSync(join(root, "fleet-outbox.json"), queued);
+    const restarted = new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG, agents: () => agents, fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+    });
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await Bun.sleep(30);
+    expect(to(coordinator)).toHaveLength(2);
+    restarted.stop();
+  });
+
+  it("hand on merge steps a run saved before the outbox kept in the order pressed, onto the branch each thread recorded", async () => {
+    const { fleet, runtime, root, turn, to, ready, states } = project();
+    const { coordinator, thread: first } = await ready();
+    const second = await fleet.startThread({ title: "Second", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(coordinator, "working");
+    fleet.stop();
+    // pressed on the second thread first; both started from release, while the checkout is on main
+    const pressed: Record<string, number> = { [first.id]: 20, [second.id]: 10 };
+    const runs = (JSON.parse(readFileSync(join(root, "runs.json"), "utf8")) as AgentRun[])
+      .map((run) => pressed[run.id] ? { ...run, baseBranch: "release", landing: { action: "merge", at: pressed[run.id], sent: false } } : run);
+    writeFileSync(join(root, "runs.json"), JSON.stringify(runs));
+    const restarted = new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG, agents: () => agents, fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+      landing: { gitBranch: async () => "main" },
+    });
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await until(() => to(coordinator).length === 2, "the saved merges after the restart");
+    const steps = to(coordinator)[1]!.split("\n").slice(1);
+    expect(steps).toEqual([
+      `- Merge into release for thread "Second" (${second.id}, ${second.branch}): when this checkout is clean and on release, git merge --no-ff ${second.branch}. On a conflict, git merge --abort and tell the person.`,
+      `- Merge into release for thread "Fix" (${first.id}, ${first.branch}): when this checkout is clean and on release, git merge --no-ff ${first.branch}. On a conflict, git merge --abort and tell the person.`,
+    ]);
+    restarted.stop();
+  });
+
+  it("hand on a merge step and a question a run saved before the outbox kept, once, and drop news about a run no longer kept", async () => {
+    const { fleet, runtime, root, turn, to, ready, states } = project();
+    const { coordinator, thread } = await ready();
+    const gone = await fleet.startThread({ title: "Gone", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(coordinator, "working");
+    writeFileSync(join(root, "results", gone.id, "handoff.md"), "BLOCKED — still there?");
+    await turn(gone, "idle");
+    fleet.stop();
+    // the registry as the fleet wrote it before: the news and an unsent merge on the thread; the other thread gone
+    const runs = (JSON.parse(readFileSync(join(root, "runs.json"), "utf8")) as AgentRun[]).filter((run) => run.id !== gone.id)
+      .map((run) => run.id === thread.id ? { ...run, notice: "an old question", landing: { action: "merge", at: 1, sent: false } } : run);
+    writeFileSync(join(root, "runs.json"), JSON.stringify(runs));
+    const restart = () => new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG, agents: () => agents, fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+    });
+    const restarted = restart();
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await until(() => to(coordinator).length === 2, "the kept notices after the restart");
+    expect(to(coordinator)[1]).toBe([
+      "[fleet] Threads ask the person. These come from the fleet, not from the person.",
+      "- an old question",
+      "[fleet] The person pressed these on the Fleet screen. Each is the person's approval for that step only.",
+      `- Merge into main for thread "Fix" (${thread.id}, ${thread.branch}): when this checkout is clean and on main, git merge --no-ff ${thread.branch}. On a conflict, git merge --abort and tell the person.`,
+    ].join("\n"));
+    expect(to(coordinator)[1]).not.toContain("still there?");
+    expect(new RunRegistry(join(root, "runs.json")).get(thread.id)!.notice).toBeUndefined();
+    await Bun.sleep(GRACE + 5);
+    restarted.onPaneStatus(coordinator.paneId);
+    await Bun.sleep(30);
+    restarted.stop();
+    const again = restart();
+    await again.reconcileAll();
+    await Bun.sleep(30);
+    expect(to(coordinator)).toHaveLength(2);
+    again.stop();
+  });
+
   it("say what git kept, and that a merge did not happen", async () => {
     const { fleet, registry, turn, ready, git } = project();
     const { coordinator, thread } = await ready();
@@ -2292,9 +2786,9 @@ describe("plans", () => {
     fleet.submitPlan(thread.id, PLAN);
     writeReport(root, thread.id, "blocked", "The plan waits for the person.", "Answer the plan in the Plan tab.");
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.notice).toContain("Plan tab");
+    expect(noticeOf(registry, thread)).toContain("Plan tab");
     await fleet.answerPlan(thread.id, { version: 1 });
-    expect(registry.get(thread.id)!.notice).toBeUndefined();
+    expect(noticeOf(registry, thread)).toBeUndefined();
     await turn(coordinator, "idle");
     expect(to(coordinator)).toEqual(["go"]);
     fleet.stop();
@@ -2621,13 +3115,20 @@ describe("merge authority", () => {
     expect(to(coordinator).at(-1)).toContain((firstThread === thread ? other : thread).id);
   });
 
-  it("mark a merge handed before the message goes, so a merge seen while it is typed is the coordinator's", async () => {
-    const { registry, runtime, turn, reviewed } = project();
+  it("record a merge the polling sees on GitHub while its message is being typed as the coordinator's", async () => {
+    const { fleet, registry, runtime, events, git, turn, reviewed } = project();
     const { coordinator, thread } = await reviewed();
-    const seen: unknown[] = [];
-    runtime.promptImpl = async (name) => { if (name === coordinator.herdrName) seen.push(registry.get(thread.id)!.landing?.sent); return "working"; };
+    runtime.promptImpl = async (name) => {
+      if (name !== coordinator.herdrName) return "working";
+      // the coordinator merges before herdr answers the prompt, and the polling sees it
+      git.pr = { ...PR, state: "MERGED", mergeCommit: "abc0001" };
+      await fleet.refreshPullRequests();
+      return "working";
+    };
     await turn(thread, "idle");
-    expect(seen).toEqual([true]);
+    await until(() => registry.get(thread.id)!.merged !== undefined, "the merge is recorded");
+    expect(registry.get(thread.id)!.merged).toMatchObject({ by: "gate" });
+    expect(events.filter((event) => event.kind === "merge").map((event) => event.kind === "merge" && event.by)).toEqual(["gate"]);
   });
 
   it("record a merge, and revert it, on the branch the pull request was merged into", async () => {
