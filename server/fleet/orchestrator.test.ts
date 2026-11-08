@@ -239,17 +239,33 @@ describe("spawn", () => {
 });
 
 describe("turns", () => {
-  it("settles a turn when herdr reports it finished, hands the output to the waiter, and closes a non-interactive pane", async () => {
-    const { fleet, runtime } = setup();
+  it("settles a turn when herdr reports it finished, hands the output to the waiter, and closes a non-interactive pane that wrote its handoff", async () => {
+    const { fleet, runtime, root } = setup();
     const run = await spawn(fleet);
     const waiting = fleet.wait(run.id, 2000, "g1");
+    writeFileSync(join(root, "results", run.id, "handoff.md"), "PASS — done");
     runtime.getStatus = "done";
     runtime.output = "work\nHANDOFF: done";
     fleet.onPaneStatus(run.paneId);
     const settled = await waiting;
-    expect(settled).toMatchObject({ state: "done", lastOutput: "work\nHANDOFF: done" });
+    expect(settled).toMatchObject({ state: "done", lastOutput: "work\nHANDOFF: done", result: "PASS — done" });
     await until(() => fleet.get(run.id).state === "stopped", "pane closed");
     expect(runtime.closed).toEqual([run.paneId]);
+  });
+
+  it("keeps the pane of a non-interactive turn that ended without its handoff, so what stopped it can be seen and the run sent on", async () => {
+    // a question the adapter does not know (agy's file access screen before it did) reads as a finished turn
+    const { fleet, runtime } = setup();
+    const run = await spawn(fleet);
+    const waiting = fleet.wait(run.id, 2000, "g1");
+    runtime.getStatus = "done";
+    runtime.output = "Allow access to this file?";
+    fleet.onPaneStatus(run.paneId);
+    expect(await waiting).toMatchObject({ state: "done", lastOutput: "Allow access to this file?" });
+    expect((await waiting).result).toBeUndefined();
+    await Bun.sleep(20);
+    expect(runtime.closed).toEqual([]);
+    expect(fleet.get(run.id).state).toBe("done");
   });
 
   it("keeps an interactive agent's pane, and every pane when closeOnSettle is off", async () => {
@@ -606,9 +622,11 @@ describe("usage routing", () => {
     const PAGER = "Usage · Pro    Resets Oct 23\nIncluded        12% used        ███░░░";
 
     async function settleCursorTurn(usage: UsageTracker, pagerAfterPrompt = true, interactive = false) {
-      const { fleet, runtime } = setup({ agents: [role("worker", { agent: "cursor", interactive })], usage });
+      const { fleet, runtime, root } = setup({ agents: [role("worker", { agent: "cursor", interactive })], usage });
       runtime.output = INPUT;
       const run = await spawn(fleet);
+      // a turn that wrote its handoff: only such a turn's pane closes on settle
+      writeFileSync(join(root, "results", run.id, "handoff.md"), "PASS — done");
       runtime.promptImpl = async (name, text) => {
         runtime.prompts.push({ name, text });
         if (text === "/usage") {
@@ -840,6 +858,15 @@ describe("agent kinds", () => {
     const run = await spawn(fleet);
     expect(run.lastError).toContain("not ready for prompts");
     expect(runtime.prompts).toEqual([]);
+  });
+
+  it("tells an agent on agy that its sandboxed terminal runs no git, no project tool and no fleet command, and no other CLI's agent", async () => {
+    const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy" }), role("reviewer", { agent: "claude" })] });
+    runtime.output = "──\n>\n──\n? for shortcuts    auto · Gemini 4 Argon · medium";
+    await spawn(fleet);
+    expect(runtime.prompts[0]!.text).toContain("Your terminal runs in Antigravity CLI's sandbox");
+    await spawn(fleet, { role: "reviewer" });
+    expect(runtime.instructions.join("\n")).not.toContain("Antigravity CLI's sandbox");
   });
 
   it("keeps the instructions for the first prompt a person sends after a block at startup", async () => {

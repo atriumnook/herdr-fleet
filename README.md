@@ -106,7 +106,7 @@ Fleet 画面のサイドバーの Fleet settings で、fleet の設定を変え�
 - Roles: 役割ごとに、CLI とモデルの候補を試す順に並べます。thinking の段階も役割ごとに選べます。今の使用量でどの候補が起動するかと、候補を飛ばす理由を出します。ファイルを編集しない役割(coordinator と architect)には、編集を止められる CLI(今は claude と pi)だけを選べます。プロジェクトの `.herdr-fleet/fleet.json` がその役割を設定しているときは、そのプロジェクトではそちらの候補で起動することを示します。Reset to default を押すと、役割の定義ファイルの候補に戻ります
 - Usage: 候補を飛ばす使用率(`maxUsedPercent`)と、クールダウンの長さ(`rateLimitCooldownMinutes`)
 - Projects: プロジェクトごとの準備のコマンド(下の「スレッド」)
-- Limits: 同時に起動・作業するエージェントの数(`maxConcurrent`)と、手伝いのペインをターンの終わりに閉じるか(`closeOnSettle`)
+- Limits: 同時に起動・作業するエージェントの数(`maxConcurrent`)と、手伝いのペインをターンの終わりに閉じるか(`closeOnSettle`。HANDOFF を書かずに終わったターンのペインは、何で止まったかを見て続きを送れるように、閉じずに残す)
 - Entrances: ペインの会話から頼むためのスキルを置くか(下の「ペインの会話から頼む」)。これだけは fleet.json ではなく、各 CLI のスキルのフォルダに書きます
 
 ## 使用量と振り分け

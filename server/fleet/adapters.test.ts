@@ -144,8 +144,8 @@ describe("cursor usage", () => {
 describe("agy adapter", () => {
   const agy = adapterFor("agy");
 
-  it("takes the model and effort, with instructions in the first prompt", () => {
-    expect(agy.launchArgs({ ...base, model: "gemini-3.8-pro", thinking: "xhigh" }).slice(0, 6)).toEqual(["--model", "gemini-3.8-pro", "--effort", "high", "--add-dir", "/state/results/r1"]);
+  it("takes the model and effort, with instructions in the first prompt, and every run's results folder (a reviewer reads its lead's)", () => {
+    expect(agy.launchArgs({ ...base, model: "gemini-3.8-pro", thinking: "xhigh" }).slice(0, 6)).toEqual(["--model", "gemini-3.8-pro", "--effort", "high", "--add-dir", "/state/results"]);
     expect(agy.instructionsInPrompt).toBe(true);
   });
 

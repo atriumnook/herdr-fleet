@@ -1,0 +1,6 @@
+{
+  "about": "agy 1.5.3 in auto mode asks before it reads a file outside its workspace and the folders given with --add-dir, and herdr reports the screen as done: a question, not a finished turn (read through herdr as the fleet reads it, from the logo down; captured with gemini-3.8-flash-low)",
+  "adapter": "agy",
+  "check": "question",
+  "expected": "Antigravity CLI asks to read a file outside its workspace."
+}
