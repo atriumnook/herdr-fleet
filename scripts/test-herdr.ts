@@ -8,7 +8,7 @@
  * HERDR_TEST_LIVE=1 keeps the old behaviour: tests use HERDR_SOCKET, else the default
  * session. Without a herdr binary nothing changes, so CI runs as before.
  */
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ping, sessionSnapshot, workspaceCreate } from "../server/herdr/client.ts";
@@ -19,6 +19,20 @@ export const TEST_SESSION = process.env["HERDR_TEST_SESSION"] || "herdr-fleet-te
 export function testSocketPath(): string {
   const config = join(process.env["XDG_CONFIG_HOME"] || join(homedir(), ".config"), "herdr");
   return join(config, "sessions", TEST_SESSION, "herdr.sock");
+}
+
+/**
+ * Where the test herdr's shells read their zsh startup files from (ZDOTDIR), beside the session's
+ * socket so that it lasts as long as the server. The server hands it to every shell it starts, however
+ * the pane is made (workspace.create, pane.split, tab.create, a server under test), so the panes never
+ * read the person's ~/.zshenv and ~/.zshrc: the tests' results must not depend on them (#167, #168),
+ * and the tests must leave nothing in what the person's zsh shares, such as zsh-abbr's job queue in
+ * /tmp, where a shell closed while it starts holds every new zsh back for up to 30 s (#179). HOME stays
+ * the person's: herdr finds its config and its sockets through it, and the programs the tests run in a
+ * pane through ~. The empty .zshrc keeps zsh from asking its new-user questions.
+ */
+export function testShellStartup(): string {
+  return join(dirname(testSocketPath()), "zsh");
 }
 
 function herdrBinary(): string | null {
@@ -40,14 +54,17 @@ export async function useTestHerdr(): Promise<string | null> {
   const herdr = herdrBinary();
   if (!herdr) return null;
   const socket = testSocketPath();
+  const zshStartup = testShellStartup();
+  mkdirSync(zshStartup, { recursive: true });
+  if (!existsSync(join(zshStartup, ".zshrc"))) writeFileSync(join(zshStartup, ".zshrc"), "");
+  // a server already running keeps the environment it was started with (scripts/contract/test-shell.herdr.test.ts tells)
   if (!(await answers(socket))) {
-    mkdirSync(dirname(socket), { recursive: true });
     Bun.spawn([herdr, "--session", TEST_SESSION, "server"], {
       stdin: "ignore",
       stdout: Bun.file(join(dirname(socket), "test-server.log")),
       stderr: Bun.file(join(dirname(socket), "test-server.log")),
       // run from inside a herdr pane, this process carries that pane's HERDR_* variables
-      env: Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("HERDR_"))),
+      env: { ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("HERDR_"))), ZDOTDIR: zshStartup },
     }).unref();
     const deadline = Date.now() + 15_000;
     while (!(existsSync(socket) && await answers(socket))) {
