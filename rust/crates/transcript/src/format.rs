@@ -49,8 +49,8 @@ pub(crate) trait TranscriptFormat: Send + Sync {
     type Place: ?Sized;
     /// What the parse of one part of a page hands to the parse of the next (Claude's deliveries of
     /// other sessions' messages, `peersSeen`): a page's settled turns and its live last turn are
-    /// parsed apart.
-    type Carry: Default + Clone;
+    /// parsed apart. It is kept with the settled turns between reads.
+    type Carry: Default + Clone + Send + 'static;
 
     const SOURCE: ConversationSource;
 
@@ -105,6 +105,13 @@ pub(crate) trait TranscriptFormat: Send + Sync {
         self.parse_turns(text, &mut carry)
     }
 
+    /// A parser that the newest page's live last turn is folded into a complete line at a time,
+    /// kept between reads so an append is parsed alone (Codex, `codexLiveTurn`); `None`, the
+    /// default: the live turn is parsed whole on every read (`parse_live`).
+    fn live_parser(&self) -> Option<Box<dyn LiveParser>> {
+        None
+    }
+
     /// The settings recorded in `text`, folded onto what the text before said (`before`).
     fn metadata(&self, text: &str, before: Option<ConversationMetadata>) -> ConversationMetadata;
 
@@ -132,6 +139,17 @@ pub(crate) trait TranscriptFormat: Send + Sync {
     fn image(&self, _place: &Self::Place, _reference: &str) -> Option<Image> {
         None
     }
+}
+
+/// The parse of a live turn, fed its complete lines as they are appended
+/// (`createCodexTranscriptParser`).
+pub(crate) trait LiveParser: Send {
+    /// Folds complete lines in.
+    fn write(&mut self, text: &str);
+
+    /// The turns so far, with `tail` (a last line still without its newline) read as if it were
+    /// complete but not kept: the writer can still extend it.
+    fn snapshot(&self, tail: &str) -> Vec<ConversationTurn>;
 }
 
 /// The refs a tool output is asked by.

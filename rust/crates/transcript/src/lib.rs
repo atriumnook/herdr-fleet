@@ -26,7 +26,7 @@ mod tool_output;
 
 pub use errors::{ConversationError, UnavailableReason};
 
-use paging::Source;
+use paging::{PagingCache, Source};
 
 /// The context window of a pi model, by its id and the provider that served it (TypeScript's
 /// `piContextWindow(model, provider)`, which reads pi's own model catalog); `None` when the
@@ -93,8 +93,9 @@ pub struct Image {
 }
 
 /// The transcript files' readers, and what they keep between reads. One value serves every pane:
-/// its methods take `&self`, and each source guards its state with a lock it holds only while it
-/// reads or writes that state, never while a file is read or parsed.
+/// its methods take `&self`, and each piece of state (the paging cache that all sources share, and
+/// each source's own) is guarded by a lock held only while that state is read or written, never
+/// while a file is read or parsed.
 pub struct Transcripts {
     claude: Source<claude::Claude>,
     codex: Source<codex::Codex>,
@@ -106,11 +107,13 @@ impl Transcripts {
     /// `pi_context_window` looks up a pi model's context window (ADR 0107-crate-split: the crate
     /// reads no catalog of its own).
     pub fn new(pi_context_window: PiContextWindow) -> Self {
+        // one paging cache for every source: TypeScript's limits hold for them together
+        let cache = PagingCache::default();
         Self {
-            claude: Source::new(claude::Claude),
-            codex: Source::new(codex::Codex),
-            pi: Source::new(pi::Pi::new(pi_context_window)),
-            omp: Source::new(omp::Omp),
+            claude: Source::new(claude::Claude, &cache),
+            codex: Source::new(codex::Codex, &cache),
+            pi: Source::new(pi::Pi::new(pi_context_window), &cache),
+            omp: Source::new(omp::Omp, &cache),
         }
     }
 

@@ -17,6 +17,7 @@ use serde_json::{Map, Value};
 use super::images::image_parts;
 use super::memory::without_memory_citations;
 use super::skills::{codex_read_call, codex_read_skills};
+use crate::format::LiveParser;
 use crate::js_json::stringify_pretty;
 use crate::records::{Row, lines, parse_line, record};
 use crate::skill_activity::selected_skill;
@@ -313,6 +314,7 @@ fn date_parse(text: &str) -> Option<f64> {
 }
 
 /// A message of the last few, kept to fold the second record of a pair into the first.
+#[derive(Clone)]
 struct Message {
     role: TurnRole,
     text: String,
@@ -325,7 +327,7 @@ struct Message {
 }
 
 /// The parse of one run of records, folded record by record.
-#[derive(Default)]
+#[derive(Default, Clone)]
 pub(super) struct Parser {
     turns: Vec<ConversationTurn>,
     /// tool parts still waiting for their output, by call id: (turn, part)
@@ -352,6 +354,27 @@ pub(super) fn parse(text: &str) -> Vec<ConversationTurn> {
         .into_iter()
         .filter(|turn| !turn.parts.is_empty())
         .collect()
+}
+
+impl LiveParser for Parser {
+    fn write(&mut self, text: &str) {
+        Parser::write(self, text);
+    }
+
+    /// A valid final line without a newline is visible now, but is not committed: the writer can
+    /// still extend it before the next read (`snapshot(tail)`).
+    fn snapshot(&self, tail: &str) -> Vec<ConversationTurn> {
+        if !js::trim(tail).is_empty() {
+            let mut preview = self.clone();
+            Parser::write(&mut preview, tail);
+            return preview.snapshot("");
+        }
+        self.turns
+            .iter()
+            .filter(|turn| !turn.parts.is_empty())
+            .cloned()
+            .collect()
+    }
 }
 
 fn phase(payload: &Row) -> Option<TextPhase> {

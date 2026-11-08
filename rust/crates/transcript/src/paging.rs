@@ -6,27 +6,33 @@
 //! only grows at the end, so a position in it keeps naming the same turn while the file does. A
 //! page starts at a line that opens a turn and holds at most `MAX_PAGE_PROMPTS` prompts.
 //!
-//! This engine reads again on every call: the caches that make the newest page incremental
-//! (`liveScans`, `settledTurns`, the boundary scan's resumption, the answer cache, Codex's live
-//! turn) are #205's. What changes an answer is kept: a rewrite's generation, and where the history
-//! boundary lies.
+//! Between reads it keeps what makes a poll of the newest page cost the bytes appended since the
+//! last one (`server/conversation.ts:547-826, 1019-1075`): each file's rewrite generation, the
+//! answers, the history boundary scan, the turn starts of the newest page (`liveScans`), the turns
+//! before its last turn start (`settledTurns`) and the parse of a Codex live turn (`codexTurns`).
+//! What is kept is checked against the file before it is used: the stream it was read from, and
+//! the bytes just before where its read stopped, which a file rewritten rather than appended to no
+//! longer has. One `PagingCache` holds it for every source, with TypeScript's limits (ADR
+//! 0205-incremental-reads).
 
+use std::any::Any;
+use std::collections::VecDeque;
 use std::collections::hash_map::RandomState;
 use std::fs::{self, File, Metadata};
 use std::hash::{BuildHasher, Hasher};
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use protocol::js;
-use protocol::{ConversationMetadata, ConversationTurn};
+use protocol::{AbandonedTurns, ConversationMetadata, ConversationSource, ConversationTurn};
 use sha2::{Digest, Sha256};
 
 use crate::errors::{ConversationError, UnavailableReason};
-use crate::format::{MetadataHead, StreamFile, TOOL_REF, TranscriptFormat};
+use crate::format::{LiveParser, MetadataHead, StreamFile, TOOL_REF, TranscriptFormat};
 use crate::records::{MAX_TURNS, parse_line};
 use crate::{Image, Page, PageRequest};
 
@@ -44,8 +50,27 @@ const MAX_PAGE_BYTES: u64 = 4 * TRANSCRIPT_WINDOW_BYTES;
 /// Settings recorded once at the start (an omp thinking level) sit before a tail window.
 pub(crate) const METADATA_HEAD_BYTES: u64 = 64 * 1024;
 
-/// How many files' rewrite generations a source remembers (`transcriptRevisions`).
+/// How many of each the cache remembers, the least recently stored dropped first: TypeScript's
+/// limits, for every source together as its module variables hold them.
+/// Files' rewrite generations (`transcriptRevisions`).
 const REMEMBERED_REVISIONS: usize = 64;
+/// Answers (`cache`).
+const REMEMBERED_ANSWERS: usize = 32;
+/// History boundary scans (`clearScans`).
+const REMEMBERED_CLEAR_SCANS: usize = 32;
+/// Turn starts of a newest page (`liveScans`).
+const REMEMBERED_LIVE_SCANS: usize = 32;
+/// Settled turns, by file and page start (`settledTurns`).
+const REMEMBERED_SETTLED: usize = 8;
+/// Parses of a Codex live turn (`codexTurns`).
+const REMEMBERED_LIVE_TURNS: usize = 8;
+/// The bytes the kept parses of live turns have read, together (`codexTurns`): the record count
+/// and the source bytes retained are both bounded, whatever a session's length.
+const LIVE_TURN_BYTES: u64 = 2 * TRANSCRIPT_WINDOW_BYTES;
+
+/// How many bytes before where a read stopped are kept to tell an append from a rewrite
+/// (`bytesBefore`).
+const TAIL_BYTES: u64 = 64;
 
 /// The setting records the boundary scan keeps for the pi family.
 const SETTING_TYPES: [&str; 2] = ["model_change", "thinking_level_change"];
@@ -152,12 +177,134 @@ struct Revision {
     generation: String,
 }
 
-/// The state a source keeps between calls. The lock is held only to read and write it, never
-/// while a file is read or parsed (ADR 0192-phase-2-split).
-#[derive(Default)]
+/// What the cache keeps of each kind, by key, the least recently stored first (TypeScript's
+/// `remember`): storing a key moves it last, and past the limit the first goes.
+struct Recent<K, V> {
+    limit: usize,
+    entries: VecDeque<(K, V)>,
+}
+
+impl<K: PartialEq, V> Recent<K, V> {
+    const fn new(limit: usize) -> Self {
+        Self {
+            limit,
+            entries: VecDeque::new(),
+        }
+    }
+
+    fn get(&self, key: &K) -> Option<&V> {
+        self.entries
+            .iter()
+            .find(|(seen, _)| seen == key)
+            .map(|(_, value)| value)
+    }
+
+    fn take(&mut self, key: &K) -> Option<V> {
+        let at = self.entries.iter().position(|(seen, _)| seen == key)?;
+        self.entries.remove(at).map(|(_, value)| value)
+    }
+
+    fn remember(&mut self, key: K, value: V) {
+        self.take(&key);
+        self.entries.push_back((key, value));
+        if self.entries.len() > self.limit {
+            self.entries.pop_front();
+        }
+    }
+}
+
+/// An answer as it was given, for the same page asked of the same file state.
+struct Answer {
+    source: ConversationSource,
+    /// the file state the answer was read from: the stream's id, and for the newest page the
+    /// live file's size and times
+    signature: String,
+    turns: Vec<ConversationTurn>,
+    metadata: ConversationMetadata,
+    cursor: Option<String>,
+    abandoned: Option<AbandonedTurns>,
+}
+
+/// A setting record: its start and end in the stream, and the line.
+type Setting = (u64, u64, String);
+
+/// How far a file's history boundary scan has read (`clearScans`).
+struct ClearScan {
+    source: ConversationSource,
+    id: String,
+    /// complete lines up to here are scanned
+    scanned: u64,
+    floor: u64,
+    /// the bytes just before `scanned`
+    tail: Vec<u8>,
+    /// the latest record of each of `SETTING_TYPES`
+    settings: [Option<Setting>; 2],
+}
+
+/// The turn starts found in a newest page so far (`LiveScan`).
+struct LiveScan {
+    source: ConversationSource,
+    id: String,
+    /// complete lines up to here are scanned
+    scanned: u64,
+    /// turn starts in the scanned bytes, ascending, none before the window
+    starts: Vec<u64>,
+    /// the bytes just before `scanned`: a file rewritten rather than appended to no longer has
+    /// them
+    tail: Vec<u8>,
+}
+
+/// The turns of a newest page before its last turn start: a later append cannot change a turn
+/// that another has followed (`SettledTurns`).
+struct Settled {
+    source: ConversationSource,
+    id: String,
+    /// the turn start these turns end at
+    end: u64,
+    turns: Vec<ConversationTurn>,
+    metadata: ConversationMetadata,
+    /// the bytes just before `end`
+    tail: Vec<u8>,
+    /// the format's `Carry` after these turns (Claude's `peersSeen`)
+    carry: Box<dyn Any + Send>,
+}
+
+/// The parse of a Codex live turn so far (`LiveCodexTurn`).
+struct LiveTurn {
+    source: ConversationSource,
+    id: String,
+    start: u64,
+    /// complete lines up to here are parsed
+    scanned: u64,
+    /// the bytes just before `scanned`
+    boundary: Vec<u8>,
+    parser: Box<dyn LiveParser>,
+    metadata: ConversationMetadata,
+}
+
+/// What the readers keep between calls. The lock is held only to read and write it, never while
+/// a file is read or parsed (ADR 0192-phase-2-split): what a read builds on is taken out, and put
+/// back once the read is done.
 struct PagingState {
-    /// by path, the least recently seen first
-    revisions: Vec<(PathBuf, Revision)>,
+    revisions: Recent<PathBuf, Revision>,
+    answers: Recent<String, Arc<Answer>>,
+    clear_scans: Recent<PathBuf, ClearScan>,
+    live_scans: Recent<PathBuf, LiveScan>,
+    settled: Recent<(PathBuf, u64), Settled>,
+    live_turns: Recent<PathBuf, LiveTurn>,
+}
+
+impl Default for PagingState {
+    fn default() -> Self {
+        Self {
+            revisions: Recent::new(REMEMBERED_REVISIONS),
+            answers: Recent::new(REMEMBERED_ANSWERS),
+            clear_scans: Recent::new(REMEMBERED_CLEAR_SCANS),
+            live_scans: Recent::new(REMEMBERED_LIVE_SCANS),
+            settled: Recent::new(REMEMBERED_SETTLED),
+            live_turns: Recent::new(REMEMBERED_LIVE_TURNS),
+        }
+    }
 }
 
 impl PagingState {
@@ -165,11 +312,7 @@ impl PagingState {
     /// (the same file, shorter, or as long but changed) starts a new one, and every cursor into
     /// the old contents stops naming a turn (`transcriptGeneration`).
     fn generation(&mut self, path: &Path, stat: &FileStat, ids: &ProcessIds) -> String {
-        let previous = self
-            .revisions
-            .iter()
-            .position(|(seen, _)| seen == path)
-            .map(|at| self.revisions.remove(at).1);
+        let previous = self.revisions.take(&path.to_path_buf());
         let same_file = previous
             .as_ref()
             .is_some_and(|previous| previous.node == stat.node);
@@ -183,7 +326,7 @@ impl PagingState {
             Some(previous) if same_file => previous.generation,
             _ => String::new(),
         };
-        self.revisions.push((
+        self.revisions.remember(
             path.to_path_buf(),
             Revision {
                 node: stat.node.clone(),
@@ -191,15 +334,42 @@ impl PagingState {
                 changed: stat.changed.clone(),
                 generation: generation.clone(),
             },
-        ));
-        if self.revisions.len() > REMEMBERED_REVISIONS {
-            self.revisions.remove(0);
-        }
+        );
         if generation.is_empty() {
             generation
         } else {
             format!("-{generation}")
         }
+    }
+
+    /// Drops the oldest parses of live turns while those kept have read more than
+    /// `LIVE_TURN_BYTES` together, the one just stored too if it alone has.
+    fn bound_live_turns(&mut self) {
+        let mut retained: u64 = self
+            .live_turns
+            .entries
+            .iter()
+            .map(|(_, turn)| turn.scanned - turn.start)
+            .sum();
+        while retained > LIVE_TURN_BYTES {
+            let Some((_, turn)) = self.live_turns.entries.pop_front() else {
+                break;
+            };
+            retained -= turn.scanned - turn.start;
+        }
+    }
+}
+
+/// The paging cache of one `Transcripts`, which all its sources share: the limits are
+/// TypeScript's, for every source together.
+#[derive(Clone, Default)]
+pub(crate) struct PagingCache(Arc<Mutex<PagingState>>);
+
+impl PagingCache {
+    fn lock(&self) -> MutexGuard<'_, PagingState> {
+        self.0
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 
@@ -227,7 +397,8 @@ impl Stream {
             }
             let mut handle = File::open(&file.path)?;
             handle.seek(SeekFrom::Start(file.offset + (low - file.start)))?;
-            handle.take(high - low).read_to_end(&mut out)?;
+            let read = handle.take(high - low).read_to_end(&mut out)?;
+            count_read(read);
         }
         Ok(out)
     }
@@ -235,6 +406,24 @@ impl Stream {
     fn text(&self, from: u64, to: u64) -> io::Result<String> {
         Ok(String::from_utf8_lossy(&self.read(from, to)?).into_owned())
     }
+
+    /// The bytes just before `offset` (`bytesBefore`).
+    fn bytes_before(&self, offset: u64) -> io::Result<Vec<u8>> {
+        self.read(offset.saturating_sub(TAIL_BYTES), offset)
+    }
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The bytes of transcript files this thread's reads have read: the tests check that a read
+    /// after an append reads the appended bytes, not the ones read before (ADR
+    /// 0205-incremental-reads).
+    static BYTES_READ: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+fn count_read(_bytes: usize) {
+    #[cfg(test)]
+    BYTES_READ.with(|read| read.set(read.get() + _bytes as u64));
 }
 
 /// An I/O failure while a page is read: the file went unreadable mid-read.
@@ -245,15 +434,15 @@ fn missing(_: io::Error) -> ConversationError {
 /// One source's transcripts, read through its format.
 pub(crate) struct Source<F: TranscriptFormat> {
     pub(crate) format: F,
-    state: Mutex<PagingState>,
+    cache: PagingCache,
     ids: ProcessIds,
 }
 
 impl<F: TranscriptFormat> Source<F> {
-    pub(crate) fn new(format: F) -> Self {
+    pub(crate) fn new(format: F, cache: &PagingCache) -> Self {
         Self {
             format,
-            state: Mutex::new(PagingState::default()),
+            cache: cache.clone(),
             ids: ProcessIds::new(),
         }
     }
@@ -269,7 +458,8 @@ impl<F: TranscriptFormat> Source<F> {
         let path = F::live_path(place);
         let (stat, generation) = self.identify(path)?;
         let mut stream = self.stream(place, &stat, &generation)?;
-        self.apply_history_boundary(&mut stream).map_err(missing)?;
+        self.apply_history_boundary(path, &mut stream)
+            .map_err(missing)?;
 
         // the answer is a function of the page asked for and the file's state, so they name it;
         // an older page never changes while the stream's id stays the same
@@ -287,6 +477,24 @@ impl<F: TranscriptFormat> Source<F> {
             format!("{}:{}:{}", stream.id, stat.size, stat.changed)
         };
         let version = self.answer_version(&key, &signature);
+        let cached = self
+            .cache
+            .lock()
+            .answers
+            .get(&key)
+            .filter(|answer| answer.source == F::SOURCE && answer.signature == signature)
+            .cloned();
+        if let Some(answer) = cached {
+            return Ok(Page {
+                source: F::SOURCE,
+                turns: answer.turns.clone(),
+                metadata: answer.metadata.clone(),
+                cursor: answer.cursor.clone(),
+                abandoned: answer.abandoned.clone(),
+                history_id: stream.id,
+                version,
+            });
+        }
 
         let (start, read) = self.locate(place, &stream, request)?;
         let cursor = (start > stream.floor).then(|| format!("{}:{start}", stream.id));
@@ -300,6 +508,17 @@ impl<F: TranscriptFormat> Source<F> {
         };
         // the abandoned turns live outside the branch's byte ranges, so the page cannot see them
         let abandoned = self.format.abandoned(place, stat.size);
+        // the signature is the stat from before the read: an append while it parsed makes the
+        // next read read again, never keeps a torn tail
+        let answer = Arc::new(Answer {
+            source: F::SOURCE,
+            signature,
+            turns: turns.clone(),
+            metadata: metadata.clone(),
+            cursor: cursor.clone(),
+            abandoned: abandoned.clone(),
+        });
+        self.cache.lock().answers.remember(key, answer);
         Ok(Page {
             source: F::SOURCE,
             turns,
@@ -338,10 +557,7 @@ impl<F: TranscriptFormat> Source<F> {
     /// grows is never seen to shrink, which would read as a rewrite. The lock covers one stat,
     /// never a read of the file's contents.
     fn identify(&self, path: &Path) -> Result<(FileStat, String), ConversationError> {
-        let mut state = self
-            .state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let mut state = self.cache.lock();
         let stat = file_stat(&fs::metadata(path).map_err(missing)?);
         let generation = state.generation(path, &stat, &self.ids);
         Ok((stat, generation))
@@ -386,9 +602,10 @@ impl<F: TranscriptFormat> Source<F> {
     }
 
     /// Sets the stream's floor after its last native reset and keeps the latest setting records
-    /// (`applyHistoryBoundary`): each line is scanned in bounded chunks, and a line longer than
-    /// the metadata head cannot be a reset.
-    fn apply_history_boundary(&self, stream: &mut Stream) -> io::Result<()> {
+    /// (`applyHistoryBoundary`): each appended line is scanned once, in bounded chunks, from where
+    /// the last scan of the same stream stopped, and a line longer than the metadata head cannot
+    /// be a reset.
+    fn apply_history_boundary(&self, path: &Path, stream: &mut Stream) -> io::Result<()> {
         let Some(mark) = self.format.clear_mark() else {
             return Ok(());
         };
@@ -397,9 +614,26 @@ impl<F: TranscriptFormat> Source<F> {
                 && parse_line(&String::from_utf8_lossy(line))
                     .is_some_and(|entry| self.format.is_clear(&entry))
         };
-        let mut floor = 0;
-        let mut settings: [Option<(u64, u64, String)>; 2] = [None, None];
-        let mut position = 0;
+        let kept = self.cache.lock().clear_scans.take(&path.to_path_buf());
+        let mut scan = match kept {
+            Some(scan)
+                if scan.source == F::SOURCE
+                    && scan.id == stream.id
+                    && scan.scanned <= stream.length
+                    && stream.bytes_before(scan.scanned)? == scan.tail =>
+            {
+                scan
+            }
+            _ => ClearScan {
+                source: F::SOURCE,
+                id: stream.id.clone(),
+                scanned: 0,
+                floor: 0,
+                tail: Vec::new(),
+                settings: [None, None],
+            },
+        };
+        let mut position = scan.scanned;
         let mut carry: Vec<u8> = Vec::new();
         let mut skipping = false;
         while position < stream.length {
@@ -411,7 +645,7 @@ impl<F: TranscriptFormat> Source<F> {
             while let Some(newline) = find(&bytes, b'\n', offset) {
                 let line = &bytes[offset..newline];
                 if !skipping && is_clear(line) {
-                    floor = base + offset as u64;
+                    scan.floor = base + offset as u64;
                 } else if !skipping
                     && self.format.keeps_settings()
                     && SETTING_TYPES
@@ -429,7 +663,7 @@ impl<F: TranscriptFormat> Source<F> {
                         .iter()
                         .position(|setting| Some(*setting) == kind.as_deref())
                     {
-                        settings[at] = Some((
+                        scan.settings[at] = Some((
                             base + offset as u64,
                             base + newline as u64,
                             text.into_owned(),
@@ -438,6 +672,7 @@ impl<F: TranscriptFormat> Source<F> {
                 }
                 skipping = false;
                 offset = newline + 1;
+                scan.scanned = base + offset as u64;
             }
             carry = bytes[offset..].to_vec();
             // an oversized data record cannot be a native reset
@@ -447,7 +682,14 @@ impl<F: TranscriptFormat> Source<F> {
             }
             position = end;
         }
-        // a valid final record is visible before its newline
+        scan.tail = stream.bytes_before(scan.scanned)?;
+        let floor = scan.floor;
+        stream.settings = scan.settings.iter().flatten().cloned().collect();
+        self.cache
+            .lock()
+            .clear_scans
+            .remember(path.to_path_buf(), scan);
+        // a valid final record is visible before its newline: it is scanned again once appended to
         stream.floor = if !skipping && !carry.is_empty() && is_clear(&carry) {
             stream.length - carry.len() as u64
         } else {
@@ -456,7 +698,6 @@ impl<F: TranscriptFormat> Source<F> {
         if stream.floor > 0 {
             stream.id = format!("{}-clear-{}", stream.id, radix36(stream.floor));
         }
-        stream.settings = settings.into_iter().flatten().collect();
         Ok(())
     }
 
@@ -498,7 +739,10 @@ impl<F: TranscriptFormat> Source<F> {
         // A chat that shows older pages holds the start of its newest turns and keeps every turn
         // after it while they are inside the newest page; once the newest page has moved past it,
         // the chat gets the newest page and fetches the turns between with `before` + `since`
-        match self.newest_page(stream).map_err(missing)? {
+        match self
+            .newest_page(F::live_path(place), stream)
+            .map_err(missing)?
+        {
             Some((newest, starts)) => {
                 let start = held.filter(|held| *held >= newest).unwrap_or(newest);
                 let (turns, metadata) = self
@@ -582,28 +826,66 @@ impl<F: TranscriptFormat> Source<F> {
     }
 
     /// The newest page's start and every turn start in it, or `None` when it starts mid-turn
-    /// (`newestPage`, read whole). A window that does not reach the floor starts at its edge,
-    /// where a line may be cut.
-    fn newest_page(&self, stream: &Stream) -> io::Result<Option<(u64, Vec<u64>)>> {
+    /// (`newestPage`, read whole). The turn starts found so far are kept, and only the bytes
+    /// appended since are scanned. A window that slid past the scanned bytes starts over at its
+    /// edge, where a line may be cut and never counts as a start.
+    fn newest_page(&self, path: &Path, stream: &Stream) -> io::Result<Option<(u64, Vec<u64>)>> {
         let from = stream
             .floor
             .max(stream.length.saturating_sub(TRANSCRIPT_WINDOW_BYTES));
-        let bytes = stream.read(from, stream.length)?;
-        let complete = bytes
-            .iter()
-            .rposition(|byte| *byte == b'\n')
-            .map_or(0, |newline| newline + 1);
-        let mut starts: Vec<u64> = self
-            .turn_starts(&bytes[..complete])
-            .into_iter()
-            .map(|offset| from + offset)
-            .collect();
-        // a last line still without its newline counts too
-        starts.extend(
-            self.turn_starts(&bytes[complete..])
+        let kept = self.cache.lock().live_scans.take(&path.to_path_buf());
+        let mut scan = match kept {
+            Some(scan)
+                if scan.source == F::SOURCE
+                    && scan.id == stream.id
+                    && scan.scanned <= stream.length
+                    && scan.scanned >= from
+                    && stream.bytes_before(scan.scanned)? == scan.tail =>
+            {
+                scan
+            }
+            _ => LiveScan {
+                source: F::SOURCE,
+                id: stream.id.clone(),
+                scanned: from,
+                starts: Vec::new(),
+                tail: stream.bytes_before(from)?,
+            },
+        };
+        let mut pending = Vec::new();
+        if scan.scanned < stream.length {
+            let bytes = stream.read(scan.scanned, stream.length)?;
+            let complete = bytes
+                .iter()
+                .rposition(|byte| *byte == b'\n')
+                .map_or(0, |newline| newline + 1);
+            let scanned = scan.scanned;
+            scan.starts.extend(
+                self.turn_starts(&bytes[..complete])
+                    .into_iter()
+                    .map(|offset| scanned + offset),
+            );
+            // a last line still without its newline counts now, and is scanned again once complete
+            pending = self
+                .turn_starts(&bytes[complete..])
                 .into_iter()
-                .map(|offset| from + complete as u64 + offset),
-        );
+                .map(|offset| scanned + complete as u64 + offset)
+                .collect();
+            scan.scanned += complete as u64;
+            scan.tail = stream.bytes_before(scan.scanned)?;
+        }
+        let stale = scan
+            .starts
+            .iter()
+            .position(|offset| *offset >= from)
+            .unwrap_or(scan.starts.len());
+        scan.starts.drain(..stale);
+        let mut starts = scan.starts.clone();
+        starts.extend(pending);
+        self.cache
+            .lock()
+            .live_scans
+            .remember(path.to_path_buf(), scan);
         let start = if starts.len() > MAX_PAGE_PROMPTS {
             Some(starts[starts.len() - MAX_PAGE_PROMPTS])
         } else if from == stream.floor {
@@ -615,7 +897,8 @@ impl<F: TranscriptFormat> Source<F> {
     }
 
     /// The newest page's turns from `start` (`liveTurns`): the settled ones, before the last turn
-    /// start, then the live last turn, each part parsed on its own and the settings folded across.
+    /// start, kept and extended by any turn that has since been followed, then the live last
+    /// turn, each part parsed on its own and the settings folded across.
     fn live_turns(
         &self,
         place: &F::Place,
@@ -623,23 +906,116 @@ impl<F: TranscriptFormat> Source<F> {
         start: u64,
         starts: &[u64],
     ) -> io::Result<(Vec<ConversationTurn>, ConversationMetadata)> {
+        let path = F::live_path(place);
+        // starts ascend: the last one, when it lies past the page start
         let last = start.max(starts.last().copied().unwrap_or(start));
-        let head = if start > stream.floor {
-            self.metadata_head(place, stream, start)?
-        } else {
-            String::new()
+        let key = (path.to_path_buf(), start);
+        let kept = self.cache.lock().settled.take(&key);
+        let mut settled = match kept {
+            Some(settled)
+                if settled.source == F::SOURCE
+                    && settled.id == stream.id
+                    && settled.end <= last
+                    && settled.carry.is::<F::Carry>()
+                    && stream.bytes_before(settled.end)? == settled.tail =>
+            {
+                settled
+            }
+            _ => {
+                let head = if start > stream.floor {
+                    self.metadata_head(place, stream, start)?
+                } else {
+                    String::new()
+                };
+                Settled {
+                    source: F::SOURCE,
+                    id: stream.id.clone(),
+                    end: start,
+                    turns: Vec::new(),
+                    metadata: self.format.metadata(&format!("{head}\n"), None),
+                    tail: stream.bytes_before(start)?,
+                    carry: Box::new(F::Carry::default()),
+                }
+            }
         };
-        let mut metadata = self.format.metadata(&format!("{head}\n"), None);
-        let mut carry = F::Carry::default();
-        let mut turns = Vec::new();
-        if start < last {
-            let text = stream.text(start, last)?;
-            turns = self.format.parse_turns(&text, &mut carry);
-            metadata = self.format.metadata(&text, Some(metadata));
+        let carry = settled
+            .carry
+            .downcast_mut::<F::Carry>()
+            .expect("the carry of its format, checked above");
+        if settled.end < last {
+            let text = stream.text(settled.end, last)?;
+            settled.turns.extend(self.format.parse_turns(&text, carry));
+            settled.metadata = self.format.metadata(&text, Some(settled.metadata));
+            settled.end = last;
+            settled.tail = stream.bytes_before(last)?;
+        }
+        // the live turn is parsed again on every read: what it delivers is kept only once it
+        // settles
+        let live_carry = carry.clone();
+        let mut turns = settled.turns.clone();
+        let before = settled.metadata.clone();
+        self.cache.lock().settled.remember(key, settled);
+        if let Some(parser) = self.format.live_parser() {
+            let (live, metadata) = self.live_turn(path, stream, last, before, parser)?;
+            turns.extend(live);
+            return Ok((turns, metadata));
         }
         let text = stream.text(last, stream.length)?;
-        turns.extend(self.format.parse_live(&text, carry));
-        let metadata = self.format.metadata(&text, Some(metadata));
+        turns.extend(self.format.parse_live(&text, live_carry));
+        let metadata = self.format.metadata(&text, Some(before));
+        Ok((turns, metadata))
+    }
+
+    /// The live turn from `start`, read incrementally through the format's live parser
+    /// (`codexLiveTurn`): its complete lines are parsed once, results for tools of earlier reads
+    /// included; `fresh` starts the parse when none of the same turn is kept.
+    fn live_turn(
+        &self,
+        path: &Path,
+        stream: &Stream,
+        start: u64,
+        before: ConversationMetadata,
+        fresh: Box<dyn LiveParser>,
+    ) -> io::Result<(Vec<ConversationTurn>, ConversationMetadata)> {
+        let kept = self.cache.lock().live_turns.take(&path.to_path_buf());
+        let mut turn = match kept {
+            Some(turn)
+                if turn.source == F::SOURCE
+                    && turn.id == stream.id
+                    && turn.start == start
+                    && turn.scanned <= stream.length
+                    && stream.bytes_before(turn.scanned)? == turn.boundary =>
+            {
+                turn
+            }
+            _ => LiveTurn {
+                source: F::SOURCE,
+                id: stream.id.clone(),
+                start,
+                scanned: start,
+                boundary: stream.bytes_before(start)?,
+                parser: fresh,
+                metadata: before,
+            },
+        };
+        let bytes = stream.read(turn.scanned, stream.length)?;
+        let complete = bytes
+            .iter()
+            .rposition(|byte| *byte == b'\n')
+            .map_or(0, |newline| newline + 1);
+        if complete > 0 {
+            let text = String::from_utf8_lossy(&bytes[..complete]);
+            turn.parser.write(&text);
+            turn.metadata = self.format.metadata(&text, Some(turn.metadata));
+            turn.scanned += complete as u64;
+            turn.boundary = stream.bytes_before(turn.scanned)?;
+        }
+        let tail = String::from_utf8_lossy(&bytes[complete..]);
+        let turns = turn.parser.snapshot(&tail);
+        let metadata = self.format.metadata(&tail, Some(turn.metadata.clone()));
+        let mut state = self.cache.lock();
+        state.live_turns.remember(path.to_path_buf(), turn);
+        state.bound_live_turns();
         Ok((turns, metadata))
     }
 
@@ -647,9 +1023,10 @@ impl<F: TranscriptFormat> Source<F> {
     fn metadata_head(&self, place: &F::Place, stream: &Stream, start: u64) -> io::Result<String> {
         if self.format.metadata_head() == MetadataHead::LiveFileStart {
             let mut bytes = Vec::new();
-            File::open(F::live_path(place))?
+            let read = File::open(F::live_path(place))?
                 .take(METADATA_HEAD_BYTES)
                 .read_to_end(&mut bytes)?;
+            count_read(read);
             return Ok(String::from_utf8_lossy(&bytes).into_owned());
         }
         let end = start.min(stream.floor + METADATA_HEAD_BYTES);
@@ -777,5 +1154,332 @@ mod tests {
         assert_eq!(radix36(0), "0");
         assert_eq!(radix36(35), "z");
         assert_eq!(radix36(36), "10");
+    }
+
+    /// What a poll of an unchanged or appended-to transcript reads, and what the cache keeps
+    /// (#205, ADR 0205-incremental-reads). The bounds are worked out by hand from TypeScript's
+    /// reads (`server/conversation.ts:547-826`): a poll reads the bytes appended since the last
+    /// one (once for the history boundary, once for the turn starts), `TAIL_BYTES` before each
+    /// place a kept read stopped, and the live last turn, which only Codex parses incrementally.
+    mod kept {
+        use super::*;
+        use crate::codex::Codex;
+        use crate::omp::Omp;
+        use crate::{CodexRollout, PageRequest};
+
+        /// A new folder of its own under the system's temporary folder, removed when dropped.
+        struct Folder(PathBuf);
+
+        impl Folder {
+            fn new() -> Self {
+                static COUNTER: AtomicU64 = AtomicU64::new(0);
+                let ids = ProcessIds::new();
+                let path = std::env::temp_dir().join(format!(
+                    "herdr-paging-{}-{}",
+                    ids.process(),
+                    COUNTER.fetch_add(1, Ordering::Relaxed)
+                ));
+                // ADR 0107-crate-split allows temporary files in tests; clippy.toml forbids writing
+                // files in this crate, so each write here says so (ADR 0205-incremental-reads)
+                #[allow(clippy::disallowed_methods)]
+                fs::create_dir(&path).expect("a temporary folder");
+                Self(path)
+            }
+
+            /// Writes `text` at the end of the file `name`, made when there is none.
+            #[allow(clippy::disallowed_methods)]
+            fn append(&self, name: &str, text: &str) -> PathBuf {
+                use std::io::Write as _;
+                let path = self.0.join(name);
+                fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&path)
+                    .and_then(|mut file| file.write_all(text.as_bytes()))
+                    .expect("an append");
+                path
+            }
+        }
+
+        impl Drop for Folder {
+            #[allow(clippy::disallowed_methods)]
+            fn drop(&mut self) {
+                let _ = fs::remove_dir_all(&self.0);
+            }
+        }
+
+        fn bytes_read() -> u64 {
+            BYTES_READ.with(|read| read.replace(0))
+        }
+
+        fn omp_line(role: &str, text: &str) -> String {
+            let content = if role == "user" {
+                serde_json::json!(text)
+            } else {
+                serde_json::json!([{ "type": "text", "text": text }])
+            };
+            format!(
+                "{}\n",
+                serde_json::json!({ "type": "message", "message": { "role": role, "content": content } })
+            )
+        }
+
+        fn codex_line(kind: &str, message: &str) -> String {
+            format!(
+                "{}\n",
+                serde_json::json!({ "type": "event_msg", "payload": { "type": kind, "message": message } })
+            )
+        }
+
+        fn rollout(folder: &Folder, path: PathBuf) -> CodexRollout {
+            CodexRollout {
+                path,
+                home: folder.0.join("codex-home"),
+                cwd: folder.0.clone(),
+            }
+        }
+
+        fn newest() -> PageRequest {
+            PageRequest::default()
+        }
+
+        #[test]
+        fn a_poll_reads_what_was_appended_and_the_live_turn_not_the_turns_before() {
+            let folder = Folder::new();
+            let source = Source::new(Omp, &PagingCache::default());
+            // 40 prompts: the newest page starts at the beginning and stays there
+            let mut path = PathBuf::new();
+            for prompt in 0..40 {
+                path = folder.append(
+                    "session.jsonl",
+                    &omp_line("user", &format!("prompt {prompt}")),
+                );
+                folder.append("session.jsonl", &omp_line("assistant", &"x".repeat(10_000)));
+            }
+            let live_start = fs::metadata(&path).expect("the file").len();
+            folder.append("session.jsonl", &omp_line("user", "the live prompt"));
+            let size = fs::metadata(&path).expect("the file").len();
+            bytes_read();
+            let first = source.page(&path, &newest()).expect("a page");
+            assert!(bytes_read() >= size, "the first read reads the file");
+
+            // unchanged: the answer is kept, and only the bytes before the boundary scan's stop
+            // are read, to check that nothing was rewritten and again to keep them, as
+            // `applyHistoryBoundary` does (`server/conversation.ts:551, 584`)
+            assert_eq!(
+                source.page(&path, &newest()).expect("a page").turns,
+                first.turns
+            );
+            assert_eq!(bytes_read(), 2 * TAIL_BYTES);
+
+            // the live turn grows
+            let reply = omp_line("assistant", "a reply");
+            folder.append("session.jsonl", &reply);
+            let appended = reply.len() as u64;
+            let page = source.page(&path, &newest()).expect("a page");
+            assert_eq!(page.turns.len(), first.turns.len() + 1);
+            let live_turn = size + appended - live_start;
+            let bound = 2 * appended + live_turn + 6 * TAIL_BYTES;
+            let read = bytes_read();
+            assert!(read <= bound, "read {read} bytes, at most {bound}");
+            assert!(
+                bound * 20 < size,
+                "the file is large next to what a poll reads"
+            );
+
+            // a new prompt: the turn that was live settles, and is parsed once more
+            let prompt = omp_line("user", "the next prompt");
+            folder.append("session.jsonl", &prompt);
+            source.page(&path, &newest()).expect("a page");
+            let appended = prompt.len() as u64;
+            let bound = 2 * appended + 2 * (live_turn + appended) + 8 * TAIL_BYTES;
+            let read = bytes_read();
+            assert!(read <= bound, "read {read} bytes, at most {bound}");
+        }
+
+        #[test]
+        fn a_poll_of_a_long_codex_task_reads_what_was_appended() {
+            let folder = Folder::new();
+            let source = Source::new(Codex, &PagingCache::default());
+            let mut path = folder.append("rollout.jsonl", &codex_line("task_started", ""));
+            folder.append("rollout.jsonl", &codex_line("user_message", "a long task"));
+            for step in 0..300 {
+                path = folder.append(
+                    "rollout.jsonl",
+                    &codex_line(
+                        "agent_message",
+                        &format!("step {step} {}", "y".repeat(3_000)),
+                    ),
+                );
+            }
+            let place = rollout(&folder, path.clone());
+            let size = fs::metadata(&path).expect("the file").len();
+            source.page(&place, &newest()).expect("a page");
+            assert!(bytes_read() >= size, "the first read reads the file");
+
+            let line = codex_line("agent_message", "one more step");
+            folder.append("rollout.jsonl", &line);
+            let page = source.page(&place, &newest()).expect("a page");
+            let last = page.turns.last().expect("the assistant's turn");
+            assert!(
+                matches!(last.parts.last(), Some(protocol::ConversationPart::Text { text, .. }) if text == "one more step")
+            );
+            let appended = line.len() as u64;
+            let bound = 2 * appended + 4 * TAIL_BYTES;
+            let read = bytes_read();
+            assert!(read <= bound, "read {read} bytes, at most {bound}");
+            assert!(
+                bound * 100 < size,
+                "the task is long next to what a poll reads"
+            );
+        }
+
+        #[test]
+        fn keeps_what_typescript_keeps_and_drops_the_oldest_first() {
+            let folder = Folder::new();
+            let cache = PagingCache::default();
+            let source = Source::new(Omp, &cache);
+            let paths: Vec<PathBuf> = (0..65)
+                .map(|file| {
+                    folder.append(
+                        &format!("{file}.jsonl"),
+                        &omp_line("user", &format!("file {file}")),
+                    )
+                })
+                .collect();
+            for path in &paths {
+                source.page(path, &newest()).expect("a page");
+            }
+            let state = cache.lock();
+            let kept = |keys: Vec<&PathBuf>| keys.into_iter().cloned().collect::<Vec<_>>();
+            // the newest of each, in the order they were stored
+            assert_eq!(
+                kept(
+                    state
+                        .revisions
+                        .entries
+                        .iter()
+                        .map(|(path, _)| path)
+                        .collect()
+                ),
+                paths[1..].to_vec()
+            );
+            assert_eq!(
+                kept(
+                    state
+                        .clear_scans
+                        .entries
+                        .iter()
+                        .map(|(path, _)| path)
+                        .collect()
+                ),
+                paths[33..].to_vec()
+            );
+            assert_eq!(
+                kept(
+                    state
+                        .live_scans
+                        .entries
+                        .iter()
+                        .map(|(path, _)| path)
+                        .collect()
+                ),
+                paths[33..].to_vec()
+            );
+            assert_eq!(
+                kept(
+                    state
+                        .settled
+                        .entries
+                        .iter()
+                        .map(|((path, _), _)| path)
+                        .collect()
+                ),
+                paths[57..].to_vec()
+            );
+            let answers: Vec<String> = state
+                .answers
+                .entries
+                .iter()
+                .map(|(key, _)| key.clone())
+                .collect();
+            let expected: Vec<String> = paths[33..]
+                .iter()
+                .map(|path| format!("{}\0from:", path.to_string_lossy()))
+                .collect();
+            assert_eq!(answers, expected);
+        }
+
+        #[test]
+        fn keeps_eight_codex_live_turns() {
+            let folder = Folder::new();
+            let cache = PagingCache::default();
+            let source = Source::new(Codex, &cache);
+            let places: Vec<CodexRollout> = (0..9)
+                .map(|file| {
+                    let name = format!("rollout-{file}.jsonl");
+                    folder.append(&name, &codex_line("task_started", ""));
+                    rollout(
+                        &folder,
+                        folder.append(&name, &codex_line("user_message", "a task")),
+                    )
+                })
+                .collect();
+            for place in &places {
+                source.page(place, &newest()).expect("a page");
+            }
+            let kept: Vec<PathBuf> = cache
+                .lock()
+                .live_turns
+                .entries
+                .iter()
+                .map(|(path, _)| path.clone())
+                .collect();
+            let expected: Vec<PathBuf> =
+                places[1..].iter().map(|place| place.path.clone()).collect();
+            assert_eq!(kept, expected);
+        }
+
+        #[test]
+        fn keeps_codex_live_turns_that_read_two_windows_together() {
+            let folder = Folder::new();
+            let cache = PagingCache::default();
+            let source = Source::new(Codex, &cache);
+            // three live turns of 11 MB: two fit in 2 × 16 MB, three do not
+            let padding = format!(
+                "{}\n",
+                serde_json::json!({ "type": "response_item", "payload": { "type": "padding", "text": "z".repeat(1024 * 1024) } })
+            );
+            let places: Vec<CodexRollout> = (0..3)
+                .map(|file| {
+                    let name = format!("rollout-{file}.jsonl");
+                    let mut path = folder.append(&name, &codex_line("task_started", ""));
+                    while fs::metadata(&path).expect("the file").len() < 11 * 1024 * 1024 {
+                        path = folder.append(&name, &padding);
+                    }
+                    rollout(&folder, path)
+                })
+                .collect();
+            for place in &places {
+                source.page(place, &newest()).expect("a page");
+            }
+            let state = cache.lock();
+            let kept: Vec<PathBuf> = state
+                .live_turns
+                .entries
+                .iter()
+                .map(|(path, _)| path.clone())
+                .collect();
+            let expected: Vec<PathBuf> =
+                places[1..].iter().map(|place| place.path.clone()).collect();
+            assert_eq!(kept, expected);
+            let retained: u64 = state
+                .live_turns
+                .entries
+                .iter()
+                .map(|(_, turn)| turn.scanned - turn.start)
+                .sum();
+            assert!(retained <= 2 * TRANSCRIPT_WINDOW_BYTES);
+        }
     }
 }

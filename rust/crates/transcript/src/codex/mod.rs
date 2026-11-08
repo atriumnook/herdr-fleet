@@ -25,7 +25,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 use crate::errors::ConversationError;
-use crate::format::{MetadataHead, Segment, StreamFile, TranscriptFormat, output_in_text};
+use crate::format::{
+    LiveParser, MetadataHead, Segment, StreamFile, TranscriptFormat, output_in_text,
+};
 use crate::paging::file_stat;
 use crate::records::{
     context_of, lines, metadata_label, metadata_start, parse_line, record, token_count,
@@ -132,6 +134,11 @@ impl TranscriptFormat for Codex {
 
     fn parse_turns(&self, text: &str, _carry: &mut ()) -> Vec<ConversationTurn> {
         parser::parse(text)
+    }
+
+    /// A long task is read incrementally, results for tools of earlier reads included.
+    fn live_parser(&self) -> Option<Box<dyn LiveParser>> {
+        Some(Box::new(parser::Parser::default()))
     }
 
     /// Recorded settings, never inferred: `turn_context` is a snapshot, and a new complete context
