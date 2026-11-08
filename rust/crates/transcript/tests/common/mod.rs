@@ -7,7 +7,10 @@
 //!
 //! Each case runs in a new temporary folder, the case folder's files copied there byte for byte,
 //! against a new `Transcripts` (and a new `OpencodeConversations` for its OpenCode calls) that all
-//! its steps share. Every case runs again in the reverse order, and must answer the same.
+//! its steps share. Every case runs again in the reverse order, and must answer the same: with a
+//! new `Transcripts` for each case, that finds state kept outside it (a `static` cache), which
+//! ADR 0107-crate-split forbids, as TypeScript's reverse run finds a module cache that is not
+//! forgotten.
 
 // Each test binary uses a part of the runner.
 #![allow(dead_code)]
@@ -426,11 +429,18 @@ fn validate_step(place: &str, step: &Value) -> Result<(), String> {
     } else {
         only_keys(place, step, &["at"])?;
         // the reader's clock is whole epoch milliseconds, as `Date.now()` is
-        if step["at"].as_i64().is_none() {
+        if clock_value(&step["at"]).is_none() {
             return Err(format!("{place}: \"at\" is not a whole number"));
         }
     }
     Ok(())
+}
+
+/// An `at` step's time: a whole number of milliseconds, however JSON writes it (`1000` or
+/// `1000.0`; serde_json tells them apart, `JSON.parse` does not).
+fn clock_value(value: &Value) -> Option<i64> {
+    let at = value.as_f64().filter(|at| is_safe_integer(*at))?;
+    Some(at as i64)
 }
 
 /// OpenCode's recorded replies as the format says: `{"<path>": {"status", "body"}}`.
@@ -847,7 +857,9 @@ impl Run<'_> {
                 .to_vec(),
         };
         match kind {
+            // made when there is none, as `appendFileSync` does
             "append" => OpenOptions::new()
+                .create(true)
                 .append(true)
                 .open(&target)
                 .and_then(|mut file| file.write_all(&bytes))
@@ -955,7 +967,7 @@ fn run_case(case: &Case) -> Result<Vec<Option<Value>>, String> {
             continue;
         }
         values.push(None);
-        if let Some(at) = step.get("at").and_then(Value::as_i64) {
+        if let Some(at) = step.get("at").and_then(clock_value) {
             *run.now
                 .lock()
                 .unwrap_or_else(|poisoned| poisoned.into_inner()) = at;
@@ -991,5 +1003,44 @@ fn writes_the_case_folder_as_case() {
             "at $CASE: gone",
             "/tmp/x/case-2"
         ])
+    );
+}
+
+// TypeScript's runner (scripts/conversation-fixtures.ts:233, 497) takes `1000.0` as the time 1000
+// and refuses a time that is no number.
+#[test]
+fn reads_a_whole_time_however_json_writes_it() {
+    assert_eq!(clock_value(&json!(1000)), Some(1000));
+    assert_eq!(clock_value(&json!(1000.0)), Some(1000));
+    assert_eq!(clock_value(&json!(1.5)), None);
+    assert_eq!(clock_value(&json!("1000")), None);
+}
+
+// TypeScript's runner appends with appendFileSync (scripts/conversation-fixtures.ts:503), which
+// makes a missing file: a page of it then holds the prompt appended.
+#[test]
+fn an_append_makes_a_missing_file() {
+    let dir = temporary_root();
+    let _cleanup = Cleanup(dir.clone());
+    let prompt = "{\"type\":\"message\",\"message\":{\"role\":\"user\",\"content\":\"hi\"}}\n";
+    let spec = validate_case(
+        "omp/new-file",
+        json!({ "steps": [
+            { "append": "new.jsonl", "text": prompt },
+            { "call": "page", "source": "omp", "path": "new.jsonl" },
+        ] }),
+    )
+    .expect("a valid case");
+    let case = Case {
+        name: "omp/new-file".to_owned(),
+        dir,
+        source: "omp".to_owned(),
+        spec,
+    };
+    let values = run_case(&case).expect("the case runs");
+    let page = values[1].as_ref().expect("the page");
+    assert_eq!(
+        page["turns"],
+        json!([{ "role": "user", "ts": null, "parts": [{ "kind": "text", "text": "hi" }] }])
     );
 }
