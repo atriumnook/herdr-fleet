@@ -31,8 +31,8 @@ interface PendingTurn {
   resumedAt?: number;
   /** herdr reported `working` for this turn at least once */
   sawWorking: boolean;
-  /** what the fleet sent: a thread's next lead run hears it if this one fails */
-  text: string;
+  /** what the fleet sent: a thread's next lead run hears it if this one fails; unknown for a turn a restart took over */
+  text?: string;
 }
 
 /** the most of a result file a run keeps: a handoff, not a transcript */
