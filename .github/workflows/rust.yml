@@ -67,11 +67,34 @@ jobs:
           fi
       # ADR 0110-workspace-and-ci: tests that read the corpus or write temporary
       # files live in tests/ and allow the banned APIs there; src/ never does.
+      # ADR 0225-nonblocking-image-open excepts one file: transcript's
+      # nonblocking_open.rs may expect disallowed_methods once, for
+      # custom_flags(O_NONBLOCK), and nothing else. A folder grep cannot read
+      # fails the step too.
       - name: Parsing crates allow their banned APIs only in tests
         run: |
-          if grep -rnE 'clippy::(disallowed_methods|disallowed_types|style|all)\b' \
-              crates/screen/src crates/transcript/src; then
+          exception=crates/transcript/src/nonblocking_open.rs
+          status=0
+          matches=$(grep -rnE 'clippy::(disallowed_methods|disallowed_types|style|all)\b' \
+              crates/screen/src crates/transcript/src) || status=$?
+          if [ "$status" -gt 1 ]; then
+            echo "::error::grep could not read crates/screen/src or crates/transcript/src"
+            exit 1
+          fi
+          found=$(printf '%s\n' "$matches" | grep -v "^$exception:" | grep . || true)
+          if [ -n "$found" ]; then
+            printf '%s\n' "$found"
             echo "::error::screen and transcript allow clippy's disallowed lints only under tests/"
+            exit 1
+          fi
+          if grep -nE 'clippy::(disallowed_types|style|all)\b' "$exception"; then
+            echo "::error::$exception may allow clippy::disallowed_methods alone"
+            exit 1
+          fi
+          if [ "$(grep -c 'clippy::disallowed_methods' "$exception")" -ne 1 ] ||
+             [ "$(grep -c 'custom_flags(' "$exception")" -ne 1 ] ||
+             ! grep -q 'custom_flags(O_NONBLOCK)' "$exception"; then
+            echo "::error::$exception may allow clippy::disallowed_methods once, for custom_flags(O_NONBLOCK) alone"
             exit 1
           fi
 
