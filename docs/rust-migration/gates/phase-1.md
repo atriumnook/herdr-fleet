@@ -72,3 +72,66 @@ parity.md は、2 つのファイルの引き継ぎ先をどちらも `HTTP/WS �
 
 - main にだけある TypeScript の変更: 計画は「main は切り替えまで変わらない」と書いているが、`git log --no-merges origin/rust..origin/main` は 9 コミット(PR #138、#144、#148、#155、#156、#166)で、`fixtures/screens/agy/` の 5 件、`server/fleet/` のテストと実装、`scripts/agy-live-check.ts` を含む。段階 1 の完了条件は rust ブランチの TypeScript で確かめるので、足りないものには数えない。取り込み方を [#169](https://github.com/atriumnook/herdr-fleet/issues/169)(ラベル `rust-migration`)に書いた
 - 段階 0 から残っていた #119 と #120(段階 6 の workflow の件)は、どちらも段階 1 の範囲の外で、今は閉じている。#120 は確かめたコミット `bcac92e` より前に PR #162 で、#119 はこの関門の間に PR #165 で閉じた
+
+## 2 回目の関門(2026-11-08)
+
+- 確かめた対象: `rust` ブランチのコミット `5cbfd8e`(PR #188 のマージ)
+- 確かめた thread: `0d0b5ca0`
+- 結論: 計画の「段階 1: 一致を確かめる基準を揃える」の完了条件 2 つと項目 4 つを、すべて満たす。足りないものは 0 件で、Issue は開いていない。1 回目に足りなかった #167 と #168 の件は、integration の全件の実行 3 回のすべてと、その件だけの実行で通った
+- 1 回目のあとに閉じた Issue: #167(PR #177)、#168(PR #181)、#172(PR #174)、#173(PR #178)、#179(PR #182)、#180(PR #186)、#169 と #187(main の取り込み。PR #175 と #188)。`git log --no-merges origin/rust..origin/main` は 0 コミットで、main にだけある TypeScript の変更は残っていない。開いている #176 と #189 は、使う人の main での作業を待つ `blocked` の Issue で、段階 1 の範囲の外である
+
+### 確かめた環境(2 回目)
+
+- PC と道具の版は 1 回目と同じ(Linux 7.2.15-1-omarchy、Bun 1.4.4、herdr 0.9.1)。依存は `bun install --ignore-scripts` で入れた
+- 検査はすべて `HERDR_*` の環境変数を外して実行した
+- integration は、この thread 専用の herdr のセッション `herdr-fleet-rs-0d0b5ca0`(`HERDR_TEST_SESSION`)で走らせ、`HERDR_FLEET_STATE_DIR` を worktree の中の `rust/.dev-state/state` にした。HTTP/WS の契約のサーバーは、launcher(`scripts/contract/launch.ts`)が 7400〜7499 から選んだポートで起動した。終わってから `herdr --session herdr-fleet-rs-0d0b5ca0 server stop` で止めた(終了コード 0)
+- integration の 3 回は続けて 1 回ずつ走らせ、そのあいだにほかの検査を走らせなかった。全件のときに負荷で失敗しうる件(#168)の結果に、ほかの検査の負荷が混ざらないようにするためである
+- 共有の `/tmp/zsh-job-queue`(#179)は、検査の前に `find /tmp/zsh-job-queue` の一覧を保存し、すべての検査のあとの一覧と `diff` で比べた。差はなく、検査の前に作った印のファイルより新しいファイルを `find -newer` で探しても 0 件だった
+
+### 完了条件(2 回目)
+
+| 完了条件 | 確かめたこと | 結果 |
+|---|---|---|
+| すべての基準が TypeScript 版で通る | 段階 1 までに作る 5 つの基準(画面の corpus、会話ログの corpus、fleet CLI の契約、HTTP/WS の契約、安全上の判定の表)のすべての件が通った(下の「段階 1 の項目(2 回目)」)。HTTP/WS の契約を走らせる `bun scripts/ci-tests.ts integration --target ts` は、3 回とも 25 ファイル 191 件が通過、0 件失敗、終了コード 0 で終わった。UI の回帰は、1 回目と同じ読み方(上の「この関門の読み方」)で走らせていない | 満たす |
+| parity.md に全テストファイルがある | `bun scripts/parity.ts` が `221 test files, 221 rows (67 without a successor yet), 0 problems` を出し、終了コード 0 で終わった。`git ls-files` で別に数えると、`*.test.ts` と `*.test.tsx` が 174、`scripts/*-regression.ts` が 37、`scripts/*-qa.ts` が 6、`e2e/*.ts` が 1、`scripts/opencode-live-check.ts`、`scripts/pty-compare.ts`、`scripts/agy-live-check.ts`(#169 で main から取り込んだ)が 3 で、合わせて 221 になり、parity.md の行の数と一致した。1 回目の 218 から増えた 3 つは、`scripts/contract/test-shell.herdr.test.ts`(#179)、`scripts/agy-live-check.ts`(#169)、`server/fleet/metrics.test.ts`(#187 で main から取り込んだ)である | 満たす |
+
+### 段階 1 の項目(2 回目)
+
+| 項目(計画の段階 1) | 確かめたこと | 結果 |
+|---|---|---|
+| 上の表の会話ログの corpus、fleet CLI の契約、HTTP/WS の契約、安全上の判定の表をすべて作り、TypeScript 版で通す | 4 つの基準はすべてあり、すべての件が通った。下の 5 行に、4 つの基準と、完了条件の「すべての基準」に入る画面の corpus の結果を並べた | 満たす |
+| ― 画面の corpus(完了条件の「すべての基準」に入る) | `bun test ./server/screen-fixtures.test.ts`(`fixtures/screens/` の 347 件の `case.json` を確かめる)が 349 件通過、0 件失敗。`bun scripts/screen-fixtures.ts` は引数なしでは使い方を出して終わる書き込み用の道具で、全件の検査はこのテストが行う | 満たす |
+| ― 会話ログの corpus | `fixtures/conversations/` に 5 つの source(claude、codex、omp、opencode、pi)、230 件の `case.json` がある。`bun test ./server/conversation-fixtures.test.ts` が 233 件通過、0 件失敗 | 満たす |
+| ― fleet CLI の契約 | `fixtures/fleet-cli/` に 87 件がある。`bun test ./bin/fleet-cli-fixtures.test.ts` が 98 件通過、0 件失敗 | 満たす |
+| ― 安全上の判定の表 | ADR `0122-parity-criteria` の表の 15 個の判定が、`fixtures/security/<持ち主>/<判定>.json`(core 11、child-process 2、orchestrator 2)にすべてある。`scripts/security-fixtures/` の 3 つのテストが 318 件通過、0 件失敗 | 満たす |
+| ― HTTP/WS の契約 | `bun scripts/contract/check-imports.ts` が `15 black-box files, 0 forbidden imports, 0 contract tests without the marker` を出し、終了コード 0 で終わった。integration の 3 回の全件の実行で、契約の 15 ファイルを含む 25 ファイル 191 件が、3 回とも通過した。#167 と #168 の件の結果は下の「1 回目に足りなかった 2 件」に書いた | 満たす |
+| 作るのは `rust` ブランチの中だけ(main は変えない) | 1 回目のあとにマージされた PR(#170、#174、#175、#177、#178、#181、#182、#185、#186、#188)は、`gh pr view <n> --json baseRefName` がどれも `rust` だった(#170 は 1 回目の報告)。同じ期間に base が `main` の PR(#171、#183、#184)は、どれも使う人(atriumnook)が自分の `feat/…` か `fix/…` のブランチから出したもので、段階 1 の作業ではない | 満たす |
+| HTTP/WS の契約は、サーバーの起動の仕方(TypeScript か Rust か)を引数で選べるようにする | `scripts/ci-tests.ts` は引数 `--target <ts\|rust:パス>` を受ける。`--target bogus` を渡すと `Usage: bun scripts/ci-tests.ts unit\|integration [--target ts\|rust:<path>]` を出して終了コード 1 で終わった。`scripts/contract/launch.ts` は `ts` で TypeScript のサーバーを、`rust:<パス>` でその実行ファイルを起動する(ソースで確かめた)。launcher のテスト `scripts/contract/launch.test.ts` は unit の全件の中で通った | 満たす |
+| `docs/rust-migration/parity.md` に、TypeScript の全テストファイルを並べ、引き継ぎ先の欄を作る | 上の完了条件の 2 行目のとおり | 満たす |
+
+### 1 回目に足りなかった 2 件
+
+| 件 | 1 回目 | 2 回目の全件の実行(3 回) | 2 回目の単独の実行 | 直した PR |
+|---|---|---|---|---|
+| `server/submit.contract.test.ts` の `hands several lines for an agent on a mirrored pane over as one paste, typed or sent, and bare where no agent is`(#167) | 全件でも単独でも失敗 | 3 回とも失敗なし | 1 件通過、0 件失敗 | #177。ペインのシェルの設定を読まずに `cat -v` を動かすようにした |
+| `server/output.contract.test.ts` の `bounds a stalled observer, releases the operator, and leaves the pane alive`(#168) | 全件で失敗、単独で通過 | 3 回とも失敗なし | 1 件通過、0 件失敗 | #181。テストのシェルを専用の HOME から起動するようにした |
+
+- 単独の実行は `bun test --timeout 15000 <ファイル> -t "<名前の一部>"` で、integration と同じセッションと環境で走らせた
+- 全件の実行のログには件ごとの通過の行が出ない(`bun test` は失敗した件だけを名前で出す)。2 件が全件の実行で通ったことは、191 件のうち失敗 0 件、skip 0 件(ログに `skip` の行がない)から確かめた
+- 直した PR がテストの期待値を弱めていないかを、差分で確かめた。PR #177 と #181 は `expect` の行を変えていない。#180 を直した PR #186 は `expect` を 1 行書き換えたが、同じメッセージ(`id` が 1 の `submit-result`)を取り出す関数 `first()` に置き換えただけで、期待する値 `{ ok: true }` は変わっていない
+
+### 検査の結果(2 回目)
+
+| 検査 | 結果 |
+|---|---|
+| `bun scripts/parity.ts` | `221 test files, 221 rows (67 without a successor yet), 0 problems`、終了コード 0 |
+| `bun scripts/contract/check-imports.ts` | `15 black-box files, 0 forbidden imports, 0 contract tests without the marker`、終了コード 0 |
+| 画面の corpus の全件(`bun test ./server/screen-fixtures.test.ts`) | 349 件通過、0 件失敗 |
+| `bun scripts/ci-tests.ts unit` | 149 ファイル、2,927 件通過、0 件失敗、終了コード 0 |
+| `HERDR_TEST_SESSION=herdr-fleet-rs-0d0b5ca0 bun scripts/ci-tests.ts integration --target ts`(1 回目) | 25 ファイル、191 件通過、0 件失敗、終了コード 0(217 秒) |
+| 同(2 回目) | 25 ファイル、191 件通過、0 件失敗、終了コード 0(217 秒) |
+| 同(3 回目) | 25 ファイル、191 件通過、0 件失敗、終了コード 0(217 秒) |
+| `bun run typecheck` | 終了コード 0 |
+| `gh run list --branch rust` | 確かめたコミット `5cbfd8e` の run は、workflow `rust` の [42455073935](https://github.com/atriumnook/herdr-fleet/actions/runs/42455073935)(`push`)で success。これが `rust` の最新の run である |
+
+integration の対象は 1 回目の 24 ファイルから 25 ファイルに増えた。増えたのは `scripts/contract/test-shell.herdr.test.ts`(#179 で足した。テストの herdr のペインの zsh が、使う人のフォルダーではなくテスト自身のフォルダーから起動ファイルを読むことを確かめる)である。
