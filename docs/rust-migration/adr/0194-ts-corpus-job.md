@@ -56,7 +56,7 @@ ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確�
 - `curl -fsSL https://bun.sh/install | bash` で入れる: 取得したスクリプトを照合せずに実行する。入る版もスクリプトの中身で決まる
 - `bun install --ignore-scripts` をしてからテストを走らせる: 2 つのテストは依存を使わない。依存を入れると、npm の取得と、その失敗による赤が job に加わる
 - release の `SHASUMS256.txt` を CI で取得して照合する: 同じ release から取った値で照合しても、release の差し替えには気づけない。workflow に書いた値なら、変えるには PR が要る
-- `SHASUMS256.txt.asc` の PGP 署名を CI で確かめる: 署名の鍵を鍵サーバーから取得する手順と、その鍵の指紋の固定が要る。sha256 を workflow に書いたので、release の zip が後から差し替えられても照合で失敗する。取得したときの sha256 は、GitHub の release の asset の `digest` とも一致した(「確かめたこと」)
+- `SHASUMS256.txt.asc` の PGP 署名を CI で確かめる: 署名の鍵を鍵サーバーから取得する手順と、その鍵の指紋の固定が要る。workflow に sha256 を書いたので、CI は毎回その値で照合し、release の zip が後から差し替えられれば失敗する。署名が確かめるのは、sha256 を取ったときの `SHASUMS256.txt` が Oven の公開したものかで、これは workflow に値を書く前に手元で 1 回確かめれば足りる(「確かめたこと」)
 - job `linux` の手順に足す: `linux` は `rust/` を作業フォルダーにした Rust の検査で、bun を入れると Rust の検査の失敗と bun の取得の失敗が同じ job の赤になる。job を分ければ、PR の check の名前でどちらが失敗したかが分かる
 - TypeScript の全テストを走らせる: herdr を使うテストがあり、CI では herdr を使わない。この job の目的は、段階 2 が変えうる 2 つの corpus の件と TypeScript の実装の一致だけである
 
@@ -79,7 +79,7 @@ ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確�
 
 2026-11-08、Linux 7.2.15-1-omarchy(Arch Linux 系の Omarchy)で確かめた。
 
-- `gh release download bun-v1.4.4 -R oven-sh/bun -p SHASUMS256.txt` で取得した `SHASUMS256.txt` の `bun-linux-x64.zip` の行は `bf8ccbfb…395c`。`gh release view bun-v1.4.4 -R oven-sh/bun --json assets` の asset の `digest` も `sha256:bf8ccbfb…395c` で、同じ値だった。取得した zip に `sha256sum -c` を当てると `完了`(一致)。取り出した `bun --version` は `1.4.4`
+- `gh release download bun-v1.4.4 -R oven-sh/bun -p SHASUMS256.txt` で取得した `SHASUMS256.txt` の `bun-linux-x64.zip` の行は `bf8ccbfb…395c`。`gh release view bun-v1.4.4 -R oven-sh/bun --json assets` の asset の `digest` も `sha256:bf8ccbfb…395c` で、同じ値だった。`SHASUMS256.txt.asc` の署名を、Bun のリポジトリの `dockerhub/debian/Dockerfile`(`main` のコミット `2596ac5d391d47804c93a42bdbe615804aa62387`)に埋め込まれた公開鍵で確かめた。空の `GNUPGHOME` に鍵を入れ、`gpg --batch --assert-signer F3DCC08A8572C0749B3E18888EAB4D40A7B22B59 --verify --output SHASUMS256.verified.txt SHASUMS256.txt.asc` が `Good signature from "Robobun <robobun@oven.sh>"` を出して終了コード 0 で終わり、署名された本文の `bun-linux-x64.zip` の行も `bf8ccbfb…395c` だった。取得した zip に `sha256sum -c` を当てると `完了`(一致)。取り出した `bun --version` は `1.4.4`
 - node_modules のないツリーで通ること: `git archive HEAD` を一時フォルダーに取り出し(node_modules はない)、`env -i PATH=/usr/bin:/bin HOME=<空のフォルダー> HERDR_TEST_MODE=unit HERDR_SOCKET=/nonexistent/herdr.sock <取得した bun> test server/screen-fixtures.test.ts server/conversation-fixtures.test.ts` が `582 pass`、`0 fail`、`Ran 582 tests across 2 files.` で終わった。同じコマンドを `unshare -rn`(ネットワークのない名前空間。`curl https://github.com` は `Could not connect to server` で失敗した)で走らせても `582 pass`、`0 fail`
 - `bun test` が import できないパッケージを取得しないこと: node_modules のないフォルダーで、`is-number` を import するテストを、空の HOME とネットワークありで、`--no-install` を付けずに走らせた。`Cannot find package 'is-number'` で失敗し、`~/.bun/install/cache` には transpiler の cache(`@t@`)のほかに何もできなかった。`--no-install` を付けても同じ結果だった
 - 期待値を 1 つ変えると失敗すること: 上の一時フォルダーで、`fixtures/screens/claude/a-command-line-that-reads-tip-is-part-of-a-scrolled-approval-1/case.json` の `title` を `"Command approval"` から変えると、`(fail) screen corpus > claude/a-command-line-that-reads-tip-is-part-of-a-scrolled-approval-1`、`581 pass`、`1 fail`、終了コード 1
