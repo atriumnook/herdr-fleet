@@ -34,6 +34,8 @@ The Overview button carries the number of threads that need the person. A push n
 
 Built: the Checks tab shows what stands between the thread and landing: work no commit holds, commits ahead of and behind the base branch, the contract, whether a review ran on another CLI, and the pull request with its checks. The landing steps of 002 are buttons above the thread's tabs (Discard, Merge into the base branch, Create PR, Fix CI, Merge PR) and on the Checks rows they fix (Update branch, Send to lead, Fix CI), each offered only when it applies. Line comments are left on the Changes tab and sent with Send to lead.
 
+Planned: a Revert step, which undoes a merge with `git revert -m 1`. Under gated merge authority it is the person's way back from a merge the coordinator made on its own (002).
+
 ## Principles
 
 1. **Focus on what matters.** Every element answers one of the three questions, or it goes. A number appears only when it changes what the person does.

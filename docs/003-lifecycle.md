@@ -48,7 +48,7 @@ Two parts of this table break the principles of 000: the stage follows the lead'
 
 ### Planned: a stage table from stored reports
 
-The stage is worked out from stored facts only: the thread's reports (slice A), its plan, its last landing step, its pull request as GitHub last showed it, and whether a run of the thread is live. Never from an agent's prose, and never from one pane's state alone. A restart keeps it, since it is computed again from what is stored. The rows below adapt dsh's Ticket stages and use the report states slice A proposes (progress, waiting, ready, blocked, failed, dropped); their exact conditions settle when they are built.
+The stage is worked out from stored facts only: the thread's reports (slice A), its plan, its last landing step, its pull request as GitHub last showed it, and whether a run of the thread is live. Never from an agent's prose, and never from one pane's state alone. A restart keeps it, since it is computed again from what is stored. The rows below adapt dsh's Ticket stages and use slice A's report states (progress, waiting, ready, blocked, failed, dropped); their exact conditions settle when they are built.
 
 | Stage | Condition |
 | --- | --- |
@@ -56,11 +56,11 @@ The stage is worked out from stored facts only: the thread's reports (slice A), 
 | person / answer | The latest report asks the person a question, or the thread's plan waits for answers |
 | person / landing | The last landing step the person pressed did not go as asked |
 | person / blocked, failed | The latest report is blocked or failed, and the person has not written to the thread since |
-| person / merge | The latest report is ready and the thread's pull request is open with passing checks |
+| person / merge | The latest report is ready, the thread's pull request is open with passing checks, and the project's merge authority is `person`, or a condition of its gate fails (002) |
 | person / review | The latest report is ready and the thread has no pull request |
 | working / queued | No run of the thread is live, and a new lead is starting |
 | idle | The latest report is waiting or dropped |
-| working | Everything else, including a pull request whose checks fail while its lead fixes them |
+| working | Everything else, including a pull request whose checks fail while its lead fixes them, and a merge the coordinator makes under a gate whose conditions all hold |
 
 The table drives three things that today are worked out separately:
 
@@ -73,7 +73,7 @@ The table drives three things that today are worked out separately:
 The fleet tells the coordinator only what it has to act on (Built):
 
 - A thread's question for the person: a BLOCKED report, with its plan's place on the Fleet screen when one waits. The coordinator asks the person, or passes on what the person already decided. It never answers a plan itself.
-- The landing steps the person pressed that are the coordinator's to carry out: the merges.
+- The landing steps the person pressed that are the coordinator's to carry out: the merges. Planned: under gated merge authority, also a thread whose gate conditions all hold, for the coordinator to merge.
 - In an autonomous project (`"autonomous": true` in the project's or the person's `fleet.json`) also: every turn a thread ends, with its status line, contract and pull request; a pull request found merged; a thread the fleet closed against GitHub; a standstill; and an anomaly.
 
 A notice goes out when its receiver is free: no turn of the fleet's in flight, herdr calls it settled, and no draft of the person's in its input; with a draft, the fleet tries again a few seconds later. Several threads' notices go out together, in one message.
@@ -124,3 +124,5 @@ Built: the run registry keeps every run's record across a restart (dropping runs
 Built: `fleet report` computes a project's metrics from the fleet's event log, which records ids, roles, agents, models, states and times, never message text, and from GitHub: how often the person stepped in, the stretches the project stood still, starts per agent with the failed ones, runs that ended without a HANDOFF, anomalies, turns agents started themselves, threads closed against GitHub, pull requests merged into the base, and issues closed and opened.
 
 Planned (slice B, in progress): each run records the version of its role file and of the standing orders, and the report counts starts, failures and lost runs per role version, so a change to what the models read can be measured.
+
+Planned: every merge the coordinator makes on its own under gated merge authority is an event, and the report counts the change failure rate (such merges later reverted) and the time to restore (002).

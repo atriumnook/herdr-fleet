@@ -17,7 +17,7 @@ Reaching the server at all is access control (Built, `server/access.ts`): withou
 
 ## What the person approves
 
-Every step that leaves the machine or lands work waits for the person. The person presses it on the Fleet screen, and the fleet carries it to one agent as a `[fleet]` message that names the step. Each message approves the step it names and nothing more (Built).
+Every step that leaves the machine or lands work waits for the person, except a merge under gated merge authority (below). The person presses it on the Fleet screen, and the fleet carries it to one agent as a `[fleet]` message that names the step. Each message approves the step it names and nothing more (Built).
 
 | Step | Pressed as | Carried out by | Approves |
 | --- | --- | --- | --- |
@@ -32,16 +32,34 @@ Every step that leaves the machine or lands work waits for the person. The perso
 
 Once the person approved a pull request for a branch, the lead may push later commits of that branch to it. Force-push is never approved.
 
-### Merges into main
+### Merge authority
 
-Every merge into main waits for the person. The factory runs everything up to that point without them: threads, reviews, pull requests and CI fixes inside what the person already approved.
+Every merge waits for the person unless the person decided otherwise for that project. The factory runs everything up to the merge without them: threads, reviews, pull requests and CI fixes inside what the person already approved.
 
 - **Built** for the bundled roles: a coordinator merges only on a merge step the person pressed, and a lead never merges.
-- A project's own role files (`.herdr-fleet/agents/`) can still tell a lead to merge its own pull request, and an autonomous project then closes the thread on that merge. The target model has no such path. **Planned:** an autonomous project asks the person for the merge like any other, through the stage that waits for them (003).
+- **Built**, and to be replaced: a project's own role files (`.herdr-fleet/agents/`) can tell its lead to merge its own pull request, and an autonomous project then closes the thread on that merge. Once merge authority exists, it replaces this path.
+
+**Planned: merge authority.** Who may merge is an explicit mode per project, in the person's own `fleet.json` (`projects[<path>]`). It is never inferred from a repository's own role files: those come with the repository, and would let it grant itself merges. As in dsh, a Mandate's strength is explicit, not inferred.
+
+| Mode | Who merges |
+| --- | --- |
+| `person` (default) | Every merge waits for the person. herdr-fleet's own main uses this |
+| `gated` | The coordinator merges on its own only when every condition below holds; otherwise the merge waits for the person, as in `person`. The rust project's rust branch will use this |
+
+The conditions of `gated`, all of which must hold:
+
+1. The lead's latest report is ready (slice A).
+2. A review on another CLI than the one that wrote the change passed.
+3. The pull request's CI is green, or, where the project has no CI, the lead's recorded checks passed.
+4. The diff is at most N lines; N defaults to 200, as dsh's delivery rule.
+5. It touches none of the protected paths the person lists. A change to the gate itself, such as the merge conditions, access control or the coordinator's merge rules, always waits for the person.
+6. The branch has the base branch's latest commits.
+
+**Safety comes from undo, not approval.** Every merge is a merge commit (`git merge --no-ff`, `gh pr merge --merge`; Built), so `git revert -m 1 <merge>` undoes it. Planned: every merge the coordinator makes on its own goes to the event log and to `fleet report`, which counts the change failure rate (merges later reverted) and the time to restore, as DORA defines them; and a Revert step on the Fleet screen (005).
 
 ## What the fleet server does itself
 
-The fleet server never writes to GitHub (Built). It reads with `gh`, signed in as the person; it never reads `gh`'s sign-in. Agents write, each on a step the person pressed. The server's own acts are few:
+The fleet server never writes to GitHub (Built). It reads with `gh`, signed in as the person; it never reads `gh`'s sign-in. Agents write, each on a step the person pressed, or, for a merge, under gated merge authority (Planned). The server's own acts are few:
 
 - It starts, messages and closes agents in herdr panes.
 - It removes a thread's worktree and branch once it sees the thread's commits merged, by git or on GitHub.

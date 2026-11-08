@@ -1,6 +1,6 @@
 # 000 Philosophy
 
-herdr-fleet runs coding agents for one person. Its aim is a factory that runs without that person: the person gives the first request and approves every merge into main, and the fleet does the rest. Its core principle, taken from [dsh-superagent](https://github.com/deepseek-ai/dsh-superagent-prototype/blob/main/docs/000-philosophy.md):
+herdr-fleet runs coding agents for one person. Its aim is a factory that runs without that person: the person gives the first request and approves the merges, or names in their own settings the conditions under which a project's coordinator may merge alone, and the fleet does the rest. Its core principle, taken from [dsh-superagent](https://github.com/deepseek-ai/dsh-superagent-prototype/blob/main/docs/000-philosophy.md):
 
 **Take as little of the person's attention as possible, and give as much value as possible.**
 
@@ -41,8 +41,8 @@ And three more, for the fleet as a whole:
 
 Some things the fleet never does, whatever a request or a prompt says. 002 Authorization gives the detail.
 
-- The fleet server never writes to GitHub. It reads with `gh`; agents push, open pull requests and merge, each only on a step the person pressed.
-- Every merge into main waits for the person.
+- The fleet server never writes to GitHub. It reads with `gh`; agents push, open pull requests and merge, each on a step the person pressed, or, for a merge, under the merge authority the person set.
+- Every merge waits for the person, unless the person's own settings make the project's merge authority gated and every condition of the gate holds. A repository never grants itself merges.
 - Access control is not loosened.
 - No third-party code is fetched or run without the person's approval.
 

@@ -6,7 +6,7 @@ The model follows [dsh-superagent's](https://github.com/deepseek-ai/dsh-superage
 
 ## Flow
 
-The person sends a request to a project's coordinator. The coordinator starts a thread for each independent piece of work, with a brief. A thread works through runs: its lead, and the helpers the lead starts. Each of their turns ends with a report. From the reports and the other structured facts of a thread, the fleet works out the thread's stage, and sends notices to the coordinator about what the person or the coordinator has to know. The person answers plans and presses landing steps on the Fleet screen; the lead pushes and opens the pull request, and the coordinator merges.
+The person sends a request to a project's coordinator. The coordinator starts a thread for each independent piece of work, with a brief. A thread works through runs: its lead, and the helpers the lead starts. Each of their turns ends with a report. From the reports and the other structured facts of a thread, the fleet works out the thread's stage, and sends notices to the coordinator about what the person or the coordinator has to know. The person answers plans and presses landing steps on the Fleet screen; the lead pushes and opens the pull request, and the coordinator merges, on the person's step or, where the person made the project's merge authority gated, when every condition of the gate holds.
 
 ```mermaid
 flowchart LR
@@ -26,7 +26,7 @@ flowchart LR
 | Concept | Definition | Rules it keeps | dsh | Status |
 | --- | --- | --- | --- | --- |
 | Project | A repository, known by its main checkout's path, or a folder outside one | Has at most one live coordinator. A second request for the same project goes to the live one | — | Built |
-| Coordinator | The run that talks with the person about one project, on its main checkout | Edits no file. Starts threads, passes the person's decisions on, and merges a thread only on a merge step the person pressed. Never answers a plan or an approval on a thread's screen | Main Session | Built |
+| Coordinator | The run that talks with the person about one project, on its main checkout | Edits no file. Starts threads, passes the person's decisions on, and merges a thread only on a merge step the person pressed, or on its own under gated merge authority (Planned). Never answers a plan or an approval on a thread's screen | Main Session | Built |
 | Thread | One piece of a project's work, with its own herdr workspace and, in a repository, its own worktree on the branch `fleet/<id>` from the branch the main checkout was on | Has one lead at a time and keeps its worktree, branch and pull request across its runs. Ends merged or discarded, and only then do its worktree and branch go | Ticket | Built, as the lead's run (below) |
 | Run | One agent the fleet started in a herdr pane with a role, followed turn by turn until it settles | Belongs to one group. Has its own result folder. A run that fails its first turn hands its task to the next configured candidate | Assignment | Built |
 | Role | What an agent is told to be and how it runs: a file in `agents/`, overridden by the person's and the project's | Says whether the role edits files, may start other agents and talks in its pane. A role that edits no file runs only on a CLI the fleet can hold to that | Preset and prompt parts | Built |
@@ -38,6 +38,7 @@ flowchart LR
 | Stage | Where a thread stands, by what it waits for | One stage at a time; the first matching row of a table wins; worked out from stored facts, never from an agent's prose | Ticket stage | Built from the lead's run; table Planned |
 | Notice | A message from the fleet to a coordinator or a lead, opening with `[fleet]` | Says it comes from the fleet, not the person. Goes out only when its receiver is free | Notice | Built, one slot per thread; stored Planned (slice C) |
 | Landing step | A step the person pressed to land a thread: update the branch, create a pull request, fix CI, send review comments, merge, merge the pull request, or discard | Each approves that step only. The lead takes the branch steps, the coordinator the merges, and the fleet itself only discard | Mandate, as the person's approval | Built |
+| Merge authority | Who may merge a project's threads: the person (`person`, the default), or the coordinator alone when every condition of a gate holds (`gated`) | Set per project in the person's own `fleet.json`, explicitly; never read from the repository's own files. A change to the gate itself always waits for the person | Mandate's strength (explicit, not inferred) | Planned |
 | Subscription | A thread following its pull request on GitHub, read only | Review comments and check changes reach the thread's lead as notices; nothing is written to GitHub | Subscription | Planned |
 
 The person is not a domain concept. There is one, and what they do reaches the fleet as a request, a plan answer or a landing step.
@@ -69,6 +70,7 @@ The thread is the unit of work; a run is the binding of that work to one agent i
 | Reading "waiting on the person" from a report's prose | It needs structured facts. The code still reads the BLOCKED status line until slice A |
 | dsh's Source, Trigger, Eval and Policy | There is one person, who asks the coordinator directly; nothing has to judge whether a stranger's message is a request. Access to the server is access control, not Policy |
 | An allowed list or identities | One person, signed in through their own CLIs and `gh` |
+| Merge authority read from a repository's own role files (`.herdr-fleet/agents/`) | They come with the repository, which would grant itself merges; dsh's Mandate strength is explicit, not inferred. The code still allows it until merge authority exists (002) |
 | The fleet server writing to GitHub | Writes are the person's approval, carried out by an agent the person can watch (002) |
 | A ticket store of its own | A project's issues stay where the project tracks them; a thread names the issue in its brief |
 | An agent declaring that the person must decide | Only a structured field of a report, a plan or a landing step that went wrong makes a thread wait for the person |

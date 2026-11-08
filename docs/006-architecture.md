@@ -53,7 +53,8 @@ These are the slices in progress and the later work, by where they change the co
 | D: these documents | Planned (in progress) | `docs/000-…` onward, `GLOSSARY.md`, `server/docs-links.test.ts` |
 | Stage table | Planned | One pure function from a thread's stored facts to its stage, in place of `threadState`, read by the Fleet screen, the coordinator's notices and `superviseProjects` |
 | GitHub subscription | Planned | `github.ts` reads a thread's reviews and check changes; the poll turns a change into a notice for the thread's lead. Nothing writes to GitHub |
-| Merges into main wait for the person | Planned | An autonomous project closes a thread only on a merge the person pressed (002) |
+| Merge authority | Planned | A per-project mode in the person's own `fleet.json` (`config.ts`, `ProjectConfig`), never read from the repository; the coordinator merges alone only when the gate's conditions hold (002). It replaces today's path, where a project's role files let its lead merge |
+| Undo and its measure | Planned | Merge events in `events.ts`, the change failure rate and the time to restore in `metrics.ts`, a Revert step on the Fleet screen |
 
 ## Persistence
 
