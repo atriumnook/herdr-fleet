@@ -3,6 +3,7 @@
 - 状態: 採用
 - 決めた日: 2026-11-08
 - Issue: #192
+- 置き換える: 0107-crate-split(一部だけ。screen が protocol から取る型から thinking の段階を外して段階 3 に送ること、OpenCode の port を同期の trait にすることの 2 点。ほかの決定は 0107 のまま)
 
 ## 状況
 
@@ -22,13 +23,13 @@
 
 TypeScript のコードの構成のうち、分け方を左右したもの(行番号は `b7d77b8`):
 
-- `server/prompt.ts` では、どのエージェントの系統の解析も共通の部分を通る: responder の union(48-66)、`ParsedPrompt`(68-79)、カードの id を作る `finishPrompt`(198-212)、responder ごとに分岐する `promptTailIsActive`(822-869)、`parsePrompt` の振り分け(1115-1126)、responder ごとに分岐する `answerKeys`(1152-1224)
+- `server/prompt.ts` では、どのエージェントの系統の解析も共通の部分を通る: responder(解析した承認画面の種類ごとの、答え方の名前。18 種類)の union(48-66)、`ParsedPrompt`(68-79)、カードの id を作る `finishPrompt`(198-212)、responder ごとに分岐する `promptTailIsActive`(822-869)、`parsePrompt` の振り分け(1115-1126)、responder ごとに分岐する `answerKeys`(1152-1224)
 - `server/conversation.ts` のページング(404-850)は、source ごとの分岐を `transcriptStream`、`applyHistoryBoundary`、`opensTurn`、`parseTurns`、`liveTurns`、`metadataHead`、`outputInText`、`activeHistoryText` に持つ。Codex のロールアウトの連なりと pi の枝は、読む範囲と `history_id` を決める
 - pi と omp は 1 つの parser(`server/transcript-records.ts` の `parseOmpTranscript`)を共有する
 - `server/transcript-records.ts`、`server/tool-output.ts`、`server/skill-activity.ts`、`server/conversation-metadata.ts`、`server/conversation-errors.ts` は、2 つ以上の source が使う
 - 画面の corpus の `sameIdAs` の 78 の関係は、どれも 1 つのフォルダーと 1 つの呼び出しの種類の中にある
 
-もとにした報告は `docs/rust-migration/architecture/2026-11-08-parsing-crates-review.html`(`improve-codebase-architecture` の手順で調べたもの)。決める前に architect(`spawn --role architect --read-only`、run `8099c90a`)に聞き、答えの分け方と interface をこの ADR の決定にした。
+もとにした報告は `docs/rust-migration/architecture/2026-11-08-parsing-crates-review.html`(`improve-codebase-architecture` の手順で調べたもの)。決める前に architect(`spawn --role architect --read-only`、run `8099c90a`)に聞き、答えの分け方と interface をこの ADR の決定にした。architect が lead の判断に残したカードの content id の長さは、lead が決めた(下の「screen の公開の口」)。PR のレビュー(codex の reviewer と `/code-review high`)の指摘で、OpenCode と `Transcripts` の method の受け取り方、T1 が OpenCode のために置くもの、0107 の一部の置き換えを足した。
 
 ## 決定
 
@@ -53,13 +54,13 @@ TypeScript のコードの構成のうち、分け方を左右したもの(行�
 | #205(T6) | 増分の読み取り(cache)と、読み続けた答えと読み直した答えが同じことのテスト | T2、T3、T4 | `transcript/src/paging.rs`、`transcript/src/format.rs`、要るときは `transcript/src/{claude,codex,pi}/`、`transcript/tests/warm.rs` |
 | #206(V) | 両方の corpus の全件のテスト、S1 と T1 の `#[allow(dead_code)]` の削除、`parity.md` の段階 2 の行、GLOSSARY | S2〜S5、T2〜T6 | `screen/tests/corpus.rs`、`transcript/tests/corpus.rs`、`screen/src/text.rs`、`transcript/src/{records,skill_activity,tool_output}.rs`、`docs/rust-migration/parity.md`、`docs/rust-migration/GLOSSARY.md` |
 
-同時に走りうる組は、P0 と CI0、S1 と T1、S2〜S5 と T2〜T5、T5 と T6 で、どの組も書くパスが重ならない。共通のファイル(`lib.rs`、`text.rs`、`card.rs`、`answer.rs`、`format.rs`、`paging.rs`、`tests/common/mod.rs`、manifest、`Cargo.lock`)を書くのは、土台の Issue(P0、S1、T1)と、それを待つ T6 と V だけである。あとの Issue が共通のファイルに直しが要ると分かったときは、ADR `0122-parity-criteria` の段階 1 と同じく、直す Issue を別に開いてそれを待つ。外部 crate がさらに要るときも、依存を足す Issue を別に開いて待つ。
+同時に走りうる組は、P0 と CI0、S1 と T1、S2〜S5 と T2〜T5、T5 と T6 で、どの組も書くパスが重ならない。共通のファイル(`lib.rs`、`text.rs`、`card.rs`、`answer.rs`、`format.rs`、`paging.rs`、`tests/common/mod.rs`、manifest、`Cargo.lock`)を書くのは、土台の Issue(P0、S1、T1)と、それを待つ T6 と V だけである。そのため、S1 はまだの系統の module の宣言と stub を、T1 は OpenCode の module(`pub mod opencode` の公開の型と stub)と runner の OpenCode の振り分けを、最初から置く。S2〜S5 と T2〜T5 は、`lib.rs` と `tests/common/mod.rs` に行を足さずに済む。あとの Issue が共通のファイルに直しが要ると分かったときは、ADR `0122-parity-criteria` の段階 1 と同じく、直す Issue を別に開いてそれを待つ。外部 crate がさらに要るときも、依存を足す Issue を別に開いて待つ。
 
-エージェントごとに画面と transcript を 1 つの Issue にする分け方は取らない。1 つの Issue が 2 つの crate と 200 件を超え、汎用のメニュー(S4)と adapter の判定(S5)は系統をまたぐので、結局は共通の Issue が要る。
+エージェントごとに画面と transcript を 1 つの Issue にする分け方は取らない。たとえば Claude の Issue は 2 つの crate にまたがり、画面の 167 件と会話ログの 41 件を受け持つことになる。また、汎用のメニュー(S4)と adapter の判定(S5)は系統をまたぐので、結局は共通の Issue が要る。
 
 ### 外部 crate
 
-段階 2 の外部 crate は P0 がまとめて足す。`Cargo.lock` と crate の manifest は 1 つのファイルで、slice ごとに足すと並行する Issue が同じファイルを書くため。
+段階 2 の外部 crate は P0 がまとめて足す。`Cargo.lock` と crate の manifest は 1 つのファイルで、Issue ごとに足すと並行する Issue が同じファイルを書くため。
 
 - protocol: serde(derive)、serde_json(`patchText` が JSON の文字列のリテラルを読む。`shared/patch.ts:19`)、regex
 - screen: regex、sha2(カードの content id)、serde と serde_json(content id の入力の符号化、`AnswerStep`)、unicode-width(`Bun.stringWidth`。`server/prompt.ts:433, 441`)、unicode-segmentation(`Intl.Segmenter` の grapheme。`server/prompt.ts:428`)、unicode-normalization(NFKC。`server/prompt.ts:383`)
@@ -67,7 +68,7 @@ TypeScript のコードの構成のうち、分け方を左右したもの(行�
 
 足さないもの: 乱数の crate(TypeScript の randomUUID の 3 つの用途は、どれも「プロセスごとに違い、プロセスの中で重ならない値」で足り、OS の乱数で初期化される `std::hash::RandomState` から作る値とカウンタで作れる)、block_on(下の OpenCode の port を同期にする)、tempfile と filetime(`std::env::temp_dir`、`std::fs`、`std::fs::File::set_times` で足りる)。
 
-P0 の依存の ADR には、計画の「守ること」の項目(版、入手元、ライセンス、保守の状況、`build.rs` が実行すること)に加えて、slice ごとに違う訳し方をしないための決まりを書く: JavaScript の正規表現から Rust の regex への書き換え(先読みを使う `server/prompt.ts:377, 540, 941` の書き換え方、`\b` と `\w` を ASCII だけにすること、`.` と `\s` の範囲)、UTF-16 の長さで数える箇所(`server/tool-output.ts` の `output_size` は期待値に出る)、`JSON.stringify` と serde_json の違い(数の書き方、対のないサロゲート)、寛容な base64 の復号。
+P0 の依存の ADR には、計画の「守ること」の項目(版、入手元、ライセンス、保守の状況、`build.rs` が実行すること)に加えて、Issue ごとに違う訳し方をしないための決まりを書く: JavaScript の正規表現から Rust の regex への書き換え(先読みを使う `server/prompt.ts:377, 540, 941` の書き換え方、`\b` と `\w` を ASCII だけにすること、`.` と `\s` の範囲)、UTF-16 の長さで数える箇所(`server/tool-output.ts` の `output_size` は期待値に出る)、`JSON.stringify` と serde_json の違い(数の書き方、対のないサロゲート)、寛容な base64 の復号。P0 は、画面の corpus の `screen.txt` に出るすべての文字で、unicode-width の幅と `Bun.stringWidth` の幅、unicode-segmentation の grapheme の区切りと `Intl.Segmenter` の区切りを比べ、違いとその合わせ方を ADR に書く。合わせる処理は S1 が `text.rs` に置く(S2〜S4 は `text.rs` を書かない)。
 
 ### protocol に置く型
 
@@ -92,6 +93,7 @@ pub fn screen_checks(kind: FleetAgentKind) -> /* adapter の画面の判定 */;
 pub fn cursor_usage(screen: &str, now: i64) -> Option<UsageReading>;
 ```
 
+- `Answer`(TypeScript の `PromptAnswer` から `pane_id` と `prompt_id` を除いた、答えの 3 つの項目)、`AnswerStep`、`InvalidAnswer`、`QueueFront`、`Answering` は screen の型で、S1 が置く。`screen_checks` の返す型の形も S1 が決める
 - 解析は、公開のカードと答え方を持つ 1 つの値 `ParsedPrompt` を返す。TypeScript は公開のカードから WeakMap で非公開の値を引き(`server/prompt.ts:85`)、複写したカードには `InvalidAnswer` を返す(`server/prompt.ts:1163-1164`)。値が両方を持てば、この失敗は型の上で起きない。core は `ParsedPrompt` を手元に残し、カードを複写して送る
 - 答え方(自由入力の前と後に送るキー、複数選択の行の切り替えと選び終えるキーなど)は、各系統の module が `Answering` の値として埋める。`answer_keys` は responder の名前で分岐しない。TypeScript の `answerKeys` は responder の名前の一覧で分岐する(`server/prompt.ts:1170-1186, 1199-1204`)が、そうすると各系統の Issue が共通の `answer.rs` を書くことになる。「答えはちょうど 1 つ」、範囲、負の数の検査と文言は `answer.rs` の 1 か所に置く
 - `Responder` は、系統ごとの enum を包む enum にする(`Responder::Claude(claude::Responder)` など)。画面の終わりの判定(TypeScript の `promptTailIsActive`)も、包む側から各系統の関数に渡す。S1 は、まだの系統に空の enum と `todo!()` の stub を置く
@@ -100,7 +102,7 @@ pub fn cursor_usage(screen: &str, now: i64) -> Option<UsageReading>;
 カードの content id:
 
 - 入力は TypeScript と同じ項目にする: agent、kind、title、question、表示のために切る前の body、options、multi_select、custom_option_index、queued、fallback、fallback のカードでは時計の行を置き換えた画面とその行の位置(`server/prompt.ts:198-213, 1359`)。S1 の `card.rs` は、S4 がこの 2 つを足して渡す口を最初から持つ。ハッシュは sha256 にする。std の `DefaultHasher` は鍵が固定なので、画面の文字を操れる人が衝突を作れる。承認の画面に出るコマンドは、リポジトリの内容から来うる
-- 値は sha256 の 16 進の全体(64 桁)にし、TypeScript の 12 桁に切らない。content id はプロセスの外に出ない: core は、プロセスごとの乱数と asking の番号でハッシュし直してから id を外に出し(`server/prompt-api.ts:41, 76`)、`prompt.id` を読むのは `server/prompt-api.ts` だけである。12 桁(48 bit)では、約 2^24 回の計算で、内容の違う 2 つの承認を同じ asking に見せる衝突を作れる。全体にしても、corpus(同じ id になる件だけを比べる)にも Web UI にも影響しない
+- 値は sha256 の 16 進の全体(64 桁)にし、TypeScript の 12 桁に切らない。content id はプロセスの外に出ない: core は、プロセスごとの乱数と、問い 1 回ごとに付ける番号(TypeScript の asking)でハッシュし直してから id を外に出し(`server/prompt-api.ts:41, 76`)、`prompt.id` を読むのは `server/prompt-api.ts` だけである。12 桁(48 bit)では、約 2^24 回の計算で、内容の違う 2 つの承認を同じ問いに見せる衝突を作れる。全体にしても、corpus(同じ id になる件だけを比べる)にも Web UI にも影響しない
 - TypeScript とバイト列を合わせない。合わせるには、解析ごとに違う TypeScript のオブジェクトの項目の並びと `JSON.stringify` の書き方を、18 種類の responder の解析が別々に写すことになる。合わせるのは「同じ内容なら同じ id、違う内容なら違う id」だけにする
 
 ### transcript の seam
@@ -114,7 +116,10 @@ pub struct Transcripts { claude: Source<claude::Claude>, codex: Source<codex::Co
 - `Transcripts::page`、`image`、`tool_output`、`unanswered_questions` は、`lib.rs` の中で `FileSource` を 1 回だけ match して、該当する `Source` に渡す。ページングの処理(`paging.rs`)は source の enum を match しない。engine の中で match すると、どの source がどこで違うかを engine が知り(今の TypeScript の形)、T2〜T4 の全員が `paging.rs` を書くことになる
 - trait の method は `server/conversation.ts` の source ごとの分岐から取る: 読む範囲の並びとそれを `history_id` に含める印(Codex の連なり、pi の枝。既定は 1 ファイルの全体)、履歴の境目(`/clear`、`context_clear`、モデルと thinking の設定の記録。既定はなし)、ターンの始まりの印と判定、ターンの解析と解析の間で受け渡す状態 `Carry`(Claude の `peersSeen`)、metadata(`server/conversation-metadata.ts` の source の分岐を各 source の module に分ける)と metadata の頭、abandoned(pi だけ)、ツールの出力、画像
 - `Carry` は T1 から trait に入れておく。T6 が増分の読み取りを入れるとき、確定したターンと実行中のターンの間で Claude の `peersSeen` を渡すため。入れておかないと、T6 が全 source の module を書き直す
-- source ごとの状態(pi の索引、Codex の連なり、答えのない質問の走査の結果)は、各 source の struct が自分の項目として持つ。`Transcripts` のページングの cache(読んだ範囲と解析したターン)とは別で、ページングの cache は T6 が足す。TypeScript の `forgetTranscriptState` が消さない `piIndexes`、`questionScans`、`linesBeforeCut` も含め、ADR `0107-crate-split` のとおり `Transcripts` の値がすべての cache を持つ
+- `Transcripts` が持つ状態は 2 種類ある。ADR `0107-crate-split` のとおり、どちらも `Transcripts` の値の中にあり、モジュールの変数には置かない
+  - source ごとの状態(pi の索引、Codex の連なり、答えのない質問の走査の結果): 各 source の struct が自分の項目として持ち、T2〜T4 が足す。TypeScript の `forgetTranscriptState` が消さない `piIndexes`、`questionScans`、`linesBeforeCut` もここに入る
+  - ページングの cache(読んだ範囲と解析したターン): `paging.rs` が持ち、T6 が足す
+- `Transcripts` の method は `&self` を取り、状態は内部の Mutex で守る。Mutex は状態を読み書きする間だけ持ち、ファイルの読み取りと解析の間は持たない。core が 1 つの `Transcripts` を共有しても、数百 MB のロールアウトの解析がほかのペインの読み取りを待たせない。保持する量の上限(TypeScript の各 cache の件数、Codex の実行中のターンの 2 × 16 MB)は T6 が TypeScript の値で守る
 - ファイルの識別(dev、ino、size、mtime、ctime)は `cfg(unix)` の 1 つの関数に閉じ込める。std は Windows で dev と ino を返さないので、unix 以外では dev と ino を使わない識別を `cfg(not(unix))` の同じ名前の関数に置き、Windows で正しく動くかは段階 6 で確かめる。直す場所は 1 つになる
 - pi のコンテキストの大きさは、引数で受け取った検索の関数で求める(ADR `0107-crate-split`)
 - T1 のページングは呼ばれるたびに読み直す。増分の読み取り(TypeScript の `liveScans`、`settledTurns`、境目の走査の再開、応答の cache、Codex の実行中のターン。`server/conversation.ts:668-826`)は T6 が足す。cache は corpus の答えを変えないので、T1 は corpus だけで確かめ終われる。書き直しの世代(`:471-480`)と境目の位置は答えを変えるので T1 に入れる。T6 は「1 つの `Transcripts` で読み続けた答えが、毎回新しい `Transcripts` で読んだ答えと同じ」ことを corpus の全手順で確かめる
@@ -122,17 +127,20 @@ pub struct Transcripts { claude: Source<claude::Claude>, codex: Source<codex::Co
 ### OpenCode
 
 ```rust
-pub trait OpencodeApi {
+pub trait OpencodeApi: Send + Sync {
     fn service_running(&self) -> Result<bool, OpencodeError>;
     fn get(&self, path: &str) -> Result<serde_json::Value, OpencodeError>;
 }
 pub enum OpencodeError { Http { status: u16, tag: String }, Other(String) }
 ```
 
-- port は同期の trait にする。`OpencodeConversations` の method は `&mut self` を取り、core は `spawn_blocking` の中で呼ぶ。transcript のファイルの読み取りも同期(TypeScript の `transcriptPage` も同期)で、呼び方が 1 つになる。`async fn` を trait に書くと、dyn にできず、返す future が Send かを示せず、runner も future を動かす手段が要る
-- 失うものは 2 つ: revert のときの 2 つの GET の並行(`server/opencode-session.ts:344`)は `opencode api` を 1 回起動する時間だけ遅くなる。モデル一覧の読み込みの重なりの除去(`:177`)は、`&mut self` で読み込みが 1 つずつになるので要らなくなる
+- port は同期の trait(`Send + Sync`)にする。`OpencodeConversations` の method は `&self` を取り、状態は内部の Mutex で守る。Mutex は状態を読み書きする間だけ持ち、`OpencodeApi` の呼び出しの間は持たないので、複数のペインの読み取りが並行し、1 つの遅い呼び出しがほかのペインを待たせない。同時に動かす `opencode api` の数の上限(4)は、今と同じく child-process の OpenCode のクライアントが守る。core は `spawn_blocking` の中で呼ぶ。transcript のファイルの読み取りも同期(TypeScript の `transcriptPage` も同期)で、呼び方が 1 つになる。`async fn` を trait に書くと、dyn にできず、返す future が Send かを示せず、runner も future を動かす手段が要る
+- 同期にすると、TypeScript の Promise に頼る 3 つの振る舞いが変わる
+  - revert のときの 2 つの GET の並行(`server/opencode-session.ts:344`)はなくなり、`opencode api` を 1 回起動する時間だけ遅くなる
+  - 同じセッションへの同時の要求が 1 つの読み取りを共有すること(`:109-114`。`server/opencode-session.test.ts:414-419` が確かめる)と、モデル一覧の読み込みの重なりの除去(`:177`)は、transcript では作らない。段階 4 の core が、非同期の側で同じセッションの実行中の要求を共有する。`server/opencode-session.test.ts` のこの `it` の引き継ぎ先は、段階 4 の core のテストにする
+- 保持する量の上限(保持するメッセージは 400 まで、画像のバイト列は保持しない。`server/opencode-session.test.ts:373-389`)は T5 が守り、crate の中の単体テストで確かめる
 - 時計は関数で受ける(corpus の手順 `at` のため)。TypeScript が `Date.now()` を直接読む `windows()`(`:175, 188`)も受けた時計を使う
-- `OpencodeConversations` は `Transcripts` と別の値にする。core が別の Mutex で持てば、遅い `opencode api` がファイルの transcript の読み取りを待たせない
+- `OpencodeConversations` は `Transcripts` と別の値にする。遅い `opencode api` の呼び出しとファイルの transcript の読み取りが、状態を共有しない
 
 ### corpus の runner
 
@@ -152,7 +160,7 @@ pub enum OpencodeError { Http { status: u16, tag: String }, Other(String) }
 
 ### CI で TypeScript の corpus を走らせる
 
-ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確かめるかを段階 2 に残した。CI0 で確かめる。段階 2 の Issue は、件が誤っていると判断して期待値を変えることがあり、決まり(standing の関門 5)はその根拠を TypeScript の振る舞いなどの独立の情報源に求める。workflow `rust` に job `ts-corpus` を足し、`bun test server/screen-fixtures.test.ts server/conversation-fixtures.test.ts` を走らせれば、Rust の答えに合わせて件を変えた PR は merge の前に赤になる。2 つのテストは node_modules なしで通る(582 件、0.64 秒)ので、`bun install` は要らない。bun は第三者の action を使わず、版を固定した release の zip を sha256 で照合して入れる(ADR `0110-workspace-and-ci` が action を checkout だけにした方針に合わせる)。job の中身と bun の依存は CI0 の ADR に書く。
+ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確かめるかを段階 2 に残した。CI0 で確かめる。段階 2 の Issue は、件が誤っていると判断して期待値を変えることがあり、決まり(standing の関門 5)はその根拠を TypeScript の振る舞いなどの独立の情報源に求める。workflow `rust` に job `ts-corpus` を足し、`bun test server/screen-fixtures.test.ts server/conversation-fixtures.test.ts` を走らせれば、Rust の答えに合わせて件を変えた PR は merge の前に赤になる。2 つのテストは node_modules なしで通る(582 件、0.64 秒)ので、`bun install` は要らない。bun は第三者の action を使わず、版を固定した release の zip を sha256 で照合して入れる(ADR `0110-workspace-and-ci` が action を checkout だけにした方針に合わせる)。job は、ほかの job と同じく `HERDR_*` を持たない環境で、`HERDR_TEST_MODE=unit HERDR_SOCKET=/nonexistent/herdr.sock` を付けて走らせる。job の中身と bun の依存は CI0 の ADR に書く。件と TypeScript の実装がどちらも誤っていると分かった場合は、段階 2 の Issue の注意のとおり別の Issue にし、その Issue が TypeScript の実装と件を 1 つの PR で直す。件だけを変える PR が赤になるのは、意図した振る舞いである。2 つのテストの 582 件は、件ごとのテスト 577(347 + 230)と、ほかの 5 件(件があることを確かめるテストが 2 つ、`sameIdAs` を全件で確かめるテスト、全件を逆の順序で走らせるテスト、すべての source の呼び出しの振り分けを確かめるテスト)である。
 
 ### GLOSSARY
 
@@ -160,7 +168,7 @@ ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確�
 
 ## 検討した代わり
 
-- 型と外部 crate を slice ごとに足す: `Cargo.lock`、crate の manifest、protocol の `lib.rs` を並行する Issue が書く。型の多くは複数の Issue が使う(`InteractivePrompt` は S1〜S4、`ConversationTurn` は T1〜T5、`QueuedQuestion` は S3 と T3)
+- 型と外部 crate を Issue ごとに足す: `Cargo.lock`、crate の manifest、protocol の `lib.rs` を並行する Issue が書く。型の多くは複数の Issue が使う(`InteractivePrompt` は S1〜S4、`ConversationTurn` は T1〜T5、`QueuedQuestion` は S3 と T3)
 - 答えのキーの分岐をすべて S1 の `answer_keys` に書く(lead の最初の案): 各系統の Issue が自分の答え方を直すたびに `answer.rs` を書くことになる
 - WeakMap に当たる登録表を screen に持つ: 隠れた状態を持つ。答えるときに画面を読み直す案は、答えのキーが見せたカードではなく今の画面で決まり、TypeScript と振る舞いが変わる
 - content id を 12 桁のままにする: corpus は通るが、上に書いた衝突の余地が残る。12 桁にする理由(画面に出す、URL に載せる)は Rust 版にない
@@ -177,10 +185,10 @@ ADR `0122-parity-criteria` は、TypeScript の答えとの一致を CI で確�
 ## 結果
 
 - 段階 2 の Issue は上の表のとおりに進む。P0 と CI0 のあと、S1 と T1 が並行し、そのあと S2〜S5 と T2〜T5 の 8 つが並行する。T6 は T2〜T4 を、V はすべてを待つ
-- 共通のファイルを書くのは土台の Issue だけなので、あとの Issue が共通のファイルの直しを見つけると、直す Issue を待つ分だけ遅れる
+- 共通のファイルを書くのは土台の Issue と T6、V だけなので、あとの Issue が共通のファイルの直しを見つけると、直す Issue を待つ分だけ遅れる
 - screen の公開の口は `ParsedPrompt` を返し、core(段階 4)はカードの値ではなく `ParsedPrompt` を持つ
-- transcript に source を足すときは、`TranscriptFormat` を実装する module を 1 つ足し、`lib.rs` の match に 1 行足す
-- OpenCode の読み手は同期で、core は `spawn_blocking` で呼ぶ
+- transcript に source を足すときは、`TranscriptFormat` を実装する module を 1 つ足し、`lib.rs` の `Transcripts` の項目と `FileSource` の match に 1 つずつ足す
+- OpenCode の読み手は同期で、core は `spawn_blocking` で呼ぶ。同じセッションへの同時の要求の共有は、段階 4 の core が受け持つ
 - CI0 のあと、段階 2 のどの PR も、TypeScript の 2 つの corpus が通らなければ赤になる
 
 ## 確かめたこと
