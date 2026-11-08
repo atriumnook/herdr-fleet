@@ -1,0 +1,3 @@
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"reasoning","summary":[{"type":"summary_text","text":"Considering options"}],"encrypted_content":"secret"}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","channel":"analysis","content":[{"type":"output_text","text":"Analysis text"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Answer"}],"phase":"final_answer"}}

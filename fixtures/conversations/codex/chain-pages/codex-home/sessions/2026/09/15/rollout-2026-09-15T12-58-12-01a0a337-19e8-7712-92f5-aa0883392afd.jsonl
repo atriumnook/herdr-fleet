@@ -1,0 +1,184 @@
+{"type":"session_meta","payload":{"source":"cli","thread_source":"user"}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 0"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 0"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 1"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 1"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 2"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 2"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 3"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 3"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 4"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 4"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 5"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 5"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 6"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 6"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 7"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 7"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 8"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 8"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 9"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 9"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 10"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 10"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 11"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 11"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 12"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 12"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 13"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 13"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 14"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 14"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 15"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 15"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 16"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 16"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 17"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 17"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 18"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 18"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 19"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 19"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 20"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 20"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 21"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 21"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 22"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 22"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 23"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 23"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 24"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 24"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 25"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 25"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 26"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 26"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 27"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 27"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 28"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 28"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 29"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 29"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 30"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 30"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 31"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 31"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 32"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 32"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 33"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 33"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 34"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 34"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 35"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 35"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 36"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 36"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 37"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 37"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 38"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 38"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 39"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 39"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 40"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 40"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 41"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 41"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 42"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 42"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 43"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 43"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 44"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 44"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 45"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 45"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 46"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 46"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 47"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 47"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 48"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 48"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 49"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 49"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 50"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 50"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 51"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 51"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 52"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 52"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 53"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 53"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 54"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 54"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 55"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 55"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 56"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 56"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 57"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 57"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 58"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 58"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 59"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 59"}]}}
+{"type":"event_msg","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"task_started"}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"prompt 999"}]}}
+{"type":"response_item","timestamp":"2026-09-23T00:00:01.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"answer 999"}]}}

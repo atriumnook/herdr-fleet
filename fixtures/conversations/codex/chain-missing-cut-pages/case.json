@@ -1,0 +1,1302 @@
+{
+  "about": "server/conversation.test.ts: transcript pages refuses a cursor once the rollouts before the live file change, instead of pointing at other turns\nThe first half: the pages of a chain whose earlier rollout is not there. The rollout appearing is seen once the incomplete chain expires (forgetHistoryChains, the clock), which stays in the test (ADR 0122)",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "codex-home/sessions/2026/09/23/rollout-2026-09-23T10-46-43-01a0a337-19e8-7712-92f5-aa0883392afd_01a0cbf1-9b0e-7383-a345-80974b279c68.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 30"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 30"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 31"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 31"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 32"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 32"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 33"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 33"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 34"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 34"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 35"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 35"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 36"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 36"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 37"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 37"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 38"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 38"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 39"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 39"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 40"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 40"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 41"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 41"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 42"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 42"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 43"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 43"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 44"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 44"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 45"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 45"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 46"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 46"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 47"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 47"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 48"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 48"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 49"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 49"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 50"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 50"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 51"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 51"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 52"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 52"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 53"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 53"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 54"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 54"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 55"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 55"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 56"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 56"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 57"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 57"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 58"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 58"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 59"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 59"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 60"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 60"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 61"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 61"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 62"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 62"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 63"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 63"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 64"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 64"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 65"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 65"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 66"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 66"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 67"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 67"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 68"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 68"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 69"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 69"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 70"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 70"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 71"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 71"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 72"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 72"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 73"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 73"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 74"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 74"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 75"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 75"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 76"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 76"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 77"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 77"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 78"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 78"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 79"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 79"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": "$c1",
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "codex-home/sessions/2026/09/23/rollout-2026-09-23T10-46-43-01a0a337-19e8-7712-92f5-aa0883392afd_01a0cbf1-9b0e-7383-a345-80974b279c68.jsonl",
+      "page": {
+        "before": "$c1"
+      },
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 20"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 20"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 21"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 21"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 22"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 22"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 23"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 23"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 24"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 24"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 25"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 25"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 26"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 26"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 27"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 27"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 28"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 28"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "prompt 29"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-23T00:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "answer 29"
+              }
+            ],
+            "end_ts": "2026-09-23T00:00:01.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v2"
+      }
+    }
+  ]
+}

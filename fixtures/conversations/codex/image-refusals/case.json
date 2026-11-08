@@ -1,0 +1,65 @@
+{
+  "about": "server/codex-images.test.ts: does not turn remote URLs, unsupported data, or assistant/tool content into images\nThe records codexImageParts is given in the test, each as a rollout: the page shows the image parts codexImageParts answers",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "unsupported.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "assistant.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h2",
+        "version": "$v2"
+      }
+    },
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "repeated.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-27T00:00:00Z",
+            "parts": [
+              {
+                "kind": "image",
+                "media_type": "image/png",
+                "ref": "codex-7f071235805fbf58a2524f77bff76e1391d0d1cfe2f4c190d73054495e05b460"
+              }
+            ]
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h3",
+        "version": "$v3"
+      }
+    }
+  ]
+}

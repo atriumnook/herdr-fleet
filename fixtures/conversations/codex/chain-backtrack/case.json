@@ -1,0 +1,85 @@
+{
+  "about": "server/codex.test.ts: Codex rollout resolution reads a paginated rollout through the history it continues, without the turns a backtrack discarded\nThe whole chain as a page; the read with a small byte budget (codexHistoryTail, for the screen match) is left to the test",
+  "steps": [
+    {
+      "call": "page",
+      "source": "codex",
+      "path": "codex-home/sessions/2026/09/23/rollout-2026-09-23T10-46-43-01a0a337-19e8-7712-92f5-aa0883392afd_01a0cbf1-9b0e-7383-a345-80974b279c68.jsonl",
+      "expected": {
+        "source": "codex-transcript",
+        "turns": [
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "parent question"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "parent answer"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "첫 질문"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "첫 답"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          },
+          {
+            "role": "user",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "다시 묻기"
+              }
+            ]
+          },
+          {
+            "role": "assistant",
+            "ts": "2026-09-22T01:00:00.000Z",
+            "parts": [
+              {
+                "kind": "text",
+                "text": "새 답"
+              }
+            ],
+            "end_ts": "2026-09-22T01:00:00.000Z"
+          }
+        ],
+        "metadata": {
+          "model": null,
+          "reasoning_effort": null
+        },
+        "cursor": null,
+        "history_id": "$h",
+        "version": "$v1"
+      }
+    }
+  ]
+}

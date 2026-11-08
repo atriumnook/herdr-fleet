@@ -1,0 +1,5 @@
+{"type":"session_meta","payload":{"source":"cli","thread_source":"user","history_base":{"thread_id":"01a09a35-5c5f-7830-94f7-4a1854613531","end_ordinal_exclusive":3,"end_byte_offset":410}}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"첫 질문"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"첫 답"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"discarded"}]}}
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"discarded answer"}]}}

@@ -1,0 +1,1 @@
+{"type":"response_item","timestamp":"2026-09-22T01:00:00.000Z","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"1. Example:\n   - ```xml\n     <oai-mem-citation>literal tag\n     explanation\nOutside\n<oai-mem-citation>actual metadata</oai-mem-citation>"}]}}
