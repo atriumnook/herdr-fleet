@@ -1,8 +1,9 @@
+// black-box: scripts/contract/launch.ts
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "./index.ts";
+import { launchServer, type LaunchedServer } from "../scripts/contract/launch.ts";
 import { herdrRpc, paneScroll } from "./herdr/client.ts";
 
 /**
@@ -12,7 +13,7 @@ import { herdrRpc, paneScroll } from "./herdr/client.ts";
  * from the chat really picked.
  */
 const root = mkdtempSync(join(tmpdir(), "herdr-fleet-prompt-"));
-let server: { port: number; stop: () => void };
+let server: LaunchedServer | undefined;
 const workspaces: string[] = [];
 
 const MENU = `
@@ -83,7 +84,7 @@ async function menu(label: string, head: string[], rows: string[], drift = false
   return { pane: created.root_pane.pane_id, log };
 }
 
-const base = () => `http://localhost:${server.port}`;
+const base = () => server!.url;
 const chosen = (target: Menu) => readFileSync(target.log, "utf8").split("\n").filter(Boolean);
 
 /** the rows confirmed so far, once there is one: the menu logs it after the answer's 200 */
@@ -110,7 +111,7 @@ async function answer(target: Menu, promptId: string, optionIndex: number): Prom
 }
 
 beforeAll(async () => {
-  server = createServer({ port: 0, stateDir: join(root, "push") });
+  server = await launchServer();
   writeFileSync(join(root, "menu.js"), MENU);
   writeFileSync(join(root, "tick.js"), TICKING);
   copyFileSync(process.execPath, join(root, "claude"));
@@ -124,9 +125,12 @@ beforeAll(async () => {
 }, 30_000);
 
 afterAll(async () => {
-  server?.stop();
-  for (const id of workspaces) await herdrRpc("workspace.close", { workspace_id: id }).catch(() => undefined);
-  rmSync(root, { recursive: true, force: true });
+  try {
+    await server?.stop();
+  } finally {
+    for (const id of workspaces) await herdrRpc("workspace.close", { workspace_id: id }).catch(() => undefined);
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 describe("answers to Claude's unnumbered menus", () => {
@@ -391,7 +395,7 @@ describe("an answer whose menu changes under it", () => {
 
   it("presses no Enter once herdr reports the agent back at work under its move", async () => {
     const prompt = await card(ended);
-    const socket = new WebSocket(`ws://localhost:${server.port}/ws`);
+    const socket = new WebSocket(`${base().replace(/^http/, "ws")}/ws`);
     const working = new Promise<void>((resolve) => socket.addEventListener("message", (event) => {
       const message = JSON.parse(String(event.data)) as { type?: string; pane_id?: string; agent_status?: string };
       if (message.type === "pane-status" && message.pane_id === ended.pane && message.agent_status === "working") resolve();

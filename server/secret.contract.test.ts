@@ -1,15 +1,14 @@
-import { expect, it, spyOn } from "bun:test";
+// black-box: scripts/contract/launch.ts
+import { expect, it } from "bun:test";
 import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Socket } from "bun";
-import { PtySession } from "./pty/session.ts";
-import { createServer } from "./index.ts";
+import { launchServer, type LaunchedServer } from "../scripts/contract/launch.ts";
 import { herdrRpc, herdrSocketPath, paneRead, paneSendText, workspaceClose, workspaceCreate } from "./herdr/client.ts";
 
 interface ProxiedRequest { method: string; params: unknown; answered: boolean }
-interface Leg { up: Socket<undefined> | null; held: Buffer[]; entry: ProxiedRequest | null }
+interface Leg { up: Bun.Socket<undefined> | null; held: Buffer[]; entry: ProxiedRequest | null }
 
 /**
  * A unix socket in front of the test herdr, for what a mirrored pane is sent: herdr's own
@@ -23,17 +22,17 @@ function herdrProxy(path: string, upstream: string) {
   const control = { refuse: false, screens: null as { visible: string; detection: string } | null };
   // a write the kernel took only part of: the rest goes out on drain, and an end waits for it
   const backlog = new Map<object, { chunks: Buffer[]; end: boolean }>();
-  const push = (to: Socket<any>, chunk: Buffer): void => {
+  const push = (to: Bun.Socket<any>, chunk: Buffer): void => {
     const waiting = backlog.get(to);
     if (waiting) { waiting.chunks.push(chunk); return; }
     const written = to.write(chunk);
     if (written < chunk.length) backlog.set(to, { chunks: [chunk.subarray(Math.max(written, 0))], end: false });
   };
-  const end = (to: Socket<any>): void => {
+  const end = (to: Bun.Socket<any>): void => {
     const waiting = backlog.get(to);
     if (waiting) waiting.end = true; else to.end();
   };
-  const drain = (to: Socket<any>): void => {
+  const drain = (to: Bun.Socket<any>): void => {
     const waiting = backlog.get(to);
     if (!waiting) return;
     while (waiting.chunks.length) {
@@ -115,15 +114,17 @@ process.stdin.on("data", chunk => {
   return { script, resultFile };
 }
 
+const webSocketUrl = (server: LaunchedServer) => `${server.url.replace(/^http/, "ws")}/ws`;
+/** a server on 127.0.0.1 without an access token: a client on this PC gets in without pairing */
+const LOOPBACK_NO_TOKEN = { HOST: "127.0.0.1", HERDR_FLEET_TOKEN: "" };
+
 /** One secret entered on a pane whose terminal is mirrored (a herdr that cannot attach), herdr behind the proxy. */
 async function mirroredSecret(refuse: boolean, screens?: { visible: string; detection: string }) {
   const root = mkdtempSync(join(tmpdir(), "herdr-fleet-secret-mirror-"));
   const { script, resultFile } = standIn(root);
   const herdr = herdrSocketPath();
   const proxy = herdrProxy(join(root, "herdr.sock"), herdr);
-  // the server under test reaches herdr through the proxy; this test's own calls name herdr's socket
-  process.env["HERDR_SOCKET"] = join(root, "herdr.sock");
-  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state"), terminalAttach: false });
+  let server: LaunchedServer | undefined;
   let workspace: string | undefined;
   let socket: WebSocket | undefined;
   const seen: any[] = [];
@@ -135,6 +136,8 @@ async function mirroredSecret(refuse: boolean, screens?: { visible: string; dete
     while (!(await predicate())) { if (Date.now() > deadline) throw new Error("Secret contract deadline"); await Bun.sleep(25); }
   };
   try {
+    // the server under test reaches herdr through the proxy; this test's own calls name herdr's socket
+    server = await launchServer({ env: { ...LOOPBACK_NO_TOKEN, HERDR_SOCKET: join(root, "herdr.sock") }, test: { terminalAttach: false } });
     const created = await herdrRpc<{ workspace: { workspace_id: string }; root_pane: { pane_id: string } }>(
       "workspace.create", { label: "herdr-fleet-test-secret-mirror", cwd: root, focus: false }, herdr,
     );
@@ -142,7 +145,7 @@ async function mirroredSecret(refuse: boolean, screens?: { visible: string; dete
     const pane = created.root_pane.pane_id;
     await paneSendText(pane, `exec '${Bun.which("node")}' '${script}'\n`, herdr);
     await until(async () => (await paneRead({ paneId: pane, source: "visible", format: "text" }, herdr)).text.trim() === "Password:");
-    socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    socket = new WebSocket(webSocketUrl(server));
     socket.addEventListener("message", (event) => {
       const frame = JSON.parse(String(event.data));
       if (frame.type === "secret-result") answeredAtResult = sends().filter((entry) => entry.answered).map((entry) => entry.method);
@@ -168,11 +171,14 @@ async function mirroredSecret(refuse: boolean, screens?: { visible: string; dete
         sends: sends(), answeredAtResult, results: seen.filter((frame) => frame.type === "secret-result"), methods: proxy.log.map((entry) => entry.method),
       }, null, 2));
     }
-    socket?.close(); server.stop();
-    process.env["HERDR_SOCKET"] = herdr;
-    if (workspace) await workspaceClose(workspace, herdr);
-    proxy.stop();
-    rmSync(root, { recursive: true, force: true });
+    socket?.close();
+    try {
+      await server?.stop();
+    } finally {
+      if (workspace) await workspaceClose(workspace, herdr);
+      proxy.stop();
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 }
 
@@ -217,7 +223,7 @@ it("a secret's live prompt is validated even when the viewport is scrolled away 
 it("secret frames validate prompts and authority, never queue, and type one no-echo line", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-fleet-secret-"));
   const { script, resultFile } = standIn(root);
-  const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "state") });
+  let server: LaunchedServer | undefined;
   let workspace: string | undefined;
   let socket: WebSocket | undefined;
   const seen: any[] = [];
@@ -226,12 +232,13 @@ it("secret frames validate prompts and authority, never queue, and type one no-e
     while (!(await predicate())) { if (Date.now() > deadline) throw new Error("Secret contract deadline"); await Bun.sleep(25); }
   };
   try {
+    server = await launchServer({ env: LOOPBACK_NO_TOKEN });
     const created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-secret" });
     workspace = created.workspace.workspace_id;
     const pane = created.root_pane.pane_id;
     await paneSendText(pane, `exec '${Bun.which("node")}' '${script}'\n`);
     await until(async () => (await paneRead({ paneId: pane, source: "visible", format: "text" })).text.trim() === "Password:");
-    socket = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
+    socket = new WebSocket(webSocketUrl(server));
     socket.addEventListener("message", (event) => seen.push(JSON.parse(String(event.data))));
     await until(() => seen.some((frame) => frame.type === "snapshot"));
     expect(seen.find((frame) => frame.type === "snapshot").features).toContain("secret-input");
@@ -260,8 +267,8 @@ it("secret frames validate prompts and authority, never queue, and type one no-e
     expect(existsSync(resultFile)).toBe(false);
     send({ type: "role", mode: "interact" });
     // A second bridge is attached to the pane record but cannot write to the held PTY.
-    const heldServer = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: join(root, "held-state") });
-    const heldSocket = new WebSocket(`ws://127.0.0.1:${heldServer.port}/ws`);
+    const heldServer = await launchServer({ env: LOOPBACK_NO_TOKEN });
+    const heldSocket = new WebSocket(webSocketUrl(heldServer));
     const heldSeen: any[] = [];
     heldSocket.addEventListener("message", (event) => heldSeen.push(JSON.parse(String(event.data))));
     try {
@@ -272,14 +279,8 @@ it("secret frames validate prompts and authority, never queue, and type one no-e
       await until(() => heldSeen.some((frame) => frame.type === "secret-result"));
       expect(heldSeen.find((frame) => frame.type === "secret-result")).toMatchObject({ ok: false, code: "input_not_ready" });
       expect(existsSync(resultFile)).toBe(false);
-    } finally { heldSocket.close(); heldServer.stop(); }
-    // A dead sidecar must not acknowledge bytes that it could not accept.
-    const rejectedWrite = spyOn(PtySession.prototype, "write").mockReturnValue(false);
-    try {
-      secret(9);
-      expect(await result(9)).toMatchObject({ ok: false, code: "input_not_ready" });
-      expect(existsSync(resultFile)).toBe(false);
-    } finally { rejectedWrite.mockRestore(); }
+    } finally { heldSocket.close(); await heldServer.stop(); }
+    // A dead sidecar's refused write (secret 9) is in server/secret.herdr.test.ts: it needs a spy on the server's PTY.
     // One prompt check is in flight: another secret must be refused, never held.
     secret(5); secret(6);
     expect((await result(6)).code).toBe("pane_busy");
@@ -292,8 +293,12 @@ it("secret frames validate prompts and authority, never queue, and type one no-e
     expect(JSON.stringify(seen)).not.toContain("fixture-value");
     expect((await paneRead({ paneId: pane, source: "visible", format: "text" })).text).not.toContain("fixture-value");
   } finally {
-    socket?.close(); server.stop();
-    if (workspace) await workspaceClose(workspace);
-    rmSync(root, { recursive: true, force: true });
+    socket?.close();
+    try {
+      await server?.stop();
+    } finally {
+      if (workspace) await workspaceClose(workspace);
+      rmSync(root, { recursive: true, force: true });
+    }
   }
 }, 15_000);
