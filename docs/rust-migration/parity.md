@@ -149,7 +149,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/completion.test.ts` | | |
 | `server/conversation-fixtures.test.ts` | 会話ログの corpus | |
 | `server/conversation-metadata.test.ts` | 会話ログの corpus | 1 件の `it` の一部(下の「一部だけが移ったファイル」) |
-| `server/conversation.test.ts` | 会話ログの corpus、transcript の crate のテスト | 5 件の `it`、4 件の `it` の一部(下の「一部だけが移ったファイル」) |
+| `server/conversation.test.ts` | 会話ログの corpus、transcript の crate のテスト | 8 件の `it`、4 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/device-access.contract.test.ts` | HTTP/WS の契約 | |
 | `server/device-access.herdr.test.ts` | | |
 | `server/devices.test.ts` | | |
@@ -380,13 +380,16 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - trims a huge tool result and caps the turn list: `parseOmpTranscript` のターンの数の上限(`maxTurns`。ページは使わない)。根拠: `fixtures/conversations/omp/huge-tool-result` の `about`
 - incrementally reads one growing Codex task across split UTF-8, partial records and a rewrite: 疑似乱数の長さで切って追記する部分(件は 7 つの決まった位置で切る)。根拠: `fixtures/conversations/codex/growing-task` の `about`
 
-残った部分(5 件。引き継ぎ先は未定):
+残った部分(8 件。引き継ぎ先は未定。最後の 3 件は、段階 1 でこの一覧を作ったあとに #141 の PR #163 が足した `it` で、Issue #206 のレビューで行に足した。どの件の `about` も名前を挙げていない。1 件目と同じ入力を `fixtures/conversations/claude/array-user-text` が持つが、その `about` は別の `it` を挙げる):
 
 - strips escapes in time linear in a malformed answer's length
 - accepts the path herdr reports only inside the user's own store
 - accepts a Windows PC's native path, and refuses the same ways out
 - reads one window for the newest page even when no turn starts in it; an older page reaches the turn's start
 - preserves literal paste lookalikes, partial wrappers and mismatched ids
+- keeps a tool's output when its result shares the entry with a new prompt, as parseClaudeTranscript does (#141)
+- reads a growing file's newest page incrementally, exactly as a cold read of it, when prompts share their entry with a tool result (#141)
+- pages back through prompts that share their entry with a tool result without losing the outputs (#141)
 
 ### `server/explain.test.ts`
 

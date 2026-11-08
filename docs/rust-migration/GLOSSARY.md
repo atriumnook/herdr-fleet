@@ -62,7 +62,7 @@ _Avoid_: プロンプト(単独で書くと、エージェントに渡す指示�
 _Avoid_: responder(カードを読んだ読み手の名前。答え方そのものではない)
 
 **content id**:
-カードが示す内容(エージェント、種類、問い、本文、選択肢など)から作る、カードの名前。同じ内容のカードは同じ content id を持ち、カーソルの位置は含まない。
+カードが示す内容(エージェント、種類、問い、本文、選択肢など)から作る、カードの名前。同じ内容のカードは同じ content id を持ち、カーソルの位置は含まない。ただし、どのエージェントの決まった形にも当たらない画面を汎用のメニューとして読んだカード(fallback のカード)は、読んだ画面全体も材料にするので、カーソルが動くと content id が変わる。
 _Avoid_: カードの id(Web UI が受け取る id は、core が問いごとに作り直した別の値)
 
 **画面の判定(screen check)**:
@@ -76,7 +76,7 @@ fleet がエージェントの画面を見て下す判定(起動の失敗、herd
 _Avoid_: ログ、履歴、セッション
 
 **transcript の形式(transcript format)**:
-エージェント CLI ごとに異なる transcript の読み方(ファイルの場所、ターンの区切り方、履歴の境目)。会話のページを作る処理は、形式を通してだけ CLI ごとの違いに触れる。Rust の trait の名前は `TranscriptFormat`。
+transcript をファイルから読むエージェント CLI(Claude Code、Codex、pi、omp)ごとの、transcript の読み方(ファイルの場所、ターンの区切り方、履歴の境目)。これらの CLI の会話のページを作る処理は、形式を通してだけ CLI ごとの違いに触れる。Rust の trait の名前は `TranscriptFormat`。OpenCode の会話は CLI の API から読むので、この形式を持たない。
 _Avoid_: パーサー(transcript の 1 行を読む処理は形式の一部)
 
 **会話(conversation)**:
