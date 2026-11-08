@@ -5,7 +5,7 @@ import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { contentHash, findAgent, roleVersion } from "./agents.ts";
 import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
-import { contractItems, FROM_PANE, outcomeLine, threadState, type GateReading, type LandAction, type LandingChecks, type LineComment, type MergeBy, type PullRequest } from "../../shared/fleet.ts";
+import { contractItems, FROM_PANE, outcomeLine, threadState, type GateReading, type LandAction, type LandingChecks, type LandingStep, type LineComment, type MergeBy, type PullRequest } from "../../shared/fleet.ts";
 import { compareOnGitHub, headCommit, mergeCommitOf, onGitHub, readPullRequest, revertOf, worktreeState, type PullRequestReading } from "./github.ts";
 import { evaluateGate, mergeAuthority, type MergeAuthority } from "./merge-mode.ts";
 import { checkAnswer, planAnswerMessage, preparePlan, readPlan, writePlan } from "./plan.ts";
@@ -1015,40 +1015,61 @@ export class Orchestrator {
   private async settleMerges(coordinator: AgentRun): Promise<void> {
     const handed = this.deps.registry.all().filter((run) => !run.replacedBy && run.landing?.sent && !run.landing.error && COORDINATOR_STEPS.has(run.landing.action)
       && this.projectCoordinator(run)?.id === coordinator.id);
+    // a restart of the thread under way finishes first: its new lead holds the step then
     for (const run of handed) {
-      const thread = run as AgentRun & { project: string; branch: string };
       const step = run.landing!;
-      try {
-        if (step.action === "revert") {
-          const baseBranch = run.merged!.base ?? await this.baseBranchOf(thread);
-          const merge = run.merged!.commit!;
-          const revert = await this.tools.revertOf(thread.project, baseBranch, merge);
-          // a pull request's merge is undone only once the revert is on GitHub's base branch too
-          const pushed = revert && run.merged!.via === "pr" ? await this.tools.onGitHub(thread.project, baseBranch, revert) : true;
-          if (revert && !pushed) run.landing = { ...step, error: `The revert ${revert.slice(0, 12)} is on ${baseBranch} here, but GitHub's ${baseBranch} does not have it: the push did not happen.` };
-          else if (revert) {
-            run.reverted = { at: Date.now(), commit: revert };
-            delete run.landing;
-            this.deps.events?.({ kind: "revert", run: run.id, project: thread.project, base: baseBranch, commit: merge, revert });
-          } else run.landing = { ...step, error: `${baseBranch} has no commit that reverts ${merge.slice(0, 12)} after the coordinator's turn; its reply says why.` };
-        } else if (step.action === "merge") {
-          const baseBranch = await this.baseBranchOf(thread);
-          if (await this.tools.isMerged(thread.project, thread.branch, baseBranch)) {
-            const head = await this.tools.branchHead(thread.project, thread.branch);
-            this.recordMerge(thread, "person", "local", baseBranch, head ? await this.tools.mergeCommitOf(thread.project, head, baseBranch) : null);
-            await this.closeThread(thread, "merged");
-          } else run.landing = { ...step, error: `${thread.branch} is not in ${baseBranch} after the coordinator's turn; its reply says why.` };
-        } else {
-          const reading = await this.readPullRequest(thread);
-          if (reading?.state === "MERGED") await this.mergedOnGitHub(thread, reading, step.by === "gate" ? "gate" : "person");
-          else run.landing = { ...step, error: `Pull request #${run.pr?.number ?? "?"} is not merged after the coordinator's turn; its reply says why.` };
-        }
-      } catch (failure) {
-        run.landing = { ...step, error: failure instanceof Error ? failure.message : String(failure) };
-      }
-      run.updatedAt = Date.now();
-      this.save(run);
+      await this.onLead(run, (thread) => this.settleMerge(thread, step), step.action === "revert");
     }
+  }
+
+  /** A step handed to the coordinator, settled on the thread's lead while it still holds that step. */
+  private async settleMerge(thread: AgentRun & { project: string; branch: string }, handed: LandingStep): Promise<void> {
+    const step = thread.landing;
+    if (!step?.sent || step.error || step.action !== handed.action || step.at !== handed.at) return;
+    try {
+      if (step.action === "revert") {
+        const merged = thread.merged!;
+        const baseBranch = merged.base ?? await this.baseBranchOf(thread);
+        const merge = merged.commit!;
+        const revert = await this.tools.revertOf(thread.project, baseBranch, merge);
+        // a pull request's merge is undone only once the revert is on GitHub's base branch too
+        const pushed = revert && merged.via === "pr" ? await this.tools.onGitHub(thread.project, baseBranch, revert) : true;
+        if (revert && !pushed) thread.landing = { ...step, error: `The revert ${revert.slice(0, 12)} is on ${baseBranch} here, but GitHub's ${baseBranch} does not have it: the push did not happen.` };
+        else if (revert) {
+          thread.reverted = { at: Date.now(), commit: revert };
+          delete thread.landing;
+          this.deps.events?.({ kind: "revert", run: thread.id, project: thread.project, base: baseBranch, commit: merge, revert });
+        } else thread.landing = { ...step, error: `${baseBranch} has no commit that reverts ${merge.slice(0, 12)} after the coordinator's turn; its reply says why.` };
+      } else if (step.action === "merge") {
+        const baseBranch = await this.baseBranchOf(thread);
+        if (await this.tools.isMerged(thread.project, thread.branch, baseBranch)) {
+          const head = await this.tools.branchHead(thread.project, thread.branch);
+          this.recordMerge(thread, "person", "local", baseBranch, head ? await this.tools.mergeCommitOf(thread.project, head, baseBranch) : null);
+          await this.closeThread(thread, "merged");
+        } else thread.landing = { ...step, error: `${thread.branch} is not in ${baseBranch} after the coordinator's turn; its reply says why.` };
+      } else {
+        const reading = await this.readPullRequest(thread);
+        if (reading?.state === "MERGED") await this.mergedOnGitHub(thread, reading, step.by === "gate" ? "gate" : "person");
+        else thread.landing = { ...step, error: `Pull request #${thread.pr?.number ?? "?"} is not merged after the coordinator's turn; its reply says why.` };
+      }
+    } catch (failure) {
+      thread.landing = { ...step, error: failure instanceof Error ? failure.message : String(failure) };
+    }
+    thread.updatedAt = Date.now();
+    this.save(thread);
+  }
+
+  /**
+   * `work` on the thread `run` belongs to, under its lock (onThread) and with its lead as the lock
+   * found it: a restart before it may have handed the thread to a new run, which the run before must
+   * not close. A thread that closed meanwhile is left alone, unless the work is for a closed thread
+   * (`landed`: the Revert of its merge).
+   */
+  private onLead<T>(run: AgentRun, work: (lead: AgentRun & { project: string; branch: string }) => Promise<T>, landed = false): Promise<T | undefined> {
+    return this.onThread(threadId(run), async () => {
+      const lead = this.get(run.id) as AgentRun & { project: string; branch: string };
+      return lead.landed && !landed ? undefined : work(lead);
+    });
   }
 
   /**
@@ -1095,10 +1116,15 @@ export class Orchestrator {
       try {
         const before = run.pr?.checks;
         const reading = await this.readPullRequest(thread);
-        const free = !this.pending.has(run.id) && run.state !== "working";
         if (reading?.state === "MERGED") {
-          if (free) await this.mergedOnGitHub(thread, reading);
-        } else if (free && reading?.state === "OPEN" && reading.checks !== before && (reading.checks === "pass" || reading.checks === "none")) await this.considerGate(run);
+          await this.onLead(thread, async (lead) => {
+            if (!this.pending.has(lead.id) && lead.state !== "working") await this.mergedOnGitHub(lead, reading);
+          });
+        } else if (reading?.state === "OPEN" && reading.checks !== before && (reading.checks === "pass" || reading.checks === "none")) {
+          await this.onLead(thread, async (lead) => {
+            if (!this.pending.has(lead.id) && lead.state !== "working") await this.considerGate(lead);
+          });
+        }
       } catch {
         // GitHub could not be asked: the reading kept stands until the next try
       }
@@ -1152,10 +1178,15 @@ export class Orchestrator {
     try {
       const reading = await this.readPullRequest(thread);
       if (reading?.state !== "MERGED") return;
-      await this.mergedOnGitHub(thread, reading);
-      this.deps.events?.({ kind: "reconciled", run: thread.id, project: thread.project, ...(thread.pr ? { pr: thread.pr.number } : {}) });
-      this.queueNews(thread, threadClosedAfterMerge(thread, now - since));
-      void this.tellCoordinator(thread);
+      const closed = await this.onLead(thread, async (lead) => {
+        if (this.pending.has(lead.id) || lead.state === "working" || lead.state === "starting") return undefined;
+        await this.mergedOnGitHub(lead, reading);
+        return lead;
+      });
+      if (!closed) return;
+      this.deps.events?.({ kind: "reconciled", run: closed.id, project: closed.project, ...(closed.pr ? { pr: closed.pr.number } : {}) });
+      this.queueNews(closed, threadClosedAfterMerge(closed, now - since));
+      void this.tellCoordinator(closed);
     } catch {
       // GitHub could not be asked: the next quiet period asks again
     }

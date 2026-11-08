@@ -1743,6 +1743,84 @@ describe("a thread outlives its lead run", () => {
     expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge", sent: false });
   });
 
+  it("closes the thread on its new lead when the coordinator's turn ends with the branch merged while the thread starts again", async () => {
+    let merged = false;
+    const removed: string[] = [];
+    const { fleet, runtime, registry, turn, report } = thread({ landing: {
+      gitBranch: async () => "main", isMerged: async () => merged, removeThread: async (_repo, worktree) => { removed.push(worktree); return undefined; },
+    } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    // the coordinator is handed the merge and works on it
+    await turn(coordinator, "working");
+    await fleet.land(first.id, "merge");
+    await turn(coordinator, "idle");
+    expect(registry.get(first.id)!.landing).toMatchObject({ action: "merge", sent: true });
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    // the lead's turn fails, and the coordinator's turn ends with the branch merged while the new lead starts
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    let starting = false;
+    runtime.startImpl = async (options) => { if (options.kind === "codex") { starting = true; await gate; } return "idle"; };
+    runtime.output = "API Error: 529 overloaded";
+    const failing = turn(first, "idle");
+    await until(() => starting, "the new lead starting");
+    runtime.output = "agent output";
+    merged = true;
+    await turn(coordinator, "idle");
+    release();
+    await failing;
+    await Bun.sleep(50);
+    // the thread is known by its first id: its lead now is the new run, closed as merged with its pane
+    const lead = fleet.get(first.id);
+    expect(lead.id).not.toBe(first.id);
+    expect(lead).toMatchObject({ landed: "merged", state: "stopped" });
+    expect(runtime.closed).toContain(lead.paneId);
+    expect(registry.all().filter((run) => run.thread === first.id && run.state !== "stopped" && run.state !== "failed")).toEqual([]);
+    expect(removed).toEqual([`/repo/.herdr-fleet/worktrees/${first.id}`]);
+  });
+
+  it("leaves the new lead's worktree alone when a pull request merged on GitHub is read while the thread starts again", async () => {
+    const git = { state: "OPEN" };
+    const removed: string[] = [];
+    const { fleet, runtime, registry, turn, report } = thread({ landing: {
+      gitBranch: async () => "main", branchHead: async () => "c0ffee", removeThread: async (_repo, worktree) => { removed.push(worktree); return undefined; },
+      readPullRequest: async () => ({ number: 7, url: "https://github.com/o/r/pull/7", state: git.state, checks: "pass", head: "c0ffee" }) as never,
+    } });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    registry.upsert({ ...registry.get(first.id)!, pr: { number: 7, url: "https://github.com/o/r/pull/7", state: "OPEN", checks: "pass" } });
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    let starting = false;
+    runtime.startImpl = async (options) => { if (options.kind === "codex") { starting = true; await gate; } return "idle"; };
+    runtime.output = "API Error: 529 overloaded";
+    const failing = turn(first, "idle");
+    await until(() => starting, "the new lead starting");
+    runtime.output = "agent output";
+    // the person merged the pull request on GitHub; the polling reads it while the new lead starts
+    git.state = "MERGED";
+    const refreshing = fleet.refreshPullRequests();
+    await Bun.sleep(20);
+    release();
+    await failing;
+    await refreshing;
+    // the new lead works in the thread's worktree: the run it replaced closes nothing
+    const lead = fleet.get(first.id);
+    expect(lead.id).not.toBe(first.id);
+    expect(registry.get(first.id)!.landed).toBeUndefined();
+    expect(lead.landed).toBeUndefined();
+    expect(lead.state).not.toBe("stopped");
+    expect(removed).toEqual([]);
+  });
+
   it("tells the coordinator of a project run without the person nothing of a restart, and the replacement's turn as usual", async () => {
     const { fleet, registry, turn, report, promptsTo } = thread({ config: { autonomous: true } });
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
