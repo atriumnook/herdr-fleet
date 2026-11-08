@@ -24,6 +24,8 @@ use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use base64::Engine as _;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -71,6 +73,13 @@ const LIVE_TURN_BYTES: u64 = 2 * TRANSCRIPT_WINDOW_BYTES;
 /// How many bytes before where a read stopped are kept to tell an append from a rewrite
 /// (`bytesBefore`).
 const TAIL_BYTES: u64 = 64;
+
+/// How long a file as long as before, with other times, is watched for the size of an append in
+/// progress before it counts as rewritten, and how often its stat is taken meanwhile (Issue
+/// #219). An append shows its size within one write call, which a busy machine or a disk file
+/// system can stretch past a millisecond; a stat that waits it out counts as a rewrite.
+const SETTLE: Duration = Duration::from_millis(50);
+const RESTAT_EVERY: Duration = Duration::from_millis(1);
 
 /// The setting records the boundary scan keeps for the pi family.
 const SETTING_TYPES: [&str; 2] = ["model_change", "thinking_level_change"];
@@ -313,21 +322,27 @@ impl Default for PagingState {
 impl PagingState {
     /// The generation of a file's contents: in-place rewrites keep the inode, so a rewrite seen
     /// (the same file, shorter, or as long but changed) starts a new one, and every cursor into
-    /// the old contents stops naming a turn (`transcriptGeneration`).
-    fn generation(&mut self, path: &Path, stat: &FileStat, ids: &ProcessIds) -> String {
-        let previous = self.revisions.take(&path.to_path_buf());
-        let same_file = previous
-            .as_ref()
-            .is_some_and(|previous| previous.node == stat.node);
-        let rewritten = previous.as_ref().is_some_and(|previous| {
-            same_file
-                && (stat.size < previous.size
-                    || (stat.size == previous.size && stat.changed != previous.changed))
-        });
+    /// the old contents stops naming a turn (`transcriptGeneration`). The same file as long with
+    /// other times may be mid-append (Issue #219): `None`, and nothing stored, until `waited_out`.
+    fn generation(
+        &mut self,
+        path: &Path,
+        stat: &FileStat,
+        ids: &ProcessIds,
+        waited_out: bool,
+    ) -> Option<String> {
+        let previous = self
+            .revisions
+            .get(&path.to_path_buf())
+            .filter(|previous| previous.node == stat.node);
         let generation = match previous {
-            _ if rewritten => ids.next(),
-            Some(previous) if same_file => previous.generation,
-            _ => String::new(),
+            None => String::new(),
+            Some(previous) if stat.size > previous.size => previous.generation.clone(),
+            Some(previous) if stat.size == previous.size && stat.changed == previous.changed => {
+                previous.generation.clone()
+            }
+            Some(previous) if stat.size == previous.size && !waited_out => return None,
+            Some(_) => ids.next(),
         };
         self.revisions.remember(
             path.to_path_buf(),
@@ -338,11 +353,11 @@ impl PagingState {
                 generation: generation.clone(),
             },
         );
-        if generation.is_empty() {
+        Some(if generation.is_empty() {
             generation
         } else {
             format!("-{generation}")
-        }
+        })
     }
 
     /// Drops the oldest parses of live turns while those kept have read more than
@@ -575,18 +590,31 @@ impl<F: TranscriptFormat> Source<F> {
         version
     }
 
-    /// The stream of `place` as the live file stands (`transcriptStream`).
     /// The live file's stat and the generation of its contents, both taken under the lock: reads
     /// in several threads record their stats in the order they took them, so a file that only
     /// grows is never seen to shrink, which would read as a rewrite. The lock covers one stat,
     /// never a read of the file's contents.
+    ///
+    /// Linux sets a write's times before its size, so a stat mid-append can see the same size
+    /// with other times, as an in-place rewrite of the same size does. Such a stat is taken
+    /// again every `RESTAT_EVERY` for up to `SETTLE`, each time under the lock, which is let go
+    /// while it waits: an append shows its size by then, a rewrite never does (Issue #219).
     fn identify(&self, path: &Path) -> Result<(FileStat, String), ConversationError> {
-        let mut state = self.cache.lock();
-        let stat = file_stat(&fs::metadata(path).map_err(missing)?);
-        let generation = state.generation(path, &stat, &self.ids);
-        Ok((stat, generation))
+        let deadline = Instant::now() + SETTLE;
+        loop {
+            let waited_out = Instant::now() >= deadline;
+            {
+                let mut state = self.cache.lock();
+                let stat = file_stat(&fs::metadata(path).map_err(missing)?);
+                if let Some(generation) = state.generation(path, &stat, &self.ids, waited_out) {
+                    return Ok((stat, generation));
+                }
+            }
+            thread::sleep(RESTAT_EVERY);
+        }
     }
 
+    /// The stream of `place` as the live file stands (`transcriptStream`).
     fn stream(
         &self,
         place: &F::Place,

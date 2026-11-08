@@ -466,20 +466,44 @@ interface TranscriptStream {
   floor: number;
 }
 
+type TranscriptStat = { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number };
+
 // In-place rewrites keep the inode. Change the cursor generation when observed,
 // invalidating settled turns and incremental parsers as well as the response cache.
+// Linux sets a write's times before its size, so a stat mid-append can see the same size
+// with other times, as an in-place rewrite of the same size does (Issue #219). Such a stat
+// is taken again every RESTAT_EVERY_MS for up to SETTLE_MS: an append shows its size by
+// then, a rewrite never does.
+const SETTLE_MS = 50;
+const RESTAT_EVERY_MS = 1;
 const transcriptRevisions = new Map<string, { identity: string; size: number; changed: string; generation: string }>();
-function transcriptGeneration(path: string, stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }): string {
+
+/** The live file's stat and the generation of its contents, the stat taken again while the file may be mid-append. */
+function identifyTranscript(path: string): { stat: TranscriptStat; generation: string } {
+  const deadline = performance.now() + SETTLE_MS;
+  for (;;) {
+    const waitedOut = performance.now() >= deadline;
+    const stat = statSync(path);
+    const generation = transcriptGeneration(path, stat, waitedOut);
+    if (generation !== null) return { stat, generation };
+    Bun.sleepSync(RESTAT_EVERY_MS);
+  }
+}
+
+/** null, and nothing stored, while the same file as long with other times may be mid-append, until `waitedOut`. */
+function transcriptGeneration(path: string, stat: TranscriptStat, waitedOut: boolean): string | null {
   const identity = `${stat.dev}:${stat.ino}`;
   const changed = `${stat.mtimeMs}:${stat.ctimeMs}`;
   const previous = transcriptRevisions.get(path);
-  const rewritten = previous && previous.identity === identity && (stat.size < previous.size || (stat.size === previous.size && changed !== previous.changed));
-  const generation = rewritten ? randomUUID() : previous?.identity === identity ? previous.generation : "";
+  const same = previous?.identity === identity;
+  if (same && stat.size === previous.size && changed !== previous.changed && !waitedOut) return null;
+  const rewritten = same && (stat.size < previous.size || (stat.size === previous.size && changed !== previous.changed));
+  const generation = rewritten ? randomUUID() : same ? previous.generation : "";
   remember(transcriptRevisions, path, { identity, size: stat.size, changed, generation }, 64);
   return generation ? `-${generation}` : "";
 }
 
-function transcriptStream(source: TranscriptSource, path: string, stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number }, codexHome: string): TranscriptStream {
+function transcriptStream(source: TranscriptSource, path: string, stat: TranscriptStat, generation: string, codexHome: string): TranscriptStream {
   // (a chain whose parent was archived since comes back shorter: codexHistorySegments;
   // a pi branch skips the side paths a /tree left behind: piBranchSegments)
   const branch = source === "pi-transcript" ? piBranchSegments(path, stat.size) : null;
@@ -518,7 +542,7 @@ function transcriptStream(source: TranscriptSource, path: string, stat: { dev: n
     });
     chain = earlier.length === 0 ? "" : `-${createHash("sha256").update(earlier.join("\n")).digest("base64url").slice(0, 10)}`;
   }
-  return { id: `${stat.dev.toString(36)}-${stat.ino.toString(36)}${chain}${transcriptGeneration(path, stat)}`, files, length: stream, floor: 0 };
+  return { id: `${stat.dev.toString(36)}-${stat.ino.toString(36)}${chain}${generation}`, files, length: stream, floor: 0 };
 }
 
 function readStream(stream: TranscriptStream, from: number, to: number): Buffer {
@@ -996,15 +1020,16 @@ function canonical(path: string): string | null {
 
 /** One page of a resolved transcript (paneConversation's `page`). */
 export function transcriptPage(source: TranscriptSource, path: string, page: ConversationPage = {}, codexHome?: string): RecognizedConversation {
-  let stat: { dev: number; ino: number; size: number; mtimeMs: number; ctimeMs: number };
+  let stat: TranscriptStat;
+  let generation: string;
   try {
-    stat = statSync(path);
+    ({ stat, generation } = identifyTranscript(path));
   } catch {
     throw new ConversationUnavailable("transcript_missing");
   }
   let stream: TranscriptStream;
   try {
-    stream = transcriptStream(source, path, stat, codexHome ?? defaultCodexHome());
+    stream = transcriptStream(source, path, stat, generation, codexHome ?? defaultCodexHome());
     applyHistoryBoundary(path, stream, source);
   } catch (error) {
     // a branch that cannot be walked says so; a file that went unreadable mid-read has
