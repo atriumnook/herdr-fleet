@@ -3,7 +3,7 @@
 - 状態: 採用
 - 決めた日: 2026-11-09
 - Issue: #218
-- 置き換える: 0193-phase-2-dependencies(一部だけ。「文字の幅と grapheme」の、grapheme の幅と文字列の幅の決まり(115〜116 行)、依存の unicode-width(29 行、201 行)、検討した代わりの「`Bun.stringWidth` を自前の幅の表で写す」を選ばなかった理由(162 行)。unicode-segmentation と `Intl.Segmenter` を比べた結果と、エスケープシーケンスの状態機械の決まりは残る)、0195-screen-foundation(一部だけ。「`text.rs` に置くもの」の文字の幅の項(107 行)。`grapheme_width` はなくなる)
+- 置き換える: 0193-phase-2-dependencies(一部だけ。「文字の幅と grapheme」の、grapheme の幅と文字列の幅の決まり(115〜116 行)、依存の unicode-width(29 行、201 行)、検討した代わりの「`Bun.stringWidth` を自前の幅の表で写す」を選ばなかった理由(162 行)。unicode-segmentation と `Intl.Segmenter` を比べた結果と、エスケープシーケンスの状態機械の決まりは残る)、0195-screen-foundation(一部だけ。「`text.rs` に置くもの」の文字の幅の項(107 行)と、#206(V)が `#[allow(dead_code)]` を外す関数の一覧(109 行)の `grapheme_width`。`grapheme_width` はなくなる)
 
 ## 状況
 
@@ -53,7 +53,7 @@ Bun が文字をまとめて数える経路は、1 文字ずつ「grapheme を�
 テストはすべて crate の中の単体テストにし、`preview.rs` が呼ぶのと同じ `string_width` を通して確かめる。`tests/width.rs` は作らず、テストのための公開の口も足さない。期待値は Bun 1.4.4 の `Bun.stringWidth` で測った値である。
 
 1. 既存の `string_width` の 31 の文字列は、期待値を変えずに残した。`grapheme_width` の 5 つの assert は、同じ期待値のまま `string_width` の assert にした
-2. #218 の文字列と、grapheme の幅の決まりの各場合を見る 37 の文字列(`text.rs` の `counts_marks_and_emoji_sequences_as_bun_string_width`)
+2. #218 の文字列と、grapheme の幅の決まりの各場合を見る 37 の文字列(`text.rs` の `counts_marks_and_emoji_sequences_as_bun_string_width`)。あわせて、プレビューの行の列を `indexAtColumn` のように数えた値(`Intl.Segmenter` の segment ごとの `Bun.stringWidth` の和)と、行全体の `Bun.stringWidth` を、Mc の文字、旗、ZWJ の Emoji を含む 6 行で見る(`sums_the_widths_of_graphemes_as_bun_and_intl_segmenter_do`)
 3. 2 文字の組の行列(`width.rs` の `counts_every_pair_of_kinds_of_characters_as_bun_string_width`)。代表は、(byte、まとめて数える文字か)の組ごとに code point の順で最初の 1 文字(Bun 1.4.4 で 37 組)と、`GraphemeState` が code point そのものを調べる U+00A9、U+00AE、U+20E3、U+FE0E、U+FE0F の 40 文字で、40 × 40 の 1,600 組の `Bun.stringWidth` を持つ。regional indicator、肌の色、ZWJ は、それぞれの break class の文字の集合と一致する(26、5、1 文字。architect が確かめた)ので、組の代表で足りる。break の決まりと `GraphemeState::width` が文字から読むのは、byte、まとめて数える文字か、この 5 つの code point だけなので、2 文字のすべての組み合わせの振る舞いを毎回確かめられる
 4. 表のデータ(`width.rs` の `classifies_every_code_point_as_buns_table_does`): すべての scalar value を panic せずに引けること(連なりが U+0000 から始まり、break class がすべて 17 種類のどれかであること)と、Bun 自身が表に置いた検査(`stringWidth.cpp:86-105` の `static_assert`)の値
 5. grapheme の幅の和が 1023 で止まること(`width.rs` の `saturates_a_graphemes_width_as_bun_does`。ハングルの初声の字母は互いにつながり(GB6)、1 文字が 2 桁)
@@ -64,7 +64,7 @@ unicode-width をワークスペースから外す(`rust/Cargo.toml`、`rust/cra
 
 ### 出典
 
-`NOTICE` に、Bun(MIT License、tag `bun-v1.4.4`、commit `38afee6c84fcf48c0edb2466aa4b27d287a59c30`)と、表の元の UCD 17.0.0(Unicode License v3)を足した。表と `GraphemeState` の写しは、MIT License の「the Software のかなりの部分(substantial portions)」にあたりうるためである。#195 で写した `consumeANSI` の状態機械も、同じ項に書いた。
+`NOTICE` に、Bun(MIT License、tag `bun-v1.4.4`、commit `38afee6c84fcf48c0edb2466aa4b27d287a59c30`)、Bun が break の決まりを移した元の uucode(MIT License、Copyright (c) 2026 Jacob Sandlund)、表の元の UCD 17.0.0(Unicode License v3)を足した。Bun の LICENSE.md は「Bun itself is MIT-licensed.」とだけ書き、著作権者の名前を挙げていないので、NOTICE にもそのとおり書いた。Unicode License v3 は、写したデータとともに著作権と許諾の表示を置くことを求めるので、条文の全文(https://www.unicode.org/license.txt)を NOTICE に入れた。表と `GraphemeState` の写しは、MIT License の「the Software のかなりの部分(substantial portions)」にあたりうるためである。#195 で写した `consumeANSI` の状態機械も、同じ項に書いた。
 
 ### Bun を更新したときの作り直し
 
@@ -171,7 +171,7 @@ console.error(reps.length, "representatives,", seen.size, "classes");
   - 幅の和が 1023 の前後になる、ハングルの初声の字母の 511〜600 文字の並び
 - 比較が違いを見つけられることも確かめた: `push` のまとめて数える文字の判定を ASCII だけにすると 134 件、和の 1023 の飽和を外すと 6 件の違いが出た。まとめて数える文字のあとで break の状態を戻す処理を外しても、違いは 0 件だった(まとめて数える文字の break class が、次の判定で状態を既定に戻すため)。この処理は Bun のとおりに残した
 - 表を作る script を同じ header で走らせ直すと、`table.rs` と 1 byte も違わない(`cmp` で確かめた)
-- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` が通った。`cargo test --locked -p herdr-fleet-screen` は 69 件(単体 43、`checks` 9、`claude` 1、`codex` 3、`fallback` 1、`pi_omp` 12)で、変更の前は 65 件(単体 39)だった。画面の corpus の件と期待値は変えていない
+- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` が通った。`cargo test --locked -p herdr-fleet-screen` は 70 件(単体 44、`checks` 9、`claude` 1、`codex` 3、`fallback` 1、`pi_omp` 12)で、変更の前は 65 件(単体 39)だった。画面の corpus の件と期待値は変えていない
 
 網羅の比較の手順: Bun 側は下の script(`bun corpus.ts <stringWidthTables.h> corpus.tsv`。`HERDR_*` を外して実行した)が、1 行に code point の 16 進と `Bun.stringWidth` の値を書く。Rust 側は、`text.rs` の末尾に一時的に下のテストを足し、`WIDTH_CORPUS=corpus.tsv cargo test --release --locked -p herdr-fleet-screen --lib scratch_differential -- --ignored --nocapture` で走らせた。
 
