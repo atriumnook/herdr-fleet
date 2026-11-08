@@ -1347,6 +1347,38 @@ describe("a thread outlives its lead run", () => {
     expect(promptsTo(coordinator)).toHaveLength(2);
   });
 
+  it("hands Merge into main to the coordinator once after the server restarts, though the thread started again before", async () => {
+    const { fleet, runtime, registry, root, states, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main" } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    await turn(coordinator, "working");
+    await fleet.land(first.id, "merge");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    runtime.output = "API Error: 529 overloaded";
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeDefined();
+    runtime.output = "agent output";
+    fleet.stop();
+    const restarted = new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG,
+      agents: () => [lead, role("coordinator", { agent: "claude", interactive: true, spawning: true })], fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+      landing: { gitBranch: async () => "main" },
+    });
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await until(() => promptsTo(coordinator).length === 2, "the merge after the restart");
+    expect(promptsTo(coordinator)[1]).toBe([
+      "[fleet] The person pressed these on the Fleet screen. Each is the person's approval for that step only.",
+      `- Merge into main for thread "Fix" (${first.id}, fleet/${first.id}): when this checkout is clean and on main, git merge --no-ff fleet/${first.id}. On a conflict, git merge --abort and tell the person.`,
+    ].join("\n"));
+    restarted.stop();
+  });
+
   it("tells the coordinator of a project run without the person nothing of a restart, and the replacement's turn as usual", async () => {
     const { fleet, registry, turn, report, promptsTo } = thread({ config: { autonomous: true } });
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });

@@ -74,6 +74,11 @@ export class Outbox {
     this.remove((entry) => !isImmediate(entry) && entry.about === about && entry.slot === slot);
   }
 
+  /** The queued notices about `from` are about `to` now, in their place: a thread's new lead took them over. */
+  move(from: string, to: string): void {
+    this.commit(this.entries.map((entry) => !isImmediate(entry) && entry.about === from ? { ...entry, about: to } : entry));
+  }
+
   /** The queued notices `keep` turns down leave the outbox. */
   prune(keep: (notice: Notice) => boolean): void {
     this.remove((entry) => !isImmediate(entry) && !keep(entry));

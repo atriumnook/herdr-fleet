@@ -1218,20 +1218,9 @@ export class Orchestrator {
     else this.outbox.drop(thread.id, "news");
   }
 
-  /** the run a notice is about, or the lead that took its thread over since (its landing step went along) */
-  private threadRun(id: string): AgentRun | undefined {
-    let run = this.deps.registry.get(id);
-    for (let hops = 0; run && isThread(run) && run.replacedBy && hops < 32; hops++) {
-      const next = this.deps.registry.get(run.replacedBy);
-      if (!next) break;
-      run = next;
-    }
-    return run;
-  }
-
   /** Who hears a queued notice now: a merge step the project's coordinator, news whoever hears the thread. */
   private hearerOf(notice: Notice): AgentRun | undefined {
-    const about = this.threadRun(notice.about);
+    const about = this.deps.registry.get(notice.about);
     if (!about) return undefined;
     return notice.section === "steps" ? this.projectCoordinator(about) : this.coordinatorOf(about);
   }
@@ -1239,7 +1228,7 @@ export class Orchestrator {
   /** a merge step the thread no longer waits on: another step, a discard or a close took its place */
   private staleStep(notice: Notice): boolean {
     if (notice.landingAt === undefined) return false;
-    const landing = this.threadRun(notice.about)?.landing;
+    const landing = this.deps.registry.get(notice.about)?.landing;
     return landing?.at !== notice.landingAt || landing.sent === true || landing.error !== undefined;
   }
 
@@ -1281,7 +1270,7 @@ export class Orchestrator {
         if (!this.typed(coordinator, await this.submit(coordinator, text))) return false;
         // marked sent before the steps leave the outbox: a restart in between finds them sent
         for (const notice of notices) {
-          const run = notice.landingAt === undefined ? undefined : this.threadRun(notice.about);
+          const run = notice.landingAt === undefined ? undefined : this.deps.registry.get(notice.about);
           if (!run?.landing || run.landing.at !== notice.landingAt) continue;
           run.landing.sent = true;
           this.save(run);
@@ -1491,8 +1480,10 @@ export class Orchestrator {
         thread: { repo: run.project ?? null, owner: run.owner, base: run.base, baseBranch: run.baseBranch, takeover: { from: run, thread: threadId(run), task } },
       });
       run.replacedBy = next.id;
-      // the thread's question and landing step went to the new run: the old one must not be landed too
+      // the thread's question and landing step went to the new run: the old one must not be landed too,
+      // and a merge step the coordinator has not heard yet waits for it as the new run's
       this.outbox.drop(run.id, "news");
+      this.outbox.move(run.id, next.id);
       delete run.landing;
       await this.deps.runtime.closePane(run.paneId).catch(() => undefined);
       if (isLive(run)) run.state = "stopped";
