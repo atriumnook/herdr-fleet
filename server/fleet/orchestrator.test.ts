@@ -161,6 +161,17 @@ describe("spawn", () => {
     expect(bare.runtime.instructions[0]).not.toContain("Standing orders");
   });
 
+  it("tells every agent the person's language when the config sets one, and writes no section without it", async () => {
+    const { fleet, runtime } = setup({ config: { language: "Japanese" } });
+    await spawn(fleet);
+    expect(runtime.instructions[0]).toContain("## The person's language");
+    expect(runtime.instructions[0]).toContain("The person reads Japanese. Write in Japanese what the person reads: your replies to the person, a plan, a question for the person");
+    expect(runtime.instructions[0]).toContain("Write tasks and messages for other agents in English.");
+    const bare = setup();
+    await spawn(bare.fleet);
+    expect(bare.runtime.instructions[0]).not.toContain("The person reads");
+  });
+
   it("names the fleet command in every spawning instruction", async () => {
     const { fleet, runtime } = setup({ agents: [role("worker", { spawning: true })] });
     await spawn(fleet);

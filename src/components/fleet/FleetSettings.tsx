@@ -15,7 +15,7 @@ const KINDS: readonly FleetAgentKind[] = ["claude", "codex", "cursor", "agy", "o
 const LEVELS: readonly ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
 const MAX_CANDIDATES = 8;
 
-type Section = "roles" | "usage" | "projects" | "limits" | "entrances";
+type Section = "roles" | "usage" | "projects" | "limits" | "entrances" | "language";
 
 const label = (candidate: RoleCandidate): string => (candidate.model ? `${candidate.agent}:${candidate.model}` : candidate.agent);
 
@@ -39,7 +39,7 @@ export function FleetSettingsPage({ model, emit }: { model: FleetSettingsModel; 
       </header>
       <div className="fleet-settings-tabs">
         <Segmented label={t("Settings section")}>
-          {(["roles", "usage", "projects", "limits", "entrances"] as const).map((each) => (
+          {(["roles", "usage", "projects", "limits", "entrances", "language"] as const).map((each) => (
             <button key={each} type="button" aria-pressed={section === each} onClick={() => setSection(each)}>{t(SECTION_LABEL[each])}</button>
           ))}
         </Segmented>
@@ -51,6 +51,7 @@ export function FleetSettingsPage({ model, emit }: { model: FleetSettingsModel; 
           {!settings ? (model.status !== "error" && <p className="fleet-quiet">{t("Loading settings…")}</p>) : (
             <>
               {section === "roles" && <RolesSection settings={settings} models={model.models} change={change} />}
+              {section === "language" && <LanguageSection settings={settings} change={change} />}
               {section === "usage" && <UsageSection settings={settings} model={model} change={change} />}
               {section === "projects" && <ProjectsSection model={model} change={change} />}
               {section === "limits" && <LimitsSection settings={settings} change={change} />}
@@ -65,7 +66,7 @@ export function FleetSettingsPage({ model, emit }: { model: FleetSettingsModel; 
   );
 }
 
-const SECTION_LABEL: Record<Section, string> = { roles: "Roles", usage: "Usage", projects: "Projects", limits: "Limits", entrances: "Entrances" };
+const SECTION_LABEL: Record<Section, string> = { roles: "Roles", usage: "Usage", projects: "Projects", limits: "Limits", entrances: "Entrances", language: "Language" };
 
 type Change = (patch: Extract<FleetSettingsEvent, { type: "fleet-settings-change" }>["patch"]) => void;
 
@@ -171,6 +172,26 @@ function ModelField({ value, index, options, commit }: { value: string; index: n
         onChange={(event) => setDraft(event.target.value.replace(/\s/g, ""))} onBlur={save} onKeyDown={(event) => { if (event.key === "Enter") save(); }} />
       {options.length > 0 && <datalist id={listId}>{options.map((option) => <option key={option.id} value={option.id}>{option.label}</option>)}</datalist>}
     </>
+  );
+}
+
+function LanguageSection({ settings, change }: { settings: FleetSettings; change: Change }) {
+  // what is typed: the field's own until it is saved
+  const [draft, setDraft] = useState(settings.language);
+  useEffect(() => setDraft(settings.language), [settings.language]);
+  const save = () => { if (draft.trim() !== settings.language) change({ language: draft.trim() }); };
+  return (
+    <section aria-label={t("Language")}>
+      <h2 className="fleet-settings-heading">{t("Language")}</h2>
+      <div className="fleet-setting fleet-setting-project">
+        <div className="fleet-setting-text">
+          <b>{t("Language you read")}</b>
+          <span>{t("Agents write what you read in this language. A change applies to agents that start after it.")}</span>
+        </div>
+        <input className="input" aria-label={t("Language you read")} placeholder={t("Not set")} value={draft} maxLength={40} spellCheck={false}
+          onChange={(event) => setDraft(event.target.value)} onBlur={save} onKeyDown={(event) => { if (event.key === "Enter") save(); }} />
+      </div>
+    </section>
   );
 }
 

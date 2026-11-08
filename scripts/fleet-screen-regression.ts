@@ -309,6 +309,16 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
       await Bun.sleep(100);
     }
     assert.equal(JSON.parse(readFileSync(settingsFile, "utf8")).projects[repo].setup, "bun install --ignore-scripts");
+    // Language: the language the person reads reaches fleet.json, and every agent started after it is told
+    await settingsPage.getByRole("button", { name: "Language", exact: true }).click();
+    const language = settingsPage.getByRole("textbox", { name: "Language you read" });
+    await language.fill("Japanese");
+    await language.press("Enter");
+    for (let tries = 0; JSON.parse(readFileSync(settingsFile, "utf8")).language !== "Japanese"; tries++) {
+      assert.ok(tries < 50, "the language reaches fleet.json");
+      await Bun.sleep(100);
+    }
+    await save(page, shots, "fleet-settings-language-dark");
     await settingsPage.getByRole("button", { name: "Usage", exact: true }).click();
     await settingsPage.locator(".fleet-account.is-skipped", { hasText: "codex" }).waitFor();
     await save(page, shots, "fleet-settings-usage-dark");
@@ -426,6 +436,9 @@ export async function checkFleetScreen(browser: Browser): Promise<void> {
     await Bun.sleep(400);
     await phoneScreen.locator(".fleet-role-head", { hasText: "lead" }).click();
     assert.equal(await sideways(), 0, "the Settings page does not push the screen sideways on a phone");
+    // every section's tab is on the screen, the last one too
+    const lastTab = await phoneScreen.getByRole("button", { name: "Language", exact: true }).boundingBox();
+    assert.ok(lastTab && lastTab.x + lastTab.width <= 390, "the Settings page's last tab fits a phone's width");
     await save(mobile, shots, "fleet-phone-settings-dark");
     assert.deepEqual(mobileErrors, []);
     await phone.close();

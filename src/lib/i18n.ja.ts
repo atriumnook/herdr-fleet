@@ -194,6 +194,7 @@ export const JA: Record<string, string> = {
   "When a CLI stops at a rate limit and gives no time to resume, the fleet does not use its account for this long.": "CLI が利用上限で止まり、再開の時刻を示さなかったときは、fleet はそのアカウントをこの時間だけ使いません。",
   "A new thread's worktree has no dependencies installed. Before its lead starts, the fleet runs the project's setup command in it. The fleet runs only commands written here, never one from the repository's own files.": "新しいスレッドの worktree には依存が入っていません。lead が起動する前に、fleet がその worktree でプロジェクトの準備のコマンドを実行します。fleet が実行するのはここに書いたコマンドだけです。リポジトリのファイルに書かれたコマンドは実行しません。",
   "The most agents that start or work at the same time. Agents that wait for you or have finished do not count.": "起動中か作業中のエージェントの数の上限です。あなたの返事を待っているエージェントと、終わったエージェントは数えません。",
+  "Agents write what you read in this language. A change applies to agents that start after it.": "エージェントは、あなたが読むものをこの言語で書きます。変更は、そのあとに起動したエージェントから使われます。",
   "When a helper's turn ends, the fleet closes its pane. It does not close the panes of leads and coordinators.": "手伝いのターンが終わったら、fleet がそのペインを閉じます。lead と coordinator のペインは閉じません。",
   "Changes are saved to {file} as you make them.": "変更するたびに {file} に保存します。",
   "Could not load the settings. {error}": "設定を読み込めませんでした。{error}",

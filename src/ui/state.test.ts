@@ -294,7 +294,7 @@ describe("screens and the Fleet screen's view", () => {
   });
 
   it("opens the Settings page for the project, saves each change, and keeps only the latest save's answer", () => {
-    const settings = (maxConcurrent: number) => ({ file: "/c/fleet.json", roles: [], maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent, closeOnSettle: true, projects: [], readOnlyAgents: ["claude" as const] });
+    const settings = (maxConcurrent: number) => ({ file: "/c/fleet.json", roles: [], maxUsedPercent: 90, rateLimitCooldownMinutes: 60, maxConcurrent, closeOnSettle: true, language: "", projects: [], readOnlyAgents: ["claude" as const] });
     const opened = play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-settings", open: true, cwd: "/repo" }], withRuns);
     expect(opened.effects).toEqual([{ kind: "load-fleet-settings", cwd: "/repo" }, { kind: "load-fleet-entrances" }, { kind: "load-fleet-models" }]);
     expect(opened.state.fleetModels.status).toBe("loading");

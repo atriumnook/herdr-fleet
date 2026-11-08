@@ -60,6 +60,9 @@ function readJson(file: string, warnings?: string[]): Record<string, unknown> {
 
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
 
+/** A language's name, such as Japanese or 日本語: letters, spaces, hyphens and parentheses, up to 40 characters, on one line. */
+export const isLanguageName = (value: unknown): value is string => typeof value === "string" && /^[\p{L}\p{M}][\p{L}\p{M} ()-]{0,39}$/u.test(value.trim());
+
 /** Only the keys the file sets with a usable value: an absent key must not erase what a lower config set. */
 function parseRole(value: unknown): RoleOverride {
   if (!isObject(value)) return {};
@@ -101,6 +104,7 @@ export function mergeConfig(base: FleetConfig, raw: Record<string, unknown>): Fl
     defaultWaitTimeoutMs: count("defaultWaitTimeoutMs", 1, base.defaultWaitTimeoutMs),
     closeOnSettle: typeof raw["closeOnSettle"] === "boolean" ? raw["closeOnSettle"] : base.closeOnSettle,
     autonomous: typeof raw["autonomous"] === "boolean" ? raw["autonomous"] : base.autonomous,
+    ...(isLanguageName(raw["language"]) ? { language: raw["language"].trim() } : base.language ? { language: base.language } : {}),
     maxUsedPercent: typeof raw["maxUsedPercent"] === "number" ? Math.min(100, Math.max(1, raw["maxUsedPercent"])) : base.maxUsedPercent,
     rateLimitCooldownMinutes: count("rateLimitCooldownMinutes", 1, base.rateLimitCooldownMinutes),
     roles,

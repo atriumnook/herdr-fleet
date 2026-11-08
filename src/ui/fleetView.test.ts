@@ -220,7 +220,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
   });
 
   it("draws the Settings page in place of the project, with each project's setup command and how full each account is", () => {
-    const settings = { file: "/c/fleet.json", roles: [], maxUsedPercent: 80, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [{ path: "/kept", setup: "make" }, { path: "/repo", setup: "bun install" }], readOnlyAgents: ["claude" as const] };
+    const settings = { file: "/c/fleet.json", roles: [], maxUsedPercent: 80, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, language: "", projects: [{ path: "/kept", setup: "make" }, { path: "/repo", setup: "bun install" }], readOnlyAgents: ["claude" as const] };
     const usage = { status: "ready" as const, again: false, refreshing: false, data: [
       { key: "codex", reading: { readAt: 1, windows: [{ name: "5h", usedPercent: 85 }, { name: "weekly", usedPercent: 40 }] } },
       { key: "claude", reading: { readAt: 1, windows: [{ name: "5h", usedPercent: 99, resetsAt: NOW - 1 }, { name: "weekly", usedPercent: 30 }] } },
@@ -243,7 +243,7 @@ describe("the projects, their threads and the run open in the Overview", () => {
   it("offers each CLI's models, and marks a candidate whose model its CLI does not offer", () => {
     const candidate = (agent: "codex" | "claude" | "pi", model?: string) => ({ agent, ...(model ? { model } : {}) });
     const role = (name: string, candidates: Array<ReturnType<typeof candidate>>) => ({ name, description: name, readOnly: false, candidates, changed: false, defaults: { candidates } });
-    const settings = { file: "/c/fleet.json", roles: [role("worker", [candidate("codex", "gpt-6:high"), candidate("codex", "gpt-9"), candidate("claude", "claude-opus-9"), candidate("pi")])], maxUsedPercent: 80, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, projects: [], readOnlyAgents: [] };
+    const settings = { file: "/c/fleet.json", roles: [role("worker", [candidate("codex", "gpt-6:high"), candidate("codex", "gpt-9"), candidate("claude", "claude-opus-9"), candidate("pi")])], maxUsedPercent: 80, rateLimitCooldownMinutes: 60, maxConcurrent: 6, closeOnSettle: true, language: "", projects: [], readOnlyAgents: [] };
     const listings = [
       { agent: "codex" as const, models: [{ id: "gpt-6", label: "GPT-6" }], complete: true },
       { agent: "claude" as const, models: [{ id: "opus" }], complete: false },
