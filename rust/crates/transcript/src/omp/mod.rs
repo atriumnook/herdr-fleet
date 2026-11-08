@@ -75,7 +75,7 @@ impl TranscriptFormat for Omp {
                 _ => {}
             }
             let Some(message) =
-                pi_message(&parsed).filter(|message| text(message, "role") == Some("assistant"))
+                pi_message(parsed).filter(|message| text(message, "role") == Some("assistant"))
             else {
                 continue;
             };
@@ -91,7 +91,7 @@ impl TranscriptFormat for Omp {
         metadata
     }
 
-    fn output_in_entry(&self, entry: &Value, reference: &str) -> Option<String> {
+    fn output_in_entry(&self, entry: Value, reference: &str) -> Option<String> {
         let message = pi_message(entry)?;
         pi_results(&message)
             .into_iter()

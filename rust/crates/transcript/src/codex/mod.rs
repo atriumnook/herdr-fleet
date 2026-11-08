@@ -46,7 +46,7 @@ impl TranscriptFormat for Codex {
         todo!("#202: Codex rollouts")
     }
 
-    fn output_in_entry(&self, _entry: &Value, _reference: &str) -> Option<String> {
+    fn output_in_entry(&self, _entry: Value, _reference: &str) -> Option<String> {
         todo!("#202: Codex rollouts")
     }
 }

@@ -49,7 +49,7 @@ impl TranscriptFormat for Pi {
         todo!("#203: pi sessions")
     }
 
-    fn output_in_entry(&self, _entry: &Value, _reference: &str) -> Option<String> {
+    fn output_in_entry(&self, _entry: Value, _reference: &str) -> Option<String> {
         todo!("#203: pi sessions")
     }
 }

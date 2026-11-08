@@ -37,7 +37,7 @@ impl TranscriptFormat for Claude {
         todo!("#201: Claude Code transcripts")
     }
 
-    fn output_in_entry(&self, _entry: &Value, _reference: &str) -> Option<String> {
+    fn output_in_entry(&self, _entry: Value, _reference: &str) -> Option<String> {
         todo!("#201: Claude Code transcripts")
     }
 }

@@ -125,7 +125,7 @@ pub(crate) trait TranscriptFormat: Send + Sync {
     }
 
     /// The output one record holds for the tool call `reference`, whole.
-    fn output_in_entry(&self, entry: &Value, reference: &str) -> Option<String>;
+    fn output_in_entry(&self, entry: Value, reference: &str) -> Option<String>;
 
     /// An image a ref names, decoded.
     /// `None` by default: the source shows no image.
@@ -156,7 +156,7 @@ pub(crate) fn output_in_text<F: TranscriptFormat + ?Sized>(
         let Some(entry) = parse_line(line) else {
             continue;
         };
-        if let Some(output) = format.output_in_entry(&entry, reference) {
+        if let Some(output) = format.output_in_entry(entry, reference) {
             return Some(if utf16_len(&output) > TOOL_OUTPUT_MAX {
                 format!("{}\n… trimmed", cut_utf16(&output, TOOL_OUTPUT_MAX))
             } else {

@@ -71,13 +71,6 @@ fn first_string(row: &Row, fields: &[&str]) -> Option<Value> {
         .find_map(|field| row.get(*field).filter(|value| value.is_string()).cloned())
 }
 
-/// The first of these fields that is neither absent nor null (TypeScript's `a ?? b ?? c`).
-fn first_present(row: &Row, fields: &[&str]) -> Option<Value> {
-    fields
-        .iter()
-        .find_map(|field| row.get(*field).filter(|value| !value.is_null()).cloned())
-}
-
 /// Sets `field` to `value`, or removes it when the value is undefined.
 fn put(row: &mut Row, field: &str, value: Option<Value>) {
     match value {
@@ -90,27 +83,47 @@ fn put(row: &mut Row, field: &str, value: Option<Value>) {
     }
 }
 
+/// Moves the first of `from` that is neither absent nor null (TypeScript's `a ?? b ?? c`) to
+/// `to`, or removes `to` when there is none. The value is moved, not copied: a tool result's output
+/// can be megabytes. Only the normalized field is read afterwards, so the one it came from is not
+/// kept.
+fn move_first_present(row: &mut Row, from: &[&str], to: &str) {
+    let found = from
+        .iter()
+        .find(|field| row.get(**field).is_some_and(|value| !value.is_null()));
+    let value = found.and_then(|field| row.remove(*field));
+    put(row, to, value);
+}
+
 /// A pi-family `/clear`: a custom record of its own type.
 pub(crate) fn pi_context_clear(value: &Value) -> bool {
     let entry = record(Some(value));
     text(entry, "type") == Some("custom") && text(entry, "customType") == Some("context_clear")
 }
 
+/// The message of a pi-family `message` record, when it is to be displayed.
+fn displayed_message(entry: &Row) -> Option<&Row> {
+    let message = record(entry.get("message"));
+    let hidden = message.get("display") == Some(&Value::Bool(false))
+        || entry.get("display") == Some(&Value::Bool(false));
+    (text(entry, "type") == Some("message") && !hidden).then_some(message)
+}
+
 /// A pi-family message with its content as a list of blocks: providers use several spellings for
 /// the same tool call and result fields, read here as one. `None` for any other record and for a
-/// message not to be displayed.
-pub(crate) fn pi_message(value: &Value) -> Option<Row> {
-    let entry = record(Some(value));
-    let message = record(entry.get("message"));
-    if text(entry, "type") != Some("message")
-        || message.get("display") == Some(&Value::Bool(false))
-        || entry.get("display") == Some(&Value::Bool(false))
-    {
+/// message not to be displayed. It takes the record and moves its fields.
+pub(crate) fn pi_message(value: Value) -> Option<Row> {
+    let Value::Object(mut entry) = value else {
         return None;
-    }
-    let raw = match message.get("content") {
+    };
+    displayed_message(&entry)?;
+    let mut message = match entry.remove("message") {
+        Some(Value::Object(message)) => message,
+        _ => Row::new(),
+    };
+    let raw = match message.remove("content") {
         Some(Value::String(text)) => vec![serde_json::json!({ "type": "text", "text": text })],
-        Some(Value::Array(blocks)) => blocks.clone(),
+        Some(Value::Array(blocks)) => blocks,
         _ => Vec::new(),
     };
     let content = raw
@@ -123,27 +136,28 @@ pub(crate) fn pi_message(value: &Value) -> Option<Row> {
                 Some("toolCall") => {
                     let name = first_string(&block, &["toolName", "name"]);
                     let id = first_string(&block, &["toolCallId", "id", "callId"]);
-                    let arguments = first_present(&block, &["toolInput", "input", "arguments"]);
                     put(&mut block, "name", name);
                     put(&mut block, "id", id);
-                    put(&mut block, "arguments", arguments);
+                    move_first_present(
+                        &mut block,
+                        &["toolInput", "input", "arguments"],
+                        "arguments",
+                    );
                 }
                 Some("toolResult") => {
                     let id = first_string(&block, &["toolCallId", "callId", "id"]);
-                    let content = first_present(&block, &["output", "content", "result"]);
                     put(&mut block, "toolCallId", id);
-                    put(&mut block, "content", content);
+                    move_first_present(&mut block, &["output", "content", "result"], "content");
                 }
                 _ => {}
             }
             Value::Object(block)
         })
         .collect();
-    let mut normalized = message.clone();
-    let id = first_string(message, &["toolCallId", "callId"]);
-    put(&mut normalized, "toolCallId", id);
-    normalized.insert("content".to_owned(), Value::Array(content));
-    Some(normalized)
+    let id = first_string(&message, &["toolCallId", "callId"]);
+    put(&mut message, "toolCallId", id);
+    message.insert("content".to_owned(), Value::Array(content));
+    Some(message)
 }
 
 /// One tool result of a pi-family message, with the media types of the images it carries.
@@ -242,14 +256,20 @@ pub(crate) fn pi_image_block(
 
 /// Does this pi-family record open a turn? A prompt is a `message` record with a user role and
 /// text; a tool result answers the turn before it.
+/// Read without `pi_message`: its normalization leaves text blocks as they are.
 pub(crate) fn pi_opens_turn(entry: &Value) -> bool {
-    pi_message(entry).is_some_and(|message| {
-        text(&message, "role") == Some("user")
-            && blocks(&message).any(|block| {
-                text(block, "type") == Some("text")
-                    && text(block, "text").is_some_and(|text| !text.is_empty())
-            })
-    })
+    let Some(message) = displayed_message(record(Some(entry))) else {
+        return false;
+    };
+    let has_text = |text: &str| !text.is_empty();
+    text(message, "role") == Some("user")
+        && match message.get("content") {
+            Some(Value::String(content)) => has_text(content),
+            Some(Value::Array(blocks)) => blocks.iter().filter_map(Value::as_object).any(|block| {
+                text(block, "type") == Some("text") && text(block, "text").is_some_and(has_text)
+            }),
+            _ => false,
+        }
 }
 
 /// A runtime wakes the agent with a `custom_message` (a background job's result, `display: true`)
@@ -362,7 +382,7 @@ pub(crate) fn parse_omp_transcript(text_of_page: &str, tool_images: bool) -> Vec
             }
             continue;
         }
-        let Some(message) = pi_message(&entry) else {
+        let Some(message) = pi_message(entry) else {
             continue;
         };
         let role = text(&message, "role");
