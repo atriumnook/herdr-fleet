@@ -12,6 +12,9 @@ import type { FleetSettingsStore } from "./settings.ts";
 import type { EntranceStore } from "./entrances.ts";
 import type { ModelCatalog } from "./models.ts";
 
+/** The factory metrics of the project at `cwd` over the last `hours`, as Markdown. */
+export type FactoryReporter = (cwd: string, hours: number, planned?: string) => Promise<string>;
+
 /**
  * Fleet HTTP API, behind the same gate as the rest of /api. Changes need X-Herdr-Fleet: 1: a page
  * on another site cannot send that header without a CORS preflight this server never answers.
@@ -46,8 +49,9 @@ import type { ModelCatalog } from "./models.ts";
  *  GET  /api/fleet/models                           -> { listings: ModelListing[] }; what each CLI says it offers (kept for minutes; asks no model)
  *  GET  /api/fleet/entrances                        -> FleetEntrances; the skill folders and whether the fleet skill is in each
  *  POST /api/fleet/entrances     { id, action: "install" | "remove" } -> FleetEntrances
+ *  GET  /api/fleet/report?cwd=&hours=&planned_label= -> { report }; the project's factory metrics in Markdown (metrics.ts); asks GitHub (gh) now
  */
-export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator, usage?: Pick<UsageTracker, "list" | "refresh" | "clearCooldown">, settings?: Pick<FleetSettingsStore, "read" | "update">, entrances?: Pick<EntranceStore, "list" | "install" | "remove">, models?: Pick<ModelCatalog, "listAll">): Promise<Response> {
+export async function handleFleetRequest(request: Request, url: URL, fleet: Orchestrator, usage?: Pick<UsageTracker, "list" | "refresh" | "clearCooldown">, settings?: Pick<FleetSettingsStore, "read" | "update">, entrances?: Pick<EntranceStore, "list" | "install" | "remove">, models?: Pick<ModelCatalog, "listAll">, report?: FactoryReporter): Promise<Response> {
   const parts = url.pathname.slice("/api/fleet".length).split("/").filter(Boolean).map(decodeURIComponent);
   const method = request.method;
   try {
@@ -93,6 +97,15 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
       const body = await readBody();
       const run = await fleet.spawn(spawnRequest(body), request.signal);
       return jsonResponse({ run }, 201);
+    }
+    if (parts[0] === "report" && parts.length === 1 && method === "GET" && report) {
+      const cwd = query.get("cwd");
+      if (!cwd) throw new FleetError("missing_cwd", "cwd is required");
+      const hours = Number(query.get("hours") ?? 24);
+      if (!Number.isFinite(hours) || hours <= 0) throw new FleetError("invalid_hours", "hours must be a positive number");
+      const planned = query.get("planned_label") ?? undefined;
+      if (planned !== undefined) { try { new RegExp(planned); } catch { throw new FleetError("invalid_planned_label", "planned_label must be a regular expression"); } }
+      return jsonResponse({ report: await report(cwd, hours, planned) });
     }
     if (parts[0] === "usage" && usage) {
       if (parts.length === 1 && method === "GET") return jsonResponse({ usage: usage.list() });

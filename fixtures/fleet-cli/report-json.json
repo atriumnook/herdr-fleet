@@ -1,0 +1,29 @@
+{
+  "about": "report --json prints the report as a JSON string",
+  "argv": [
+    "report",
+    "--json"
+  ],
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "report": "# Factory metrics"
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/report?cwd=$CWD&hours=24",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "\"# Factory metrics\"\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}

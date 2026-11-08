@@ -84,7 +84,6 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `scripts/devices-regression.ts` | UI の回帰 | |
 | `scripts/directory-browser-regression.ts` | UI の回帰 | |
 | `scripts/droplet-regression.ts` | UI の回帰 | |
-| `scripts/factory-report.test.ts` | | |
 | `scripts/file-viewer-regression.ts` | | |
 | `scripts/fleet-screen-regression.ts` | UI の回帰 | |
 | `scripts/generate-protocol-types.test.ts` | | |
@@ -155,6 +154,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/fleet/brief.test.ts` | | |
 | `server/fleet/config.test.ts` | | |
 | `server/fleet/entrances.test.ts` | | |
+| `server/fleet/metrics.test.ts` | | |
 | `server/fleet/models.test.ts` | 安全上の判定の表 | 22 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/fleet/opencode-guard.test.ts` | そのまま残す | |
 | `server/fleet/orchestrator.test.ts` | | |
@@ -444,7 +444,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - 画面の corpus: 17 件の `it`(コミット `e486a83` で corpus の件にし、このファイルから消した)
 - 安全上の判定の表: 1 件の `it`
 
-残った部分(36 件。引き継ぎ先は未定。`takes the model and effort, with instructions in the first prompt` のすぐあとの 3 件は、Issue #169 で main から取り込んだ `it`):
+残った部分(36 件。引き継ぎ先は未定。`takes the model and effort, with instructions in the first prompt, and every run's results folder (a reviewer reads its lead's)` のすぐあとの 3 件は、Issue #169 で main から取り込んだ `it`。この `it` の名前は、Issue #187 で取り込んだ main のコミット `dd8beb8` が変えた):
 
 - launches with the model at its thinking level, the role's tools, a fleet name and the instruction file
 - keeps a :level the model already carries
@@ -461,7 +461,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - is typed as /usage and read as the included share, until the next reset date
 - reads the pager as cursor-agent 2026.09.23 drew it under ja_JP
 - reads the narrow layout, a reset date in the next year, and nothing before the pager shows
-- takes the model and effort, with instructions in the first prompt
+- takes the model and effort, with instructions in the first prompt, and every run's results folder (a reviewer reads its lead's)
 - leaves the level to a model id that names one, as agy drops such a model given --effort as well
 - trusts the run's own folder and runs in auto mode in the sandbox, for the session only
 - refuses a force push and a push that deletes a remote branch, and lets an ordinary push through

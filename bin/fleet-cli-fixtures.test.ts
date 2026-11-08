@@ -36,7 +36,7 @@ describe("fleet CLI contract coverage", () => {
   const commands = usageCommands();
 
   test("reads every command of the usage", () => {
-    expect(commands).toEqual(["spawn", "thread", "threads", "plan", "project", "guide", "send", "wait", "read", "list", "interrupt", "focus", "close-done", "roles", "usage", "usage clear"]);
+    expect(commands).toEqual(["spawn", "thread", "threads", "plan", "project", "guide", "send", "wait", "read", "list", "interrupt", "focus", "close-done", "roles", "usage", "usage clear", "report"]);
   });
 
   test("has a case of every command, and a --json case of each", () => {

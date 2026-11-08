@@ -1,0 +1,28 @@
+{
+  "about": "Without options, report asks for the working folder's metrics of the last 24 hours and prints the Markdown the server returns",
+  "argv": [
+    "report"
+  ],
+  "responses": [
+    {
+      "status": 200,
+      "body": {
+        "report": "# Factory metrics\n\nNo run in the last 24 hours."
+      }
+    }
+  ],
+  "expected": {
+    "requests": [
+      {
+        "method": "GET",
+        "path": "/api/fleet/report?cwd=$CWD&hours=24",
+        "headers": {
+          "x-herdr-fleet": "1"
+        }
+      }
+    ],
+    "stdout": "# Factory metrics\n\nNo run in the last 24 hours.\n",
+    "stderr": "",
+    "exitCode": 0
+  }
+}
