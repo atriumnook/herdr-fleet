@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>解析の crate の調査</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "strict" });
+    </script>
+    <style>
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); color: #f8fafc; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-4 py-12 space-y-12">
+      <header class="space-y-3">
+        <h1 class="font-serif text-3xl">段階 2 の解析の crate(screen と transcript)に移す TypeScript のコードの調査</h1>
+        <p class="text-sm text-slate-600">2026-11-08。Issue #192。対象は、計画の段階 2 で Rust の <code>herdr-fleet-screen</code> と <code>herdr-fleet-transcript</code> に移すコード: 承認画面の解析(<code>server/prompt.ts</code>、1,471 行)、adapter の画面の判定(<code>server/fleet/adapters.ts</code> の画面を読む関数)、会話ログの解析(<code>server/conversation.ts</code> の解析とページング、<code>server/codex.ts</code> の解析、<code>server/codex-images.ts</code>、<code>server/pi-tree.ts</code>、<code>server/opencode-messages.ts</code>、<code>server/opencode-session.ts</code>、<code>server/transcript-records.ts</code>、<code>server/conversation-metadata.ts</code>、<code>server/skill-activity.ts</code>、<code>server/tool-output.ts</code>、<code>server/conversation-errors.ts</code>)。手順は <code>improve-codebase-architecture</code>、語は <code>codebase-design</code>(module、interface、depth、seam、adapter、leverage、locality)と <code>docs/rust-migration/GLOSSARY.md</code> に従う。</p>
+        <p class="text-sm text-slate-600">調べ方: 範囲は計画が決めているので、変更の多いファイルから選ぶ手順は使わなかった。2026-10-01 以降のコミットでの変更の回数は、adapters.ts 31、conversation.ts 20、prompt.ts 15、codex.ts 10、opencode-session.ts 8 で、adapters.ts の変更の多くは起動の引数と OpenCode の設定(段階 3 の orchestrator の側)だった。subagent 1 つがファイルの構成と呼び出しの関係を調べ、lead が <code>transcriptStream</code>、<code>opensTurn</code>、<code>parseTurns</code>、<code>liveTurns</code>、<code>parsePrompt</code>、<code>answerKeys</code> を読んだ。</p>
+        <div class="flex flex-wrap gap-4 text-xs text-slate-600">
+          <span>実線の箱 = module</span><span>破線 = seam</span><span class="text-red-600">赤い箱 = 1 つの概念が複数の場所に散る</span><span>濃い箱 = deep module</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-10">
+
+        <!-- 1 -->
+        <article id="c1" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">1. transcript のページングを 1 つの deep module にし、source ごとの違いを 1 つの seam の後ろに置く</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/conversation.ts(transcriptStream 482、applyHistoryBoundary 548、opensTurn 609、turnStarts 630、
+  pageBefore 652、newestPage 714、parseTurns 741、codexLiveTurn 760、liveTurns 804、transcriptPage 998)
+server/codex.ts(codexHistorySegments、createCodexTranscriptParser)
+server/pi-tree.ts(piBranchSegments、piAbandonedTurns)
+server/transcript-records.ts(parseOmpTranscript、piMessage)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart TB
+  P[transcriptPage] --> S[transcriptStream: if pi / if codex]
+  P --> H[applyHistoryBoundary: if codex / if claude]
+  P --> O[opensTurn: if codex / if claude / else pi]
+  P --> T[parseTurns: if codex / if claude / else omp]
+  P --> L[liveTurns: if codex]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class S,H,O,T,L leak
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  C[core] --> E[Transcripts: page, image, toolOutput]
+  E -.seam.-> CL[claude]
+  E -.seam.-> CX[codex]
+  E -.seam.-> PI[pi]
+  E -.seam.-> OM[omp]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class E deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> ページングの処理(カーソル、<code>history_id</code>、<code>version</code>、窓の読み取り、cache)は 4 つの source で共通なのに、source の違いが <code>source === "codex-transcript"</code> などの分岐として 6 つ以上の関数に散っていて、1 つの source を移すには共通の処理のファイルを書き換えることになる。</p>
+          <p><strong>Solution:</strong> 共通のページングを <code>Transcripts</code> の値の中に閉じ、source の違い(ターンの始まりの判定、ターンの解析、読む範囲の並び(Codex の連なり、pi の枝)、<code>/clear</code> などの履歴の境目、実行中のターンの読み方)を source ごとの module が実装する 1 つの seam で受ける。</p>
+          <ul class="list-disc pl-6 text-sm"><li>source を足すと module が 1 つ増えるだけ</li><li>source ごとの作業が並行できる</li><li>ページングは 1 か所で試す</li><li>adapter が 4 つで本物の seam</li></ul>
+        </article>
+
+        <!-- 2 -->
+        <article id="c2" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">2. カードと、その答えのキーを作るための内部の値を 1 つの値にする</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/prompt.ts(ParsedPrompt 68、parsedByPublicPrompt 85、publicPrompt 214、answerKeys 1162)
+server/prompt-api.ts(answerKeys、parsedByPublicPrompt を使う)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart LR
+  PP[parsePrompt] --> PUB[publicPrompt]
+  PUB --> WM[(WeakMap public to parsed)]
+  AK[answerKeys public] --> WM
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class WM leak
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  PP[parse] --> PC[解析したカード: card + 答え方]
+  PC --> C[card: protocol の型]
+  PC --> AK[answer_keys]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class PC deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 答えのキーを作るのに要る値(responder、メニューの行、選択中の行、自由入力の行)を、公開のカードから WeakMap で引いている。カードを複写すると答えられなくなり(<code>InvalidAnswer("The prompt was not produced by parseInteractivePrompt.")</code>)、その決まりは型に表れない。</p>
+          <p><strong>Solution:</strong> 解析は、公開のカード(protocol の型)と答え方を持つ 1 つの値を返し、答えのキーはその値から作る。</p>
+          <ul class="list-disc pl-6 text-sm"><li>WeakMap が消える</li><li>答えられない状態を型で防ぐ</li><li>corpus の answers が同じ値を通る</li></ul>
+        </article>
+
+        <!-- 3 -->
+        <article id="c3" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">3. 承認画面の解析を、エージェントの系統ごとの module と共通の行の読み取りに分ける</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/prompt.ts: 共通(cleanLine 87、parseBorderMenu 129、parseNumberedRows 153、finishPrompt 198、promptTailIsActive 822)
+  Claude(parseClaudeQuestion 453 〜 parseClaudeConfirm 728、withoutClaudeTasks 799、parseClaudeSuggestion 1447)
+  Codex(parseCodexContinueMenu 257 〜 queuedPrompt 398、parseCodexApproval 590)
+  omp と pi(parseOmpQuestion 232、parseOmpApproval 611、pi の dialog 871 〜 1114)
+  画面の終わりの汎用のメニュー(parseFallbackPrompt 1291、steadyReader)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart TB
+  F[prompt.ts 1,471 行] --- A[Claude]
+  F --- B[Codex]
+  F --- C[omp と pi]
+  F --- D[汎用のメニュー]
+  F --- E[答えのキー]
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  I[parse agent screen] --> M[menu: 行の読み取り]
+  I -.seam.-> A[claude]
+  I -.seam.-> B[codex]
+  I -.seam.-> C[omp と pi]
+  G[fallback] --> M
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class I deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 1 つのファイルに 4 つの系統と答えのキーが並び、系統ごとの解析は共通の行の読み取りを使う。1 つのファイルのままでは、系統ごとの作業を並行できない。</p>
+          <p><strong>Solution:</strong> 共通の行の読み取りとカードの組み立てを 1 つの module にし、系統ごとの解析を別の module にする。入口は今の <code>parsePrompt</code> と同じく、エージェントごとに候補を順に試す。</p>
+          <ul class="list-disc pl-6 text-sm"><li>系統ごとに corpus の件が分かれる</li><li>系統ごとの作業が並行できる</li><li>行の読み取りは 1 か所</li></ul>
+        </article>
+
+        <!-- 4 -->
+        <article id="c4" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">4. adapter の画面の判定を、起動の引数から分けて screen の crate に置く</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/fleet/adapters.ts(AgentAdapter 40: startupError、question、readyError、inputReady、draft、turnError、usageScreen)
+server/fleet/orchestrator.ts(597、1223、1328、1456 で画面の判定を呼ぶ)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart TB
+  AD[AgentAdapter] --- L[起動の引数と環境変数]
+  AD --- S[画面の判定]
+  AD --- M[モデル一覧: 子プロセス]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class AD leak
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  O[orchestrator の adapter] --> L[起動の引数]
+  O --> S[screen: エージェントの種類ごとの画面の判定]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class S deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 画面の判定は画面の文字だけを読む関数なのに、子プロセスを起動するモデル一覧と同じ interface にあり、ADR <code>0107-crate-split</code> は 2 つの crate に分けると決めている。</p>
+          <p><strong>Solution:</strong> screen の crate に、エージェントの種類(protocol の型)から画面の判定を引く口を置き、段階 3 の orchestrator の adapter はそれを呼ぶ。</p>
+          <ul class="list-disc pl-6 text-sm"><li>corpus の adapter の件がそのまま当たる</li><li>orchestrator を build せずに試せる</li></ul>
+        </article>
+
+        <!-- 5 -->
+        <article id="c5" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">5. 複数の source が使う記録の読み取りを、transcript の 1 つの module にまとめる</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-amber-100 text-amber-800 px-2 py-0.5">Worth exploring</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/transcript-records.ts、server/tool-output.ts、server/skill-activity.ts、
+server/conversation-metadata.ts、server/conversation-errors.ts</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart TB
+  CL[claude] --> R[transcript-records]
+  OM[omp と pi] --> R
+  OC[opencode] --> R
+  CX[codex] --> SA[skill-activity]
+  R --> SA
+  R --> TO[tool-output]
+  CX --> TO
+  OC --> TO
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  CL[claude] --> R[records: 共通の読み取り]
+  CX[codex] --> R
+  OM[omp と pi] --> R
+  OC[opencode] --> R
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class R deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 5 つの小さなファイルを、4 つの source が別々の組み合わせで import している。source ごとの作業がそれぞれ移すと、同じ関数を 2 回書くか、同じファイルを並行して書くことになる。</p>
+          <p><strong>Solution:</strong> source ごとの作業の前に、共通の読み取りを 1 つの module として移す。</p>
+          <ul class="list-disc pl-6 text-sm"><li>source の作業が共通の module を書かない</li><li>重複して移さない</li></ul>
+        </article>
+
+        <!-- 6 -->
+        <article id="c6" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">6. OpenCode の会話は、今の port(<code>OpencodeApi</code>)の seam をそのまま使う</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-amber-100 text-amber-800 px-2 py-0.5">Worth exploring</span><span class="rounded bg-slate-100 px-2 py-0.5">ports &amp; adapters</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/opencode-session.ts(OpencodeConversations 102、page 109)
+server/opencode-cli.ts(OpencodeApi 31)
+scripts/conversation-fixtures.ts(記録した応答を返す OpencodeApi)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart LR
+  OS[OpencodeConversations] -.seam.-> CLI[opencode api の子プロセス]
+  OS -.seam.-> REC[記録した応答]
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  OS[transcript: OpencodeConversations] -.seam.-> CORE[core の adapter: child-process]
+  OS -.seam.-> REC[corpus の runner: api.json]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class OS deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> TypeScript の port は Promise を返す。transcript の crate は tokio に依存できない(ADR <code>0107-crate-split</code>)ので、Rust で同じ形にすると、corpus の runner が非同期の値を動かす手段を別に持つことになる。</p>
+          <p><strong>Solution:</strong> port は adapter が 2 つ(core の CLI、corpus の記録した応答)ある本物の seam なので残す。同期か非同期かは ADR <code>0192-phase-2-split</code> で決める。</p>
+          <ul class="list-disc pl-6 text-sm"><li>adapter が 2 つで本物の seam</li><li>source のほかの作業と独立</li></ul>
+        </article>
+
+      </section>
+
+      <section id="top-recommendation" class="rounded-xl deep p-8 space-y-3">
+        <h2 class="font-serif text-2xl">一番の推奨: <a class="underline" href="#c1">1. transcript のページングの deep module と source ごとの seam</a></h2>
+        <p>段階 2 の作業を並行できるかは、共通の処理(transcript のページング、承認画面の行の読み取り)を最初の Issue が書き終え、あとの Issue が source や系統ごとの module だけを書けるかで決まる。候補 1 はその seam が最も多くの分岐(6 つ以上の関数)にまたがるので最初に決める。候補 3 と 5 は同じ考えを承認画面と共通の記録の読み取りに当てたもので、ADR <code>0192-phase-2-split</code> は 1、2、3、4、5 を Issue の分け方にし、6 は seam を残したまま port の形だけを決めた。</p>
+      </section>
+    </main>
+  </body>
+</html>
