@@ -76,7 +76,7 @@ import { Orchestrator, QUIET_MS, type OrchestratorDeps } from "./fleet/orchestra
 import { defaultProbes, UsageTracker } from "./fleet/usage.ts";
 import { RunRegistry } from "./fleet/registry.ts";
 import { FleetError, HerdrRuntime } from "./fleet/runtime.ts";
-import { gitBranch, gitRoot } from "./fleet/thread.ts";
+import { gitBranch, mainWorktree } from "./fleet/thread.ts";
 import { eventLog } from "./fleet/events.ts";
 import { metrics, readEvents, render as renderMetrics } from "./fleet/metrics.ts";
 import { listIssues, listMergedPullRequests } from "./fleet/github.ts";
@@ -542,7 +542,7 @@ export function createServer(
 
   /** a project's factory metrics: the fleet's event log and what GitHub says now (metrics.ts) */
   const factoryReport = async (cwd: string, hours: number, planned?: string): Promise<string> => {
-    const project = await gitRoot(cwd);
+    const project = await mainWorktree(cwd);
     if (!project) throw new FleetError("not_a_repository", `${cwd} is not in a git repository`);
     const base = (await gitBranch(project)) ?? "HEAD";
     const to = Date.now();

@@ -4,7 +4,7 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import type { DiffStat } from "../../shared/fleet.ts";
 
 const SETUP_TIMEOUT_MS = 10 * 60_000;
@@ -129,17 +129,33 @@ export async function removeThread(repo: string, worktree: string, branch: strin
 /** Where a thread's worktree goes: inside the repository, which the agent CLIs already trust (claude, codex and cursor ask nothing there). */
 export const THREAD_WORKTREES = ".herdr-fleet/worktrees";
 
+/** The git folder a repository's worktrees share (`<repo>/.git`), from any of its worktrees. */
+async function gitCommonDir(cwd: string): Promise<string | null> {
+  const proc = Bun.spawn(["git", "-c", "core.fsmonitor=false", "-C", cwd, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
+    stdout: "pipe", stderr: "ignore", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" },
+  });
+  const [output, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
+  return exitCode === 0 && output.trim() ? output.trim() : null;
+}
+
+/**
+ * The repository's main worktree, from any of its worktrees: a thread's worktree gives the project
+ * its fleet knows it by. A bare repository, which has no main worktree, gives the folder's own root.
+ */
+export async function mainWorktree(cwd: string): Promise<string | null> {
+  const [root, common] = await Promise.all([gitRoot(cwd), gitCommonDir(cwd)]);
+  if (!root || !common || basename(common) !== ".git") return root;
+  return dirname(common);
+}
+
 /**
  * Keeps the threads' worktrees out of the repository's own `git status`, through its local
  * `info/exclude`: the repository's .gitignore stays as it is, and nothing of this is committed.
  */
 export async function excludeWorktrees(repo: string): Promise<void> {
-  const proc = Bun.spawn(["git", "-c", "core.fsmonitor=false", "-C", repo, "rev-parse", "--path-format=absolute", "--git-common-dir"], {
-    stdout: "pipe", stderr: "ignore", env: { ...process.env, GIT_OPTIONAL_LOCKS: "0", GIT_TERMINAL_PROMPT: "0" },
-  });
-  const [output, exitCode] = await Promise.all([new Response(proc.stdout).text(), proc.exited]);
-  if (exitCode !== 0 || !output.trim()) return;
-  const file = join(output.trim(), "info", "exclude");
+  const common = await gitCommonDir(repo);
+  if (!common) return;
+  const file = join(common, "info", "exclude");
   const line = `/${THREAD_WORKTREES}/`;
   const current = existsSync(file) ? readFileSync(file, "utf8") : "";
   if (current.split("\n").some((entry) => entry.trim() === line)) return;
