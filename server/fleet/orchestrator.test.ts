@@ -1379,6 +1379,49 @@ describe("a thread outlives its lead run", () => {
     restarted.stop();
   });
 
+  it("marks Merge into main sent on the new lead when the thread started again while the coordinator was being told", async () => {
+    const { fleet, runtime, registry, root, states, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main" } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    // the merge is being typed into the coordinator while the lead's next turn fails and the thread starts again
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    let typing = false;
+    runtime.promptImpl = async (name, text) => {
+      runtime.prompts.push({ name, text });
+      if (name === coordinator.herdrName && text.includes("Merge into main")) { typing = true; await gate; }
+      return "working";
+    };
+    const merging = fleet.land(first.id, "merge");
+    await until(() => typing, "the merge being typed");
+    await turn(first, "working");
+    await fleet.send(first.id, "go on");
+    runtime.output = "API Error: 529 overloaded";
+    await turn(first, "idle");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    release();
+    await merging;
+    expect(registry.get(next.id)!.landing).toMatchObject({ action: "merge", sent: true });
+    // the server restarts: the merge went out, and does not go again
+    runtime.output = "agent output";
+    runtime.promptImpl = undefined;
+    fleet.stop();
+    const restarted = new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG,
+      agents: () => [lead, role("coordinator", { agent: "claude", interactive: true, spawning: true })], fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+      landing: { gitBranch: async () => "main" },
+    });
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await Bun.sleep(50);
+    expect(promptsTo(coordinator).filter((text) => text.includes("Merge into main"))).toHaveLength(1);
+    restarted.stop();
+  });
+
   it("tells the coordinator of a project run without the person nothing of a restart, and the replacement's turn as usual", async () => {
     const { fleet, registry, turn, report, promptsTo } = thread({ config: { autonomous: true } });
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });

@@ -1268,9 +1268,11 @@ export class Orchestrator {
       const headers = { news: this.deps.config(coordinator.cwd).autonomous ? NEWS_HEADER : QUESTIONS_HEADER, steps: STEPS_HEADER };
       await this.outbox.deliver(notices, headers, async (text) => {
         if (!this.typed(coordinator, await this.submit(coordinator, text))) return false;
-        // marked sent before the steps leave the outbox: a restart in between finds them sent
+        // marked sent before the steps leave the outbox, on the run that holds each now (a thread that
+        // started again while this was typed moved its step to the new lead): a restart in between finds them sent
+        const holders = new Map(this.outbox.pending().map((notice) => [notice.seq, notice.about]));
         for (const notice of notices) {
-          const run = notice.landingAt === undefined ? undefined : this.deps.registry.get(notice.about);
+          const run = notice.landingAt === undefined ? undefined : this.deps.registry.get(holders.get(notice.seq) ?? notice.about);
           if (!run?.landing || run.landing.at !== notice.landingAt) continue;
           run.landing.sent = true;
           this.save(run);
