@@ -166,6 +166,20 @@ describe("spawn", () => {
     expect(bare.runtime.instructions[0]).not.toContain("Standing orders");
   });
 
+  it("records the role file a run starts with, its version and the standing orders' version, after the run's first state", async () => {
+    const events: FleetEvent[] = [];
+    // expected hashes: `printf '<text>' | sha256sum`, first 12 hex digits
+    const { fleet } = setup({ agents: [role("worker", { source: "user", filePath: "/u/worker.md", hash: "0123456789ab" })], standingOrders: () => "1. Ask before a push.", events: (event) => events.push(event) });
+    const run = await spawn(fleet);
+    expect(events.filter((e) => e.run === run.id).slice(0, 2)).toEqual([
+      expect.objectContaining({ kind: "state", to: "starting" }),
+      { kind: "role", run: run.id, role: "worker", source: "user", file: "/u/worker.md", hash: "0123456789ab", standing: "edb086f7d809" },
+    ]);
+    const bare = setup({ agents: [role("lead")], standingOrders: () => "", events: (event) => events.push(event) });
+    const lead = await bare.fleet.spawn({ role: "lead", task: "do it", group: "g2", cwd: "/work" });
+    expect(events.find((e) => e.kind === "role" && e.run === lead.id)).toEqual({ kind: "role", run: lead.id, role: "lead", source: "bundled", file: "lead.md", hash: "8bbc2266f7e2" });
+  });
+
   it("tells every agent the person's language when the config sets one, and writes no section without it", async () => {
     const { fleet, runtime } = setup({ config: { language: "Japanese" } });
     await spawn(fleet);
@@ -1076,6 +1090,101 @@ describe("threads", () => {
     expect(runtime.locations[0]).toMatchObject({ worktree: false, branch: undefined });
     expect(setups).toBe(0);
     await expect(fleet.startThread({ title: " ", task: "t" })).rejects.toMatchObject({ code: "invalid_title" });
+  });
+
+  describe("read a lead's turn once, whatever herdr's state does as it settles", () => {
+    const HANDOFF = "## HANDOFF\nPASS — the retry sends one notification";
+    // herdr's states as run 4bff4935 showed them on 2026-11-08: done, then working and done again 9 s later
+    const flicker = async (fleet: Orchestrator, runtime: FakeRuntime) => {
+      for (const state of ["done", "working", "done"] as const) {
+        runtime.getStatus = state;
+        await fleet.reconcileAll();
+      }
+    };
+
+    it("after a done-working-done flicker", async () => {
+      const events: FleetEvent[] = [];
+      const { fleet, runtime, registry, root } = setup({ agents: [lead], gitRoot: async () => "/repo", events: (event) => events.push(event) });
+      const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+      writeFileSync(join(root, "results", thread.id, "handoff.md"), HANDOFF);
+      await flicker(fleet, runtime);
+      expect(events.filter((event) => event.kind === "turn")).toEqual([expect.objectContaining({ run: thread.id, handoff: true })]);
+      expect(registry.get(thread.id)).toMatchObject({ state: "done", result: HANDOFF });
+    });
+
+    /** A thread whose task the fleet sent, then a new server over the same registry file, as after a restart. */
+    const restartAfterSend = async (promptStatus: AgentState = "working") => {
+      const { fleet, runtime, root } = setup({ agents: [lead], gitRoot: async () => "/repo" });
+      runtime.promptStatus = promptStatus;
+      const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+      fleet.stop();
+      return {
+        fleet, runtime, thread, handoffFile: join(root, "results", thread.id, "handoff.md"),
+        restart: () => {
+          const events: FleetEvent[] = [];
+          const registry = new RunRegistry(join(root, "runs.json"));
+          const restarted = new Orchestrator({
+            runtime, registry, config: () => DEFAULT_CONFIG, agents: () => [lead], fleetCommand: "fleet", agentEnv: () => ({}), resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root,
+            preVisualGraceMs: GRACE, gitHead: async () => null, diffStat: async () => null, landing: { gitBranch: async () => null, readPullRequest: async () => null }, events: (event) => events.push(event),
+          });
+          return { restarted, registry, turns: () => events.filter((event) => event.kind === "turn") };
+        },
+      };
+    };
+
+    it("when the fleet server restarted while the turn was running", async () => {
+      const { runtime, thread, handoffFile, restart } = await restartAfterSend();
+      const { restarted, registry, turns } = restart();
+      writeFileSync(handoffFile, HANDOFF);
+      await flicker(restarted, runtime);
+      expect(turns()).toEqual([expect.objectContaining({ run: thread.id, handoff: true })]);
+      expect(registry.get(thread.id)).toMatchObject({ state: "done", result: HANDOFF });
+      restarted.stop();
+    });
+
+    it("when the turn ended while the fleet server was down", async () => {
+      const { runtime, thread, handoffFile, restart } = await restartAfterSend();
+      runtime.getStatus = "done";
+      writeFileSync(handoffFile, HANDOFF);
+      const { restarted, registry, turns } = restart();
+      // as the server does as it starts (server/index.ts); herdr sends no event for a state that
+      // changed before the server came up, so a reading too early to trust is followed by another
+      await restarted.reconcileAll();
+      await until(() => turns().length > 0, "the turn read after the restart");
+      await Bun.sleep(GRACE * 2);
+      expect(turns()).toEqual([expect.objectContaining({ run: thread.id, handoff: true })]);
+      expect(registry.get(thread.id)).toMatchObject({ state: "done", result: HANDOFF });
+      restarted.stop();
+    });
+
+    it("and keep the plan that turn wrote before the restart open for the person's answers", async () => {
+      const { fleet, runtime, thread, handoffFile, restart } = await restartAfterSend();
+      fleet.submitPlan(thread.id, { title: "Retry limit", claims: [{ text: "A failed send is tried three times.", exhibit: { kind: "list", items: ["three"] } }] });
+      await Bun.sleep(5);
+      const { restarted, registry } = restart();
+      writeFileSync(handoffFile, "## HANDOFF\nBLOCKED — the plan waits for the person");
+      await flicker(restarted, runtime);
+      expect(registry.get(thread.id)!.plan).toMatchObject({ version: 1 });
+      expect(registry.get(thread.id)!.plan!.closedAt).toBeUndefined();
+      restarted.stop();
+    });
+
+    it("not before herdr shows the turn, when the server restarted while the prompt was pasted", async () => {
+      // herdr still answered with the idle from before the prompt when the last server stopped
+      const { runtime, thread, handoffFile, restart } = await restartAfterSend("idle");
+      runtime.getStatus = "idle";
+      const { restarted, registry, turns } = restart();
+      await restarted.reconcileAll();
+      expect(turns()).toEqual([]);
+      runtime.getStatus = "working";
+      await restarted.reconcileAll();
+      writeFileSync(handoffFile, HANDOFF);
+      runtime.getStatus = "done";
+      await restarted.reconcileAll();
+      expect(turns()).toEqual([expect.objectContaining({ run: thread.id, handoff: true })]);
+      expect(registry.get(thread.id)).toMatchObject({ state: "done", result: HANDOFF });
+      restarted.stop();
+    });
   });
 });
 

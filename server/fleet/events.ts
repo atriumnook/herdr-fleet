@@ -23,6 +23,12 @@ export type FleetEvent =
    * the run talks in its pane
    */
   | { kind: "turn"; run: string; role: string; agent: string; model?: string; group: string; project?: string; interactive: boolean; handoff: boolean; report?: ReportState | "none" }
+  /**
+   * the role a run started with: its file, where that came from (bundled, the user's, the project's)
+   * and the file's version (agents.ts roleVersion), and the version of the standing orders it was
+   * given, absent when there were none; `fleet report` compares runs per role version
+   */
+  | { kind: "role"; run: string; role: string; source: "bundled" | "user" | "project"; file: string; hash: string; standing?: string }
   /** the person wrote to a project's coordinator through the fleet (`fleet project`, the Fleet screen) */
   | { kind: "person"; run: string; project: string }
   /** a project run without the person stood still and its coordinator was told (superviseProjects) */

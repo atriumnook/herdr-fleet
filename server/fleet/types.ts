@@ -48,6 +48,8 @@ export interface AgentDefinition {
   edits?: boolean;
   source: "project" | "user" | "bundled";
   filePath: string;
+  /** the version of the role file: contentHash of its text (agents.ts); absent on a role built in code */
+  hash?: string;
 }
 
 /** What config.roles.<name> changes about a role. */
