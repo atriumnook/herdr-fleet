@@ -51,6 +51,19 @@ pub enum Call {
     ParseClaudeSuggestion,
 }
 
+impl Call {
+    /// The call's name in `case.json`.
+    fn name(self) -> &'static str {
+        match self {
+            Call::ParseInteractivePrompt => "parseInteractivePrompt",
+            Call::ParseFallbackPrompt => "parseFallbackPrompt",
+            Call::CodexQueuedPrompt => "codexQueuedPrompt",
+            Call::CodexQuestionsCollapsed => "codexQuestionsCollapsed",
+            Call::ParseClaudeSuggestion => "parseClaudeSuggestion",
+        }
+    }
+}
+
 /// An adapter's look at a screen (`server/fleet/adapters.ts`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -124,10 +137,15 @@ pub fn load_cases() -> Vec<Case> {
                 group.file_name().unwrap().to_string_lossy(),
                 dir.file_name().unwrap().to_string_lossy()
             );
-            let screen = fs::read_to_string(dir.join("screen.txt"))
-                .unwrap_or_else(|error| panic!("{name}: screen.txt: {error}"));
-            let json = fs::read_to_string(dir.join("case.json"))
-                .unwrap_or_else(|error| panic!("{name}: case.json: {error}"));
+            // read as the TypeScript runner reads them (`readFileSync(…, "utf8")`): bytes that are
+            // not UTF-8 become U+FFFD
+            let read = |file: &str| {
+                let bytes = fs::read(dir.join(file))
+                    .unwrap_or_else(|error| panic!("{name}: {file}: {error}"));
+                String::from_utf8_lossy(&bytes).into_owned()
+            };
+            let screen = read("screen.txt");
+            let json = read("case.json");
             let spec = serde_json::from_str(&json)
                 .unwrap_or_else(|error| panic!("{name}: case.json: {error}"));
             cases.push(Case { name, screen, spec });
@@ -194,7 +212,10 @@ fn call(case: &Case) -> Result<Outcome, String> {
         spec.agent
             .as_deref()
             .filter(|agent| !agent.is_empty())
-            .ok_or_else(|| format!("{:?} needs an agent", spec.call))
+            .ok_or_else(|| {
+                let call = spec.call.map_or("a call", Call::name);
+                format!("{call} needs an agent")
+            })
     };
     Ok(match spec.call {
         Some(Call::ParseInteractivePrompt) => {
@@ -317,8 +338,8 @@ fn mismatch(case: &Case, result: &Evaluated) -> Option<String> {
     None
 }
 
-/// For each case whose call returned a card, the other cases whose card has the same id, sorted by
-/// name.
+/// For each case whose call returned a card, the other cases whose card has the same id, sorted as
+/// JavaScript's `sort()` sorts strings: by UTF-16 code units (`sameIds`, scripts/screen-fixtures.ts).
 fn same_ids<'a>(evaluated: &BTreeMap<&'a str, Evaluated>) -> BTreeMap<&'a str, Vec<&'a str>> {
     let mut by_id: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
     for (name, result) in evaluated {
@@ -329,14 +350,13 @@ fn same_ids<'a>(evaluated: &BTreeMap<&'a str, Evaluated>) -> BTreeMap<&'a str, V
     let mut same = BTreeMap::new();
     for names in by_id.values() {
         for name in names {
-            same.insert(
-                *name,
-                names
-                    .iter()
-                    .copied()
-                    .filter(|other| other != name)
-                    .collect(),
-            );
+            let mut others: Vec<&str> = names
+                .iter()
+                .copied()
+                .filter(|other| other != name)
+                .collect();
+            others.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
+            same.insert(*name, others);
         }
     }
     same

@@ -48,9 +48,11 @@ pub struct ScreenChecks {
     pub turn_error: fn(&str) -> Option<String>,
 }
 
-/// The parsers of an agent's family, tried in order: the first card whose menu still ends the
-/// screen (`parsePrompt`, server/prompt.ts:1115-1126).
-pub(crate) fn parse_prompt(agent: &str, screen: &str) -> Option<ParsedPrompt> {
+/// The card of the interactive menu that ends an agent's screen, if a reader of that agent's knows
+/// it (`parseInteractivePrompt` and `parsePrompt`, server/prompt.ts:1115-1126, 1147-1150): the
+/// parsers of the agent's family, tried in order, give the first card whose menu still ends the
+/// screen.
+pub fn parse_interactive_prompt(agent: &str, screen: &str) -> Option<ParsedPrompt> {
     let parsers = match agent {
         "codex" => codex::PARSERS,
         "omp" => omp::PARSERS,
@@ -62,12 +64,6 @@ pub(crate) fn parse_prompt(agent: &str, screen: &str) -> Option<ParsedPrompt> {
         .iter()
         .filter_map(|parse| parse(screen))
         .find(|prompt| prompt.tail_is_active(screen))
-}
-
-/// The card of the interactive menu that ends an agent's screen, if a reader of that agent's knows
-/// it (`parseInteractivePrompt`).
-pub fn parse_interactive_prompt(agent: &str, screen: &str) -> Option<ParsedPrompt> {
-    parse_prompt(agent, screen)
 }
 
 /// The last-resort card for a pane herdr reports blocked that no reader knows
@@ -89,7 +85,7 @@ pub fn codex_queued_prompt(
 /// Whether Codex's queue of questions is collapsed with its main prompt under it, which then takes a
 /// message (`codexQuestionsCollapsed`).
 pub fn codex_questions_collapsed(screen: &str) -> bool {
-    parse_prompt("codex", screen).is_none() && codex::queued_question_count(screen) > 0
+    parse_interactive_prompt("codex", screen).is_none() && codex::queued_question_count(screen) > 0
 }
 
 /// The prompt Claude Code suggests next, grey in its empty input (`parseClaudeSuggestion`).

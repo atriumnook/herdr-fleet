@@ -140,6 +140,19 @@ fn the_runner_compares_same_id_as_as_the_case_lists_it() {
 }
 
 #[test]
+fn the_runner_sorts_twins_as_javascript_sorts_strings() {
+    // `["pi/😀", "pi/Ａ"].sort()` keeps this order: UTF-16 puts U+D83D before U+FF21, where Rust's
+    // own order of strings puts U+FF21 first
+    let first = pi_case("pi/a", pi_select_spec(&["pi/😀", "pi/Ａ"]));
+    let second = pi_case("pi/😀", pi_select_spec(&["pi/a", "pi/Ａ"]));
+    let third = pi_case("pi/Ａ", pi_select_spec(&["pi/a", "pi/😀"]));
+    assert_eq!(
+        common::failures(&[&first, &second, &third], "PiOmp"),
+        Vec::<String>::new()
+    );
+}
+
+#[test]
 fn the_runner_refuses_a_parse_without_an_agent() {
     // scripts/screen-fixtures.ts `agentOf`: an empty agent is none
     let case = pi_case(
@@ -148,7 +161,7 @@ fn the_runner_refuses_a_parse_without_an_agent() {
     );
     assert_eq!(
         common::failures(&[&case], "PiOmp"),
-        ["other/nameless: Some(ParseInteractivePrompt) needs an agent"]
+        ["other/nameless: parseInteractivePrompt needs an agent"]
     );
 }
 
