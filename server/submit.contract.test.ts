@@ -522,9 +522,12 @@ describe("a herdr without terminal attach (Windows)", () => {
     try {
       socket.send({ type: "attach", pane_id: pane, cols: 80, rows: 24 });
       await socket.waitFor((message) => message.type === "pty-data" && message.pane_id === pane);
-      // a program that shows every byte it is sent, the escape of a paste marker as ^[
-      socket.send({ type: "input", pane_id: pane, text: "cat -v\r" });
-      await shows("cat -v");
+      // a program that shows every byte it is sent, the escape of a paste marker as ^[. The pane
+      // runs the user's own shell, whose `cat` may be an alias (`bat` here, which refuses -v) and
+      // whose command line may be highlighted: `sh -c` reads no rc file, and the ready line is
+      // the shell's arithmetic, so the command line typed cannot show it
+      socket.send({ type: "input", pane_id: pane, text: "exec /bin/sh -c 'echo cat-$((40+2)); exec cat -v'\r" });
+      await shows("cat-42");
       // no agent on the pane: the lines go as they came (#267: a program without paste support must get them bare)
       socket.send({ type: "input", pane_id: pane, text: "bare one\rbare two\r" });
       const bare = await shows("bare two");
