@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use protocol::js;
 use regex::Regex;
 
-use crate::text::{grapheme_width, graphemes, js_regex, string_width};
+use crate::text::{graphemes, js_regex, string_width};
 
 /// `CLAUDE_PREVIEW_HINT_RE`: the hint of a question with previews.
 pub(super) static PREVIEW_HINT: LazyLock<Regex> =
@@ -32,7 +32,7 @@ fn index_at_column(line: &str, column: usize) -> Option<usize> {
         if width == column {
             return Some(index);
         }
-        width += grapheme_width(grapheme);
+        width += string_width(grapheme);
     }
     (width == column).then_some(line.len())
 }

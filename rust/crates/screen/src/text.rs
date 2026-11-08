@@ -1,14 +1,18 @@
 //! Reading the lines of a screen, as every family of readers does (server/prompt.ts:6-196), and
 //! the widths of `Bun.stringWidth` and the graphemes of `Intl.Segmenter`. The rules for writing
 //! TypeScript's regular expressions and string functions in Rust are in
-//! docs/rust-migration/adr/0193-phase-2-dependencies.md.
+//! docs/rust-migration/adr/0193-phase-2-dependencies.md; how the widths copy Bun's in
+//! docs/rust-migration/adr/0218-bun-string-width.md.
 
 use std::sync::LazyLock;
 
 use protocol::js;
 use regex::Regex;
 use unicode_segmentation::UnicodeSegmentation;
-use unicode_width::UnicodeWidthStr;
+
+use width::WidthCounter;
+
+mod width;
 
 /// A regular expression written with JavaScript's classes, which the regex crate's differ from:
 /// `{s}` is `\s`, `{S}` is `\S`, `{.}` is `.` without the `s` flag, and `{ws}` is `\s`'s characters,
@@ -341,23 +345,6 @@ pub(crate) fn ends<T: AsRef<str>>(shown: &[T], pattern: &Regex) -> bool {
     })
 }
 
-/// A C0 or C1 control character, or DEL.
-fn is_control(c: char) -> bool {
-    matches!(c, '\u{0}'..='\u{1f}' | '\u{7f}'..='\u{9f}')
-}
-
-/// The terminal columns a grapheme takes, as `Bun.stringWidth(segment)` counts them for the
-/// segments `Intl.Segmenter` gives (server/prompt.ts:428-433): a grapheme of control characters
-/// alone takes none, where unicode-width counts one for each (ADR 0193-phase-2-dependencies).
-#[allow(dead_code)] // Claude's reader of option previews uses it (#197)
-pub(crate) fn grapheme_width(grapheme: &str) -> usize {
-    if grapheme.chars().all(is_control) {
-        0
-    } else {
-        grapheme.width()
-    }
-}
-
 /// `Intl.Segmenter`'s graphemes of `text` (granularity `grapheme`), each with its byte index.
 /// unicode-segmentation's extended graphemes split every line of the screen corpus as it does (ADR
 /// 0193-phase-2-dependencies).
@@ -460,31 +447,24 @@ fn consume_escape(chars: &[char], at: usize) -> usize {
 }
 
 /// The terminal columns `text` takes, as `Bun.stringWidth` counts them (Bun 1.4.4,
-/// `visibleUTF16Width`): escape sequences take none, read as Bun reads them, and control characters
-/// take none; unicode-width counts the rest (ADR 0193-phase-2-dependencies, "文字の幅と grapheme").
-/// A control character ends a grapheme and an escape sequence does not (Bun carries the grapheme
-/// across a sequence, `UTF16WidthAccumulator`), so the text between two control characters is
-/// counted as one piece: `❤ TAB U+FE0F` is 1 column, `❤ ESC[31m U+FE0F` is 2.
+/// `visibleUTF16Width` with escape sequences excluded and ambiguous characters narrow): escape
+/// sequences take none, read as Bun reads them; the rest is split into graphemes by Bun's own rules
+/// and each grapheme counted as Bun's `GraphemeState::width` counts it (ADR 0218-bun-string-width).
+/// Bun carries the grapheme across an escape sequence, so `❤ ESC[31m U+FE0F` is 2 columns.
 #[allow(dead_code)] // Claude's reader of option previews uses it (#197)
 pub(crate) fn string_width(text: &str) -> usize {
     let chars: Vec<char> = text.chars().collect();
-    let mut width = 0;
-    let mut piece = String::new();
+    let mut counter = WidthCounter::default();
     let mut index = 0;
     while index < chars.len() {
         if starts_escape(chars[index]) {
             index = consume_escape(&chars, index);
             continue;
         }
-        if is_control(chars[index]) {
-            width += piece.width();
-            piece.clear();
-        } else {
-            piece.push(chars[index]);
-        }
+        counter.push(chars[index]);
         index += 1;
     }
-    width + piece.width()
+    counter.finish()
 }
 
 #[cfg(test)]
@@ -659,14 +639,94 @@ mod tests {
         }
     }
 
+    /// Issue #218: what Bun 1.4.4's `Bun.stringWidth` returns for spacing marks, emoji sequences
+    /// and each case of its grapheme width rules (measured with Bun 1.4.4).
+    #[test]
+    fn counts_marks_and_emoji_sequences_as_bun_string_width() {
+        let table = [
+            // spacing combining marks (Mc) take no columns
+            ("का", 1),
+            ("किताब", 3),
+            ("क्ष", 2),
+            // an emoji with a ZWJ, a regional indicator with a mark
+            ("❤\u{200d}", 2),
+            ("👍\u{200d}", 2),
+            ("🇦\u{301}", 2),
+            // regional indicators: a pair is a flag, one alone is narrow
+            ("🇯🇵", 2),
+            ("🇯🇵🇺", 3),
+            ("🇦", 1),
+            ("🇦🇧🇨", 3),
+            // keycaps
+            ("1\u{fe0f}\u{20e3}", 2),
+            ("#\u{20e3}", 2),
+            ("x\u{20e3}", 2),
+            ("\u{20e3}", 2),
+            // skin tones: on a base they join it, alone they are wide
+            ("👍🏽", 2),
+            ("🏽", 2),
+            ("a🏽", 3),
+            ("😀🏻", 4),
+            // variation selectors
+            ("❤\u{fe0f}", 2),
+            ("❤\u{fe0e}", 1),
+            ("☺\u{fe0e}", 1),
+            ("©\u{fe0f}", 2),
+            ("®\u{fe0f}", 2),
+            ("a\u{fe0f}", 1),
+            ("中\u{fe0e}", 2),
+            // Bun ends a grapheme before ASCII and its fast-path letters, and UAX #29 does not
+            // after a prepended concatenation mark
+            ("\u{600}a\u{fe0f}", 1),
+            ("\u{600}\u{915}\u{fe0f}", 0),
+            // Hangul jamo
+            ("\u{1100}\u{1161}", 2),
+            ("\u{1100}가", 4),
+            // full width, soft hyphen, zero width joiner
+            ("Ａ", 2),
+            ("\u{3000}", 2),
+            ("\u{2e80}", 2),
+            ("\u{ad}", 0),
+            ("\u{200d}", 0),
+            // a C1 control is not an escape, a mark after an escape joins the grapheme before it
+            ("e\u{85}\u{301}", 1),
+            ("a\x1b[31m\u{301}", 1),
+            ("\u{915}\x1b[1m\u{93e}", 1),
+        ];
+        for (text, width) in table {
+            assert_eq!(string_width(text), width, "{text:?}");
+        }
+    }
+
+    /// The columns of a preview's lines as `indexAtColumn` sums them (server/prompt.ts:428-433):
+    /// `Bun.stringWidth` of each segment `Intl.Segmenter` gives, and of the whole line (Bun 1.4.4).
+    /// unicode-segmentation's graphemes are not Bun's: `U+0600 a U+FE0F` is one segment, which Bun
+    /// counts as 1.
+    #[test]
+    fn sums_the_widths_of_graphemes_as_bun_and_intl_segmenter_do() {
+        let table = [
+            ("❯ 1. किताब  ┌──", 13, 13),
+            ("  2. 🇯🇵 flag   │ x", 18, 18),
+            ("  3. 👨\u{200d}👩\u{200d}👧 family │", 16, 16),
+            ("\u{600}a\u{fe0f} b", 3, 3),
+            ("क्ष ❤\u{200d} e\u{301} │", 9, 9),
+            ("1\u{fe0f}\u{20e3} 🇦\u{301} ├", 7, 7),
+        ];
+        for (line, summed, whole) in table {
+            let sum: usize = graphemes(line).map(|(_, g)| string_width(g)).sum();
+            assert_eq!(sum, summed, "{line:?}");
+            assert_eq!(string_width(line), whole, "{line:?}");
+        }
+    }
+
     #[test]
     fn a_grapheme_of_control_characters_takes_no_columns() {
         // ADR 0193-phase-2-dependencies: Bun.stringWidth is 0 for ESC and BEL alone
-        assert_eq!(grapheme_width("\x1b"), 0);
-        assert_eq!(grapheme_width("\x07"), 0);
-        assert_eq!(grapheme_width("\r\n"), 0);
-        assert_eq!(grapheme_width("あ"), 2);
-        assert_eq!(grapheme_width("👨\u{200d}👩\u{200d}👧"), 2);
+        assert_eq!(string_width("\x1b"), 0);
+        assert_eq!(string_width("\x07"), 0);
+        assert_eq!(string_width("\r\n"), 0);
+        assert_eq!(string_width("あ"), 2);
+        assert_eq!(string_width("👨\u{200d}👩\u{200d}👧"), 2);
         let split: Vec<_> = graphemes("e\u{301}👨\u{200d}👩\u{200d}👧a").collect();
         assert_eq!(
             split,
