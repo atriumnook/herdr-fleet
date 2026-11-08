@@ -618,7 +618,11 @@ function opensTurn(source: TranscriptSource, line: string): boolean {
   if (entry.type !== "user" || entry.isMeta || entry.isCompactSummary) return false;
   const content = entry.message?.content;
   if (typeof content === "string") return !isCommandEntry(content);
-  return Array.isArray(content) && content.some((block: { type?: unknown; text?: unknown } | null) =>
+  if (!Array.isArray(content)) return false;
+  // a tool result answers the turn before it, also when a new prompt shares its entry: a page
+  // starting there would parse the result apart from its call and lose the output (#141)
+  if (content.some((block: { type?: unknown } | null) => block?.type === "tool_result")) return false;
+  return content.some((block: { type?: unknown; text?: unknown } | null) =>
     block?.type === "text" && typeof block.text === "string" && !isCommandEntry(block.text.trim()));
 }
 
