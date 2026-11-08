@@ -10,13 +10,29 @@ import { candidatePorts } from "../scripts/contract/launch.ts";
  * runtime here is a fake whose functions run in this process, so the server runs here too.
  */
 
+/**
+ * createServer on the first port in 7400-7499 it can bind. Another test process can take a port
+ * between the check and the bind, so a port in use is skipped as the launcher does. A createServer
+ * that failed to bind leaves what it started before Bun.serve (the collector) to this test process.
+ */
+function serveInTestPorts(options: Omit<NonNullable<Parameters<typeof createServer>[0]>, "port">): ReturnType<typeof createServer> {
+  for (const port of candidatePorts()) {
+    try {
+      return createServer({ ...options, port });
+    } catch (error) {
+      if (!/EADDRINUSE/.test(String(error))) throw error;
+    }
+  }
+  throw new Error("no free port in 7400-7499");
+}
+
 describe("fleet change push", () => {
   it("tells event-stream clients once after a burst of fleet run changes", async () => {
     const dir = mkdtempSync(join(tmpdir(), "herdr-fleet-contract-fleet-"));
     const { UsageTracker } = await import("./fleet/usage.ts");
     let panes = 0;
-    const fleetServer = createServer({
-      port: candidatePorts().next().value!, hostname: "127.0.0.1", token: "", stateDir: dir,
+    const fleetServer = serveInTestPorts({
+      hostname: "127.0.0.1", token: "", stateDir: dir,
       fleet: {
         runtime: {
           createLocation: async (options) => ({ paneId: `w9:p${++panes}`, cwd: options.cwd }),

@@ -30,8 +30,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await server?.stop();
-  rmSync(stateDir, { recursive: true, force: true });
+  try {
+    await server?.stop();
+  } finally {
+    rmSync(stateDir, { recursive: true, force: true });
+  }
 });
 
 const base = () => server.url;
@@ -1169,7 +1172,7 @@ describe("web push", () => {
       cleanupDevice = device;
       await herdrRpc("pane.report_agent", { pane_id: paneId, source: "manual", agent: "codex", state: "unknown" });
       bridge = await launchServer({
-        env: { HOST: "127.0.0.1", HERDR_FLEET_TOKEN: "" },
+        env: { HERDR_FLEET_TOKEN: "" },
         test: { machines: false, alertTiming: { short: 0, long: 0, longTurn: 0 }, acceptLoopbackPush: true },
       });
       const origin = bridge.url;
@@ -1230,10 +1233,11 @@ describe("web push", () => {
         body: JSON.stringify({ endpoint: cleanupDevice.subscription.endpoint }),
       }).catch(() => undefined);
       watcher?.close();
-      await bridge?.stop();
       cleanupDevice?.stop();
       if (created) await workspaceClose(created.workspace.workspace_id).catch(() => undefined);
       if (probe) await workspaceClose(probe.workspace.workspace_id).catch(() => undefined);
+      // last: stop() throws when the server does not exit cleanly, and the cleanup above must run anyway
+      await bridge?.stop();
     }
   }, 40_000);
 
@@ -1286,11 +1290,12 @@ describe("web push", () => {
       expect(pushed.payload.body).toBe("waiting for your input");
     } finally {
       watcher?.close();
-      await restarted?.stop();
       device.stop();
       for (const created of [watched, probe]) {
         await herdrRpc("workspace.close", { workspace_id: created.workspace.workspace_id }).catch(() => undefined);
       }
+      // last: stop() throws when the server does not exit cleanly, and the cleanup above must run anyway
+      await restarted?.stop();
     }
   }, 60_000);
 });
@@ -1301,7 +1306,9 @@ describe("pairing and identity", () => {
   let open: LaunchedServer;
   const openState = mkdtempSync(join(tmpdir(), "herdr-pairing-"));
   beforeAll(async () => { open = await launchServer({ env: { HERDR_FLEET_STATE_DIR: openState }, test: { tailscaleOwner: OWNER } }); });
-  afterAll(async () => { await open?.stop(); rmSync(openState, { recursive: true, force: true }); });
+  afterAll(async () => {
+    try { await open?.stop(); } finally { rmSync(openState, { recursive: true, force: true }); }
+  });
   const base = () => open.url;
   /** as if `tailscale serve` or a reverse proxy had forwarded it: the test client is on loopback, like a proxy */
   const proxied = (login?: string, extra: Record<string, string> = {}) => ({ "x-forwarded-for": "100.64.0.9", ...(login ? { "tailscale-user-login": login } : {}), ...extra });
@@ -1433,7 +1440,7 @@ describe("token auth", () => {
   let secured: LaunchedServer;
 
   beforeAll(async () => {
-    secured = await launchServer({ env: { HERDR_FLEET_TOKEN: TOKEN, HERDR_FLEET_STATE_DIR: stateDir } });
+    secured = await launchServer({ env: { HERDR_FLEET_TOKEN: TOKEN } });
   });
 
   afterAll(async () => {
@@ -1597,7 +1604,8 @@ describe("bind address", () => {
   let loopback: LaunchedServer;
 
   beforeAll(async () => {
-    loopback = await launchServer({ env: { HOST: "127.0.0.1", HERDR_FLEET_STATE_DIR: stateDir } });
+    // not the default 127.0.0.1: a server that ignored HOST would not answer on ::1
+    loopback = await launchServer({ env: { HOST: "::1" } });
   });
 
   afterAll(async () => {
@@ -1605,8 +1613,8 @@ describe("bind address", () => {
   });
 
   it("serves the API on the requested hostname", async () => {
-    expect(new URL(loopback.url).hostname).toBe("127.0.0.1");
-    const res = await fetch(`http://127.0.0.1:${portOf(loopback)}/api/health`);
+    expect(new URL(loopback.url).hostname).toBe("[::1]");
+    const res = await fetch(`http://[::1]:${portOf(loopback)}/api/health`);
     expect(res.status).toBe(200);
   });
 });
@@ -1695,18 +1703,24 @@ describe("terminal lens of a bridge without the PTY sidecar", () => {
 
 it("refuses cross-origin changes while allowing same-origin and CLI requests", async () => {
   const root = mkdtempSync(join(tmpdir(), "herdr-fleet-origin-"));
-  const instance = await launchServer({ env: { HERDR_FLEET_STATE_DIR: root, HERDR_FLEET_TOKEN: "" }, test: { tailscaleOwner: null, machines: false } });
-  const base = instance.url;
-  const created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-origin" });
+  let instance: LaunchedServer | undefined;
+  let created: Awaited<ReturnType<typeof workspaceCreate>> | undefined;
   try {
+    instance = await launchServer({ env: { HERDR_FLEET_STATE_DIR: root, HERDR_FLEET_TOKEN: "" }, test: { tailscaleOwner: null, machines: false } });
+    const base = instance.url;
+    created = await workspaceCreate({ cwd: root, label: "herdr-fleet-test-origin" });
     for (const path of ["pane/input", "pane/keys", "pane/close", "workspace/create", "push/subscribe"]) {
-      const response = await fetch(`${base}/api/${path}`, { method: "POST", headers: { origin: "http://other.example", "content-type": "text/plain" }, body: JSON.stringify({ pane_id: created.root_pane.pane_id, text: "must not type", keys: ["Enter"] }) });
+      const response = await fetch(`${base}/api/${path}`, { method: "POST", headers: { origin: "http://other.example", "content-type": "text/plain" }, body: JSON.stringify({ pane_id: created!.root_pane.pane_id, text: "must not type", keys: ["Enter"] }) });
       expect(response.status).toBe(403);
       expect(await response.json()).toMatchObject({ error: { code: "invalid_origin" } });
     }
     for (const headers of [{ origin: base }, {}] as Record<string, string>[]) {
-      const response = await fetch(`${base}/api/pane/rename`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ pane_id: created.root_pane.pane_id, label: "allowed rename" }) });
+      const response = await fetch(`${base}/api/pane/rename`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ pane_id: created!.root_pane.pane_id, label: "allowed rename" }) });
       expect(response.status).toBe(200);
     }
-  } finally { await instance.stop(); await workspaceClose(created.workspace.workspace_id); rmSync(root, { recursive: true, force: true }); }
+  } finally {
+    if (created) await workspaceClose(created.workspace.workspace_id);
+    // stop() throws when the server does not exit cleanly: the state folder goes either way
+    try { await instance?.stop(); } finally { rmSync(root, { recursive: true, force: true }); }
+  }
 });
