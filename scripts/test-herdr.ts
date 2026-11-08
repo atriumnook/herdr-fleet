@@ -8,7 +8,7 @@
  * HERDR_TEST_LIVE=1 keeps the old behaviour: tests use HERDR_SOCKET, else the default
  * session. Without a herdr binary nothing changes, so CI runs as before.
  */
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ping, sessionSnapshot, workspaceCreate } from "../server/herdr/client.ts";
@@ -29,7 +29,10 @@ export function testSocketPath(): string {
  * and the tests must leave nothing in what the person's zsh shares, such as zsh-abbr's job queue in
  * /tmp, where a shell closed while it starts holds every new zsh back for up to 30 s (#179). HOME stays
  * the person's: herdr finds its config and its sockets through it, and the programs the tests run in a
- * pane through ~. The empty .zshrc keeps zsh from asking its new-user questions.
+ * pane through ~. Every process the server starts inherits ZDOTDIR, an agent CLI and the shells it
+ * starts included; they find their programs through the PATH the tests were started with. The empty
+ * .zshrc keeps zsh from asking its new-user questions. A server of the session that was not started
+ * here with ZDOTDIR is refused (useTestHerdr).
  */
 export function testShellStartup(): string {
   return join(dirname(testSocketPath()), "zsh");
@@ -46,6 +49,15 @@ async function answers(socket: string): Promise<boolean> {
   try { await ping(socket); return true; } catch { return false; }
 }
 
+/**
+ * The server listening on `socket`, told apart from an earlier one: herdr makes the socket anew
+ * each time a server starts, and a client connecting changes neither its inode nor its mtime.
+ */
+function serverOf(socket: string): string {
+  const { ino, mtimeMs } = statSync(socket);
+  return `${ino}:${mtimeMs}`;
+}
+
 /** Point this process (and what it spawns) at the test session, starting its server if needed. */
 export async function useTestHerdr(): Promise<string | null> {
   // Unit tests must not discover or start herdr, even on a developer's PC.
@@ -57,8 +69,16 @@ export async function useTestHerdr(): Promise<string | null> {
   const zshStartup = testShellStartup();
   mkdirSync(zshStartup, { recursive: true });
   if (!existsSync(join(zshStartup, ".zshrc"))) writeFileSync(join(zshStartup, ".zshrc"), "");
-  // a server already running keeps the environment it was started with (scripts/contract/test-shell.herdr.test.ts tells)
-  if (!(await answers(socket))) {
+  // which server this file started with ZDOTDIR: one already running keeps the environment it was started with
+  const startedHere = join(dirname(socket), "test-server.zdotdir");
+  if (await answers(socket)) {
+    if (!existsSync(startedHere) || readFileSync(startedHere, "utf8") !== serverOf(socket)) {
+      throw new Error(
+        `The test herdr session "${TEST_SESSION}" runs a server that was not started with ZDOTDIR (by an older scripts/test-herdr.ts, or another checkout's), ` +
+        `so its panes would read your zsh files (#179). Once no other run uses it, stop it: herdr --session ${TEST_SESSION} server stop`,
+      );
+    }
+  } else {
     Bun.spawn([herdr, "--session", TEST_SESSION, "server"], {
       stdin: "ignore",
       stdout: Bun.file(join(dirname(socket), "test-server.log")),
@@ -71,6 +91,7 @@ export async function useTestHerdr(): Promise<string | null> {
       if (Date.now() > deadline) throw new Error(`The test herdr session "${TEST_SESSION}" did not start; see ${join(dirname(socket), "test-server.log")}`);
       await Bun.sleep(100);
     }
+    writeFileSync(startedHere, serverOf(socket));
   }
   // some tests read "a live workspace" without owning one: keep one resident, as a
   // session in use always has
