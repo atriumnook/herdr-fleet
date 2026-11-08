@@ -323,7 +323,7 @@ export function agySettings(cwd: string): Record<string, unknown> {
 
 /**
  * Antigravity CLI: no instruction option. herdr reports its trust, sign-in and approval screens as
- * idle, and an unknown model is swapped for the default one with only a warning.
+ * idle (its file access screen as done), and an unknown model is swapped for the default one with only a warning.
  *
  * Its settings for the session go in `--settings` (kept for the session, never saved to the person's
  * settings.json, which agy also writes):
@@ -366,6 +366,8 @@ export const agyAdapter: AgentAdapter = {
       [/Do you trust the contents of this project\?/, "Antigravity CLI asks whether to trust this folder."],
       [/You are currently not signed in/, "Antigravity CLI is not signed in."],
       [/Requesting permission for:/, "Antigravity CLI asks for permission to use a tool."],
+      // asked in auto mode too, for a file outside the run's folders and the ones given with --add-dir
+      [/Allow access to this file\?/, "Antigravity CLI asks to read a file outside its workspace."],
     ]);
   },
   readyError(screen) {
