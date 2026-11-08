@@ -1,9 +1,10 @@
+// black-box: scripts/contract/launch.ts
 import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { createServer } from "./index.ts";
 import { herdrRpc, sessionSnapshot } from "./herdr/client.ts";
+import { launchServer, type LaunchedServer } from "../scripts/contract/launch.ts";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.ts";
 
 /**
@@ -18,6 +19,9 @@ import type { ClientMessage, ServerMessage } from "../shared/protocol.ts";
  * herdr's sockets, the longest of them `herdr-handoff-<pid>.sock`, and a Unix socket path
  * ends at 107 bytes (103 on macOS). Under CI's own config directory a second session name
  * was already too long for it, and the server died as it started.
+ *
+ * Each server is started by scripts/contract/launch.ts, pointed at that herdr by its
+ * HERDR_SOCKET, and reached through its URL only (ADR 0122).
  */
 const SESSION = "handoff";
 const config = mkdtempSync(process.platform === "win32" ? join(tmpdir(), "hwu-") : "/tmp/hwu-");
@@ -51,10 +55,9 @@ let started = false;
 /** the server this file spawned; a handoff replaces it with one of another pid */
 let serverPid = 0;
 let handoffs = false;
-let previousSocket: string | undefined;
-let server: ReturnType<typeof createServer>;
+let server: LaunchedServer | undefined;
 // a short relookup, for the server that does not come back
-let quick: ReturnType<typeof createServer>;
+let quick: LaunchedServer | undefined;
 
 async function startSession(): Promise<void> {
   mkdirSync(dirname(socket), { recursive: true });
@@ -75,18 +78,16 @@ async function startSession(): Promise<void> {
 // registered before the server starts, so a start that fails still cleans up after itself
 afterAll(async () => {
   for (const ws of sockets) ws.close();
-  if (handoffs) {
-    server.stop();
-    quick.stop();
-    if (previousSocket === undefined) delete process.env["HERDR_SOCKET"];
-    else process.env["HERDR_SOCKET"] = previousSocket;
+  try {
+    await Promise.all([server?.stop(), quick?.stop()]);
+  } finally {
+    if (started) {
+      if (await answers()) await cli("server", "stop");
+      await until(async () => !(await answers()), "handoff session stopped").catch(() => {});
+    }
+    rmSync(config, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
   }
-  if (started) {
-    if (await answers()) await cli("server", "stop");
-    await until(async () => !(await answers()), "handoff session stopped").catch(() => {});
-  }
-  rmSync(config, { recursive: true, force: true });
-  rmSync(root, { recursive: true, force: true });
 });
 
 // a herdr that cannot `terminal attach` (Windows) has no attach to end
@@ -96,17 +97,17 @@ if (process.env["HERDR_TEST_MODE"] !== "unit" && process.platform !== "win32" &&
   handoffs = pong.capabilities?.live_handoff === true;
 }
 
-beforeAll(() => {
+beforeAll(async () => {
   if (!handoffs) return;
   // the attach, the RPCs and the status collector all read HERDR_SOCKET when they start
-  previousSocket = process.env["HERDR_SOCKET"];
-  process.env["HERDR_SOCKET"] = socket;
-  server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root });
-  quick = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root, attachRelookupForMs: 1_000 });
+  [server, quick] = await Promise.all([
+    launchServer({ env: { HERDR_FLEET_TOKEN: "", HERDR_SOCKET: socket } }),
+    launchServer({ env: { HERDR_FLEET_TOKEN: "", HERDR_SOCKET: socket }, test: { attachRelookupForMs: 1_000 } }),
+  ]);
 });
 
-function connect(port: number, paneId: string) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+function connect(target: LaunchedServer, paneId: string) {
+  const ws = new WebSocket(`${target.url.replace(/^http/, "ws")}/ws`);
   sockets.push(ws);
   const state = { tail: "", ready: 0, exits: 0, errors: [] as string[] };
   ws.addEventListener("message", (event) => {
@@ -141,8 +142,8 @@ async function attaches(terminalId: string): Promise<number> {
   return out.split("\n").filter(Boolean).length;
 }
 
-async function attached(port: number, paneId: string) {
-  const client = connect(port, paneId);
+async function attached(target: LaunchedServer, paneId: string) {
+  const client = connect(target, paneId);
   await client.open;
   client.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
   await until(() => client.state.ready > 0, "attach took");
@@ -153,7 +154,7 @@ describe.skipIf(!handoffs)("a pane herdr hands off to a new server", () => {
   // first: it stops the server this file spawned, which the handoff below replaces
   it("ends within the relookup window when herdr takes the lookup and never answers", async () => {
     const paneId = await pane("stall");
-    const client = await attached(quick.port, paneId);
+    const client = await attached(quick!, paneId);
     const terminal = await terminalOf(paneId);
     await until(async () => (await attaches(terminal!)) === 1, "the attach runs");
     // a stopped herdr still accepts connections on its socket, and answers none of them
@@ -173,7 +174,7 @@ describe.skipIf(!handoffs)("a pane herdr hands off to a new server", () => {
 
   it("is attached again under its new terminal, for the same client, without ending", async () => {
     const paneId = await pane("handoff");
-    const client = await attached(server.port, paneId);
+    const client = await attached(server!, paneId);
     const before = await terminalOf(paneId);
     expect(before).toBeDefined();
     await until(async () => (await attaches(before!)) === 1, "the first attach runs");
@@ -197,7 +198,7 @@ describe.skipIf(!handoffs)("a pane herdr hands off to a new server", () => {
 
   it("still ends at once when the pane itself exits", async () => {
     const paneId = await pane("exit");
-    const client = await attached(server.port, paneId);
+    const client = await attached(server!, paneId);
     const startedAt = Date.now();
     client.send({ type: "input", pane_id: paneId, text: "exit\r" });
     await until(() => client.state.exits === 1, "pty-exit for the pane that exited");
@@ -207,7 +208,7 @@ describe.skipIf(!handoffs)("a pane herdr hands off to a new server", () => {
 
   it("ends once the server does not come back", async () => {
     const paneId = await pane("stop");
-    const client = await attached(quick.port, paneId);
+    const client = await attached(quick!, paneId);
     const stopped = await cli("server", "stop");
     expect(stopped.code, stopped.output).toBe(0);
     await until(() => client.state.exits === 1, "pty-exit after the relookups ran out", 8_000);

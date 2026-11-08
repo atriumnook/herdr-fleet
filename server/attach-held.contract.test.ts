@@ -1,33 +1,58 @@
-import { afterAll, describe, expect, it } from "bun:test";
+// black-box: scripts/contract/launch.ts
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
 import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "./index.ts";
 import { herdrRpc } from "./herdr/client.ts";
+import { launchServer, type LaunchedServer } from "../scripts/contract/launch.ts";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.ts";
 
 /**
  * Two web bridges on one herdr (a second install beside the first): herdr gives one of them
  * a terminal's attach. The other waits for it instead of ending the pane, and attaches as
- * soon as the first lets go.
+ * soon as the first lets go. Each server is started by scripts/contract/launch.ts and reached
+ * through its URL only (ADR 0122).
  */
 const rootA = mkdtempSync(join(tmpdir(), "herdr-held-a-"));
 const rootB = mkdtempSync(join(tmpdir(), "herdr-held-b-"));
-const first = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: rootA });
-const second = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: rootB, attachHeldRetryMs: 200 });
-// a short read-race budget, so a wait for the other bridge outlasts it
-const third = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: rootB, attachHeldRetryMs: 200, attachRetryForMs: 300 });
+/** the herdr the tests use; a scripted herdr runs it for a real attach */
+const REAL_HERDR = Bun.which(process.env["HERDR_FLEET_HERDR_BIN"] || "herdr") ?? "herdr";
+let first: LaunchedServer;
+let second: LaunchedServer;
 const workspaces: string[] = [];
 const sockets: WebSocket[] = [];
+beforeAll(async () => {
+  [first, second] = await Promise.all([
+    launchServer({ env: { HERDR_FLEET_TOKEN: "" } }),
+    launchServer({ env: { HERDR_FLEET_TOKEN: "" }, test: { attachHeldRetryMs: 200 } }),
+  ]);
+});
 afterAll(async () => {
   for (const socket of sockets) socket.close();
-  first.stop();
-  second.stop();
-  third.stop();
-  for (const workspace of workspaces) await herdrRpc("workspace.close", { workspace_id: workspace });
-  rmSync(rootA, { recursive: true, force: true });
-  rmSync(rootB, { recursive: true, force: true });
+  try {
+    await Promise.all([first?.stop(), second?.stop()]);
+  } finally {
+    for (const workspace of workspaces) await herdrRpc("workspace.close", { workspace_id: workspace });
+    rmSync(rootA, { recursive: true, force: true });
+    rmSync(rootB, { recursive: true, force: true });
+  }
 });
+
+/**
+ * A server on the scripted herdr at `herdrPath`, with a short read-race budget, so a wait for the
+ * other bridge outlasts it; stopped when `use` is done.
+ */
+async function withThird<T>(herdrPath: string, use: (third: LaunchedServer) => Promise<T>): Promise<T> {
+  const third = await launchServer({
+    env: { HERDR_FLEET_TOKEN: "", HERDR_FLEET_HERDR_BIN: herdrPath },
+    test: { attachHeldRetryMs: 200, attachRetryForMs: 300 },
+  });
+  try {
+    return await use(third);
+  } finally {
+    await third.stop();
+  }
+}
 
 async function until(check: () => boolean, label: string, timeout = 15_000): Promise<void> {
   const deadline = Date.now() + timeout;
@@ -37,8 +62,8 @@ async function until(check: () => boolean, label: string, timeout = 15_000): Pro
   }
 }
 
-function connect(port: number, paneId: string) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+function connect(target: LaunchedServer, paneId: string) {
+  const ws = new WebSocket(`${target.url.replace(/^http/, "ws")}/ws`);
   sockets.push(ws);
   const state = {
     frames: 0, tail: "", errors: [] as string[], errorPanes: [] as (string | undefined)[], exits: 0, exitCodes: [] as (number | null)[],
@@ -78,13 +103,12 @@ async function pane(): Promise<string> {
  * repeats); `real` runs the real attach.
  */
 function scriptedHerdr(attempts: string[]): { path: string; attempts: () => number } {
-  const real = process.env["HERDR_FLEET_HERDR_BIN"] || Bun.which("herdr") || "herdr";
   const dir = mkdtempSync(join(rootB, "scripted-herdr-"));
   const count = join(dir, "count");
   const path = join(dir, "herdr");
   const cases = attempts.map((step, index) => {
     const pattern = index === attempts.length - 1 ? "*" : String(index);
-    return `  ${pattern}) ${step === "real" ? `exec '${real}' "$@"` : step} ;;`;
+    return `  ${pattern}) ${step === "real" ? `exec '${REAL_HERDR}' "$@"` : step} ;;`;
   });
   writeFileSync(path, [
     "#!/bin/sh",
@@ -99,15 +123,6 @@ function scriptedHerdr(attempts: string[]): { path: string; attempts: () => numb
   return { path, attempts: () => existsSync(count) ? Number(readFileSync(count, "utf8").trim() || 0) : 0 };
 }
 
-async function withHerdr<T>(path: string, run: () => Promise<T>): Promise<T> {
-  const previous = process.env["HERDR_FLEET_HERDR_BIN"];
-  process.env["HERDR_FLEET_HERDR_BIN"] = path;
-  try { return await run(); } finally {
-    if (previous === undefined) delete process.env["HERDR_FLEET_HERDR_BIN"];
-    else process.env["HERDR_FLEET_HERDR_BIN"] = previous;
-  }
-}
-
 const READ_RACE = "printf 'herdr: server shut down: terminal attach failed: terminal term_0 has a read in progress; retry\\r\\n'; exit 1";
 const HELD = "printf 'herdr: server shut down: terminal attach failed: terminal term_0 already has an attached client; retry with --takeover\\r\\n'; exit 1";
 
@@ -115,8 +130,8 @@ describe("a terminal another web bridge holds", () => {
   it("waits for that bridge instead of ending, then attaches when it lets go", async () => {
     const paneId = await pane();
 
-    const a = connect(first.port, paneId);
-    const b = connect(second.port, paneId);
+    const a = connect(first, paneId);
+    const b = connect(second, paneId);
     try {
       await a.open;
       a.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
@@ -171,8 +186,8 @@ describe("an attach classified as held", () => {
     const paneId = await pane();
     // the pane itself prints herdr's refusal (a log, say), then the attach fails for another reason
     const herdr = scriptedHerdr([`${HELD.replace("; exit 1", "")}; printf 'more pane output\\r\\n'; sleep 0.5; exit 1`]);
-    await withHerdr(herdr.path, async () => {
-      const client = connect(third.port, paneId);
+    await withThird(herdr.path, async (third) => {
+      const client = connect(third, paneId);
       try {
         await client.open;
         client.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
@@ -190,8 +205,8 @@ describe("an attach classified as held", () => {
     const paneId = await pane();
     // a read race, a wait for another bridge longer than the read-race budget, a read race, then real
     const herdr = scriptedHerdr([READ_RACE, HELD, HELD, HELD, READ_RACE, "real"]);
-    await withHerdr(herdr.path, async () => {
-      const client = connect(third.port, paneId);
+    await withThird(herdr.path, async (third) => {
+      const client = connect(third, paneId);
       try {
         await client.open;
         client.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
@@ -210,8 +225,8 @@ describe("an attach classified as held", () => {
     // (an agent's log, say) with more output after it
     const shown = HELD.replace("; exit 1", "");
     const herdr = scriptedHerdr([HELD, `${shown}; printf 'more pane output\\r\\n'; sleep 10`]);
-    await withHerdr(herdr.path, async () => {
-      const client = connect(third.port, paneId);
+    await withThird(herdr.path, async (third) => {
+      const client = connect(third, paneId);
       try {
         await client.open;
         client.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
@@ -231,8 +246,8 @@ describe("an attach classified as held", () => {
     // herdr writes the teardown and its message apart: a loaded PC can pause it between them.
     const late = `printf '\\033[?1006l\\033[?1000l'; sleep 0.2; printf '\\033[?1049h\\033[?1006l\\033[?2031l\\033[?7h'; sleep 0.4; printf '\\033[?1049l\\033[?25h\\033[0 q'; sleep 0.4; ${HELD}`;
     const herdr = scriptedHerdr([HELD, late, "real"]);
-    await withHerdr(herdr.path, async () => {
-      const client = connect(third.port, paneId);
+    await withThird(herdr.path, async (third) => {
+      const client = connect(third, paneId);
       try {
         await client.open;
         client.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });
@@ -250,8 +265,8 @@ describe("an attach classified as held", () => {
     const paneId = await pane();
     // herdr refuses, then refuses without its exit ever coming, refuses once more, then attaches
     const herdr = scriptedHerdr([HELD, `${HELD.replace("; exit 1", "")}; sleep 10`, HELD, "real"]);
-    await withHerdr(herdr.path, async () => {
-      const client = connect(third.port, paneId);
+    await withThird(herdr.path, async (third) => {
+      const client = connect(third, paneId);
       try {
         await client.open;
         client.send({ type: "attach", pane_id: paneId, cols: 100, rows: 30 });

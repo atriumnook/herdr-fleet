@@ -1,23 +1,56 @@
-import { afterAll, describe, expect, it } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+// black-box: scripts/contract/launch.ts
+import { afterAll, beforeAll, describe, expect, it } from "bun:test";
+import { chmodSync, existsSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "./index.ts";
 import { herdrRpc, paneSendText, paneSendKeys } from "./herdr/client.ts";
-import { OUTPUT_HARD_BYTES, OUTPUT_HIGH_BYTES, OUTPUT_STALL_MS } from "./output-window.ts";
+import { launchServer, type LaunchedServer, type LaunchSpec } from "../scripts/contract/launch.ts";
 import { OUTPUT_STALLED_CLOSE_CODE } from "../shared/terminal-flow.ts";
 import type { ClientMessage, ServerMessage } from "../shared/protocol.ts";
 
+/**
+ * Each server is started by scripts/contract/launch.ts and reached through its URL only (ADR 0122);
+ * what needs the server in this process is in server/output.herdr.test.ts.
+ *
+ * The output window a client gets (the contract's values, written here rather than read from the
+ * server under test): output pauses once a client has `OUTPUT_HIGH_BYTES` unacknowledged, a client
+ * that stays silent past `OUTPUT_STALL_MS` is closed, and it is never sent more than `OUTPUT_HARD_BYTES`.
+ */
+const OUTPUT_HIGH_BYTES = 256 * 1024;
+const OUTPUT_HARD_BYTES = 1024 * 1024;
+const OUTPUT_STALL_MS = 2000;
+
+/** the herdr the tests use; a server under test is given a shim in front of it, or a path to it */
+const REAL_HERDR = Bun.which(process.env["HERDR_FLEET_HERDR_BIN"] || "herdr") ?? "herdr";
+
 const root = mkdtempSync(join(tmpdir(), "herdr-output-contract-"));
-const server = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: root });
+let server: LaunchedServer;
 const workspaces: string[] = [];
 const sockets: WebSocket[] = [];
+beforeAll(async () => {
+  server = await launchServer({ env: { HERDR_FLEET_TOKEN: "" } });
+});
 afterAll(async () => {
   for (const socket of sockets) socket.close();
-  server.stop();
-  for (const workspace of workspaces) await herdrRpc("workspace.close", { workspace_id: workspace });
-  rmSync(root, { recursive: true, force: true });
+  try {
+    await server?.stop();
+  } finally {
+    for (const workspace of workspaces) await herdrRpc("workspace.close", { workspace_id: workspace });
+    rmSync(root, { recursive: true, force: true });
+  }
 });
+
+const wsUrl = (target: LaunchedServer) => `${target.url.replace(/^http/, "ws")}/ws`;
+
+/** a server of the test's own, stopped when `use` is done */
+async function withServer<T>(spec: LaunchSpec, use: (launched: LaunchedServer) => Promise<T>): Promise<T> {
+  const launched = await launchServer(spec);
+  try {
+    return await use(launched);
+  } finally {
+    await launched.stop();
+  }
+}
 
 async function until(check: () => boolean, label: string, timeout = 10_000): Promise<void> {
   const deadline = Date.now() + timeout;
@@ -35,8 +68,8 @@ async function pane(): Promise<string> {
   return created.root_pane.pane_id;
 }
 
-async function connect(paneId: string, ack = true, observer = false, port = server.port) {
-  const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`);
+async function connect(paneId: string, ack = true, observer = false, target = server) {
+  const ws = new WebSocket(wsUrl(target));
   sockets.push(ws);
   const state = {
     bytes: 0, frames: 0, ack, code: 0, exits: 0,
@@ -66,17 +99,19 @@ async function connect(paneId: string, ack = true, observer = false, port = serv
   return { ws, state, send, acknowledge };
 }
 
-/** Bun.spawn throws synchronously for the pty sidecar while `node` is not on PATH (herdr itself stays found). */
-function breakPath(): () => void {
-  const previous = process.env["PATH"];
-  const previousHerdr = process.env["HERDR_FLEET_HERDR_BIN"];
-  process.env["HERDR_FLEET_HERDR_BIN"] = Bun.which(previousHerdr || "herdr", { PATH: previous ?? "" }) ?? previousHerdr ?? "herdr";
-  process.env["PATH"] = "/nonexistent";
-  return () => {
-    process.env["PATH"] = previous;
-    if (previousHerdr === undefined) delete process.env["HERDR_FLEET_HERDR_BIN"];
-    else process.env["HERDR_FLEET_HERDR_BIN"] = previousHerdr;
-  };
+/**
+ * What the servers write to standard error from now on: the launcher hands it on to this
+ * process's standard error (scripts/contract/launch.ts), where this reads it.
+ */
+function captureStderr(): { lines: () => string[]; restore: () => void } {
+  let text = "";
+  const decoder = new TextDecoder();
+  const write = process.stderr.write;
+  process.stderr.write = ((chunk: string | Uint8Array, ...rest: unknown[]) => {
+    text += typeof chunk === "string" ? chunk : decoder.decode(chunk, { stream: true });
+    return (write as (...args: unknown[]) => boolean).call(process.stderr, chunk, ...rest);
+  }) as typeof process.stderr.write;
+  return { lines: () => text.split("\n"), restore: () => { process.stderr.write = write; } };
 }
 
 async function flood(paneId: string): Promise<void> {
@@ -180,70 +215,42 @@ describe("real terminal output flow control", () => {
   }, 30_000);
 });
 
-describe("a terminal attach that cannot spawn (#154)", () => {
-  it("reports the failure and leaves the pane attachable, never a record without a pty", async () => {
-    const paneId = await pane();
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-    sockets.push(ws);
-    const errors: string[] = [];
-    ws.addEventListener("message", (event) => {
-      const frame = JSON.parse(String(event.data)) as ServerMessage;
-      if (frame.type === "error") errors.push(frame.code);
-    });
-    await until(() => ws.readyState === WebSocket.OPEN, "socket open");
-    const restore = breakPath();
-    try {
-      ws.send(JSON.stringify({ type: "attach", pane_id: paneId, cols: 100, rows: 30, flow_control: "ack" } satisfies ClientMessage));
-      await until(() => errors.includes("command_failed"), "the failed spawn is reported");
-    } finally { restore(); }
-    // the next attach spawns its own pty instead of joining a dead record
-    const second = await connect(paneId);
-    second.ws.close();
-    await until(() => second.state.code !== 0, "second client closed");
-    // closing it tore the attachment down cleanly: the server still attaches the pane
-    const third = await connect(paneId);
-    try {
-      expect(third.state.errors).toEqual([]);
-      expect(third.state.exits).toBe(0);
-    } finally { third.ws.close(); ws.close(); }
-  }, 30_000);
-});
-
 describe("a herdr the server cannot start (#925)", () => {
   it("tells the attaching client and logs it, instead of a terminal that waits in silence", async () => {
     const paneId = await pane();
-    const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-    sockets.push(ws);
-    const errors: string[] = [];
-    const errorPanes: (string | undefined)[] = [];
-    ws.addEventListener("message", (event) => {
-      const frame = JSON.parse(String(event.data)) as ServerMessage;
-      if (frame.type === "error") { errors.push(frame.code); errorPanes.push(frame.pane_id); }
-    });
-    await until(() => ws.readyState === WebSocket.OPEN, "socket open");
+    // the server is given a herdr that is not there; the test puts it there afterwards
     const missing = join(root, "missing-herdr");
-    const logged: string[] = [];
-    const log = console.error;
-    console.error = (...args: unknown[]) => { logged.push(args.map(String).join(" ")); };
-    const previous = process.env["HERDR_FLEET_HERDR_BIN"];
-    process.env["HERDR_FLEET_HERDR_BIN"] = missing;
-    try {
-      ws.send(JSON.stringify({ type: "attach", pane_id: paneId, cols: 100, rows: 30, flow_control: "ack" } satisfies ClientMessage));
-      await until(() => errors.includes("attach_failed"), "the missing herdr is reported", 3_000);
-    } finally {
-      console.error = log;
-      if (previous === undefined) delete process.env["HERDR_FLEET_HERDR_BIN"];
-      else process.env["HERDR_FLEET_HERDR_BIN"] = previous;
-    }
-    expect(errors).toEqual(["attach_failed"]);
-    // the panes of a PC share one connection: the failure names its pane, so only that terminal ends
-    expect(errorPanes).toEqual([paneId]);
-    expect(logged.filter((line) => line.includes(paneId) && line.includes(missing))).toHaveLength(1);
-    // nothing was left behind: with herdr back, the pane attaches for real
-    const client = await connect(paneId);
-    try {
-      expect(client.state.errors).toEqual([]);
-    } finally { client.ws.close(); ws.close(); }
+    await withServer({ env: { HERDR_FLEET_TOKEN: "", HERDR_FLEET_HERDR_BIN: missing } }, async (lost) => {
+      const ws = new WebSocket(wsUrl(lost));
+      sockets.push(ws);
+      const errors: string[] = [];
+      const errorPanes: (string | undefined)[] = [];
+      ws.addEventListener("message", (event) => {
+        const frame = JSON.parse(String(event.data)) as ServerMessage;
+        if (frame.type === "error") { errors.push(frame.code); errorPanes.push(frame.pane_id); }
+      });
+      await until(() => ws.readyState === WebSocket.OPEN, "socket open");
+      const stderr = captureStderr();
+      const named = () => stderr.lines().filter((line) => line.includes(paneId) && line.includes(missing));
+      try {
+        ws.send(JSON.stringify({ type: "attach", pane_id: paneId, cols: 100, rows: 30, flow_control: "ack" } satisfies ClientMessage));
+        await until(() => errors.includes("attach_failed"), "the missing herdr is reported", 3_000);
+        // the log reaches this process through the launcher's pipe, a little after the client is told
+        await until(() => named().length > 0, "the missing herdr is logged", 3_000);
+      } finally {
+        stderr.restore();
+      }
+      expect(errors).toEqual(["attach_failed"]);
+      // the panes of a PC share one connection: the failure names its pane, so only that terminal ends
+      expect(errorPanes).toEqual([paneId]);
+      expect(named()).toHaveLength(1);
+      // nothing was left behind: with herdr back, the pane attaches for real
+      symlinkSync(REAL_HERDR, missing);
+      const client = await connect(paneId, true, false, lost);
+      try {
+        expect(client.state.errors).toEqual([]);
+      } finally { client.ws.close(); ws.close(); }
+    });
   }, 30_000);
 });
 
@@ -253,7 +260,6 @@ describe("an attach herdr refuses over a read in progress", () => {
    * pane read of the same terminal, then attaches for real.
    */
   function refusingHerdr(refusals: number): { path: string; attempts: () => number } {
-    const real = process.env["HERDR_FLEET_HERDR_BIN"] || Bun.which("herdr") || "herdr";
     const dir = mkdtempSync(join(root, "refusing-herdr-"));
     const count = join(dir, "count");
     const path = join(dir, "herdr");
@@ -262,27 +268,18 @@ describe("an attach herdr refuses over a read in progress", () => {
       `n=$(cat '${count}' 2>/dev/null || echo 0)`,
       `echo $((n + 1)) > '${count}'`,
       `if [ "$n" -lt ${refusals} ]; then printf 'herdr: server shut down: terminal attach failed: terminal term_0 has a read in progress; retry\\r\\n'; exit 1; fi`,
-      `exec '${real}' "$@"`,
+      `exec '${REAL_HERDR}' "$@"`,
       "",
     ].join("\n"));
     chmodSync(path, 0o755);
     return { path, attempts: () => existsSync(count) ? Number(readFileSync(count, "utf8").trim() || 0) : 0 };
   }
 
-  async function withHerdr<T>(path: string, run: () => Promise<T>): Promise<T> {
-    const previous = process.env["HERDR_FLEET_HERDR_BIN"];
-    process.env["HERDR_FLEET_HERDR_BIN"] = path;
-    try { return await run(); } finally {
-      if (previous === undefined) delete process.env["HERDR_FLEET_HERDR_BIN"];
-      else process.env["HERDR_FLEET_HERDR_BIN"] = previous;
-    }
-  }
-
   it("attaches again for the same client instead of ending its terminal", async () => {
     const paneId = await pane();
     const herdr = refusingHerdr(2);
-    await withHerdr(herdr.path, async () => {
-      const client = await connect(paneId);
+    await withServer({ env: { HERDR_FLEET_TOKEN: "", HERDR_FLEET_HERDR_BIN: herdr.path } }, async (bridge) => {
+      const client = await connect(paneId, true, false, bridge);
       try {
         // the refusals are retried; the third attach is real and paints the pane
         await until(() => herdr.attempts() === 3 && client.state.tail.includes("\x1b[?1049h"), "the third attach paints");
@@ -298,68 +295,31 @@ describe("an attach herdr refuses over a read in progress", () => {
     });
   }, 30_000);
 
-  it("ends the terminal, not the server, when a retried attach cannot spawn", async () => {
-    const paneId = await pane();
-    const herdr = refusingHerdr(1);
-    await withHerdr(herdr.path, async () => {
-      const ws = new WebSocket(`ws://127.0.0.1:${server.port}/ws`);
-      sockets.push(ws);
-      const errors: string[] = [];
-      let exits = 0;
-      ws.addEventListener("message", (event) => {
-        const frame = JSON.parse(String(event.data)) as ServerMessage;
-        if (frame.type === "error") errors.push(frame.code);
-        if (frame.type === "pty-exit" && frame.pane_id === paneId) exits++;
-      });
-      await until(() => ws.readyState === WebSocket.OPEN, "socket open");
-      ws.send(JSON.stringify({ type: "attach", pane_id: paneId, cols: 100, rows: 30 } satisfies ClientMessage));
-      // the refusal is running: the retry that follows its exit spawns without node
-      await until(() => herdr.attempts() === 1, "the refused attach started");
-      const restore = breakPath();
-      try {
-        await until(() => exits === 1, "pty-exit for the retry that failed to spawn");
-      } finally { restore(); }
-      expect(errors).toEqual(["command_failed"]);
-      expect(herdr.attempts()).toBe(1);
-      ws.close();
-      // the server survived and the pane attaches again for real
-      const client = await connect(paneId);
-      try {
-        expect(client.state.errors).toEqual([]);
-        expect(herdr.attempts()).toBe(2);
-      } finally { client.ws.close(); }
-    });
-  }, 30_000);
-
   it("still ends the terminal when herdr keeps refusing past the longest such read", async () => {
     const paneId = await pane();
     const herdr = refusingHerdr(1000);
-    const impatient = createServer({ port: 0, hostname: "127.0.0.1", token: "", stateDir: mkdtempSync(join(root, "impatient-")), attachRetryForMs: 800 });
-    try {
-      await withHerdr(herdr.path, async () => {
-        const ws = new WebSocket(`ws://127.0.0.1:${impatient.port}/ws`);
-        sockets.push(ws);
-        let exits = 0; let tail = "";
-        ws.addEventListener("message", (event) => {
-          const frame = JSON.parse(String(event.data)) as ServerMessage;
-          if (frame.type === "pty-exit" && frame.pane_id === paneId) exits++;
-          if (frame.type === "pty-data" && frame.pane_id === paneId) tail += frame.data;
-        });
-        await until(() => ws.readyState === WebSocket.OPEN, "socket open");
-        ws.send(JSON.stringify({ type: "attach", pane_id: paneId, cols: 100, rows: 30 } satisfies ClientMessage));
-        await until(() => exits === 1, "pty-exit once the retries run out");
-        expect(herdr.attempts()).toBeGreaterThan(2);
-        // the last refusal is shown: it says why the terminal ended
-        expect(tail).toContain("read in progress");
-        ws.close();
+    await withServer({ env: { HERDR_FLEET_TOKEN: "", HERDR_FLEET_HERDR_BIN: herdr.path }, test: { attachRetryForMs: 800 } }, async (impatient) => {
+      const ws = new WebSocket(wsUrl(impatient));
+      sockets.push(ws);
+      let exits = 0; let tail = "";
+      ws.addEventListener("message", (event) => {
+        const frame = JSON.parse(String(event.data)) as ServerMessage;
+        if (frame.type === "pty-exit" && frame.pane_id === paneId) exits++;
+        if (frame.type === "pty-data" && frame.pane_id === paneId) tail += frame.data;
       });
-    } finally { impatient.stop(); }
+      await until(() => ws.readyState === WebSocket.OPEN, "socket open");
+      ws.send(JSON.stringify({ type: "attach", pane_id: paneId, cols: 100, rows: 30 } satisfies ClientMessage));
+      await until(() => exits === 1, "pty-exit once the retries run out");
+      expect(herdr.attempts()).toBeGreaterThan(2);
+      // the last refusal is shown: it says why the terminal ended
+      expect(tail).toContain("read in progress");
+      ws.close();
+    });
   }, 30_000);
 });
 
 describe("herdr's attach-time terminal queries", () => {
   it("answers them in the bridge and keeps them out of every client's terminal", async () => {
-    const real = process.env["HERDR_FLEET_HERDR_BIN"] || Bun.which("herdr") || "herdr";
     const dir = mkdtempSync(join(root, "probing-herdr-"));
     const replies = join(dir, "replies");
     const path = join(dir, "herdr");
@@ -372,21 +332,19 @@ describe("herdr's attach-time terminal queries", () => {
       // --foreground: a background process group could not read the terminal
       `timeout --foreground 5 head -c 18 > '${replies}'`,
       'stty "$saved"',
-      `exec '${real}' "$@"`,
+      `exec '${REAL_HERDR}' "$@"`,
       "",
     ].join("\n"));
     chmodSync(path, 0o755);
-    const previous = process.env["HERDR_FLEET_HERDR_BIN"];
-    process.env["HERDR_FLEET_HERDR_BIN"] = path;
-    try {
+    await withServer({ env: { HERDR_FLEET_TOKEN: "", HERDR_FLEET_HERDR_BIN: path } }, async (bridge) => {
       const paneId = await pane();
-      const first = await connect(paneId);
+      const first = await connect(paneId, true, false, bridge);
       try {
         await until(() => first.state.tail.includes("\x1b[?1049h"), "the attach behind the queries paints");
         await until(() => existsSync(replies) && readFileSync(replies, "utf8").length === 18, "the bridge answered");
         expect(readFileSync(replies, "utf8")).toBe("\x1b[?1016;4$y\x1b[?1;2c");
         // a browser joining later gets the replay: the queries are not in it to be answered again
-        const second = await connect(paneId);
+        const second = await connect(paneId, true, false, bridge);
         try {
           for (const client of [first, second]) {
             expect(client.state.tail).not.toContain("1016$p");
@@ -395,9 +353,6 @@ describe("herdr's attach-time terminal queries", () => {
           }
         } finally { second.ws.close(); }
       } finally { first.ws.close(); }
-    } finally {
-      if (previous === undefined) delete process.env["HERDR_FLEET_HERDR_BIN"];
-      else process.env["HERDR_FLEET_HERDR_BIN"] = previous;
-    }
+    });
   }, 30_000);
 });

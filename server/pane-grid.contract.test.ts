@@ -1,24 +1,23 @@
+// black-box: scripts/contract/launch.ts
 import { afterAll, beforeAll, expect, it } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
-import { createServer } from "./index.ts";
 import { herdrRpc, workspaceClose } from "./herdr/client.ts";
 import { paneGrid, type Grid } from "./pane-grid.ts";
 import { PtySession } from "./pty/session.ts";
 import { TEST_SESSION } from "../scripts/test-herdr.ts";
+import { launchServer, type LaunchedServer } from "../scripts/contract/launch.ts";
 
 /**
  * An attach holds the pane's terminal at its pty's size, and herdr then leaves its own layout
  * unapplied to it. Only a herdr screen (the TUI) lays panes out, so these run one on the test
- * session, as the user has one on theirs.
+ * session, as the user has one on theirs. The server is started by scripts/contract/launch.ts
+ * and reached through its URL only (ADR 0122).
  */
-let server: { port: number; stop: () => void };
+let server: LaunchedServer | undefined;
 let screen: PtySession;
-const stateDir = mkdtempSync(join(tmpdir(), "herdr-fleet-grid-"));
 
-beforeAll(() => {
-  server = createServer({ port: 0, stateDir });
+beforeAll(async () => {
+  server = await launchServer();
   screen = new PtySession({
     command: process.env["HERDR_FLEET_HERDR_BIN"] || "herdr",
     args: ["--session", TEST_SESSION],
@@ -32,14 +31,13 @@ beforeAll(() => {
 afterAll(async () => {
   screen?.kill();
   await screen?.exited;
-  server?.stop();
-  rmSync(stateDir, { recursive: true, force: true });
+  await server?.stop();
 });
 
 type Frame = { type: string; pane_id?: string; data?: string; cols?: number; rows?: number; fixed?: boolean };
 
 async function connect(): Promise<{ ws: WebSocket; seen: Frame[]; waitFor: (predicate: (frame: Frame) => boolean, label: string) => Promise<Frame> }> {
-  const ws = new WebSocket(`ws://localhost:${server.port}/ws`);
+  const ws = new WebSocket(`${server!.url.replace(/^http/, "ws")}/ws`);
   const seen: Frame[] = [];
   ws.addEventListener("message", (event) => seen.push(JSON.parse(String(event.data)) as Frame));
   await new Promise<void>((resolve) => ws.addEventListener("open", () => resolve()));
