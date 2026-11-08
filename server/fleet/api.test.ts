@@ -204,7 +204,7 @@ describe("fleet API", () => {
   it("reads the settings, and writes a change only with the fleet header", async () => {
     const { call } = fleet();
     const read = await call("GET", `/settings?cwd=${encodeURIComponent(resultsRoot)}`);
-    expect(read.body["settings"].roles.map((each: { name: string }) => each.name)).toEqual(["worker", "coordinator", "lead"]);
+    expect(read.body["settings"].roles.map((each: { name: string }) => each.name)).toEqual(["coordinator", "lead", "worker"]);
     expect((await call("POST", "/settings", { patch: { maxConcurrent: 3 } }, {})).status).toBe(403);
     expect((await call("POST", "/settings", { patch: { maxConcurrent: 3 } })).body["settings"].maxConcurrent).toBe(3);
     expect(await call("POST", "/settings", { patch: { roles: { coordinator: { candidates: [{ agent: "cursor" }] } } } })).toMatchObject({ status: 400, body: { error: { code: "invalid_settings" } } });
