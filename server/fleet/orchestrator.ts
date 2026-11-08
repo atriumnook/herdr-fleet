@@ -1017,7 +1017,8 @@ export class Orchestrator {
       && this.projectCoordinator(run)?.id === coordinator.id);
     // a restart of the thread under way finishes first: its new lead holds the step then
     for (const run of handed) {
-      const step = run.landing!;
+      const step = run.landing;
+      if (!step) continue;
       await this.onLead(run, (thread) => this.settleMerge(thread, step), step.action === "revert");
     }
   }

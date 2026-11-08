@@ -2944,7 +2944,7 @@ describe("merge authority", () => {
   const GATE = "[fleet] The person made this project's merges gated in their own settings, and the fleet found every condition of the gate held for these. Each is your approval for that merge only.";
 
   /** a project whose person's settings make merges into `rust` gated, with every fact the gate reads in `git` */
-  function project(merge: Record<string, unknown> | null = { mode: "gated", branches: ["rust"], protected: ["docs/plan.md"] }, roles = agents) {
+  function project(merge: Record<string, unknown> | null = { mode: "gated", branches: ["rust"], protected: ["docs/plan.md"] }, roles = agents, landing: Partial<LandingTools> = {}) {
     const states = new Map<string, AgentState>();
     const events: FleetEvent[] = [];
     const removed: string[] = [];
@@ -2968,6 +2968,7 @@ describe("merge authority", () => {
         onGitHub: async () => git.revertOnGitHub,
         mergeCommitOf: async () => git.mergeCommit,
         revertOf: async () => git.revert,
+        ...landing,
       },
     });
     harness.runtime.getImpl = async (name) => states.get(name) ?? "working";
@@ -3376,6 +3377,54 @@ describe("merge authority", () => {
     expect(events.filter((event) => event.kind === "merge")).toEqual([{ kind: "merge", run: thread.id, project: "/repo", base: "rust", by: "person", commit: "abc0001" }]);
     await fleet.land(thread.id, "revert");
     expect(to(coordinator).at(-1)).toContain("when this checkout is clean and on rust, git revert -m 1 --no-edit abc0001. On a conflict");
+  });
+
+  it("settle later merges when polling closes a handed thread while an earlier merge is read", async () => {
+    let firstBranch = "";
+    let merged = false;
+    let reading = false;
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    const { fleet, registry, events, git, root, turn } = project(null, agents, {
+      isMerged: async (_repo, branch) => {
+        if (merged && branch === firstBranch) { reading = true; await gate; }
+        return merged;
+      },
+    });
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const threads: AgentRun[] = [];
+    for (const title of ["A", "B", "C"]) {
+      const thread = await fleet.startThread({ title, task: "t", cwd: "/repo", callerRun: coordinator.id });
+      writeReport(root, thread.id, "ready", "Done.");
+      await turn(thread, "idle");
+      threads.push(thread);
+    }
+    const [first, middle] = threads as [AgentRun, AgentRun, AgentRun];
+    firstBranch = first.branch!;
+    // Queue all three steps while the coordinator works, then hand them together.
+    await turn(coordinator, "working");
+    for (const thread of threads) await fleet.land(thread.id, "merge");
+    await turn(coordinator, "idle");
+    await until(() => threads.every((thread) => registry.get(thread.id)!.landing?.sent), "all three merges handed");
+    registry.upsert({ ...registry.get(middle.id)!, pr: { number: 12, url: PR.url, state: "OPEN", checks: "pass" } });
+    git.pr = { ...PR, state: "MERGED", mergeCommit: "abc0001" };
+    merged = true;
+    const settling = turn(coordinator, "idle");
+    try {
+      await until(() => reading, "the first merge being read");
+      await fleet.refreshPullRequests();
+      expect(registry.get(middle.id)!.landed).toBe("merged");
+      expect(registry.get(middle.id)!.landing).toBeUndefined();
+    } finally { release(); }
+    await settling;
+    await fleet.reconcileAll();
+    // Three handed merges must each settle once, even though polling settled B first.
+    for (const thread of threads) {
+      expect(registry.get(thread.id)!.landed).toBe("merged");
+      expect(registry.get(thread.id)!.landing).toBeUndefined();
+    }
+    expect(events.filter((event) => event.kind === "merge").map((event) => event.run).sort()).toEqual(threads.map((thread) => thread.id).sort());
   });
 
   it("settle the revert of a merged thread, which is closed, under the thread's lock", async () => {
