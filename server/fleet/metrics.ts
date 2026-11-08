@@ -1,7 +1,8 @@
 /**
  * The factory's metrics for one project, from the fleet's event log (events.ts) and what GitHub
  * says: how often the person stepped in, the stretches the project stood still, starts per agent
- * with the failed ones, the runs that ended without a HANDOFF, and the anomalies, the turns agents started by themselves, the threads
+ * with the failed ones, the runs that ended without a report, and the anomalies, the turns that
+ * ended without a report, the thread lead runs the fleet started again, the turns agents started by themselves, the threads
  * closed against GitHub, the pull requests merged into the project's base, the issues closed and
  * the issues opened (without a planned label, when one is given: found during the work). Pure:
  * `fleet report` (api.ts) and scripts/factory-report.ts read the inputs and hand them in.
@@ -25,8 +26,12 @@ export interface FactoryMetrics {
   interventions: { messages: number; typedTurns: number };
   standstills: Array<{ from: number; to: number }>;
   standstillCalls: number;
-  /** per agent: runs started, starts that failed or stopped before the task, runs that ended without a HANDOFF */
+  /** per agent: runs started, starts that failed or stopped before the task, runs that ended without a report */
   starts: Array<{ agent: string; starts: number; failed: number; lost: number; anomaly: boolean }>;
+  /** per agent: the turns that ended since the fleet reads reports, and those that left none */
+  reports: Array<{ agent: string; turns: number; none: number }>;
+  /** the thread lead runs the fleet started again: started, could not start, and replacements that later reported ready */
+  restarts: { started: number; failed: number; ready: number };
   ownTurns: Record<string, number>;
   reconciled: number;
   merged: PullRequestRow[];
@@ -101,15 +106,30 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
       else ownTurns[event.role] = (ownTurns[event.role] ?? 0) + 1;
     }
   }
-  // a run without a HANDOFF, its start not counted already (as superviseProjects counts): one that
-  // failed, or a helper whose last turn left none (its pane kept) or that ended in the middle of one.
-  // A lead stopped without one is not counted: the fleet closes a landed thread, the person stops one.
+  // a run without a report, its start not counted already: one that failed, or a helper whose last
+  // turn left none (its pane kept) or that ended in the middle of one. A lead stopped without one is
+  // not counted: the fleet closes a landed thread, the person stops one. Events written before
+  // reports say only whether a HANDOFF was there.
   for (const event of last.values()) {
     if (event.role === "coordinator" || startFailed.has(event.run)) continue;
     const end = turnEnd.get(event.run);
     const interactive = event.interactive ?? end?.interactive ?? false;
-    if (event.to === "failed" || (!interactive && (end ? !end.handoff : event.to === "stopped"))) entryOf(event.agent).lost += 1;
+    const unreported = end ? (end.report !== undefined ? end.report === "none" : !end.handoff) : event.to === "stopped";
+    if (event.to === "failed" || (!interactive && unreported)) entryOf(event.agent).lost += 1;
   }
+  const reportsByAgent = new Map<string, { turns: number; none: number }>();
+  for (const event of inWindow) {
+    if (event.kind !== "turn" || event.report === undefined) continue;
+    const entry = reportsByAgent.get(event.agent) ?? { turns: 0, none: 0 };
+    entry.turns += 1;
+    if (event.report === "none") entry.none += 1;
+    reportsByAgent.set(event.agent, entry);
+  }
+  const reports = [...reportsByAgent].map(([agent, counts]) => ({ agent, ...counts })).sort((a, b) => a.agent.localeCompare(b.agent));
+  const restartEvents = inWindow.filter((event): event is Extract<TimedEvent, { kind: "restart" }> => event.kind === "restart");
+  const replacements = new Set(restartEvents.flatMap((event) => (event.by ? [event.by] : [])));
+  const readyAfter = new Set(inWindow.filter((event) => event.kind === "turn" && event.report === "ready" && replacements.has(event.run)).map((event) => event.run));
+  const restarts = { started: replacements.size, failed: restartEvents.filter((event) => !event.by).length, ready: readyAfter.size };
   const starts = [...startsByAgent].map(([agent, { starts, failed, lost }]) => ({ agent, starts, failed, lost, anomaly: failed + lost >= 2 && (failed + lost) * 3 >= Math.max(starts, failed + lost) }))
     .sort((a, b) => a.agent.localeCompare(b.agent));
 
@@ -120,6 +140,8 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
     standstills,
     standstillCalls: inWindow.filter((event) => event.kind === "standstill").length,
     starts,
+    reports,
+    restarts,
     ownTurns,
     reconciled: inWindow.filter((event) => event.kind === "reconciled").length,
     merged: input.merged.filter((pr) => pr.baseRefName === input.base && within(pr.mergedAt)),
@@ -136,7 +158,7 @@ export function render(project: string, base: string, metrics: FactoryMetrics): 
   const anomalies = [
     ...(metrics.interventions.messages + metrics.interventions.typedTurns > 0 ? [`The person stepped in ${metrics.interventions.messages + metrics.interventions.typedTurns} times.`] : []),
     ...metrics.standstills.map((still) => `Stood still ${minutes(still.to - still.from)} minutes (${clock(still.from)} to ${clock(still.to)}).`),
-    ...metrics.starts.filter((row) => row.anomaly).map((row) => `${row.agent}: of ${row.starts} runs, ${row.failed} failed or stopped before the task and ${row.lost} ended without a HANDOFF.`),
+    ...metrics.starts.filter((row) => row.anomaly).map((row) => `${row.agent}: of ${row.starts} runs, ${row.failed} failed or stopped before the task and ${row.lost} ended without a report.`),
   ];
   const standstillTotal = metrics.standstills.reduce((sum, still) => sum + (still.to - still.from), 0);
   return [
@@ -153,13 +175,20 @@ export function render(project: string, base: string, metrics: FactoryMetrics): 
     `- The person stepped in: ${metrics.interventions.messages} messages through the fleet, ${metrics.interventions.typedTurns} turns typed into the coordinator's pane`,
     `- Stood still: ${metrics.standstills.length} times, ${minutes(standstillTotal)} minutes in all; the coordinator was called ${metrics.standstillCalls} times`,
     `- Threads closed against GitHub: ${metrics.reconciled}`,
+    `- Lead runs the fleet restarted on another CLI: ${metrics.restarts.started} (${metrics.restarts.failed} could not start); replacements that later reported ready: ${metrics.restarts.ready}`,
     `- Turns an agent started by itself: ${Object.entries(metrics.ownTurns).map(([role, count]) => `${role} ${count}`).join(", ") || "none"}`,
     "",
     "## Starts per agent",
     "",
-    "| Agent | Starts | Failed or stopped before the task | Ended without a HANDOFF |",
+    "| Agent | Starts | Failed or stopped before the task | Ended without a report |",
     "|---|---|---|---|",
     ...(metrics.starts.length ? metrics.starts.map((row) => `| ${row.agent} | ${row.starts} | ${row.failed} | ${row.lost}${row.anomaly ? " (anomaly)" : ""} |`) : ["| none | 0 | 0 | 0 |"]),
+    "",
+    "## Reports",
+    "",
+    "| Agent | Turns that ended | Without a report |",
+    "|---|---|---|",
+    ...(metrics.reports.length ? metrics.reports.map((row) => `| ${row.agent} | ${row.turns} | ${row.none} |`) : ["| none | 0 | 0 |"]),
     "",
     "## Output",
     "",
