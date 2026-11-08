@@ -928,41 +928,79 @@ fn keeps_8_codex_live_turns() {
     assert!(*dropped >= size(&paths[0]), "{dropped}");
 }
 
-// The parses of Codex live turns read 2 × 16 MB together at most (`:779-783`): of three tasks of
-// 11 MB, two are kept.
+// The parses of Codex live turns read 2 × 16 MiB together at most (`:779-783`), checked just
+// below and just above it. Each rollout is one task from its first byte, so its live turn's
+// parse has read the whole file: two rollouts 4 KiB short of 2 × 16 MiB together are both kept,
+// also after an append to each; with a third of 8 KiB, the oldest is dropped.
 #[test]
 fn keeps_codex_live_turns_that_read_two_windows_together() {
     let (root, _cleanup) = folder();
-    let padding = format!(
-        "{}\n",
-        json!({ "type": "response_item", "payload": { "type": "padding", "text": "z".repeat(1024 * 1024) } })
-    );
-    let paths: Vec<PathBuf> = (0..3)
-        .map(|at| {
-            let path = root.join(format!("rollout-{at}.jsonl"));
-            append(&path, &codex_line("task_started", ""));
-            while size(&path) < 11 * 1024 * 1024 {
-                append(&path, &padding);
-            }
-            path
-        })
-        .collect();
-    assert!(3 * size(&paths[0]) > 2 * WINDOW && 2 * size(&paths[1]) <= 2 * WINDOW);
-    let files: Vec<FileSource> = paths.iter().map(|path| codex(&root, path)).collect();
+    let rollout = |name: &str, target: u64| {
+        let path = root.join(name);
+        append(&path, &codex_line("task_started", ""));
+        grow_to(&path, target);
+        path
+    };
+    let paths = [
+        rollout("rollout-0.jsonl", WINDOW - 2048),
+        rollout("rollout-1.jsonl", WINDOW - 2048),
+        rollout("rollout-2.jsonl", 8192),
+    ];
     let line = codex_line("agent_message", "one more step");
-    let transcripts = no_catalog();
-    let reads = read_again_in_reverse(&transcripts, &files, || {
-        for path in &paths {
+    let appended = line.len() as u64;
+    let bound = 2 * appended + 4 * TAIL;
+    let append_to_each = |paths: &[PathBuf]| {
+        for path in paths {
             append(path, &line);
         }
-    });
+    };
+
+    // below: the two read 2 × 16 MiB − 4 KiB, and 2 × the append more
+    let files: Vec<FileSource> = paths[..2].iter().map(|path| codex(&root, path)).collect();
+    let transcripts = no_catalog();
+    let reads = read_again_in_reverse(&transcripts, &files, || append_to_each(&paths[..2]));
+    assert!(
+        reads.iter().all(|read| *read <= bound),
+        "{reads:?}, at most {bound}"
+    );
+    assert!(size(&paths[0]) + size(&paths[1]) <= 2 * WINDOW);
+
+    // above: with the third, they read 8 KiB past 2 × 16 MiB, and the first goes
+    let files: Vec<FileSource> = paths.iter().map(|path| codex(&root, path)).collect();
+    let transcripts = no_catalog();
+    let total: u64 = paths.iter().map(|path| size(path)).sum();
+    assert!(total > 2 * WINDOW && total - (size(&paths[0])) <= 2 * WINDOW);
+    let reads = read_again_in_reverse(&transcripts, &files, || append_to_each(&paths));
     let (dropped, kept) = reads.split_last().expect("3 reads");
-    let bound = 2 * line.len() as u64 + 4 * TAIL;
     assert!(
         kept.iter().all(|read| *read <= bound),
         "{kept:?}, at most {bound}"
     );
-    assert!(*dropped >= size(&paths[0]), "{dropped}");
+    assert!(*dropped >= size(&paths[0]) - appended, "{dropped}");
+}
+
+/// Appends padding records that Codex shows nothing of to `path` until it is `target` bytes long:
+/// records of 1 MiB of text while one more still leaves room for a record, then one of the rest.
+fn grow_to(path: &Path, target: u64) {
+    let padding = |length: u64| {
+        format!(
+            "{}\n",
+            json!({ "type": "response_item", "payload": { "type": "padding", "text": "z".repeat(length as usize) } })
+        )
+    };
+    let empty = padding(0).len() as u64;
+    const CHUNK: u64 = 1024 * 1024;
+    loop {
+        let left = target - size(path);
+        if left >= 2 * empty + CHUNK {
+            append(path, &padding(CHUNK));
+        } else {
+            assert!(left >= empty, "{left} bytes left, less than a record");
+            append(path, &padding(left - empty));
+            break;
+        }
+    }
+    assert_eq!(size(path), target);
 }
 
 // The files' rewrite generations (`transcriptRevisions`, `:478`), 64: a file rewritten shorter in
