@@ -2537,6 +2537,14 @@ describe("merge authority", () => {
     expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")!.ok).toBe(false);
   });
 
+  it("take no review from a reviewer turn that ended without a report", async () => {
+    const { fleet, registry, turn } = project();
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo" });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+    await turn(reviewer, "idle");
+    expect(registry.get(reviewer.id)!.reviewClean).toBeUndefined();
+  });
+
   it("let a merge the gate allowed wait for a live coordinator rather than start one, and never send it beside a merge the person pressed", async () => {
     const { fleet, registry, runtime, git, turn, to, reviewed } = project();
     const { coordinator, thread } = await reviewed();
