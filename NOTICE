@@ -37,3 +37,19 @@ sent) adapt qa-guide from claude_qamods, Copyright (c) 2026 aieo-product, licens
 under the MIT License.
 
 Source:      https://github.com/aieo-product/claude_qamods/tree/main/plugins/qa-guide
+
+rust/crates/screen/src/text/width.rs and rust/crates/screen/src/text/width/table.rs copy
+Bun.stringWidth of Bun 1.4.4 (tag bun-v1.4.4, commit 38afee6c84fcf48c0edb2466aa4b27d287a59c30),
+licensed under the MIT License: the grapheme break rules (which Bun ported from uucode), the
+grapheme widths of GraphemeState, the characters Bun counts in bulk runs, and the table of
+src/jsc/bindings/stringWidthTables.h, rewritten as runs of code points. The escape sequence
+reader in rust/crates/screen/src/text.rs follows consumeANSI (src/jsc/bindings/ANSIHelpers.h)
+of the same version.
+
+Source:      https://github.com/oven-sh/bun/tree/bun-v1.4.4
+
+Bun generated that table from the Unicode Character Database 17.0.0 (EastAsianWidth.txt,
+extracted/DerivedGeneralCategory.txt, emoji/emoji-data.txt), © 2025 Unicode, Inc., licensed
+under the Unicode License v3 (https://www.unicode.org/license.txt).
+
+Source:      https://www.unicode.org/Public/17.0.0/ucd/
