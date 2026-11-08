@@ -1,5 +1,5 @@
 {
-  "about": "agy 1.5.3 started with agentMode auto in --settings, ready for its first prompt: no question (screen read from the CLI and laid out by hand)",
+  "about": "agy 1.5.3 started with agentMode auto in --settings, ready for its first prompt: no question (read through herdr as the fleet reads it, from the logo down; the auto mode's hint sits in the input)",
   "adapter": "agy",
   "check": "question",
   "expected": null
