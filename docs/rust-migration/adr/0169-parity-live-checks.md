@@ -11,7 +11,7 @@ Issue #169 で、`main` にだけあった TypeScript の変更を `rust` に取
 
 `0122-parity-criteria` の「parity.md」は、手で走らせる検査として `scripts/opencode-live-check.ts` と `scripts/pty-compare.ts` の 2 つだけを名前で挙げている。`scripts/parity.ts` の glob も同じ 2 つの名前で、`scripts/agy-live-check.ts` は行にならない。行にしないと、段階 7 の完了条件「parity.md の全行に引き継ぎ先がある」がこの検査を問わず、Rust 版の agy の adapter を実物で確かめる手段がないまま切り替えに進みうる。
 
-`scripts/opencode-live-check.ts` と `scripts/agy-live-check.ts` は、どちらも実物の CLI を隔離して起動し、fleet が渡す設定と adapter の判定を確かめる検査で、モデルを呼ばず、unit の検査に入っていない。違いは確かめる CLI だけである。
+`scripts/opencode-live-check.ts` と `scripts/agy-live-check.ts` には、共通点が 3 つある: 実物の CLI を起動して fleet の設定や判定を確かめる、モデルを呼ばない、unit の検査に入っていない。確かめることと隔離の範囲は違う。`scripts/opencode-live-check.ts` は、HOME と XDG_* を空のフォルダーに向けて `opencode serve` を起動し、script が模擬のモデルとしてツール呼び出しを渡して、権限の規則、fleet-guard、あとに残ったものを確かめる。`scripts/agy-live-check.ts` は、サインインに要るので利用者の HOME のままで agy を起動し、プロンプトは送らずに、起動の画面、agy のログ、利用者の `settings.json` が変わらないことを確かめる(それぞれの script の冒頭のコメント)。
 
 ADR の README は、前の決定を変えるときは新しい ADR を書き、前の ADR は書き換えないと決めている。
 
@@ -35,6 +35,7 @@ ADR の README は、前の決定を変えるときは新しい ADR を書き、
 
 - `scripts/` に `-live-check.ts` で終わる名前の script を足すと、`bun scripts/parity.ts` がその行の欠けを報告する。手で走らせる検査は、この名前で足す
 - parity.md の行は 220 になる(取り込みで足した `scripts/factory-report.test.ts` と `scripts/agy-live-check.ts` の 2 行)
+- 取り込んだ `server/fleet/adapters.test.ts` の 3 件の `it` は、どの corpus の件の `about` にも名前が出ないので、parity.md の「一部だけが移ったファイル」の残った部分に足した(33 件から 36 件)。`scripts/parity.ts` は残った部分の内訳を調べないので、件数と名前は `it` の一覧と手で突き合わせた
 
 ## 確かめたこと
 

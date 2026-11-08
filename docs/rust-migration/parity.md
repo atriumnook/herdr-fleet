@@ -148,7 +148,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/explain.test.ts` | 安全上の判定の表 | 20 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/file-view.test.ts` | 安全上の判定の表 | 8 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/files.test.ts` | HTTP/WS の契約 | 5 件の `it`(下の「一部だけが移ったファイル」) |
-| `server/fleet/adapters.test.ts` | 画面の corpus、安全上の判定の表 | 33 件の `it`(下の「一部だけが移ったファイル」) |
+| `server/fleet/adapters.test.ts` | 画面の corpus、安全上の判定の表 | 36 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/fleet/agents.test.ts` | | |
 | `server/fleet/api.test.ts` | | |
 | `server/fleet/brief.test.ts` | | |
@@ -443,7 +443,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - 画面の corpus: 17 件の `it`(コミット `e486a83` で corpus の件にし、このファイルから消した)
 - 安全上の判定の表: 1 件の `it`
 
-残った部分(33 件。引き継ぎ先は未定):
+残った部分(36 件。引き継ぎ先は未定。`takes the model and effort, with instructions in the first prompt` のすぐあとの 3 件は、Issue #169 で main から取り込んだ `it`):
 
 - launches with the model at its thinking level, the role's tools, a fleet name and the instruction file
 - keeps a :level the model already carries
@@ -461,6 +461,9 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - reads the pager as cursor-agent 2026.09.23 drew it under ja_JP
 - reads the narrow layout, a reset date in the next year, and nothing before the pager shows
 - takes the model and effort, with instructions in the first prompt
+- leaves the level to a model id that names one, as agy drops such a model given --effort as well
+- trusts the run's own folder and runs in auto mode in the sandbox, for the session only
+- refuses a force push and a push that deletes a remote branch, and lets an ordinary push through
 - starts the TUI standalone and takes everything else in its config: no model flag, no thinking level, instructions in the first prompt
 - never writes an ask, and never allows everything
 - is the default agent, with its rules and the guard plugin of this pane alone
