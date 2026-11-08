@@ -64,9 +64,9 @@ export interface IssueSummary { number: number; title: string; createdAt: string
 
 async function ghJson<T>(repo: string, args: string[]): Promise<T> {
   let listed: Awaited<ReturnType<typeof gh>>;
-  try { listed = await gh(repo, args); } catch { throw new Error("The gh command is not installed."); }
-  if (!listed.ok) throw new Error(listed.error || `gh ${args.slice(0, 2).join(" ")} failed`);
-  return JSON.parse(listed.output) as T;
+  try { listed = await gh(repo, args); } catch (error) { throw new Error(`The gh command could not be run: ${error instanceof Error ? error.message : String(error)}`); }
+  if (!listed.ok) throw new Error(listed.error || `gh ${args.slice(0, 2).join(" ")} failed or timed out.`);
+  try { return JSON.parse(listed.output) as T; } catch { throw new Error(`gh ${args.slice(0, 2).join(" ")} answered something other than JSON.`); }
 }
 
 /** The repository's merged pull requests, the latest 200. */
