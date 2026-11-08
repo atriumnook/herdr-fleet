@@ -56,7 +56,7 @@ Rust 版が正しいかは、エージェントの判断ではなく、次の基
 
 ### 段階 1: 一致を確かめる基準を揃える(TypeScript の側)
 
-- 上の表の「段階 1 で作る」をすべて作り、TypeScript 版で通す。作るのは `rust` ブランチの中だけ(main は変えない)
+- 上の表の会話ログの corpus、fleet CLI の契約、HTTP/WS の契約、安全上の判定の表をすべて作り、TypeScript 版で通す。作るのは `rust` ブランチの中だけ(main は変えない)
 - HTTP/WS の契約は、サーバーの起動の仕方(TypeScript か Rust か)を引数で選べるようにする
 - `docs/rust-migration/parity.md` に、TypeScript の全テストファイルを並べ、引き継ぎ先の欄を作る
 - 完了条件: すべての基準が TypeScript 版で通る。parity.md に全テストファイルがある
