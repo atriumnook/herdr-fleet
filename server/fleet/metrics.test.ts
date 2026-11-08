@@ -139,6 +139,11 @@ describe("factory metrics", () => {
     const counted = metrics({ events: log, project: P, base: "rust", from: 0, to: 10 * MIN, quietMs: 15 * MIN, merged: [], issues: [] });
     expect(counted.reports).toEqual([{ agent: "claude", turns: 2, none: 1 }, { agent: "codex", turns: 2, none: 1 }]);
     expect(counted.restarts).toEqual({ started: 1, failed: 1, ready: 1 });
+    // l1's last turn left no report: a lead counts now that leads report, as l3 failed does
+    expect(counted.starts).toEqual([
+      { agent: "claude", starts: 3, failed: 0, lost: 1, anomaly: false },
+      { agent: "codex", starts: 2, failed: 0, lost: 1, anomaly: false },
+    ]);
     const text = render(P, "rust", counted);
     expect(text).toContain("- Lead runs the fleet restarted on another CLI: 1 (1 could not start); replacements that later reported ready: 1");
     expect(text).toContain("| Agent | Turns that ended | Without a report |");

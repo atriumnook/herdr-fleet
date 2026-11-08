@@ -126,6 +126,8 @@ describe("the projects, their threads and the run open in the Overview", () => {
     const rows = model.threadGroups.flatMap((group) => group.rows);
     expect(rows.map((row) => [row.id, row.selected])).toEqual([["t2", true]]);
     expect(model.open).toMatchObject({ runId: "t2", agent: "codex" });
+    // the run it took over from is not one of the thread's agents
+    expect(model.open!.members.map((member) => member.runId)).toEqual([null]);
   });
 
   it("asks for a project's first message while no coordinator lives there", () => {

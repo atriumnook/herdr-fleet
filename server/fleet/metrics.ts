@@ -106,16 +106,17 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
       else ownTurns[event.role] = (ownTurns[event.role] ?? 0) + 1;
     }
   }
-  // a run without a report, its start not counted already: one that failed, or a helper whose last
-  // turn left none (its pane kept) or that ended in the middle of one. A lead stopped without one is
-  // not counted: the fleet closes a landed thread, the person stops one. Events written before
-  // reports say only whether a HANDOFF was there.
+  // a run without a report, its start not counted already: one that failed, one whose last turn left
+  // none (a helper's pane is kept; a lead's thread starts again), or a helper that ended in the middle
+  // of one. A lead stopped mid-turn is not counted: the fleet closes a landed thread, the person stops
+  // one. Events written before reports say only whether a HANDOFF was there, and a lead then ended
+  // turns to wait without one.
   for (const event of last.values()) {
     if (event.role === "coordinator" || startFailed.has(event.run)) continue;
     const end = turnEnd.get(event.run);
     const interactive = event.interactive ?? end?.interactive ?? false;
     const unreported = end ? (end.report !== undefined ? end.report === "none" : !end.handoff) : event.to === "stopped";
-    if (event.to === "failed" || (!interactive && unreported)) entryOf(event.agent).lost += 1;
+    if (event.to === "failed" || ((!interactive || end?.report !== undefined) && unreported)) entryOf(event.agent).lost += 1;
   }
   const reportsByAgent = new Map<string, { turns: number; none: number }>();
   for (const event of inWindow) {

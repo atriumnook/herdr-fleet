@@ -1,4 +1,4 @@
-import { modelListed, needsPerson, outcomeLine, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type LandAction, type LineComment, type ModelListing, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
+import { currentLead, modelListed, needsPerson, outcomeLine, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type LandAction, type LineComment, type ModelListing, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import { parseDiff, type DiffLine } from "./diff.ts";
 import { isEnded, planDraft, type ConfirmedStep, type PlanDraft, type ThreadTab, type UiState } from "./state.ts";
@@ -491,17 +491,6 @@ export function projectsOf(state: Pick<UiState, "runs" | "fleetView">): { list: 
   return { list, selected };
 }
 
-/** The run that leads a thread now: `id`, or the lead that took the thread over from it. */
-function currentLead(runs: AgentRun[], id: string): AgentRun | undefined {
-  let run = runs.find((candidate) => candidate.id === id);
-  for (let hops = 0; run?.role === THREAD_ROLE && run.replacedBy && hops < 32; hops++) {
-    const next = runs.find((candidate) => candidate.id === run!.replacedBy);
-    if (!next) break;
-    run = next;
-  }
-  return run;
-}
-
 function threadRow(run: AgentRun, selected: boolean, fleet: Pick<FleetState, "plan">): ThreadRowModel {
   const state = threadState(run);
   const report = run.outcome?.report;
@@ -521,7 +510,8 @@ function openRun(runs: AgentRun[], view: UiState["fleetView"], fleet: FleetState
   const open = view.open;
   const run = !open ? undefined : open.kind === "thread" ? currentLead(runs, open.runId) : runs.find((candidate) => candidate.id === open.runId);
   if (!open || !run) return null;
-  const helpers = open.kind === "thread" ? runs.filter((other) => other.group === run.group && other.id !== run.id) : [];
+  // the thread's agents: its helpers, not the lead runs it outlived
+  const helpers = open.kind === "thread" ? runs.filter((other) => other.group === run.group && other.id !== run.id && !(other.role === THREAD_ROLE && other.replacedBy)) : [];
   const member = open.member === null ? undefined : helpers.find((helper) => helper.id === open.member);
   const shown = member ?? run;
   const state = open.kind === "thread" ? threadState(run) : undefined;
@@ -646,7 +636,7 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
     attention: comments.length > 0 || (prOpen && run.pr?.checks === "fail") || run.landing?.error !== undefined,
     confirm: confirm ? {
       action: confirm.action, running: confirm.status === "running", ...(confirm.error ? { error: confirm.error } : {}),
-      worktree: `${run.project}/.herdr-fleet/worktrees/${run.id}`, ...(checks ? { ahead: checks.ahead } : {}),
+      worktree: `${run.project}/.herdr-fleet/worktrees/${run.thread ?? run.id}`, ...(checks ? { ahead: checks.ahead } : {}),
     } : null,
   };
 }

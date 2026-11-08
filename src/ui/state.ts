@@ -1,4 +1,4 @@
-import type { AgentRun, FleetEntrance, FleetEntrances, FleetSettings, ModelListing, FleetSettingsPatch, LandAction, LandingChecks, LineComment, UsageEntry } from "../../shared/fleet.ts";
+import { currentLead, type AgentRun, type FleetEntrance, type FleetEntrances, type FleetSettings, type ModelListing, type FleetSettingsPatch, type LandAction, type LandingChecks, type LineComment, type UsageEntry } from "../../shared/fleet.ts";
 import { planOpen, type Plan, type PlanAnswer } from "../../shared/plan.ts";
 import type { SideChatSnapshot } from "../../shared/side-chat.ts";
 import { LOCAL_MACHINE, paneStorageId, type Machine } from "../../shared/machines.ts";
@@ -1735,6 +1735,12 @@ function transitionOnly(state: UiState, event: UiEvent): Transition {
       const open = state.fleetView.open;
       const gone = open !== null && !event.runs.some((run) => run.id === open.runId);
       if (gone) return next({ runs, fleetView: { ...state.fleetView, open: null, expanded: false, tab: "chat" }, landing: readLanding(state.landing, { ...state.fleetView, open: null }, effects), plan: readPlan(state.plan, { ...state.fleetView, open: null }, effects) });
+      // a thread outlives its lead runs: one open on a lead that another run took over follows it there
+      const lead = open?.kind === "thread" ? currentLead(event.runs, open.runId) : undefined;
+      if (open && lead && lead.id !== open.runId) {
+        const fleetView = { ...state.fleetView, open: { ...open, runId: lead.id, member: open.member === open.runId ? null : open.member } };
+        return next({ runs, fleetView, landing: readLanding(state.landing, fleetView, effects), plan: readPlan(state.plan, fleetView, effects) });
+      }
       // the open thread moved on (its lead's turn ended, a pull request, a step): its change and checks are read again
       const before = open?.kind === "thread" ? state.runs.data.find((run) => run.id === open.runId) : undefined;
       const after = open?.kind === "thread" ? event.runs.find((run) => run.id === open.runId) : undefined;

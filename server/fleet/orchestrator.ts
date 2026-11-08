@@ -673,9 +673,11 @@ export class Orchestrator {
   // ---- turns -------------------------------------------------------------------------------
 
   async send(target: string, message: string, group?: string, signal?: AbortSignal): Promise<AgentRun> {
-    const run = this.get(target, group);
-    // a settlement still being handled (the fleet may be reading the usage in the pane) finishes first
-    await this.reconcileLocks.get(run.id);
+    const asked = this.get(target, group);
+    // a settlement still being handled (the fleet may be reading the usage in the pane, or starting a
+    // thread's next lead run) finishes first; the run it leaves to talk to is read after it
+    await this.reconcileLocks.get(asked.id);
+    const run = this.get(asked.id, group);
     if (!isLive(run)) throw new FleetError("run_ended", `${run.name} has ${run.state}; start a new agent instead.`);
     return this.submit(run, message, signal);
   }
@@ -752,6 +754,7 @@ export class Orchestrator {
     if (LEAD_STEPS.has(action)) {
       if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
       await this.reconcileLocks.get(run.id);
+      if (run.replacedBy) throw replaced(run);
       if (this.pending.has(run.id)) throw new FleetError("run_busy", `The lead of ${run.name} is working; wait for its turn to end.`);
       run.landing = { action, at: Date.now(), sent: true };
       this.save(run);
@@ -825,6 +828,7 @@ export class Orchestrator {
     if (plan.closedAt !== undefined) throw new FleetError("plan_closed", `The lead of ${run.name} went on without answers to version ${plan.version} of its plan.`);
     if (!isLive(run)) throw new FleetError("run_ended", `The lead of ${run.name} has ${run.state}.`);
     await this.reconcileLocks.get(run.id);
+    if (run.replacedBy) throw replaced(run);
     if (this.pending.has(run.id)) throw new FleetError("run_busy", `The lead of ${run.name} is working; wait for its turn to end.`);
     // the turn is under way before anything awaits again, so a second answer finds the lead busy;
     // the plan counts as answered once the message reached the lead
@@ -1126,9 +1130,7 @@ export class Orchestrator {
     this.generations.set(run.id, generation);
     const pending: PendingTurn = { armed: false, blockedReported: false, generation, sawWorking: false, text };
     this.pending.set(run.id, pending);
-    // a result file and a report found when the turn settles are this turn's
-    rmSync(this.resultFile(run), { force: true });
-    rmSync(join(this.resultDir(run), REPORT_FILE), { force: true });
+    this.clearTurnFiles(run);
     const instructions = this.undelivered(run);
     try {
       const submitted = await this.deps.runtime.prompt(run.herdrName, instructions ? `${instructions}\n\n## Task\n\n${text}` : text, signal);
@@ -1164,6 +1166,12 @@ export class Orchestrator {
       this.save(run);
       return { ...run };
     }
+  }
+
+  /** A turn starts: a result file and a report found when it settles are this turn's. */
+  private clearTurnFiles(run: AgentRun): void {
+    rmSync(this.resultFile(run), { force: true });
+    rmSync(join(this.resultDir(run), REPORT_FILE), { force: true });
   }
 
   // ---- the threads' questions, for their project's coordinator -------------------------------
@@ -1282,6 +1290,8 @@ export class Orchestrator {
         const current = await this.observed(run, reported);
         if (!isLive(run)) return;
         const previous = run.state;
+        // a turn the fleet did not send starts (a helper's result woke the agent, or the person typed)
+        if (!pending && current === "working" && (isCompleted(previous) || previous === "blocked")) this.clearTurnFiles(run);
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
@@ -1308,9 +1318,13 @@ export class Orchestrator {
     this.dropPending(run.id);
     const config = this.deps.config(run.cwd);
     await this.readTurn(run, config);
-    if (isThread(run)) {
-      this.closeStalePlan(run, pending);
-      await this.settleThreadTurn(run, config);
+    // a thread whose lead run failed or left no report goes on in a new run first: what the turn
+    // leaves undone (a landing step, an open plan, the coordinator's news) is the new run's
+    const restartError = needsRestart(run) ? await this.restartThread(run, pending.text) : undefined;
+    if (isThread(run) && !run.replacedBy) {
+      // a lead taking a thread over starts with the thread's plan still open
+      if (!(pending.generation === 1 && run.thread)) this.closeStalePlan(run, pending);
+      await this.settleThreadTurn(run, config, restartError);
     }
     run.updatedAt = Date.now();
     this.save(run);
@@ -1318,9 +1332,8 @@ export class Orchestrator {
     if (isCompleted(run.state)) await this.readUsageScreen(run, config);
     const plan = this.spawnPlans.get(run.id);
     this.spawnPlans.delete(run.id);
-    // a thread goes on in a new run of its lead; a helper's first turn on the next configured model
-    if (needsRestart(run)) await this.restartThread(run, pending.text);
-    else if (run.state === "failed" && plan && pending.generation === 1) await this.respawn(run, plan);
+    // a helper's failed first turn starts again on the next configured model (a thread's, in a new lead run above)
+    if (!isThread(run) && run.state === "failed" && plan && pending.generation === 1) await this.respawn(run, plan);
     this.settleWaiters(run);
     await this.closeOnSettle(run, config);
     if (run.notice) void this.tellCoordinator(run);
@@ -1350,8 +1363,11 @@ export class Orchestrator {
     }
   }
 
-  /** A thread's settled turn: its contract, its change and its pull request, and what its coordinator hears. */
-  private async settleThreadTurn(run: AgentRun, config: FleetConfig): Promise<void> {
+  /**
+   * A thread's settled turn: its contract, its change and its pull request, and what its coordinator
+   * hears, with why the thread could not start again when it could not.
+   */
+  private async settleThreadTurn(run: AgentRun, config: FleetConfig, restartError?: string): Promise<void> {
     const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
     run.contract = contract ? contractItems(contract) : undefined;
     const base = run.baseBranch ?? run.base;
@@ -1364,6 +1380,7 @@ export class Orchestrator {
       if (config.autonomous && reading?.state === "MERGED" && !run.landed) await this.mergedOnGitHub(run as AgentRun & { project: string; branch: string }, reading);
     }
     run.notice = threadQuestion(run) ?? (config.autonomous ? threadTurnEnded(run) : undefined);
+    if (run.notice && restartError) run.notice = `${run.notice}\n  The fleet could not start the thread again on another CLI: ${restartError}`;
   }
 
   /**
@@ -1375,10 +1392,10 @@ export class Orchestrator {
     const config = this.deps.config(run.cwd);
     if (!config.autonomous) return;
     await this.readTurn(run, config);
-    await this.settleThreadTurn(run, config);
+    const restartError = needsRestart(run) ? await this.restartThread(run) : undefined;
+    if (!run.replacedBy) await this.settleThreadTurn(run, config, restartError);
     run.updatedAt = Date.now();
     this.save(run);
-    if (needsRestart(run)) await this.restartThread(run);
     this.settleWaiters(run);
     if (run.notice) void this.tellCoordinator(run);
   }
@@ -1390,9 +1407,10 @@ export class Orchestrator {
    * what happened, where the run before left its handoff, contract and report, and to check before
    * repeating an outside action; the thread's task and the fleet's last message follow. Once it has
    * the task, the old run's pane closes, so one lead works in the worktree. The coordinator hears
-   * nothing of a restart, only of one that could not start, with the turn's usual news.
+   * nothing of a restart, only of one that could not start, with the turn's usual news: this returns
+   * why it could not.
    */
-  private async restartThread(run: AgentRun, lastMessage?: string): Promise<void> {
+  private async restartThread(run: AgentRun, lastMessage?: string): Promise<string | undefined> {
     const why: "failed" | "no-report" = run.state === "failed" ? "failed" : "no-report";
     const avoid = [...new Set([...(run.avoid ?? []), run.agent])];
     const task = readResult(join(this.resultDir(run), TASK_FILE));
@@ -1411,14 +1429,15 @@ export class Orchestrator {
       if (isLive(run)) run.state = "stopped";
       this.dropPending(run.id);
       this.deps.events?.({ ...base, by: next.id, to: next.agent });
+      run.updatedAt = Date.now();
+      this.save(run);
+      return undefined;
     } catch (error) {
       if (isAbortError(error)) throw error;
       const reason = error instanceof Error ? error.message : String(error);
-      if (run.notice) run.notice = `${run.notice}\n  The fleet could not start the thread again on another CLI: ${reason}`;
       this.deps.events?.({ ...base, error: reason.slice(0, 200) });
+      return reason;
     }
-    run.updatedAt = Date.now();
-    this.save(run);
   }
 
   /**
@@ -1587,6 +1606,11 @@ export class Orchestrator {
 }
 
 const isThread = (run: AgentRun): boolean => run.role === THREAD_ROLE && run.project !== undefined;
+
+/** A message for a lead run that a new run took the thread over from while it was asked. */
+function replaced(run: AgentRun): FleetError {
+  return new FleetError("run_ended", `The lead of ${run.name} failed or left no report, and the fleet started the thread again as ${run.replacedBy}; press it again there.`);
+}
 
 /** A thread's id: its first lead run's, which names its worktree and branch, whichever run leads it now. */
 const threadId = (run: AgentRun): string => run.thread ?? run.id;

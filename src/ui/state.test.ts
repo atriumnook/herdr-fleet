@@ -156,6 +156,14 @@ describe("screens and the Fleet screen's view", () => {
     expect(play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-project", project: "/other" }], withRuns).state.fleetView).toMatchObject({ project: "/other", open: null });
   });
 
+  it("follows an open thread to the lead run that took it over, and reads its change and plan from that run", () => {
+    const changes = play([{ type: "fleet-open", kind: "thread", runId: "a" }, { type: "fleet-tab", tab: "changes" }], withRuns).state;
+    const moved = play([{ type: "runs-loaded", runs: [run("a", { role: "lead", state: "stopped", replacedBy: "a2" }), run("a2", { role: "lead", thread: "a" })] }], changes);
+    expect(moved.state.fleetView.open).toEqual({ kind: "thread", runId: "a2", member: null });
+    expect(moved.state.landing.runId).toBe("a2");
+    expect(moved.effects).toContainEqual({ kind: "load-landing-diff", runId: "a2" });
+  });
+
   it("reads the open thread's change and checks when their tab shows, again when the thread moves on, and drops answers for another thread", () => {
     const opened = play([{ type: "fleet-open", kind: "thread", runId: "a" }], withRuns).state;
     const changes = play([{ type: "fleet-tab", tab: "changes" }], opened);

@@ -230,6 +230,17 @@ export function contractItems(text: string): ContractItem[] {
   }));
 }
 
+/** The run that leads a thread now: `id`, or the lead run that took the thread over from it (`replacedBy`). */
+export function currentLead(runs: readonly AgentRun[], id: string): AgentRun | undefined {
+  let run = runs.find((candidate) => candidate.id === id);
+  for (let hops = 0; run?.role === "lead" && run.replacedBy && hops < 32; hops++) {
+    const next = runs.find((candidate) => candidate.id === run!.replacedBy);
+    if (!next) break;
+    run = next;
+  }
+  return run;
+}
+
 /** Where a thread stands: herdr's state of its lead, and once a turn settled, what it reported. */
 export function threadState(run: AgentRun): ThreadState {
   const working = run.state === "starting" || run.state === "working" || run.state === "unknown";

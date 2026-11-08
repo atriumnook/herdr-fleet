@@ -1187,6 +1187,75 @@ describe("a thread outlives its lead run", () => {
     expect(registry.get(first.id)!.landed).toBeUndefined();
   });
 
+  it("reads no report from a turn its lead started itself and ended without one, though the turn before left one", async () => {
+    const { fleet, registry, turn, report } = thread({ config: { autonomous: true } });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    report(first, { state: "waiting", summary: "Waiting for the helper.", evidence: [] });
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+    // the helper's result wakes the lead: the fleet sent nothing, and this turn writes no report
+    await turn(first, "working");
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.outcome).toEqual({ report: null, problem: "report.json is missing." });
+    expect(registry.get(first.id)!.replacedBy).toBeDefined();
+  });
+
+  it("hands a landing step its lead did not finish to the new run, unjudged, and judges it when that run's turn ends", async () => {
+    const git = { pr: null as Record<string, unknown> | null };
+    const { fleet, registry, turn, report, promptsTo } = thread({ landing: { gitBranch: async () => "main", readPullRequest: async () => git.pr as never } });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    report(first, { state: "ready", summary: "Fixed.", evidence: [] });
+    await turn(first, "idle");
+    await fleet.land(first.id, "pr");
+    // the lead's turn ends without a report, and without the pull request
+    await turn(first, "idle");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(next.landing).toMatchObject({ action: "pr", sent: true });
+    expect(next.landing!.error).toBeUndefined();
+    expect(promptsTo(next)[0]).toContain("The fleet's last message to the run before:\n\n[fleet] The person pressed Create PR");
+    git.pr = { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "pending", head: "c0ffee" };
+    report(next, { state: "ready", summary: "Opened #70.", evidence: [] });
+    await turn(next, "idle");
+    expect(registry.get(next.id)!.landing).toBeUndefined();
+    expect(registry.get(next.id)!.pr).toMatchObject({ number: 70, state: "OPEN" });
+  });
+
+  it("keeps a plan open across a restart: the new run's turn waiting on it does not close it", async () => {
+    const tree = mkdtempSync(join(tmpdir(), "fleet-plan-tree-"));
+    roots.push(tree);
+    mkdirSync(join(tree, "src"));
+    writeFileSync(join(tree, "src", "retry.ts"), "export const RETRIES = 3;\n");
+    const { fleet, runtime, registry, root, turn, report } = thread();
+    runtime.createLocationImpl = async (options) => ({ paneId: `w1:p${runtime.locations.length}`, cwd: options.worktree ? tree : options.cwd });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    fleet.submitPlan(first.id, { title: "Retry limit", claims: [{ text: "A failed send is tried three times.", exhibit: { kind: "code", path: "src/retry.ts", start: 1 } }] });
+    // the lead handed over its plan, then its turn ended without a report
+    await turn(first, "idle");
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(next.plan).toEqual({ version: 1, asks: 0 });
+    report(next, { state: "blocked", summary: "The plan waits for the person.", evidence: [], human_action: "Answer the plan in the Plan tab." });
+    await turn(next, "idle");
+    expect(registry.get(next.id)!.plan!.closedAt).toBeUndefined();
+    expect(fleet.plan(first.id).closedAt).toBeUndefined();
+    expect(JSON.parse(readFileSync(join(root, "fleet-plans", `${next.id}.json`), "utf8")).closedAt).toBeUndefined();
+  });
+
+  it("sends a message for the old run, made while the new run starts, to the new run", async () => {
+    const { fleet, runtime, registry, turn, promptsTo } = thread();
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    runtime.createLocationImpl = async (options) => { await gate; return { paneId: "w1:p9", cwd: options.cwd }; };
+    const settling = turn(first, "idle");
+    await until(() => runtime.locations.length === 2, "the new run's pane asked for");
+    const sent = fleet.send(first.id, "Also update the docs.");
+    release();
+    await settling;
+    const next = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect((await sent).id).toBe(next.id);
+    expect(promptsTo(next).at(-1)).toBe("Also update the docs.");
+  });
+
   it("tells the coordinator of a project run without the person nothing of a restart, and the replacement's turn as usual", async () => {
     const { fleet, registry, turn, report, promptsTo } = thread({ config: { autonomous: true } });
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
