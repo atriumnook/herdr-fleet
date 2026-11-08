@@ -86,6 +86,7 @@ Rust 版が正しいかは、エージェントの判断ではなく、次の基
 
 - macOS と Windows のビルドとパッケージ。各 OS での herdr とのつなぎ方の違いへの対応
 - workflow の macOS と Windows は、手動(`workflow_dispatch`)で、段階の関門と切り替えの前だけに走らせる。リポジトリが非公開の間は、Actions の無料枠の残りを確かめ、足りなければ走らせずに `blocked` の Issue にする
+- macOS と Windows の workflow(`.github/workflows/rust-cross.yml`)の trigger は、ADR `0111-cross-build` で決め、ADR `0120-cross-build-dispatch-only` が `workflow_dispatch` だけに決め直した。走らせる手順と、GitHub が起動を断ったときに `0111-cross-build` の `pull_request` の trigger を戻す手順も、`0120-cross-build-dispatch-only` にある
 - 完了条件: 3 つの OS でビルドとテストが通る
 
 ### 段階 7: 切り替えの準備
