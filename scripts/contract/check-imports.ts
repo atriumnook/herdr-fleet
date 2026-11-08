@@ -57,20 +57,24 @@ export function checkFile(file: string, source: string): string[] {
     .map((specifier) => `${file}: ${specifier === null ? "imports a module named at run time" : `imports "${specifier}", which a black-box test may not`}`);
 }
 
-const FOLDERS = "{server,scripts,src,shared,bin,e2e}";
 const hasMarker = (file: string) => readFileSync(resolve(REPO, file), "utf8").split("\n", 1)[0]!.trim() === MARKER;
+
+/** the files git tracks or would track (not ignored) that match `patterns`, in any folder, relative to the repository */
+function repositoryFiles(...patterns: string[]): string[] {
+  const listed = Bun.spawnSync(["git", "-c", "core.fsmonitor=false", "ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", ...patterns], { cwd: REPO });
+  if (!listed.success) throw new Error(`git ls-files failed: ${listed.stderr.toString()}`);
+  // a file deleted but still in the index is listed too
+  return [...new Set(listed.stdout.toString().split("\0").filter(Boolean))].filter((file) => existsSync(resolve(REPO, file))).sort();
+}
 
 /** the files that carry the marker, relative to the repository */
 export function markedFiles(): string[] {
-  const files = [...new Bun.Glob(`${FOLDERS}/**/*.{ts,tsx}`).scanSync({ cwd: REPO })];
-  return files.filter(hasMarker).sort();
+  return repositoryFiles("*.ts", "*.tsx").filter(hasMarker);
 }
 
-/** the contract tests that lack the marker, relative to the repository: every one git tracks or would track, in any folder */
+/** the contract tests that lack the marker, relative to the repository */
 export function unmarkedContractFiles(): string[] {
-  const listed = Bun.spawnSync(["git", "ls-files", "--cached", "--others", "--exclude-standard", "--", "*.contract.test.ts", "*.contract.test.tsx"], { cwd: REPO });
-  if (!listed.success) throw new Error(`git ls-files failed: ${listed.stderr.toString()}`);
-  return [...new Set(listed.stdout.toString().split("\n").filter(Boolean))].filter((file) => existsSync(resolve(REPO, file)) && !hasMarker(file)).sort();
+  return repositoryFiles("*.contract.test.ts", "*.contract.test.tsx").filter((file) => !hasMarker(file));
 }
 
 if (import.meta.main) {
