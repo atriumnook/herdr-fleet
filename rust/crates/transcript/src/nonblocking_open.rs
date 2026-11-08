@@ -52,16 +52,18 @@ pub(crate) fn open_regular_file(path: &Path) -> io::Result<(File, Metadata)> {
 }
 
 #[cfg(unix)]
-#[expect(
-    clippy::disallowed_methods,
-    reason = "custom_flags with O_NONBLOCK alone opens for reading only (ADR 0225-nonblocking-image-open)"
-)]
 fn open_without_waiting(path: &Path) -> io::Result<File> {
     use std::os::unix::fs::OpenOptionsExt as _;
-    std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(O_NONBLOCK)
-        .open(path)
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true);
+    // The exception covers this one statement: any other banned method in this function stays an
+    // error.
+    #[expect(
+        clippy::disallowed_methods,
+        reason = "custom_flags with O_NONBLOCK alone opens for reading only (ADR 0225-nonblocking-image-open)"
+    )]
+    options.custom_flags(O_NONBLOCK);
+    options.open(path)
 }
 
 /// Off unix there is no FIFO that opening a path waits on.
