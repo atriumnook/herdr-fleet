@@ -1,5 +1,5 @@
 {
-  "about": "server/conversation.test.ts: parseClaudeTranscript preserves array user text, including mixed tool results, without exposing bookkeeping\nThe page answers the Read call's output empty, where parseClaudeTranscript of the whole text answers \"result\": the tool_result shares its entry with a new prompt, which starts a turn, and the page parses the turns before it apart (#141)",
+  "about": "server/conversation.test.ts: parseClaudeTranscript preserves array user text, including mixed tool results, without exposing bookkeeping\nThe tool_result shares its entry with a new prompt: the entry answers the turn before it and starts no page, so the page keeps the Read call's output \"result\", as parseClaudeTranscript of the whole text does (#141)",
   "steps": [
     {
       "call": "page",
@@ -17,7 +17,7 @@
                 "name": "Read",
                 "summary": "Read",
                 "input": "{}",
-                "output": ""
+                "output": "result"
               }
             ]
           },
