@@ -1,5 +1,6 @@
 import { expect, it, spyOn } from "bun:test";
-import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { PtySession } from "./pty/session.ts";
@@ -57,6 +58,14 @@ process.stdin.on("data", chunk => {
       expect(seen.find((frame) => frame.type === "secret-result" && frame.id === 9)).toMatchObject({ ok: false, code: "input_not_ready" });
       expect(existsSync(resultFile)).toBe(false);
     } finally { rejectedWrite.mockRestore(); }
+    // the refused write left the pane free and wrote nothing of the value: the next secret goes through whole
+    socket.send(JSON.stringify({ type: "secret", id: 10, pane_id: pane, prompt: "Password:", secret: "fixture-value" }));
+    await until(() => seen.some((frame) => frame.type === "secret-result" && frame.id === 10));
+    expect(seen.find((frame) => frame.type === "secret-result" && frame.id === 10).ok).toBe(true);
+    await until(() => existsSync(resultFile));
+    const expected = "fixture-value\r";
+    expect(JSON.parse(readFileSync(resultFile, "utf8"))).toEqual({ hash: createHash("sha256").update(expected).digest("hex"), length: expected.length });
+    expect(JSON.stringify(seen)).not.toContain("fixture-value");
   } finally {
     socket?.close(); server.stop();
     if (workspace) await workspaceClose(workspace);
