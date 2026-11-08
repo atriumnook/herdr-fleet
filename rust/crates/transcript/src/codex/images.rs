@@ -156,15 +156,25 @@ pub(super) fn image_parts(entry: &Row) -> Vec<ImageRef> {
     values.into_iter().filter_map(image_part).collect()
 }
 
-/// The type the bytes of an image say they are.
+/// The type the bytes of an image say they are. The GIF and WebP signatures are compared as
+/// `Buffer.toString("ascii")` reads bytes: each without its high bit.
 fn image_type(bytes: &[u8]) -> Option<&'static str> {
+    let ascii = |range: std::ops::Range<usize>, text: &[u8]| {
+        bytes.get(range).is_some_and(|found| {
+            found.len() == text.len()
+                && found
+                    .iter()
+                    .zip(text)
+                    .all(|(byte, want)| byte & 0x7f == *want)
+        })
+    };
     if bytes.starts_with(&[137, 80, 78, 71, 13, 10, 26, 10]) {
         Some("image/png")
     } else if bytes.starts_with(&[255, 216, 255]) {
         Some("image/jpeg")
-    } else if bytes.starts_with(b"GIF87a") || bytes.starts_with(b"GIF89a") {
+    } else if ascii(0..6, b"GIF87a") || ascii(0..6, b"GIF89a") {
         Some("image/gif")
-    } else if bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+    } else if ascii(0..4, b"RIFF") && ascii(8..12, b"WEBP") {
         Some("image/webp")
     } else {
         None
@@ -187,12 +197,72 @@ fn resolve(cwd: &Path, value: &str) -> PathBuf {
     out
 }
 
-/// Opens a local image that is a regular file. `server/codex-images.ts` opens it with
-/// `O_NONBLOCK` and then checks it, so a FIFO the path names does not hold the read waiting for a
-/// writer; this crate opens files with no flags but reading (its `clippy.toml`, ADR
-/// 0107-crate-split), so the path is checked before it is opened, and the file again once open. A
-/// FIFO put in the file's place between the two still blocks the open.
+/// O_NONBLOCK where its value is known without libc, which this crate does not depend on.
+#[cfg(all(
+    target_os = "linux",
+    any(
+        target_arch = "x86_64",
+        target_arch = "x86",
+        target_arch = "aarch64",
+        target_arch = "arm",
+        target_arch = "riscv64",
+        target_arch = "powerpc64",
+        target_arch = "s390x",
+        target_arch = "loongarch64"
+    )
+))]
+const NONBLOCK: Option<i32> = Some(0o4000);
+#[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
+const NONBLOCK: Option<i32> = Some(0x0004);
+#[cfg(not(any(
+    all(
+        target_os = "linux",
+        any(
+            target_arch = "x86_64",
+            target_arch = "x86",
+            target_arch = "aarch64",
+            target_arch = "arm",
+            target_arch = "riscv64",
+            target_arch = "powerpc64",
+            target_arch = "s390x",
+            target_arch = "loongarch64"
+        )
+    ),
+    target_os = "macos",
+    target_os = "ios",
+    target_os = "freebsd"
+)))]
+const NONBLOCK: Option<i32> = None;
+
+/// Opens a local image for reading without waiting on a FIFO the path names: with `O_NONBLOCK`,
+/// as `server/codex-images.ts` opens it, and the caller checks the open file is a regular one.
+/// The flag lets a read return early; it opens nothing for writing, which is what the crate's ban
+/// on `custom_flags` keeps out (ADR 0107-crate-split). Where its value is not known here, a path
+/// that is not a regular file is refused before it is opened.
+#[cfg(unix)]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "O_NONBLOCK on a read-only open: the file is still opened for reading only"
+)]
 fn open_image(path: &Path) -> std::io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    let Some(flag) = NONBLOCK else {
+        return open_regular(path);
+    };
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(flag)
+        .open(path)
+}
+
+#[cfg(not(unix))]
+fn open_image(path: &Path) -> std::io::Result<File> {
+    open_regular(path)
+}
+
+/// Opens `path` once it is found to be a regular file. A FIFO put in its place between the two
+/// still blocks the open.
+fn open_regular(path: &Path) -> std::io::Result<File> {
     if !std::fs::metadata(path)?.is_file() {
         return Err(std::io::ErrorKind::InvalidInput.into());
     }
@@ -271,6 +341,22 @@ mod tests {
         assert_eq!(extname("a."), ".");
         assert_eq!(extname("..png"), ".png");
         assert_eq!(extname("noext"), "");
+    }
+
+    // `Buffer.toString("ascii")` drops each byte's high bit before the GIF and WebP signatures are
+    // compared. Expected values: Bun 1.4.4 `/^GIF8[79]a$/.test(Buffer.from(bytes).toString("ascii"))`
+    // and the same for "RIFF" and "WEBP".
+    #[test]
+    fn reads_the_signatures_as_ascii_text() {
+        assert_eq!(
+            image_type(&[199, 201, 198, 184, 185, 225]),
+            Some("image/gif")
+        );
+        assert_eq!(
+            image_type(&[0xd2, 0xc9, 0xc6, 0xc6, 0, 0, 0, 0, 0xd7, 0xc5, 0xc2, 0xd0]),
+            Some("image/webp")
+        );
+        assert_eq!(image_type(&[0x89, b'X', b'N', b'G']), None);
     }
 
     #[test]
