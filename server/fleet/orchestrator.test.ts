@@ -2380,7 +2380,7 @@ describe("merge authority", () => {
     const git = {
       pr: null as Record<string, unknown> | null, head: { sha: "c0ffee", at: HEAD_AT } as { sha: string; at: number } | null,
       change: { files: ["src/parser.rs"], lines: 120 } as { files: string[]; lines: number } | null, behind: 0 as number | null,
-      merged: false, mergeCommit: "abc0001" as string | null, revert: null as string | null,
+      merged: false, mergeCommit: "abc0001" as string | null, revert: null as string | null, slow: 0,
     };
     const harness = setup({
       agents, gitRoot: async () => "/repo", events: (event) => events.push(event),
@@ -2393,7 +2393,7 @@ describe("merge authority", () => {
         removeThread: async (_repo, _worktree, branch) => { removed.push(branch); return undefined; },
         headCommit: async () => git.head,
         changeOf: async () => git.change,
-        behindOnGitHub: async () => git.behind,
+        behindOnGitHub: async () => { if (git.slow) await Bun.sleep(git.slow); return git.behind; },
         mergeCommitOf: async () => git.mergeCommit,
         revertOf: async () => git.revert,
       },
@@ -2478,6 +2478,34 @@ describe("merge authority", () => {
     await turn(thread, "idle");
     expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "The review on pi ended before the latest commit." });
     expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("leave the merge to the person when the branch here has a commit the pull request does not", async () => {
+    const { registry, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    // committed after the review and the push, a minute before now: the review is stale and GitHub has the commit before
+    git.head = { sha: "d00d", at: HEAD_AT - 30_000 };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.filter((check) => !check.ok).map((check) => check.id)).toEqual(["checks"]);
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("hand the merge once when a turn's end and the polling look at the same time", async () => {
+    const { fleet, registry, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    git.pr = { ...PR, checks: "pending" };
+    await turn(thread, "idle");
+    git.pr = { ...PR };
+    // GitHub answers slowly: both looks are under way at once
+    git.slow = 30;
+    await Promise.all([fleet.refreshPullRequests(), fleet.refreshPullRequests()]);
+    await until(() => to(coordinator).length >= 2, "the coordinator hears of the merge");
+    await Bun.sleep(50);
+    // the coordinator's turn ends without the merge: it is told so on the thread, not handed it again
+    await turn(coordinator, "idle");
+    await Bun.sleep(50);
+    expect(to(coordinator).filter((text) => text.startsWith(GATE))).toHaveLength(1);
+    expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", error: "Pull request #12 is not merged after the coordinator's turn; its reply says why." });
   });
 
   it("evaluate no gate for a project the person's settings leave to the person, nor for a base branch the gate does not cover", async () => {

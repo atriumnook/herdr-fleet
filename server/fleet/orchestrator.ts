@@ -233,6 +233,8 @@ export class Orchestrator {
   private readonly reconciledAt = new Map<string, number>();
   /** each run's state as last saved: a save that changes it is an event */
   private readonly savedStates = new Map<string, string>();
+  /** threads whose merge gate is being evaluated now */
+  private readonly gating = new Set<string>();
 
   private readonly grace: number;
   private readonly quietMs: number;
@@ -1457,12 +1459,20 @@ export class Orchestrator {
    * PR, marked as the gate's; otherwise the thread waits for the person, as under `person`.
    */
   private async considerGate(run: AgentRun): Promise<void> {
-    if (run.landed || run.replacedBy || run.pr?.state !== "OPEN" || (run.landing && !run.landing.error) || this.pending.has(run.id)) return;
+    if (run.landed || run.replacedBy || run.pr?.state !== "OPEN" || (run.landing && !run.landing.error) || this.pending.has(run.id) || this.gating.has(run.id)) return;
+    // a turn's end and the polling may both look: one evaluation at a time, so the merge is handed once
+    this.gating.add(run.id);
+    try { await this.evaluateGate(run); } finally { this.gating.delete(run.id); }
+  }
+
+  private async evaluateGate(run: AgentRun): Promise<void> {
     const authority = await this.authorityOf(run);
     if (authority.mode !== "gated") return;
     const thread = run as AgentRun & { project: string; branch: string };
     const baseBranch = await this.baseBranchOf(thread);
-    const [head, change] = await Promise.all([this.tools.headCommit(run.cwd), this.tools.changeOf(run.cwd, baseBranch)]);
+    const [head, change, reading] = await Promise.all([
+      this.tools.headCommit(run.cwd), this.tools.changeOf(run.cwd, baseBranch), this.tools.readPullRequest(thread.project, thread.branch).catch(() => null),
+    ]);
     const behind = head ? await this.tools.behindOnGitHub(thread.project, baseBranch, head.sha) : null;
     const editing = new Set(this.deps.agents(run.cwd).filter((definition) => definition.edits !== false).map((definition) => definition.name));
     const members = this.deps.registry.all().filter((member) => member.group === run.group);
@@ -1471,8 +1481,9 @@ export class Orchestrator {
       contract: run.contract ?? [],
       writers: [...new Set(members.filter((member) => member.role !== "reviewer" && (member.role === THREAD_ROLE || editing.has(member.role))).map((member) => member.agent))],
       reviews: members.filter((member) => member.role === "reviewer" && member.reportedAt !== undefined).map((member) => ({ agent: member.agent, report: member.outcome?.report?.state, at: member.reportedAt! })),
+      head: head?.sha ?? null,
       headAt: head?.at ?? null,
-      pr: run.pr,
+      ...(reading ? { pr: { state: reading.state, checks: reading.checks, head: reading.head } } : {}),
       lines: change?.lines ?? null,
       files: change?.files ?? null,
       behind,

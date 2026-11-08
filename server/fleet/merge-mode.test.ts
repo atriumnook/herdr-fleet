@@ -11,8 +11,9 @@ const passing = (): GateFacts => ({
   contract: [{ id: "A1", state: "met" }],
   writers: ["claude"],
   reviews: [{ agent: "codex", report: "ready", at: HEAD_AT + 60_000 }],
+  head: "c0ffee",
   headAt: HEAD_AT,
-  pr: { state: "OPEN", checks: "pass" },
+  pr: { state: "OPEN", checks: "pass", head: "c0ffee" },
   lines: 200,
   files: ["src/parser.rs", "docs/rust-migration/notes.md"],
   behind: 0,
@@ -49,7 +50,7 @@ describe("the merge gate", () => {
     expect(failed({ ...passing(), report: "progress" })).toEqual(["report"]);
     expect(failed({ ...passing(), report: undefined })).toEqual(["report"]);
     // without checks on the pull request, the lead's recorded checks stand in for them: they need a ready report too
-    expect(failed({ ...passing(), report: "blocked", pr: { state: "OPEN", checks: "none" } })).toEqual(["report", "checks"]);
+    expect(failed({ ...passing(), report: "blocked", pr: { state: "OPEN", checks: "none", head: "c0ffee" } })).toEqual(["report", "checks"]);
   });
 
   it("b) waits unless a reviewer on a CLI none of the writers used passed after the latest commit", () => {
@@ -61,17 +62,20 @@ describe("the merge gate", () => {
     expect(failed({ ...passing(), reviews: [{ agent: "codex", report: "failed", at: HEAD_AT + 1 }] })).toEqual(["review"]);
     // the lead committed its fixes after the review: nobody reviewed them
     expect(failed({ ...passing(), reviews: [{ agent: "codex", report: "ready", at: HEAD_AT - 1 }] })).toEqual(["review"]);
-    expect(failed({ ...passing(), headAt: null })).toEqual(["review"]);
+    expect(failed({ ...passing(), head: null, headAt: null })).toEqual(["review", "checks"]);
     expect(failed({ ...passing(), reviews: [] })).toEqual(["review"]);
   });
 
   it("c) waits unless the pull request's checks passed, or it has none and the lead's contract is met", () => {
-    expect(failed({ ...passing(), pr: { state: "OPEN", checks: "fail" } })).toEqual(["checks"]);
-    expect(failed({ ...passing(), pr: { state: "OPEN", checks: "pending" } })).toEqual(["checks"]);
+    const pr = (checks: "pass" | "fail" | "pending" | "none") => ({ state: "OPEN" as const, checks, head: "c0ffee" });
+    expect(failed({ ...passing(), pr: pr("fail") })).toEqual(["checks"]);
+    expect(failed({ ...passing(), pr: pr("pending") })).toEqual(["checks"]);
     expect(failed({ ...passing(), pr: undefined })).toEqual(["checks"]);
-    expect(failed({ ...passing(), pr: { state: "OPEN", checks: "none" } })).toEqual([]);
-    expect(failed({ ...passing(), pr: { state: "OPEN", checks: "none" }, contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }] })).toEqual(["checks"]);
-    expect(failed({ ...passing(), pr: { state: "OPEN", checks: "none" }, contract: [] })).toEqual(["checks"]);
+    expect(failed({ ...passing(), pr: pr("none") })).toEqual([]);
+    expect(failed({ ...passing(), pr: pr("none"), contract: [{ id: "A1", state: "met" }, { id: "A2", state: "open" }] })).toEqual(["checks"]);
+    expect(failed({ ...passing(), pr: pr("none"), contract: [] })).toEqual(["checks"]);
+    // the lead committed after pushing: what was measured here is not what the merge takes
+    expect(failed({ ...passing(), pr: { ...pr("pass"), head: "older" } })).toEqual(["checks"]);
   });
 
   it("d) waits when the change has more lines than the limit", () => {

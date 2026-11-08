@@ -78,9 +78,11 @@ export interface GateFacts {
   writers: FleetAgentKind[];
   /** the thread's reviewer runs: their CLI, the state of their latest report, and when that turn ended */
   reviews: Array<{ agent: FleetAgentKind; report?: ReportState; at: number }>;
-  /** when the branch's latest commit was made (epoch ms); null when git could not say */
+  /** the branch's latest commit here, and when it was made (epoch ms); null when git could not say */
+  head: string | null;
   headAt: number | null;
-  pr?: Pick<PullRequest, "state" | "checks">;
+  /** the pull request as GitHub has it, with the commit its branch is at there */
+  pr?: Pick<PullRequest, "state" | "checks"> & { head?: string };
   /** lines added and removed since the base branch, and the files they are in; null when git could not say */
   lines: number | null;
   files: string[] | null;
@@ -109,7 +111,7 @@ export function evaluateGate(authority: Extract<MergeAuthority, { mode: "gated" 
         : passed.length ? `The review on ${passed.map((each) => each.agent).join(", ")} ended before the latest commit.`
           : `No review on a CLI other than ${[...writers].join(", ") || "the writer's"} passed.`,
     },
-    checksCondition(facts.pr, facts.report === "ready" && contractMet),
+    checksCondition(facts.pr, facts.head, facts.report === "ready" && contractMet),
     {
       id: "size", ok: facts.lines !== null && facts.lines <= authority.maxLines,
       detail: facts.lines === null ? "git could not count the change's lines." : `The change has ${facts.lines} lines${facts.lines <= authority.maxLines ? "," : ", over"} the limit of ${authority.maxLines}.`,
@@ -126,8 +128,10 @@ export function evaluateGate(authority: Extract<MergeAuthority, { mode: "gated" 
   return { ok: checks.every((check) => check.ok), checks };
 }
 
-function checksCondition(pr: GateFacts["pr"], recordedPassed: boolean): GateCheck {
+function checksCondition(pr: GateFacts["pr"], head: string | null, recordedPassed: boolean): GateCheck {
   if (pr?.state !== "OPEN") return { id: "checks", ok: false, detail: "The thread has no open pull request." };
+  // what is merged is the pull request's commit: what was measured here must be that commit
+  if (!head || pr.head !== head) return { id: "checks", ok: false, detail: "The pull request is not at the branch's latest commit here: it has commits that are not pushed, or GitHub has others." };
   if (pr.checks === "pass") return { id: "checks", ok: true, detail: "The pull request's checks passed." };
   if (pr.checks === "none") return { id: "checks", ok: recordedPassed, detail: recordedPassed ? "The pull request has no checks, and the lead's contract is met." : "The pull request has no checks, and the lead's contract is not met." };
   return { id: "checks", ok: false, detail: `The pull request's checks are ${pr.checks === "fail" ? "failing" : "still running"}.` };
