@@ -56,6 +56,16 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 
 画面の corpus は段階 1 より前の #103 で作った。そのとき corpus の件にした `it` は、`server/prompt.test.ts`(106 件、コミット `5442691`)と `server/fleet/adapters.test.ts`(17 件、コミット `e486a83`)から消した。ほかの corpus と表に移した `it` は、元のファイルにも残している(ADR `0122-parity-criteria` の「既存の TypeScript のテストは消さない」)。
 
+### 段階 2 で埋めた行
+
+段階 2(解析の crate。Issue #193〜#205、#218、#219、#225)の PR が Rust のテストにした `it` の行に、`<crate> の crate のテスト` を足した(Issue #206)。移した `it` は次の 3 つの方法で探した: `it` の名前を snake_case にした名前の関数が `rust/crates/` にあるか、Rust のテストのコメントが TypeScript のテストのファイルと `it` を挙げているか、段階 2 の PR の本文が移した `it` を書いているか。`server/conversation.test.ts` の 2 件(#219)は、Rust のテストの名前が違うので、PR #233 の本文と `rust/crates/transcript/tests/concurrent.rs` の冒頭のコメントで見つけた。ほかの 10 件は、関数の名前で見つかった。どの件も、PR の本文が、移した `it` か、その `it` のファイルとして挙げている。
+
+- `shared/patch.test.ts`: `protocol の crate のテスト`(2 件の `it` のすべて。#193 の PR #208)
+- `server/prompt.test.ts`、`server/fleet/adapters.test.ts`: `screen の crate のテスト` を足した(#195 の PR #216、#200 の PR #228)
+- `server/opencode-session.test.ts`、`server/conversation.test.ts`: `transcript の crate のテスト` を足した(#204 の PR #223、#219 の PR #233)
+
+段階 2 の PR が Rust の crate に足したほかのテストは、TypeScript の `it` を移したものではない(期待値は、TypeScript の実装を Bun で走らせた答え、corpus の件、手で求めた値から取った)。この一覧は TypeScript のテストの引き継ぎ先を書くものなので、これらのテストは書かない。
+
 ## 一覧
 
 | ファイル | 引き継ぎ先 | 残った部分 |
@@ -139,7 +149,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/completion.test.ts` | | |
 | `server/conversation-fixtures.test.ts` | 会話ログの corpus | |
 | `server/conversation-metadata.test.ts` | 会話ログの corpus | 1 件の `it` の一部(下の「一部だけが移ったファイル」) |
-| `server/conversation.test.ts` | 会話ログの corpus | 5 件の `it`、4 件の `it` の一部(下の「一部だけが移ったファイル」) |
+| `server/conversation.test.ts` | 会話ログの corpus、transcript の crate のテスト | 5 件の `it`、4 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/device-access.contract.test.ts` | HTTP/WS の契約 | |
 | `server/device-access.herdr.test.ts` | | |
 | `server/devices.test.ts` | | |
@@ -148,7 +158,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/explain.test.ts` | 安全上の判定の表 | 20 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/file-view.test.ts` | 安全上の判定の表 | 8 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/files.test.ts` | HTTP/WS の契約 | 5 件の `it`(下の「一部だけが移ったファイル」) |
-| `server/fleet/adapters.test.ts` | 画面の corpus、安全上の判定の表 | 36 件の `it`(下の「一部だけが移ったファイル」) |
+| `server/fleet/adapters.test.ts` | 画面の corpus、安全上の判定の表、screen の crate のテスト | 31 件の `it`、1 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/fleet/agents.test.ts` | | |
 | `server/fleet/api.test.ts` | | |
 | `server/fleet/brief.test.ts` | | |
@@ -173,7 +183,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/opencode-cli.test.ts` | | |
 | `server/opencode-conversation.test.ts` | 会話ログの corpus | 3 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/opencode-messages.test.ts` | 会話ログの corpus | 1 件の `it` の一部(下の「一部だけが移ったファイル」) |
-| `server/opencode-session.test.ts` | 会話ログの corpus | 3 件の `it`、2 件の `it` の一部(下の「一部だけが移ったファイル」) |
+| `server/opencode-session.test.ts` | 会話ログの corpus、transcript の crate のテスト | 1 件の `it`、2 件の `it` の一部(下の「一部だけが移ったファイル」) |
 | `server/output-window.test.ts` | | |
 | `server/output.contract.test.ts` | HTTP/WS の契約 | |
 | `server/output.herdr.test.ts` | | |
@@ -187,7 +197,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/process-start.test.ts` | | |
 | `server/projects.test.ts` | | |
 | `server/prompt.contract.test.ts` | HTTP/WS の契約 | |
-| `server/prompt.test.ts` | 画面の corpus | 40 件の `it`(下の「一部だけが移ったファイル」) |
+| `server/prompt.test.ts` | 画面の corpus、screen の crate のテスト | 39 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/pty/session.test.ts` | | |
 | `server/push.test.ts` | 安全上の判定の表 | 28 件の `it`(下の「一部だけが移ったファイル」) |
 | `server/reattach.contract.test.ts` | HTTP/WS の契約 | |
@@ -203,7 +213,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 | `server/tailscale.test.ts` | | |
 | `server/tool-output.test.ts` | | |
 | `shared/fleet.test.ts` | | |
-| `shared/patch.test.ts` | | |
+| `shared/patch.test.ts` | protocol の crate のテスト | |
 | `shared/plan.test.ts` | | |
 | `shared/secret-prompt.test.ts` | | |
 | `src/components/ChatView.test.ts` | そのまま残す | |
@@ -361,6 +371,7 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 移った部分:
 
 - 会話ログの corpus: 45 件の `it`
+- transcript の crate のテスト: 2 件の `it`(段階 1 のあと、#219 の PR #233 が足した `keeps history and cursors when an append shows its new times before its new size (#219)` と `invalidates history and cursors for changed tails, truncation and replacement (#219)`。同じ PR が `rust/crates/transcript/tests/concurrent.rs` の `an_append_seen_by_its_times_before_its_size_keeps_history_and_cursors` と `rewrites_truncation_and_replacement_still_invalidate_cursors` にした)
 
 移った `it` のうち、一部の assert が元のテストにだけ残るもの(4 件。残った assert の引き継ぎ先は未定):
 
@@ -443,12 +454,16 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 
 - 画面の corpus: 17 件の `it`(コミット `e486a83` で corpus の件にし、このファイルから消した)
 - 安全上の判定の表: 1 件の `it`
+- screen の crate のテスト: 5 件の `it`(#200 の PR #228 が `rust/crates/screen/tests/checks.rs` にした。`calls a turn failed by its last Error: line only when no HANDOFF follows`、`refuses an opencode that is not version 2 while starting, not once ready: it has no ready check (fixtures/screens: its help)`、`is typed as /usage and read as the included share, until the next reset date`、`reads the pager as cursor-agent 2026.09.23 drew it under ja_JP`、`reads the narrow layout, a reset date in the next year, and nothing before the pager shows`)
 
-残った部分(36 件。引き継ぎ先は未定。`takes the model and effort, with instructions in the first prompt, and every run's results folder (a reviewer reads its lead's)` のすぐあとの 3 件は、Issue #169 で main から取り込んだ `it`。この `it` の名前は、Issue #187 で取り込んだ main のコミット `dd8beb8` が変えた):
+移った `it` のうち、一部の assert が元のテストにだけ残るもの(1 件。残った assert の引き継ぎ先は未定):
+
+- is typed as /usage and read as the included share, until the next reset date: `usageCommand` が `/usage` であること。起動の側の adapter の値で、段階 3 が移す。根拠: PR #228 の本文の「移した `it`」
+
+残った部分(31 件。引き継ぎ先は未定。`takes the model and effort, with instructions in the first prompt, and every run's results folder (a reviewer reads its lead's)` のすぐあとの 3 件は、Issue #169 で main から取り込んだ `it`。この `it` の名前は、Issue #187 で取り込んだ main のコミット `dd8beb8` が変えた):
 
 - launches with the model at its thinking level, the role's tools, a fleet name and the instruction file
 - keeps a :level the model already carries
-- calls a turn failed by its last Error: line only when no HANDOFF follows
 - appends the instruction file, names the session and lets the agent write its result folder
 - takes a :level suffix as the effort, and has no level below low
 - takes edit, write and codemode away from a role that edits no file
@@ -458,9 +473,6 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - escapes what a TOML basic string cannot hold raw
 - is given the folder of all result folders, so it asks to trust one folder once rather than one per run
 - has no instruction option or level: the instructions lead the first prompt
-- is typed as /usage and read as the included share, until the next reset date
-- reads the pager as cursor-agent 2026.09.23 drew it under ja_JP
-- reads the narrow layout, a reset date in the next year, and nothing before the pager shows
 - takes the model and effort, with instructions in the first prompt, and every run's results folder (a reviewer reads its lead's)
 - leaves the level to a model id that names one, as agy drops such a model given --effort as well
 - trusts the run's own folder and runs in auto mode in the sandbox, for the session only
@@ -478,7 +490,6 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 - refuses a push that overwrites the remote, in the forms git takes it
 - edits inside its work folder and its result folder, and nowhere else
 - tells a role that edits nothing what its shell allows, and the coordinator what a merge is
-- refuses an opencode that is not version 2 while starting, not once ready: it has no ready check (fixtures/screens: its help)
 - leaves a model its list lacks to the TUI: the list holds what the catalog knows, but not every text the TUI accepts
 - splits a :level suffix off a model for the CLIs that take the level apart
 - knows only the kinds it has an adapter for
@@ -593,16 +604,15 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 移った部分:
 
 - 会話ログの corpus: 37 件の `it`
+- transcript の crate のテスト: 2 件の `it`(#204 の PR #223 が `rust/crates/transcript/src/opencode/tests.rs` にした。`what is held stays bounded however long the turn goes`、`a pasted image's bytes are not kept between polls`)
 
 移った `it` のうち、一部の assert が元のテストにだけ残るもの(2 件。残った assert の引き継ぎ先は未定):
 
 - a cursor the service refuses means the history changed; any other failure stays one: JSON でない応答の失敗(記録した応答では書けない)。根拠: `fixtures/conversations/opencode/cursor-refused` の `about`
 - is null when the model list cannot be read: モデルの一覧が普通の Error を投げる場合(件では 500 の応答にした)。根拠: `fixtures/conversations/opencode/context-window-unreadable` の `about`
 
-残った部分(3 件。引き継ぎ先は未定):
+残った部分(1 件。引き継ぎ先は未定):
 
-- what is held stays bounded however long the turn goes
-- a pasted image's bytes are not kept between polls
 - two panels asking for one page share one read
 
 ### `server/pi-tree.test.ts`
@@ -650,10 +660,10 @@ TypeScript 版のテストのファイルごとに、そのテストが Rust 版
 移った部分:
 
 - 画面の corpus: 106 件の `it`(コミット `5442691` で corpus の件にし、このファイルから消した)
+- screen の crate のテスト: 1 件の `it`(#195 の PR #216 が `rust/crates/screen/tests/pi_omp.rs` にした。`rejects invalid answer shapes`)
 
-残った部分(40 件。引き継ぎ先は未定):
+残った部分(39 件。引き継ぎ先は未定):
 
-- rejects invalid answer shapes
 - reads the options without the preview box and offers no typed answer
 - answers from the native cursor, and keeps its id when only the cursor moves
 - offers a numbered menu at the screen's end as options answered by their number
