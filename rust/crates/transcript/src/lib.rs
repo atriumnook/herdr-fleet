@@ -147,8 +147,7 @@ impl Transcripts {
     }
 
     /// The questions a Codex rollout asked that hold no answer yet (TypeScript's
-    /// `unansweredCodexQuestions`).
-    /// A rollout it cannot read holds none.
+    /// `unansweredCodexQuestions`); none for a rollout it cannot read.
     pub fn unanswered_questions(&self, rollout: &CodexRollout) -> Vec<QueuedQuestion> {
         self.codex.format.unanswered_questions(rollout)
     }

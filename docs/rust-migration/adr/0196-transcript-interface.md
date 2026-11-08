@@ -102,7 +102,8 @@ architect が直した点: (a) 失敗の enum に `Opencode(OpencodeError)` を�
 - 境目の位置は毎回ファイルの先頭から走査する。TypeScript の走査の再開は答えを変えない cache なので T6 に送る
 - ファイルの識別は `paging.rs` の `file_stat`(`cfg(unix)` で dev、ino、size、mtime、ctime を読む)の 1 か所にし、`cfg(not(unix))` の同じ名前の関数は作成時刻と更新時刻で代える。書き直しの世代は、その値だけから `PagingState::generation` が決める
 - プロセスごとの値(TypeScript の `randomUUID` の 2 つの用途、`PROCESS_VERSION` と書き直しの世代)は、`RandomState` で作った 128 bit の種とカウンタで作る(`ProcessIds`)
-- `Mutex` は `Source<F>` の `PagingState` を読み書きする間だけ持つ(`generation` の 1 回)。ファイルの読み取りと解析の間は持たない
+- `Mutex` は、live file の stat を 1 回取り、`PagingState` の書き直しの世代を読み書きする間だけ持つ(`Source::identify`)。ファイルの中身の読み取りと解析の間は持たない。stat を lock の外で取ると、2 つのスレッドが並行して読むとき、追記の前に取った stat が追記の後に取った stat のあとに記録され、ファイルが縮んだと読まれて書き直しの世代が変わる(codex の reviewer が 16 スレッドで再現した。TypeScript は 1 つのスレッドで読むので起きない)。lock の中で stat を取れば、記録される stat は取った順になる
+- この順序を確かめる並行のテストは置かない。追記の途中で取った stat は、mtime が新しく大きさが古いことがあり、TypeScript と同じ判定(同じ大きさで時刻が変われば書き直し)はこれを書き直しと読む。そのため、順序を直したあとも 8 スレッドのテストは 10 回中 7 回失敗し、決定的に通せない。この誤判定は TypeScript にもあり、Issue #219 にした
 
 ### 共通の関数の置き場所
 
@@ -118,12 +119,13 @@ T2〜T5 は共通のファイルを書けないので、2 つ以上の source �
 
 - `tests/common/mod.rs` は、TypeScript の runner(`scripts/conversation-fixtures.ts`)の検査をすべて写す。OpenCode の記録した応答だけを `tests/common/opencode.rs` の `RecordedOpencodeApi`(`new`、`set`、`unrecorded` と `OpencodeApi` の実装)に任せ、T1 は `todo!()` の stub を置く
 - runner は、Codex の image の手順では `cwd` を、ほかの手順では件のフォルダーを `CodexRollout::cwd` に入れる
-- `{"at": …}` が整数でなければ件を失敗にする。TypeScript の runner は小数も通す(`scripts/conversation-fixtures.ts:233`)が、時計は整数を返すので、今の件の答えは変わらない
+- `{"at": …}` が整数でなければ件を失敗にする。JSON の書き方は問わない(`1000.0` も 1000 と読む)。TypeScript の runner は小数も通す(`scripts/conversation-fixtures.ts:233`)が、時計は整数を返すので、今の件の答えは変わらない
 - 読み手が `ConversationError::Opencode` を返したら、件を失敗にする(TypeScript の `failure` が投げ直すのと同じ。`scripts/conversation-fixtures.ts:389-394`)
 
 ### TypeScript と違う振る舞い
 
 - 記録の `timestamp` が文字列でないとき、TypeScript はその値をそのまま `ts` にする(数なら数)が、Rust は `null` にする。protocol の `ts` は `Option<String>`(ADR `0193-protocol-types`)で、数を持てない。corpus の jsonl の `timestamp` は 1,860 件すべて文字列である(python で数えた)
+- serde_json は入れ子が 128 段を超える JSON を読まず(`recursion limit exceeded`)、`JSON.parse` は読む。Rust の記録の読み手(`records.rs` の `parse_line`)は、そのような行を壊れた行と同じく飛ばす。ADR `0193-phase-2-dependencies` の「`JSON.stringify` と serde_json」が挙げた 2 つ(対のないサロゲート、f64 を超える数)のほかの違いで、`/code-review` が見つけた。serde_json の上限を外す feature `unbounded_depth` は workspace の依存の変更で、深い入れ子はスタックを使い切りうる。corpus の jsonl の記録の入れ子は最大 6 段である(python で数えた)。実際の transcript で見つかったときは、ADR `0193-phase-2-dependencies` の決まりと同じく、記録の読み手を変える Issue を開く
 - 書き直しの世代を覚える件数の上限が source ごとに 64 になる(全体で最大 256)。TypeScript は全 source で 64 を共有する(`server/conversation.ts:478`)。違いが出るのは、64 を超えるファイルを読む間に 1 つのファイルを読み直すときだけである。そのとき TypeScript は世代を追い出して忘れ、`history_id` が変わることがあるが、Rust は source ごとに 64 件を覚えるので、追い出す回数が少ない
 
 ## 検討した代わり
@@ -153,6 +155,7 @@ T2〜T5 は共通のファイルを書けないので、2 つ以上の source �
 
 2026-11-08、Linux(omarchy)、`rust` の `c4a2ed4` から切ったブランチで確かめた。
 
+- 並行の読み取り: 8 スレッドが 1 つの `Transcripts` で読み、並行して追記するテストは、stat を lock の外で取る形で 5 回中 4 回、lock の中に移した形でも 10 回中 7 回失敗した。後者の原因を、tmpfs の `/tmp` で 1 つのプロセスが追記を続け、別のプロセスが stat を取り続けて確かめた。1,901,204 回の stat のうち 22,708 回が、直前と同じ大きさで時刻だけが違った
 - `cargo test --locked -p herdr-fleet-transcript --test omp`: omp の 25 件を正順と逆順で通した(`test omp_conversations ... ok`)
 - 実装の前の失敗: `Transcripts::page` と `tool_output` の omp の枝を `todo!()` にして同じテストを走らせ、`panicked at crates/transcript/src/lib.rs:117:35` で失敗した
 - runner が比べていること: `parse_omp_transcript` の `Error: ` を `Err: ` に変えて走らせ、`omp/failed-request step 0` の 1 件だけが失敗した(戻して通した)
