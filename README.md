@@ -136,7 +136,7 @@ OpenCode は、モデルを `opencode:<プロバイダ>/<モデル>` の形で�
   - `git status`、`git ls-files`、`ls`、`pwd`(引数なし)
   - `git diff` / `git log` / `git show`(先頭に `--no-ext-diff --no-textconv`。あとは許可したフラグ、リビジョン、リポジトリの中の相対パスだけ。絶対パス、`~`、`..`、`.env` は拒否)
   - `gh pr view [<番号>]`、`gh pr checks [<番号>]`(番号なしは、チェックアウト中のブランチ)、`gh pr list`、`gh run view <番号>`(許可したフラグだけ。`--web` や `-R` は拒否)
-  - coordinator だけ、Fleet 画面でマージを押されたときの `gh pr merge <番号> --merge`、`git pull --ff-only`、`git merge --no-ff <fleet か agents のブランチ>`、`git merge --abort`
+  - coordinator だけ、マージか revert を渡されたときの `gh pr merge <番号> --merge`(gate が許したマージは `--match-head-commit <commit>` 付き)、`git pull --ff-only`、`git merge --no-ff <fleet か agents のブランチ>`、`git merge --abort`、`git revert -m 1 --no-edit <commit>`、`git revert --abort`、`git push origin <ブランチ>`
 
   この判定は、OpenCode の権限の規則ではなく、リポジトリの `opencode/fleet-guard`(プラグイン)がします。OpenCode の規則は、シェルの行の中の「コマンド」だけを確認の対象にします。`> ~/x`、`x=1`、`export A=1; git status`(宣言で環境変数を作り、許可済みの `git status` に任意のプログラムを動かさせる)のような、コマンド名のない行は、一度も確認されずに実行されるためです。権限の規則(読み取りと検索、上の形、その run の結果フォルダへの編集だけを許可し、あとは拒否)は、その内側の 2 層目として残します。指示文にも使える形の一覧を書くので、エージェントは別の形を試さずに、coordinator や使う人へ頼みます。
 - 編集する役割(lead、worker など)は、pi と同じく承認なしで動かします。すべてを許可する規則は足しません(利用者自身の deny を上書きするため)。足すのは次の拒否だけです。force push と削除(`--force`、`--mirror`、`--delete`、`--prune`、`-f`、束ねた `-vuf`(3 つ以上の束ねは止まりません)、`:ブランチ`、`+refspec` など)、作業フォルダの外へのファイル編集(その run の結果フォルダを除く)。fleet のコマンドは、利用者が `shell` を ask にしていても止まらないよう、許可します。**これらの拒否はベストエフォートです。** 編集とテストの実行ができるエージェントは何でも実行できるので(`env git push -f`、`bash -c`、alias)、規則は普通の綴りの打ち間違いを止めるだけで、pi と同じです。
@@ -178,7 +178,20 @@ fleet thread --title "通知の重複を直す" --task "リトライで通知が
 { "projects": { "/home/me/git/app": { "setup": "bun install --ignore-scripts" } } }
 ```
 
-人の操作なしで進めるプロジェクトでは、そのリポジトリの `.herdr-fleet/fleet.json`(またはユーザーの `fleet.json`)に `"autonomous": true` を書きます。fleet は、スレッドがターンを終えるたびに、質問がなくても coordinator に知らせます(状態の行、受け入れ条件、PR の状態)。fleet が送ったターンだけでなく、エージェントが自分で始めたターン(待っていた subagent の結果で再開したときなど)や、人がペインに打って始めたターンの終わりも知らせます。また lead のターンの終わりにそのブランチの PR を読み、lead が自分でマージしていればスレッドを閉じます。定期的な PR の確認でマージを見つけたときは、スレッドを閉じずに coordinator に知らせ、lead のターンが終わるのを待って閉じます(lead はマージのあとも、Issue を閉じるなどの作業を続けるため)。lead が落ち着いたまま 15 分たってもスレッドが閉じていなければ、GitHub で PR を読み、マージ済みならスレッドを閉じて coordinator に知らせます。また、coordinator とすべてのスレッドが動かないまま 15 分たつと、各スレッドの状態を添えて coordinator に知らせます(同じ静かな期間には 1 回だけ。スレッドが動けば、次にまた知らせます)。計画の承認や PR のマージを人に求めずに進める動き方そのものは、リポジトリの `.herdr-fleet/agents/` に置いた役割の定義で決めます。この設定は設定画面には出しません。
+人の操作なしで進めるプロジェクトでは、そのリポジトリの `.herdr-fleet/fleet.json`(またはユーザーの `fleet.json`)に `"autonomous": true` を書きます。fleet は、スレッドがターンを終えるたびに、質問がなくても coordinator に知らせます(状態の行、受け入れ条件、PR の状態)。fleet が送ったターンだけでなく、エージェントが自分で始めたターン(待っていた subagent の結果で再開したときなど)や、人がペインに打って始めたターンの終わりも知らせます。また lead のターンの終わりにそのブランチの PR を読み、マージ済みならスレッドを閉じます。lead が落ち着いたまま 15 分たってもスレッドが閉じていなければ、GitHub で PR を読み、マージ済みならスレッドを閉じて coordinator に知らせます。また、coordinator とすべてのスレッドが動かないまま 15 分たつと、各スレッドの状態を添えて coordinator に知らせます(同じ静かな期間には 1 回だけ。スレッドが動けば、次にまた知らせます)。この設定は設定画面には出しません。lead は自分ではマージしません。誰がマージするかは、次のマージの権限で決まります。
+
+誰がスレッドをマージするかは、プロジェクトごとのマージの権限で決めます。書くのは使う人自身の `fleet.json` の `projects[<パス>].merge` だけで(設定画面の Projects でも変えられます)、リポジトリの `.herdr-fleet/` からは決められません。
+
+- `person`(既定): すべてのマージが、使う人が Fleet 画面で押すのを待ちます
+- `gated`: 挙げたブランチ(`branches`)に入るスレッドは、次の条件がすべて成り立つときだけ coordinator が自分でマージします。1 つでも欠ければ `person` と同じく待ちます。lead は報告が ready になったら、自分で push して PR を開きます
+  - lead の最新の報告が ready
+  - 変更を書いた CLI のどれとも違う CLI の reviewer が、そのコミットで合格を出した
+  - PR のチェックが通っている(チェックがなければ受け入れ条件がすべて満たされている)
+  - 変更が `maxLines` 行(既定 200)以下
+  - 保護するパス(`protected`。`.herdr-fleet/`、`.github/`、fleet 自身のコードはいつも含む)に触れない
+  - ブランチがベースブランチの最新を含む
+
+マージはすべて merge commit なので、`git revert -m 1` で戻せます。マージしたスレッドには Revert が出ます。`fleet report` は、gate がマージした数、あとで revert された数(変更失敗率)、戻すまでの時間を数えます。
 
 ### 計画
 
@@ -200,9 +213,10 @@ lead が BLOCKED で止まると、スレッドは Needs you になります。F
 | Fix CI | lead | 落ちたチェックのログを読んで直し、PR のブランチに push する |
 | Merge into main | coordinator | 元のチェックアウトで `git merge --no-ff` する。未コミットの変更があるか別のブランチにいれば、手を止めて知らせる。push はしない |
 | Merge PR | coordinator | `gh pr merge --merge` でマージし、元のチェックアウトを `git pull --ff-only` で最新にする |
+| Revert | coordinator | マージしたスレッドで、マージの commit を `git revert -m 1` で戻す。PR のマージなら、ベースブランチを push する(force push はしない) |
 | Discard | fleet | lead と手伝いのペインを閉じ、worktree とブランチを消す。取り消せない |
 
-Merge into main、Merge PR、Discard は、何が起きるかと取り消せるかを示す確認を挟みます。lead の操作は lead の手が空いているとき(ターンが終わっているとき)だけ押せます。coordinator の操作は、coordinator の手が空くのを待って渡します。coordinator がいなければ起動して渡します。
+Merge into main、Merge PR、Revert、Discard は、何が起きるかと取り消せるかを示す確認を挟みます。lead の操作は lead の手が空いているとき(ターンが終わっているとき)だけ押せます。coordinator の操作は、coordinator の手が空くのを待って渡します。coordinator がいなければ起動して渡します。
 
 エージェントの報告をそのまま信じず、エージェントのターンが終わったら、fleet が git と GitHub を読んで操作が済んだかを確かめます。PR があるか、ブランチが main に入ったか、PR がマージされたか、を見ます。済んでいなければ、スレッドは Needs you になり、見つけたことをスレッドに出します。マージを確かめたら、fleet がペインを閉じ、worktree とブランチを消して、スレッドを Resolved にします。コミットされていない作業が worktree に残っていれば、worktree は消さずに残し、そう知らせます。ブランチは、git がマージ済みと言うときか、GitHub がマージしたコミットがこのブランチの指すコミットと同じときだけ消します。
 

@@ -334,6 +334,21 @@ describe("opencode adapter", () => {
       const rules = readOnlyRules(coordinatorPane);
       for (const text of ["gh pr merge 12 --merge --admin", "gh pr merge --admin --merge", "gh pr merge -d --merge", "gh pr merge 12 -d --merge", "gh pr merge 12 --squash", "gh pr merge 12", "git pull", "git pull --ff-only origin x", "git merge main", "git merge --no-ff main", "git merge --no-ff fleet/x main", "git merge --no-ff fleet/x -s ours", "git merge --no-ff fleet/x -F /etc/passwd", "git push", "git merge --no-ff fleet/x > f", `git merge --no-ff fleet/x"y"`, "git checkout main"]) expect(shell(rules, text)).toBe("deny");
     });
+
+    it("lets the coordinator revert, push the base branch and take a gate's pinned merge, in those forms only", () => {
+      const forms = ["gh pr merge 12 --merge --match-head-commit c0ffee1", "git revert -m 1 --no-edit abc0001", "git revert --abort", "git push origin main", "git push origin release/2.0"];
+      for (const text of forms) {
+        expect([text, shell(readOnlyRules(coordinatorPane), text)]).toEqual([text, "allow"]);
+        expect([text, shell(readOnlyRules(), text)]).toEqual([text, "deny"]);
+      }
+      const rules = readOnlyRules(coordinatorPane);
+      for (const text of [
+        "gh pr merge 12 --merge --match-head-commit c0ffee1 --admin", "gh pr merge 12 --merge --match-head-commit c0ffee1 -R evil/repo", "gh pr merge -d --merge --match-head-commit c0ffee1",
+        "git revert -m 1 --no-edit abc0001 def0002", "git revert -m 1 --no-edit abc0001 -X theirs", "git revert -m 1 --no-edit --no-commit", "git revert abc0001", "git revert --continue",
+        "git push origin main --force", "git push origin main -f", "git push origin +main", "git push origin main:main", "git push origin :main", "git push origin -d main", "git push origin --delete main",
+        "git push origin HEAD", "git push origin main other", "git push evil main", "git push --force origin main", "git push origin main > f", "git push origin ../x",
+      ]) expect([text, shell(rules, text)]).toEqual([text, "deny"]);
+    });
   });
 
   describe("a role that edits", () => {
@@ -380,6 +395,9 @@ describe("opencode adapter", () => {
     const merging = opencode.readOnlyNote!({ merges: true, fleetCommand: fleet });
     expect(merging).toContain("gh pr merge <number> --merge");
     expect(merging).toContain("git merge --no-ff <branch>");
+    expect(merging).toContain("git revert -m 1 --no-edit <sha>");
+    expect(merging).toContain("git push origin <branch>");
+    expect(merging).toContain("--match-head-commit <sha>");
   });
 
   it("refuses an opencode that is not version 2 while starting, not once ready: it has no ready check (fixtures/screens: its help)", () => {
