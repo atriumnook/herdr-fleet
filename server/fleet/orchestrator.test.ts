@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it } from "bun:test";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
 import { DEFAULT_CONFIG, mergeConfig } from "./config.ts";
 import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES, type LandingTools } from "./orchestrator.ts";
 import type { FleetEvent } from "./events.ts";
+import { Outbox } from "./outbox.ts";
 import { RunRegistry } from "./registry.ts";
 import { abortableDelay, abortError, FleetError, type AgentMetadata, type AgentRuntime, type CreateLocationOptions, type RuntimeLocation, type StartOptions } from "./runtime.ts";
 import type { AgentDefinition, AgentRun, AgentState, FleetConfig } from "./types.ts";
@@ -100,6 +101,10 @@ function setup(options: SetupOptions = {}) {
   });
   return { fleet, runtime, registry, root };
 }
+
+/** the news about `run` its coordinator has not been given yet, read from the outbox's file */
+const noticeOf = (registry: RunRegistry, run: AgentRun) => new Outbox(join(dirname(registry.filePath!), "fleet-outbox.json"))
+  .pending((notice) => notice.about === run.id && notice.slot === "news").at(-1)?.text;
 
 const spawn = (fleet: Orchestrator, extra: Record<string, unknown> = {}) => fleet.spawn({ role: "worker", task: "do it", group: "g1", cwd: "/work", ...extra });
 const until = async (check: () => boolean, label: string, ms = 2000) => {
@@ -1122,7 +1127,7 @@ describe("thread questions", () => {
     handoff(thread, text);
     await turn(thread, "idle");
     expect(toCoordinator(coordinator)).toEqual(["fix the retry", [HEADER, asks(thread, text)].join("\n")]);
-    expect(registry.get(thread.id)!.notice).toBeUndefined();
+    expect(noticeOf(registry, thread)).toBeUndefined();
   });
 
   it("are only questions: a PASS, an ISSUES, a failure and a wait on the screen go to the thread list and push notifications", async () => {
@@ -1144,7 +1149,7 @@ describe("thread questions", () => {
     states.set(coordinator.herdrName, "idle");
     await turn(coordinator, "idle");
     expect(toCoordinator(coordinator)).toEqual(["go"]);
-    for (const run of [done, issues, silent, screen, ended]) expect(registry.get(run.id)!.notice).toBeUndefined();
+    for (const run of [done, issues, silent, screen, ended]) expect(noticeOf(registry, run)).toBeUndefined();
   });
 
   it("wait while the coordinator works, its own turn or the person's, and then go out together", async () => {
@@ -1158,7 +1163,7 @@ describe("thread questions", () => {
     await turn(second, "idle");
     // the fleet's own turn is still running
     expect(toCoordinator(coordinator)).toEqual(["two things"]);
-    expect(registry.get(first.id)!.notice).toContain("BLOCKED — which log format?");
+    expect(noticeOf(registry, first)).toContain("BLOCKED — which log format?");
     await turn(coordinator, "idle");
     expect(toCoordinator(coordinator)[1]).toBe([HEADER, asks(first, "BLOCKED — which log format?"), asks(second, "BLOCKED — may the old flag go?")].join("\n"));
     await turn(coordinator, "idle");
@@ -1205,7 +1210,7 @@ describe("thread questions", () => {
     const thread = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun: coordinator.id });
     handoff(thread, `BLOCKED — which one?\n${"x".repeat(5000)}`);
     await turn(thread, "idle");
-    const notice = registry.get(thread.id)!.notice!;
+    const notice = noticeOf(registry, thread)!;
     expect(notice).toEndWith("[cut at 4000 characters]");
     expect(notice.length).toBeLessThan(4200);
   });
@@ -1218,12 +1223,12 @@ describe("thread questions", () => {
     fleet.onPaneEnded(coordinator.paneId);
     handoff(thread, "BLOCKED — which one?");
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.notice).toContain("BLOCKED — which one?");
+    expect(noticeOf(registry, thread)).toContain("BLOCKED — which one?");
     const next = await fleet.startProject({ task: "and now?", cwd: "/repo" });
     expect(toCoordinator(next)).toEqual(["and now?"]);
     await turn(next, "idle");
     expect(toCoordinator(next)[1]).toBe([HEADER, asks(thread, "BLOCKED — which one?")].join("\n"));
-    expect(registry.get(thread.id)!.notice).toBeUndefined();
+    expect(noticeOf(registry, thread)).toBeUndefined();
   });
 
   it("are kept across a restart", async () => {
@@ -1233,9 +1238,41 @@ describe("thread questions", () => {
     handoff(thread, "BLOCKED — which one?");
     await turn(thread, "idle");
     fleet.stop();
-    const reloaded = new RunRegistry(join(root, "runs.json"));
-    expect(reloaded.get(thread.id)!.notice).toBe(registry.get(thread.id)!.notice);
-    expect(reloaded.get(thread.id)!.notice).toContain("asks the person");
+    expect(noticeOf(registry, thread)).toContain("asks the person");
+    expect(new RunRegistry(join(root, "runs.json")).get(thread.id)!.notice).toBeUndefined();
+  });
+
+  it("written while the coordinator works reach it once after a restart, in the order they were written, and never again", async () => {
+    const { fleet, runtime, states, root, turn, toCoordinator, handoff } = project();
+    const coordinator = await fleet.startProject({ task: "two things", cwd: "/repo" });
+    // started first, asks second: the order is the questions', not the threads'
+    const later = await fleet.startThread({ title: "Two", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const sooner = await fleet.startThread({ title: "One", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    handoff(sooner, "BLOCKED — which log format?");
+    await turn(sooner, "idle");
+    handoff(later, "BLOCKED — may the old flag go?");
+    await turn(later, "idle");
+    expect(toCoordinator(coordinator)).toEqual(["two things"]);
+    fleet.stop();
+    const restart = () => new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG, agents: () => agents, fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+    });
+    const restarted = restart();
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await until(() => toCoordinator(coordinator).length === 2, "the questions after the restart");
+    expect(toCoordinator(coordinator)[1]).toBe([HEADER, asks(sooner, "BLOCKED — which log format?"), asks(later, "BLOCKED — may the old flag go?")].join("\n"));
+    // its turn ends, and the server restarts again: nothing is sent twice
+    await Bun.sleep(GRACE + 5);
+    restarted.onPaneStatus(coordinator.paneId);
+    await Bun.sleep(30);
+    restarted.stop();
+    const again = restart();
+    await again.reconcileAll();
+    await Bun.sleep(30);
+    expect(toCoordinator(coordinator)).toHaveLength(2);
+    again.stop();
   });
 });
 
@@ -1304,7 +1341,7 @@ describe("a project run without the person", () => {
       `- "${done.name}" (${done.id}, fleet/${done.id}) ended its turn: PASS — cargo test: 40 pass\n  Contract: A1 ✓ A2 ✗`,
       `- "${issues.name}" (${issues.id}, fleet/${issues.id}) ended its turn: ISSUES — 2 cases fail`,
     ].join("\n"));
-    for (const run of [done, issues]) expect(registry.get(run.id)!.notice).toBeUndefined();
+    for (const run of [done, issues]) expect(noticeOf(registry, run)).toBeUndefined();
   });
 
   it("closes a thread whose lead merged its own pull request as the lead's turn ends, and says so", async () => {
@@ -1709,6 +1746,69 @@ describe("landing", () => {
     await expect(fleet.land(thread.id, "merge")).rejects.toMatchObject({ code: "thread_landed" });
   });
 
+  it("keep Merge into main for the coordinator across a restart, and drop it once the person threw the thread away", async () => {
+    const { fleet, runtime, root, turn, to, ready, states } = project();
+    const { coordinator, thread } = await ready();
+    const other = await fleet.startThread({ title: "Other", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(coordinator, "working");
+    await fleet.land(thread.id, "merge");
+    await fleet.land(other.id, "merge");
+    fleet.stop();
+    const restarted = new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG, agents: () => agents, fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+      landing: { gitBranch: async () => "main", removeThread: async () => undefined },
+    });
+    await restarted.land(other.id, "discard");
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await until(() => to(coordinator).length === 2, "the merge after the restart");
+    expect(to(coordinator)[1]).toContain(`Merge into main for thread "Fix" (${thread.id}`);
+    expect(to(coordinator)[1]).not.toContain(other.id);
+    await until(() => new RunRegistry(join(root, "runs.json")).get(thread.id)!.landing?.sent === true, "the merge marked sent");
+    expect(new RunRegistry(join(root, "runs.json")).get(thread.id)!.landing).toMatchObject({ action: "merge" });
+    restarted.stop();
+  });
+
+  it("hand on a merge step and a question a run saved before the outbox kept, once, and drop news about a run no longer kept", async () => {
+    const { fleet, runtime, root, turn, to, ready, states } = project();
+    const { coordinator, thread } = await ready();
+    const gone = await fleet.startThread({ title: "Gone", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(coordinator, "working");
+    writeFileSync(join(root, "results", gone.id, "handoff.md"), "BLOCKED — still there?");
+    await turn(gone, "idle");
+    fleet.stop();
+    // the registry as the fleet wrote it before: the news and an unsent merge on the thread; the other thread gone
+    const runs = (JSON.parse(readFileSync(join(root, "runs.json"), "utf8")) as AgentRun[]).filter((run) => run.id !== gone.id)
+      .map((run) => run.id === thread.id ? { ...run, notice: "an old question", landing: { action: "merge", at: 1, sent: false } } : run);
+    writeFileSync(join(root, "runs.json"), JSON.stringify(runs));
+    const restart = () => new Orchestrator({
+      runtime, registry: new RunRegistry(join(root, "runs.json")), config: () => DEFAULT_CONFIG, agents: () => agents, fleetCommand: "fleet", agentEnv: () => ({}),
+      resultsDir: join(root, "results"), instructionsDir: join(root, "instructions"), promptDir: root, preVisualGraceMs: GRACE,
+    });
+    const restarted = restart();
+    states.set(coordinator.herdrName, "idle");
+    await restarted.reconcileAll();
+    await until(() => to(coordinator).length === 2, "the kept notices after the restart");
+    expect(to(coordinator)[1]).toBe([
+      "[fleet] Threads ask the person. These come from the fleet, not from the person.",
+      "- an old question",
+      "[fleet] The person pressed these on the Fleet screen. Each is the person's approval for that step only.",
+      `- Merge into main for thread "Fix" (${thread.id}, ${thread.branch}): when this checkout is clean and on main, git merge --no-ff ${thread.branch}. On a conflict, git merge --abort and tell the person.`,
+    ].join("\n"));
+    expect(to(coordinator)[1]).not.toContain("still there?");
+    expect(new RunRegistry(join(root, "runs.json")).get(thread.id)!.notice).toBeUndefined();
+    await Bun.sleep(GRACE + 5);
+    restarted.onPaneStatus(coordinator.paneId);
+    await Bun.sleep(30);
+    restarted.stop();
+    const again = restart();
+    await again.reconcileAll();
+    await Bun.sleep(30);
+    expect(to(coordinator)).toHaveLength(2);
+    again.stop();
+  });
+
   it("say what git kept, and that a merge did not happen", async () => {
     const { fleet, registry, turn, ready, git } = project();
     const { coordinator, thread } = await ready();
@@ -1918,9 +2018,9 @@ describe("plans", () => {
     fleet.submitPlan(thread.id, PLAN);
     writeFileSync(join(root, "results", thread.id, "handoff.md"), "BLOCKED — the plan waits for the person");
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.notice).toContain("Plan tab");
+    expect(noticeOf(registry, thread)).toContain("Plan tab");
     await fleet.answerPlan(thread.id, { version: 1 });
-    expect(registry.get(thread.id)!.notice).toBeUndefined();
+    expect(noticeOf(registry, thread)).toBeUndefined();
     await turn(coordinator, "idle");
     expect(to(coordinator)).toEqual(["go"]);
     fleet.stop();
