@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { appendFileSync, copyFileSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { appendFileSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, renameSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, win32 } from "node:path";
 
@@ -443,6 +443,60 @@ describe("transcript pages", () => {
   const roots: string[] = [];
   afterEach(() => { for (const root of roots.splice(0)) rmSync(root, { recursive: true, force: true }); });
   const temp = (): string => { const root = mkdtempSync(join(tmpdir(), "herdr-pages-")); roots.push(root); return root; };
+
+  it("keeps history and cursors when an append shows its new times before its new size (#219)", async () => {
+    const root = temp();
+    const path = join(root, "append-timestamps.jsonl");
+    const user = (n: number) => `${JSON.stringify({ type: "user", message: { role: "user", content: `prompt ${n}` } })}\n`;
+    writeFileSync(path, Array.from({ length: 80 }, (_, n) => user(n)).join(""));
+    const before = transcriptPage("claude-transcript", path);
+    expect(before.cursor).not.toBeNull();
+    const older = transcriptPage("claude-transcript", path, { before: before.cursor! });
+    // Issue #219: Linux sets a write's times before its size. New times on the same bytes, with
+    // the size published a few milliseconds later by another process (the read is synchronous),
+    // stand for that stat without relying on the scheduler to land between the two.
+    const touched = new Date("2020-01-01T00:00:00Z");
+    const ready = join(root, "ready");
+    const writer = Bun.spawn([process.execPath, "-e", `
+      const { appendFileSync, statSync, writeFileSync } = require("node:fs");
+      const [path, ready, at, line] = process.argv.slice(-4);
+      writeFileSync(ready, "");
+      while (statSync(path).mtimeMs !== Number(at)) Bun.sleepSync(0.2);
+      Bun.sleepSync(5);
+      appendFileSync(path, line);
+    `, path, ready, String(touched.getTime()), user(80)], { stdout: "ignore", stderr: "inherit" });
+    for (const until = Date.now() + 10_000; !existsSync(ready) && Date.now() < until;) Bun.sleepSync(1);
+    utimesSync(path, touched, touched);
+    const during = transcriptPage("claude-transcript", path);
+    expect(during.history_id).toBe(before.history_id);
+    expect(transcriptPage("claude-transcript", path, { before: before.cursor! }).turns).toEqual(older.turns);
+    expect(await writer.exited).toBe(0);
+    expect(transcriptPage("claude-transcript", path).history_id).toBe(before.history_id);
+    expect(transcriptPage("claude-transcript", path, { before: before.cursor! }).turns).toEqual(older.turns);
+  });
+
+  it("invalidates history and cursors for changed tails, truncation and replacement (#219)", () => {
+    // "touch": new times on the same bytes, and no append after them, as a same-size rewrite
+    // that keeps the bytes before the end looks (fixtures/conversations/codex/growing-task)
+    for (const change of ["rewrite", "touch", "truncate", "replace"] as const) {
+      const path = join(temp(), `${change}.jsonl`);
+      const contents = Array.from({ length: 80 }, (_, n) => `${JSON.stringify({ type: "user", message: { role: "user", content: `prompt ${n}` } })}\n`).join("");
+      writeFileSync(path, contents);
+      utimesSync(path, new Date("2020-01-01T00:00:00Z"), new Date("2020-01-01T00:00:00Z"));
+      const before = transcriptPage("claude-transcript", path);
+      expect(before.cursor).not.toBeNull();
+      if (change === "rewrite") writeFileSync(path, contents.replace("prompt 79", "change 79"));
+      else if (change === "touch") utimesSync(path, new Date("2020-01-02T00:00:00Z"), new Date("2020-01-02T00:00:00Z"));
+      else if (change === "truncate") writeFileSync(path, contents.slice(0, contents.indexOf("\n") + 1));
+      else {
+        writeFileSync(`${path}.new`, contents);
+        renameSync(`${path}.new`, path);
+      }
+      expect(transcriptPage("claude-transcript", path).history_id).not.toBe(before.history_id);
+      expect(() => transcriptPage("claude-transcript", path, { before: before.cursor! })).toThrow(HistoryChanged);
+    }
+  });
+
   /** a prompt, a tool call and its result: the result answers the turn, never the next page */
   const claudeTurn = (n: number) => [
     { type: "user", timestamp: `2026-09-23T00:00:${String(n % 60).padStart(2, "0")}.000Z`, message: { role: "user", content: `prompt ${n}` } },
