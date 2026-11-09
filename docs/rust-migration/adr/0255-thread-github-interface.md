@@ -20,10 +20,12 @@ architect(fleet の run `305f385f`)に問い、その答えに従った。
 ### thread
 
 - TypeScript と同じく、async の自由関数にする: `git_root`、`main_worktree`、`git_head`、`git_branch`、`diff_stat`、`diff_text`、`branch_state`、`branch_head`、`is_merged`、`remove_thread`、`exclude_worktrees`、`run_setup`。TypeScript が `null` を返す場面では `None` を返す
-- `Runner` は引数で受け取らず、module の中で `Runner::new(usize::MAX)` を作る。git と setup のコマンドは、TypeScript でも同時に動かす数を数えない。引数にすると、Runner を作る呼ぶ側(O6 の `LandingTools` の impl と、API の `fleet report`)のそれぞれが「上限なし」を書くことになり、上限のある Runner(`opencode api` の 4 つなど)を誤って渡すと、git が別の用途の子プロセスを待つ。上限を置くときは、`thread.rs` の中だけを変える
+- `Runner` は引数で受け取らず、module の中に `Runner::new(usize::MAX)` を 1 つだけ置き(`LazyLock` の static)、すべての呼び出しがそれを使う。git と setup のコマンドは、TypeScript でも同時に動かす数を数えない。引数にすると、Runner を作る呼ぶ側(O6 の `LandingTools` の impl と、API の `fleet report`)のそれぞれが「上限なし」を書くことになり、上限のある Runner(`opencode api` の 4 つなど)を誤って渡すと、git が別の用途の子プロセスを待つ。上限を置くときは、`thread.rs` の中だけを変える
 - `remove_thread` は `Result<(), String>` を返す。`Err` の文は、残したもの(worktree かブランチ)とその理由で、TypeScript の戻り値の文と同じ。`Result` は `#[must_use]` なので、O6 がこの文を捨てるとコンパイラが警告する
 - `worktree_path(repo, thread_id)` を足す。worktree の場所(`<repo>/.herdr-fleet/worktrees/<thread の id>`)を、TypeScript は spawn(`orchestrator.ts:528`)と thread を閉じる処理(`:1146`)の 2 か所で組み立てている
 - `DiffText { diff, truncated }` は `Serialize` を持つ。API は diff をこの形の JSON で返し、画面がそれを読む(`server/fleet/api.ts:154`、`src/lib/api.ts:487`)
+- `exclude_worktrees` は、`info/exclude` の読み取り、確認、追記を、プロセスの中の 1 つの `Mutex` の下で行う。TypeScript ではこの 3 つが 1 つの event loop の上で続けて動き、割り込まれなかった。Rust の multi-thread の runtime では、同じリポジトリに同時に始めた 2 つの thread が、どちらも行がないと読んで 2 行書きうる(テストで再現した)
+- git が起動できないか時間切れで止められたとき、`remove_thread` の文は TypeScript と同じ `git could not remove it`(ブランチは `git could not delete it`)になる。TypeScript は止めた git の何も言わない標準エラーを読んだためである
 - すべての future が `Send` であることを、テストで確かめる。O1 の port は `Send` の boxed future を求める(ADR `0242-phase-3-split`)
 
 ### github
