@@ -115,6 +115,7 @@ jobs:
       run:
         shell: bash
     env:
+      # The fleet-cli job pins the same release and checksum: change both together.
       BUN_VERSION: 1.4.4
       # The line for bun-linux-x64.zip in SHASUMS256.txt of the bun-v1.4.4 release.
       BUN_SHA256: bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c
@@ -161,3 +162,70 @@ jobs:
       # starting herdr, and HERDR_SOCKET points at a socket that does not exist.
       - name: Screen and conversation corpora on the TypeScript implementation
         run: HERDR_TEST_MODE=unit HERDR_SOCKET=/nonexistent/herdr.sock bun test server/screen-fixtures.test.ts server/conversation-fixtures.test.ts
+
+  # ADR 0251-fleet-cli-ci: the Rust `fleet` must pass the fleet CLI contract
+  # (fixtures/fleet-cli/), and the TypeScript `fleet` must still pass it, so
+  # that a pull request that changes a case to fit the Rust answer, and not
+  # bin/fleet.ts with it, turns red. A job of its own, so that a failed bun
+  # download does not hide the result of the Rust checks of `linux`.
+  fleet-cli:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: always
+      # The same release and checksum as the ts-corpus job (ADR 0194-ts-corpus-job):
+      # change both together.
+      BUN_VERSION: 1.4.4
+      # The line for bun-linux-x64.zip in SHASUMS256.txt of the bun-v1.4.4 release.
+      BUN_SHA256: bf8ccbfb2b0b80159e0f9a6d15c55317add8077534dbc6130a3edb52fccb395c
+    steps:
+      # actions/checkout v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      # Installs the release and components named in rust/rust-toolchain.toml.
+      - name: Install the toolchain
+        working-directory: rust
+        run: rustup toolchain install --no-self-update && rustc --version
+      - name: Build the Rust fleet CLI
+        working-directory: rust
+        run: cargo build --locked -p herdr-fleet-cli
+      # The same step as the ts-corpus job's (ADR 0194-ts-corpus-job): the
+      # release zip, or the same asset through the REST API, checked against
+      # the pinned sha256 before it is opened.
+      - name: Install bun
+        run: |
+          dir="$RUNNER_TEMP/bun"
+          mkdir -p "$dir"
+          fetch() {
+            curl --fail --silent --show-error --location --retry 3 --retry-max-time 150 \
+              --connect-timeout 15 --max-time 60 "$@"
+          }
+          if fetch --output "$dir/bun.zip" \
+              "https://github.com/oven-sh/bun/releases/download/bun-v$BUN_VERSION/bun-linux-x64.zip"; then
+            echo "downloaded from the release download URL"
+          else
+            echo "::warning::the release download URL failed; taking the same asset through the REST API"
+            api="https://api.github.com/repos/oven-sh/bun/releases"
+            fetch --output "$dir/release.json" "$api/tags/bun-v$BUN_VERSION"
+            id=$(jq --exit-status '.assets[] | select(.name == "bun-linux-x64.zip") | .id' "$dir/release.json")
+            fetch --header 'Accept: application/octet-stream' --output "$dir/bun.zip" "$api/assets/$id"
+            echo "downloaded from $api/assets/$id"
+          fi
+          echo "$BUN_SHA256  $dir/bun.zip" | sha256sum --check --strict -
+          unzip -q "$dir/bun.zip" -d "$dir"
+          echo "$dir/bun-linux-x64" >> "$GITHUB_PATH"
+      - name: bun --version
+        run: test "$(bun --version)" = "$BUN_VERSION"
+      # The test file runs without node_modules, so there is no `bun install`.
+      # HERDR_TEST_MODE=unit keeps the preload (scripts/test-herdr.ts) from
+      # starting herdr, and HERDR_SOCKET points at a socket that does not exist.
+      # The runner points the CLI at its own stub server on a port from 7400 to
+      # 7499 and passes the CLI no variable of the job but PATH, HOME and TMPDIR.
+      - name: Fleet CLI contract on the TypeScript CLI
+        run: HERDR_TEST_MODE=unit HERDR_SOCKET=/nonexistent/herdr.sock bun test bin/fleet-cli-fixtures.test.ts
+      - name: Fleet CLI contract on the Rust CLI
+        run: HERDR_FLEET_CLI_TARGET=rust:rust/target/debug/fleet HERDR_TEST_MODE=unit HERDR_SOCKET=/nonexistent/herdr.sock bun test bin/fleet-cli-fixtures.test.ts
