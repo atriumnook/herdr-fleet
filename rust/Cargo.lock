@@ -200,6 +200,7 @@ name = "herdr-fleet-child-process"
 version = "0.0.0"
 dependencies = [
  "rustix",
+ "serde_json",
  "tokio",
  "tokio-util",
 ]
