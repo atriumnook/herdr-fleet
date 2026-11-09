@@ -1,4 +1,4 @@
-# 段階 3 を 29 の Issue に分け、herdr と fleet の crate の interface を決める
+# 段階 3 を 30 の Issue に分け、herdr と fleet の crate の interface を決める
 
 - 状態: 採用
 - 決めた日: 2026-11-09
@@ -40,11 +40,11 @@ TypeScript のコードの構成のうち、分け方を左右したもの(行�
 
 ### Issue の分け方
 
-段階 3 を次の 29 の Issue にする(ラベル `rust-migration` と `phase:3`)。土台の Issue(D)が外部 crate、manifest、protocol の型、orchestrator の module の宣言をまとめて書き、各領域の最初の Issue(H2、C1、O1)が、その領域のあとの Issue が中身を書く stub を最終の signature で置く。パスの `herdr/` などは `rust/crates/herdr/` などを、`O/` は `rust/crates/orchestrator/` を指す。この ADR の中の D、H1 などの略称は、表の Issue を指す。
+段階 3 を次の 30 の Issue にする(ラベル `rust-migration` と `phase:3`)。土台の Issue(D)が外部 crate、manifest、protocol の型、orchestrator の module の宣言をまとめて書き、各領域の最初の Issue(H2、C1、O1)が、その領域のあとの Issue が中身を書く stub を最終の signature で置く。パスの `herdr/` などは `rust/crates/herdr/` などを、`O/` は `rust/crates/orchestrator/` を指す。この ADR の中の D、H1 などの略称は、表の Issue を指す。
 
 | Issue | 中身 | 待つ Issue | 書くパス |
 |---|---|---|---|
-| #244(D) | 段階 3 の外部 crate と依存の ADR。protocol の fleet の型(`shared/fleet.ts`、エラーの本文、`X-Herdr-Fleet` の定数、ルートのパス、計画の型)、fleet CLI の corpus の応答の往復のテスト。orchestrator の `lib.rs`、空の module のファイル、`error.rs`、`clock.rs` | なし | `rust/Cargo.toml`、`rust/Cargo.lock`、`{herdr-api,herdr,child-process,orchestrator,cli,core}/Cargo.toml`、`protocol/src/`、`protocol/tests/`、`O/src/{lib,error,clock}.rs`、空の module のファイル `O/src/{agents,brief,config,entrances,registry,report,events,outbox,thread,github,plan,metrics,settings,runtime,herdr_runtime}.rs` と `O/src/{launch,usage,models,fleet,api}/mod.rs`、依存の ADR |
+| #244(D) | 段階 3 の外部 crate と依存の ADR。protocol の fleet の型(`shared/fleet.ts`、エラーの本文、`X-Herdr-Fleet` の定数、ルートのパス、計画の型)、fleet CLI の corpus の応答の往復のテスト。orchestrator の `lib.rs`、空の module のファイル、`error.rs`、`clock.rs` | なし | `rust/Cargo.toml`、`rust/Cargo.lock`、`{herdr-api,herdr,child-process,orchestrator,cli,core}/Cargo.toml`、`protocol/src/`、`protocol/tests/`、`O/src/{lib,error,clock}.rs`、`cli/src/lib.rs`(空)、空の module のファイル `O/src/{agents,brief,config,entrances,registry,report,events,outbox,thread,github,plan,metrics,settings,runtime,herdr_runtime}.rs` と `O/src/{launch,usage,models,fleet,api}/mod.rs`、依存の ADR |
 | #245(H1) | herdr-api: Rust の生成器、schema の全体の型と `Method` の trait、一致の検査 | D | `herdr-api/src/`、`herdr-api/tests/` |
 | #246(C1) | child-process: `childEnv`・`claudeEnv` と安全上の判定の表、空の私用のフォルダー、上限つきの runner、git の起動。`opencode` の stub | D | `child-process/src/`、`child-process/tests/common/`、`child-process/tests/{env,runner,git}.rs` |
 | #247(L1) | 役割と設定: agents(roles)、brief、config(`parse_candidate`)、entrances | D | `O/src/{agents,brief,config,entrances}.rs`、`O/tests/{agents,roles,brief,config,entrances}.rs` |
@@ -69,9 +69,10 @@ TypeScript のコードの構成のうち、分け方を左右したもの(行�
 | #266(O6) | landing、マージの確認、GitHub の読み取り、thread を閉じる。`LandingTools` の impl | O4、L6 | `O/src/fleet/landing.rs`、`O/tests/landing.rs` |
 | #267(O7) | lead のあとを継ぐ thread(起動し直し) | O2、O5、O6 | `O/src/fleet/restart.rs`、`O/tests/restart.rs` |
 | #268(O8) | 人のいない project の監督(自律、停滞、GitHub でのマージ) | O6 | `O/src/fleet/autonomy.rs`、`O/tests/autonomy.rs` |
-| #269(API) | `/api/fleet` の axum の router、`api.test.ts`、fleet CLI の契約の 87 件の要求を受け付ける検査 | O2、O5、O7、O8、ST、L8 | `O/src/api/`、`O/tests/{api,cli_requests}.rs` |
+| #269(API) | `/api/fleet` の axum の router、`api.test.ts` | O2、O5、O7、O8、ST、L8 | `O/src/api/`、`O/tests/api.rs` |
 | #270(LIVE) | 最小の core(bin `herdr-fleet`)と、隔離した herdr のセッションで thread を 1 つ起動して終える `#[ignore]` のテスト | API、HR、H3、CLI | `core/src/`、`core/tests/live_thread.rs` |
-| #271(M) | 段階 3 の関門の前に main を `rust` に取り込み、Rust 版が合わせていない変更を追いかけの Issue にする | LIVE(間接にすべて) | main が変えたパス、`docs/rust-migration/parity.md`(新しいテストのファイルの行) |
+| #274(CC) | Rust の CLI(lib の `run`)を、偽の runtime と件と同じ状態を持つ Rust の router に本物の TCP で当て、要求、出力、終了コードを fleet CLI の契約の件と比べる。87 件の分類の表 | API、CLI | `O/tests/cli_core.rs` |
+| #271(M) | 段階 3 の関門の前に main を `rust` に取り込み、Rust 版が合わせていない変更を追いかけの Issue にする | LIVE、CC(間接にすべて) | main が変えたパス、`docs/rust-migration/parity.md`(新しいテストのファイルの行) |
 | #272(V) | parity.md の段階 3 の行、GLOSSARY、stub が残っていないことの確認 | M(間接にすべて) | `docs/rust-migration/parity.md`、`docs/rust-migration/GLOSSARY.md` |
 
 最も早く始められる順は次のとおり。同じ段の Issue は並行できる。
@@ -87,7 +88,7 @@ TypeScript のコードの構成のうち、分け方を左右したもの(行�
 | 6 | O5、O6 |
 | 7 | O7、O8 |
 | 8 | API |
-| 9 | LIVE |
+| 9 | LIVE、CC |
 | 10 | M |
 | 11 | V |
 
@@ -138,11 +139,11 @@ pub fn start(source: Arc<dyn EventSource>, handler: Arc<dyn PaneStatusHandler>, 
 
 - orchestrator の `api` module が `pub fn router(…) -> axum::Router` を返し、core が `/api/fleet` に mount する(ADR `0107-crate-split`)。テストは `tower::ServiceExt::oneshot` で router を直接呼び、ポートを使わない。`X-Herdr-Fleet: 1` の確認は core のアクセス制御に置き、段階 3 では LIVE の最小の core が持つ
 - CLI は ureq を `default-features = false`(TLS なし、平文の HTTP だけ)で使う。CLI の宛先は fleet のサーバーが渡す `http://127.0.0.1:<port>` で、TLS は要らない。std に HTTP のクライアントはなく、方針は標準、実績のあるライブラリ、自作の順で、ureq は実績のあるライブラリに当たるので自作より先に採る
-- CLI の時刻(`bin/fleet.ts:127` の `toLocaleString()`)は jiff で、ロケールによらず en-US の形を `TZ` の示す地域の時刻で書く。fleet CLI の契約は `TZ=UTC`、`LANG=en_US.UTF-8` で固定している(ADR `0122-parity-criteria`)ので、件は通る。en_US 以外のロケールでは TypeScript と表示が違い、CLI の Issue がそれを parity.md の備考に書く
+- CLI の時刻(`bin/fleet.ts:127` の `toLocaleString()`)は jiff で、ロケールによらず en-US の形を `TZ` の示す地域の時刻で書く。fleet CLI の契約は `TZ=UTC`、`LANG=en_US.UTF-8` で固定している(ADR `0122-parity-criteria`)ので、件は通る。en_US 以外のロケールでは TypeScript と表示が違う。CLI の Issue がそれを PR に書き、V が parity.md の備考に写す
 
 ### 外部 crate
 
-段階 3 の外部 crate は D がまとめて足す: tokio、tokio-util(`CancellationToken`)、axum(orchestrator と core)、ureq(cli)、rustix(child-process の SIGTERM。Unix だけで、Windows は下の「子プロセス」の `start_kill`)、jiff(cli)、dev-dependency の tower と http-body-util。`Cargo.lock` と crate の manifest は 1 つのファイルで、Issue ごとに足すと並行する Issue が同じファイルを書くため。workspace の中の依存(orchestrator → screen、herdr、child-process など)も `Cargo.lock` を変えるので、D が段階 3 のすべての manifest に書く。版、入手元、ライセンス、保守の状況、`build.rs` が実行することは、D の依存の ADR に書く(計画の「守ること」)。
+段階 3 の外部 crate は D がまとめて足す: tokio、tokio-util(`CancellationToken`)、axum(orchestrator と core)、ureq(cli)、rustix(child-process の SIGTERM。Unix だけで、Windows は下の「子プロセス」の `start_kill`)、jiff(cli)、dev-dependency の tower と http-body-util。`Cargo.lock` と crate の manifest は 1 つのファイルで、Issue ごとに足すと並行する Issue が同じファイルを書くため。workspace の中の依存(orchestrator → screen、herdr、child-process など)も `Cargo.lock` を変えるので、D が段階 3 のすべての manifest に書く。D は、CC のために orchestrator の dev-dependency に cli を足し(`[workspace.dependencies]` にも `cli` を足す)、空の `cli/src/lib.rs` を作る(lib の target がないと、cargo は依存を無視して警告を出す)。cli は protocol だけに依存し、dev-dependency を含め orchestrator に依存しないので、循環はない。tokio には `axum::serve` と `TcpListener` が使う feature `net` を入れる。版、入手元、ライセンス、保守の状況、`build.rs` が実行することは、D の依存の ADR に書く(計画の「守ること」)。
 
 ### herdr-api の生成
 
@@ -174,6 +175,14 @@ pub fn start(source: Arc<dyn EventSource>, handler: Arc<dyn PaneStatusHandler>, 
 - adapter は CLI ごとのモデル一覧(`server/fleet/adapters.ts:79-84` の `models`)を持たず、L4 の models module が `FleetAgentKind` ごとに持つ。adapter に残すと L2 が L4 を待ち、L4 は C2 を待つ。ADR `0107-crate-split` の「出力の parser はそのコマンドの argv の隣に置く」にも合う
 - 候補の文字列を読む `parseCandidate`(`orchestrator.ts:191`、純粋な関数)は L1 の config に置き、O2 と ST が使う
 
+### fleet-guard のプラグインの場所
+
+OpenCode の編集しない役割の関門は、JavaScript のプラグイン `opencode/fleet-guard/` である(CLAUDE.md の「opencode の癖」)。Rust 版も同じフォルダーを同梱し(ADR `0122-parity-criteria`)、L2 が設定の JSON に書くプラグインのパスを次のとおり決める。
+
+- 段階 3 では、checkout の中の `opencode/fleet-guard` を指す。今の TypeScript がソースのファイルの場所から決める(`server/fleet/opencode-config.ts:43` の `resolve(import.meta.dir, "..", "..", "opencode", "fleet-guard")`)のと同じく、Rust は orchestrator の crate のフォルダー(`CARGO_MANIFEST_DIR`)から決める。配布するときの置き場所は、パッケージを作る段階 6 で決める
+- フォルダーに `index.js` がなければ、編集しない役割の opencode の run を起動しない(起動の失敗にする)。関門のないまま、編集しない役割の shell を開かないため。今の TypeScript はフォルダーを確かめないので、この点は TypeScript より強い
+- 設定の JSON が一致することは安全上の判定の表(`opencodeConfig.json`)で確かめ、プラグインが読み込まれて shell の行を止めることは `scripts/opencode-live-check.ts`(手で走らせる検査)で確かめる。Rust の core で走らせる形にするかは段階 4 で決める
+
 ### 子プロセス
 
 - C1 の runner に、ペインの外で起動する子プロセスをすべて通す: 使用量の probe、モデル一覧、`opencode api`、git、`gh`、利用者の setup のコマンド。runner は時間の上限を過ぎたら SIGTERM を送り、2 秒後に SIGKILL、さらに 2 秒で読み取りをあきらめる。標準出力と標準エラーの上限、同時に動かす数の上限、`CancellationToken`、標準入力に書き、標準出力を 1 行ずつ読むやりとり(`codex app-server` の JSON-RPC、`usage.ts:426`、`model-lists.ts:127`)を持つ
@@ -186,16 +195,16 @@ pub fn start(source: Arc<dyn EventSource>, handler: Arc<dyn PaneStatusHandler>, 
 計画の完了条件「fleet CLI の契約が Rust の CLI と Rust の core で通る」を、次の 3 つで満たす。corpus は CLI の側の契約(stub のサーバーの応答)しか持たないので、core が CLI の要求を受け付けること(2)と、CLI が core の応答を読めること(1 と、型を protocol で共有すること)を分けて確かめる。
 
 1. D: corpus の 87 件の `responses[].body` を CLI が読む protocol の型に読み、同じ JSON に書き戻す往復のテスト。CLI の Issue は、Rust の `fleet` で 87 件を `HERDR_FLEET_CLI_TARGET=rust:<パス>` で通す
-2. API: 87 件の `expected.requests` のそれぞれを、偽の runtime を持つ Rust の router に送り、受け付けられることを確かめる。受け付けるとは、ルートに当たり(`api.ts:200` の `notFound()` ではない)、本文の検査を通る(エラーコードが `invalid_json`、`invalid_body`、`missing_*`、`invalid_*` のどれでもない)こと。2xx の応答は CLI が読む protocol の型に読めなければならない。run の id などの状態が違うために出る領域のエラー(`run_not_found` など)は受け付けたものとして数える
+2. CC: Rust の CLI を、偽の runtime を持つ Rust の router に本物の TCP で当てる。CLI の Issue が `cli/src/lib.rs` に `pub fn run(argv, env, cwd, stdin, stdout, stderr) -> i32` を置き(`main.rs` は渡すだけ。`run` は `std::env` と `current_dir` を読まない。edition 2024 では `std::env::set_var` が unsafe で、`unsafe_code = "forbid"` の下ではテストが環境変数を変えられず、cargo のテストは 1 つのプロセスの中で並行に動くため)、orchestrator は dev-dependency で cli に依存する。状態は、件と同じ id・group・名前・時刻の run を `RunRegistry` に入れ、O1 の `FakeRuntime` と結果フォルダーを用意して作る。router が受け取った要求、標準出力、標準エラー、終了コードを、件の期待値とそのまま比べる。期待値は TypeScript の CLI が stub の応答を読んで出したものなので、Rust の core が stub と同じ値を返す状態で出力が一致すれば、Rust の CLI と Rust の core の組が TypeScript の CLI と同じ出力を出したことになる。87 件はテストの中の表で `core`(router に当てる)、`cli-only`(サーバーに届かない)、`stub-only`(stub の応答が本物の core の応答ではない。例: `plan-stdin-json` は `claims: []` を送り、本物の core は `invalid_plan` で断る、`orchestrator.test.ts:2939`)に分け、表と `fixtures/fleet-cli/*.json` が過不足なく一致することをテストが確かめる。`stub-only` は完了条件の根拠に数えない。subcommand のそれぞれに、`core` の成功の件と失敗の件を少なくとも 1 つずつ置き、corpus にない場面は CC が足す
 3. LIVE: Rust の CLI を Rust の core に向けて動かす。thread の lead の `fleetCommand` を Rust の `fleet` にし、テスト自身も Rust の `fleet thread` と `fleet wait` で操作する
 
-件ごとに状態を用意して応答まで比べる案は取らない。87 件の状態を作ることになり、`/api/fleet` の black-box の比較は段階 4 の HTTP/WS の契約が受け持つ。
+最初の案(API の Issue が 87 件の要求を router が受け付けることだけを確かめる)は、codex のレビューの指摘で取り下げた。存在しない run への要求も `run_not_found` で「受け付けた」と数え、成功の経路を一度も通らないため。CC はアクセス制御を通らないが、CLI のすべての要求は 1 つの関数が同じヘッダーを付けて送る(`bin/fleet.ts:82-88`)ので、LIVE の POST と GET が最小の core のアクセス制御を通れば、どの subcommand の要求も通る。`/api/fleet` の black-box の比較は段階 4 の HTTP/WS の契約が受け持つ。
 
 ### Rust の core が thread を 1 つ起動して終える
 
 - 段階 3 に、bin `herdr-fleet` の最小の core を置く(LIVE)。持つのは、`/api/fleet` の mount、orchestrator、HR の `HerdrRuntime`、ペインの状態の購読の受け手(`PaneStatusHandler` の実装)、起動時の `reconcile_all`、pull request の読み取りと監督の interval(`server/index.ts:2051-2062`)だけで、段階 4 がほかを足す
-- アクセス制御を緩めない(CLAUDE.md の「守ること」)。最小の core は `127.0.0.1` だけで待ち受け、Host がループバックでない要求と、GET 以外で `X-Herdr-Fleet: 1` のない要求を断る。token は段階 4 で入れる。token のない状態で通すのは、ループバックのアドレスからループバックの Host で来た要求だけ、という今の決まりの範囲に収まる
-- エージェントは本物の CLI にする。claude を、モデルの別名 `haiku` で動かす。API キーは使わない(決まりの 4)。テストは `#[ignore]` で、関門の前に手で走らせ、出力を PR に貼る。偽のエージェントは取らない。herdr の `agent.start` は種類の名前で CLI を起動し、`interactive_ready` まで待つ(`runtime.ts:95-105`)。手で報告したエージェントが `interactive_ready` になるかは確かめていない。また、この確認の目的は herdr との実際のやりとりで、偽物ではそれを確かめられない
+- アクセス制御を緩めない(CLAUDE.md の「守ること」)。最小の core は `127.0.0.1` だけで待ち受け、今のサーバーの、token も紐付けた端末もないときの判定をそのまま持つ: ループバックのアドレスから来て、proxy を通った印がない(`cameThroughProxy`、`server/access.ts:83`: proxy のヘッダーがない、Host があってループバックである)要求だけを通す(`decideAccess` の `loopback && !forwarded`、`:117`)。GET 以外の要求には、`X-Herdr-Fleet: 1` と、`sameOrigin`(`server/http.ts:45`: `Origin` と `Sec-Fetch-Site` の検査、`server/index.ts:1114`)を求める。token と紐付けた端末は段階 4 で入れる。LIVE は、転送のヘッダー(`X-Forwarded-For` など)を持つ `Host: localhost` の要求と、別の Origin からの変更の要求を断ることをテストで確かめる
+- エージェントは本物の CLI にする。claude を、モデルの別名 `haiku` で動かす。API キーは使わない(決まりの 4)。テストは `#[ignore]` で、関門の前に手で走らせ、出力を PR に貼る。偽のエージェントは取らない。herdr の `agent.start` は種類の名前で CLI を起動し、`interactive_ready` まで待つ(`runtime.ts:148`、`:174-183`)。手で報告したエージェントが `interactive_ready` になるかは確かめていない。また、この確認の目的は herdr との実際のやりとりで、偽物ではそれを確かめられない
 - 手順: 一時の git リポジトリに `.herdr-fleet/fleet.json` を置き、lead の候補を `claude:haiku` にする。Rust の `fleet thread` で始め、task は「指示文が示す結果フォルダーの report.json に、state `ready`、空でない summary と evidence を書いて終える」にする(report は `<stateDir>/fleet-results/<run id>/report.json` からだけ読まれ、state、summary、evidence のどれかが欠けると「報告なし」になる。`server/fleet/report.ts`)。`fleet wait` で委ねたターンが終わるのを待ち、`fleet list --json` で run の `outcome.report.state` が `ready` であることを確かめる。最後に `POST /api/fleet/runs/:target/land {action: "discard"}` で thread を終える。discard は pane、worktree、ブランチを消すので、worktree の作成(herdr の `worktree.create`)から後始末までを 1 回で通る
 - 隔離: `HERDR_*` を外す。herdr のセッションは `herdr-fleet-rs-<run id>` で、終わったら止める。ポートは 7400〜7499。state は `rust/.dev-state/<run id>/`。core の `XDG_CONFIG_HOME` も `rust/.dev-state/<run id>/config` に向ける。fleet の利用者の設定(fleet.json、役割、standing)は `HERDR_FLEET_STATE_DIR` ではなく `XDG_CONFIG_HOME` から探されるため(`server/fleet/config.ts:23-25`)で、向けないと Rust の core が稼働中の fleet の `~/.config/herdr-fleet` を読む
 
@@ -227,8 +236,8 @@ pub fn start(source: Arc<dyn EventSource>, handler: Arc<dyn PaneStatusHandler>, 
 | #189 の 8 | agy の sandbox の note と fleet コマンドを使う役割の矛盾 | L1、L2 |
 | #189 の 9 | CLI が `--hours` を符号化しない | CLI |
 | #190 | agy のレビュアーが作業フォルダーの外のファイルの確認画面で止まる | L2 |
-| #240 の 1 | 計画の案内に report.json がない | CLI、L7 |
-| #240 の 2 | landing と委ねたターンの決着の競合 | O1、O6 |
+| #240 の 1 | 計画の案内に report.json がない | CLI、L7(文言は fleet CLI の契約と TypeScript のテストが今の形で固定しているので、両 Issue は今の文言で通し、main の直しを M が持ち込んだあと追いかけの Issue で直す) |
+| #240 の 2 | landing と委ねたターンの決着の競合 | O1(決着の側の順序)、O6(公開の口 `land` から再現するテスト) |
 | #240 の 3 | 起動し直しが失敗したあと計画の回答待ちが残る | O5、O7 |
 
 ### 計画の項目と完了条件の対応
@@ -245,7 +254,7 @@ pub fn start(source: Arc<dyn EventSource>, handler: Arc<dyn PaneStatusHandler>, 
 | 使用量 | L3(probe、クールダウン)、O2(使用量による振り分け、cursor の `/usage`) |
 | モデル一覧 | C2(`opencode api`)、L4(一覧と catalog)、O2(知らないモデルを飛ばす) |
 | `fleet` CLI | CLI |
-| 完了条件 1: fleet CLI の契約が Rust の CLI と Rust の core で通る | D(応答の往復)、CLI(87 件)、API(87 件の要求を受け付ける)、LIVE(Rust の CLI を Rust の core に当てる) |
+| 完了条件 1: fleet CLI の契約が Rust の CLI と Rust の core で通る | D(応答の往復)、CLI(87 件)、CC(Rust の CLI を偽の runtime を持つ Rust の router に当てる)、LIVE(Rust の CLI を Rust の core に当てる) |
 | 完了条件 2: orchestrator の振る舞い(`server/fleet/*.test.ts`)が Rust のテストにある | `orchestrator.test.ts` は O1〜O8、`adapters.test.ts` の起動の部分は L2(画面の判定は段階 2 で screen)、`agents`・`roles`・`brief`・`config`・`entrances` は L1、`api` は API、`metrics` は L8、`models` は L4、`outbox`・`report` は L5、`plan` は L7、`runtime.herdr` は HR、`settings` は ST、`thread` は L6、`usage` は L3。`opencode-guard.test.ts` は parity.md のとおり TypeScript のまま残す。V が parity.md の行を埋めて確かめる |
 | 完了条件 3: 隔離した herdr のセッションで、Rust の core が thread を 1 つ起動して終えられる | LIVE(HR、H3、API、CLI を待つ) |
 | 計画の「守ること」の各 CLI の癖、使用量とモデル一覧の取得口、OpenCode 2 の制限 | L2、L3、L4、C1、C2、L6 の受け入れ条件と注意 |
@@ -274,9 +283,26 @@ ADR `0107-crate-split` の「TypeScript のファイルの引き継ぎ先」の�
 
 ### architect の答えと違う判断
 
-architect の答え(28 の Issue)をそのまま採り、lead は次の 1 点を足した。
+architect の答え(28 の Issue)をそのまま採り、lead は次の 1 点を足した。PR のレビュー(codex の reviewer と `/code-review high`)の指摘で、lead が直した点と、もう一度 architect(run `b9a32bad`)に聞いて決めた点は、この節のあとに書く。
 
 - M(段階 3 の関門の前の main の取り込み)を Issue にした。段階 3 の Issue が合わせる TypeScript は着手した時点のもので、#176・#189・#190・#240 の main での直しは取り込みで入るので、取り込んだあとに Rust 版との違いを見つける作業が要る。M は LIVE を待ち(間接にほかのすべてを待つ)、V は M を待つ。M は parity.md に新しいテストのファイルの行を足しうるので、V と同時に走らせない
+
+### PR のレビューで直した点
+
+- O1 は L6 を待つ(`/code-review high`)。上の「Issue の分け方」の最長の経路の段落のとおり
+- herdr-api の `trait Method` から `type Result` を外し、method と応答の形の対応の表を H2 に置く(`/code-review high`)。上の「herdr-api の生成」のとおり
+- module のファイルの置き方と、D が作る空のファイルを表に書いた(`/code-review high`)
+- 取り消しは `CancellationToken::drop_guard` で行う(`/code-review high`)
+- 垂直に切る決まりとの関係を書いた(`/code-review high`)。上の「Issue の分け方」のとおり
+- LIVE の report.json の置き場所と項目を書いた(`/code-review high`)
+- 最小の core のアクセス制御に、proxy を通った印の拒否と `sameOrigin` を足した(codex の R1)
+- `agent kinds` の最後の 1 件(`orchestrator.test.ts:972`、候補の切り替えを使う)を O1 から O2 に、`threads` の 1 件(`:1165`、`submitPlan` を使う)を O3 から O5 に移した。#240 の 2 の公開の口からの再現のテストは O6 が書く(codex の R2、R3)
+- `mergedOnGitHub` と `refreshPullRequests` を O8 から O6 に移した(codex の R4。O6 と O7 のテストが呼ぶ、`orchestrator.test.ts:2720`、`:1311`、`:1810`)。人のいない project でマージを読んだときの方針は、`autonomy.rs` の hook `merged_without_person(&self, thread, reading, seen: MergeSeen)`(`MergeSeen` は `TurnEnded` と `Polled`)の 1 か所にし、O1 が stub を置き、O8 が中身を書く。O6 は `refreshPullRequests` の自律の分岐(`:1044-1046`)と `settleThreadTurn` の自律でマージを読んだ分岐(`:1483`)の両方からこの hook を呼び、`settleThreadTurn` は知らせの文を作る前に hook を await する。人のいない project でマージした thread をいつ閉じるかの方針(#176 の 1・2・3)を 1 か所にするためで、#176 の 1 は O8 に残す。O7 のテスト(`:1824-1843`)が要る知らせの文 `threadTurnEnded` と `threadLabel` は O4 に置く(architect `b9a32bad`)
+- #240 の 1 の文言は、fleet CLI の契約の件と TypeScript のテストが今の形で固定しているので、CLI と L7 は今の文言で通し、main の直しを M が持ち込んだあとの追いかけの Issue で直す(codex の R5)
+- fleet CLI の契約を Rust の core で確かめる検査を、API の「要求を受け付ける」から、新しい Issue CC(#274)に替えた(codex の R6、architect `b9a32bad`)。上の「fleet CLI の契約を Rust の CLI と Rust の core で通す」のとおり
+- CLI のロケールの違いは CLI の PR に書き、V が parity.md に写す(codex の R7)
+- fleet-guard のプラグインの場所を決めた(codex の R8)。上の「fleet-guard のプラグインの場所」のとおり
+- private の集まりの数(Map 13、Set 2)と、`agent.start` の根拠の行番号を直した(codex の R9、`/code-review high`)
 
 ## 検討した代わり
 
@@ -299,7 +325,7 @@ architect の答え(28 の Issue)をそのまま採り、lead は次の 1 点を
 
 ## 結果
 
-- 段階 3 の Issue は上の表のとおりに進む。D のあと、H1、C1、L1、L2、L5、L7、CLI の 7 つが並行し、O1 のあと O2〜O8 は表の待つ Issue の順に進む
+- 段階 3 の Issue は上の表のとおりに進む。D のあと、H1、C1、L1、L2、L5、L7、CLI の 7 つが並行し、O1 のあと O2〜O8 は表の待つ Issue の順に進む。API のあと LIVE と CC が並行する
 - 共通のファイルを書くのは D、H2、C1、O1 だけなので、あとの Issue が共通のファイルの直しを見つけると、直す Issue を待つ分だけ遅れる
 - herdr の crate が、ペインの状態の購読と tokio の timer を持つ。段階 4 の core は購読の受け手を組み立てるだけになる
 - orchestrator のテストは止めた時計で動き、待ちは待つ時間に関係なく一瞬で終わる。`Clock` を通さずに時刻を読むコードは、テストで時計と食い違う
@@ -312,7 +338,7 @@ architect の答え(28 の Issue)をそのまま採り、lead は次の 1 点を
 
 2026-11-09、Linux(omarchy)、`rust` ブランチの `d7965e3` で確かめた。Rust のコードは書いていないので、cargo の検査はない。
 
-- 書くパスの重なり: 次の script(`python3 -I <script> docs/rust-migration/adr/0242-phase-3-split.md`)が、この ADR の「Issue の分け方」の表を読み、どちらも他方を(間接にも)待たない組を同時に走りうる組として、すべての組の書くパスを比べる。出力は `issues: 29 / concurrent pairs: 187 / clashes: 0`。L1 の書くパスを L2 のフォルダーの下に変えた写しでは `clashes: 1` になり、重なりを見つけることも確かめた。architect の表(M を除く 28 件、O1 は L6 を待たない)では `concurrent pairs: 193 / clashes: 0` だった。O1 が L6 を待つようにしたので、同時に走りうる組が 6 つ減った。M はほかの 27 の実装の Issue をすべて(間接に)待ち、V は M を待つ。表に backtick で書いていない書くパス(D の空の module のファイル、M の main が変えたパス)は比べないが、D はほかのすべての Issue が待ち、M はほかのすべてを待つので、同時に走る Issue がない
+- 書くパスの重なり: 次の script(`python3 -I <script> docs/rust-migration/adr/0242-phase-3-split.md`)が、この ADR の「Issue の分け方」の表を読み、どちらも他方を(間接にも)待たない組を同時に走りうる組として、すべての組の書くパスを比べる。出力は `issues: 30 / concurrent pairs: 192 / clashes: 0`。L1 の書くパスを L2 のフォルダーの下に変えた写しでは `clashes: 1` になり、重なりを見つけることも確かめた。architect の表(M を除く 28 件、O1 は L6 を待たない)では `concurrent pairs: 193 / clashes: 0` だった。O1 が L6 を待つようにして同時に走りうる組が 6 つ減り、CC を足して 5 つ増えた。M はほかの 28 の実装の Issue をすべて(間接に)待ち、V は M を待つ。表に backtick で書いていない書くパス(D の空の module のファイル、M の main が変えたパス)は比べないが、D はほかのすべての Issue が待ち、M はほかのすべてを待つので、同時に走る Issue がない
 
   ```python
   # Reads the issue table of the ADR and, for every pair of issues where neither waits (even
