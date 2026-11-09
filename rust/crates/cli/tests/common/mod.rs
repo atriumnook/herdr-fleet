@@ -380,6 +380,51 @@ fn substitute(value: &Value, pairs: &[(String, &str)]) -> Value {
 
 /// Runs the CLI's `run` on `case`.
 pub fn run_case(case: &Case) -> Actual {
+    run_with(case, |argv, env, cwd, stdin| {
+        let mut stdin = std::io::Cursor::new(stdin.as_bytes().to_vec());
+        let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
+        let exit_code = herdr_fleet_cli::run(argv, env, cwd, &mut stdin, &mut stdout, &mut stderr);
+        (stdout, stderr, exit_code)
+    })
+}
+
+/// Runs the `fleet` executable on `case` as a child process, with the case's environment and
+/// nothing else of this process's but `process_env`, which the child holds as its own.
+pub fn run_executable(case: &Case, process_env: &[(&str, &str)]) -> Actual {
+    run_with(case, |argv, env, cwd, stdin| {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_fleet"))
+            .args(argv)
+            .env_clear()
+            .envs(env)
+            .envs(process_env.iter().copied())
+            .current_dir(cwd)
+            .stdin(std::process::Stdio::piped())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .expect("the fleet executable starts");
+        child
+            .stdin
+            .take()
+            .expect("its stdin")
+            .write_all(stdin.as_bytes())
+            .expect("its stdin takes the case's input");
+        let output = child.wait_with_output().expect("the fleet executable ends");
+        (
+            output.stdout,
+            output.stderr,
+            output.status.code().unwrap_or(-1),
+        )
+    })
+}
+
+/// Runs `case` with `exec`, one way of running the CLI, which takes the arguments, the
+/// environment, the working folder and the standard input, and gives the standard output, the
+/// standard error and the exit code.
+fn run_with(
+    case: &Case,
+    exec: impl FnOnce(&[String], &BTreeMap<String, String>, &Path, &str) -> (Vec<u8>, Vec<u8>, i32),
+) -> Actual {
     let stub = (!case.closed).then(|| Stub::start(case.responses.clone()));
     let closed = case.closed.then(ClosedPort::take);
     let port = stub
@@ -412,10 +457,8 @@ pub fn run_case(case: &Case) -> Actual {
             url.clone()
         },
     );
-    let argv = case.argv.clone();
-    let mut stdin = std::io::Cursor::new(case.stdin.clone().unwrap_or_default().into_bytes());
-    let (mut stdout, mut stderr) = (Vec::new(), Vec::new());
-    let exit_code = herdr_fleet_cli::run(&argv, &env, &cwd, &mut stdin, &mut stdout, &mut stderr);
+    let stdin = case.stdin.clone().unwrap_or_default();
+    let (stdout, stderr, exit_code) = exec(&case.argv, &env, &cwd, &stdin);
     let requests = stub.map(Stub::finish).unwrap_or_default();
     let cwd_text = cwd.to_string_lossy().into_owned();
     let pairs = [(url.clone(), "$URL"), (cwd_text.clone(), "$CWD")];

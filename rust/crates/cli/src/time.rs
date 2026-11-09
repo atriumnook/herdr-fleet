@@ -2,12 +2,14 @@
 //! (`1/2/2040, 8:00:00 AM`) whatever the locale, in the zone the `TZ` passed to `run` names
 //! (ADR 0242-phase-3-split). The zone is never read from the process: `run` is called from the
 //! tests of one process side by side, so jiff's `TimeZone::system()`, which reads the process's
-//! `TZ`, is not used.
+//! `TZ`, is not used. Nor is jiff's global zone database, which the process's `TZDIR` picks:
+//! Bun takes the zones from ICU and ignores `TZDIR`.
 
 use std::collections::BTreeMap;
+use std::sync::OnceLock;
 
 use jiff::Timestamp;
-use jiff::tz::TimeZone;
+use jiff::tz::{TimeZone, TimeZoneDatabase};
 
 /// The zone `env`'s `TZ` names, as Bun (ICU) reads it: an IANA name, with a leading `:` allowed
 /// and letter case ignored; what the zone database does not name (a POSIX rule such as `JST-9`,
@@ -19,10 +21,37 @@ pub fn zone(env: &BTreeMap<String, String>) -> TimeZone {
             if name.is_empty() || name.starts_with('/') {
                 return TimeZone::UTC;
             }
-            TimeZone::get(name).unwrap_or(TimeZone::UTC)
+            database().get(name).unwrap_or(TimeZone::UTC)
         }
         None => system_zone(),
     }
+}
+
+/// The zone database, opened once for the process from where the system keeps it, whatever the
+/// process's `TZDIR` says.
+fn database() -> &'static TimeZoneDatabase {
+    static DATABASE: OnceLock<TimeZoneDatabase> = OnceLock::new();
+    DATABASE.get_or_init(open_database)
+}
+
+/// The first of the folders jiff searches on Unix (when `TZDIR` is not set) that holds zones.
+#[cfg(unix)]
+fn open_database() -> TimeZoneDatabase {
+    [
+        "/usr/share/zoneinfo",
+        "/usr/share/lib/zoneinfo",
+        "/etc/zoneinfo",
+    ]
+    .into_iter()
+    .filter_map(|dir| TimeZoneDatabase::from_dir(dir).ok())
+    .find(|database| !database.is_definitively_empty())
+    .unwrap_or_else(TimeZoneDatabase::none)
+}
+
+/// Windows keeps no zone database: the copy built into jiff (phase 6 settles the Windows build).
+#[cfg(not(unix))]
+fn open_database() -> TimeZoneDatabase {
+    TimeZoneDatabase::bundled()
 }
 
 #[cfg(unix)]

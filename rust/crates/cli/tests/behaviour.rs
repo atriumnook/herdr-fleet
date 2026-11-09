@@ -156,6 +156,18 @@ fn argument_errors_carry_the_messages_of_bun_parse_args() {
         (vec!["list", "---x"], unknown("---x")),
         (vec!["list", "--bogus=1"], unknown("--bogus")),
         (vec!["guide", "--bogus"], unknown("--bogus")),
+        // an `=` right after the dashes is part of the name, not the start of a value
+        (vec!["guide", "--==x"], unknown("--==x")),
+        (vec!["guide", "--=x"], unknown("--=x")),
+        (vec!["guide", "--="], unknown("--=")),
+        (vec!["guide", "--a==b"], unknown("--a")),
+        // Bun reads a group of short options by UTF-16 code units: a character beyond the
+        // Basic Multilingual Plane is two, and the first, a lone surrogate, is written as U+FFFD
+        (vec!["guide", "-\u{1F600}"], unknown("\u{FFFD}")),
+        (vec!["guide", "-\u{10000}"], unknown("\u{FFFD}")),
+        (vec!["guide", "-\u{1F600}x"], unknown("\u{FFFD}")),
+        (vec!["guide", "-a\u{1F600}"], unknown("a")),
+        (vec!["guide", "-\u{E9}"], unknown("-\u{E9}")),
     ] {
         let actual = run_case(&Case::new(&argv));
         assert_eq!(actual.requests, vec![], "{argv:?}");
@@ -670,4 +682,23 @@ fn times_are_written_in_en_us_form_in_the_zone_tz_names() {
     ] {
         assert_eq!(usage_read_at(tz, ms), text, "TZ={tz:?}, {ms} ms");
     }
+}
+
+/// The zone database is not the process's `TZDIR`: Bun takes the zones from ICU and ignores it
+/// (recorded: `TZ=Asia/Tokyo` gave `1/1/1970, 9:00:00 AM` for `new Date(0).toLocaleString()`
+/// with no `TZDIR`, with a `TZDIR` holding UTC alone, and with a `TZDIR` that does not exist).
+#[test]
+fn the_process_tzdir_does_not_change_the_zone() {
+    let tzdir = std::env::temp_dir().join(format!("fleet-cli-utc-only-{}", std::process::id()));
+    std::fs::create_dir_all(&tzdir).expect("a folder for the zone database");
+    std::fs::copy("/usr/share/zoneinfo/UTC", tzdir.join("UTC")).expect("the UTC zone");
+    let tzdir_text = tzdir.to_string_lossy().into_owned();
+    let case = Case::new(&["usage"]).env("TZ", "Asia/Tokyo").respond(
+        200,
+        json!({ "usage": [{ "key": "k", "reading": { "readAt": 0, "windows": [] } }] }),
+    );
+    let actual = common::run_executable(&case, &[("TZDIR", &tzdir_text)]);
+    let _ = std::fs::remove_dir_all(&tzdir);
+    assert_eq!(actual.stdout, "k              read 1/1/1970, 9:00:00 AM\n");
+    assert_eq!(actual.exit_code, 0);
 }

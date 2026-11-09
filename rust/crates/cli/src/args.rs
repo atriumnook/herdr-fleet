@@ -93,25 +93,27 @@ pub fn parse(args: &[String]) -> Result<Parsed, String> {
     while index < args.len() {
         let arg = &args[index];
         index += 1;
-        let chars = arg.chars().count();
         if arg == "--" {
             parsed.positionals.extend(args[index..].iter().cloned());
             break;
         }
-        if arg.starts_with('-') && !arg.starts_with("--") && chars >= 2 {
+        // Bun measures and indexes the argument in UTF-16 code units, as a JavaScript string
+        let units: Vec<u16> = arg.encode_utf16().collect();
+        if arg.starts_with('-') && !arg.starts_with("--") && units.len() >= 2 {
             // no option of the fleet has a short name: a lone short option is unknown, and a
-            // group of them is unknown at its first letter
-            if chars == 2 {
+            // group of them is unknown at its first code unit, which is a lone surrogate
+            // (written as U+FFFD) when the group starts with a character beyond the BMP
+            if units.len() == 2 {
                 return Err(unknown(arg));
             }
-            let first = arg.chars().nth(1).unwrap_or_default();
-            return Err(unknown(&first.to_string()));
+            return Err(unknown(&String::from_utf16_lossy(&units[1..2])));
         }
         if let Some(long) = arg.strip_prefix("--") {
-            // `--name=value` when an `=` follows the first letter of the name; else `--name`
-            let (name, inline) = match long.char_indices().skip(1).find(|&(_, c)| c == '=') {
-                Some((at, _)) => (&long[..at], Some(long[at + 1..].to_string())),
-                None => (long, None),
+            // `--name=value` split at the first `=`, unless that `=` starts the name: then the
+            // whole argument is the name
+            let (name, inline) = match long.find('=') {
+                Some(at) if at > 0 => (&long[..at], Some(long[at + 1..].to_string())),
+                _ => (long, None),
             };
             let raw = format!("--{name}");
             let Some(kind) = kind(name) else {
