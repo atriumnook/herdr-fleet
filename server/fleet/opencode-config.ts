@@ -74,15 +74,22 @@ const HISTORY_COMMANDS = ["diff", "log", "show"].map((command) => `git ${command
 const GITHUB_QUERIES = ["gh pr view *", "gh pr checks *", "gh pr list *", "gh run view *"];
 
 /**
- * A merge the person pressed (orchestrator.ts `coordinatorStep`). A pattern has no digit class, so the
- * number of `gh pr merge` is one to six characters; the guard accepts digits only.
+ * A merge or a revert the coordinator is handed (orchestrator.ts `coordinatorStep`): the person's,
+ * or a merge the project's gate allowed, pinned to the commit it checked. A pattern has no digit
+ * class, so the number of `gh pr merge` is one to six characters; the guard accepts digits only, and
+ * a commit as hex only.
  */
 const MERGE_COMMANDS = [
   ...Array.from({ length: 6 }, (_, i) => `gh pr merge ${"?".repeat(i + 1)} --merge`),
+  // ` ?*`, not ` *`: a trailing ` *` also matches the line without its last word
+  ...Array.from({ length: 6 }, (_, i) => `gh pr merge ${"?".repeat(i + 1)} --merge --match-head-commit ?*`),
   "git pull --ff-only",
   "git merge --no-ff fleet/*",
   "git merge --no-ff agents/*",
   "git merge --abort",
+  "git revert -m 1 --no-edit ?*",
+  "git revert --abort",
+  "git push origin ?*",
 ];
 
 /**
@@ -101,7 +108,11 @@ const DENIED_AFTER_FLEET = [
   `git *"*`, "git *'*", "git *`*", "git *$*", "git *{*",
   "git * /*", "git * ~*", "git * ../*", "git * ..", "git *=/*",
   "git merge --no-ff * ?*",
-  "gh *--web*", "gh *--watch*", "gh pr merge *-* --merge",
+  // a revert takes one commit; a push one branch, never forced, deleted or as a refspec
+  "git revert -m 1 --no-edit * ?*", "git revert -m 1 --no-edit *-*", "git revert -m 1 --no-edit *..*",
+  "git push origin * ?*", "git push origin -*", "git push origin +*", "git push origin *:*", "git push origin *..*", "git push origin HEAD",
+  "gh *--web*", "gh *--watch*", "gh pr merge *-* --merge", "gh pr merge *-* --merge --match-head-commit *",
+  "gh pr merge * --merge --match-head-commit * ?*", "gh pr merge * --merge --match-head-commit *-*",
 ];
 
 function readOnlyRules({ resultDir, fleetCommand, merges }: OpencodeRole): Rule[] {
@@ -180,7 +191,7 @@ export function opencodeReadOnlyNote({ merges, fleetCommand }: Pick<OpencodeRole
     "- git status, git ls-files, ls, pwd, each alone",
     "- git diff, git log, git show only as `git diff --no-ext-diff --no-textconv <arguments>` (the same for log and show), the arguments being plain flags (--stat, --name-only, --oneline, -n 20, --format=%h ...), revisions, and relative paths inside the repository after `--`; no quotes, no absolute or ~ or .. paths, no .env files",
     "- gh pr view [<number>], gh pr checks [<number>] (no number: the checked-out branch's pull request), gh pr list, gh run view <number>, with flags such as --json <fields>",
-    ...(merges ? ["- for a merge the fleet asks you for: gh pr merge <number> --merge, git pull --ff-only, git merge --no-ff <branch>, git merge --abort"] : []),
+    ...(merges ? ["- for a merge or a revert the fleet asks you for: gh pr merge <number> --merge [--match-head-commit <sha>], git pull --ff-only, git merge --no-ff <branch>, git merge --abort, git revert -m 1 --no-edit <sha>, git revert --abort, git push origin <branch>"] : []),
     "In the fleet command, quote any text that holds a `#`, a space or other punctuation: 'single quotes' keep it literal; to put a single quote inside, close the quotes around it: 'don'\"'\"'t'.",
     "No `;`, `&&`, `|`, `$`, redirect (`<`, `>`), variable assignment or `export` outside the quotes of the fleet command. Read files with the read tool and search with grep and glob, not with cat or find.",
     "Do not try other forms of a refused command. If you need one, say so in your reply to the person or your lead, who can run it or widen what you may do.",

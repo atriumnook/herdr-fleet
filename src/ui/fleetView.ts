@@ -1,4 +1,4 @@
-import { currentLead, modelListed, needsPerson, outcomeLine, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type LandAction, type LineComment, type ModelListing, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
+import { currentLead, modelListed, needsPerson, outcomeLine, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type GateReading, type LandAction, type MergeBy, type MergeSetting, type LineComment, type ModelListing, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import { parseDiff, type DiffLine } from "./diff.ts";
 import { isEnded, planDraft, type ConfirmedStep, type PlanDraft, type ThreadTab, type UiState } from "./state.ts";
@@ -211,6 +211,7 @@ export type CheckModel = { tone: CheckTone } & (
   | { kind: "comments"; count: number; action?: "comments" }
   | { kind: "pr"; pr?: PullRequest; error?: string }
   | { kind: "ci"; pr: PullRequest; action?: "fix-ci" }
+  | { kind: "gate"; gate: GateReading }
 );
 
 /**
@@ -227,18 +228,23 @@ export interface LandingModel {
   tab: ThreadTab;
   stage: "review" | "landing" | "landed";
   landed?: "merged" | "discarded";
+  /** who merged it, through its pull request or into the base branch here, and whether the fleet saw its merge reverted */
+  mergedBy?: MergeBy;
+  mergedVia?: "pr" | "local";
+  reverted?: boolean;
   /** the step under way, until it went as asked */
   pending?: LandAction;
   /** what the fleet found when the last step did not go as asked */
   error?: string;
   pr?: PullRequest;
   /** the steps it offers */
-  offers: { createPr: boolean; mergeLocal: boolean; discard: boolean; fixCi: boolean; mergePr: boolean };
+  offers: { createPr: boolean; mergeLocal: boolean; discard: boolean; fixCi: boolean; mergePr: boolean; revert: boolean };
   /**
    * What can be pressed now, on a device that may act with no action in flight and no step under
-   * way: the lead's steps once its turn ended, a merge while it does not work, a discard always.
+   * way: the lead's steps once its turn ended, a merge while it does not work, a discard always,
+   * a revert once merged.
    */
-  can: { lead: boolean; merge: boolean; discard: boolean };
+  can: { lead: boolean; merge: boolean; discard: boolean; revert: boolean };
   /** Merge PR waits for the checks to pass */
   mergePrReady: boolean;
   comments: LineComment[];
@@ -256,8 +262,8 @@ export interface FleetSettingsModel {
   saving: boolean;
   saveError?: string;
   settings: FleetSettings | null;
-  /** the fleet's projects and the ones fleet.json names, each with its setup command */
-  projects: Array<{ path: string; name: string; setup: string }>;
+  /** the fleet's projects and the ones fleet.json names, each with its setup command and who may merge its threads */
+  projects: Array<{ path: string; name: string; setup: string; merge: MergeSetting }>;
   /** each account's fullest window now, and whether the usage limit passes it over */
   accounts: Array<{ key: string; usedPercent: number; skipped: boolean }>;
   /** the skill folders, and whether the fleet skill is in each */
@@ -585,7 +591,8 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
   const landing = fleet.landing;
   const read = landing.runId === run.id;
   const checks = read ? landing.checks.data : null;
-  const baseBranch = checks?.baseBranch ?? run.baseBranch ?? "main";
+  // a merged thread is on the branch its merge went into, which its pull request may have been moved to
+  const baseBranch = run.merged?.base ?? checks?.baseBranch ?? run.baseBranch ?? "main";
   const comments = landing.comments[run.id] ?? [];
   const prOpen = run.pr?.state === "OPEN";
   const stage = run.landed ? "landed" : prOpen ? "landing" : "review";
@@ -614,6 +621,7 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
     { kind: "contract", tone: !run.contract?.length ? "none" : contractOpen ? "warn" : "ok", items: run.contract ?? [] },
     { kind: "review", tone: reviewers.length ? "ok" : "warn", reviewers: reviewers.map((helper) => ({ agent: helper.agent, ...(helper.outcome ? { status: outcomeLine(helper.outcome) } : {}) })) },
     { kind: "comments", tone: comments.length ? "warn" : "ok", count: comments.length, ...(comments.length ? { action: "comments" as const } : {}) },
+    ...(run.gate ? [{ kind: "gate" as const, tone: run.gate.ok ? "ok" as const : "warn" as const, gate: run.gate }] : []),
   ];
   const pr = checks?.pr ?? run.pr;
   const prChecks: CheckModel[] = [
@@ -623,12 +631,17 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
   const confirm = landing.confirm?.runId === run.id ? landing.confirm : null;
   return {
     runId: run.id, branch: run.branch, baseBranch, repo: run.project, tab, stage, ...(run.landed ? { landed: run.landed } : {}),
+    ...(run.merged ? { mergedBy: run.merged.by, mergedVia: run.merged.via } : {}), ...(run.reverted ? { reverted: true } : {}),
     ...(pending ? { pending } : {}), ...(run.landing?.error ? { error: run.landing.error } : {}), ...(run.pr ? { pr: run.pr } : {}),
     offers: {
       createPr: stage === "review" && changed, mergeLocal: stage === "review" && changed, discard: stage === "review",
       fixCi: prOpen && run.pr?.checks === "fail", mergePr: prOpen,
+      revert: run.landed === "merged" && run.merged?.commit !== undefined && !run.reverted,
     },
-    can: { lead: settled && (run.state === "idle" || run.state === "done"), merge: settled && run.state !== "working" && run.state !== "starting", discard: free },
+    can: {
+      lead: settled && (run.state === "idle" || run.state === "done"), merge: settled && run.state !== "working" && run.state !== "starting", discard: free,
+      revert: fleet.request.status !== "pending" && pending === undefined,
+    },
     mergePrReady: prOpen && (run.pr?.checks === "pass" || run.pr?.checks === "none"),
     comments,
     changes: { status: read ? landing.diff.status : "idle", ...(read && landing.diff.error ? { error: landing.diff.error } : {}), truncated: read && landing.diff.data?.truncated === true, files },
@@ -642,13 +655,15 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
 }
 
 const CI_TONE: Record<PullRequest["checks"], CheckTone> = { pending: "run", pass: "ok", fail: "bad", none: "none" };
+/** a project the person's fleet.json gives no merge authority: every merge waits for the person */
+const PERSON_MERGES: MergeSetting = { mode: "person", branches: [], maxLines: 200, protected: [] };
 
 function settingsModel(state: FleetState, projectPaths: string[], now: number): FleetSettingsModel {
   const read = state.fleetSettings;
   const entrances = state.fleetEntrances;
   const settings = read.data;
-  const setups = new Map((settings?.projects ?? []).map((project) => [project.path, project.setup]));
-  const paths = [...new Set([...projectPaths, ...setups.keys()])];
+  const named = new Map((settings?.projects ?? []).map((project) => [project.path, project]));
+  const paths = [...new Set([...projectPaths, ...named.keys()])];
   const limit = settings?.maxUsedPercent ?? 100;
   const accounts = state.usage.data.flatMap((entry) => {
     const windows = (entry.reading?.windows ?? []).filter((window) => window.resetsAt === undefined || window.resetsAt > now);
@@ -658,7 +673,7 @@ function settingsModel(state: FleetState, projectPaths: string[], now: number): 
   }).sort((a, b) => a.key.localeCompare(b.key));
   return {
     status: read.status, ...(read.error ? { error: read.error } : {}), saving: read.saving > 0, ...(read.saveError ? { saveError: read.saveError } : {}),
-    settings, projects: paths.map((path) => ({ path, name: baseName(path), setup: setups.get(path) ?? "" })), accounts,
+    settings, projects: paths.map((path) => ({ path, name: baseName(path), setup: named.get(path)?.setup ?? "", merge: named.get(path)?.merge ?? PERSON_MERGES })), accounts,
     entrances: {
       status: entrances.status, ...(entrances.error ? { error: entrances.error } : {}), list: entrances.data?.entrances ?? [], tokenRequired: entrances.data?.tokenRequired ?? false,
       busy: entrances.busy, ...(entrances.changeError ? { changeError: entrances.changeError } : {}),

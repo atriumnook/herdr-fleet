@@ -15,9 +15,9 @@ Watch one word: a fleet **thread** is a dsh *Ticket*. dsh's *Thread* (events in 
 | Coordinator | The run that talks with the person about one project, starts its threads and merges on the person's step, or alone under gated merge authority | role `coordinator` | Main Session | Built |
 | Group | The runs that see and message each other: a coordinator's, or a thread's lead and its helpers. Agents' instructions call it their fleet | `group` | — | Built |
 | Helper | A run a lead (or another helper) started for one part of the work, with a brief | `spawn` | Worker subagent | Built |
-| Landing step | A step the person pressed to land a thread: update, create PR, fix CI, comments, merge, merge PR, discard. It approves that step only | `LandAction`, `LandingStep` | Mandate, as the person's approval | Built |
+| Landing step | A step the person pressed to land a thread: update, create PR, fix CI, comments, merge, merge PR, revert, discard. It approves that step only | `LandAction`, `LandingStep` | Mandate, as the person's approval | Built |
 | Lead | The run that owns one thread end to end | role `lead` | Executor Session | Built |
-| Merge authority | Who may merge a project's threads: `person` (the default: every merge waits for the person) or `gated` (the coordinator merges alone only when every condition of the gate holds). Set per project in the person's own `fleet.json`, never by the repository | — | Mandate's strength | Planned |
+| Merge authority | Who may merge a project's threads: `person` (the default: every merge waits for the person) or `gated` (the coordinator merges alone only when every condition of the gate holds). Set per project in the person's own `fleet.json`, never by the repository | `projects[<path>].merge`, `merge-mode.ts` | Mandate's strength | Built |
 | Notice | A message from the fleet to a coordinator or a lead, opening with `[fleet]`, sent when its receiver is free | `notice` | Notice | Built as one slot per thread; stored, ordered, once Planned (slice C) |
 | Plan | A lead's tree of claims before a large change, with the decisions it asks the person | `Plan`, `fleet plan` | Attention | Built |
 | Project | A repository by its main checkout's path, or a folder outside one | `project` | — | Built |

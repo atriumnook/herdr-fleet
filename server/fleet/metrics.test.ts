@@ -179,6 +179,24 @@ describe("factory metrics", () => {
     expect(text).toContain("| codex | 2 | 1 |");
   });
 
+  it("counts the merges the gate made, those later reverted (the change failure rate) and the time to restore each", () => {
+    const merge = (t: number, run: string, by: string, commit: string, project = P): TimedEvent => ({ t: t * MIN, kind: "merge", run, project, base: "rust", by, commit }) as TimedEvent;
+    const revert = (t: number, run: string, commit: string): TimedEvent => ({ t: t * MIN, kind: "revert", run, project: P, base: "rust", commit, revert: `r-${commit}` }) as TimedEvent;
+    const log: TimedEvent[] = [
+      merge(10, "g1", "gate", "m1"), merge(20, "g2", "gate", "m2"), merge(30, "g3", "gate", "m3"), merge(40, "g4", "gate", "m4"),
+      merge(50, "p1", "person", "p1c"), merge(60, "h1", "github", "h1c"),
+      merge(15, "o1", "gate", "o1c", "/other"),
+      // m2 back after 30 minutes, m4 after 90; the person's own merge reverted is not the gate's failure
+      revert(50, "g2", "m2"), revert(130, "g4", "m4"), revert(70, "p1", "p1c"),
+    ];
+    const counted = metrics({ events: log, project: P, base: "rust", from: 0, to: 300 * MIN, quietMs: 15 * MIN, merged: [], issues: [] });
+    expect(counted.merges).toEqual({ gate: 4, person: 1, github: 1, reverted: 2, restoreMs: [30 * MIN, 90 * MIN] });
+    const text = render(P, "rust", counted);
+    expect(text).toContain("## Merges\n\n- Merged by the gate: 4; by the person: 1; outside the fleet's steps on GitHub: 1\n- Gate merges reverted later: 2 (change failure rate 50%)\n- Time to restore: median 60 minutes, longest 90 minutes (from the merge to its revert)");
+    const none = render(P, "rust", metrics({ events: [], project: P, base: "rust", from: 0, to: MIN, quietMs: MIN, merged: [], issues: [] }));
+    expect(none).toContain("- Gate merges reverted later: 0\n- Time to restore: nothing reverted");
+  });
+
   it("reads the event log line by line, skipping a line that does not parse, and nothing from a missing file", () => {
     const file = join(mkdtempSync(join(tmpdir(), "fleet-metrics-")), "fleet-events.jsonl");
     expect(readEvents(file)).toEqual([]);

@@ -203,7 +203,7 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
   }
 }
 
-const LAND_ACTIONS: readonly LandAction[] = ["update", "pr", "fix-ci", "comments", "merge", "merge-pr", "discard"];
+const LAND_ACTIONS: readonly LandAction[] = ["update", "pr", "fix-ci", "comments", "merge", "merge-pr", "revert", "discard"];
 const COMMENTS_MAX = 200;
 
 function lineComments(value: unknown): LineComment[] | undefined {
@@ -292,7 +292,7 @@ function briefOf(value: unknown): Partial<Brief> | undefined {
 }
 
 const STATUS: Record<string, number> = {
-  run_not_found: 404, unknown_role: 404, no_plan: 404, plan_unreadable: 409, agent_blocked: 409, answer_not_delivered: 502, plan_outdated: 409, plan_answered: 409, plan_closed: 409, not_a_thread: 409, thread_landed: 409, landing_busy: 409, run_busy: 409, no_pull_request: 409, diff_unavailable: 409, settings_unreadable: 409, unknown_entrance: 404, entrance_taken: 409, entrance_unreadable: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
+  run_not_found: 404, unknown_role: 404, no_plan: 404, plan_unreadable: 409, agent_blocked: 409, answer_not_delivered: 502, plan_outdated: 409, plan_answered: 409, plan_closed: 409, not_a_thread: 409, thread_landed: 409, not_merged: 409, thread_reverted: 409, landing_busy: 409, run_busy: 409, no_pull_request: 409, diff_unavailable: 409, settings_unreadable: 409, unknown_entrance: 404, entrance_taken: 409, entrance_unreadable: 409, concurrency_limit: 429, depth_limit: 409, run_ended: 409,
   agent_start_failed: 502, fallbacks_exhausted: 502, agent_not_ready: 504, usage_exhausted: 429, scope_conflict: 409, setup_failed: 502,
 };
 

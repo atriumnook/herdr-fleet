@@ -1,6 +1,6 @@
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import type { ReportState } from "../../shared/fleet.ts";
+import type { MergeBy, ReportState } from "../../shared/fleet.ts";
 
 /**
  * What happened in the fleet, one JSON object per line, appended and never rewritten: the raw data
@@ -39,7 +39,15 @@ export type FleetEvent =
    * a thread's lead run failed, or ended a turn without a report, and the fleet started the thread
    * again: `by` the new run on CLI `to`, or `error` when none could start
    */
-  | { kind: "restart"; run: string; project: string; agent: string; why: "failed" | "no-report"; by?: string; to?: string; error?: string };
+  | { kind: "restart"; run: string; project: string; agent: string; why: "failed" | "no-report"; by?: string; to?: string; error?: string }
+  /**
+   * a thread merged into `base`, as git or GitHub showed it: `by` the coordinator on the person's
+   * step (person), on its own under the person's merge gate (gate), or someone outside the fleet's
+   * steps on GitHub (github); with the merge commit when known and the lines the change had
+   */
+  | { kind: "merge"; run: string; project: string; base: string; by: MergeBy; pr?: number; commit?: string; lines?: number }
+  /** the merge commit `commit` reverted on `base` by `revert`, on the Revert step the person pressed */
+  | { kind: "revert"; run: string; project: string; base: string; commit: string; revert: string };
 
 export type TimedEvent = FleetEvent & { t: number };
 

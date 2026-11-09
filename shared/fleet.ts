@@ -46,6 +46,20 @@ export interface AgentRun {
   result?: string;
   /** what its last settled turn reported (report.json), or that it reported nothing; none for a run without a result file */
   outcome?: TurnOutcome;
+  /**
+   * a reviewer's: the commit its folder was at when the fleet sent its last turn, and the commit the
+   * turn that left `outcome` reviewed (kept only when the folder did not move during that turn)
+   */
+  turnHead?: string;
+  /** a reviewer's: the state of its folder's worktree when the fleet sent its last turn (github.ts worktreeState) */
+  turnTree?: string;
+  /** a reviewer's: the fleet read its last turn settle, and that turn changed nothing in the worktree; nothing ran in it since */
+  reviewClean?: true;
+  reportedHead?: string;
+  /** a thread lead's: every CLI that wrote in the thread so far (its lead runs, helpers that edit, a reviewer whose turn saw the branch move) */
+  writers?: FleetAgentKind[];
+  /** the run's role kept it from editing files when it started */
+  readOnly?: true;
   /** the model this run replaced after a configured fallback */
   fallbackFrom?: string;
   /** the run that took this run's task over: after a first turn that failed, or, for a thread's lead, a run that failed or a turn without a report */
@@ -84,20 +98,68 @@ export interface AgentRun {
   landed?: "merged" | "discarded";
   /** the plan a thread's lead handed over last (shared/plan.ts), and whether the person answered it */
   plan?: PlanMark;
+  /** the gate of the project's gated merge authority, as the fleet last evaluated it for this thread */
+  gate?: GateReading;
+  /** how the thread's merge happened: who merged it, through its pull request on GitHub or into the base branch here, and its merge commit when git or GitHub named it */
+  merged?: { by: MergeBy; via: "pr" | "local"; base: string; at: number; commit?: string };
+  /** the revert of that merge the fleet saw land on the base branch */
+  reverted?: { at: number; commit: string };
+}
+
+/**
+ * Who merged a thread: the coordinator on a merge the person pressed (person), the coordinator on
+ * its own because every condition of the gate held (gate), or someone outside the fleet's steps,
+ * seen merged on GitHub (github).
+ */
+export type MergeBy = "person" | "gate" | "github";
+
+/** A project's merge authority, as the person's own fleet.json sets it (server/fleet/merge-mode.ts). */
+export interface MergeSetting {
+  mode: "person" | "gated";
+  /** the base branches gated covers; a merge into any other waits for the person */
+  branches: string[];
+  /** the most lines (added and removed) a change merged on its own may have */
+  maxLines: number;
+  /** paths and globs a change merged on its own may not touch, beside those the fleet always protects */
+  protected: string[];
+}
+
+/** One condition of the merge gate and what the fleet found. */
+export interface GateCheck {
+  id: "report" | "review" | "checks" | "size" | "paths" | "fresh";
+  ok: boolean;
+  detail: string;
+}
+
+export interface GateResult {
+  ok: boolean;
+  checks: GateCheck[];
+}
+
+/** The gate evaluated for a thread: when, at which commit of its branch, and the result. */
+export interface GateReading extends GateResult {
+  at: number;
+  head?: string;
 }
 
 /**
  * The steps that land a thread, each pressed by the person on the Fleet screen. The lead takes
  * those on its branch (update, pr, fix-ci, comments), the coordinator the merges, which happen in
- * the main checkout it sits on, and the fleet throws a thread away itself (discard).
+ * the main checkout it sits on, and its revert once merged (revert), and the fleet throws a thread
+ * away itself (discard).
  */
-export type LandAction = "update" | "pr" | "fix-ci" | "comments" | "merge" | "merge-pr" | "discard";
+export type LandAction = "update" | "pr" | "fix-ci" | "comments" | "merge" | "merge-pr" | "revert" | "discard";
 
 /** One landing step the person asked for: handed to its agent (`sent`), and what the fleet found once that agent's turn ended. */
 export interface LandingStep {
   action: LandAction;
   at: number;
   sent?: boolean;
+  /** a merge the person did not press: the fleet found every condition of the project's gate held, for the pull request at commit `head` */
+  by?: "gate";
+  head?: string;
+  /** the pull request the gate checked */
+  pr?: number;
   /** the step did not go as asked: what the fleet found */
   error?: string;
 }
@@ -296,8 +358,8 @@ export interface FleetSettings {
   closeOnSettle: boolean;
   /** the language the person reads, such as Japanese; empty when unset */
   language: string;
-  /** the setup command of each repository the person's fleet.json names */
-  projects: Array<{ path: string; setup: string }>;
+  /** each repository the person's fleet.json names: its setup command, and its merge authority (person unless set) */
+  projects: Array<{ path: string; setup: string; merge: MergeSetting }>;
   /** the CLIs a read-only role can run on */
   readOnlyAgents: FleetAgentKind[];
 }
@@ -311,8 +373,8 @@ export interface FleetSettingsPatch {
   closeOnSettle?: boolean;
   /** an empty language unsets it */
   language?: string;
-  /** an empty setup command removes it */
-  projects?: Record<string, { setup: string }>;
+  /** an empty setup command removes it; merge mode person removes the merge setting */
+  projects?: Record<string, { setup?: string; merge?: MergeSetting }>;
 }
 
 /**

@@ -31,7 +31,8 @@ flowchart TB
 | `server/fleet/thread.ts` | A thread's git: worktree, branch, diff, landing checks, removal, setup | Thread workspace |
 | `server/fleet/brief.ts` | The brief: required fields, rendering, write scopes and their overlap | Brief |
 | `server/fleet/plan.ts`, `shared/plan.ts` | A lead's plan: parsing, code exhibits read safely from the worktree, answers | Plan |
-| `server/fleet/github.ts` | Reading a thread's pull request and the project's merges and issues with `gh` | Pull request reads |
+| `server/fleet/github.ts` | Reading a thread's pull request and the project's merges and issues with `gh`, and the git and `gh` facts the merge gate and the merge records rest on | Pull request reads |
+| `server/fleet/merge-mode.ts` | A project's merge authority, parsed from the person's `fleet.json`, and the gate's conditions as one pure function | Merge authority |
 | `server/fleet/adapters.ts` | Everything one agent CLI does differently: launch arguments, ready and question screens, read-only guards, notes | Agent CLIs |
 | `server/fleet/agents.ts`, `config.ts`, `settings.ts` | Roles, the person's and the project's `fleet.json`, standing orders, the Settings page | Role, standing orders |
 | `server/fleet/registry.ts` | Every run's record, kept across restarts in one file (0600) | Run |
@@ -53,8 +54,8 @@ These are the slices in progress and the later work, by where they change the co
 | D: these documents | Planned (in progress) | `docs/000-…` onward, `GLOSSARY.md`, `server/docs-links.test.ts` |
 | Stage table | Planned | One pure function from a thread's stored facts to its stage, in place of `threadState`, read by the Fleet screen, the coordinator's notices and `superviseProjects` |
 | GitHub subscription | Planned | `github.ts` reads a thread's reviews and check changes; the poll turns a change into a notice for the thread's lead. Nothing writes to GitHub |
-| Merge authority | Planned | A per-project mode in the person's own `fleet.json` (`config.ts`, `ProjectConfig`), never read from the repository; the coordinator merges alone only when the gate's conditions hold (002). It replaces today's path, where a project's role files let its lead merge |
-| Undo and its measure | Planned | Merge events in `events.ts`, the change failure rate and the time to restore in `metrics.ts`, a Revert step on the Fleet screen |
+| Merge authority | Built | A per-project mode in the person's own `fleet.json` (`config.ts`, `ProjectConfig`), never read from the repository; the gate's conditions are one pure function in `merge-mode.ts` over facts `github.ts` reads, and the orchestrator hands the coordinator the merge when they hold (002). The path where a project's role files let its lead merge is gone |
+| Undo and its measure | Built | Merge and revert events in `events.ts`, the change failure rate and the time to restore in `metrics.ts`, a Revert step on the Fleet screen |
 
 ## Persistence
 

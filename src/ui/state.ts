@@ -88,7 +88,7 @@ export interface FleetEntrancesState extends Reading<FleetEntrances> {
 export type ThreadTab = "chat" | "plan" | "changes" | "checks";
 
 /** The landing steps that wait for the person's yes in a dialog: each changes the base branch, or cannot be undone. */
-export type ConfirmedStep = "merge" | "merge-pr" | "discard";
+export type ConfirmedStep = "merge" | "merge-pr" | "revert" | "discard";
 
 /** One read of the server's for the open thread: answers for another thread are dropped. */
 export interface Reading<T> {
@@ -1313,7 +1313,7 @@ export const INITIAL_STATE: UiState = {
   newSessionSeq: 0,
 };
 
-const CONFIRMED_STEPS: readonly LandAction[] = ["merge", "merge-pr", "discard"];
+const CONFIRMED_STEPS: readonly LandAction[] = ["merge", "merge-pr", "revert", "discard"];
 
 /** The open thread's change or checks, read again when its tab shows them; the open thread changes nothing else. */
 function readLanding(landing: LandingState, view: FleetViewState, effects: Effect[]): LandingState {

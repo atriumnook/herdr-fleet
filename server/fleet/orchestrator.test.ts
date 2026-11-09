@@ -99,7 +99,7 @@ function setup(options: SetupOptions = {}) {
     draftRetryMs: options.draftRetryMs, quietMs: options.quietMs, events: options.events, gitHead: options.gitHead ?? (async () => null), diffStat: options.diffStat,
     landing: { gitBranch: async () => null, readPullRequest: async () => null, ...options.landing },
   });
-  return { fleet, runtime, registry, root };
+  return { fleet, runtime, registry, root, config };
 }
 
 /** the news about `run` its coordinator has not been given yet, read from the outbox's file */
@@ -1373,6 +1373,71 @@ describe("a thread outlives its lead run", () => {
     expect(registry.get(first.id)!.replacedBy).toBeDefined();
   });
 
+  it("settles a Create PR step only when the lead that broke off its turn to wait finishes its own turn", async () => {
+    const git = { pr: null as Record<string, unknown> | null };
+    const { fleet, registry, root, turn, report } = thread({
+      agents: [lead, role("reviewer", { interactive: true })],
+      landing: { gitBranch: async () => "main", readPullRequest: async () => git.pr as never },
+    });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    report(first, { state: "ready", summary: "Ready to open the PR.", evidence: [] });
+    await turn(first, "idle");
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: first.group, cwd: first.cwd });
+    await fleet.land(first.id, "pr");
+    // The lead breaks off the Create PR turn without a report while its reviewer still works.
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+    expect(registry.get(first.id)!.landing).toMatchObject({ action: "pr", sent: true });
+    expect(registry.get(first.id)!.landing?.error).toBeUndefined();
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    await turn(reviewer, "idle");
+    // The reviewer's result wakes the lead, which opens the pull request in a turn of its own.
+    await turn(first, "working");
+    git.pr = { number: 7, url: "https://github.com/o/r/pull/7", state: "OPEN", checks: "pending", head: "c0ffee" };
+    report(first, { state: "ready", summary: "Opened #7.", evidence: [] });
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.landing).toBeUndefined();
+    expect(registry.get(first.id)!.pr).toMatchObject({ number: 7, state: "OPEN" });
+  });
+
+  for (const state of ["ready", "blocked"] as const) {
+    it(`${state === "ready" ? "closes" : "keeps open"} an unanswered plan when the lead that broke off its turn to wait reports ${state} in its own turn`, async () => {
+      const { fleet, registry, root, turn, report } = thread({ agents: [lead, role("reviewer", { interactive: true })] });
+      const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+      fleet.submitPlan(first.id, { title: "Retry limit", claims: [{ text: "Three retries.", exhibit: { kind: "list", items: ["three"] } }] });
+      const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: first.group, cwd: first.cwd });
+      // The lead leaves its fleet-sent turn without a report while its reviewer still works.
+      await turn(first, "idle");
+      expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+      writeReport(root, reviewer.id, "ready", "No findings.");
+      await turn(reviewer, "idle");
+      await turn(first, "working");
+      report(first, state === "ready"
+        ? { state, summary: "Implemented three retries without answers.", evidence: [] }
+        : { state, summary: "The plan waits for the person.", evidence: [], human_action: "Answer the plan." });
+      await turn(first, "idle");
+      // A lead that went on without the answers builds to something else; one that still waits on its plan keeps it open.
+      if (state === "ready") expect(registry.get(first.id)!.plan!.closedAt).toBeNumber();
+      else expect(registry.get(first.id)!.plan!.closedAt).toBeUndefined();
+    });
+  }
+
+  it("closes an unanswered plan when the waiting lead's own turn starts at an approval and its working is never seen", async () => {
+    const { fleet, registry, root, turn, report } = thread({ agents: [lead, role("reviewer", { interactive: true })] });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    fleet.submitPlan(first.id, { title: "Retry limit", claims: [{ text: "Three retries.", exhibit: { kind: "list", items: ["three"] } }] });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: first.group, cwd: first.cwd });
+    await turn(first, "idle");
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    await turn(reviewer, "idle");
+    // The own turn first shows an approval; the status read misses its brief working after the person allows it.
+    await turn(first, "blocked");
+    report(first, { state: "ready", summary: "Implemented three retries without answers.", evidence: [] });
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+    expect(registry.get(first.id)!.plan!.closedAt).toBeNumber();
+  });
+
   it("goes on in a new run when its lead waited across a fleet server restart and its own next turn leaves no report", async () => {
     const reviewerRole = role("reviewer", { interactive: true });
     const { fleet, runtime, root, states, turn, write } = thread({ agents: [lead, reviewerRole] });
@@ -1917,6 +1982,57 @@ describe("a thread outlives its lead run", () => {
     expect(removed).toEqual([`/repo/.herdr-fleet/worktrees/${first.id}`]);
   });
 
+  it("settles a handed merge on its new lead when the restart finishes while an earlier merge is read", async () => {
+    let firstBranch = "";
+    let merged = false;
+    let reading = false;
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    const { fleet, runtime, registry, events, turn, report } = thread({ landing: {
+      gitBranch: async () => "main", branchHead: async () => "c0ffee", mergeCommitOf: async () => "abc0001",
+      isMerged: async (_repo, branch) => {
+        if (merged && branch === firstBranch) { reading = true; await gate; }
+        return merged;
+      },
+      removeThread: async () => undefined,
+    } });
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const threads: AgentRun[] = [];
+    for (const title of ["A", "B"]) {
+      const run = await fleet.startThread({ title, task: "t", cwd: "/repo", callerRun: coordinator.id });
+      report(run, { state: "ready", summary: "Fixed.", evidence: [] });
+      await turn(run, "idle");
+      threads.push(run);
+    }
+    const [first, second] = threads as [AgentRun, AgentRun];
+    firstBranch = first.branch!;
+    await turn(coordinator, "working");
+    for (const run of threads) await fleet.land(run.id, "merge");
+    await turn(coordinator, "idle");
+    await until(() => threads.every((run) => registry.get(run.id)!.landing?.sent), "both merges handed");
+    merged = true;
+    const settling = turn(coordinator, "idle");
+    try {
+      await until(() => reading, "the first merge being read");
+      await turn(second, "working");
+      await fleet.send(second.id, "go on");
+      runtime.output = "API Error: 529 overloaded";
+      await turn(second, "idle");
+      await until(() => registry.get(second.id)!.replacedBy !== undefined, "the second thread's new lead");
+      expect(fleet.get(second.id).landing).toMatchObject({ action: "merge", sent: true });
+      expect(registry.get(second.id)!.landing).toBeUndefined();
+    } finally { runtime.output = "agent output"; release(); }
+    await settling;
+    await fleet.reconcileAll();
+    const next = fleet.get(second.id);
+    expect(registry.get(first.id)!.landed).toBe("merged");
+    expect(next).toMatchObject({ agent: "codex", landed: "merged" });
+    expect(next.landing).toBeUndefined();
+    expect(registry.get(second.id)!.landed).toBeUndefined();
+    expect(events.filter((event) => event.kind === "merge").map((event) => event.run).sort()).toEqual([first.id, next.id].sort());
+  });
+
   it("leaves the new lead's worktree alone when a pull request merged on GitHub is read while the thread starts again", async () => {
     const git = { state: "OPEN" };
     const removed: string[] = [];
@@ -2294,7 +2410,7 @@ describe("a project run without the person", () => {
     for (const run of [done, issues]) expect(noticeOf(registry, run)).toBeUndefined();
   });
 
-  it("closes a thread whose lead merged its own pull request as the lead's turn ends, and says so", async () => {
+  it("closes a thread whose pull request was merged on GitHub as the lead's turn ends, and says so", async () => {
     const { fleet, registry, turn, toCoordinator, report, git, removed } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
@@ -2498,8 +2614,8 @@ describe("a project run without the person", () => {
     expect(toCoordinator(coordinator).at(-1)).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}): GitHub shows pull request #11 merged and its lead stayed settled 0 minutes, so the fleet closed the thread. Close its issue if it is still open.`].join("\n"));
   });
 
-  it("leaves a thread whose pull request the polling finds merged open for its lead to finish, tells the coordinator, and closes it as the lead's turn ends", async () => {
-    const { fleet, registry, turn, toCoordinator, handoff, git, removed } = project();
+  it("closes a thread whose pull request the polling finds merged once its lead is not at work, as a merge outside the fleet's steps", async () => {
+    const { fleet, registry, turn, handoff, git, removed, events } = project();
     const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
     await turn(coordinator, "idle");
     const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
@@ -2508,25 +2624,17 @@ describe("a project run without the person", () => {
     await turn(thread, "idle");
     await turn(coordinator, "idle");
     expect(registry.get(thread.id)!.pr).toMatchObject({ number: 8, state: "OPEN" });
-    // the lead merged it in a turn that broke off to wait: it has the issue to close yet
-    git.pr = { ...git.pr, state: "MERGED" };
+    // merged on GitHub while the lead works: the thread waits for the lead's turn to end
+    await turn(thread, "working");
+    git.pr = { ...git.pr, state: "MERGED", mergeCommit: "feedface" };
     await fleet.refreshPullRequests();
-    await Bun.sleep(30);
-    expect(registry.get(thread.id)!).toMatchObject({ pr: { number: 8, state: "MERGED" } });
     expect(registry.get(thread.id)!.landed).toBeUndefined();
     expect(removed).toEqual([]);
-    expect(toCoordinator(coordinator)[2]).toBe([NEWS, `- "${thread.name}" (${thread.id}, fleet/${thread.id}) merged pull request #8; the thread closes once its lead's turn ends`].join("\n"));
-    // told once, however often the polling runs
-    await turn(coordinator, "idle");
-    await fleet.refreshPullRequests();
-    await Bun.sleep(30);
-    expect(toCoordinator(coordinator)).toHaveLength(3);
-    // the lead's own next turn ends: the thread closes
-    await turn(thread, "working");
-    handoff(thread, "PASS — merged #8, closed the issue");
+    handoff(thread, "PASS — done");
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.landed).toBe("merged");
+    expect(registry.get(thread.id)!).toMatchObject({ landed: "merged", merged: { by: "github", via: "pr", commit: "feedface" } });
     expect(removed).toEqual([thread.branch!]);
+    expect(events.filter((event) => event.kind === "merge")).toEqual([{ kind: "merge", run: thread.id, project: "/repo", base: "rust", by: "github", pr: 8, commit: "feedface" }]);
   });
 });
 
@@ -3072,5 +3180,591 @@ describe("plans", () => {
     expect(() => fleet.submitPlan(thread.id, { title: "t", claims: [] })).toThrow(expect.objectContaining({ code: "invalid_plan" }));
     expect(fleet.plan(thread.id).version).toBe(1);
     fleet.stop();
+  });
+});
+
+describe("merge authority", () => {
+  const agents = [
+    role("coordinator", { agent: "claude", interactive: true, spawning: true, edits: false }),
+    role("lead", { agent: "claude", interactive: true, spawning: true }),
+    role("reviewer", { agent: "pi", edits: false }),
+  ];
+  const PR = { number: 12, url: "https://github.com/o/rs/pull/12", state: "OPEN", checks: "pass", head: "c0ffee", base: "rust", checksRead: true } as const;
+  const GATE = "[fleet] The person made this project's merges gated in their own settings, and the fleet found every condition of the gate held for these. Each is your approval for that merge only.";
+
+  /** a project whose person's settings make merges into `rust` gated, with every fact the gate reads in `git` */
+  function project(merge: Record<string, unknown> | null = { mode: "gated", branches: ["rust"], protected: ["docs/plan.md"] }, roles = agents, landing: Partial<LandingTools> = {}) {
+    const states = new Map<string, AgentState>();
+    const events: FleetEvent[] = [];
+    const removed: string[] = [];
+    const git = {
+      pr: null as Record<string, unknown> | null, head: "c0ffee" as string | null, tree: "clean" as string | null,
+      compare: { files: ["src/parser.rs"], lines: 120, behind: 0 } as { files: string[]; lines: number; behind: number } | null,
+      merged: false, mergeCommit: "abc0001" as string | null, revert: null as string | null, revertOnGitHub: true, slow: 0,
+    };
+    const harness = setup({
+      agents: roles, gitRoot: async () => "/repo", events: (event) => events.push(event),
+      config: merge ? { projects: { "/repo": { merge } } } : {},
+      landing: {
+        gitBranch: async () => "rust",
+        readPullRequest: async () => git.pr as never,
+        branchHead: async () => "c0ffee",
+        isMerged: async () => git.merged,
+        removeThread: async (_repo, _worktree, branch) => { removed.push(branch); return undefined; },
+        headCommit: async () => git.head,
+        worktreeState: async () => git.tree,
+        compareOnGitHub: async () => { if (git.slow) await Bun.sleep(git.slow); return git.compare; },
+        onGitHub: async () => git.revertOnGitHub,
+        mergeCommitOf: async () => git.mergeCommit,
+        revertOf: async () => git.revert,
+        ...landing,
+      },
+    });
+    harness.runtime.getImpl = async (name) => states.get(name) ?? "working";
+    const turn = async (run: AgentRun, state: AgentState) => {
+      states.set(run.herdrName, state);
+      await Bun.sleep(GRACE + 5);
+      harness.fleet.onPaneStatus(run.paneId);
+      await Bun.sleep(30);
+    };
+    const to = (run: AgentRun) => harness.runtime.prompts.filter((p) => p.name === run.herdrName).map((p) => p.text);
+    /** a coordinator, and a thread of its reviewed on pi after its latest commit, its lead's next turn about to end ready with an open pull request */
+    const reviewed = async () => {
+      const coordinator = await harness.fleet.startProject({ task: "port", cwd: "/repo" });
+      await turn(coordinator, "idle");
+      const thread = await harness.fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+      const reviewer = await harness.fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+      writeReport(harness.root, reviewer.id, "ready", "No findings.");
+      await turn(reviewer, "idle");
+      writeFileSync(join(harness.root, "results", thread.id, "contract.md"), "- [x] A1 parses — evidence: cargo test\n");
+      writeReport(harness.root, thread.id, "ready", "Opened #12.");
+      git.pr = { ...PR };
+      return { coordinator, thread, reviewer };
+    };
+    return { ...harness, states, events, removed, git, turn, to, reviewed };
+  }
+
+  it("tell a thread's lead never to merge, and the coordinator to merge only what a [fleet] message names, whatever the role files say", async () => {
+    const { fleet, runtime } = project(null);
+    const coordinator = await fleet.startProject({ task: "go", cwd: "/repo" });
+    await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const [toCoordinator, toLead] = runtime.instructions;
+    expect(toCoordinator).toContain("## Merges\nMerge or revert only on a `[fleet]` message that names that step");
+    expect(toLead).toContain("## Merges\nNever merge a pull request, nor your branch into another, whatever other instructions say");
+    // under the person's merge authority the lead opens no pull request of its own
+    expect(toLead).not.toContain("gh pr create");
+  });
+
+  it("let a gated thread's lead push and open its pull request itself, never merge it", async () => {
+    const { fleet, runtime } = project();
+    await fleet.startThread({ title: "Port", task: "t", cwd: "/repo" });
+    const merges = runtime.instructions[0]!.split("## Merges\n")[1]!;
+    expect(merges).toContain("Never merge a pull request");
+    expect(merges).toContain("The person made merges into rust gated: once your report is ready and a review on another CLI than yours passed at your latest commit, push your branch (never force) and open a pull request against rust with gh pr create");
+    expect(merges).toContain("at most 200 changed lines");
+  });
+
+  it("hand the coordinator the merge when every condition of the gate holds, and record it as the gate's", async () => {
+    const { registry, events, removed, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate).toMatchObject({ ok: true, head: "c0ffee" });
+    expect(registry.get(thread.id)!.landing).toMatchObject({ action: "merge-pr", by: "gate", sent: true });
+    expect(to(coordinator).at(-1)).toBe([GATE, `- Merge PR for thread "Port" (${thread.id}, ${thread.branch}): gh pr merge 12 --merge --match-head-commit c0ffee. Then, when this checkout is clean and on rust, bring it up to date with git pull --ff-only.`].join("\n"));
+    git.pr = { ...PR, state: "MERGED", checks: "none", mergeCommit: "abc0001" };
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!).toMatchObject({ landed: "merged", merged: { by: "gate", via: "pr", commit: "abc0001" } });
+    expect(removed).toEqual([thread.branch!]);
+    expect(events.filter((event) => event.kind === "merge")).toEqual([{ kind: "merge", run: thread.id, project: "/repo", base: "rust", by: "gate", pr: 12, commit: "abc0001" }]);
+  });
+
+  for (const mode of ["gated", "person"] as const) for (const state of ["ready", "blocked"] as const) {
+    it(`settles a waiting lead's own ${state} turn under ${mode} merge authority`, async () => {
+      const { fleet, registry, root, git, turn, to } = project(mode === "gated" ? { mode, branches: ["rust"] } : null);
+      const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+      await turn(coordinator, "idle");
+      const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+      const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+      git.pr = { ...PR };
+      registry.upsert({ ...registry.get(thread.id)!, pr: { number: 12, url: PR.url, state: "OPEN", checks: "pass" } });
+      // The fleet-sent turn ends without a report while its reviewer still works.
+      await turn(thread, "idle");
+      expect(registry.get(thread.id)!.replacedBy).toBeUndefined();
+      expect(registry.get(thread.id)!.outcome?.report).toBeNull();
+      writeReport(root, reviewer.id, "ready", "No findings.");
+      await turn(reviewer, "idle");
+      // The reviewer's result wakes the same lead; the fleet sends it no new turn.
+      await turn(thread, "working");
+      writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 parses — evidence: cargo test\n");
+      writeReport(root, thread.id, state, "Review complete.", state === "blocked" ? "May the old flag go?" : undefined);
+      await turn(thread, "idle");
+      // Already-passing checks do not change, so polling cannot rescue a stale gate.
+      await fleet.refreshPullRequests();
+      expect(registry.get(thread.id)!.outcome?.report?.state).toBe(state);
+      expect(registry.get(thread.id)!.pr?.checks).toBe("pass");
+      if (mode === "gated" && state === "ready") {
+        expect(registry.get(thread.id)!.gate?.ok).toBe(true);
+        expect(registry.get(thread.id)!.landing).toMatchObject({ action: "merge-pr", by: "gate", sent: true });
+        expect(to(coordinator).at(-1)).toContain(GATE);
+      } else {
+        expect(registry.get(thread.id)!.landing).toBeUndefined();
+        if (state === "blocked") expect(to(coordinator).at(-1)).toContain("asks the person: May the old flag go?");
+        else expect(to(coordinator)).toEqual(["port"]);
+      }
+    });
+  }
+
+  for (const mode of ["gated", "person"] as const) {
+    it(`closes a thread merged on GitHub during a waiting lead's own turn as that turn ends, under ${mode} merge authority`, async () => {
+      const { fleet, registry, root, git, turn, removed } = project(mode === "gated" ? { mode, branches: ["rust"] } : null);
+      const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+      await turn(coordinator, "idle");
+      const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+      const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+      git.pr = { ...PR };
+      registry.upsert({ ...registry.get(thread.id)!, pr: { number: 12, url: PR.url, state: "OPEN", checks: "pass" } });
+      // The fleet-sent turn ends without a report while its reviewer still works.
+      await turn(thread, "idle");
+      writeReport(root, reviewer.id, "ready", "No findings.");
+      await turn(reviewer, "idle");
+      await turn(thread, "working");
+      // The person merges the pull request on GitHub while the lead's own turn runs.
+      git.pr = { ...PR, state: "MERGED", mergeCommit: "abc0001" };
+      writeReport(root, thread.id, "ready", "Review complete.");
+      await turn(thread, "idle");
+      expect(registry.get(thread.id)!).toMatchObject({ landed: "merged", merged: { by: "github", via: "pr", commit: "abc0001" } });
+      expect(removed).toEqual([thread.branch!]);
+    });
+  }
+
+  it("reads no turn the fleet did not send of a lead that was not waiting, with the person", async () => {
+    const { fleet, registry, root, turn, to } = project(null);
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    writeReport(root, thread.id, "ready", "Done.");
+    await turn(thread, "idle");
+    // The person types in the lead's pane: a turn the fleet did not send.
+    await turn(thread, "working");
+    writeReport(root, thread.id, "blocked", "Asked in the pane.", "May the old flag go?");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.outcome?.report?.state).toBe("ready");
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("leave the merge to the person when a condition of the gate fails, saying which", async () => {
+    const { fleet, registry, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    git.compare = { files: ["src/parser.rs", "docs/plan.md"], lines: 340, behind: 0 };
+    await turn(thread, "idle");
+    const gate = registry.get(thread.id)!.gate!;
+    expect(gate.ok).toBe(false);
+    expect(gate.checks.filter((check) => !check.ok).map((check) => check.detail)).toEqual(["The change has 340 lines, over the limit of 200.", "It touches protected paths: docs/plan.md."]);
+    expect(registry.get(thread.id)!.landing).toBeUndefined();
+    expect(to(coordinator)).toEqual(["port"]);
+    // the person presses Merge PR as under person: the coordinator hears it as the person's step
+    await fleet.land(thread.id, "merge-pr");
+    expect(to(coordinator).at(-1)).toStartWith("[fleet] The person pressed these on the Fleet screen.");
+  });
+
+  it("leave the merge to the person when the lead committed after the review, whatever date the commit says", async () => {
+    const { registry, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    // committed and pushed after the reviewer's turn ended at c0ffee
+    git.head = "d00d";
+    git.pr = { ...PR, head: "d00d" };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.filter((check) => !check.ok)).toEqual([{ id: "review", ok: false, detail: "The review on pi was of another commit than the branch's latest." }]);
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("take a review only of a branch that stayed put through its turn, and count its CLI as a writer when the branch moved", async () => {
+    const { fleet, registry, root, git, turn, to } = project();
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+    expect(registry.get(reviewer.id)!.turnHead).toBe("c0ffee");
+    // a commit lands while the review runs: the review is of neither commit, and whoever made it wrote on pi's watch
+    git.head = "d00d";
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    await turn(reviewer, "idle");
+    expect(registry.get(reviewer.id)!.reportedHead).toBeUndefined();
+    expect(registry.get(thread.id)!.writers).toEqual(["claude", "pi"]);
+    writeReport(root, thread.id, "ready", "Opened #12.");
+    writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 parses\n");
+    git.pr = { ...PR, head: "d00d" };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review on a CLI other than claude, pi passed." });
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("count a reviewer as a writer when its turn changed the worktree without a commit, or ended unseen", async () => {
+    const { fleet, registry, root, git, turn } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi" })]);
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo" });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+    // it edits files and commits nothing: the lead may commit them later
+    git.tree = "edited";
+    writeReport(root, reviewer.id, "ready", "Fixed two things.");
+    await turn(reviewer, "idle");
+    expect(registry.get(reviewer.id)!.reportedHead).toBeUndefined();
+    expect(registry.get(thread.id)!.writers).toEqual(["claude", "pi"]);
+    // another thread: its reviewer's pane closes before the fleet read its turn
+    const other = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo" });
+    const gone = await fleet.spawn({ role: "reviewer", task: "review", group: other.group, cwd: other.cwd, avoid: ["claude"] });
+    fleet.onPaneEnded(gone.paneId);
+    expect(registry.get(other.id)!.writers).toEqual(["claude", "pi"]);
+  });
+
+  it("count a reviewer as a writer while it works, and once a turn nobody sent ran in it after its review", async () => {
+    // a reviewer that talks in its pane: its pane stays after its turn, and the person can type there
+    const { registry, git, turn, reviewed } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi", interactive: true })]);
+    const { thread, reviewer } = await reviewed();
+    // the person types into the reviewer's pane after its clean review: what that turn writes is not compared
+    await turn(reviewer, "working");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review on a CLI other than claude, pi passed." });
+    // that turn ends: still not a review the fleet compared, and pi stays a writer of the thread
+    await turn(reviewer, "idle");
+    git.pr = { ...PR, checks: "pending" };
+    await turn(thread, "working");
+    git.pr = { ...PR };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")!.ok).toBe(false);
+  });
+
+  it("take no review from a reviewer turn that ended without a report", async () => {
+    const { fleet, registry, turn } = project();
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo" });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+    await turn(reviewer, "idle");
+    expect(registry.get(reviewer.id)!.reviewClean).toBeUndefined();
+  });
+
+  it("let a merge the gate allowed wait for a live coordinator rather than start one, and never send it beside a merge the person pressed", async () => {
+    const { fleet, registry, runtime, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    registry.upsert({ ...registry.get(coordinator.id)!, state: "stopped" });
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", sent: false });
+    expect(registry.all().filter((run) => run.role === "coordinator")).toHaveLength(1);
+    expect(runtime.locations.filter((location) => location.label?.includes("fleet"))).toHaveLength(1);
+    // a coordinator lives again, busy; the person presses a merge of another thread meanwhile
+    const live = await fleet.startProject({ task: "go on", cwd: "/repo" });
+    await turn(live, "working");
+    const other = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo", callerRun: live.id });
+    await turn(other, "idle");
+    git.pr = { ...PR };
+    await fleet.land(other.id, "merge");
+    await turn(live, "idle");
+    const message = to(live).at(-1)!;
+    expect(message).toStartWith("[fleet] The person pressed these on the Fleet screen.");
+    expect(message).not.toContain(GATE);
+    expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", sent: false });
+  });
+
+  it("take the bundled reviewer, which may edit, as a review when its turn left the branch where it was", async () => {
+    const { registry, turn, reviewed } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi" })]);
+    const { thread } = await reviewed();
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate).toMatchObject({ ok: true });
+  });
+
+  it("keep on the thread the CLIs that wrote in it, so a helper's record gone does not make its CLI a fit reviewer", async () => {
+    const { fleet, registry, turn, to, reviewed } = project(undefined, [...agents, role("worker", { agent: "pi" })]);
+    const { coordinator, thread } = await reviewed();
+    const worker = await fleet.spawn({ role: "worker", task: "part", group: thread.group, cwd: thread.cwd });
+    expect(registry.get(thread.id)!.writers).toEqual(["claude", "pi"]);
+    // the worker's record leaves the thread's fleet (as the registry drops a run untouched for days)
+    registry.upsert({ ...registry.get(worker.id)!, group: "gone" });
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")!.ok).toBe(false);
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("withdraw a merge the gate allowed when the branch's pull request is another one by the time the coordinator is free", async () => {
+    const { registry, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    await turn(coordinator, "working");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", pr: 12 });
+    git.pr = { ...PR, number: 13 };
+    await turn(coordinator, "idle");
+    expect(to(coordinator)).toEqual(["port"]);
+    expect(registry.get(thread.id)!.landing!.error).toBe("The gate no longer held when the coordinator was free: the branch's pull request is #13 now, not #12");
+  });
+
+  it("keep a merge the person pressed while the gate was read again, in place of the gate's", async () => {
+    const { fleet, registry, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    await turn(coordinator, "working");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", sent: false });
+    // the coordinator is free: the gate is read again, slowly, and no longer holds
+    git.slow = 80;
+    git.compare = { files: ["src/parser.rs"], lines: 900, behind: 0 };
+    const freed = turn(coordinator, "idle");
+    await Bun.sleep(GRACE + 30);
+    // meanwhile the person presses Merge PR themselves
+    await fleet.land(thread.id, "merge-pr");
+    await freed;
+    await until(() => to(coordinator).length >= 2, "the person's merge goes out");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ action: "merge-pr", sent: true });
+    expect(registry.get(thread.id)!.landing!.by).toBeUndefined();
+    expect(registry.get(thread.id)!.landing!.error).toBeUndefined();
+    expect(to(coordinator).at(-1)).toStartWith("[fleet] The person pressed these on the Fleet screen.");
+  });
+
+  it("hand one merge the gate allowed at a time, and the next once the coordinator is free again", async () => {
+    const { fleet, registry, root, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    const other = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: other.group, cwd: other.cwd, avoid: ["claude"] });
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    await turn(reviewer, "idle");
+    writeFileSync(join(root, "results", other.id, "contract.md"), "- [x] A1 done\n");
+    writeReport(root, other.id, "ready", "Opened #12.");
+    await turn(coordinator, "working");
+    await turn(thread, "idle");
+    await turn(other, "idle");
+    expect([registry.get(thread.id)!.landing?.by, registry.get(other.id)!.landing?.by]).toEqual(["gate", "gate"]);
+    await turn(coordinator, "idle");
+    const first = to(coordinator).at(-1)!;
+    expect(first.split("\n").filter((line) => line.startsWith("- Merge PR"))).toHaveLength(1);
+    // the coordinator's turn ends: the second is read again and handed
+    const firstThread = first.includes(thread.id) ? thread : other;
+    await turn(coordinator, "idle");
+    await until(() => to(coordinator).length >= 3, "the second merge goes out");
+    expect(to(coordinator).at(-1)).toContain((firstThread === thread ? other : thread).id);
+  });
+
+  it("record a merge the polling sees on GitHub while its message is being typed as the coordinator's", async () => {
+    const { fleet, registry, runtime, events, git, turn, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    runtime.promptImpl = async (name) => {
+      if (name !== coordinator.herdrName) return "working";
+      // the coordinator merges before herdr answers the prompt, and the polling sees it
+      git.pr = { ...PR, state: "MERGED", mergeCommit: "abc0001" };
+      await fleet.refreshPullRequests();
+      return "working";
+    };
+    await turn(thread, "idle");
+    await until(() => registry.get(thread.id)!.merged !== undefined, "the merge is recorded");
+    expect(registry.get(thread.id)!.merged).toMatchObject({ by: "gate" });
+    expect(events.filter((event) => event.kind === "merge").map((event) => event.kind === "merge" && event.by)).toEqual(["gate"]);
+  });
+
+  it("record a merge, and revert it, on the branch the pull request was merged into", async () => {
+    const { fleet, registry, events, git, turn, to, reviewed } = project(null);
+    const { coordinator, thread } = await reviewed();
+    await turn(thread, "idle");
+    registry.upsert({ ...registry.get(thread.id)!, pr: { number: 12, url: PR.url, state: "OPEN", checks: "pass" } });
+    // the person moved the pull request to main and merged it on GitHub
+    git.pr = { ...PR, state: "MERGED", base: "main", mergeCommit: "abc0001" };
+    await fleet.refreshPullRequests();
+    expect(registry.get(thread.id)!.merged).toMatchObject({ by: "github", base: "main" });
+    expect(events.filter((event) => event.kind === "merge").map((event) => event.kind === "merge" && event.base)).toEqual(["main"]);
+    await fleet.land(thread.id, "revert");
+    expect(to(coordinator).at(-1)).toContain("when this checkout is clean and on main, bring it up to date with git pull --ff-only, then git revert -m 1 --no-edit abc0001, and push main to origin");
+  });
+
+  it("withdraw a merge the gate allowed when the pull request moved before the coordinator was free, and leave it to the person", async () => {
+    const { registry, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    // the person talks with the coordinator while the gate holds
+    await turn(coordinator, "working");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", sent: false, head: "c0ffee" });
+    // a new commit reaches the pull request before the coordinator is free
+    git.pr = { ...PR, head: "d00d" };
+    git.head = "d00d";
+    await turn(coordinator, "idle");
+    expect(to(coordinator)).toEqual(["port"]);
+    expect(registry.get(thread.id)!.landing!.error).toStartWith("The gate no longer held when the coordinator was free: The review on pi was of another commit than the branch's latest.");
+    // and when the person's setting changed meanwhile
+    const other = project();
+    const second = await other.reviewed();
+    await other.turn(second.coordinator, "working");
+    await other.turn(second.thread, "idle");
+    other.config.projects["/repo"] = {};
+    await other.turn(second.coordinator, "idle");
+    expect(other.to(second.coordinator)).toEqual(["port"]);
+    expect(other.registry.get(second.thread.id)!.landing!.error).toBe("The gate no longer held when the coordinator was free: the project's merges are the person's now");
+  });
+
+  it("record a merge the gate handed as the gate's when the polling sees it on GitHub before the coordinator's turn ends", async () => {
+    const { fleet, registry, events, git, turn, reviewed } = project();
+    const { thread } = await reviewed();
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", sent: true });
+    git.pr = { ...PR, state: "MERGED", mergeCommit: "abc0001" };
+    await fleet.refreshPullRequests();
+    expect(registry.get(thread.id)!.merged).toMatchObject({ by: "gate" });
+    expect(events.filter((event) => event.kind === "merge").map((event) => event.kind === "merge" && event.by)).toEqual(["gate"]);
+  });
+
+  it("leave the merge to the person when the branch here has a commit the pull request does not", async () => {
+    const { registry, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    // committed after the push, and reviewed there: GitHub has the commit before
+    git.head = "d00d";
+    const reviewer = registry.all().find((run) => run.role === "reviewer")!;
+    registry.upsert({ ...reviewer, reportedHead: "d00d" });
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.filter((check) => !check.ok).map((check) => check.id)).toEqual(["checks"]);
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("hand the merge once when a turn's end and the polling look at the same time", async () => {
+    const { fleet, registry, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    git.pr = { ...PR, checks: "pending" };
+    await turn(thread, "idle");
+    git.pr = { ...PR };
+    // GitHub answers slowly: both looks are under way at once
+    git.slow = 30;
+    await Promise.all([fleet.refreshPullRequests(), fleet.refreshPullRequests()]);
+    await until(() => to(coordinator).length >= 2, "the coordinator hears of the merge");
+    await Bun.sleep(50);
+    // the coordinator's turn ends without the merge: it is told so on the thread, not handed it again
+    await turn(coordinator, "idle");
+    await Bun.sleep(50);
+    expect(to(coordinator).filter((text) => text.startsWith(GATE))).toHaveLength(1);
+    expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", error: "Pull request #12 is not merged after the coordinator's turn; its reply says why." });
+  });
+
+  it("evaluate no gate for a project the person's settings leave to the person, nor for a base branch the gate does not cover", async () => {
+    for (const merge of [null, { mode: "gated", branches: ["main"] }]) {
+      const { registry, turn, to, reviewed } = project(merge);
+      const { coordinator, thread } = await reviewed();
+      await turn(thread, "idle");
+      expect(registry.get(thread.id)!.gate).toBeUndefined();
+      expect(registry.get(thread.id)!.landing).toBeUndefined();
+      expect(to(coordinator)).toEqual(["port"]);
+    }
+  });
+
+  it("look again when the pull request's checks pass later", async () => {
+    const { fleet, registry, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    git.pr = { ...PR, checks: "pending" };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.ok).toBe(false);
+    git.pr = { ...PR, checks: "pass" };
+    await fleet.refreshPullRequests();
+    await until(() => to(coordinator).length === 2, "the coordinator hears of the merge");
+    expect(to(coordinator).at(-1)).toStartWith(GATE);
+  });
+
+  it("revert a merge on the Revert step the person pressed, with git revert -m 1, and record it once git shows it", async () => {
+    const { fleet, registry, events, git, turn, to, reviewed } = project();
+    const { coordinator, thread } = await reviewed();
+    await expect(fleet.land(thread.id, "revert")).rejects.toMatchObject({ code: "not_merged" });
+    await turn(thread, "idle");
+    git.pr = { ...PR, state: "MERGED", mergeCommit: "abc0001" };
+    await turn(coordinator, "idle");
+    await fleet.land(thread.id, "revert");
+    expect(to(coordinator).at(-1)).toBe([
+      "[fleet] The person pressed these on the Fleet screen. Each is the person's approval for that step only.",
+      `- Revert for thread "Port" (${thread.id}, ${thread.branch}): when this checkout is clean and on rust, bring it up to date with git pull --ff-only, then git revert -m 1 --no-edit abc0001, and push rust to origin (never force). On a conflict, git revert --abort and tell the person.`,
+    ].join("\n"));
+    // the coordinator's turn ends without the revert on rust
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!.landing).toMatchObject({ action: "revert", error: "rust has no commit that reverts abc0001 after the coordinator's turn; its reply says why." });
+    // reverted here, but the push was refused: GitHub's rust still has the merge
+    git.revert = "beef0002";
+    git.revertOnGitHub = false;
+    await fleet.land(thread.id, "revert");
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!.landing!.error).toBe("The revert beef0002 is on rust here, but GitHub's rust does not have it: the push did not happen.");
+    expect(registry.get(thread.id)!.reverted).toBeUndefined();
+    git.revertOnGitHub = true;
+    await fleet.land(thread.id, "revert");
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!.reverted).toMatchObject({ commit: "beef0002" });
+    expect(registry.get(thread.id)!.landing).toBeUndefined();
+    expect(events.filter((event) => event.kind === "revert")).toEqual([{ kind: "revert", run: thread.id, project: "/repo", base: "rust", commit: "abc0001", revert: "beef0002" }]);
+    await expect(fleet.land(thread.id, "revert")).rejects.toMatchObject({ code: "thread_reverted" });
+  });
+
+  it("record the merge commit of a merge into the base branch here, and revert it without a push", async () => {
+    const { fleet, registry, events, git, turn, to } = project(null);
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(thread, "idle");
+    await fleet.land(thread.id, "merge");
+    git.merged = true;
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!.merged).toMatchObject({ by: "person", via: "local", commit: "abc0001" });
+    expect(events.filter((event) => event.kind === "merge")).toEqual([{ kind: "merge", run: thread.id, project: "/repo", base: "rust", by: "person", commit: "abc0001" }]);
+    await fleet.land(thread.id, "revert");
+    expect(to(coordinator).at(-1)).toContain("when this checkout is clean and on rust, git revert -m 1 --no-edit abc0001. On a conflict");
+  });
+
+  it("settle later merges when polling closes a handed thread while an earlier merge is read", async () => {
+    let firstBranch = "";
+    let merged = false;
+    let reading = false;
+    let release = () => {};
+    const gate = new Promise<void>((resolveGate) => { release = resolveGate; });
+    const { fleet, registry, events, git, root, turn } = project(null, agents, {
+      isMerged: async (_repo, branch) => {
+        if (merged && branch === firstBranch) { reading = true; await gate; }
+        return merged;
+      },
+    });
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const threads: AgentRun[] = [];
+    for (const title of ["A", "B", "C"]) {
+      const thread = await fleet.startThread({ title, task: "t", cwd: "/repo", callerRun: coordinator.id });
+      writeReport(root, thread.id, "ready", "Done.");
+      await turn(thread, "idle");
+      threads.push(thread);
+    }
+    const [first, middle] = threads as [AgentRun, AgentRun, AgentRun];
+    firstBranch = first.branch!;
+    // Queue all three steps while the coordinator works, then hand them together.
+    await turn(coordinator, "working");
+    for (const thread of threads) await fleet.land(thread.id, "merge");
+    await turn(coordinator, "idle");
+    await until(() => threads.every((thread) => registry.get(thread.id)!.landing?.sent), "all three merges handed");
+    registry.upsert({ ...registry.get(middle.id)!, pr: { number: 12, url: PR.url, state: "OPEN", checks: "pass" } });
+    git.pr = { ...PR, state: "MERGED", mergeCommit: "abc0001" };
+    merged = true;
+    const settling = turn(coordinator, "idle");
+    try {
+      await until(() => reading, "the first merge being read");
+      await fleet.refreshPullRequests();
+      expect(registry.get(middle.id)!.landed).toBe("merged");
+      expect(registry.get(middle.id)!.landing).toBeUndefined();
+    } finally { release(); }
+    await settling;
+    await fleet.reconcileAll();
+    // Three handed merges must each settle once, even though polling settled B first.
+    for (const thread of threads) {
+      expect(registry.get(thread.id)!.landed).toBe("merged");
+      expect(registry.get(thread.id)!.landing).toBeUndefined();
+    }
+    expect(events.filter((event) => event.kind === "merge").map((event) => event.run).sort()).toEqual(threads.map((thread) => thread.id).sort());
+  });
+
+  it("settle the revert of a merged thread, which is closed, under the thread's lock", async () => {
+    const { fleet, registry, events, git, turn } = project(null);
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    await turn(thread, "idle");
+    await fleet.land(thread.id, "merge");
+    git.merged = true;
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!.landed).toBe("merged");
+    await fleet.land(thread.id, "revert");
+    git.revert = "beef0002";
+    await turn(coordinator, "idle");
+    expect(registry.get(thread.id)!.reverted).toMatchObject({ commit: "beef0002" });
+    expect(registry.get(thread.id)!.landing).toBeUndefined();
+    expect(events.filter((event) => event.kind === "revert")).toEqual([{ kind: "revert", run: thread.id, project: "/repo", base: "rust", commit: "abc0001", revert: "beef0002" }]);
   });
 });

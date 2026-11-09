@@ -4,7 +4,8 @@
  * with the failed ones, the runs that ended without a report, and the anomalies, the same per role
  * version (the role file a run started with), the turns that ended without a report, the thread
  * lead runs the fleet started again, the turns agents started by themselves, the threads
- * closed against GitHub, the pull requests merged into the project's base, the issues closed and
+ * closed against GitHub, the merges the gate made with how many were reverted and how fast
+ * (merge-mode.ts), the pull requests merged into the project's base, the issues closed and
  * the issues opened (without a planned label, when one is given: found during the work). Pure:
  * `fleet report` (api.ts) and scripts/factory-report.ts read the inputs and hand them in.
  */
@@ -37,6 +38,12 @@ export interface FactoryMetrics {
   restarts: { started: number; failed: number; ready: number };
   ownTurns: Record<string, number>;
   reconciled: number;
+  /**
+   * the threads merged in the window, by who merged them (merge-mode.ts); of the gate's, those
+   * reverted by the end of the window, and the time from each such merge to its revert (DORA's
+   * change failure rate and time to restore, measured from the merge)
+   */
+  merges: { gate: number; person: number; github: number; reverted: number; restoreMs: number[] };
   merged: PullRequestRow[];
   closed: IssueRow[];
   found: IssueRow[];
@@ -150,6 +157,18 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
   const roles = [...startsByVersion.values()].map(({ role, version, starts, failed, lost }) => ({ role, ...(version ? { hash: version.hash, source: version.source, file: version.file } : {}), starts, failed, lost }))
     .sort((a, b) => a.role.localeCompare(b.role) || (a.hash === undefined ? 1 : b.hash === undefined ? -1 : a.hash.localeCompare(b.hash)));
 
+  const mergeEvents = inWindow.filter((event): event is Extract<TimedEvent, { kind: "merge" }> => event.kind === "merge");
+  const gateMerges = new Map(mergeEvents.filter((event) => event.by === "gate" && event.commit).map((event) => [event.commit!, event.t]));
+  const restoreMs = mine.filter((event): event is Extract<TimedEvent, { kind: "revert" }> => event.kind === "revert" && event.t <= to && gateMerges.has(event.commit))
+    .map((event) => event.t - gateMerges.get(event.commit)!).filter((ms) => ms >= 0).sort((a, b) => a - b);
+  const merges = {
+    gate: mergeEvents.filter((event) => event.by === "gate").length,
+    person: mergeEvents.filter((event) => event.by === "person").length,
+    github: mergeEvents.filter((event) => event.by === "github").length,
+    reverted: restoreMs.length,
+    restoreMs,
+  };
+
   const within = (at: string | null) => at !== null && Date.parse(at) >= from && Date.parse(at) <= to;
   return {
     from, to, ...(logStart !== undefined ? { logStart } : {}),
@@ -162,6 +181,7 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
     restarts,
     ownTurns,
     reconciled: inWindow.filter((event) => event.kind === "reconciled").length,
+    merges,
     merged: input.merged.filter((pr) => pr.baseRefName === input.base && within(pr.mergedAt)),
     closed: input.issues.filter((issue) => within(issue.closedAt)),
     ...(input.planned ? { planned: input.planned.source } : {}),
@@ -171,6 +191,7 @@ export function metrics(input: { events: TimedEvent[]; project: string; base: st
 
 const clock = (at: number) => new Date(at).toLocaleString("sv-SE").slice(0, 16);
 const minutes = (ms: number) => Math.round(ms / 60_000);
+const median = (sorted: number[]) => sorted.length % 2 ? sorted[(sorted.length - 1) / 2]! : (sorted[sorted.length / 2 - 1]! + sorted[sorted.length / 2]!) / 2;
 
 export function render(project: string, base: string, metrics: FactoryMetrics): string {
   const anomalies = [
@@ -213,6 +234,12 @@ export function render(project: string, base: string, metrics: FactoryMetrics): 
     "| Agent | Turns that ended | Without a report |",
     "|---|---|---|",
     ...(metrics.reports.length ? metrics.reports.map((row) => `| ${row.agent} | ${row.turns} | ${row.none} |`) : ["| none | 0 | 0 |"]),
+    "",
+    "## Merges",
+    "",
+    `- Merged by the gate: ${metrics.merges.gate}; by the person: ${metrics.merges.person}; outside the fleet's steps on GitHub: ${metrics.merges.github}`,
+    `- Gate merges reverted later: ${metrics.merges.reverted}${metrics.merges.gate ? ` (change failure rate ${Math.round((metrics.merges.reverted / metrics.merges.gate) * 100)}%)` : ""}`,
+    `- Time to restore: ${metrics.merges.restoreMs.length ? `median ${minutes(median(metrics.merges.restoreMs))} minutes, longest ${minutes(metrics.merges.restoreMs.at(-1)!)} minutes (from the merge to its revert)` : "nothing reverted"}`,
     "",
     "## Output",
     "",
