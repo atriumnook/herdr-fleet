@@ -705,11 +705,15 @@ impl Drop for Session {
 
 /// Returns once the watcher has seen the session end (not when the child merely exited, whose
 /// output is still read); never when the watcher is gone without that.
+///
+/// The `watch::Ref` that `wait_for` returns holds a read lock and is dropped before the next await,
+/// so the futures that wait on this one stay `Send` (#293).
 async fn ended(state: &mut watch::Receiver<Ended>) {
-    let ended = state
+    let closed = state
         .wait_for(|ended| !matches!(ended, Ended::Running | Ended::Exited))
-        .await;
-    if ended.is_err() {
+        .await
+        .is_err();
+    if closed {
         std::future::pending::<()>().await;
     }
 }

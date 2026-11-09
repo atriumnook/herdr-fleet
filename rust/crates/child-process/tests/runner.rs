@@ -15,7 +15,9 @@ use std::ffi::OsString;
 use std::time::{Duration, Instant};
 
 use common::{TempDir, fake, read, sh_quote};
-use herdr_fleet_child_process::{Command, EnvPolicy, KILL_GRACE, RunError, Runner, StreamLimit};
+use herdr_fleet_child_process::{
+    Command, EnvPolicy, KILL_GRACE, RunError, Runner, Session, StreamLimit,
+};
 use tokio_util::sync::CancellationToken;
 
 const SHORT: Duration = Duration::from_millis(300);
@@ -957,4 +959,44 @@ async fn many_short_lines_in_one_read_come_out_in_order() {
     }
     assert_eq!(count, 20000);
     session.close().await;
+}
+
+fn assert_send<T: Send>(_: &T) {}
+
+/// The futures of a run and of a session are `Send`, so a caller can drive them in a task it
+/// `tokio::spawn`s, as the usage tracker does with the codex probe (#293, #254). The check is made
+/// by the compiler; the futures are never polled.
+#[test]
+fn the_runs_and_sessions_futures_can_move_between_threads() {
+    #[allow(dead_code)]
+    fn check(runner: &Runner, command: Command, cancel: &CancellationToken, mut session: Session) {
+        assert_send(&runner.run(command.clone(), cancel));
+        assert_send(&runner.session(command, cancel));
+        assert_send(&session.send_line("a line"));
+        assert_send(&session.next_line());
+        assert_send(&session.close());
+    }
+}
+
+/// A session is driven to its end inside a spawned task on a runtime with several threads.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_session_runs_inside_a_spawned_task() {
+    let dir = TempDir::new("session-spawned");
+    let program = fake(
+        dir.path(),
+        "cli",
+        "while read -r line; do echo \"got $line\"; done",
+    );
+    let runner = Runner::new(1);
+    let exchange = tokio::spawn(async move {
+        let mut session = runner
+            .session(command(&program, &dir), &CancellationToken::new())
+            .await
+            .unwrap();
+        session.send_line("one").await.unwrap();
+        let line = session.next_line().await.unwrap();
+        session.close().await;
+        line
+    });
+    assert_eq!(exchange.await.unwrap().as_deref(), Some("got one"));
 }
