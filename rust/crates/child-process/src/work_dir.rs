@@ -1,5 +1,5 @@
 //! The private folder a CLI the server starts on its own runs in (`emptyWorkDir`,
-//! `server/cli-child.ts:36`).
+//! `server/cli-child.ts:38`).
 
 use std::fs;
 use std::io;

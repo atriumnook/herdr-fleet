@@ -24,11 +24,11 @@ ADR `0242-phase-3-split` の「子プロセス」は、ペインの外で起動�
 
 - `Env` は `BTreeMap<OsString, OsString>`。OS の環境変数は UTF-8 とは限らないので、`String` にすると値を失うか、読み取りで panic する
 - `child_env(&Env, also_keep: &[&str]) -> Env` と `claude_env(&Env) -> Env` は `server/cli-child.ts` の `childEnv` と `claudeEnv` の写し。名前が UTF-8 でない変数は、どの規則にも当たらず渡さない。残す変数の値は、そのまま渡す
-- `EnvPolicy` は `Only(Env)`(この変数だけ。`env_clear` のあとに足す)と `Inherit(Env)`(サーバーの環境変数に、この変数を上書きで足す)の 2 つ。`Command::new` の引数で、既定の値はない。呼ぶ側は起動ごとに必ずどちらかを書く。`Only` は使用量の probe、モデル一覧、`opencode api` が `child_env` か `claude_env` の結果を渡す。`Inherit` は git、`gh`(`GH_PROMPT_DISABLED` など 4 つ、`server/fleet/github.ts:14`)、利用者の setup のコマンド(`GIT_TERMINAL_PROMPT=0`、`server/fleet/thread.ts:174`)が使う
+- `EnvPolicy` は `Only(Env)`(この変数だけ。`env_clear` のあとに足す)と `Inherit(Env)`(サーバーの環境変数に、この変数を上書きで足す)の 2 つ。`Command::new` の引数で、既定の値はない。呼ぶ側は起動ごとに必ずどちらかを書く。`Only` は使用量の probe、モデル一覧、`opencode api` が `child_env` か `claude_env` の結果を渡す。`Inherit` は git、`gh`(`GH_PROMPT_DISABLED` など 4 つ、`server/fleet/github.ts:14`)、利用者の setup のコマンド(`GIT_TERMINAL_PROMPT=0`、`server/fleet/thread.ts:173`)が使う
 
 ### 私用のフォルダー(`work_dir`)
 
-`empty_work_dir(&Path) -> io::Result<()>` は `emptyWorkDir`(`server/cli-child.ts:36`)の写し。0700 で作り(途中のフォルダーも 0700)、すでにあれば 0700 に戻し、中身を消す。フォルダーの場所に symlink かファイルがあれば、`ErrorKind::NotADirectory` で断り、何も消さない。中の symlink は、指す先をたどらずに symlink だけを消す。
+`empty_work_dir(&Path) -> io::Result<()>` は `emptyWorkDir`(`server/cli-child.ts:38`)の写し。0700 で作り(途中のフォルダーも 0700)、すでにあれば 0700 に戻し、中身を消す。フォルダーの場所に symlink かファイルがあれば、`ErrorKind::NotADirectory` で断り、何も消さない。中の symlink は、指す先をたどらずに symlink だけを消す。
 
 ### runner(`runner`)
 
@@ -61,14 +61,14 @@ impl Session {
 
 - 同時に動かす数の上限は、`Runner` が持つ `tokio::sync::Semaphore` で数える。使い道ごとに 1 つの `Runner` を作る(`opencode api` は 4 つまで、`server/opencode-cli.ts:19`)。process 全体で 1 つの上限にはしない。TypeScript も使い道ごとに数えており、probe とモデル一覧と `opencode api` が互いを待つことはないため
 - 時間の上限は、順番を待ち終えて起動したときから数える(`server/opencode-cli.ts` の `slot` の中で timer を始めるのと同じ)。順番を待つ間に取り消されたら、起動せずに `Cancelled` を返す
-- 終了コードが 0 でないことは、エラーにせず `Output` の `code` で返す。`opencode api` は終了コード 1 の本文から HTTP の状態を読み(`server/opencode-cli.ts:149`)、git は失敗の文を `stderr` から読むため
+- 終了コードが 0 でないことは、エラーにせず `Output` の `code` で返す。`opencode api` は終了コード 1 の本文から HTTP の状態を読み(`server/opencode-cli.ts:151`)、git は失敗の文を `stderr` から読むため
 - 止め方: 時間の上限か取り消しで、子の pid に SIGTERM を rustix の `kill_process` で送る。`kill_grace` 後に SIGKILL(tokio の `start_kill`)、さらに `kill_grace` 後に読み取りをあきらめ、`TimedOut` か `Cancelled` を返す。子が SIGTERM で終わり、出力が閉じれば、その時点で返す。process group には送らない。SIGTERM を送るのは、tokio がまだ子を回収していないとき(`Child::id` が `Some`)だけにする。回収したあとの pid は、別のプロセスのものになっていることがあるため。Windows には SIGTERM がないので、`cfg(not(unix))` では最初の段階から `start_kill` にする
-- `StreamLimit` は、出力を最後まで読み、どれだけ残すかを決める。`Fail(n)` は n バイトを超えたら `TooLarge` で失敗し、すぐに SIGKILL を送る(`server/opencode-cli.ts:131` と同じ)。子が回収されるまで(長くて `kill_grace`)上限の 1 つを返さない。返すと、SIGKILL を受けてまだ回収されていない子が、上限の外で残るため(`/code-review high` の指摘)。`Head(n)` は先頭の n バイト、`Tail(n)` は末尾の n バイトを残す。`Tail` は setup のコマンドの出力の最後の 20 行(`server/fleet/thread.ts:182`)のため。既定の `Fail(8 MiB)` は ADR `0242-phase-3-split` が probe とモデル一覧に決めた値、`Head(4096)` は `server/opencode-cli.ts:127` が標準エラーを読む量。TypeScript は上限を超えた標準エラーを空の文字列にするが、Rust は先頭の 4096 バイトを残す。失敗の文の先頭が読めるほうが、原因を探しやすいため
-- `Session` は `codex app-server` の JSON-RPC(`server/fleet/usage.ts:426`、`server/fleet/model-lists.ts:127`)のための口。時間の上限は、起動から `close` までの全体にかかる(TypeScript の 1 つの `setTimeout` と同じ)。行の長さの上限は、標準出力の `StreamLimit` のバイト数にする。標準エラーは読まずに `/dev/null` に捨てる(TypeScript の `stderr: "ignore"`)。UTF-8 でないバイトは U+FFFD に置き換える。`close` は標準入力を閉じ、すぐに SIGTERM を送り(TypeScript の `finally` の `child.kill()`、`server/fleet/usage.ts:463`)、終わっていない子に `kill_grace` 後に SIGKILL を送る。`close` を呼ばずに落とした `Session` は、tokio の `kill_on_drop` で SIGKILL を受ける。`Session` も、`close` まで `Runner` の上限の 1 つを使う
+- `StreamLimit` は、出力を最後まで読み、どれだけ残すかを決める。`Fail(n)` は n バイトを超えたら `TooLarge` で失敗し、すぐに SIGKILL を送る(`server/opencode-cli.ts:131` と同じ)。子が回収されるまで(長くて `kill_grace`)上限の 1 つを返さない。返すと、SIGKILL を受けてまだ回収されていない子が、上限の外で残るため(`/code-review high` の指摘)。`Head(n)` は先頭の n バイト、`Tail(n)` は末尾の n バイトを残す。`Tail` は setup のコマンドの出力の最後の 20 行(`server/fleet/thread.ts:179`)のため。既定の `Fail(8 MiB)` は ADR `0242-phase-3-split` が probe とモデル一覧に決めた値、`Head(4096)` は `server/opencode-cli.ts:128` が標準エラーを読む量。TypeScript は上限を超えた標準エラーを空の文字列にするが、Rust は先頭の 4096 バイトを残す。失敗の文の先頭が読めるほうが、原因を探しやすいため
+- `Session` は `codex app-server` の JSON-RPC(`server/fleet/usage.ts:426`、`server/fleet/model-lists.ts:127`)のための口。時間の上限は、起動から `close` までの全体にかかる(TypeScript の 1 つの `setTimeout` と同じ)。行の長さの上限は、標準出力の `StreamLimit` のバイト数にする。標準エラーは読まずに `/dev/null` に捨てる(TypeScript の `stderr: "ignore"`)。UTF-8 でないバイトは U+FFFD に置き換える。`close` は標準入力を閉じ、すぐに SIGTERM を送り(TypeScript の `finally` の `child.kill()`、`server/fleet/usage.ts:456`)、終わっていない子に `kill_grace` 後に SIGKILL を送る。`close` を呼ばずに落とした `Session` は、tokio の `kill_on_drop` で SIGKILL を受ける。`Session` も、`close` まで `Runner` の上限の 1 つを使う
 
 ### git(`git`)
 
-`git::command(cwd, &[args]) -> Command` は、`git -c core.fsmonitor=false -c core.quotepath=false <args>` を、作業フォルダーを `cwd` にし、`EnvPolicy::Inherit` に `GIT_OPTIONAL_LOCKS=0` と `GIT_TERMINAL_PROMPT=0` を入れて作る。TypeScript は `-C <cwd>` で渡すが、Rust の `Command` は作業フォルダーを必ず持つので、`-C` は付けない。両方を付けると、相対パスの `cwd` を git が `<cwd>/<cwd>` として探す(`/code-review high` の指摘)。時間の上限は `git::TIMEOUT`(5 秒、`server/fleet/thread.ts:31`)。`git::QUICK_TIMEOUT`(3 秒、`server/fleet/thread.ts:21` の `gitRoot` と `server/files.ts:20` の `gitFiles`)は、呼ぶ側が `.timeout(git::QUICK_TIMEOUT)` で使う。関数は起動せずに `Command` を返し、呼ぶ側が自分の `Runner` で動かす。上限や時間を呼ぶ側が変えられ、同時に動かす数を使い道ごとに数えられるため。
+`git::command(cwd, &[args]) -> Command` は、`git -c core.fsmonitor=false -c core.quotepath=false <args>` を、作業フォルダーを `cwd` にし、`EnvPolicy::Inherit` に `GIT_OPTIONAL_LOCKS=0` と `GIT_TERMINAL_PROMPT=0` を入れて作る。TypeScript は `-C <cwd>` で渡すが、Rust の `Command` は作業フォルダーを必ず持つので、`-C` は付けない。両方を付けると、相対パスの `cwd` を git が `<cwd>/<cwd>` として探す(`/code-review high` の指摘)。時間の上限は `git::TIMEOUT`(5 秒、`server/fleet/thread.ts:31`)。`git::QUICK_TIMEOUT`(3 秒、`server/fleet/thread.ts:21` の `gitRoot` と `server/files.ts:19` の `gitFiles`)は、呼ぶ側が `.timeout(git::QUICK_TIMEOUT)` で使う。関数は起動せずに `Command` を返し、呼ぶ側が自分の `Runner` で動かす。上限や時間を呼ぶ側が変えられ、同時に動かす数を使い道ごとに数えられるため。
 
 `core.quotepath=false` は、TypeScript では `server/fleet/thread.ts` の `git` だけが付け、`gitRoot` と `gitFiles` は付けない。Rust はすべての git に付ける。`rev-parse --show-toplevel` と `ls-files -z` は quotepath の設定によらずパスをそのまま書くので、出力は変わらない。
 
@@ -98,7 +98,7 @@ pub async fn opencode_api_get(options: OpencodeCliOptions, path: &str) -> Result
 
 ## 検討した代わり
 
-- `EnvPolicy` に既定の値を置く(`Command::new` の引数にしない): 呼ぶ側が書き忘れたとき、最小の環境か利用者の環境のどちらかが黙って選ばれる。最小を既定にすると `gh` がサインインを読めず、利用者の環境を既定にすると probe に API キーが渡る(`server/cli-child.ts:16-20` の注記)。ADR `0242-phase-3-split` が「呼ぶ側が起動ごとに明示する」と決めているので、引数にした
+- `EnvPolicy` に既定の値を置く(`Command::new` の引数にしない): 呼ぶ側が書き忘れたとき、最小の環境か利用者の環境のどちらかが黙って選ばれる。最小を既定にすると `gh` がサインインを読めず、利用者の環境を既定にすると probe に API キーが渡る(`server/cli-child.ts:14-19` の注記)。ADR `0242-phase-3-split` が「呼ぶ側が起動ごとに明示する」と決めているので、引数にした
 - 同時に動かす数の上限を process 全体で 1 つにする: TypeScript は使い道ごとに数える。1 つにすると、遅い `opencode api` が使用量の probe を待たせる
 - 上限を超えた出力を、すべて失敗にする(`StreamLimit` を 1 種類にする): setup のコマンドは長い出力の末尾が要り、標準エラーは失敗の文の先頭が要る。どちらも、上限を超えたことで失敗にすると、TypeScript が返していた結果を返せない
 - SIGTERM を process group に送る: TypeScript は子の pid にだけ送る(`child.kill`)。group に送ると、git の alias や setup のコマンドが起動したプロセスまで止まり、振る舞いが変わる。ADR `0242-phase-3-split` も process group を使わないと決めている

@@ -33,7 +33,7 @@ pub const KILL_GRACE: Duration = Duration::from_secs(2);
 pub const DEFAULT_STDOUT_LIMIT: StreamLimit = StreamLimit::Fail(8 * 1024 * 1024);
 
 /// What a [`Command`] keeps of its standard error unless told otherwise: the first 4 KiB, the rest
-/// read and dropped (`readUpTo(child.stderr, 4096)`, `server/opencode-cli.ts:127`).
+/// read and dropped (`readUpTo(child.stderr, 4096)`, `server/opencode-cli.ts:128`).
 pub const DEFAULT_STDERR_LIMIT: StreamLimit = StreamLimit::Head(4096);
 
 /// How much of a stream is kept, and what happens to the rest. The stream is read to its end in
@@ -534,7 +534,7 @@ impl Session {
     }
 
     /// Ends the session: closes the child's input and sends SIGTERM at once, as the `finally` of
-    /// TypeScript's exchange does (`server/fleet/usage.ts:463`), then SIGKILL a grace later to a
+    /// TypeScript's exchange does (`server/fleet/usage.ts:456`), then SIGKILL a grace later to a
     /// child that has not ended, waiting at most two graces.
     pub async fn close(mut self) {
         self.stdin = None;

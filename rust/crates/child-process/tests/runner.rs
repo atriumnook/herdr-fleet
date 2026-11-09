@@ -157,7 +157,7 @@ async fn the_minimal_policy_passes_only_what_it_names() {
 }
 
 /// The inherited environment: the server's, with what the caller adds laid over it
-/// (server/fleet/github.ts:14, server/fleet/thread.ts:174).
+/// (server/fleet/github.ts:14, server/fleet/thread.ts:173).
 #[tokio::test]
 async fn the_inheriting_policy_passes_the_servers_environment_and_what_it_adds() {
     let dir = TempDir::new("env-inherit");
@@ -383,7 +383,7 @@ async fn stderr_is_kept_up_to_its_limit() {
 }
 
 /// The last bytes, for a command whose end says what went wrong (the setup command keeps its
-/// last 20 lines, server/fleet/thread.ts:182).
+/// last 20 lines, server/fleet/thread.ts:179).
 #[tokio::test]
 async fn the_tail_keeps_the_last_bytes() {
     let dir = TempDir::new("tail");
@@ -604,7 +604,7 @@ async fn a_session_line_past_the_limit_is_refused() {
 }
 
 /// Closing a session stops a child that has not ended (the `finally { child.kill() }` of
-/// server/fleet/usage.ts:463).
+/// server/fleet/usage.ts:456).
 #[cfg(target_os = "linux")]
 #[tokio::test]
 async fn closing_a_session_stops_its_child() {

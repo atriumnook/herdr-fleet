@@ -55,7 +55,7 @@ async fn run_git(cwd: &Path, args: &[&str]) -> herdr_fleet_child_process::Output
 
 #[test]
 fn the_time_limits_are_the_servers() {
-    // server/fleet/thread.ts:31 (`timeoutMs = 5_000`); server/files.ts:20 and thread.ts:21 (`3_000`)
+    // server/fleet/thread.ts:31 (`timeoutMs = 5_000`); server/files.ts:19 and thread.ts:21 (`3_000`)
     assert_eq!(TIMEOUT, Duration::from_secs(5));
     assert_eq!(QUICK_TIMEOUT, Duration::from_secs(3));
 }

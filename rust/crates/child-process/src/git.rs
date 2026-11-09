@@ -16,7 +16,7 @@ use crate::{Command, Env, EnvPolicy};
 pub const TIMEOUT: Duration = Duration::from_secs(5);
 
 /// The limit of the quick reads: the repository a folder lies in and the files of a pane's folder
-/// (`gitRoot`, `server/fleet/thread.ts:21`; `gitFiles`, `server/files.ts:20`).
+/// (`gitRoot`, `server/fleet/thread.ts:21`; `gitFiles`, `server/files.ts:19`).
 pub const QUICK_TIMEOUT: Duration = Duration::from_secs(3);
 
 /// `git <args>` in `cwd`: `git -c core.fsmonitor=false -c core.quotepath=false <args>` started in
