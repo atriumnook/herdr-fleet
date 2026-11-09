@@ -26,6 +26,9 @@ herdr = { package = "herdr-fleet-herdr", path = "crates/herdr" }
 child-process = { package = "herdr-fleet-child-process", path = "crates/child-process" }
 orchestrator = { package = "herdr-fleet-orchestrator", path = "crates/orchestrator" }
 vt = { package = "herdr-fleet-vt", path = "crates/vt" }
+# The fleet CLI is a dependency of nothing but the orchestrator's tests, which call
+# its library's `run` against the router (ADR 0242-phase-3-split, CC).
+cli = { package = "herdr-fleet-cli", path = "crates/cli" }
 
 # External crates of the parsing crates (phase 2): versions, sources, licenses,
 # maintenance, build scripts and the rules for the differences from TypeScript
@@ -38,6 +41,19 @@ serde_json = { version = "1.0.154", features = ["float_roundtrip", "preserve_ord
 sha2 = { version = "0.11.1", default-features = false }
 unicode-normalization = "0.1.26"
 unicode-segmentation = "1.13.3"
+
+# External crates of herdr, the fleet and the CLI (phase 3): versions, sources,
+# licenses, maintenance, build scripts and why each crate turns on the features
+# it does are in docs/rust-migration/adr/0244-phase-3-dependencies.md. Each crate
+# names the features it uses in its own manifest; these entries turn on none.
+axum = { version = "0.8.9", default-features = false }
+http-body-util = "0.1.5"
+jiff = "0.2.41"
+rustix = { version = "1.1.6", default-features = false }
+tokio = "1.54.1"
+tokio-util = { version = "0.7.20", default-features = false }
+tower = { version = "0.5.3", default-features = false }
+ureq = { version = "3.5.1", default-features = false }
 
 # Every crate but herdr-fleet-vt opts in with `[lints] workspace = true`:
 # ADR 0107-crate-split keeps `unsafe` inside herdr-fleet-vt.
