@@ -586,3 +586,35 @@ fn expands_merge_keys_and_reads_tags_as_bun_does() {
         ]
     );
 }
+
+// Not in agents.test.ts: a key that is not a string becomes JavaScript's `String()` of it, as in
+// Bun 1.4.4 (ADR 0279's "文字列でないキー"): a sequence is its items joined with `,`, a null item
+// written as nothing, a nested sequence flattened the same way, a mapping `[object Object]`. Bun
+// parsed this frontmatter as {"name":"seqkey","edits":false,"interactive":true,"model,":"a",
+// ",worktree":true,"[object Object]":true,"description,x,[object Object]":"d"}, so `? [edits]`
+// keeps the role from editing. The file is not named seqkey, so the name comes from `? [name]`.
+#[test]
+fn reads_a_key_that_is_not_a_string_as_javascripts_string_of_it() {
+    let fixture = fixture(
+        &[(
+            "file.md",
+            "---\n? [name]\n: seqkey\n? [edits]\n: false\n? [[interactive]]\n: true\n? [model, ~]\n: a\n? [~, worktree]\n: true\n? {spawning: true}\n: true\n? [description, [x, {a: 1}]]\n: d\n---\nx",
+        )],
+        &[],
+    );
+    let dirs = AgentDirs {
+        bundled: "/nonexistent".into(),
+        user: "/nonexistent".into(),
+    };
+    let mut warnings = Vec::new();
+    let agents = discover_agents(&fixture.cwd, &mut warnings, &dirs);
+    assert_eq!(warnings, Vec::<String>::new());
+    let role = find(&agents, "seqkey");
+    assert_eq!(
+        (role.edits, role.interactive, role.model.as_deref()),
+        (Some(false), Some(true), None)
+    );
+    assert_eq!((role.worktree, role.spawning), (None, None));
+    // the key is "description,x,[object Object]", so the description is the name (`agents.ts:40`)
+    assert_eq!(role.description, "seqkey");
+}

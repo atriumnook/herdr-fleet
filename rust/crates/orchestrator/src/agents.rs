@@ -365,13 +365,30 @@ fn scalar_to_json(scalar: &Scalar<'_>) -> Value {
     }
 }
 
-/// A mapping key as JavaScript's object key: a string as it is, any other node as JSON text.
+/// A mapping key as JavaScript's object key, `String()` of the value as Bun 1.4.4 gives it: a
+/// string as it is; a sequence its items joined with `,`, a null item as nothing; a mapping
+/// `[object Object]`. No role file field is named by a number, so a number's exact text does not
+/// matter (JSON's is used).
 fn key_text<'a>(key: &'a Yaml<'_>) -> Cow<'a, str> {
     match key {
         Yaml::Representation(text, _, _) | Yaml::Value(Scalar::String(text)) => Cow::Borrowed(text),
-        other => match to_json(other) {
-            Value::String(text) => Cow::Owned(text),
-            value => Cow::Owned(value.to_string()),
-        },
+        other => Cow::Owned(js_string(&to_json(other))),
+    }
+}
+
+/// JavaScript's `String(value)` of a JSON value.
+fn js_string(value: &Value) -> String {
+    match value {
+        Value::String(text) => text.clone(),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| match item {
+                Value::Null => String::new(),
+                item => js_string(item),
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::Object(_) => "[object Object]".to_owned(),
+        Value::Null | Value::Bool(_) | Value::Number(_) => value.to_string(),
     }
 }
