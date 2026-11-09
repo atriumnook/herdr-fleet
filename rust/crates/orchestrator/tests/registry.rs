@@ -172,6 +172,57 @@ fn drops_runs_not_updated_for_a_week_when_it_loads() {
     assert!(ids(NOW).is_empty());
 }
 
+// Review N1: bun's registry.ts kept only "abc" from these malformed timestamps. Rust deliberately
+// retains every non-numeric timestamp as an unread entry, rather than guessing when it happened.
+#[test]
+fn preserves_unread_runs_with_non_numeric_timestamps() {
+    let root = Folder::new();
+    let file = root.path().join("fleet-runs.json");
+    fs::write(
+        &file,
+        r#"[{"id":"s1","paneId":"p1","updatedAt":"100"},{"id":"s2","paneId":"p2","updatedAt":true},{"id":"s3","paneId":"p3","updatedAt":""},{"id":"s4","paneId":"p4","updatedAt":[]},{"id":"s5","paneId":"p5","updatedAt":"abc"}]"#,
+    )
+    .unwrap();
+    let registry = open(&file, 10 * STALE_RUN_MS);
+    assert!(registry.all().is_empty());
+    registry.insert(run("witness", "p6")).unwrap();
+    let written = stored(&file);
+    let ids: Vec<&str> = written
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, ["s1", "s2", "s3", "s4", "s5", "witness"]);
+    assert_eq!(written[0]["updatedAt"], json!("100"));
+    assert_eq!(written[1]["updatedAt"], json!(true));
+    assert_eq!(written[2]["updatedAt"], json!(""));
+    assert_eq!(written[3]["updatedAt"], json!([]));
+    assert_eq!(written[4]["updatedAt"], json!("abc"));
+}
+
+// #249's single owner keeps a run's identity even if an update accidentally assigns another id.
+#[test]
+fn keeps_a_runs_identity_when_an_update_changes_its_id() {
+    let root = Folder::new();
+    let file = root.path().join("fleet-runs.json");
+    let registry = open(&file, NOW);
+    registry.insert(run("r1", "p1")).unwrap();
+    registry.insert(run("r2", "p2")).unwrap();
+    registry
+        .update("r1", |run| {
+            run.id = "r2".into();
+            run.state = AgentState::Idle;
+        })
+        .unwrap();
+    assert_eq!(registry.get("r1").unwrap().state, AgentState::Idle);
+    assert_eq!(registry.get("r2").unwrap().state, AgentState::Working);
+    let reloaded = open(&file, NOW);
+    assert_eq!(reloaded.all().len(), 2);
+    assert_eq!(reloaded.get("r1").unwrap().state, AgentState::Idle);
+    assert_eq!(reloaded.get("r2").unwrap().state, AgentState::Working);
+}
+
 #[test]
 fn starts_empty_from_a_missing_unreadable_or_odd_file() {
     let root = Folder::new();

@@ -28,6 +28,8 @@ pub fn read_report(dir: &Path) -> TurnOutcome {
 
 fn report(dir: &Path) -> Result<RunReport, String> {
     let text = read_text(&dir.join(REPORT_FILE))?;
+    // Unlike JSON.parse, serde_json rejects isolated UTF-16 surrogates and limits nesting to 128.
+    // Keep these parser limits rather than accepting a report whose strings Rust cannot represent.
     let value: Value = serde_json::from_str(&text).map_err(|_| "is not JSON")?;
     let Value::Object(fields) = value else {
         return Err("is not a JSON object".into());

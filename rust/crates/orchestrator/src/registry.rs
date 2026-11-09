@@ -196,6 +196,8 @@ impl RunRegistry {
     /// Adds `run`, in place of one with the same id, and saves the runs. When the file cannot be
     /// written the run stays added in memory, as registry.ts's `upsert` leaves it, and the error is
     /// returned.
+    /// Existing runs should be changed with `update`: never insert a clone read before an await,
+    /// because replacement would overwrite changes another task made meanwhile.
     pub fn insert(&self, run: AgentRun) -> io::Result<()> {
         let mut entries = self.lock();
         set(&mut entries, Entry::Run(Box::new(run)));
@@ -203,8 +205,8 @@ impl RunRegistry {
     }
 
     /// Changes the run `id` with `change` and saves the runs; `None` when there is no such run.
-    /// `change` must keep the run's id. When the file cannot be written the change stays in memory
-    /// and the error is returned.
+    /// The run keeps its original id even if `change` assigns another one. When the file cannot be
+    /// written the change stays in memory and the error is returned.
     pub fn update<T>(
         &self,
         id: &str,
@@ -218,7 +220,7 @@ impl RunRegistry {
             return Ok(None);
         };
         let answer = change(run);
-        debug_assert_eq!(run.id, id, "update changed a run's id");
+        run.id = id.to_owned();
         self.save(&entries)?;
         Ok(Some(answer))
     }
@@ -274,8 +276,9 @@ fn newest<'a>(
     })
 }
 
-/// registry.ts's `now - (run.updatedAt ?? 0) > STALE_RUN_MS`. An `updatedAt` that is not a number
-/// makes JavaScript's subtraction NaN, which is never greater: the run is kept.
+/// registry.ts's `now - (run.updatedAt ?? 0) > STALE_RUN_MS` for numeric timestamps. Non-numeric
+/// timestamps are kept conservatively as unread entries. This differs from JavaScript's numeric
+/// coercion (e.g. `"100"`, `true` or `[]`); neither implementation writes such timestamps.
 fn stale(value: &Value, now: i64) -> bool {
     let updated = match value.get("updatedAt") {
         None | Some(Value::Null) => 0.0,

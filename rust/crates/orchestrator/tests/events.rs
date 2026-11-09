@@ -280,6 +280,24 @@ fn takes_a_line_that_ends_exactly_at_its_size_limit() {
     assert!(!rotated_path(&file).exists());
 }
 
+// #249's size bound still applies when rotation fails. Like any failed write, the event is lost;
+// after the storage problem is removed, new events can be recorded again.
+#[test]
+fn keeps_the_size_bound_when_rotation_fails_and_recovers_afterwards() {
+    let root = Folder::new();
+    let file = root.path().join("fleet-events.jsonl");
+    let events = log(&file);
+    let before = "x".repeat(8_388_607);
+    fs::write(&file, &before).unwrap();
+    fs::create_dir(rotated_path(&file)).unwrap();
+    events.record(state(AgentState::Working, None));
+    assert_eq!(fs::read(&file).unwrap(), before.as_bytes());
+    fs::remove_dir(rotated_path(&file)).unwrap();
+    events.record(state(AgentState::Idle, None));
+    assert_eq!(lines(&file).len(), 1);
+    assert_eq!(fs::metadata(rotated_path(&file)).unwrap().len(), 8_388_607);
+}
+
 // #249 / #176 item 8 requires a size bound even when one event is larger than the whole log.
 // Dropping that event must not replace either file's previously recorded events.
 #[test]
