@@ -27,8 +27,8 @@ ADR `0242-phase-3-split` の「Issue の分け方」により、#247 は manifes
 | indexmap | `indexmap.workspace = true` | `FleetConfig` の `roles`・`models`・`projects` を、fleet.json に書かれた順のまま持つ |
 
 - saphyr を workspace の `[workspace.dependencies]` に書かず orchestrator の manifest に直接書くのは、使う crate が orchestrator だけで、この Issue の書くパスに `rust/Cargo.toml` がないため。2 つ目の crate が使うときに workspace へ移す
-- `default-features = false` は、既定の feature `encoding`(`encoding_rs` で UTF-8 以外の符号化を読む)を外す。役割のファイルは UTF-8 の文字列として読んでから渡す(TypeScript も `readFileSync(filePath, "utf8")`)
-- saphyr-parser を直接の依存にするのは、saphyr が `Parser` を再 export しないため(`saphyr` 0.3.3 の `src/lib.rs:150-173`)。`LoadableYamlNode::load_from_str` は既定の loader で読み、重複したキーを `duplicated key in mapping` のエラーにする。Bun は後の値を使う。saphyr-parser は saphyr の依存としてどのみち入る crate で、直接の依存にしても package は増えない
+- `default-features = false` は、既定の feature `encoding`(`encoding_rs` で UTF-8 以外の符号化を読む)を外す。役割のファイルは UTF-8 の文字列として読んでから渡す(TypeScript も `readFileSync(filePath, "utf8")`)。ただし TypeScript の `readFileSync(filePath, "utf8")` は、UTF-8 として不正なバイトを U+FFFD に置き換えて読み続ける(Bun 1.4.4 で、`description: caf` のあとに Latin-1 の `é`(0xE9)を置いたファイルが `"description: caf\uFFFD"` と読めることを確かめた)。Rust の `std::fs::read_to_string` は同じファイルをエラーにする。#247 が TypeScript に合わせるなら、バイト列を `String::from_utf8_lossy` で文字列にする
+- saphyr-parser を直接の依存にするのは、saphyr が `Parser` を再 export しないため(`saphyr` 0.3.3 の `src/lib.rs:150-173`)。`LoadableYamlNode::load_from_str` は既定の loader で読み、重複したキーを `duplicated key in mapping` のエラーにする。Bun は後の値を使う。saphyr-parser は saphyr の依存としてどのみち入る crate で、直接の依存にしても package は増えない。`Parser::load` が受け取る loader の trait(`SpannedEventReceiver`)は saphyr-parser のものなので、orchestrator が直接使う saphyr-parser は、saphyr が使う版と同じでなければならない。版が分かれると `Cargo.lock` に saphyr-parser が 2 つ入り、型が合わずに compile できなくなる。saphyr の版を上げるときは saphyr-parser も同じ版に上げる(manifest のコメントにも書いた)
 - 読み方は次の形になる(試作で確かめた。下の「確かめたこと」)
 
   ```rust
@@ -38,6 +38,8 @@ ADR `0242-phase-3-split` の「Issue の分け方」により、#247 は manifes
   if let Some(error) = loader.error() { /* 読み取りのエラー */ }
   let documents = loader.into_documents();
   ```
+
+  `loader.error()` の確認は省けない。loader は、alias の展開の上限などで自分が失敗すると最初のエラーを持ち、そのあとの event を捨てる。parser は自分の字句の読み取りが失敗していないので、`load` は `Ok(())` を返す。`error()` が `Some` のときに `into_documents()` が返すのは途中まで作った文書で、使ってはならない(saphyr 0.3.3 の `src/loader.rs` の `error` のドキュメント)
 
 ### saphyr が Bun 1.4.4 と違う点
 
@@ -88,12 +90,14 @@ ADR `0242-phase-3-split` の「Issue の分け方」により、#247 は manifes
 | thiserror | 2.0.21 | crates.io、https://github.com/dtolnay/thiserror | MIT OR Apache-2.0 | 2026-09-23 公開。92 版。2019 年から続く | あり。cargo の `OUT_DIR` に `private.rs` を書く。環境変数 `RUSTC`(`RUSTC_WRAPPER`・`RUSTC_WORKSPACE_WRAPPER` があればそれを通す)で rustc を起動し、同梱の `build/probe.rs` を `OUT_DIR/probe` に compile して、不安定の機能 `error_generic_member_access` が使えるかを試す(終わると `OUT_DIR/probe` を消す)。rustc を `--version` で起動して版を読み、`cargo:rustc-cfg` を出す。ネットワークは使わない |
 | thiserror-impl | 2.0.21 | crates.io、https://github.com/dtolnay/thiserror | MIT OR Apache-2.0 | 2026-09-23 公開。91 版。thiserror の手続きマクロで、build のときに動く | なし(`build = false`) |
 
-saphyr と saphyr-parser の `src/` に `unsafe` はない(`grep -rn unsafe` で 0 件)。arraydeque は新しい版が出ていないが、saphyr-parser が使うのは、文字の iterator から読む `BufferedInput`(`Parser::new_from_iter`、`src/input/buffered.rs`)の先読みのバッファーだけである。上の読み方の `Parser::new_from_str` は `StrInput` で読み、arraydeque のコードを通らない。arraydeque に問題が見つかれば、saphyr の版を上げるか yaml-rust2 に替える Issue を開く。
+saphyr と saphyr-parser の `src/` に `unsafe` はない(`grep -rn unsafe` で 0 件)。arraydeque は新しい版が出ていないが、saphyr-parser が使うのは、文字の iterator から読む `BufferedInput`(`Parser::new_from_iter`、`src/input/buffered.rs`)の先読みのバッファーだけである。上の読み方の `Parser::new_from_str` は `StrInput` で読み、arraydeque のコードを通らない。#247 とそのあとの Issue は `Parser::new_from_str` で読む。文字の iterator から読む形(`Parser::new_from_iter`、`LoadableYamlNode::load_from_iter`)に変えるときは、arraydeque のコードを通るようになるので、この ADR を置き換える ADR で arraydeque を読み直す。arraydeque に問題が見つかれば、saphyr の版を上げるか yaml-rust2 に替える Issue を開く。
+
+この Issue は、すでに `Cargo.lock` にあった hashbrown 0.17.1 の build も変える。hashlink が hashbrown の feature `default-hasher` を有効にし(`default-features = false`、`features = ["default-hasher"]`)、cargo が workspace の中で feature を合わせるので、indexmap が使う hashbrown にも foldhash 0.2.0 への依存が付く(`Cargo.lock` の hashbrown の項に `dependencies = ["foldhash"]` が足された)。foldhash 0.2.0 はすでに `Cargo.lock` にあった(serde_json の依存)。indexmap 2.14.2 は hashbrown の `HashTable` に自分の hasher を渡して使い(`src/inner.rs`)、`default-hasher` が決める hashbrown の `HashMap` の既定の hasher は使わないので、indexmap の振る舞いは変わらない
 
 ## 結果
 
 - #247(L1)は、役割のファイルの frontmatter を、上の「決定」の読み方で `saphyr::Yaml` に読める。`FleetConfig` の map を `indexmap::IndexMap` で書ける
-- #247 は、「saphyr が Bun 1.4.4 と違う点」の 8 点について、Bun に合わせるか、違いを残して PR に書くかを決める。役割のファイルの読み取りで値が変わりうるのは、merge key、独自の tag、文書の数(0 個は `{}`、2 個以上は `frontmatter must be a mapping`)、alias の展開の上限。文字列でないキーは、`name`・`edits` などの文字列のキーで引く限り結果を変えない。エラーの文は、本番のサーバーが警告を捨てるので画面には出ないが、`discoverAgents` に warnings を渡すテストや呼び出し元では文が変わる
+- #247 は、「saphyr が Bun 1.4.4 と違う点」の 8 点と、UTF-8 として不正なバイトの扱い(「決定」の `default-features = false` の項)について、Bun に合わせるか、違いを残して PR に書くかを決める。役割のファイルの読み取りで値が変わりうるのは、merge key、独自の tag、文書の数(0 個は `{}`、2 個以上は `frontmatter must be a mapping`)、alias の展開の上限。文字列でないキーは、`name`・`edits` などの文字列のキーで引く限り結果を変えない。エラーの文は、本番のサーバーが警告を捨てるので画面には出ないが、`discoverAgents` に warnings を渡すテストや呼び出し元では文が変わる
 - `Cargo.lock` に 9 個の package が入る。orchestrator を build するたびに num-traits と thiserror の `build.rs` が rustc を起動する
 
 ## 確かめたこと

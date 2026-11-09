@@ -18,6 +18,8 @@ regex.workspace = true
 # The YAML frontmatter of the role files (ADR 0279-orchestrator-yaml). The loader's
 # `allow_duplicate_keys`, which Bun's last-value-wins needs, takes saphyr-parser's
 # `Parser`, which saphyr does not re-export; no default features drops encoding_rs.
+# Bump the two together: the loader only takes a Parser of the saphyr-parser that
+# saphyr itself links.
 saphyr = { version = "0.3.3", default-features = false }
 saphyr-parser = "0.3.3"
 serde.workspace = true
