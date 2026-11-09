@@ -81,6 +81,8 @@ if [ "$1" = api ]; then
     */nostatus) echo '{{"message":"x"}}'; exit 1;;
     */noisy) printf 'first\tline\n\033[31msecond' >&2; head -c 300 /dev/zero | tr '\0' c >&2; exit 4;;
     */blank) printf ' \n\t' >&2; exit 5;;
+    */tag) cat {tag}; echo "HTTP 400 Bad Request" >&2; exit 1;;
+    */deep) i=0; while [ $i -lt 200 ]; do printf '['; i=$((i+1)); done; i=0; while [ $i -lt 200 ]; do printf ']'; i=$((i+1)); done;;
     */litter) touch left-behind; cat {ok};;
     *) cat {ok};;
   esac
@@ -94,6 +96,7 @@ exit 2"#,
             cut = q("cut.json"),
             ok = q("ok.json"),
             overlap = q("overlap"),
+            tag = q("tag.json"),
         );
         let program = fake(dir.path(), "opencode", &script);
         Self { dir, program }
@@ -366,6 +369,46 @@ async fn an_http_error_carries_its_status_and_tag() {
             tag: String::new()
         })
     );
+}
+
+/// A `_tag` that is not a string is written as JavaScript's `String` writes it (`String(record(body)
+/// ["_tag"] ?? "")`, `server/opencode-cli.ts:152`). The expected values are Bun's answers to that
+/// expression for each body.
+#[tokio::test]
+async fn a_tag_that_is_not_a_string_is_written_as_javascript_writes_it() {
+    let fake = Fake::new("tag");
+    for (body, expected) in [
+        (r#"{"_tag":1.0}"#, "1"),
+        (r#"{"_tag":["a",null,"b"]}"#, "a,,b"),
+        (r#"{"_tag":{}}"#, "[object Object]"),
+        (r#"{"_tag":1e21}"#, "1e+21"),
+        (r#"{"_tag":0.0000001}"#, "1e-7"),
+        (r#"{"_tag":true}"#, "true"),
+        (r#"{"_tag":-0}"#, "0"),
+        (r#"{"_tag":null}"#, ""),
+        ("[1]", ""),
+    ] {
+        std::fs::write(fake.dir.join("tag.json"), body).unwrap();
+        assert_eq!(
+            fake.cli().get("/api/session/tag").await,
+            Err(OpencodeError::Http {
+                status: 400,
+                tag: expected.into()
+            }),
+            "{body}"
+        );
+    }
+}
+
+/// serde_json reads no deeper than 128 levels, where `JSON.parse` (Bun) reads 200: such a reply is
+/// no JSON, read 3 times like a cut one. A known difference from TypeScript, written in
+/// `OpencodeCli`'s documentation.
+#[tokio::test]
+async fn a_reply_nested_past_serde_jsons_limit_is_no_json() {
+    let fake = Fake::new("deep");
+    let message = other(fake.cli().get("/api/session/deep").await);
+    assert!(message.contains("no JSON (exit 0)"), "{message}");
+    assert_eq!(fake.calls_of("/api/session/deep"), 3);
 }
 
 /// `server/opencode-cli.test.ts`: "it runs in a folder of its own, with only the environment it

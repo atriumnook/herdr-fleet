@@ -15,8 +15,8 @@
 
 use std::ffi::OsString;
 use std::fmt;
+use std::io;
 use std::path::PathBuf;
-use std::sync::{Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use tokio_util::sync::CancellationToken;
@@ -45,8 +45,9 @@ const MAX_CHILDREN: usize = 4;
 /// (`SERVICE_TTL_MS`, `server/opencode-cli.ts:21`).
 const SERVICE_TTL: Duration = Duration::from_secs(1);
 
-/// What is kept of the CLI's standard error, the head of what it said
-/// (`readUpTo(child.stderr, 4096)`, `server/opencode-cli.ts:128`).
+/// What is kept of the CLI's standard error: its first 4096 bytes (`readUpTo(child.stderr, 4096)`,
+/// `server/opencode-cli.ts:128`). TypeScript keeps nothing of a longer one; the head is kept here,
+/// where the start of a failure is said (the runner's `Head`, ADR 0246-child-process-interface).
 const STDERR_BYTES: usize = 4096;
 
 /// A GET that did not answer with a body: the same two cases as transcript's `OpencodeError`, so
@@ -125,7 +126,9 @@ impl OpencodeCliOptions {
 /// exited with an error, or answered too much is not: the same call would take as long again.
 ///
 /// A reply is JSON as serde_json reads it: a lone surrogate escape or a number past f64, which
-/// `JSON.parse` reads, is no JSON here (ADR 0193-phase-2-dependencies).
+/// `JSON.parse` reads, is no JSON here (ADR 0193-phase-2-dependencies), and so is one nested deeper
+/// than serde_json's 128 levels, which `JSON.parse` also reads (the `unbounded_depth` feature is
+/// not in the manifest). Each of these exits 0 and is read `attempts` times before it fails.
 #[derive(Debug)]
 pub struct OpencodeCli {
     work_dir: PathBuf,
@@ -137,9 +140,11 @@ pub struct OpencodeCli {
     kill_grace: Duration,
     max_reply_bytes: usize,
     runner: Runner,
-    /// whether the folder was emptied: once, so a second read does not empty it under a first one
-    /// still running
-    prepared: Mutex<bool>,
+    /// set once the folder is emptied: once per client, so a second read of this client does not
+    /// empty it under a first one still running. Another client given the same folder empties it
+    /// again, as in TypeScript: `opencode_api_get` makes a client per call, and its caller (the
+    /// model list) reads one list at a time
+    prepared: tokio::sync::OnceCell<()>,
     /// the last answer of `service status`; held while a question is out, so callers asking at
     /// once wait for it and share its answer
     service: tokio::sync::Mutex<Option<ServiceAnswer>>,
@@ -167,7 +172,7 @@ impl OpencodeCli {
             kill_grace: options.kill_grace,
             max_reply_bytes: options.max_reply_bytes.unwrap_or(MAX_REPLY_BYTES),
             runner: Runner::new(options.max_children),
-            prepared: Mutex::new(false),
+            prepared: tokio::sync::OnceCell::new(),
             service: tokio::sync::Mutex::new(None),
         }
     }
@@ -235,18 +240,21 @@ impl OpencodeCli {
     /// Runs the CLI with `args` in its folder, emptied before its first run.
     async fn run(&self, args: &[&str]) -> Result<Output, OpencodeError> {
         let verb = args[0];
-        {
-            let mut prepared = self.prepared.lock().unwrap_or_else(PoisonError::into_inner);
-            if !*prepared {
-                empty_work_dir(&self.work_dir).map_err(|error| {
-                    OpencodeError::Other(format!(
-                        "opencode {verb}: {}: {error}",
-                        self.work_dir.display()
-                    ))
-                })?;
-                *prepared = true;
-            }
-        }
+        // off the async threads: removing what a run before left is file system work
+        self.prepared
+            .get_or_try_init(|| async {
+                let dir = self.work_dir.clone();
+                tokio::task::spawn_blocking(move || empty_work_dir(&dir))
+                    .await
+                    .unwrap_or_else(|error| Err(io::Error::other(error)))
+            })
+            .await
+            .map_err(|error| {
+                OpencodeError::Other(format!(
+                    "opencode {verb}: {}: {error}",
+                    self.work_dir.display()
+                ))
+            })?;
         let command = Command::new(
             &self.command,
             &self.work_dir,
@@ -314,13 +322,51 @@ fn http_status(stderr: &str) -> u16 {
 }
 
 /// The body's `_tag`, or "" when it is not an object or has none (`String(record(body)["_tag"] ??
-/// "")`, `server/opencode-cli.ts:152`). A tag that is not a string is written as JSON, which is
-/// what `String` gives for a number or a boolean.
+/// "")`, `server/opencode-cli.ts:152`). A tag that is not a string is written as `String` writes
+/// it.
 fn tag(body: &serde_json::Value) -> String {
     match body.get("_tag") {
         None | Some(serde_json::Value::Null) => String::new(),
-        Some(serde_json::Value::String(tag)) => tag.clone(),
-        Some(other) => other.to_string(),
+        Some(tag) => js_string(tag),
+    }
+}
+
+/// JavaScript's `String(value)` of what `JSON.parse` gives: an array is its items joined with `,`
+/// (null as ""), an object `[object Object]`, a number as `Number.prototype.toString` writes it.
+fn js_string(value: &serde_json::Value) -> String {
+    use serde_json::Value;
+    match value {
+        Value::Null => "null".to_owned(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(number) => js_number(number.as_f64().unwrap_or(f64::NAN)),
+        Value::String(text) => text.clone(),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| match item {
+                Value::Null => String::new(),
+                item => js_string(item),
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::Object(_) => "[object Object]".to_owned(),
+    }
+}
+
+/// `Number.prototype.toString()` of a finite number: the shortest digits that read back as it, in
+/// plain notation from 1e-6 up to 1e21 and in exponent notation (`1e+21`, `1e-7`) outside.
+fn js_number(number: f64) -> String {
+    if number == 0.0 {
+        // -0 too
+        return "0".to_owned();
+    }
+    let size = number.abs();
+    if (1e-6..1e21).contains(&size) {
+        return number.to_string();
+    }
+    let written = format!("{number:e}");
+    match written.split_once('e') {
+        Some((digits, exponent)) if !exponent.starts_with('-') => format!("{digits}e+{exponent}"),
+        _ => written,
     }
 }
 
