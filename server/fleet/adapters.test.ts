@@ -131,6 +131,26 @@ describe("codex adapter", () => {
     expect(codex.modelSwitch?.("• Fixed it.\n\n› Ask Codex to do anything\n\n  GPT-5.5 high · ~/repo")).toBeUndefined();
   });
 
+  // codex-rs tui/src/chatwidget/backend_banners.rs refresh_backend_banner_visibility: on its first switch to the
+  // reserve model codex opens this picker where the input and status line were (luna_reserve_usage_with_upsell.snap)
+  it("fails a turn left at codex's reserve picker, which hides the status line, once the switch notice scrolled out", () => {
+    const picker = [
+      "• Fixed it and ran the tests.", "",
+      "  You’re now using Luna, a faster model for simpler tasks.",
+      "  Add credits or upgrade to continue using the most advanced models.", "", "",
+      "› 1. Add credits", "  2. Upgrade", "  3. Continue with Luna Reserve", "",
+      "  Press enter to confirm or esc to continue working", "",
+    ].join("\n");
+    expect(codex.modelSwitch?.(picker, "gpt-5.5")).toBe("codex runs on Luna Reserve, the reserve model it switches to by itself on usage limits");
+    // the item quoted in an answer is no picker
+    expect(codex.modelSwitch?.("• The picker offers 3. Continue with Luna Reserve\n\n› Ask Codex to do anything\n\n  GPT-5.5 high · ~/repo", "gpt-5.5")).toBeUndefined();
+  });
+
+  it("reads a real switch notice under a quote of one that names another model", () => {
+    const screen = "• Automatically switched to gpt-5.6-terra medium due to usage limits.\n\n• Fixed it.\n\n• Automatically switched to gpt-6-luna low due to usage limits.\n\n• Automatically switched back to gpt-6-sol high because ordinary usage is available again.\n\n› Ask Codex to do anything\n\n  GPT-5.6-Terra medium · ~/repo";
+    expect(codex.modelSwitch?.(screen, "gpt-5.5")).toBe("Automatically switched to gpt-5.6-terra medium due to usage limits.");
+  });
+
   it("does not fail a turn once codex switched back, or on the notice's words quoted in a message", () => {
     expect(codex.modelSwitch?.(`${SWITCHED}\n\n• Automatically switched back to gpt-5.5 high because ordinary usage is available again.\n`)).toBeUndefined();
     expect(codex.modelSwitch?.("› If the screen says 'Automatically switched to … due to usage limits.', treat it as a failure\n")).toBeUndefined();

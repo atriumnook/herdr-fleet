@@ -1,5 +1,5 @@
 {
-  "about": "fleet/adapters.test.ts: fails a turn whose status line shows the reserve model, once the switch notice scrolled out of what the fleet reads. Synthesized from codex-rs strings (model_catalog.rs model_display_name, status_surfaces.rs model-with-reasoning), not captured from a real codex",
+  "about": "fleet/adapters.test.ts: fails a turn whose status line shows the reserve model, once the switch notice scrolled out of what the fleet reads (the screen after the reserve picker was left with Continue or Esc). Synthesized from codex-rs strings (model_catalog.rs model_display_name, status_surfaces.rs model-with-reasoning), not captured from a real codex",
   "adapter": "codex",
   "check": "turnError",
   "expected": "codex runs on Luna Reserve medium, the reserve model it switches to by itself on usage limits"

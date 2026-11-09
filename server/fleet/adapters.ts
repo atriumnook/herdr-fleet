@@ -238,9 +238,11 @@ function modelKey(text: string): string {
  * tui/src/app/backend_banner_fallback.rs) that no setting turns off. An answer opens with the same
  * bullet, so a notice counts only while the status line, the screen's last line, shows the model it
  * switched to. The reserve model codex switches to (`gpt-reserve`, shown as Luna Reserve) cannot be
- * chosen by hand: a status line showing it is a switch, though its notice scrolled out of the read.
- * A status line that shows `model`, the one the run was started on, shows no switch: a notice
- * naming that model is a quote. Returns what the screen says of the switch.
+ * chosen by hand: a status line showing it is a switch, though its notice scrolled out of the read,
+ * and so is the picker codex opens in place of the input and the status line on its first switch to
+ * it (codex-rs tui/src/chatwidget/backend_banners.rs), whose Enter would choose "Add credits". A
+ * status line that shows `model`, the one the run was started on, shows no switch: a notice naming
+ * that model is a quote. Returns what the screen says of the switch.
  */
 export function codexModelSwitch(output: string | undefined, model?: string): string | undefined {
   if (!output) return undefined;
@@ -249,6 +251,9 @@ export function codexModelSwitch(output: string | undefined, model?: string): st
   const shown = last.includes(" · ") ? last.slice(0, last.indexOf(" · ")) : undefined;
   const inUse = shown === undefined ? undefined : modelKey(shown);
   if (inUse !== undefined && model && inUse === modelKey(model)) return undefined;
+  if (/esc to continue working$/.test(last) && lines.slice(-12).some((line) => /^\s*(?:›\s*)?\d+\.\s+Continue with Luna Reserve\s*$/.test(line))) {
+    return "codex runs on Luna Reserve, the reserve model it switches to by itself on usage limits";
+  }
   for (let at = lines.length - 1; at >= 0; at--) {
     const head = /^\s*•\s+(Automatically switched .*)$/.exec(lines[at]!);
     if (!head) continue;
@@ -257,11 +262,11 @@ export function codexModelSwitch(output: string | undefined, model?: string): st
     for (let next = at + 1; next < Math.min(lines.length, at + 4) && !notice.endsWith(".") && /^\s*[^\s•›■]/.test(lines[next]!); next++) {
       notice = `${notice} ${lines[next]!.trim()}`;
     }
-    if (notice.startsWith("Automatically switched back to ")) break;
+    // a notice whose model the status line does not show is a quote: one above it may be real
+    const back = /^Automatically switched back to (.+) because ordinary usage is available again\.$/.exec(notice)?.[1];
+    if (back !== undefined && (inUse === undefined || inUse === modelKey(back))) break;
     const target = /^Automatically switched to (.+) due to usage limits\.$/.exec(notice)?.[1];
-    if (!target) continue;
-    if (inUse === undefined || inUse === modelKey(target)) return notice;
-    break;
+    if (target !== undefined && (inUse === undefined || inUse === modelKey(target))) return notice;
   }
   if (inUse === "lunareserve" || inUse === "gptreserve") return `codex runs on ${shown}, the reserve model it switches to by itself on usage limits`;
   return undefined;

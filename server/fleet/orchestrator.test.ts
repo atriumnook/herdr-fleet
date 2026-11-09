@@ -1292,6 +1292,20 @@ describe("a thread outlives its lead run", () => {
     expect(usage.known("codex", undefined, 90)).toContain("codex is cooling down");
   });
 
+  it("keeps out the CLIs a thread failed on before when codex switched models on a turn that reported", async () => {
+    const { fleet, runtime, registry, turn, report } = thread({ agents: [role("lead", { agent: "claude", fallbackModels: ["codex:", "pi:"], interactive: true, spawning: true })] });
+    const first = await fleet.startThread({ title: "Fix", task: "Fix it.", cwd: "/repo" });
+    runtime.output = "⎿  API Error: 529 overloaded";
+    await turn(first, "idle");
+    const second = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(second).toMatchObject({ agent: "codex", avoid: ["claude"] });
+    // the report came from the reserve model: no progress, so claude stays out
+    report(second, { state: "ready", summary: "Fixed.", evidence: ["bun test"] });
+    runtime.output = "• Automatically switched to Luna Reserve medium due to usage limits.\n\n• Fixed it.\n\n› Ask Codex to do anything\n\n  Luna Reserve medium · /repo";
+    await turn(second, "idle");
+    expect(registry.get(registry.get(second.id)!.replacedBy!)).toMatchObject({ agent: "pi", avoid: ["claude", "codex"] });
+  });
+
   it("stays with a codex lead whose answer quotes the switch notice while it runs on the model the fleet asked for", async () => {
     const usage = new UsageTracker({ file: null });
     const { fleet, runtime, registry, turn, report } = thread({ agents: [role("lead", { agent: "codex", model: "gpt-5.5", fallbackModels: ["claude:"], interactive: true, spawning: true })], usage });

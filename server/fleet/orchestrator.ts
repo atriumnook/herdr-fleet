@@ -1460,8 +1460,6 @@ export class Orchestrator {
     run.result = readResult(this.resultFile(run));
     // a project's coordinator talks with the person and keeps no result folder: it reports nothing
     run.outcome = run.role === PROJECT_ROLE ? undefined : readReport(this.resultDir(run));
-    // the thread made progress: the CLIs its runs failed on before get another chance
-    if (run.outcome?.report) delete run.avoid;
     this.deps.events?.({
       kind: "turn", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
       ...(run.project ? { project: run.project } : {}), interactive: run.interactive, handoff: run.result !== undefined,
@@ -1478,6 +1476,8 @@ export class Orchestrator {
       // a rate limit sits the account out: the re-spawn and later spawns pass it over
       this.deps.usage?.noteFailure(run.agent, run.model, turnError, config.rateLimitCooldownMinutes);
     }
+    // the thread made progress: the CLIs its runs failed on before get another chance
+    else if (run.outcome?.report) delete run.avoid;
   }
 
   /**
