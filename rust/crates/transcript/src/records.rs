@@ -9,14 +9,13 @@ use std::collections::HashMap;
 use base64::Engine as _;
 use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
-use protocol::js::{self, cut_utf16};
+use protocol::js::{self, cut_utf16, stringify_pretty};
 use protocol::{
     ContextUsage, ConversationMetadata, ConversationPart, ConversationTurn, ImageRef, ToolPart,
     TurnRole,
 };
 use serde_json::{Map, Value};
 
-use crate::js_json::stringify_pretty;
 use crate::skill_activity::skill_invocation_prompt;
 use crate::tool_output::trim_output;
 
