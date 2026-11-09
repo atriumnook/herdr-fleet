@@ -168,7 +168,15 @@ pub async fn branch_state(cwd: &Path, base: &str) -> Option<BranchState> {
         .stdout_limit(StreamLimit::Head(STATUS_HEAD_BYTES));
     let status = async {
         let output = runner().run(status, &CancellationToken::new()).await.ok()?;
-        (output.code == Some(0)).then(|| String::from_utf8_lossy(&output.stdout).into_owned())
+        if output.code != Some(0) {
+            return None;
+        }
+        let status = String::from_utf8_lossy(&output.stdout).into_owned();
+        // A Head limit can cut a status row. Never hand a path fragment to the caller.
+        if !status.is_empty() && !status.ends_with('\n') {
+            return None;
+        }
+        Some(status)
     };
     let counts_args = ["rev-list", "--left-right", "--count", &range];
     let counts = git_output(cwd, &counts_args);
@@ -297,9 +305,10 @@ pub async fn exclude_worktrees(repo: &Path) -> io::Result<()> {
     exclude.write_all(format!("{separator}{line}\n").as_bytes())
 }
 
-/// What the setup command keeps of each stream: its end, enough for [`SETUP_TAIL_LINES`] lines
-/// of any usual length.
-const SETUP_STREAM_TAIL: usize = 1024 * 1024;
+/// The setup command has a line limit, not a byte limit: a line may be arbitrarily long, as in
+/// TypeScript's `Response.text()`. `Tail(usize::MAX)` makes the runner read the whole stream before
+/// [`run_setup`] selects the last [`SETUP_TAIL_LINES`] lines.
+const SETUP_STREAM_TAIL: usize = usize::MAX;
 
 /// The user's setup command for a fresh worktree (dependencies are not in a new checkout), in a
 /// shell there, with the server's environment and no git prompt. It comes from the user's own
@@ -308,8 +317,17 @@ const SETUP_STREAM_TAIL: usize = 1024 * 1024;
 /// then the standard error, its last [`SETUP_TAIL_LINES`] lines; a command stopped or not
 /// started says why instead (the runner keeps no output of a stopped child).
 pub async fn run_setup(cwd: &Path, command: &str, cancel: &CancellationToken) -> SetupOutcome {
+    run_setup_for(cwd, command, cancel, SETUP_TIMEOUT).await
+}
+
+async fn run_setup_for(
+    cwd: &Path,
+    command: &str,
+    cancel: &CancellationToken,
+    timeout: Duration,
+) -> SetupOutcome {
     let env: Env = [("GIT_TERMINAL_PROMPT".into(), "0".into())].into();
-    let setup = Command::new("sh", cwd, EnvPolicy::Inherit(env), SETUP_TIMEOUT)
+    let setup = Command::new("sh", cwd, EnvPolicy::Inherit(env), timeout)
         .args(["-c", command])
         .stdout_limit(StreamLimit::Tail(SETUP_STREAM_TAIL))
         .stderr_limit(StreamLimit::Tail(SETUP_STREAM_TAIL));
@@ -329,16 +347,25 @@ pub async fn run_setup(cwd: &Path, command: &str, cancel: &CancellationToken) ->
         }
         Err(RunError::TimedOut) => SetupOutcome {
             ok: false,
-            output: format!(
-                "It ran longer than {} minutes, and was stopped.",
-                SETUP_TIMEOUT.as_secs() / 60
-            ),
+            output: setup_timeout_message(timeout),
         },
         Err(error) => SetupOutcome {
             ok: false,
             output: error.to_string(),
         },
     }
+}
+
+fn setup_timeout_message(timeout: Duration) -> String {
+    let milliseconds = timeout.as_millis();
+    let (amount, unit) = if milliseconds.is_multiple_of(60_000) {
+        (milliseconds / 60_000, "minutes")
+    } else if milliseconds.is_multiple_of(1_000) {
+        (milliseconds / 1_000, "seconds")
+    } else {
+        (milliseconds, "milliseconds")
+    };
+    format!("It ran longer than {amount} {unit}, and was stopped.")
 }
 
 /// The runner of git and the setup command, one for the process: no limit on how many run at
@@ -349,9 +376,9 @@ fn runner() -> &'static Runner {
     &RUNNER
 }
 
-/// What the status read keeps: room for [`UNCOMMITTED_MAX`] lines of the longest path (4,096
-/// bytes on Linux), and the rest of a long status dropped instead of failing the read.
-const STATUS_HEAD_BYTES: usize = 128 * 1024;
+/// What the status read keeps: room for [`UNCOMMITTED_MAX`] rename rows, each of which may hold
+/// two long paths. A partial final row makes [`branch_state`] return `None`, never a path fragment.
+const STATUS_HEAD_BYTES: usize = 8 * 1024 * 1024;
 
 /// A git command's outcome: whether it exited 0, its output, and what it said went wrong
 /// (trimmed). A git that could not start or ran past `timeout` fails and says nothing, as
@@ -391,4 +418,57 @@ fn non_empty(value: &str) -> Option<String> {
 /// `value`, or `fallback` when it is empty (TypeScript's `value || fallback`).
 fn or<'a>(value: &'a str, fallback: &'a str) -> &'a str {
     if value.is_empty() { fallback } else { value }
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+    /// ADR 0242 requires real time for a test that waits on a real child. A private short deadline
+    /// keeps the test fast while the public entry point still passes [`SETUP_TIMEOUT`]. The shell
+    /// writes once before the deadline and from its TERM trap after the deadline.
+    #[tokio::test]
+    async fn setup_timeout_uses_real_time_and_stops_the_child() {
+        let id = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let root = std::env::temp_dir().join(format!(
+            "herdr-fleet-setup-timeout-{}-{id}",
+            std::process::id()
+        ));
+        fs::create_dir(&root).unwrap();
+        let before = root.join("before");
+        let stopped = root.join("stopped");
+        let command = format!(
+            "touch {}; trap 'touch {}; exit 0' TERM; while :; do :; done",
+            before.display(),
+            stopped.display()
+        );
+        let timeout = Duration::from_millis(200);
+        let started = Instant::now();
+        let outcome = run_setup_for(&root, &command, &CancellationToken::new(), timeout).await;
+        let elapsed = started.elapsed();
+
+        assert_eq!(
+            outcome,
+            SetupOutcome {
+                ok: false,
+                output: "It ran longer than 200 milliseconds, and was stopped.".into()
+            }
+        );
+        assert!(before.exists(), "the child did not run before its deadline");
+        assert!(
+            stopped.exists(),
+            "the child did not handle TERM after its deadline"
+        );
+        assert!(elapsed >= Duration::from_millis(150), "{elapsed:?}");
+        assert!(elapsed < Duration::from_secs(5), "{elapsed:?}");
+        assert_eq!(
+            setup_timeout_message(SETUP_TIMEOUT),
+            "It ran longer than 10 minutes, and was stopped."
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
 }

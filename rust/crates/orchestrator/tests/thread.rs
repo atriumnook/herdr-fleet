@@ -327,29 +327,6 @@ fn the_limits_are_the_typescripts() {
     );
 }
 
-/// thread.ts:175: past 10 minutes the command is stopped, which does not count as done, and the
-/// output says so. The paused clock jumps to the next timer while the runtime only waits on the
-/// child, so the 10 minutes pass at once (ADR 0242-phase-3-split keeps the paused clock from tests
-/// that wait on a child by accident; this one wants the jump).
-#[tokio::test(start_paused = true)]
-async fn a_setup_command_past_10_minutes_is_stopped_and_says_so() {
-    let root = TempDir::new("setup-timeout");
-    let started = Instant::now();
-    let outcome = thread::run_setup(root.path(), "sleep 30", &CancellationToken::new()).await;
-    assert_eq!(
-        outcome,
-        SetupOutcome {
-            ok: false,
-            output: "It ran longer than 10 minutes, and was stopped.".into()
-        }
-    );
-    assert!(
-        started.elapsed() < Duration::from_secs(25),
-        "{:?}",
-        started.elapsed()
-    );
-}
-
 /// The orchestrator's ports take boxed futures that are `Send` (ADR 0242-phase-3-split): every
 /// future here must be one.
 #[test]
@@ -401,6 +378,26 @@ async fn the_setup_output_is_stdout_then_stderr_its_last_20_lines() {
             output: expected
         }
     );
+}
+
+/// thread.ts:177: even when each of the last 20 lines is long, none of them is cut before the
+/// line-tail operation. The 60,000-byte width and 20 lines are counted by hand: 1,200,000 bytes
+/// of content and 20 newlines, followed by two blank lines that trimEnd removes.
+#[tokio::test]
+async fn the_setup_output_keeps_twenty_long_lines_whole() {
+    let root = TempDir::new("setup-long-tail");
+    let outcome = thread::run_setup(
+        root.path(),
+        "i=0; while [ $i -lt 20 ]; do printf '%60000s\\n' x; i=$((i+1)); done; printf '\\n\\n'",
+        &CancellationToken::new(),
+    )
+    .await;
+    let line = format!("{}x", " ".repeat(59_999));
+    let lines: Vec<&str> = outcome.output.split('\n').collect();
+    assert!(outcome.ok, "{outcome:?}");
+    assert_eq!(outcome.output.len(), 1_200_019);
+    assert_eq!(lines.len(), 20);
+    assert!(lines.iter().all(|actual| *actual == line));
 }
 
 /// thread.ts:173: the server's environment with `GIT_TERMINAL_PROMPT=0` over it, and nothing to read.
@@ -491,6 +488,35 @@ async fn the_uncommitted_paths_are_the_first_20() {
     assert_eq!(
         thread::branch_state(root.path(), "no-such-branch").await,
         None
+    );
+}
+
+/// thread.ts:94-101: the first 20 status rows stay whole when each rename row holds two paths
+/// near Linux's path limit. Twenty rows are about 145 KiB, which crossed the former 128 KiB cut.
+#[tokio::test]
+async fn the_first_twenty_long_rename_paths_are_whole() {
+    let root = repo("long-renames");
+    run_git(root.path(), &["branch", "-M", "main"]);
+    let component = "d".repeat(200);
+    let mut old = root.join("old");
+    for _ in 0..18 {
+        old = old.join(&component);
+    }
+    fs::create_dir_all(&old).unwrap();
+    for n in 0..20 {
+        fs::write(old.join(format!("f{n:02}.txt")), "x\n").unwrap();
+    }
+    run_git(root.path(), &["add", "old"]);
+    run_git(root.path(), &["commit", "-q", "-m", "base"]);
+    run_git(root.path(), &["mv", "old", "new"]);
+
+    let state = thread::branch_state(root.path(), "main").await.unwrap();
+    assert_eq!(state.uncommitted.len(), 20, "{:?}", state.uncommitted);
+    assert!(
+        state
+            .uncommitted
+            .iter()
+            .all(|path| path.starts_with("old/") && path.contains(" -> new/"))
     );
 }
 
