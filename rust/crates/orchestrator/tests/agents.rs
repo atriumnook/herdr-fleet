@@ -692,6 +692,27 @@ fn skips_a_role_file_whose_aliases_expand_past_the_node_budget() {
     );
 }
 
+// Review regression (codex review adc180a8): a repeated key counts once toward the alias budget,
+// as saphyr's `YamlLoader` keeps one entry of equal keys. Five hundred aliases of a mapping that
+// repeats one key a hundred times stay far within it; TypeScript's `discoverAgents` under Bun
+// 1.4.4 read this file with no warning and `edits: false`.
+#[test]
+fn counts_a_repeated_key_once_toward_the_alias_budget() {
+    let repeated = ["k: x"; 100].join(", ");
+    let aliases = ["*d"; 500].join(", ");
+    let text =
+        format!("---\nname: dupanchor\nedits: false\nd: &d {{{repeated}}}\nl: [{aliases}]\n---\nx");
+    let fixture = fixture(&[("dupanchor.md", &text)], &[]);
+    let dirs = AgentDirs {
+        bundled: "/nonexistent".into(),
+        user: "/nonexistent".into(),
+    };
+    let mut warnings = Vec::new();
+    let agents = discover_agents(&fixture.cwd, &mut warnings, &dirs);
+    assert_eq!(warnings, Vec::<String>::new());
+    assert_eq!(find(&agents, "dupanchor").edits, Some(false));
+}
+
 // Not in agents.test.ts: a key that is not a string becomes JavaScript's `String()` of it, as in
 // Bun 1.4.4 (ADR 0279's "文字列でないキー"): a sequence is its items joined with `,`, a null item
 // written as nothing, a nested sequence flattened the same way, a mapping `[object Object]`. Bun

@@ -6,6 +6,7 @@
 
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -306,6 +307,7 @@ enum Node<'a> {
 impl Node<'_> {
     /// Takes the node's size from `budget` as saphyr's loader counts it (one for the node and one
     /// for each entry of a mapping, a key's own nodes not counted); false once the budget runs out.
+    /// A mapping holds a repeated key once ([`mapping`]), so the count is no larger than saphyr's.
     fn take_size(&self, budget: &mut usize) -> bool {
         let Some(left) = budget.checked_sub(1) else {
             return false;
@@ -377,20 +379,24 @@ impl<'a> saphyr_parser::EventReceiver<'a> for Tree<'a> {
                     .expect("the parser ends only what it started");
                 let node = match open {
                     Open::Sequence(items) => Node::Sequence(items),
-                    Open::Mapping(entries, _) => Node::Mapping(entries),
+                    Open::Mapping(entries, _) => mapping(entries),
                 };
                 self.add(node, anchor);
             }
             Event::Alias(anchor) => {
                 // the parser fails on an unknown anchor, so a missing one is not reached
-                let node = self.anchors.get(&anchor).cloned().unwrap_or(Node::Null);
-                if !node.take_size(&mut self.alias_budget) {
-                    self.error = Some(
-                        "alias expansion exceeded the maximum node budget (possible billion-laughs attack)"
-                            .to_owned(),
-                    );
-                    return;
-                }
+                let node = match self.anchors.get(&anchor) {
+                    // measured before it is copied, so a copy past the budget is never made
+                    Some(node) if !node.take_size(&mut self.alias_budget) => {
+                        self.error = Some(
+                            "alias expansion exceeded the maximum node budget (possible billion-laughs attack)"
+                                .to_owned(),
+                        );
+                        return;
+                    }
+                    Some(node) => node.clone(),
+                    None => Node::Null,
+                };
                 self.add(node, 0);
             }
             Event::DocumentEnd => {
@@ -400,6 +406,28 @@ impl<'a> saphyr_parser::EventReceiver<'a> for Tree<'a> {
             Event::Nothing | Event::StreamStart | Event::StreamEnd | Event::DocumentStart(_) => {}
         }
     }
+}
+
+/// A mapping as Bun reads it: a repeated key (by its JavaScript string) keeps its first place and
+/// its last value, and every merge key stays. Dropping the rest here, rather than in [`to_json`],
+/// keeps an alias from copying and counting entries that are never read.
+fn mapping<'a>(entries: Vec<(Node<'a>, Node<'a>)>) -> Node<'a> {
+    let mut kept: Vec<(Node<'a>, Node<'a>)> = Vec::with_capacity(entries.len());
+    let mut places: HashMap<String, usize> = HashMap::new();
+    for (key, value) in entries {
+        if is_merge_key(&key) {
+            kept.push((key, value));
+            continue;
+        }
+        match places.entry(key_text(&key).into_owned()) {
+            Entry::Occupied(place) => kept[*place.get()].1 = value,
+            Entry::Vacant(place) => {
+                place.insert(kept.len());
+                kept.push((key, value));
+            }
+        }
+    }
+    Node::Mapping(kept)
 }
 
 impl<'a> Tree<'a> {
