@@ -274,8 +274,10 @@ impl Runner {
                 outcome = &mut reads, if read.is_none() => match outcome {
                     Ok(both) => read = Some(both),
                     Err(error) => {
-                        // a reply too large is dropped without waiting for the child (opencode-cli.ts:131)
+                        // a reply too large is dropped: SIGKILL at once (opencode-cli.ts:131), and the
+                        // slot is kept until the child is reaped, at most a grace
                         let _ = child.start_kill();
+                        let _ = tokio::time::timeout(stopping.grace, child.wait()).await;
                         return Err(stopping.reason.unwrap_or(error));
                     }
                 },
@@ -323,6 +325,7 @@ impl Runner {
             stdin,
             stdout,
             buffer: Vec::new(),
+            scanned: 0,
             max_line: command.stdout_limit.bytes(),
             cancel: cancel.clone(),
             _slot: slot,
@@ -450,6 +453,8 @@ pub struct Session {
     stdout: ChildStdout,
     /// what has been read past the last line returned
     buffer: Vec<u8>,
+    /// how much of `buffer` holds no newline
+    scanned: usize,
     max_line: usize,
     stopping: Stopping,
     cancel: CancellationToken,
@@ -493,16 +498,23 @@ impl Session {
         self.check()?;
         let mut chunk = vec![0; 64 * 1024];
         loop {
-            if let Some(end) = self.buffer.iter().position(|&byte| byte == b'\n') {
-                let line: Vec<u8> = self.buffer.drain(..=end).collect();
-                return Ok(Some(String::from_utf8_lossy(&line[..end]).into_owned()));
-            }
-            if self.buffer.len() > self.max_line {
+            // only the bytes not looked at before: a long line is not scanned again at every read
+            let newline = self.buffer[self.scanned..]
+                .iter()
+                .position(|&byte| byte == b'\n');
+            let end = newline.map_or(self.buffer.len(), |at| self.scanned + at);
+            if end > self.max_line {
                 return Err(RunError::TooLarge {
                     stream: Stream::Stdout,
                     limit: self.max_line,
                 });
             }
+            if newline.is_some() {
+                let line: Vec<u8> = self.buffer.drain(..=end).collect();
+                self.scanned = 0;
+                return Ok(Some(String::from_utf8_lossy(&line[..end]).into_owned()));
+            }
+            self.scanned = self.buffer.len();
             let at = self.stopping.at;
             let n = tokio::select! {
                 n = self.stdout.read(&mut chunk) => n.map_err(RunError::Io)?,
@@ -513,6 +525,7 @@ impl Session {
                 if self.buffer.is_empty() {
                     return Ok(None);
                 }
+                self.scanned = 0;
                 let line = std::mem::take(&mut self.buffer);
                 return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
             }
@@ -520,8 +533,9 @@ impl Session {
         }
     }
 
-    /// Ends the session: closes the child's input, and stops a child that has not ended (SIGTERM,
-    /// then SIGKILL a grace later), waiting at most two graces.
+    /// Ends the session: closes the child's input and sends SIGTERM at once, as the `finally` of
+    /// TypeScript's exchange does (`server/fleet/usage.ts:463`), then SIGKILL a grace later to a
+    /// child that has not ended, waiting at most two graces.
     pub async fn close(mut self) {
         self.stdin = None;
         if self.stopping.reason.is_none() {

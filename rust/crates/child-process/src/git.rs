@@ -19,8 +19,9 @@ pub const TIMEOUT: Duration = Duration::from_secs(5);
 /// (`gitRoot`, `server/fleet/thread.ts:21`; `gitFiles`, `server/files.ts:20`).
 pub const QUICK_TIMEOUT: Duration = Duration::from_secs(3);
 
-/// `git <args>` in `cwd`: `git -c core.fsmonitor=false -c core.quotepath=false -C <cwd> <args>`
-/// (paths as they are, not octal-escaped, for the person to read), with the server's environment
+/// `git <args>` in `cwd`: `git -c core.fsmonitor=false -c core.quotepath=false <args>` started in
+/// `cwd`, as TypeScript's `-C <cwd>` (paths as they are, not octal-escaped, for the person to
+/// read), with the server's environment
 /// and `GIT_OPTIONAL_LOCKS=0`, `GIT_TERMINAL_PROMPT=0` over it, and [`TIMEOUT`]. The caller runs
 /// it with a [`Runner`](crate::Runner), and may change its time limit or output limits first.
 pub fn command<S: AsRef<OsStr>>(cwd: &Path, args: &[S]) -> Command {
@@ -28,14 +29,8 @@ pub fn command<S: AsRef<OsStr>>(cwd: &Path, args: &[S]) -> Command {
         .into_iter()
         .map(|(name, value)| (name.into(), value.into()))
         .collect();
+    // the folder is the child's own, not `-C <cwd>` as well: a relative one would be taken twice
     Command::new("git", cwd, EnvPolicy::Inherit(env), TIMEOUT)
-        .args([
-            "-c",
-            "core.fsmonitor=false",
-            "-c",
-            "core.quotepath=false",
-            "-C",
-        ])
-        .arg(cwd)
+        .args(["-c", "core.fsmonitor=false", "-c", "core.quotepath=false"])
         .args(args.iter().map(AsRef::as_ref))
 }

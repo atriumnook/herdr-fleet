@@ -18,13 +18,13 @@ pub fn empty_work_dir(dir: &Path) -> io::Result<()> {
     builder.recursive(true);
     #[cfg(unix)]
     std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
-    // a link to a folder passes here; the check below refuses it
-    builder
-        .create(dir)
-        .or_else(|error| match fs::symlink_metadata(dir) {
-            Ok(_) => Ok(()),
-            Err(_) => Err(error),
-        })?;
+    // Something already in its place (a folder, a link, a file) may fail the making; the check
+    // below then decides, on the thing itself, not on what a link points at.
+    if let Err(error) = builder.create(dir)
+        && fs::symlink_metadata(dir).is_err()
+    {
+        return Err(error);
+    }
     if !fs::symlink_metadata(dir)?.is_dir() {
         return Err(io::Error::new(
             io::ErrorKind::NotADirectory,

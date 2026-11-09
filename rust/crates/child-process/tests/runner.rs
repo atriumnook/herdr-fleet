@@ -660,3 +660,55 @@ async fn a_session_counts_among_the_children() {
     queued.await.unwrap().unwrap();
     assert_eq!(read(&log), "ran\n");
 }
+
+/// A line past the limit is refused even when its newline comes in the same read
+/// (`/code-review high`).
+#[tokio::test]
+async fn a_session_line_past_the_limit_is_refused_when_it_comes_whole() {
+    let dir = TempDir::new("session-too-large-whole");
+    let program = fake(
+        dir.path(),
+        "cli",
+        "line=$(head -c 5000 /dev/zero | tr '\\0' a)\nprintf '%s\\n' \"$line\"",
+    );
+    let mut session = Runner::new(1)
+        .session(
+            command(&program, &dir).stdout_limit(StreamLimit::Fail(1000)),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    let outcome = session.next_line().await;
+    assert!(
+        matches!(outcome, Err(RunError::TooLarge { limit: 1000, .. })),
+        "{outcome:?}"
+    );
+    session.close().await;
+}
+
+/// A run that answered too much returns once its child is gone, so the child no longer counts
+/// against the limit of children it frees (`/code-review high`).
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_child_that_wrote_too_much_is_reaped_before_the_run_returns() {
+    let dir = TempDir::new("too-large-reaped");
+    let pid_file = dir.join("pid");
+    let program = fake(
+        dir.path(),
+        "cli",
+        &format!("echo $$ > {}\ntrap '' TERM\nexec yes", sh_quote(&pid_file)),
+    );
+    let error = Runner::new(1)
+        .run(
+            command(&program, &dir).stdout_limit(StreamLimit::Fail(1000)),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(error, RunError::TooLarge { .. }), "{error:?}");
+    let pid = read(&pid_file).trim().to_owned();
+    assert!(
+        !std::path::Path::new(&format!("/proc/{pid}")).exists(),
+        "pid {pid} is not reaped"
+    );
+}

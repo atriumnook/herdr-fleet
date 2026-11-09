@@ -16,14 +16,18 @@ pub struct TempDir(PathBuf);
 
 impl TempDir {
     pub fn new(label: &str) -> Self {
+        use std::hash::{BuildHasher as _, Hasher as _};
         static NEXT: AtomicU64 = AtomicU64::new(0);
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        // a name nobody can guess, made with create_dir, which fails on anything already there
+        let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+        hasher.write_u64(n);
         let dir = std::env::temp_dir().join(format!(
-            "herdr-fleet-child-process-{label}-{}-{n}",
-            std::process::id()
+            "herdr-fleet-child-process-{label}-{}-{n}-{:016x}",
+            std::process::id(),
+            hasher.finish()
         ));
-        let _ = fs::remove_dir_all(&dir);
-        fs::create_dir_all(&dir).unwrap_or_else(|error| panic!("{}: {error}", dir.display()));
+        fs::create_dir(&dir).unwrap_or_else(|error| panic!("{}: {error}", dir.display()));
         Self(dir)
     }
 

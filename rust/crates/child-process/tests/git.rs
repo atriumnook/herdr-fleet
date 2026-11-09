@@ -178,3 +178,17 @@ async fn a_git_past_its_limit_is_stopped() {
         started.elapsed()
     );
 }
+
+/// A folder given as a relative path is taken from the server's folder once, as TypeScript's
+/// `-C <cwd>` took it (`/code-review high`: the folder was also the child's own, and git looked
+/// for `<cwd>/<cwd>`). cargo runs the tests in the crate's folder.
+#[tokio::test]
+async fn a_relative_folder_is_taken_once() {
+    let output = run_git(Path::new("src"), &["rev-parse", "--show-prefix"]).await;
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "rust/crates/child-process/src/\n",
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
