@@ -43,14 +43,28 @@ impl Drop for TempDir {
 }
 
 /// Writes `body` as a `/bin/sh` script named `name` in `dir`, executable, and returns its path.
+///
+/// A shell writes the file, not this process: a file this process held open for writing would be
+/// inherited by a child another test forks at that moment, and executing it before that child's
+/// own exec closes it fails with ETXTBSY ("Text file busy").
 #[cfg(unix)]
 pub fn fake(dir: &Path, name: &str, body: &str) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt as _;
     let path = dir.join(name);
-    fs::write(&path, format!("#!/bin/sh\n{body}\n"))
+    let status = std::process::Command::new("/bin/sh")
+        .args([
+            "-c",
+            r#"printf '#!/bin/sh\n%s\n' "$2" > "$1" && chmod 755 "$1""#,
+            "sh",
+        ])
+        .arg(&path)
+        .arg(body)
+        .status()
         .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-    fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
-        .unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    assert!(
+        status.success(),
+        "{}: could not write the fake",
+        path.display()
+    );
     path
 }
 

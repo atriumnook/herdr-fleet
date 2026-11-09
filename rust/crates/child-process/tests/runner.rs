@@ -27,17 +27,15 @@ fn env(pairs: &[(&str, &str)]) -> BTreeMap<OsString, OsString> {
         .collect()
 }
 
-/// A command that runs the fake `script` in `dir`, with the server's environment and a limit of
-/// 10 seconds. The script is given to `/bin/sh` rather than executed: executing a file just written
-/// fails now and then with ETXTBSY, while another test's fork still holds it open for writing.
-fn command(script: &std::path::Path, dir: &TempDir) -> Command {
+/// A command for the fake `program` in `dir`, with the server's environment and a limit of 10
+/// seconds.
+fn command(program: &std::path::Path, dir: &TempDir) -> Command {
     Command::new(
-        "/bin/sh",
+        program,
         dir.path(),
         EnvPolicy::Inherit(BTreeMap::new()),
         Duration::from_secs(10),
     )
-    .arg(script)
 }
 
 #[test]
@@ -75,12 +73,11 @@ async fn runs_in_the_folder_it_is_given() {
     let output = Runner::new(1)
         .run(
             Command::new(
-                "/bin/sh",
+                &program,
                 &work,
                 EnvPolicy::Inherit(BTreeMap::new()),
                 SHORT * 10,
-            )
-            .arg(&program),
+            ),
             &CancellationToken::new(),
         )
         .await
