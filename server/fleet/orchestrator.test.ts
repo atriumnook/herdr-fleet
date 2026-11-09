@@ -1332,6 +1332,55 @@ describe("a thread outlives its lead run", () => {
     expect(registry.get(first.id)!.replacedBy).toBeDefined();
   });
 
+  it("settles a Create PR step only when the lead that broke off its turn to wait finishes its own turn", async () => {
+    const git = { pr: null as Record<string, unknown> | null };
+    const { fleet, registry, root, turn, report } = thread({
+      agents: [lead, role("reviewer", { interactive: true })],
+      landing: { gitBranch: async () => "main", readPullRequest: async () => git.pr as never },
+    });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    report(first, { state: "ready", summary: "Ready to open the PR.", evidence: [] });
+    await turn(first, "idle");
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: first.group, cwd: first.cwd });
+    await fleet.land(first.id, "pr");
+    // The lead breaks off the Create PR turn without a report while its reviewer still works.
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+    expect(registry.get(first.id)!.landing).toMatchObject({ action: "pr", sent: true });
+    expect(registry.get(first.id)!.landing?.error).toBeUndefined();
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    await turn(reviewer, "idle");
+    // The reviewer's result wakes the lead, which opens the pull request in a turn of its own.
+    await turn(first, "working");
+    git.pr = { number: 7, url: "https://github.com/o/r/pull/7", state: "OPEN", checks: "pending", head: "c0ffee" };
+    report(first, { state: "ready", summary: "Opened #7.", evidence: [] });
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.landing).toBeUndefined();
+    expect(registry.get(first.id)!.pr).toMatchObject({ number: 7, state: "OPEN" });
+  });
+
+  for (const state of ["ready", "blocked"] as const) {
+    it(`${state === "ready" ? "closes" : "keeps open"} an unanswered plan when the lead that broke off its turn to wait reports ${state} in its own turn`, async () => {
+      const { fleet, registry, root, turn, report } = thread({ agents: [lead, role("reviewer", { interactive: true })] });
+      const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+      fleet.submitPlan(first.id, { title: "Retry limit", claims: [{ text: "Three retries.", exhibit: { kind: "list", items: ["three"] } }] });
+      const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: first.group, cwd: first.cwd });
+      // The lead leaves its fleet-sent turn without a report while its reviewer still works.
+      await turn(first, "idle");
+      expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+      writeReport(root, reviewer.id, "ready", "No findings.");
+      await turn(reviewer, "idle");
+      await turn(first, "working");
+      report(first, state === "ready"
+        ? { state, summary: "Implemented three retries without answers.", evidence: [] }
+        : { state, summary: "The plan waits for the person.", evidence: [], human_action: "Answer the plan." });
+      await turn(first, "idle");
+      // A lead that went on without the answers builds to something else; one that still waits on its plan keeps it open.
+      if (state === "ready") expect(registry.get(first.id)!.plan!.closedAt).toBeNumber();
+      else expect(registry.get(first.id)!.plan!.closedAt).toBeUndefined();
+    });
+  }
+
   it("goes on in a new run when its lead waited across a fleet server restart and its own next turn leaves no report", async () => {
     const reviewerRole = role("reviewer", { interactive: true });
     const { fleet, runtime, root, states, turn, write } = thread({ agents: [lead, reviewerRole] });

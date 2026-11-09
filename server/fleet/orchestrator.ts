@@ -228,6 +228,8 @@ export class Orchestrator {
   private readonly spawnPlans = new Map<string, SpawnPlan>();
   /** thread leads whose last turn left no report while an agent they started ran: not started again, they report in a later turn */
   private readonly waitingLeads = new Set<string>();
+  /** when a turn the fleet did not send started, seen by this server */
+  private readonly unsentTurnStarts = new Map<string, number>();
   /** callers waiting for a run's turn to settle or block */
   private readonly waiters = new Map<string, Set<(run: AgentRun) => void>>();
   /** the concurrency check and the run's first save happen as one step */
@@ -963,12 +965,12 @@ export class Orchestrator {
    * (someone sent it another task, or decided in its chat): the lead went on, and the plan, no
    * longer what it builds to, takes no answers.
    */
-  private closeStalePlan(run: AgentRun, turn: PendingTurn): void {
-    if (!run.plan || !planOpen(run.plan) || turn.submittedAt === undefined) return;
+  private closeStalePlan(run: AgentRun, turnStartedAt: number | undefined): void {
+    if (!run.plan || !planOpen(run.plan) || turnStartedAt === undefined) return;
     const file = this.planFile(run);
     let plan: Plan | undefined;
     try { plan = readPlan(file); } catch { return; }
-    if (!plan || plan.version !== run.plan.version || plan.writtenAt >= turn.submittedAt) return;
+    if (!plan || plan.version !== run.plan.version || plan.writtenAt >= turnStartedAt) return;
     const closedAt = Date.now();
     writePlan(file, { ...plan, closedAt });
     run.plan = { ...run.plan, closedAt };
@@ -1496,7 +1498,10 @@ export class Orchestrator {
         if (!isLive(run)) return;
         const previous = run.state;
         // a turn the fleet did not send starts (a helper's result woke the agent, or the person typed)
-        if (!pending && current === "working" && (isCompleted(previous) || previous === "blocked")) this.clearTurnFiles(run);
+        if (!pending && current === "working" && (isCompleted(previous) || previous === "blocked")) {
+          this.clearTurnFiles(run);
+          if (isThread(run)) this.unsentTurnStarts.set(run.id, Date.now());
+        }
         // a reviewer's turn nobody sent (the person typed, or it woke itself), from whatever state: what it writes is not compared
         if (!pending && current === "working" && run.role === REVIEWER_ROLE) { delete run.reviewClean; run.turnHead ??= "unknown"; }
         if (current !== run.state) this.updateState(run, current);
@@ -1536,7 +1541,7 @@ export class Orchestrator {
       // a turn that failed or left no report went nowhere; a lead taking a thread over starts with
       // its plan still open, and keeps it so while it reports blocked on it
       const report = run.outcome?.report;
-      if (report && !(pending.generation === 1 && run.thread && report.state === "blocked")) this.closeStalePlan(run, pending);
+      if (report && !(pending.generation === 1 && run.thread && report.state === "blocked")) this.closeStalePlan(run, pending.submittedAt);
       await this.settleThreadTurn(run, config, restartError);
     }
     run.updatedAt = Date.now();
@@ -1633,7 +1638,10 @@ export class Orchestrator {
    * why the thread could not start again when it could not (its contract and change are read before).
    */
   private async settleThreadTurn(run: AgentRun, config: FleetConfig, restartError?: string): Promise<void> {
-    if (run.landing?.sent && !run.landing.error && LEAD_STEPS.has(run.landing.action)) await this.settleLeadStep(run);
+    if (run.landing?.sent && !run.landing.error && LEAD_STEPS.has(run.landing.action)) {
+      // a lead that broke off the step's turn to wait for an agent it started finishes the step in a later turn
+      if (!this.waitingLeads.has(run.id)) await this.settleLeadStep(run);
+    }
     // without the person, or under a gate, a lead opens its pull request itself: read it as its turn ends
     else if (run.pr?.state === "OPEN" || ((config.autonomous || (await this.authorityOf(run)).mode === "gated") && !run.landed)) {
       const reading = await this.readPullRequest(run).catch(() => null);
@@ -1749,11 +1757,19 @@ export class Orchestrator {
    */
   private async settleUnsentTurn(run: AgentRun): Promise<void> {
     const config = this.deps.config(run.cwd);
-    if (!config.autonomous && !this.waitingLeads.has(run.id)) return;
+    const waited = this.waitingLeads.has(run.id);
+    const startedAt = this.unsentTurnStarts.get(run.id);
+    this.unsentTurnStarts.delete(run.id);
+    if (!config.autonomous && !waited) return;
     await this.readTurn(run, config);
     await this.readThreadWork(run);
     const restartError = this.needsRestart(run) ? await this.restartThread(run) : undefined;
-    if (!run.replacedBy) await this.settleThreadTurn(run, config, restartError);
+    if (!run.replacedBy) {
+      // a lead that went on past its plan without the answers, as a new run of it would have (finalize); one blocked on it keeps it open
+      const report = run.outcome?.report;
+      if (waited && report && report.state !== "blocked") this.closeStalePlan(run, startedAt);
+      await this.settleThreadTurn(run, config, restartError);
+    }
     run.updatedAt = Date.now();
     this.save(run);
     this.settleWaiters(run);
