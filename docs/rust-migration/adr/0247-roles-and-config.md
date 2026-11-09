@@ -25,6 +25,8 @@ crate の公開の口に関わるので、architect(fleet の run `acd0f35f`、`
   - スカラーの型は saphyr に決めさせず(`early_parse(false)`)、自分で決める。quoted とブロックのスカラーは tag によらず文字列、plain のスカラーは tag がないか `!!bool`・`!!int`・`!!float`・`!!null` なら YAML 1.2 の core schema で読み(空で tag がなければ null)、ほかの tag なら文字列。saphyr の既定は、core schema の外の tag の付いた plain のスカラーの型を推す(`!foo true` が真偽値になる)が、Bun は文字列にする
   - merge key `<<` は、quoted でも alias を通しても展開する。そのマッピング自身のキーが勝ち、列で並べたマッピングは先のものが勝つ。saphyr は展開しない
   - JSON で書けない数(`.inf`、`.nan`)は null にする(Bun と同じ)
+  - 文字列でないキーは、JavaScript の `String()` の値にする(ADR `0279-orchestrator-yaml` の「文字列でないキー」)。列は要素を `,` でつなぎ、null の要素は空の文字列にし、入れ子の列も同じようにつなぐ。マッピングは `[object Object]` にする。そのため `? [edits]` と次の行の `: false` は `edits: false` になり、TypeScript と同じく編集しない役割として起動する。数のキーの書き方は JavaScript と違う(`1.0` は Bun では `"1"`、Rust では `"1.0"`)が、数を名前にする役割の項目はないので、読み取る値は変わらない
+  - UTF-8 として不正なバイトは U+FFFD に置き換えて読む(TypeScript の `readFileSync(file, "utf8")` と同じ)
 - `parse_frontmatter` は公開しない。YAML の crate の型が orchestrator の公開の口に出ないようにするため。`agents.test.ts` の `reads a file without frontmatter as all body` は、frontmatter のないファイルを `discover_agents` に読ませて移した
 
 ### lead と coordinator を agy に載せない(#189 の 8)
@@ -47,7 +49,11 @@ crate の公開の口に関わるので、architect(fleet の run `acd0f35f`、`
 
 - `brief.rs` の `overlap` は、パスを区間ごとに比べる。TypeScript は `relative()` の文字列が `..` で始まるかを見る(`brief.ts:57`)ので、名前が `..` で始まるフォルダー(`/repo/..cache`)を親の外と読み、同じパスを 2 つの run が書けてしまう。Rust は親の中と読む
 - 役割のフォルダーのファイルは名前の順に読む。TypeScript の `readdirSync` の順は決まっていない(`settings.ts:105` のコメント)ので、名前の順は TypeScript が取りうる順の 1 つである
+- 役割のファイルを名前の順に読むので、同じフォルダーの中の 2 つのファイルが同じ名前の役割を書くと、名前があとのファイルが勝つ。TypeScript では `readdirSync` の順で決まり、移行の間に同じフォルダーを読む 2 つの fleet で、勝つファイルが違いうる
 - YAML の構文のエラーの文は Bun と違う(warning の `fleet: skipping invalid role file <パス>: ` のあと)
+- saphyr 0.3.3 は、マッピングの `:` のあとのタブ(`description:<タブ>x`)を読み取りのエラーにする。Bun 1.4.4 は `{"description":"x"}` と読む。Rust はこのファイルを警告を付けて飛ばし、同じ名前の同梱の役割があればそれを使う。直すには frontmatter の文字列を saphyr に渡す前に書き換える必要があり、引用符の中のタブと見分けなければならないので、この Issue では直さない
+- alias を重ねて 100000 個を超えるノードに展開される frontmatter は、saphyr が読み取りのエラーにし(ADR `0279-orchestrator-yaml` の表)、Rust はこのファイルを警告を付けて飛ばす。Bun は同じオブジェクトを共有して読む。役割のファイルにこの形を書く理由はない
+- `fleet.json` を serde_json で読むので、`JSON.parse` が読めて serde_json が読めないファイルは、ファイル全体を `invalid JSON` の警告で飛ばす。f64 の範囲を超える数(`1e999`。`JSON.parse` は Infinity にする)と、128 段より深い入れ子が当たる。serde_json の feature を変えるには manifest を書く必要があり、ADR `0242-phase-3-split` により #247 では書けない
 
 ## 検討した代わり
 
@@ -74,5 +80,5 @@ crate の公開の口に関わるので、architect(fleet の run `acd0f35f`、`
 ## 確かめたこと
 
 - Bun 1.4.4(この PC、Linux)で `Bun.YAML.parse` と TypeScript の `discoverAgents`・`mergeConfig`・`parseCandidate`・`EntranceStore.skill()` を走らせ、その出力を `tests/{agents,config,entrances}.rs` の期待値にした。例: `edits: False` は `false`、`edits: no` は文字列、`model: Null` は null、`<<: {edits: false}` と `"<<": {edits: false}` は `edits: false`、`edits: !!bool "false"` は文字列、`model: !!str 1` は `"1"`
-- `cargo test -p herdr-fleet-orchestrator --test agents --test roles --test brief --test config --test entrances` で 40 件が通る(rustc 1.99.1、#279 が足す 3 行を手元の manifest に足した状態)。テストは先に書き、stub の `todo!()` で失敗することを見た
+- `cargo test --locked -p herdr-fleet-orchestrator --test agents --test roles --test brief --test config --test entrances` で 43 件が通る(rustc 1.99.1、#279 のマージのあと)。テストは先に書き、stub の `todo!()` で失敗することを見た
 - `HOME` と `XDG_CONFIG_HOME` を空の一時フォルダーに向けて同じテストを走らせ、通ったあとも一時フォルダーが空であることを見た
