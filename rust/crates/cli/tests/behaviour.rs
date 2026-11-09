@@ -496,6 +496,22 @@ fn usage_with_missing_fields_prints_them_as_undefined() {
     assert_eq!(actual.exit_code, 0);
 }
 
+/// Worked out by hand (the TypeScript CLI fails on `entry.reading?.windows.map`): a reading
+/// without windows prints as no reading, as `entry.reading?.windows?.map(...)` would give, and
+/// keeps its read time (an assumption of #251, written in its pull request).
+#[test]
+fn a_reading_without_windows_prints_as_no_reading() {
+    let actual = run_case(&Case::new(&["usage"]).respond(
+        200,
+        json!({ "usage": [{ "key": "m", "reading": { "readAt": 0 } }] }),
+    ));
+    assert_eq!(
+        actual.stdout,
+        "m            no reading  read 1/1/1970, 12:00:00 AM\n"
+    );
+    assert_eq!(actual.exit_code, 0);
+}
+
 /// Worked out by hand (the TypeScript CLI fails on `role.name.padEnd`).
 #[test]
 fn roles_with_missing_fields_print_them_as_undefined() {

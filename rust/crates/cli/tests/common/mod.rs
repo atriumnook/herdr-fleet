@@ -6,7 +6,7 @@
 //! comes back with the placeholders `$URL` and `$CWD` put in, as the runner writes them.
 #![allow(dead_code)]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::path::{Path, PathBuf};
@@ -167,11 +167,23 @@ fn listen() -> TcpListener {
     let start = port_start();
     for i in 0..PORT_COUNT {
         let port = FIRST_PORT + (start + i) % PORT_COUNT;
+        if closed_ports().contains(&port) {
+            continue;
+        }
         if let Ok(listener) = TcpListener::bind(("127.0.0.1", port)) {
             return listener;
         }
     }
     panic!("no free port from 7400 to 7499");
+}
+
+/// The ports a `"server": "closed"` case of this process has let go and points its CLI at: the
+/// stubs of the tests running beside it do not bind them until that case ends.
+fn closed_ports() -> std::sync::MutexGuard<'static, BTreeSet<u16>> {
+    static CLOSED: Mutex<BTreeSet<u16>> = Mutex::new(BTreeSet::new());
+    CLOSED
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 struct Stub {
@@ -298,10 +310,26 @@ fn serve(stream: TcpStream, responses: &[(u16, Value)], requests: &Mutex<Vec<Req
     let _ = stream.flush();
 }
 
-/// A port from 7400 to 7499 that nothing listens on: free when it was bound and let go.
-fn closed_port() -> u16 {
-    let listener = listen();
-    listener.local_addr().expect("an address").port()
+/// A port from 7400 to 7499 that nothing listens on: free when it was bound and let go, and
+/// kept from the other stubs of this process until the guard is dropped. Another process could
+/// take it before the CLI connects; the case then fails rather than passes, as with the runner.
+struct ClosedPort(u16);
+
+impl ClosedPort {
+    fn take() -> ClosedPort {
+        let listener = listen();
+        let port = listener.local_addr().expect("an address").port();
+        // reserved while still bound, so that no stub of this process binds it in between
+        closed_ports().insert(port);
+        drop(listener);
+        ClosedPort(port)
+    }
+}
+
+impl Drop for ClosedPort {
+    fn drop(&mut self) {
+        closed_ports().remove(&self.0);
+    }
 }
 
 /// A new empty folder for one case, with its real path.
@@ -353,7 +381,12 @@ fn substitute(value: &Value, pairs: &[(String, &str)]) -> Value {
 /// Runs the CLI's `run` on `case`.
 pub fn run_case(case: &Case) -> Actual {
     let stub = (!case.closed).then(|| Stub::start(case.responses.clone()));
-    let port = stub.as_ref().map(|s| s.port).unwrap_or_else(closed_port);
+    let closed = case.closed.then(ClosedPort::take);
+    let port = stub
+        .as_ref()
+        .map(|s| s.port)
+        .or(closed.as_ref().map(|c| c.0))
+        .expect("a stub or a closed port");
     let url = format!("http://127.0.0.1:{port}");
     let cwd = new_folder();
     for (name, text) in &case.files {

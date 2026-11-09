@@ -48,6 +48,15 @@ impl Client {
         }
     }
 
+    /// The headers of every request: `x-herdr-fleet: 1`, and the token as a bearer.
+    fn headers<B>(&self, request: ureq::RequestBuilder<B>) -> ureq::RequestBuilder<B> {
+        let request = request.header(FLEET_HEADER, FLEET_HEADER_VALUE);
+        match &self.token {
+            Some(token) => request.header("authorization", format!("Bearer {token}")),
+            None => request,
+        }
+    }
+
     /// Sends `method` to `/api/fleet<path>` and returns the answer's JSON (an object, `{}` when
     /// it is not JSON). An error status fails with `<code>: <message>`: exit 124 for
     /// `wait_timeout`, carrying the run the answer names, else exit 1.
@@ -63,26 +72,10 @@ impl Client {
                 1,
             )
         };
-        let bearer = self.token.as_ref().map(|t| format!("Bearer {t}"));
         let response = match method {
-            Method::Get => {
-                let mut request = self
-                    .agent
-                    .get(&url)
-                    .header(FLEET_HEADER, FLEET_HEADER_VALUE);
-                if let Some(bearer) = &bearer {
-                    request = request.header("authorization", bearer);
-                }
-                request.call()
-            }
+            Method::Get => self.headers(self.agent.get(&url)).call(),
             Method::Post => {
-                let mut request = self
-                    .agent
-                    .post(&url)
-                    .header(FLEET_HEADER, FLEET_HEADER_VALUE);
-                if let Some(bearer) = &bearer {
-                    request = request.header("authorization", bearer);
-                }
+                let request = self.headers(self.agent.post(&url));
                 match body {
                     Some(body) => request
                         .header("content-type", "application/json")
