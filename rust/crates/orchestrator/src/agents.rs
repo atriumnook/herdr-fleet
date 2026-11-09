@@ -5,6 +5,7 @@
 //! (YAML 1.2's core schema), with saphyr (ADR 0247-roles-and-config).
 
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::LazyLock;
@@ -12,7 +13,8 @@ use std::sync::LazyLock;
 use indexmap::IndexMap;
 use protocol::{FleetAgentKind, ThinkingLevel};
 use regex::Regex;
-use saphyr::{Scalar, ScalarStyle, Tag, Yaml, YamlLoader};
+use saphyr::{Scalar, ScalarStyle, Tag};
+use saphyr_parser::Event;
 use serde::Serialize;
 use serde_json::{Map, Number, Value};
 use sha2::{Digest, Sha256};
@@ -269,20 +271,17 @@ fn parse_frontmatter(text: &str) -> Result<(Map<String, Value>, &str), String> {
 
 /// The YAML text's single document as JSON, as `Bun.YAML.parse` returns it: none for an empty
 /// text, an array for several documents, a repeated key's last value. The one place saphyr is
-/// read, so another YAML crate changes this function alone.
+/// read, so another YAML crate changes this function and [`Tree`] alone.
 fn parse_yaml(text: &str) -> Result<Value, String> {
-    let mut loader: YamlLoader<'_, Yaml<'_>> = YamlLoader::default();
-    loader.allow_duplicate_keys(true);
-    // scalars are typed below, as Bun types them, from their text, style and tag
-    loader.early_parse(false);
-    let mut parser = saphyr_parser::Parser::new_from_str(text);
-    parser
-        .load(&mut loader, true)
+    let mut tree = Tree::default();
+    saphyr_parser::Parser::new_from_str(text)
+        .load(&mut tree, true)
         .map_err(|error| error.to_string())?;
-    if let Some(error) = loader.error() {
-        return Err(error.to_string());
+    // after its own failure the tree drops the rest of the events, so its documents are partial
+    if let Some(error) = tree.error {
+        return Err(error);
     }
-    let mut documents: Vec<Value> = loader.into_documents().iter().map(to_json).collect();
+    let mut documents: Vec<Value> = tree.documents.iter().map(to_json).collect();
     Ok(match documents.len() {
         0 => Value::Null,
         1 => documents.remove(0),
@@ -290,33 +289,162 @@ fn parse_yaml(text: &str) -> Result<Value, String> {
     })
 }
 
-/// A YAML node as the JSON value Bun gives: keys as strings, numbers JSON cannot hold (`.inf`,
-/// `.nan`) as null, a tagged collection as its value, a merge key (`<<`, quoted or not) expanded
-/// with the mapping's own keys winning and an earlier merged mapping winning over a later one. No
-/// role file field reads a number, so the numbers' exact text does not matter.
-fn to_json(node: &Yaml<'_>) -> Value {
-    match node {
-        Yaml::Representation(text, style, tag) => {
-            scalar_to_json(&scalar(text, *style, tag.as_deref()))
+/// A YAML node before Bun's rules make it JSON. saphyr's own `Yaml` keeps one entry of equal keys,
+/// but Bun expands every merge key of a mapping (`<<: {a: 1}` then `<<: {b: 2}` gives both), so a
+/// mapping here keeps all its entries in order. A collection's tag is dropped: Bun reads a tagged
+/// collection as its value.
+#[derive(Clone)]
+enum Node<'a> {
+    /// The scalar's text, untyped: it is typed as Bun types it from its style and tag.
+    Scalar(Cow<'a, str>, ScalarStyle, Option<Cow<'a, Tag>>),
+    Sequence(Vec<Node<'a>>),
+    Mapping(Vec<(Node<'a>, Node<'a>)>),
+    /// An empty document.
+    Null,
+}
+
+impl Node<'_> {
+    /// Takes the node's size from `budget` as saphyr's loader counts it (one for the node and one
+    /// for each entry of a mapping, a key's own nodes not counted); false once the budget runs out.
+    fn take_size(&self, budget: &mut usize) -> bool {
+        let Some(left) = budget.checked_sub(1) else {
+            return false;
+        };
+        *budget = left;
+        match self {
+            Node::Sequence(items) => items.iter().all(|item| item.take_size(budget)),
+            Node::Mapping(entries) => entries
+                .iter()
+                .all(|(_, value)| Node::Null.take_size(budget) && value.take_size(budget)),
+            Node::Scalar(..) | Node::Null => true,
         }
-        Yaml::Value(value) => scalar_to_json(value),
-        Yaml::Sequence(items) => Value::Array(items.iter().map(to_json).collect()),
-        Yaml::Mapping(entries) => {
+    }
+}
+
+/// The nodes an alias may copy in one load, as saphyr's loader allows by default: an alias
+/// copies the anchored node, so nested anchors can grow exponentially (ADR 0279's table).
+const ALIAS_BUDGET: usize = 100_000;
+
+/// Builds [`Node`]s from saphyr-parser's events, as saphyr's `YamlLoader` builds its `Yaml` but
+/// keeping a mapping's repeated keys.
+struct Tree<'a> {
+    open: Vec<(Open<'a>, usize)>,
+    anchors: HashMap<usize, Node<'a>>,
+    documents: Vec<Node<'a>>,
+    /// The document's root once its last event is in.
+    root: Option<Node<'a>>,
+    alias_budget: usize,
+    error: Option<String>,
+}
+
+/// A collection whose end event has not come yet.
+enum Open<'a> {
+    Sequence(Vec<Node<'a>>),
+    /// The entries so far and a key waiting for its value.
+    Mapping(Vec<(Node<'a>, Node<'a>)>, Option<Node<'a>>),
+}
+
+impl Default for Tree<'_> {
+    fn default() -> Self {
+        Tree {
+            open: Vec::new(),
+            anchors: HashMap::new(),
+            documents: Vec::new(),
+            root: None,
+            alias_budget: ALIAS_BUDGET,
+            error: None,
+        }
+    }
+}
+
+impl<'a> saphyr_parser::EventReceiver<'a> for Tree<'a> {
+    fn on_event(&mut self, event: Event<'a>) {
+        if self.error.is_some() {
+            return;
+        }
+        match event {
+            Event::Scalar(text, style, anchor, tag) => {
+                self.add(Node::Scalar(text, style, tag), anchor)
+            }
+            Event::SequenceStart(anchor, _) => self.open.push((Open::Sequence(Vec::new()), anchor)),
+            Event::MappingStart(anchor, _) => {
+                self.open.push((Open::Mapping(Vec::new(), None), anchor));
+            }
+            Event::SequenceEnd | Event::MappingEnd => {
+                let (open, anchor) = self
+                    .open
+                    .pop()
+                    .expect("the parser ends only what it started");
+                let node = match open {
+                    Open::Sequence(items) => Node::Sequence(items),
+                    Open::Mapping(entries, _) => Node::Mapping(entries),
+                };
+                self.add(node, anchor);
+            }
+            Event::Alias(anchor) => {
+                // the parser fails on an unknown anchor, so a missing one is not reached
+                let node = self.anchors.get(&anchor).cloned().unwrap_or(Node::Null);
+                if !node.take_size(&mut self.alias_budget) {
+                    self.error = Some(
+                        "alias expansion exceeded the maximum node budget (possible billion-laughs attack)"
+                            .to_owned(),
+                    );
+                    return;
+                }
+                self.add(node, 0);
+            }
+            Event::DocumentEnd => {
+                let root = self.root.take().unwrap_or(Node::Null);
+                self.documents.push(root);
+            }
+            Event::Nothing | Event::StreamStart | Event::StreamEnd | Event::DocumentStart(_) => {}
+        }
+    }
+}
+
+impl<'a> Tree<'a> {
+    /// Puts a finished node in its collection, or makes it the document's root.
+    fn add(&mut self, node: Node<'a>, anchor: usize) {
+        // the parser numbers anchors from 1
+        if anchor > 0 {
+            self.anchors.insert(anchor, node.clone());
+        }
+        match self.open.last_mut() {
+            None => self.root = Some(node),
+            Some((Open::Sequence(items), _)) => items.push(node),
+            Some((Open::Mapping(_, key @ None), _)) => *key = Some(node),
+            Some((Open::Mapping(entries, key @ Some(_)), _)) => {
+                let key = key.take().expect("matched as some");
+                entries.push((key, node));
+            }
+        }
+    }
+}
+
+/// A YAML node as the JSON value Bun gives: keys as strings, numbers JSON cannot hold (`.inf`,
+/// `.nan`) as null, a repeated key's last value. Each merge key (`<<`, quoted or not, or through an
+/// alias) whose value is a mapping or a sequence is expanded, the sequence's items that are not
+/// mappings dropped, with the mapping's own keys winning and an earlier merged mapping winning over
+/// a later one; with any other value it is the ordinary key `<<`. No role file field reads a
+/// number, so the numbers' exact text does not matter.
+fn to_json(node: &Node<'_>) -> Value {
+    match node {
+        Node::Scalar(text, style, tag) => scalar_to_json(&scalar(text, *style, tag.as_deref())),
+        Node::Sequence(items) => Value::Array(items.iter().map(to_json).collect()),
+        Node::Mapping(entries) => {
             let mut own = Map::new();
             let mut merged = Vec::new();
             for (key, value) in entries {
-                let merge_key = is_merge_key(key);
-                let key = key_text(key);
-                match (merge_key, to_json(value)) {
+                match (is_merge_key(key), to_json(value)) {
                     (true, Value::Object(map)) => merged.push(map),
-                    (true, Value::Array(items)) if items.iter().all(Value::is_object) => {
+                    (true, Value::Array(items)) => {
                         merged.extend(items.into_iter().filter_map(|item| match item {
                             Value::Object(map) => Some(map),
                             _ => None,
                         }));
                     }
                     (_, value) => {
-                        own.insert(key.into_owned(), value);
+                        own.insert(key_text(key).into_owned(), value);
                     }
                 }
             }
@@ -325,19 +453,15 @@ fn to_json(node: &Yaml<'_>) -> Value {
             }
             Value::Object(own)
         }
-        Yaml::Tagged(_, node) => to_json(node),
-        Yaml::Alias(_) | Yaml::BadValue => Value::Null,
+        Node::Null => Value::Null,
     }
 }
 
-/// Whether the YAML key itself is the scalar `<<`. A collection such as `[<<]` becomes the same
-/// JavaScript object key after string conversion, but Bun treats it as an ordinary key.
-fn is_merge_key(key: &Yaml<'_>) -> bool {
-    match key {
-        Yaml::Representation(text, _, _) | Yaml::Value(Scalar::String(text)) => text == "<<",
-        Yaml::Tagged(_, node) => is_merge_key(node),
-        _ => false,
-    }
+/// Whether the YAML key itself is the scalar `<<`, whatever its style and tag. A collection such as
+/// `[<<]` becomes the same JavaScript object key after string conversion, but Bun treats it as an
+/// ordinary key.
+fn is_merge_key(key: &Node<'_>) -> bool {
+    matches!(key, Node::Scalar(text, _, _) if text == "<<")
 }
 
 /// A scalar typed as Bun 1.4.4 types it: a quoted or block scalar is a string whatever its tag; a
@@ -377,9 +501,9 @@ fn scalar_to_json(scalar: &Scalar<'_>) -> Value {
 /// string as it is; a sequence its items joined with `,`, a null item as nothing; a mapping
 /// `[object Object]`. No role file field is named by a number, so a number's exact text does not
 /// matter (JSON's is used).
-fn key_text<'a>(key: &'a Yaml<'_>) -> Cow<'a, str> {
+fn key_text<'a>(key: &'a Node<'_>) -> Cow<'a, str> {
     match key {
-        Yaml::Representation(text, _, _) | Yaml::Value(Scalar::String(text)) => Cow::Borrowed(text),
+        Node::Scalar(text, _, _) => Cow::Borrowed(text),
         other => Cow::Owned(js_string(&to_json(other))),
     }
 }

@@ -604,6 +604,94 @@ fn does_not_expand_a_sequence_key_that_stringifies_to_merge() {
     assert!(!role.may_spawn(&RoleOverride::default()));
 }
 
+// Review regression (codex review aa300c3c): each expected value is what TypeScript's
+// `discoverAgents` printed under Bun 1.4.4 for the same file, with no warning. A merge sequence
+// drops the items that are not mappings and expands the rest; every merge key of a mapping is
+// expanded, an earlier one winning, though saphyr's own mapping keeps only the last of equal keys;
+// a merge key reached through an alias counts as one; a merge key whose value is neither a mapping
+// nor a sequence stays the ordinary key "<<". Bun printed these frontmatters as
+// {"name":"mergescalar","edits":false}, {"name":"mergetwice","model":"a","edits":false,
+// "interactive":true}, {"name":"mergealias","k":"<<","edits":false,"interactive":true,
+// "worktree":true} and {"name":"mergeplain","<<":5,"edits":false}.
+#[test]
+fn expands_every_merge_key_and_the_mappings_of_a_merge_sequence_as_bun_does() {
+    let fixture = fixture(
+        &[
+            (
+                "mergescalar.md",
+                "---\nname: mergescalar\n<<: [1, {edits: false}, [2], null]\n---\nx",
+            ),
+            (
+                "mergetwice.md",
+                "---\nname: mergetwice\n<<: {edits: false, model: a}\n<<: {interactive: true, model: b}\n---\nx",
+            ),
+            (
+                "mergealias.md",
+                "---\nname: mergealias\nk: &k <<\n*k : {edits: false}\n<<: {interactive: true}\n\"<<\": {worktree: true}\n---\nx",
+            ),
+            (
+                "mergeplain.md",
+                "---\nname: mergeplain\n<<: 5\n<<: {edits: false}\n<<: [3]\n---\nx",
+            ),
+        ],
+        &[],
+    );
+    let dirs = AgentDirs {
+        bundled: "/nonexistent".into(),
+        user: "/nonexistent".into(),
+    };
+    let mut warnings = Vec::new();
+    let agents = discover_agents(&fixture.cwd, &mut warnings, &dirs);
+    assert_eq!(warnings, Vec::<String>::new());
+    let read = |name: &str| {
+        let role = find(&agents, name);
+        (
+            role.edits,
+            role.interactive,
+            role.model.as_deref(),
+            role.worktree,
+        )
+    };
+    assert_eq!(read("mergescalar"), (Some(false), None, None, None));
+    assert_eq!(
+        read("mergetwice"),
+        (Some(false), Some(true), Some("a"), None)
+    );
+    assert_eq!(
+        read("mergealias"),
+        (Some(false), Some(true), None, Some(true))
+    );
+    assert_eq!(read("mergeplain"), (Some(false), None, None, None));
+}
+
+// Not in ADR 0247's Bun tests: an alias expanding past 100000 nodes (six levels of ten) fails to
+// read, as ADR 0279's table says saphyr's loader does, so the file is skipped with a warning and
+// the bundled role of the same name, if any, stays. Bun reads it by sharing the objects.
+#[test]
+fn skips_a_role_file_whose_aliases_expand_past_the_node_budget() {
+    let mut yaml = String::from("---\nname: laughs\nl0: &l0 [x, x, x, x, x, x, x, x, x, x]\n");
+    for level in 1..=6 {
+        let below = format!("*l{}", level - 1);
+        let items = [below.as_str(); 10].join(", ");
+        yaml.push_str(&format!("l{level}: &l{level} [{items}]\n"));
+    }
+    yaml.push_str("---\nx");
+    let fixture = fixture(&[("laughs.md", &yaml)], &[]);
+    let dirs = AgentDirs {
+        bundled: "/nonexistent".into(),
+        user: "/nonexistent".into(),
+    };
+    let mut warnings = Vec::new();
+    let agents = discover_agents(&fixture.cwd, &mut warnings, &dirs);
+    assert!(agents.iter().all(|role| role.name != "laughs"));
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].starts_with("fleet: skipping invalid role file ")
+            && warnings[0].contains("laughs.md: "),
+        "{warnings:?}"
+    );
+}
+
 // Not in agents.test.ts: a key that is not a string becomes JavaScript's `String()` of it, as in
 // Bun 1.4.4 (ADR 0279's "文字列でないキー"): a sequence is its items joined with `,`, a null item
 // written as nothing, a nested sequence flattened the same way, a mapping `[object Object]`. Bun
