@@ -89,12 +89,14 @@ impl OpencodeCli {
     pub async fn service_running(&self) -> bool;
 }
 pub async fn opencode_api_get(options: OpencodeCliOptions, path: &str) -> Result<serde_json::Value, OpencodeError>;
+pub const MODEL_REPLY_BYTES: usize = 8 * 1024 * 1024;
 ```
 
+- `opencode_api_get` は `options` をそのまま使う。TypeScript の `opencodeApiGet` は、`maxReplyBytes` が指定されていなければモデル一覧の上限(8 MiB)を入れる(`server/opencode-cli.ts:178`)が、Rust の `OpencodeCliOptions` はすべての項目に値を持ち、指定の有無を区別できない。そのため、モデル一覧を読む L4(#258)が `max_reply_bytes` に `MODEL_REPLY_BYTES` を入れる
 - trait は置かない。会話の読み取りが受ける trait は transcript の `OpencodeApi` で、core がこの client を包む(ADR `0107-crate-split` の 59 行目)。child-process にも trait を置くと、同じ形の trait が 2 つになる
 - エラーの形は transcript の `OpencodeError`(`Http { status, tag }` と `Other`)と同じにし、core の変換を項目の写しだけにする
 - 関数は async にする。runner が tokio の上で動くため。transcript の trait は同期なので、core は `spawn_blocking` の中から tokio の `Handle::block_on` で呼ぶ
-- `get` の返り値の `serde_json::Value` のために、child-process に serde_json が要る。manifest の直しは #277 で行い、#246 はそれを待つ。#277 のあと、テストが安全上の判定の表を読む小さな JSON の関数(`tests/common/json.rs`)を serde_json に替えるかは、#246 の PR で決める
+- `get` の返り値の `serde_json::Value` のために、child-process に serde_json が要る。#277 が manifest に足した(ADR `0277-child-process-serde-json`)。そのあと、テストが安全上の判定の表を読むのも、テストの中で書いた小さな JSON の関数から serde_json に替えた
 
 ## 検討した代わり
 
@@ -103,18 +105,18 @@ pub async fn opencode_api_get(options: OpencodeCliOptions, path: &str) -> Result
 - 上限を超えた出力を、すべて失敗にする(`StreamLimit` を 1 種類にする): setup のコマンドは長い出力の末尾が要り、標準エラーは失敗の文の先頭が要る。どちらも、上限を超えたことで失敗にすると、TypeScript が返していた結果を返せない
 - SIGTERM を process group に送る: TypeScript は子の pid にだけ送る(`child.kill`)。group に送ると、git の alias や setup のコマンドが起動したプロセスまで止まり、振る舞いが変わる。ADR `0242-phase-3-split` も process group を使わないと決めている
 - git の関数が自分で起動する(`git::run(cwd, args)`): 時間の上限、出力の上限、同時に動かす数を呼ぶ側が選べなくなる。L6 は diff の 1 MiB(`DIFF_MAX_BYTES`)と、worktree の削除の長い時間の上限を使う
-- 安全上の判定の表を読むために、#277 を待ってからテストを書く: 表のテストは、テストを先に書く決まり(`.herdr-fleet/standing.md` の「Cutting and checking the work」の 3)の最初の手順で、待つと runner と git の作業も止まる。表は文字列、オブジェクト、配列だけで、JSON を読む関数はテストの中の 194 行(`tests/common/json.rs`)で足りた
+- 安全上の判定の表を読むために、#277 を待ってからテストを書く: 表のテストは、テストを先に書く決まり(`.herdr-fleet/standing.md` の「Cutting and checking the work」の 3)の最初の手順で、待つと runner と git の作業も止まる。#277 を待つ間は、テストの中の小さな JSON の関数(194 行)で表を読み、#277 のあとに serde_json に替えた
 
 ## 依存
 
-なし(外部 crate を足さない)。child-process への serde_json の追加は #277 が行う。serde_json はすでに workspace の依存にある。
+なし(外部 crate を足さない)。child-process への serde_json の追加は #277 が行った。serde_json はすでに workspace の依存にあった。
 
 ## 結果
 
 - C2、L3、L4、L6 は、子プロセスを `Runner::run` か `Runner::session` で動かす。環境変数の方針、時間の上限は `Command::new` で必ず書く
 - 使用量の probe、モデル一覧、git、`gh`、setup のコマンドは、時間の上限で SIGTERM のあと SIGKILL を受ける。TypeScript の `server/fleet/thread.ts`、`server/fleet/github.ts`、`server/files.ts`、使用量の probe、モデル一覧は SIGTERM を 1 回送るだけだった。この違いの根拠は `server/opencode-cli.ts:119-122` の注記で、probe とモデル一覧については ADR `0242-phase-3-split` が決めている。git、`gh`、setup のコマンドに当てるのは、runner を 1 つにした結果である
 - git と `gh` の標準出力にも既定の上限 `Fail(8 MiB)` がかかる。TypeScript は上限を置かない。8 MiB を超えうる読み取り(大きな diff など)は、L6 が `stdout_limit` で上限を選ぶ
-- #277 がマージされるまで、`opencode` の module には stub を置けない。#246 は #277 を待つ
+- `opencode` の module の関数の中身は `todo!("#253")` の stub で、C2(#253)が書く
 
 ## 確かめたこと
 

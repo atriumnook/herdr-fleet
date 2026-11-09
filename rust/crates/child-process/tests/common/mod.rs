@@ -5,8 +5,6 @@
 // Each test binary uses a part of this module.
 #![allow(dead_code)]
 
-pub mod json;
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};

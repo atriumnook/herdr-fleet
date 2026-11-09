@@ -15,25 +15,26 @@ use std::fs;
 use std::path::PathBuf;
 
 use common::TempDir;
-use common::json::{self, Json};
 use herdr_fleet_child_process::{Env, child_env, claude_env, empty_work_dir};
+use serde_json::Value;
 
 /// The cases of `fixtures/security/child-process/<name>.json`.
-fn table(name: &str) -> Vec<Json> {
+fn table(name: &str) -> Vec<Value> {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../fixtures/security/child-process")
         .join(format!("{name}.json"));
     let text =
         fs::read_to_string(&path).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
-    let value = json::parse(&text).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
+    let value: Value =
+        serde_json::from_str(&text).unwrap_or_else(|error| panic!("{}: {error}", path.display()));
     value
         .as_array()
         .expect("a table is an array of cases")
-        .to_vec()
+        .clone()
 }
 
 /// An environment written as a JSON object, as the tables write one.
-fn env_of(value: &Json) -> Env {
+fn env_of(value: &Value) -> Env {
     value
         .as_object()
         .expect("an environment is an object")
@@ -47,9 +48,9 @@ fn env_of(value: &Json) -> Env {
         .collect()
 }
 
-fn about(case: &Json) -> &str {
+fn about(case: &Value) -> &str {
     case.get("about")
-        .and_then(Json::as_str)
+        .and_then(Value::as_str)
         .expect("a case has its about")
 }
 
@@ -86,27 +87,6 @@ fn claude_env_passes_every_case_of_its_table() {
         let expected = env_of(case.get("expected").expect("a case has its expected value"));
         assert_eq!(claude_env(&env), expected, "{}", about(case));
     }
-}
-
-/// Reads what the tables hold, so a reader that dropped an escape would not pass a table by chance.
-#[test]
-fn the_table_reader_reads_json() {
-    let text =
-        r#" [ {"about": "a \"q\" é 😀", "input": {"env": {}, "n": [1, -2.5e3, true, null]}} ] "#;
-    let value = json::parse(text).unwrap();
-    let case = &value.as_array().unwrap()[0];
-    assert_eq!(about(case), "a \"q\" é 😀");
-    assert_eq!(
-        case.get("input").unwrap().get("n").unwrap(),
-        &Json::Array(vec![
-            Json::Number("1".into()),
-            Json::Number("-2.5e3".into()),
-            Json::Bool(true),
-            Json::Null
-        ])
-    );
-    assert!(json::parse("[1,]").is_err());
-    assert!(json::parse("{\"a\":1} x").is_err());
 }
 
 /// A name that is not UTF-8 is kept by no rule (each rule names text), and a kept name's value
