@@ -211,3 +211,28 @@ fn a_link_named_with_a_trailing_slash_is_refused() {
     assert!(empty_work_dir(&root.join("work").join("..")).is_err());
     assert!(root.join("elsewhere").join("keep.txt").exists());
 }
+
+/// An entry that cannot be removed does not keep the others: they are removed, and the error is
+/// still returned (`/code-review high`, third pass).
+#[cfg(unix)]
+#[test]
+fn an_entry_that_cannot_be_removed_keeps_no_other() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let root = TempDir::new("work-dir-stuck");
+    let dir = root.join("work");
+    empty_work_dir(&dir).unwrap();
+    for n in 0..20 {
+        fs::write(dir.join(format!("left-{n:02}.txt")), "x").unwrap();
+    }
+    fs::create_dir(dir.join("stuck")).unwrap();
+    fs::write(dir.join("stuck").join("inside"), "x").unwrap();
+    fs::set_permissions(dir.join("stuck"), fs::Permissions::from_mode(0o555)).unwrap();
+    let outcome = empty_work_dir(&dir);
+    fs::set_permissions(dir.join("stuck"), fs::Permissions::from_mode(0o755)).unwrap();
+    assert!(outcome.is_err());
+    let left: Vec<_> = fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(left, vec![OsString::from("stuck")]);
+}

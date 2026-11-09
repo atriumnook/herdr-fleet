@@ -940,3 +940,21 @@ async fn a_session_keeps_the_reason_it_first_failed_with() {
     assert!(matches!(again, Err(RunError::TimedOut)), "{again:?}");
     session.close().await;
 }
+
+/// Many short lines that come in one read are handed out one by one, in order.
+#[tokio::test]
+async fn many_short_lines_in_one_read_come_out_in_order() {
+    let dir = TempDir::new("session-many-lines");
+    let program = fake(dir.path(), "cli", "seq 1 20000");
+    let mut session = Runner::new(1)
+        .session(command(&program, &dir), &CancellationToken::new())
+        .await
+        .unwrap();
+    let mut count = 0;
+    while let Some(line) = session.next_line().await.unwrap() {
+        count += 1;
+        assert_eq!(line, count.to_string());
+    }
+    assert_eq!(count, 20000);
+    session.close().await;
+}

@@ -47,24 +47,25 @@ pub fn empty_work_dir(dir: &Path) -> io::Result<()> {
         use std::os::unix::fs::PermissionsExt as _;
         fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
     }
+    // an entry that cannot be removed keeps no other: the first error is returned at the end
+    let mut first_error = None;
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        // gone since the folder was listed: nothing left to remove
-        let kind = match entry.file_type() {
-            Ok(kind) => kind,
-            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
-            Err(error) => return Err(error),
-        };
-        let removed = if kind.is_dir() {
-            fs::remove_dir_all(&path)
-        } else {
-            fs::remove_file(&path)
-        };
+        let removed = entry.file_type().and_then(|kind| {
+            if kind.is_dir() {
+                fs::remove_dir_all(&path)
+            } else {
+                fs::remove_file(&path)
+            }
+        });
         match removed {
-            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error),
+            // gone since the folder was listed: nothing left to remove
+            Err(error) if error.kind() != io::ErrorKind::NotFound => {
+                first_error.get_or_insert(error);
+            }
             _ => {}
         }
     }
-    Ok(())
+    first_error.map_or(Ok(()), Err)
 }

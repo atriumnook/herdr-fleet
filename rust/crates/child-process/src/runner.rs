@@ -341,6 +341,7 @@ impl Runner {
             stdin,
             stdout,
             buffer: Vec::new(),
+            start: 0,
             scanned: 0,
             chunk: vec![0; 64 * 1024].into_boxed_slice(),
             max_line: command.stdout_limit.bytes(),
@@ -562,9 +563,11 @@ async fn watch_session(
 pub struct Session {
     stdin: Option<ChildStdin>,
     stdout: ChildStdout,
-    /// what has been read past the last line returned
+    /// what has been read; the lines handed out end at `start`
     buffer: Vec<u8>,
-    /// how much of `buffer` holds no newline
+    /// where the next line begins in `buffer`
+    start: usize,
+    /// `buffer[start..scanned]` holds no newline
     scanned: usize,
     /// where a read lands before it joins `buffer`
     chunk: Box<[u8]>,
@@ -616,17 +619,20 @@ impl Session {
                 .iter()
                 .position(|&byte| byte == b'\n');
             let end = newline.map_or(self.buffer.len(), |at| self.scanned + at);
-            if end > self.max_line {
+            if end - self.start > self.max_line {
                 self.ended = Some(Ended::TooLarge);
                 self.killing.cancel();
                 return self.check().map(|()| None);
             }
             if newline.is_some() {
-                let line = String::from_utf8_lossy(&self.buffer[..end]).into_owned();
-                self.buffer.drain(..=end);
-                self.scanned = 0;
+                let line = String::from_utf8_lossy(&self.buffer[self.start..end]).into_owned();
+                self.start = end + 1;
+                self.scanned = self.start;
                 return Ok(Some(line));
             }
+            // the lines handed out leave the buffer once per read, not once per line
+            self.buffer.drain(..self.start);
+            self.start = 0;
             self.scanned = self.buffer.len();
             let state = &mut self.state;
             let n = tokio::select! {
