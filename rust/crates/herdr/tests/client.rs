@@ -61,6 +61,20 @@ mod marker {
         assert_eq!(marker_owner("abc:1"), None);
     }
 
+    // the pid is read as JavaScript's Number reads it (values from `Number(text)` in Bun 1.4.4)
+    #[test]
+    fn reads_the_pid_as_javascripts_number_does() {
+        let pid = |marker: &str| marker_owner(marker).map(|owner| owner.pid);
+        assert_eq!(pid("0x1A:1"), Some(26));
+        assert_eq!(pid("0o17:1"), Some(15));
+        assert_eq!(pid("0b11:1"), Some(3));
+        assert_eq!(pid("1e3:1"), Some(1000));
+        assert_eq!(pid("+12:1"), Some(12));
+        assert_eq!(pid("1_0:1"), None);
+        assert_eq!(pid("-0x1A:1"), None);
+        assert_eq!(pid("0x:1"), None);
+    }
+
     // server/herdr-marker.test.ts: "reads the process the probe printed, and none from an empty answer"
     #[test]
     fn reads_the_process_the_probe_printed() {
@@ -291,6 +305,25 @@ mod rpc {
             panic!("expected pane_info, got {result:?}");
         };
         assert_eq!(info.pane.terminal_id, "term-é");
+    }
+
+    // a frame of several megabytes arrives in many reads
+    #[tokio::test]
+    async fn reads_a_frame_of_several_megabytes() {
+        let long = "x".repeat(4 * 1024 * 1024);
+        let fake = FakeHerdr::start({
+            let long = long.clone();
+            move |request| {
+                let mut result = pane_info();
+                result["pane"]["terminal_id"] = serde_json::Value::String(long.clone());
+                Reply::result(request, result)
+            }
+        });
+        let herdr = Herdr::new(fake.socket());
+
+        let answer = herdr.call::<methods::PaneGet>(pane_get()).await.unwrap();
+
+        assert_eq!(answer.pane.terminal_id.len(), long.len());
     }
 
     #[tokio::test]
@@ -1126,7 +1159,10 @@ mod live {
                 }
                 tokio::time::sleep(Duration::from_millis(250)).await;
             }
-            assert!(ready, "pi became ready within 30 s");
+            if !ready {
+                // returned, not asserted: the workspace below is closed either way
+                return Err("pi did not become ready within 30 s".into());
+            }
             called.insert("agent.get");
             herdr
                 .call::<methods::AgentFocus>(params(serde_json::json!({ "target": name })))
@@ -1160,19 +1196,22 @@ mod live {
 
             // worktree.create, in a fresh repository
             let repo = dir.join("repo");
-            let git = |args: &[&str]| {
+            let git = |args: &[&str]| -> Result<(), Box<dyn std::error::Error>> {
                 let status = std::process::Command::new("git")
                     .args(["-c", "core.fsmonitor=false"])
                     .args(args)
-                    .status()
-                    .expect("run git");
-                assert!(status.success(), "git {args:?}");
+                    .status()?;
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(format!("git {args:?}: {status}").into())
+                }
             };
-            git(&["init", "-q", &repo.to_string_lossy()]);
+            git(&["init", "-q", &repo.to_string_lossy()])?;
             git(&[
                 "-C", &repo.to_string_lossy(), "-c", "user.email=e2e@example.invalid", "-c",
                 "user.name=e2e", "commit", "-q", "--allow-empty", "-m", "init",
-            ]);
+            ])?;
             let worktree = herdr
                 .call::<methods::WorktreeCreate>(params(serde_json::json!({
                     "cwd": repo, "branch": "fleet/t1", "label": "client-table-worktree",
@@ -1181,13 +1220,15 @@ mod live {
                 .await?;
             called.insert("worktree.create");
             close_workspace(&herdr, &worktree.workspace.workspace_id).await;
-            Ok::<(), herdr_fleet_herdr::HerdrError>(())
+            Ok::<(), Box<dyn std::error::Error>>(())
         }
         .await;
 
         close_workspace(&herdr, &workspace_id).await;
         let _ = std::fs::remove_dir_all(&dir);
-        result.unwrap();
+        if let Err(error) = result {
+            panic!("{error}");
+        }
         let table: BTreeSet<&str> = ANSWERS.iter().map(|(method, _)| *method).collect();
         assert_eq!(called, table, "every method of the table, and only those");
     }

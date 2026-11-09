@@ -51,7 +51,24 @@ fn js_positive_integer(text: &str) -> Option<u32> {
     if text.is_empty() {
         return None;
     }
-    let value: f64 = text.parse().ok()?;
+    // `Number` also reads 0x, 0o and 0b integers (unsigned); Rust's f64 parse does not
+    let radix = match text.get(..2) {
+        Some("0x" | "0X") => Some(16),
+        Some("0o" | "0O") => Some(8),
+        Some("0b" | "0B") => Some(2),
+        _ => None,
+    };
+    let value: f64 = match radix {
+        Some(radix) => {
+            let digits = &text[2..];
+            if digits.is_empty() || !digits.chars().all(|c| c.is_digit(radix)) {
+                return None;
+            }
+            // a pid beyond u32 is refused below, so a digit string too long for u64 is too
+            u64::from_str_radix(digits, radix).ok()? as f64
+        }
+        None => text.parse().ok()?,
+    };
     if !value.is_finite() || value.fract() != 0.0 || value < 1.0 || value > f64::from(u32::MAX) {
         return None;
     }

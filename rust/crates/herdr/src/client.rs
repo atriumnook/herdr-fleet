@@ -78,18 +78,22 @@ impl Herdr {
                 self.socket_path.display()
             ))
         })?;
-        stream
-            .write_all(request.as_bytes())
-            .await
-            .map_err(socket_error)?;
+        if let Err(error) = stream.write_all(request.as_bytes()).await {
+            // herdr closed the connection before it read the request: Bun's write does not
+            // fail there, and its close handler reports `closed`
+            return Err(match error.kind() {
+                std::io::ErrorKind::BrokenPipe | std::io::ErrorKind::ConnectionReset => {
+                    closed_before_answer(method)
+                }
+                _ => socket_error(error),
+            });
+        }
         let mut lines = LineReader::default();
         let mut chunk = vec![0u8; 64 * 1024];
         loop {
             let read = stream.read(&mut chunk).await.map_err(socket_error)?;
             if read == 0 {
-                return Err(HerdrError::Closed(format!(
-                    "herdr closed the connection before answering {method}"
-                )));
+                return Err(closed_before_answer(method));
             }
             // the first frame answers; the connection is dropped (closed) with the rest
             if let Some(line) = lines.push(&chunk[..read]).into_iter().next() {
@@ -97,6 +101,12 @@ impl Herdr {
             }
         }
     }
+}
+
+fn closed_before_answer(method: &str) -> HerdrError {
+    HerdrError::Closed(format!(
+        "herdr closed the connection before answering {method}"
+    ))
 }
 
 fn socket_error(error: std::io::Error) -> HerdrError {
@@ -191,6 +201,17 @@ pub(crate) async fn connect(socket_path: &Path) -> std::io::Result<Stream> {
 
 #[cfg(windows)]
 pub(crate) async fn connect(socket_path: &Path) -> std::io::Result<Stream> {
-    tokio::net::windows::named_pipe::ClientOptions::new()
-        .open(crate::socket::pipe_name(socket_path))
+    // every instance of the pipe is serving another client: wait for one to free up, as tokio's
+    // named pipe documentation does (the call's time limit bounds the wait; a subscription's
+    // owner ends it by dropping the stream)
+    const ERROR_PIPE_BUSY: i32 = 231;
+    let name = crate::socket::pipe_name(socket_path);
+    loop {
+        match tokio::net::windows::named_pipe::ClientOptions::new().open(&name) {
+            Err(error) if error.raw_os_error() == Some(ERROR_PIPE_BUSY) => {
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            result => return result,
+        }
+    }
 }
