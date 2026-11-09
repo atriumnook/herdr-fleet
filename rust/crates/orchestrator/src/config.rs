@@ -224,10 +224,11 @@ pub fn merge_config(base: &FleetConfig, raw: &Map<String, Value>) -> FleetConfig
 /// `.herdr-fleet/fleet.json`. A file that cannot be read or is not a JSON object is skipped with
 /// a warning; a missing one silently.
 pub fn load_config(cwd: &Path, warnings: &mut Vec<String>, user_dir: &Path) -> FleetConfig {
-    let user = read_json(&user_dir.join("fleet.json"), warnings);
+    // the project's file is read first, as in TypeScript, so its warning comes first
     let mut project = find_project_path(cwd, "fleet.json")
         .map(|file| read_json(&file, warnings))
         .unwrap_or_default();
+    let user = read_json(&user_dir.join("fleet.json"), warnings);
     // the project's file comes with the repository: it may tune roles, never name a command to run
     project.remove("projects");
     merge_config(&merge_config(&FleetConfig::default(), &user), &project)

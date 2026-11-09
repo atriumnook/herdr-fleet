@@ -470,3 +470,29 @@ fn lists_a_roles_candidates_primary_first_without_repeating_it() {
         ]
     );
 }
+
+// Not in config.test.ts: TypeScript's `loadConfig` reads the project's file before the user's
+// (`config.ts:120-121`), so with both broken Bun 1.4.4 printed the warnings
+// ["fleet: ignoring <repo>/.herdr-fleet/fleet.json: expected a JSON object",
+//  "fleet: ignoring invalid JSON in <user>/fleet.json: JSON Parse error: Expected '}'"].
+#[test]
+fn warns_about_the_projects_file_before_the_users() {
+    let fixture = fixture(Some("{not json"), Some("[1]"));
+    let mut warnings = Vec::new();
+    load(&fixture, &mut warnings);
+    let repo = fixture.cwd.parent().unwrap().parent().unwrap();
+    let project = repo.join(".herdr-fleet").join("fleet.json");
+    assert_eq!(warnings.len(), 2, "{warnings:?}");
+    assert_eq!(
+        warnings[0],
+        format!(
+            "fleet: ignoring {}: expected a JSON object",
+            project.display()
+        )
+    );
+    let user = format!(
+        "fleet: ignoring invalid JSON in {}: ",
+        fixture.user_dir.join("fleet.json").display()
+    );
+    assert!(warnings[1].starts_with(&user), "{warnings:?}");
+}
