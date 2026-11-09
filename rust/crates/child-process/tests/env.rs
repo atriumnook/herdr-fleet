@@ -185,3 +185,29 @@ fn a_file_in_its_place_is_refused() {
     assert!(empty_work_dir(&root.join("work")).is_err());
     assert_eq!(fs::read_to_string(root.join("work")).unwrap(), "x");
 }
+
+/// A link named with a `/` or `/.` after it is still refused, and what it points at stays: the
+/// OS would look through the link (codex's review of #280; TypeScript's `lstatSync` has the same
+/// gap).
+#[cfg(unix)]
+#[test]
+fn a_link_named_with_a_trailing_slash_is_refused() {
+    use std::os::unix::fs::PermissionsExt as _;
+    let root = TempDir::new("work-dir-link-slash");
+    fs::create_dir(root.join("elsewhere")).unwrap();
+    fs::set_permissions(root.join("elsewhere"), fs::Permissions::from_mode(0o755)).unwrap();
+    fs::write(root.join("elsewhere").join("keep.txt"), "x").unwrap();
+    std::os::unix::fs::symlink(root.join("elsewhere"), root.join("work")).unwrap();
+    let link = root.join("work").display().to_string();
+    for named in [format!("{link}/"), format!("{link}/."), format!("{link}//")] {
+        assert!(
+            empty_work_dir(std::path::Path::new(&named)).is_err(),
+            "{named}"
+        );
+        assert!(root.join("elsewhere").join("keep.txt").exists(), "{named}");
+        assert_eq!(mode(&root.join("elsewhere")), 0o755, "{named}");
+    }
+    // a name that ends in `..` names another folder than the one written: refused
+    assert!(empty_work_dir(&root.join("work").join("..")).is_err());
+    assert!(root.join("elsewhere").join("keep.txt").exists());
+}

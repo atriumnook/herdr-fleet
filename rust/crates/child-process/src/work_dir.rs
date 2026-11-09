@@ -3,7 +3,7 @@
 
 use std::fs;
 use std::io;
-use std::path::Path;
+use std::path::{Component, Path, PathBuf};
 
 /// Makes the folder (0700) or empties it, so what a run before left behind is not read by the
 /// next. Never the shared temporary folder, where another user could leave a
@@ -12,8 +12,19 @@ use std::path::Path;
 /// one at a time.
 ///
 /// A link or a file in the folder's place is refused (`NotADirectory`) and left as it is: a link
-/// would send the CLI elsewhere. What is inside is removed without following links.
+/// would send the CLI elsewhere, also when its name is written with a `/` after it. What is
+/// inside is removed without following links.
 pub fn empty_work_dir(dir: &Path) -> io::Result<()> {
+    // Without a `/` or `.` after the last name: the OS would look through a link named so. A name
+    // that ends in `..` (or a root) names another folder than the one written, and is refused.
+    if !matches!(dir.components().next_back(), Some(Component::Normal(_))) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{} does not end in a folder's name", dir.display()),
+        ));
+    }
+    let dir: PathBuf = dir.components().collect();
+    let dir = dir.as_path();
     let mut builder = fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]

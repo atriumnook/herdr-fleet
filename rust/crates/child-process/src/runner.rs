@@ -17,7 +17,8 @@ use std::time::Duration;
 
 use tokio::io::{AsyncRead, AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::process::{Child, ChildStdin, ChildStdout};
-use tokio::sync::{OwnedSemaphorePermit, Semaphore};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore, watch};
+use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep_until};
 use tokio_util::sync::CancellationToken;
 
@@ -321,16 +322,33 @@ impl Runner {
         let mut child = command.spawn(Stdio::piped(), Stdio::null())?;
         let stdin = child.stdin.take();
         let stdout = child.stdout.take().expect("stdout is piped");
-        Ok(Session {
-            stopping: Stopping::new(command.timeout, command.kill_grace),
+        let (state, watching) = watch::channel(Ended::Running);
+        let closing = CancellationToken::new();
+        let killing = CancellationToken::new();
+        let stopping = Stopping::new(command.timeout, command.kill_grace);
+        let deadline = stopping.at;
+        let watcher = tokio::spawn(watch_session(
             child,
+            stopping,
+            cancel.clone(),
+            closing.clone(),
+            killing.clone(),
+            state,
+            slot,
+        ));
+        Ok(Session {
             stdin,
             stdout,
             buffer: Vec::new(),
             scanned: 0,
             max_line: command.stdout_limit.bytes(),
+            ended: None,
+            deadline,
             cancel: cancel.clone(),
-            _slot: slot,
+            state: watching,
+            closing,
+            killing,
+            watcher: Some(watcher),
         })
     }
 }
@@ -455,11 +473,74 @@ async fn write_input(stdin: Option<ChildStdin>, input: &[u8]) -> Result<(), RunE
     Ok(())
 }
 
-/// A child started for an exchange of lines ([`Runner::session`]). Dropped without
-/// [`Session::close`], the child is killed at once.
+/// Why a session ended before `close`; `Running` while it has not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Ended {
+    Running,
+    /// the child ended on its own: what it wrote is still read, to its end
+    Exited,
+    TimedOut,
+    Cancelled,
+    /// a line past the limit: the child is killed
+    TooLarge,
+    /// closed, or dropped
+    Closed,
+}
+
+/// Holds a session's child: stops it at the time limit or on cancel (SIGTERM, then SIGKILL a
+/// grace later), kills it at once when the session found a line too long or was dropped, and
+/// frees the runner's place once the child is reaped or given up. It runs whether the session
+/// reads, writes, or does neither.
+async fn watch_session(
+    mut child: Child,
+    mut stopping: Stopping,
+    cancel: CancellationToken,
+    closing: CancellationToken,
+    killing: CancellationToken,
+    state: watch::Sender<Ended>,
+    _slot: OwnedSemaphorePermit,
+) {
+    let set = |ended: Ended| {
+        state.send_if_modified(|now| {
+            let first = *now == Ended::Running;
+            if first {
+                *now = ended;
+            }
+            first
+        });
+    };
+    let (ended, kill) = tokio::select! {
+        ended = child.wait() => {
+            let _ = ended;
+            set(Ended::Exited);
+            return;
+        }
+        () = until(stopping.at) => (Ended::TimedOut, false),
+        () = cancel.cancelled() => (Ended::Cancelled, false),
+        () = closing.cancelled() => (Ended::Closed, false),
+        () = killing.cancelled() => (Ended::TooLarge, true),
+    };
+    set(ended);
+    let grace = stopping.grace;
+    if kill {
+        let _ = child.start_kill();
+        let _ = tokio::time::timeout(grace, child.wait()).await;
+        return;
+    }
+    // SIGTERM, then SIGKILL a grace later, then given up a grace after that
+    stopping.next(&mut child, RunError::TimedOut);
+    if tokio::time::timeout(grace, child.wait()).await.is_err() {
+        stopping.next(&mut child, RunError::TimedOut);
+        let _ = tokio::time::timeout(grace, child.wait()).await;
+    }
+}
+
+/// A child started for an exchange of lines ([`Runner::session`]). Its time limit and the cancel
+/// stop the child whether the session reads, writes, or does neither; after that, and after a
+/// line past the limit (which kills the child at once), every call fails the same way. Dropped
+/// without [`Session::close`], the child is killed at once.
 #[derive(Debug)]
 pub struct Session {
-    child: Child,
     stdin: Option<ChildStdin>,
     stdout: ChildStdout,
     /// what has been read past the last line returned
@@ -467,9 +548,17 @@ pub struct Session {
     /// how much of `buffer` holds no newline
     scanned: usize,
     max_line: usize,
-    stopping: Stopping,
+    /// set at once when this side ends the session (a line too long), before the watcher has
+    /// seen it
+    ended: Option<Ended>,
+    /// the time limit and the cancel, also checked here: the watcher may not have run yet
+    deadline: Option<Instant>,
     cancel: CancellationToken,
-    _slot: OwnedSemaphorePermit,
+    /// what the watcher saw
+    state: watch::Receiver<Ended>,
+    closing: CancellationToken,
+    killing: CancellationToken,
+    watcher: Option<JoinHandle<()>>,
 }
 
 impl std::fmt::Debug for Stopping {
@@ -491,34 +580,35 @@ impl Session {
         let mut bytes = Vec::with_capacity(line.len() + 1);
         bytes.extend_from_slice(line.as_bytes());
         bytes.push(b'\n');
-        let at = self.stopping.at;
-        tokio::select! {
-            written = async { stdin.write_all(&bytes).await?; stdin.flush().await } => {
-                written.map_err(RunError::Io)
-            }
-            () = until(at) => self.stop(RunError::TimedOut).await,
-            () = self.cancel.cancelled() => self.stop(RunError::Cancelled).await,
+        let state = &mut self.state;
+        let written = tokio::select! {
+            written = async { stdin.write_all(&bytes).await?; stdin.flush().await } => Some(written),
+            // the session ended while the write waited: what it ended with is the answer
+            () = ended(state) => None,
+        };
+        match written {
+            Some(written) => written.map_err(RunError::Io),
+            None => self.check(),
         }
     }
 
     /// The next line the child wrote, without its newline (a last line without one counts too);
-    /// `None` once the child closed its output. A line longer than the stdout limit fails, and so
-    /// does the session past its time limit or once cancelled (the child is then stopped). Bytes
-    /// that are not UTF-8 are replaced with U+FFFD.
+    /// `None` once the child closed its output. A line longer than the stdout limit fails and
+    /// kills the child, and so does the session past its time limit or once cancelled, also with
+    /// lines read before. Bytes that are not UTF-8 are replaced with U+FFFD.
     pub async fn next_line(&mut self) -> Result<Option<String>, RunError> {
-        self.check()?;
         let mut chunk = vec![0; 64 * 1024];
         loop {
+            self.check()?;
             // only the bytes not looked at before: a long line is not scanned again at every read
             let newline = self.buffer[self.scanned..]
                 .iter()
                 .position(|&byte| byte == b'\n');
             let end = newline.map_or(self.buffer.len(), |at| self.scanned + at);
             if end > self.max_line {
-                return Err(RunError::TooLarge {
-                    stream: Stream::Stdout,
-                    limit: self.max_line,
-                });
+                self.ended = Some(Ended::TooLarge);
+                self.killing.cancel();
+                return self.check().map(|()| None);
             }
             if newline.is_some() {
                 let line: Vec<u8> = self.buffer.drain(..=end).collect();
@@ -526,13 +616,14 @@ impl Session {
                 return Ok(Some(String::from_utf8_lossy(&line[..end]).into_owned()));
             }
             self.scanned = self.buffer.len();
-            let at = self.stopping.at;
+            let state = &mut self.state;
             let n = tokio::select! {
                 n = self.stdout.read(&mut chunk) => n.map_err(RunError::Io)?,
-                () = until(at) => return self.stop(RunError::TimedOut).await,
-                () = self.cancel.cancelled() => return self.stop(RunError::Cancelled).await,
+                // the session ended while the read waited: the loop's check says how
+                () = ended(state) => continue,
             };
             if n == 0 {
+                self.check()?;
                 if self.buffer.is_empty() {
                     return Ok(None);
                 }
@@ -549,45 +640,54 @@ impl Session {
     /// child that has not ended, waiting at most two graces.
     pub async fn close(mut self) {
         self.stdin = None;
-        if self.stopping.reason.is_none() {
-            terminate(&mut self.child);
-        }
-        let grace = self.stopping.grace;
-        if tokio::time::timeout(grace, self.child.wait())
-            .await
-            .is_err()
-        {
-            let _ = self.child.start_kill();
-            let _ = tokio::time::timeout(grace, self.child.wait()).await;
+        self.closing.cancel();
+        if let Some(watcher) = self.watcher.take() {
+            let _ = watcher.await;
         }
     }
 
-    /// Fails at once when the session was stopped before.
+    /// Fails when the session has ended: past its time limit, cancelled, or a line too long.
     fn check(&self) -> Result<(), RunError> {
-        match self.stopping.reason {
-            Some(RunError::Cancelled) => Err(RunError::Cancelled),
-            Some(_) => Err(RunError::TimedOut),
-            None => Ok(()),
+        let ended = self.ended.unwrap_or_else(|| {
+            let now = *self.state.borrow();
+            if now != Ended::Running && now != Ended::Exited {
+                now
+            } else if self.cancel.is_cancelled() {
+                Ended::Cancelled
+            } else if self.deadline.is_some_and(|at| Instant::now() >= at) {
+                Ended::TimedOut
+            } else {
+                now
+            }
+        });
+        match ended {
+            Ended::Running | Ended::Exited => Ok(()),
+            Ended::TimedOut => Err(RunError::TimedOut),
+            Ended::Cancelled | Ended::Closed => Err(RunError::Cancelled),
+            Ended::TooLarge => Err(RunError::TooLarge {
+                stream: Stream::Stdout,
+                limit: self.max_line,
+            }),
         }
     }
+}
 
-    /// Stops the child as a run is stopped (SIGTERM, then SIGKILL a grace later, then given up a
-    /// grace after that), and fails with `reason`.
-    async fn stop<T>(&mut self, reason: RunError) -> Result<T, RunError> {
-        let failed = match reason {
-            RunError::Cancelled => RunError::Cancelled,
-            _ => RunError::TimedOut,
-        };
-        self.stdin = None;
-        let grace = self.stopping.grace;
-        self.stopping.next(&mut self.child, reason);
-        if tokio::time::timeout(grace, self.child.wait())
-            .await
-            .is_err()
-        {
-            self.stopping.next(&mut self.child, RunError::TimedOut);
-            let _ = tokio::time::timeout(grace, self.child.wait()).await;
+impl Drop for Session {
+    fn drop(&mut self) {
+        // a session dropped without close: its child is killed at once
+        if self.watcher.is_some() {
+            self.killing.cancel();
         }
-        Err(failed)
+    }
+}
+
+/// Returns once the watcher has seen the session end (not when the child merely exited, whose
+/// output is still read); never when the watcher is gone without that.
+async fn ended(state: &mut watch::Receiver<Ended>) {
+    let ended = state
+        .wait_for(|ended| !matches!(ended, Ended::Running | Ended::Exited))
+        .await;
+    if ended.is_err() {
+        std::future::pending::<()>().await;
     }
 }

@@ -28,7 +28,7 @@ ADR `0242-phase-3-split` の「子プロセス」は、ペインの外で起動�
 
 ### 私用のフォルダー(`work_dir`)
 
-`empty_work_dir(&Path) -> io::Result<()>` は `emptyWorkDir`(`server/cli-child.ts:38`)の写し。0700 で作り(途中のフォルダーも 0700)、すでにあれば 0700 に戻し、中身を消す。フォルダーの場所に symlink かファイルがあれば、`ErrorKind::NotADirectory` で断り、何も消さない。中の symlink は、指す先をたどらずに symlink だけを消す。
+`empty_work_dir(&Path) -> io::Result<()>` は `emptyWorkDir`(`server/cli-child.ts:38`)の写し。0700 で作り(途中のフォルダーも 0700)、すでにあれば 0700 に戻し、中身を消す。フォルダーの場所に symlink かファイルがあれば、`ErrorKind::NotADirectory` で断り、何も消さない。パスの末尾の `/` と `.` は、確かめる前に字句の上で取り除く。末尾に `/` を付けると、OS が symlink の先を見るため(codex のレビューの指摘。TypeScript の `lstatSync` にも同じ穴がある)。末尾が `..` かルートのパスは、書いた名前と別のフォルダーを指すので、`ErrorKind::InvalidInput` で断る。中の symlink は、指す先をたどらずに symlink だけを消す。
 
 ### runner(`runner`)
 
@@ -65,7 +65,7 @@ impl Session {
 - 終了コードが 0 でないことは、エラーにせず `Output` の `code` で返す。`opencode api` は終了コード 1 の本文から HTTP の状態を読み(`server/opencode-cli.ts:151`)、git は失敗の文を `stderr` から読むため
 - 止め方: 時間の上限か取り消しで、子の pid に SIGTERM を rustix の `kill_process` で送る。`kill_grace` 後に SIGKILL(tokio の `start_kill`)、さらに `kill_grace` 後に読み取りをあきらめ、`TimedOut` か `Cancelled` を返す。子が SIGTERM で終わり、出力が閉じれば、その時点で返す。process group には送らない。SIGTERM を送るのは、tokio がまだ子を回収していないとき(`Child::id` が `Some`)だけにする。回収したあとの pid は、別のプロセスのものになっていることがあるため。Windows には SIGTERM がないので、`cfg(not(unix))` では最初の段階から `start_kill` にする
 - `StreamLimit` は、出力を最後まで読み、どれだけ残すかを決める。`Fail(n)` は n バイトを超えたら `TooLarge` で失敗し、すぐに SIGKILL を送る(`server/opencode-cli.ts:131` と同じ)。子が回収されるまで(長くて `kill_grace`)上限の 1 つを返さない。返すと、SIGKILL を受けてまだ回収されていない子が、上限の外で残るため(`/code-review high` の指摘)。`Head(n)` は先頭の n バイト、`Tail(n)` は末尾の n バイトを残す。`Tail` は setup のコマンドの出力の最後の 20 行(`server/fleet/thread.ts:179`)のため。既定の `Fail(8 MiB)` は ADR `0242-phase-3-split` が probe とモデル一覧に決めた値、`Head(4096)` は `server/opencode-cli.ts:128` が標準エラーを読む量。TypeScript は上限を超えた標準エラーを空の文字列にするが、Rust は先頭の 4096 バイトを残す。失敗の文の先頭が読めるほうが、原因を探しやすいため
-- `Session` は `codex app-server` の JSON-RPC(`server/fleet/usage.ts:426`、`server/fleet/model-lists.ts:127`)のための口。時間の上限は、起動から `close` までの全体にかかる(TypeScript の 1 つの `setTimeout` と同じ)。行の長さの上限は、標準出力の `StreamLimit` のバイト数にする。標準エラーは読まずに `/dev/null` に捨てる(TypeScript の `stderr: "ignore"`)。UTF-8 でないバイトは U+FFFD に置き換える。`close` は標準入力を閉じ、すぐに SIGTERM を送り(TypeScript の `finally` の `child.kill()`、`server/fleet/usage.ts:456`)、終わっていない子に `kill_grace` 後に SIGKILL を送る。`close` を呼ばずに落とした `Session` は、tokio の `kill_on_drop` で SIGKILL を受ける。`Session` も、`close` まで `Runner` の上限の 1 つを使う
+- `Session` は `codex app-server` の JSON-RPC(`server/fleet/usage.ts:426`、`server/fleet/model-lists.ts:127`)のための口。時間の上限は、起動から `close` までの全体にかかる(TypeScript の 1 つの `setTimeout` と同じ)。行の長さの上限は、標準出力の `StreamLimit` のバイト数にする。標準エラーは読まずに `/dev/null` に捨てる(TypeScript の `stderr: "ignore"`)。UTF-8 でないバイトは U+FFFD に置き換える。`close` は標準入力を閉じ、すぐに SIGTERM を送り(TypeScript の `finally` の `child.kill()`、`server/fleet/usage.ts:456`)、終わっていない子に `kill_grace` 後に SIGKILL を送る。子は、`Session` が起動する見張りの task が持つ。task は、時間の上限か取り消しで子を run と同じ順で止める。呼ぶ側が読みも書きもしていない間も止まるようにするため(codex のレビューの指摘。最初の形は読み書きを待つ間しか期限を見ず、呼ぶ側が答えを処理している間は子が残った)。期限を過ぎたか取り消されたあとは、それより前に読んで残っている行も渡さず、すべての呼び出しが同じエラーで失敗する。行が上限を超えたら、すぐに SIGKILL を送り、そのあとの呼び出しも `TooLarge` で失敗する。`close` を呼ばずに落とした `Session` の子も、すぐに SIGKILL を受ける。`Session` は、子が回収されるか読み取りをあきらめるまで、`Runner` の上限の 1 つを使う(子が自分で終われば、`close` の前でも返す)
 - 段階 4 のサイドチャットは、`Session` に加えて標準エラーの末尾(`server/side-chat.ts:336-337`)と終了コードを要る。どちらも後から足せる(例: `stderr_limit` に従って標準エラーを返す `Session::finish(self) -> Result<Output, RunError>`)ので、今は足さない
 
 ### git(`git`)
@@ -125,6 +125,7 @@ pub async fn opencode_api_get(options: OpencodeCliOptions, path: &str) -> Result
 
 PC は Linux 7.2.15(omarchy)、rustc 1.99.1、git 2.56.0、`rust/` で実行した。
 
+- codex の reviewer(fleet の run 16ea5ed6)の指摘 3 件(末尾の `/` の symlink、読み書きをしていない間の Session の期限と取り消し、`TooLarge` のあとの子)は、直す前に、足したテスト 4 件(`a_link_named_with_a_trailing_slash_is_refused`、`the_time_limit_stops_an_idle_session`、`a_cancelled_session_hands_out_nothing_more`、`a_line_past_the_limit_stops_the_session`)が失敗した。直したあと、`cargo test --locked -p herdr-fleet-child-process` を 8 回続けて走らせ、8 回とも通った
 - architect(fleet の run 555650c3、読むだけ)に、実装した口を見せて決定ごとに残すか変えるかを聞いた。変えたのは opencode の `max_reply_bytes` の型だけで、ほかに `Duration::MAX` と `Runner::new(usize::MAX)` の panic、private な定数への doc のリンクを直した。直す前に、足したテスト 2 件(`a_limit_too_far_off_is_no_limit`、`a_runner_may_have_no_practical_limit`)が tokio の中の panic で失敗した
 
 - テストを先に書き、`todo!()` の stub で走らせて失敗を見た: `cargo test --locked -p herdr-fleet-child-process --no-fail-fast` で、env 9 件のうち 8 件、git 6 件、runner 25 件が失敗した(`panicked at crates/child-process/src/env.rs:12:5`、`src/work_dir.rs:5:5`、`src/runner.rs:74:9` ほか)。通った 1 件は表を読む JSON の関数のテストで、stub を呼ばない
