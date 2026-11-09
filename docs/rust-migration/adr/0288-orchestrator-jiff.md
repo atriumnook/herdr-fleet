@@ -48,4 +48,4 @@ PC は Linux 7.2.15(omarchy)、rustc 1.99.1、`rust/` で実行した。
 - `git diff origin/rust...HEAD -- rust/Cargo.lock`(`git fetch origin rust` のあと)の差分は、`herdr-fleet-orchestrator` の `dependencies` に `"jiff"` を足す 1 行だけだった
 - `cargo tree -e features -i jiff --workspace --depth 1` で、有効な feature が jiff の既定の feature(と、それが有効にする `alloc`)であることを見た
 - jiff 0.2.41 のソース(`src/tz/timezone.rs`)で、`TimeZone::get(&str) -> Result<TimeZone, Error>` と `TimeZone::system() -> TimeZone` が公開されていること、`system` が `TZ` を先に見て、なければ `/etc/localtime` を読むことを見た
-- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` が通った
+- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` が通った(522 件。`origin/rust` を取り込んだあとは 555 件)
