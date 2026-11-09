@@ -217,6 +217,8 @@ export class Orchestrator {
   private readonly draftRetries = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly settleChecks = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly spawnPlans = new Map<string, SpawnPlan>();
+  /** thread leads whose last turn left no report while an agent they started ran: not started again, they report in a later turn */
+  private readonly waitingLeads = new Set<string>();
   /** callers waiting for a run's turn to settle or block */
   private readonly waiters = new Map<string, Set<(run: AgentRun) => void>>();
   /** the concurrency check and the run's first save happen as one step */
@@ -256,6 +258,9 @@ export class Orchestrator {
         this.pending.set(run.id, { armed: true, blockedReported: false, generation: 1, resumedAt: Date.now(), sawWorking: false });
         this.armSettleCheck(run, 1);
       }
+      // a lead whose settled turn left no report and that still leads its thread was held back for an
+      // agent it started (or no CLI was left to start it again on): its own next turn is read too
+      else if (isThread(run) && isLive(run) && !run.replacedBy && !run.landed && run.outcome?.report === null) this.waitingLeads.add(run.id);
     }
     // a notice about a run the registry dropped refers to nothing its hearer can look up
     this.outbox = new Outbox(join(dirname(deps.resultsDir), "fleet-outbox.json"));
@@ -1399,7 +1404,8 @@ export class Orchestrator {
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
         else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
-        else if (!pending && previous === "working" && isCompleted(run.state) && isThread(run)) await this.settleUnsentTurn(run);
+        // a lead that broke off to wait may start its next turn at an approval, which herdr shows without working first
+        else if (!pending && (previous === "working" || (previous === "blocked" && this.waitingLeads.has(run.id))) && isCompleted(run.state) && isThread(run)) await this.settleUnsentTurn(run);
         // free again, after the fleet's turn or the person's: the questions of the threads it hears for
         if (!this.pending.has(run.id) && isCompleted(run.state)) void this.deliverNotices(run);
       } catch (error) {
@@ -1426,7 +1432,7 @@ export class Orchestrator {
     // a thread whose lead run failed or left no report goes on in a new run first, from the contract
     // and change the turn left: what it leaves undone (a landing step, an open plan, the coordinator's
     // news) is the new run's
-    const restartError = needsRestart(run) ? await this.restartThread(run, pending.text) : undefined;
+    const restartError = this.needsRestart(run) ? await this.restartThread(run, pending.text) : undefined;
     if (isThread(run) && !run.replacedBy) {
       // a turn that failed or left no report went nowhere; a lead taking a thread over starts with
       // its plan still open, and keeps it so while it reports blocked on it
@@ -1449,6 +1455,7 @@ export class Orchestrator {
 
   /** What a settled turn left: the screen, the handoff, and the API failure it may have ended on. */
   private async readTurn(run: AgentRun, config: FleetConfig): Promise<void> {
+    this.waitingLeads.delete(run.id);
     run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
     run.result = readResult(this.resultFile(run));
     // a project's coordinator talks with the person and keeps no result folder: it reports nothing
@@ -1498,15 +1505,17 @@ export class Orchestrator {
   /**
    * A thread's turn the fleet did not send ended: its agent started it itself (a helper's result
    * woke it after a turn that broke off to wait) or the person typed in its pane. Without the
-   * person, nothing else tells the coordinator, which waits for this news to go on.
+   * person, nothing else tells the coordinator, which waits for this news to go on. With the person,
+   * it is read only after a turn that broke off without a report to wait for an agent its lead
+   * started: whether the thread goes on in a new run is decided here.
    */
   private async settleUnsentTurn(run: AgentRun): Promise<void> {
     const config = this.deps.config(run.cwd);
-    if (!config.autonomous) return;
+    if (!config.autonomous && !this.waitingLeads.has(run.id)) return;
     await this.readTurn(run, config);
     await this.readThreadWork(run);
-    const restartError = needsRestart(run) ? await this.restartThread(run) : undefined;
-    if (!run.replacedBy) await this.settleThreadTurn(run, config, restartError);
+    const restartError = this.needsRestart(run) ? await this.restartThread(run) : undefined;
+    if (config.autonomous && !run.replacedBy) await this.settleThreadTurn(run, config, restartError);
     run.updatedAt = Date.now();
     this.save(run);
     this.settleWaiters(run);
@@ -1525,7 +1534,27 @@ export class Orchestrator {
    */
   private restartThread(run: AgentRun, lastMessage?: string): Promise<string | undefined> {
     // a landing step pressed before goes first: a discard leaves nothing to start again
-    return this.onThread(threadId(run), () => needsRestart(run) ? this.startThreadAgain(run, lastMessage) : Promise.resolve(undefined));
+    return this.onThread(threadId(run), () => this.needsRestart(run) ? this.startThreadAgain(run, lastMessage) : Promise.resolve(undefined));
+  }
+
+  /**
+   * A thread's settled lead whose run failed, or whose turn left no report while nothing it started
+   * in the thread's fleet still runs, and the thread still open: it goes on in a new run. A lead that
+   * ended its turn to wait for its reviewer or another helper reports in a later turn, the fleet's or
+   * one it starts itself: it is kept in waitingLeads until that turn is read.
+   */
+  private needsRestart(run: AgentRun): boolean {
+    if (!isThread(run) || run.landed || run.replacedBy) return false;
+    if (run.state === "failed") return true;
+    if (run.outcome?.report !== null) return false;
+    if (!this.list(run.group).some((other) => !isThread(other) && this.running(other))) return true;
+    this.waitingLeads.add(run.id);
+    return false;
+  }
+
+  /** A run still at its turn: starting, working, blocked, or with a turn the fleet sent and has not seen settle. */
+  private running(run: AgentRun): boolean {
+    return isLive(run) && (this.pending.has(run.id) || run.state === "starting" || run.state === "working" || run.state === "blocked");
   }
 
   private async startThreadAgain(run: AgentRun, lastMessage?: string): Promise<string | undefined> {
@@ -1762,8 +1791,6 @@ function replaced(run: AgentRun): FleetError {
 /** A thread's id: its first lead run's, which names its worktree and branch, whichever run leads it now. */
 const threadId = (run: AgentRun): string => run.thread ?? run.id;
 
-/** A thread's settled lead whose run failed or whose turn left no report, and the thread still open: it goes on in a new run. */
-const needsRestart = (run: AgentRun): boolean => isThread(run) && !run.landed && !run.replacedBy && (run.state === "failed" || run.outcome?.report === null);
 
 /** What a lead that takes a thread over carries from the run before: the thread, what the fleet knows of its landing, and the CLIs to pass over. */
 function carried({ from, thread }: Takeover, avoid: AgentKind[] | undefined): Partial<AgentRun> {

@@ -32,6 +32,7 @@ const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> =
       "takes expected values from outside the code under test": /Never compute it the way the code does/,
       "has every change reviewed on another CLI": /Every change gets a review, on another CLI than the one that wrote it \(`--avoid`/,
       "gives an agy reviewer the diff and checks as files": /reviewer on agy cannot run git/,
+      "waits for an agent it started in the same turn, or reports first": /wait for it with `wait <agent>` in the same turn: do not end your turn to wait, and if you must end it, write your report first/,
       "asks an architect how to build": /spawn --role architect --read-only/,
       "asks the person what to build when it cannot be undone": /When the assumption would be hard to undo, do not guess/,
       "ends a turn with the contract's state": /Contract: A1/,
