@@ -192,7 +192,9 @@ fn a_response_shape_from_a_newer_herdr_is_kept() {
 #[test]
 fn a_known_response_shape_with_a_wrong_field_is_an_error() {
     let wrong = json!({ "type": "pong", "version": "0.9.4", "protocol": "22" });
-    assert!(serde_json::from_value::<ResponseResult>(wrong).is_err());
+    let error = serde_json::from_value::<ResponseResult>(wrong).unwrap_err();
+    // the error names the shape whose fields did not decode
+    assert!(error.to_string().starts_with("pong: "), "{error}");
     assert!(serde_json::from_value::<ResponseResult>(json!({ "version": "0.9.4" })).is_err());
 }
 

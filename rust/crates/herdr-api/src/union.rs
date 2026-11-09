@@ -17,9 +17,10 @@ pub(crate) fn tag<E: de::Error>(value: &Value, key: &'static str) -> Result<Stri
     }
 }
 
-/// The fields of a shape the tag names; the tag itself is left to the struct to ignore.
-pub(crate) fn read<T: DeserializeOwned, E: de::Error>(value: Value) -> Result<T, E> {
-    serde_json::from_value(value).map_err(E::custom)
+/// The fields of the shape `tag` names; the tag itself is left to the struct to ignore. The error
+/// names the shape, so that a herdr whose shape changed says which one.
+pub(crate) fn read<T: DeserializeOwned, E: de::Error>(value: Value, tag: &str) -> Result<T, E> {
+    serde_json::from_value(value).map_err(|error| E::custom(format!("{tag}: {error}")))
 }
 
 pub(crate) fn write_unit<S: Serializer>(

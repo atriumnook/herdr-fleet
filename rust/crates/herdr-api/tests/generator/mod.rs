@@ -324,13 +324,21 @@ impl<'a> Generator<'a> {
     }
 
     fn tagged(&mut self, name: &str, variants: &[Value], key: &str) -> Body {
+        fn tag_of<'v>(variant: &'v Value, key: &str) -> &'v str {
+            variant["properties"][key]["const"].as_str().unwrap()
+        }
+        let mut idents: Vec<String> = variants
+            .iter()
+            .map(|variant| pascal(tag_of(variant, key)))
+            .collect();
+        idents.push("Other".to_owned());
+        if !unique(&idents) {
+            return self.alias_value(name, "two tags of a union have the same Rust name");
+        }
         let mut units = Vec::new();
         let mut payloads = Vec::new();
         for variant in variants {
-            let tag = variant["properties"][key]["const"]
-                .as_str()
-                .unwrap()
-                .to_owned();
+            let tag = tag_of(variant, key).to_owned();
             let ident = pascal(&tag);
             let others = variant["properties"].as_object().unwrap().len() > 1;
             if others {
@@ -351,13 +359,6 @@ impl<'a> Generator<'a> {
         }
         units.sort_by(|a, b| a.1.cmp(&b.1));
         payloads.sort_by(|a, b| a.2.cmp(&b.2));
-        let mut idents: Vec<String> = units.iter().map(|unit| unit.0.clone()).collect();
-        idents.extend(payloads.iter().map(|payload| payload.0.clone()));
-        idents.push("Other".to_owned());
-        assert!(
-            unique(&idents),
-            "two tags of {name} have the same Rust name"
-        );
         Body::Tagged {
             key: key.to_owned(),
             units,

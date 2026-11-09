@@ -26,7 +26,9 @@ macro_rules! open_enum {
         #[serde(from = "String", into = "String")]
         pub enum $name {
             $(#[doc = concat!("`\"", $value, "\"`")] $variant,)*
-            /// A value this version of the schema does not name, kept as herdr wrote it.
+            /// A value this version of the schema does not name, kept as herdr wrote it. A value
+            /// the schema names is never put here: make one from a string with `From<String>`,
+            /// since `Other("idle")` is not equal to the variant for `"idle"`.
             Other(String),
         }
 
@@ -97,7 +99,7 @@ macro_rules! tagged_union {
                 let value = <serde_json::Value as serde::Deserialize>::deserialize(deserializer)?;
                 match crate::union::tag::<D::Error>(&value, $key)?.as_str() {
                     $($unit_tag => Ok(Self::$unit),)*
-                    $($tag => crate::union::read(value).map(Self::$variant),)*
+                    $($tag => crate::union::read(value, $tag).map(Self::$variant),)*
                     _ => Ok(Self::Other(value)),
                 }
             }
@@ -107,15 +109,14 @@ macro_rules! tagged_union {
 
 /// One marker type per method of the schema, and the list of their names.
 macro_rules! methods {
-    ($($marker:ident = $name:literal, $params:ty;)*) => {
+    ($($marker:ident = $name:literal, $params:ident;)*) => {
         /// The name of every method of the schema.
         pub const METHOD_NAMES: &[&str] = &[$($name),*];
 
         /// One marker type per method of the schema, to name the method in a call:
-        /// `methods::PaneRead::NAME` is `"pane.read"`, and its params are [`PaneReadParams`].
+        /// `methods::PaneRead::NAME` is `"pane.read"`, and its params are
+        /// [`PaneReadParams`](super::PaneReadParams).
         pub mod methods {
-            use super::*;
-
             $(
                 #[doc = concat!("The method `", $name, "`.")]
                 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
@@ -123,7 +124,7 @@ macro_rules! methods {
 
                 impl crate::Method for $marker {
                     const NAME: &'static str = $name;
-                    type Params = $params;
+                    type Params = super::$params;
                 }
             )*
         }

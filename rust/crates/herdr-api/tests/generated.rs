@@ -193,6 +193,21 @@ fn a_shape_the_generator_cannot_map_becomes_a_value_and_is_listed() {
                 },
                 "required": ["mixed", "plain"],
             },
+            // two tags that would both be the variant `AB`
+            "Clash": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "properties": { "type": { "type": "string", "const": "a-b" } },
+                        "required": ["type"],
+                    },
+                    {
+                        "type": "object",
+                        "properties": { "type": { "type": "string", "const": "a_b" } },
+                        "required": ["type"],
+                    },
+                ],
+            },
         },
     }));
 
@@ -200,10 +215,12 @@ fn a_shape_the_generator_cannot_map_becomes_a_value_and_is_listed() {
 
     assert!(source.contains("pub mixed: Value,"), "{source}");
     assert!(source.contains("pub plain: String,"), "{source}");
+    assert!(source.contains("pub type Clash = Value;"), "{source}");
     let header: String = source
         .lines()
         .take_while(|line| line.starts_with("//"))
         .collect::<Vec<_>>()
         .join("\n");
     assert!(header.contains("`Odd.mixed`"), "{header}");
+    assert!(header.contains("`Clash`"), "{header}");
 }
