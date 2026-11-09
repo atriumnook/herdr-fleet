@@ -57,7 +57,7 @@ enum にし、variant は `Timeout`、`BadFrame`、`SocketError`、`Closed`、`C
 | `agent.read` | `pane_read` | `read`、`screen` |
 | `agent.send_keys` | `ok` | 読まない |
 
-TypeScript が応答を読まない 6 つの method も、`call` は表の形でなければ断る。表の形は実機のテストで確かめているので、この違いを受け入れる。
+TypeScript が応答を読まない 6 つの method も、`call` は表の形でなければ断る。表の形は実機のテストで確かめているので、この違いを受け入れる。形の違いで失敗にしたくない呼ぶ側(たとえば、送ったプロンプトを失敗とみなして送り直すおそれのある箇所)は、`call` ではなく `rpc` を呼び、herdr のエラーだけを失敗として扱える。
 
 ### 購読と `EventSource`
 
@@ -89,7 +89,7 @@ pub struct EventFrame { pub event: Option<String>, pub data: serde_json::Value }
 ### socket の場所と marker
 
 - `socket::socket_path(env)` は環境変数を読む関数を引数に取る。core は `|name| std::env::var_os(name)` を渡す。edition 2024 と `forbid(unsafe_code)` の下では、テストがプロセスの環境変数を書けないため(CLI の `run` と同じ理由)。空の `HERDR_SOCKET` は、TypeScript と同じく設定がないものとして扱う。`HOME` は文字列としてつなぎ、`HOME` がなければ `/.config/herdr/herdr.sock` になる
-- Windows の `%APPDATA%\herdr\herdr.sock`、named pipe の名前(`socket::pipe_name`)、named pipe への接続は `cfg(windows)` に置く。Windows での動作の確認は段階 6 に残す
+- Windows の `%APPDATA%\herdr\herdr.sock`、named pipe の名前(`socket::pipe_name`)、named pipe への接続は `cfg(windows)` に置く。pipe のすべての instance がほかの client に使われているとき(`ERROR_PIPE_BUSY`)は、tokio の文書のとおり 50 ミリ秒ごとに開き直す。待つ長さは呼び出しの時間の上限が決める。Windows での動作の確認は段階 6 に残す
 - marker の読み取り(`marker::marker_owner`、`parse_process_line`、`stale_marker`)は副作用のない関数で、すべての platform で compile し、Linux でテストする
 
 ### 偽のサーバー
