@@ -30,7 +30,7 @@
         <article id="c1" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
           <h2 class="font-serif text-2xl">1. orchestrator の 1 つの class を、関心ごとの module に分け、共有する状態を 1 か所で持つ</h2>
           <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
-          <pre class="font-mono text-sm text-slate-700">server/fleet/orchestrator.ts(1,936 行、private の Map が 16、Promise の連なりの lock が 4 つ:
+          <pre class="font-mono text-sm text-slate-700">server/fleet/orchestrator.ts(1,936 行、private の集まりが 15(Map 13、Set 2)、Promise の連なりの lock が 4 つ:
   reconcileLocks、threadLocks、projectStarts、spawnGate)
   土台(22-104、113-185、241-339、1725-1763、1898-1918、約 230 行)
   起動 spawn(351、418-431、493-712、約 330 行)      委ねたターン(716、1159-1250、1358-1448、1629-1723、約 340 行)
@@ -44,7 +44,7 @@ server/fleet/orchestrator.test.ts(2,943 行、156 件の it。FakeRuntime は 18
             <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
               <pre class="mermaid">
 flowchart TB
-  O[Orchestrator class: 16 Map, 4 lock]
+  O[Orchestrator class: Map 13, Set 2, lock 4]
   O --- S[spawn]
   O --- T[委ねたターン]
   O --- F[finalize 1420: 委ねたターンの決着]
