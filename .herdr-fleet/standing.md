@@ -36,7 +36,7 @@ Nobody merges on their own judgment. The person made merges into `rust` gated: a
 2. The checks the plan names for the touched area pass locally, and the Linux workflow passes on the pull request (`gh pr checks <n> --watch`).
 3. Two reviews, and every finding of either fixed or answered in the pull request with the reason it is not:
    - a review by an agent on another CLI than the one that wrote the change, as the reviewer role says, at the branch's latest commit. Start it with `--avoid <the writer's CLI>`: the reviewer runs on codex, and on agy with `claude-opus-5-5-high` when codex is at its limit or wrote the change (`fleet.json`). Cursor is no longer subscribed;
-   - the `/code-review` skill at level `high` on the branch, run by an agent on Claude Code: the lead itself when it runs on Claude Code, otherwise a reviewer started on Claude Code alone (`--avoid` every other CLI).
+   - the `/code-review` skill at level `high` on the branch, run by an agent on Claude Code: the lead itself when it runs on Claude Code, otherwise a reviewer started on Claude Code (`spawn --role reviewer --model claude: --read-only`, since the reviewer role's own candidates are codex and agy).
 4. Every document, pull request body, issue and HANDOFF you write in Japanese is checked against `~/.claude/skills/clarify-ja/SKILL.md` (read the file and apply its review), and what it finds is fixed. English text gets the same check for the same faults: vague words, claims without evidence, coined terms.
 5. No test, fixture, corpus case or expected value was weakened or removed to make a check pass. When one is wrong, an independent source (the TypeScript behaviour, a spec, an issue) shows it, and the pull request says so.
 
@@ -48,7 +48,7 @@ This project's coordinator and lead replace the fleet's own, so these rules from
 2. A change that would break many callers at once (a rename or a retyped shared symbol) goes in three issues, in this order: expand (add the new form beside the old, nothing breaks), migrate (move the callers over, one issue per area, each green on its own), contract (remove the old form once no caller is left).
 3. Before you change behaviour, run the check that covers it (a test, a contract or a recorded case) and see it fail; write the failing command and the line that shows it under the assertion's evidence. Where no check can fail first, say why there.
 4. Take a test's expected value from a source other than the code under test: the TypeScript behaviour, a recorded real output, the issue or the spec, or a value worked out by hand. Never compute it the way the code does: such a test passes whatever the code does. Test through the interface callers use, not through internals.
-5. A reviewer on agy cannot run git, the project's checks or the fleet command (its terminal sandbox hides them): write the diff (`git diff rust...HEAD`) and your checks' output to files next to your result file and name them in `--context`, and when the review must run a check itself, start it with `--avoid agy` as well.
+5. A reviewer on agy cannot run git, the project's checks or the fleet command (its terminal sandbox hides them): write the diff (`git diff origin/rust...HEAD`) and your checks' output to files next to your result file and name them in `--context`, and when the review must run a check itself, start it with `--avoid agy` as well.
 
 ### Skills
 
