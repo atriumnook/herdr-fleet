@@ -106,6 +106,6 @@ PC は Linux 7.2.15(omarchy)、rustc と cargo 1.99.1、Bun 1.4.4。`rust/` で�
 
 - 足す前: `cargo tree --locked -p herdr-fleet-orchestrator -e normal --depth 1` の出力に `saphyr`・`saphyr-parser`・`indexmap` の行がなかった(`grep -cE 'saphyr|indexmap'` が 0)
 - 足したあと: 同じコマンドの出力に `indexmap v2.14.2`、`saphyr v0.3.3`、`saphyr-parser v0.3.3` の行が出た。cargo は `Locking 9 packages` と書き、上の「依存」の 9 個を足した
-- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`(314 件。2026-11-09 に origin/rust を取り込んだあとは 368 件)が通った
+- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`(314 件。2026-11-09 に origin/rust を取り込んだあとは 368 件、2 回目に取り込んだあとは 421 件)が通った
 - 読み比べ: workspace の外の使い捨ての crate(saphyr `=0.3.3` と saphyr-parser `=0.3.3`、`default-features = false`)で、上の読み方で読んだ値を JSON に写して書き、同じファイルを Bun 1.4.4 の `Bun.YAML.parse` で読んで JSON にした。入力は 22 件(merge key 2 件、明示の tag、独自の tag、真偽値、null、重複したキー、数、日付、役割の形、文字列でないキー、2 つの文書 2 件、空、コメントだけ、閉じない flow の列、alias、文字列、タブでの字下げ、`%YAML 1.1` の指示、複雑なキー、alias の展開)。Bun が単一の文書を値のまま返し、saphyr が文書の列を返すことのほかの違いは、上の表の 8 点だった。既定の loader(`Yaml::load_from_str`)は重複したキーの件だけを `duplicated key in mapping at byte 5 line 2 column 1` で断り、ほかの件の成否は上の読み方と同じだった
 - saphyr、saphyr-parser、num-traits、thiserror、arraydeque の manifest、`build.rs`、saphyr の `src/loader.rs`(`allow_duplicate_keys`、`alias_limit`、`load_from_parser`)を `~/.cargo/registry/src/` で読んだ
