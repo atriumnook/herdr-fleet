@@ -1,0 +1,13 @@
+• Edited src/notify.ts (+3 -1)
+
+• Fixed the duplicate notification and ran the tests.
+
+  You’re now using Luna, a faster model for simpler tasks.
+  Add credits or upgrade to continue using the most advanced models.
+
+
+› 1. Add credits
+  2. Upgrade
+  3. Continue with Luna Reserve
+
+  Press enter to confirm or esc to continue working

@@ -1,0 +1,9 @@
+› What does codex print when it switches models on a usage limit?
+
+• Automatically switched to Luna Reserve medium due to usage limits.
+
+• That is the line codex writes in its transcript.
+
+› Ask Codex to do anything
+
+  GPT-5.5 high · ~/git/app

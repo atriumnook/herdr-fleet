@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: does not fail a turn once codex switched back. Synthesized from codex-rs strings (tui/src/app/backend_banner_fallback.rs, luna_reserve_recovery_notice snapshot), not captured from a real codex",
+  "adapter": "codex",
+  "check": "turnError",
+  "expected": null
+}

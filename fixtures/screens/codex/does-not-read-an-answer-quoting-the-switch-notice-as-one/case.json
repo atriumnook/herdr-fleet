@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: takes the switch notice for an answer that quotes it when the status line still shows another model. Synthesized from codex-rs strings (AgentMarkdownCell bullet, status_surfaces.rs model-with-reasoning), not captured from a real codex",
+  "adapter": "codex",
+  "check": "turnError",
+  "expected": null
+}

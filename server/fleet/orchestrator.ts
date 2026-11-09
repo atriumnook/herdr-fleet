@@ -1614,22 +1614,24 @@ export class Orchestrator {
     // a project's coordinator talks with the person and keeps no result folder: it reports nothing
     run.outcome = run.role === PROJECT_ROLE ? undefined : readReport(this.resultDir(run));
     if (run.role === REVIEWER_ROLE) await this.readReviewedHead(run);
-    // the thread made progress: the CLIs its runs failed on before get another chance
-    if (run.outcome?.report) delete run.avoid;
     this.deps.events?.({
       kind: "turn", run: run.id, role: run.role, agent: run.agent, ...(run.model ? { model: run.model } : {}), group: run.group,
       ...(run.project ? { project: run.project } : {}), interactive: run.interactive, handoff: run.result !== undefined,
       ...(run.outcome ? { report: run.outcome.report?.state ?? "none" } : {}),
     });
     // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
-    // are spent; a turn that wrote its report did its work, whatever its screen quotes
-    const turnError = !run.outcome?.report ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
+    // are spent; a turn that wrote its report did its work, whatever its screen quotes, unless the
+    // CLI moved to another model by itself on a usage limit: that work ran on a model nobody chose
+    const adapter = adapterFor(run.agent);
+    const turnError = adapter.modelSwitch?.(run.lastOutput, run.model) ?? (!run.outcome?.report ? adapter.turnError(run.lastOutput, run.model) : undefined);
     if (turnError && isCompleted(run.state)) {
       run.state = "failed";
       run.lastError = turnError;
       // a rate limit sits the account out: the re-spawn and later spawns pass it over
       this.deps.usage?.noteFailure(run.agent, run.model, turnError, config.rateLimitCooldownMinutes);
     }
+    // the thread made progress: the CLIs its runs failed on before get another chance
+    else if (run.outcome?.report) delete run.avoid;
   }
 
   /**
@@ -1702,7 +1704,8 @@ export class Orchestrator {
       // the thread keeps who wrote in it; a run's own record says whether it could edit (a role file may have changed since)
       // a reviewer counts as a writer until the fleet saw its last turn leave the worktree as it was
       writers: [...new Set([...(run.writers ?? []), run.agent, ...members.filter((member) => (!member.readOnly && member.role !== REVIEWER_ROLE) || (member.role === REVIEWER_ROLE && !member.reviewClean)).map((member) => member.agent)])],
-      reviews: members.filter((member) => member.role === REVIEWER_ROLE && member.reviewClean).map((member) => ({
+      // a failed turn reviewed nothing, though it reported (its CLI ran it on a model it switched to by itself)
+      reviews: members.filter((member) => member.role === REVIEWER_ROLE && member.reviewClean && member.state !== "failed").map((member) => ({
         agent: member.agent, report: member.outcome?.report?.state, ...(member.reportedHead ? { head: member.reportedHead } : {}),
       })),
       head,
