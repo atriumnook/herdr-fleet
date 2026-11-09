@@ -280,6 +280,37 @@ fn cursor_is_given_the_folder_of_all_result_folders() {
     );
 }
 
+// added: the folder above the result folder is node's `dirname` (values printed by bun 1.4.4's node:path)
+#[test]
+fn cursor_and_agy_take_the_folder_above_as_node_dirname_writes_it() {
+    for (result_dir, expected) in [
+        ("/state/results/r1", "/state/results"),
+        ("/state/results/r1/", "/state/results"),
+        ("//x", "//"),
+        ("a//b", "a/"),
+        ("r1", "."),
+        ("/", "/"),
+        ("", "."),
+        ("//", "/"),
+        ("///a", "//"),
+        ("a/b/", "a"),
+        ("/a", "/"),
+    ] {
+        let options = LaunchOptions {
+            result_dir,
+            ..base()
+        };
+        assert_eq!(
+            args(FleetAgentKind::Cursor, options).last().unwrap(),
+            expected,
+            "{result_dir:?}"
+        );
+        let agy = args(FleetAgentKind::Agy, options);
+        let at = agy.iter().position(|arg| arg == "--add-dir").unwrap();
+        assert_eq!(agy[at + 1], expected, "{result_dir:?}");
+    }
+}
+
 // adapters.test.ts: cursor adapter > has no instruction option or level: the instructions lead the first prompt
 #[test]
 fn cursor_has_no_instruction_option_or_level() {
@@ -639,6 +670,33 @@ fn opencode_gives_the_pane_the_model_no_self_update_no_sharing_and_none_of_the_d
     // the config text is read with {env:...} and {file:...} substituted
     assert!(!none["OPENCODE_CONFIG_CONTENT"].contains("{env:"));
     assert!(!none["OPENCODE_CONFIG_CONTENT"].contains("{file:"));
+}
+
+// added: a model whose suffix leaves nothing before it stays as the setting names it (TypeScript's
+// `{ ...context, ...(model ? { model } : {}) }`; values printed by bun from server/fleet/adapters.ts)
+#[test]
+fn opencode_keeps_a_model_that_is_only_a_level_as_written() {
+    let server_env = no_env();
+    let guard = launch::opencode::guard_plugin_dir();
+    for (model, expected) in [
+        (":low", Some(":low")),
+        ("", None),
+        ("p/m:high", Some("p/m")),
+        (":", Some(":")),
+    ] {
+        let env = adapter_for(FleetAgentKind::Opencode)
+            .env(&PaneContext {
+                model: Some(model),
+                ..pane(&server_env, &guard)
+            })
+            .unwrap();
+        let config = config_of(&env);
+        assert_eq!(
+            config.get("model").and_then(Value::as_str),
+            expected,
+            "{model:?}"
+        );
+    }
 }
 
 // adapters.test.ts: opencode adapter > gives the pane the model ... (the server's GIT_CONFIG_* reach the pane through PaneContext)

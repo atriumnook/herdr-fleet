@@ -132,29 +132,34 @@ pub fn adapter_for(kind: FleetAgentKind) -> &'static Adapter {
     }
 }
 
-/// The levels from the lowest, as a `:level` suffix spells them (`LOWEST_FIRST`).
-const LOWEST_FIRST: [(ThinkingLevel, &str); 7] = [
-    (ThinkingLevel::Off, "off"),
-    (ThinkingLevel::Minimal, "minimal"),
-    (ThinkingLevel::Low, "low"),
-    (ThinkingLevel::Medium, "medium"),
-    (ThinkingLevel::High, "high"),
-    (ThinkingLevel::Xhigh, "xhigh"),
-    (ThinkingLevel::Max, "max"),
-];
-
-fn level_named(word: &str) -> Option<ThinkingLevel> {
-    LOWEST_FIRST
-        .iter()
-        .find(|(_, name)| *name == word)
-        .map(|(level, _)| *level)
+/// A level as a `:level` suffix spells it; the match keeps every level of `ThinkingLevel` named.
+fn name_of(level: ThinkingLevel) -> &'static str {
+    match level {
+        ThinkingLevel::Off => "off",
+        ThinkingLevel::Minimal => "minimal",
+        ThinkingLevel::Low => "low",
+        ThinkingLevel::Medium => "medium",
+        ThinkingLevel::High => "high",
+        ThinkingLevel::Xhigh => "xhigh",
+        ThinkingLevel::Max => "max",
+    }
 }
 
-fn name_of(level: ThinkingLevel) -> &'static str {
-    LOWEST_FIRST
-        .iter()
-        .find(|(each, _)| *each == level)
-        .map_or("", |(_, name)| name)
+/// Where a level stands from the lowest (`LOWEST_FIRST`).
+fn rank(level: ThinkingLevel) -> u8 {
+    match level {
+        ThinkingLevel::Off => 0,
+        ThinkingLevel::Minimal => 1,
+        ThinkingLevel::Low => 2,
+        ThinkingLevel::Medium => 3,
+        ThinkingLevel::High => 4,
+        ThinkingLevel::Xhigh => 5,
+        ThinkingLevel::Max => 6,
+    }
+}
+
+fn level_named(word: &str) -> Option<ThinkingLevel> {
+    serde_json::from_value(serde_json::Value::from(word)).ok()
 }
 
 /// `model` as pi takes it: a `:level` suffix sets thinking; one already there wins (`withThinking`).
@@ -191,7 +196,6 @@ fn effort_for(
     words: &[(ThinkingLevel, &'static str)],
 ) -> Option<&'static str> {
     let thinking = thinking?;
-    let rank = |level: ThinkingLevel| LOWEST_FIRST.iter().position(|(each, _)| *each == level);
     words
         .iter()
         .rev()
@@ -208,26 +212,32 @@ pub fn toml_string(text: &str) -> String {
         .replace('\u{7f}', "\\u007F")
 }
 
-/// `dirname` of node:path for a POSIX path.
+/// `dirname` of node:path for a POSIX path, as node writes it (lib/path.js, `posix.dirname`): a
+/// root of two slashes stays (`//x` → `//`), and so does a doubled slash before the last name
+/// (`a//b` → `a/`).
 fn dirname(path: &str) -> String {
-    let trimmed = path.trim_end_matches('/');
-    if trimmed.is_empty() {
-        return if path.is_empty() {
-            ".".to_owned()
-        } else {
-            "/".to_owned()
-        };
+    let bytes = path.as_bytes();
+    if bytes.is_empty() {
+        return ".".to_owned();
     }
-    match trimmed.rfind('/') {
-        None => ".".to_owned(),
-        Some(at) => {
-            let parent = trimmed[..at].trim_end_matches('/');
-            if parent.is_empty() {
-                "/".to_owned()
-            } else {
-                parent.to_owned()
+    let has_root = bytes[0] == b'/';
+    let mut end = None;
+    let mut matched_slash = true;
+    for i in (1..bytes.len()).rev() {
+        if bytes[i] == b'/' {
+            if !matched_slash {
+                end = Some(i);
+                break;
             }
+        } else {
+            matched_slash = false;
         }
+    }
+    match end {
+        None if has_root => "/".to_owned(),
+        None => ".".to_owned(),
+        Some(1) if has_root => "//".to_owned(),
+        Some(end) => path[..end].to_owned(),
     }
 }
 

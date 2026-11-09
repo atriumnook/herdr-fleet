@@ -329,7 +329,11 @@ fn env(context: &PaneContext<'_>) -> Result<BTreeMap<String, String>, FleetError
             ));
         }
     }
-    let (model, _) = split_thinking(context.model, None);
+    // a suffix that leaves nothing before it (`:low`) leaves the model as the setting names it, as in TypeScript
+    let model = match split_thinking(context.model, None) {
+        (Some(stem), _) if !stem.is_empty() => Some(stem),
+        _ => context.model,
+    };
     let role = OpencodeRole {
         result_dir: context.result_dir,
         fleet_command: context.fleet_command,

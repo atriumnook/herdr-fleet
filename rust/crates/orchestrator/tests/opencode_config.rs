@@ -137,13 +137,37 @@ fn pane<'a>(server_env: &'a BTreeMap<String, String>, guard: &'a Path) -> PaneCo
     }
 }
 
+/// A folder of this test's own under the temp folder, new for each run (the process id and the clock
+/// name it) and removed when the test ends, a failed one included.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new() -> Self {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "herdr-fleet-guard-test-{}-{nanos}",
+            std::process::id()
+        ));
+        fs::create_dir(&path).unwrap();
+        Scratch(path)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 // added: a role that edits nothing does not start without its guard: the error names the folder looked in
 #[test]
 fn a_read_only_run_does_not_start_without_the_guard() {
     let server_env = no_env();
-    let scratch =
-        std::env::temp_dir().join(format!("herdr-fleet-guard-test-{}", std::process::id()));
-    let empty = scratch.join("fleet-guard");
+    let scratch = Scratch::new();
+    let empty = scratch.0.join("fleet-guard");
     fs::create_dir_all(&empty).unwrap();
     let opencode = adapter_for(FleetAgentKind::Opencode);
     for merges in [false, true] {
@@ -161,7 +185,7 @@ fn a_read_only_run_does_not_start_without_the_guard() {
         assert!(error.message.contains("index.js"), "{}", error.message);
     }
     // a folder that is not there at all, too
-    let missing = scratch.join("not-there");
+    let missing = scratch.0.join("not-there");
     let error = opencode.env(&pane(&server_env, &missing)).unwrap_err();
     assert!(
         error.message.contains(missing.to_str().unwrap()),
@@ -182,7 +206,6 @@ fn a_read_only_run_does_not_start_without_the_guard() {
     let env = opencode.env(&pane(&server_env, &empty)).unwrap();
     let config: Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
     assert_eq!(config["plugins"][0]["package"], empty.to_str().unwrap());
-    fs::remove_dir_all(&scratch).unwrap();
 }
 
 // --- the rules' verdicts (adapters.test.ts: opencode adapter) ---
