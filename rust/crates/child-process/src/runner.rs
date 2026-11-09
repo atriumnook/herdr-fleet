@@ -175,7 +175,8 @@ impl Command {
         self
     }
 
-    /// [`DEFAULT_STDOUT_LIMIT`] unless told otherwise. In a [`Session`], the longest line.
+    /// [`DEFAULT_STDOUT_LIMIT`] unless told otherwise. In a [`Session`], the limit's bytes are the
+    /// longest line, whatever the variant: a longer line fails the session and kills the child.
     pub fn stdout_limit(mut self, limit: StreamLimit) -> Self {
         self.stdout_limit = limit;
         self
@@ -341,6 +342,7 @@ impl Runner {
             stdout,
             buffer: Vec::new(),
             scanned: 0,
+            chunk: vec![0; 64 * 1024].into_boxed_slice(),
             max_line: command.stdout_limit.bytes(),
             ended: None,
             deadline,
@@ -477,7 +479,8 @@ async fn write_input(stdin: Option<ChildStdin>, input: &[u8]) -> Result<(), RunE
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Ended {
     Running,
-    /// the child ended on its own: what it wrote is still read, to its end
+    /// the child ended on its own: what it wrote is still read, until the time limit or the
+    /// cancel, which end the session all the same
     Exited,
     TimedOut,
     Cancelled,
@@ -502,23 +505,34 @@ async fn watch_session(
 ) {
     let set = |ended: Ended| {
         state.send_if_modified(|now| {
-            let first = *now == Ended::Running;
+            let first = matches!(*now, Ended::Running | Ended::Exited);
             if first {
                 *now = ended;
             }
             first
         });
     };
-    let (ended, kill) = tokio::select! {
-        ended = child.wait() => {
-            let _ = ended;
-            set(Ended::Exited);
-            return;
-        }
-        () = until(stopping.at) => (Ended::TimedOut, false),
-        () = cancel.cancelled() => (Ended::Cancelled, false),
-        () = closing.cancelled() => (Ended::Closed, false),
-        () = killing.cancelled() => (Ended::TooLarge, true),
+    let first = tokio::select! {
+        _ = child.wait() => None,
+        () = until(stopping.at) => Some((Ended::TimedOut, false)),
+        () = cancel.cancelled() => Some((Ended::Cancelled, false)),
+        () = closing.cancelled() => Some((Ended::Closed, false)),
+        () = killing.cancelled() => Some((Ended::TooLarge, true)),
+    };
+    let Some((ended, kill)) = first else {
+        // The child ended on its own: its place among the runner's children is free, and its
+        // output is still read. A process it started may hold that output open, so the time
+        // limit and the cancel still end the session.
+        set(Ended::Exited);
+        drop(_slot);
+        let ended = tokio::select! {
+            () = until(stopping.at) => Ended::TimedOut,
+            () = cancel.cancelled() => Ended::Cancelled,
+            () = closing.cancelled() => Ended::Closed,
+            () = killing.cancelled() => Ended::TooLarge,
+        };
+        set(ended);
+        return;
     };
     set(ended);
     let grace = stopping.grace;
@@ -547,6 +561,8 @@ pub struct Session {
     buffer: Vec<u8>,
     /// how much of `buffer` holds no newline
     scanned: usize,
+    /// where a read lands before it joins `buffer`
+    chunk: Box<[u8]>,
     max_line: usize,
     /// set at once when this side ends the session (a line too long), before the watcher has
     /// seen it
@@ -559,15 +575,6 @@ pub struct Session {
     closing: CancellationToken,
     killing: CancellationToken,
     watcher: Option<JoinHandle<()>>,
-}
-
-impl std::fmt::Debug for Stopping {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Stopping")
-            .field("reason", &self.reason)
-            .field("killed", &self.killed)
-            .finish()
-    }
 }
 
 impl Session {
@@ -597,7 +604,6 @@ impl Session {
     /// kills the child, and so does the session past its time limit or once cancelled, also with
     /// lines read before. Bytes that are not UTF-8 are replaced with U+FFFD.
     pub async fn next_line(&mut self) -> Result<Option<String>, RunError> {
-        let mut chunk = vec![0; 64 * 1024];
         loop {
             self.check()?;
             // only the bytes not looked at before: a long line is not scanned again at every read
@@ -611,14 +617,15 @@ impl Session {
                 return self.check().map(|()| None);
             }
             if newline.is_some() {
-                let line: Vec<u8> = self.buffer.drain(..=end).collect();
+                let line = String::from_utf8_lossy(&self.buffer[..end]).into_owned();
+                self.buffer.drain(..=end);
                 self.scanned = 0;
-                return Ok(Some(String::from_utf8_lossy(&line[..end]).into_owned()));
+                return Ok(Some(line));
             }
             self.scanned = self.buffer.len();
             let state = &mut self.state;
             let n = tokio::select! {
-                n = self.stdout.read(&mut chunk) => n.map_err(RunError::Io)?,
+                n = self.stdout.read(&mut self.chunk) => n.map_err(RunError::Io)?,
                 // the session ended while the read waited: the loop's check says how
                 () = ended(state) => continue,
             };
@@ -631,7 +638,7 @@ impl Session {
                 let line = std::mem::take(&mut self.buffer);
                 return Ok(Some(String::from_utf8_lossy(&line).into_owned()));
             }
-            self.buffer.extend_from_slice(&chunk[..n]);
+            self.buffer.extend_from_slice(&self.chunk[..n]);
         }
     }
 

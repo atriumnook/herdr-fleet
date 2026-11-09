@@ -850,3 +850,39 @@ async fn a_line_past_the_limit_stops_the_session() {
     ));
     session.close().await;
 }
+
+/// A child that ends while its own child holds the output open does not take the session's time
+/// limit with it: the read still ends at the limit (`/code-review high`, second pass).
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn the_time_limit_holds_after_the_child_ends() {
+    let dir = TempDir::new("session-orphan-pipe");
+    let pid_file = dir.join("pid");
+    let program = fake(
+        dir.path(),
+        "cli",
+        &format!("sleep 30 &\necho $! > {}\necho one", sh_quote(&pid_file)),
+    );
+    let mut session = Runner::new(1)
+        .session(
+            command(&program, &dir).timeout(Duration::from_millis(300)),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(session.next_line().await.unwrap().as_deref(), Some("one"));
+    let started = Instant::now();
+    let outcome = tokio::time::timeout(Duration::from_secs(5), session.next_line()).await;
+    let pid = read(&pid_file).trim().to_owned();
+    let _ = std::process::Command::new("kill").arg(&pid).status();
+    assert!(
+        matches!(outcome, Ok(Err(RunError::TimedOut))),
+        "{outcome:?}"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(2),
+        "{:?}",
+        started.elapsed()
+    );
+    session.close().await;
+}

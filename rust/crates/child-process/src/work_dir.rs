@@ -50,7 +50,13 @@ pub fn empty_work_dir(dir: &Path) -> io::Result<()> {
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
         let path = entry.path();
-        let removed = if entry.file_type()?.is_dir() {
+        // gone since the folder was listed: nothing left to remove
+        let kind = match entry.file_type() {
+            Ok(kind) => kind,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        let removed = if kind.is_dir() {
             fs::remove_dir_all(&path)
         } else {
             fs::remove_file(&path)
