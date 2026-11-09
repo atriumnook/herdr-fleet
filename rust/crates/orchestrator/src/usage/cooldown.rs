@@ -1,15 +1,18 @@
 //! A failure message that says a limit was hit, and until when (`rateLimitUntil`,
 //! `server/fleet/usage.ts:117-157`).
 //!
-//! The patterns are TypeScript's, written for Rust's regex: `\d` as `[0-9]` and `\b` as the ASCII
-//! word boundary `(?-u:\b)`, as JavaScript reads them in a pattern without the `u` flag.
+//! The patterns are TypeScript's, written for Rust's regex: `\d` as `[0-9]`, `\b` as the ASCII
+//! word boundary `(?-u:\b)`, and `.` and `\s` as [`DOT`] and [`SPACE`], as JavaScript reads them in
+//! a pattern without the `u` flag. Case is set aside by Unicode's simple folding, where JavaScript
+//! sets it aside by upper case: they differ only for letters past ASCII that fold into it (`ſ`,
+//! the Kelvin sign).
 
 use std::sync::LazyLock;
 
 use jiff::tz::TimeZone;
 use regex::Regex;
 
-use super::js_time::{date_parse, local_to_utc, utc_to_local};
+use super::js_time::{DOT, SPACE, date_parse, local_to_utc, utc_to_local};
 
 /// What a failure message says of a rate limit: TypeScript's `null`, `undefined` and a number.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -26,9 +29,9 @@ fn pattern(source: &str) -> Regex {
 
 /// `RATE_LIMITED` (`server/fleet/usage.ts:117`).
 static RATE_LIMITED: LazyLock<Regex> = LazyLock::new(|| {
-    pattern(
-        r"(?i)rate.?limit|usage limit|limit reached|quota|too many requests|(?-u:\b)429(?-u:\b)|resource.?exhausted|out of credits",
-    )
+    pattern(&format!(
+        r"(?i)rate{DOT}?limit|usage limit|limit reached|quota|too many requests|(?-u:\b)429(?-u:\b)|resource{DOT}?exhausted|out of credits"
+    ))
 });
 
 static ISO_TIME: LazyLock<Regex> = LazyLock::new(|| {
@@ -38,12 +41,13 @@ static ISO_TIME: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 static RELATIVE: LazyLock<Regex> = LazyLock::new(|| {
-    pattern(
-        r"(?i)(?-u:\b)in\s+((?:[0-9]+\s*(?:d|days?|h|hours?|hrs?|m|mins?|minutes?|s|secs?|seconds?)(?-u:\b)[\s,]*(?:and\s+)?)+)",
-    )
+    pattern(&format!(
+        r"(?i)(?-u:\b)in{SPACE}+((?:[0-9]+{SPACE}*(?:d|days?|h|hours?|hrs?|m|mins?|minutes?|s|secs?|seconds?)(?-u:\b)(?:{SPACE}|,)*(?:and{SPACE}+)?)+)"
+    ))
 });
 
-static RELATIVE_PART: LazyLock<Regex> = LazyLock::new(|| pattern(r"(?i)([0-9]+)\s*([dhms])"));
+static RELATIVE_PART: LazyLock<Regex> =
+    LazyLock::new(|| pattern(&format!(r"(?i)([0-9]+){SPACE}*([dhms])")));
 
 static CLOCK: LazyLock<Regex> =
     LazyLock::new(|| pattern(r"(?i)(?-u:\b)at\s+([0-9]{1,2}):([0-9]{2})\s*(am|pm)?(?-u:\b)"));

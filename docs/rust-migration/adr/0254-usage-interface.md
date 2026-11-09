@@ -84,7 +84,7 @@ impl UsageTracker {
 - probe の型は closure にする。テストと O2・API のテストは本物の tracker に偽の probe を渡す(`api.test.ts:43`、`orchestrator.test.ts:549`)ので、偽物を 1 行で書けるほうがよい。エラーは、tracker が `UsageEntry.error` に入れる文字列
 - 各 probe は自分の `Runner::new(1)` を持つ。tracker は 1 つの CLI に同時に 1 つの probe しか動かさないので、1 で足りる。`Runner` は公開の口に出さない(ADR `0246-child-process-interface` の「使い道ごとに 1 つの Runner」。child-process の `OpencodeCli` も Runner を自分で作る)
 - 公開の純粋な関数の `now` は、`Clock::now_ms()` と同じ `i64` で受ける(screen の `cursor_usage` と同じ)。返す値と保存する値の時刻は protocol の型のとおり `f64`
-- 地域の時刻: 純粋な関数(`rate_limit_until`、`parse_agy_usage`)は `&TimeZone` を受ける。tracker と probe は `time_zone` の項目を持ち、`new` が `TimeZone::system()`(`TZ`、なければ `/etc/localtime`。Bun がローカルの地域を決めるときに読むものと同じ)を入れる。core はどちらの地域も設定しない。片方だけ変えると、tracker と probe の地域が食い違うため。テストは固定の地域を項目に入れる。ADR `0242-phase-3-split` の「CLI は `TimeZone::system()` を呼ばない」は、CLI の `run` が渡された `env` だけで動くための決まりで、core のプロセスには当たらない
+- 地域の時刻: 純粋な関数(`rate_limit_until`、`parse_agy_usage`)は `&TimeZone` を受ける。tracker と probe は `time_zone` の項目を持ち、`new` が `TimeZone::system()`(`TZ`、なければ `/etc/localtime`。Bun がローカルの地域を決めるときに読むものと同じ)を入れる。core はどちらの地域も設定しない。片方だけ変えると、tracker と probe の地域が食い違うため。手で求めた期待値のテストは固定の地域を渡す。`usage.test.ts` から移した `takes an ISO time, a relative one or the next clock time` だけは、TypeScript のテストと同じくプロセスの地域で動かし、同じ assert(地域の時刻で 15:45、24 時間以内)をする。ADR `0242-phase-3-split` の「CLI は `TimeZone::system()` を呼ばない」は、CLI の `run` が渡された `env` だけで動くための決まりで、core のプロセスには当たらない
 - `record` は `(kind, model)` で受け、鍵は `usage_key` で作る。ほかのメソッドと同じ受け方で、鍵の作り方を知るのは usage の module だけになる(orchestrator が `usageKey` を使うのは `orchestrator.ts:1618` の 1 か所で、そのまま `record` に渡す)
 - 保存の形: `JSON` の配列を、`registry::write_whole`(`<file>.<pid>.tmp` に 0600 で書いて rename、なければフォルダーを 0700 で作る)で書く。書けなければ標準エラーに知らせ、記録は失わない(`usage.ts:383-396`)
 
@@ -101,7 +101,8 @@ ADR `0242-phase-3-split` が決めた違い:
 - `list()` の順は、Bun 1.4.4 の `localeCompare`(en-US)と同じ順を ASCII の鍵について作る(空白、記号、数字、文字の順に重みを比べ、最後に小文字を先にする)。ASCII の外の文字(`é` など)は文字のあとに code point の順で並べる。ロケールは `é` を `e` の隣に置くので、そこだけ違う。鍵の provider の部分は利用者のモデル名(`pi` と `opencode` の `<provider>/<model>`)から来るので、ASCII の外の文字を含む provider の名前を利用者が書いたときに、この違いが一覧の順に出る
 - 失敗の文: 子プロセスが時間の上限を過ぎたときは `<CLI> did not answer within <秒>s`、シグナルで終わったときは `<CLI> was ended by a signal`、起動できなかったときは child-process の文(`could not start: …`)、答えが JSON でないときは `<CLI>: the answer is not JSON: …` にする。TypeScript は、kill のあとの終了コードで `exited with …` を書くか、Bun と JSON の例外の文をそのまま書く。この文は `UsageEntry.error` に入って画面に出るだけで、判断には使わない
 - `Date.parse` は ISO の形(日付だけ、日付と時刻、`Z` か `+09:00` か `+0900` の時差)だけを読む。エンジンによっては `Oct 4 2026` のような形も読むが、usage が読む CLI はその形を書かない
-- 正規表現: JavaScript の `\d` を `[0-9]`、`\b` を ASCII の語の境界 `(?-u:\b)` にして、`u` の flag のない JavaScript と同じに読む。`.` と `\s` と大文字小文字を同一視する規則は Rust の regex の Unicode の規則のままで、JavaScript と違うのは改行以外の行の区切り(`\r`、U+2028)と、ASCII の外の一部の文字だけである
+- 正規表現: JavaScript の `\d` を `[0-9]`、`\b` を ASCII の語の境界 `(?-u:\b)`、`.` を行の区切り(`\n`、`\r`、U+2028、U+2029)以外の文字、`\s` を JavaScript の空白と行の区切りの文字の集合にして、`u` の flag のない JavaScript と同じに読む(`/code-review high` の指摘)。大文字小文字を同一視する規則だけは Rust の regex の Unicode の規則のままで、JavaScript と違うのは、ASCII に折りたたまれる ASCII の外の文字(`ſ`、ケルビンの記号)だけである
+- `toISOString` は `Date` が持てる範囲(±8.64e15 ミリ秒)の外の時刻で例外を投げる。Rust は `String(new Date(t))` と同じ `Invalid Date` を書く(`retry in 100000000000000000000 days` のような文で起きる。`/code-review high` の指摘)
 
 ## 検討した代わり
 
@@ -125,7 +126,7 @@ child-process の `Session` の future が `Send` でないと、probe を `toki
 - API は `list`、`refresh(force, max_age)`、`clear_cooldown(target)` をそのまま呼べる。`clear_cooldown(Some(""))` は TypeScript の `""` と同じく、すべてを解く
 - core は `UsageTrackerOptions::new(Some(state_dir.join("fleet-usage.json")), clock)` の `probes` に `default_probes(&state_dir, &env, clock)` を入れて作る。`UsageTracker::new` は task を起動しないので、tokio の runtime の外でも作れる。`refresh` と `unavailable` は runtime の中で呼ぶ
 - ST が `known` を受ける trait を O1 の `UsageGate` と共有するかは、#256 と #260 が決める
-- CLI の種類の名前の表が orchestrator に 2 つある(`usage/mod.rs` の `kind_name` と `launch/mod.rs` の `kind_name`)。1 つにする場所は protocol の `FleetAgentKind` で、この Issue の書くパスの外にある
+- CLI の種類の名前は、`launch` と同じく `FleetAgentKind` の serde の名前から取る(`usage/mod.rs` の `kind_name`)。名前の表は protocol の enum の 1 つだけで、取り出す関数が `launch/mod.rs` と `usage/mod.rs` に 1 つずつある。protocol に `FleetAgentKind::as_str` を置いて 1 つにする作業は、この Issue の書くパスの外にある
 
 ## 確かめたこと
 
@@ -134,4 +135,5 @@ PC は Linux 7.2.15(omarchy)、rustc 1.99.1、Bun 1.4.4。`rust/` で実行し�
 - テストを先に書き、`todo!()` の stub で `cargo test -p herdr-fleet-orchestrator --test usage --no-fail-fast` を走らせ、44 件すべてが stub の panic で失敗した(`panicked at crates/orchestrator/src/usage/tracker.rs:33:9` ほか)
 - architect が見つけた欠陥(closure が future を返す前に panic すると、その CLI の probe が二度と動かない)は、直す前に `a_probe_that_panics_before_its_future_is_asked_again` が `panicked at crates/orchestrator/tests/usage.rs:201:28`(`no entry codex`)で失敗した
 - 一覧の順は、Bun 1.4.4 で `[...keys].sort((a, b) => a.localeCompare(b))` を走らせた出力を期待値にした。小文字にして比べるだけの最初の実装では、`lists_the_accounts_in_the_order_of_locale_compare` が失敗した
-- 実装のあと、`cargo test --locked -p herdr-fleet-orchestrator --test usage` の 46 件と、`cargo test --locked --workspace` の 467 件が通った。`cargo fmt --check` と `cargo clippy --locked --workspace --all-targets -- -D warnings` も通った
+- `/code-review high` の指摘(範囲外の時刻、`.` と `\s`)は、直す前に `writes_a_time_past_what_a_date_holds_as_invalid_date` と `reads_dots_and_spaces_as_javascript_does` が失敗した(`left: Until(None)` / `right: NotOne`、`+292278994-08-17T07:12:55.807Z`)
+- 実装のあと、`cargo test --locked -p herdr-fleet-orchestrator --test usage` の 48 件と、`cargo test --locked --workspace` の全件が通った。`cargo fmt --check` と `cargo clippy --locked --workspace --all-targets -- -D warnings` も通った

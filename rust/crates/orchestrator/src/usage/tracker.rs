@@ -1,7 +1,6 @@
 //! The usage the fleet knows of, kept per account (`usage_key`), and the file it survives a
 //! restart in (`UsageTracker`, `server/fleet/usage.ts:159-397`).
 
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
@@ -147,22 +146,17 @@ fn current(window: &UsageWindow, reading: &UsageReading, now: f64) -> bool {
     }
 }
 
-/// `a.key.localeCompare(b.key)` as Bun 1.4.4 orders the keys the tracker holds (CLI names,
+/// What `list()` sorts by: the order `a.key.localeCompare(b.key)` gives in Bun 1.4.4 to the keys the tracker holds (CLI names,
 /// `agy:gemini`, `pi:<provider>`) in the en-US locale: by the characters' primary weights first
 /// (spaces, then punctuation and symbols in the order below, digits, then letters with case set
 /// aside), then lower case before upper case. A character past ASCII is weighed after the letters
 /// by its code point, where the locale would weigh `é` next to `e`.
-fn locale_order(a: &str, b: &str) -> Ordering {
-    let primary = |key: &str| key.chars().map(primary_weight).collect::<Vec<_>>();
-    let upper = |key: &str| {
-        key.chars()
-            .map(|c| c.is_ascii_uppercase())
-            .collect::<Vec<_>>()
-    };
-    primary(a)
-        .cmp(&primary(b))
-        .then_with(|| upper(a).cmp(&upper(b)))
-        .then_with(|| a.cmp(b))
+fn locale_key(key: &str) -> (Vec<u32>, Vec<bool>, String) {
+    (
+        key.chars().map(primary_weight).collect(),
+        key.chars().map(|c| c.is_ascii_uppercase()).collect(),
+        key.to_owned(),
+    )
 }
 
 /// The punctuation and symbols of ASCII in the order of the locale's collation (the Unicode
@@ -222,7 +216,7 @@ impl UsageTracker {
     /// Every account known, by key.
     pub fn list(&self) -> Vec<UsageEntry> {
         let mut entries = self.state().entries.clone();
-        entries.sort_by(|a, b| locale_order(&a.key, &b.key));
+        entries.sort_by_cached_key(|entry| locale_key(&entry.key));
         entries
     }
 
@@ -439,7 +433,7 @@ impl UsageTracker {
     }
 
     async fn run_probe(&self, kind: FleetAgentKind, probe: UsageProbe) {
-        let name = kind_name(kind);
+        let name = &kind_name(kind);
         let timeout = self.inner.probe_timeout;
         // the closure is called in the probe's own task too: one that panics before it hands out
         // its future fails that task, not the tracker's

@@ -9,6 +9,13 @@ use jiff::tz::TimeZone;
 use regex::Regex;
 
 const DAY_MS: f64 = 86_400_000.0;
+
+/// JavaScript's `.` in a pattern without the `s` flag: any character but a line terminator. Rust's
+/// `.` stops only at `\n`.
+pub(crate) const DOT: &str = r"[^\n\r\u{2028}\u{2029}]";
+/// JavaScript's `\s`: its white space (tab, vertical tab, form feed, U+FEFF and the space
+/// separators) and its line terminators. Rust's `\s` also takes U+0085 and leaves out U+FEFF.
+pub(crate) const SPACE: &str = r"[\t\n\x0B\x0C\r \u{A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}]";
 /// `TimeClip`: a `Date` holds no time further than this from the epoch.
 const MAX_TIME: f64 = 8.64e15;
 
@@ -59,8 +66,13 @@ pub(crate) fn utc_year(time: f64) -> i64 {
 }
 
 /// `new Date(time).toISOString()`: `2026-10-04T08:00:00.000Z`, the milliseconds truncated as a
-/// `Date` holds them; a year past 0 to 9999 is written with its sign and six digits.
+/// `Date` holds them; a year past 0 to 9999 is written with its sign and six digits. A time past
+/// what a `Date` holds is "Invalid Date", as `String(new Date(time))` writes it, where
+/// `toISOString` throws.
 pub(crate) fn to_iso_string(time: f64) -> String {
+    if !time.is_finite() || time.abs() > MAX_TIME {
+        return "Invalid Date".to_owned();
+    }
     let ms = time.trunc() as i64;
     let days = ms.div_euclid(86_400_000);
     let of_day = ms.rem_euclid(86_400_000);

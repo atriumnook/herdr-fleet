@@ -9,7 +9,7 @@ use protocol::{UsageReading, UsageWindow};
 use regex::Regex;
 use serde_json::Value;
 
-use super::js_time::{utc_year, zoned_time};
+use super::js_time::{DOT, SPACE, utc_year, zoned_time};
 use super::probe::{ProbeOptions, Readings, UsageProbe, run_cli, truthy};
 
 /// How long `claude -p /usage` may run (`usage.ts:480`).
@@ -20,15 +20,17 @@ const MONTHS: [&str; 12] = [
 ];
 
 static RESET: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(
-        r"(?i)^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{1,2}), ([0-9]{1,2})(?::([0-9]{2}))?\s*(am|pm)\s*\(([^)]+)\)",
-    )
+    Regex::new(&format!(
+        r"(?i)^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec) ([0-9]{{1,2}}), ([0-9]{{1,2}})(?::([0-9]{{2}}))?{SPACE}*(am|pm){SPACE}*\(([^)]+)\)"
+    ))
     .expect("the reset pattern compiles")
 });
 
 static USED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r":\s*([0-9]+(?:\.[0-9]+)?)% used(?:\s*·\s*resets (.+))?")
-        .expect("the share pattern compiles")
+    Regex::new(&format!(
+        r":{SPACE}*([0-9]+(?:\.[0-9]+)?)% used(?:{SPACE}*·{SPACE}*resets ({DOT}+))?"
+    ))
+    .expect("the share pattern compiles")
 });
 
 /// `Oct 4, 9:50pm (Asia/Tokyo)`: no year, so the next such time, at most a day in the past. The

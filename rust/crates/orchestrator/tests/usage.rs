@@ -897,6 +897,37 @@ fn reads_the_other_forms_of_a_time_by_hand() {
     );
 }
 
+/// This crate's own: `.` and `\s` as JavaScript reads them (code review). `.` does not match a
+/// line terminator (`\r`, U+2028), so "rate\rlimit" is no rate limit; `\s` takes U+FEFF and not
+/// U+0085, so "in\u{feff}5m" is five minutes and "in\u{85}5m" names no time.
+#[test]
+fn reads_dots_and_spaces_as_javascript_does() {
+    let utc = TimeZone::UTC;
+    let until = |message: &str| rate_limit_until(message, now_ms(), &utc);
+    assert_eq!(until("rate\rlimit"), RateLimit::NotOne);
+    assert_eq!(until("rate\u{2028}limit"), RateLimit::NotOne);
+    assert_eq!(until("rate\u{feff}limit"), RateLimit::Until(None));
+    assert_eq!(
+        until("rate limit, retry in\u{feff}5m"),
+        RateLimit::Until(Some(now() + 5.0 * MINUTE))
+    );
+    assert_eq!(
+        until("rate limit, retry in\u{85}5m"),
+        RateLimit::Until(None)
+    );
+    // a reset text ends before a carriage return, as `(.+)` stops there
+    assert_eq!(
+        parse_claude_usage(
+            "Current session: 1% used · resets Oct 5, 7am (UTC)\r\n",
+            now_ms()
+        )
+        .unwrap()
+        .windows[0]
+            .resets_at,
+        Some(ms("2026-10-05T07:00:00Z"))
+    );
+}
+
 /// This crate's own: a clock time on the night summer time starts, worked out by hand as
 /// `setHours` and `setDate` do it in America/New_York. At 2026-03-07T12:00Z (7am EST) "at 2:30
 /// am" has passed today, so it is tomorrow's; 2:30 does not exist on Mar 8, and JavaScript reads
@@ -1150,6 +1181,21 @@ fn records_a_cooldown_as_typescript_does() {
     assert_eq!(
         find(&usage, "claude").cooldown.unwrap().until,
         now() + 5.0 * HOUR
+    );
+}
+
+/// This crate's own: a cooldown past the times a `Date` can hold (`retry in 10^20 days`) is
+/// written as `String(new Date(t))` writes it, "Invalid Date", where `toISOString` would throw.
+#[test]
+fn writes_a_time_past_what_a_date_holds_as_invalid_date() {
+    let usage = UsageTracker::new(options(&TestClock::at(now())));
+    let message = "rate limit, retry in 100000000000000000000 days";
+    assert!(usage.note_failure(Cursor, None, message, 60.0));
+    assert_eq!(
+        usage.known(Cursor, None, 90.0),
+        Some(format!(
+            "cursor is cooling down until Invalid Date ({message})"
+        ))
     );
 }
 

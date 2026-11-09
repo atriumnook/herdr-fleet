@@ -48,21 +48,18 @@ pub fn usage_key(kind: FleetAgentKind, model: Option<&str>) -> String {
                     .map(|slash| &model[..slash])
             }) {
                 Some(provider) => format!("{}:{provider}", kind_name(kind)),
-                None => kind_name(kind).to_owned(),
+                None => kind_name(kind),
             }
         }
-        _ => kind_name(kind).to_owned(),
+        _ => kind_name(kind),
     }
 }
 
-/// The kind as herdr and the fleet's JSON name it.
-pub(crate) fn kind_name(kind: FleetAgentKind) -> &'static str {
-    match kind {
-        FleetAgentKind::Pi => "pi",
-        FleetAgentKind::Claude => "claude",
-        FleetAgentKind::Codex => "codex",
-        FleetAgentKind::Cursor => "cursor",
-        FleetAgentKind::Agy => "agy",
-        FleetAgentKind::Opencode => "opencode",
+/// The kind as herdr and the fleet's JSON name it: `FleetAgentKind`'s own serde name, as
+/// `launch` reads it.
+pub(crate) fn kind_name(kind: FleetAgentKind) -> String {
+    match serde_json::to_value(kind) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => format!("{kind:?}"),
     }
 }
