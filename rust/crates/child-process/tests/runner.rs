@@ -969,11 +969,12 @@ fn assert_send<T: Send>(_: &T) {}
 #[test]
 fn the_runs_and_sessions_futures_can_move_between_threads() {
     #[allow(dead_code)]
-    fn check(runner: &Runner, command: Command, cancel: &CancellationToken, session: &mut Session) {
+    fn check(runner: &Runner, command: Command, cancel: &CancellationToken, mut session: Session) {
         assert_send(&runner.run(command.clone(), cancel));
         assert_send(&runner.session(command, cancel));
         assert_send(&session.send_line("a line"));
         assert_send(&session.next_line());
+        assert_send(&session.close());
     }
 }
 
