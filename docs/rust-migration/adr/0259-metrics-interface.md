@@ -62,6 +62,7 @@ architect(fleet の run `035296bf`)に問い、その答えに従った。
 - API(#269)は、`read_events` の結果、`gh` の 2 つの `Listing`、registry の run の状態、サーバーの `TimeZone` を渡して報告を作る
 - 直らない場合: サーバーが止まっていた間に終わった run は、再起動したサーバーがその時刻に終わりの出来事を書くまで、動いていると数えられる。herdr はサーバーが止まっている間もペインを動かすので、その時間は「動いていたか分からない時間」である。サーバーの起動の出来事と、報告でのこの時間の示し方は、#303 で決める
 - metrics.ts と違う振る舞いは、上の 4 つと、#189 の 1 の 1 つ: `interactive` も `turn` の出来事もない古い出来事の run が `stopped` で終わったとき、「HANDOFF なしで終わった」と数えない(lead だったかもしれないため)。`failed` で終わった run は、これまでどおり数える
+- `MetricsInput::planned` は `regex::Regex` で、ECMAScript の先読み・後読み・後方参照は使えない(ADR `0193-phase-2-dependencies`)。metrics.ts は `RegExp` を受け取る。`planned_label` を正規表現として読み、読めなければ断るのは API なので、TypeScript で有効なパターンの扱いは #269 が決める(codex のレビューの指摘)
 - 役割の名前の並べ替えは、バイトの順にする。metrics.ts は `localeCompare` で並べる。役割の名前が英小文字と数字とハイフンだけなら、2 つの順は同じになる。agent の名前は英小文字だけなので、同じ順になる
 
 ## 確かめたこと
