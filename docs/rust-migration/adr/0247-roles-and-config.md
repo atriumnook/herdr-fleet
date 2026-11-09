@@ -38,7 +38,7 @@ crate の公開の口に関わるので、architect(fleet の run `acd0f35f`、`
 ### 公開の形
 
 - `FleetConfig` と `AgentDefinition` は orchestrator に置く。どちらも HTTP に出ない(`shared/` にない)
-- `FleetConfig` の `roles`・`models`・`projects` は `IndexMap` にする(ADR `0244-phase-3-dependencies` の「map の順」。`projects` の並びは設定の画面に出る、`settings.ts:84`)。数は `f64` にする(同じ ADR の「数の型」の `FleetSettings` と同じく、fleet.json の値は切り捨てるだけで上限がない)
+- `FleetConfig` の `roles`・`models`・`projects` は `IndexMap` にする(ADR `0244-phase-3-dependencies` の「map の順」。`projects` の並びは設定の画面に出る、`settings.ts:84`)。fleet.json に書かれた順を保つ。JavaScript の object は整数に見えるキー(`"10"`)を昇順で先頭に並べるが、`IndexMap` は並べ替えない。役割とモデルの名前が整数だけのことはまずなく、`projects` のキーは絶対パスなので、合わせない。数は `f64` にする(同じ ADR の「数の型」の `FleetSettings` と同じく、fleet.json の値は切り捨てるだけで上限がない)
 - 設定を探す場所は引数で受ける。`user_fleet_dir(xdg_config_home, home)` は呼ぶ側が渡す環境変数の値と home から作り(空の `XDG_CONFIG_HOME` は未設定として扱う、`config.ts:24` の `||`)、`load_config`・`load_standing_orders` は利用者のフォルダーを、`AgentDirs` は同梱と利用者の役割のフォルダーを、`EntranceStore` は home を受ける。4 つの module はプロセスの環境変数も home も読まない。edition 2024 では `std::env::set_var` が unsafe で、`unsafe_code = "forbid"` の下ではテストが環境変数を変えられないため
 - 同梱の役割のフォルダーは、ADR `0242-phase-3-split` の fleet-guard と同じく、crate のフォルダー(`CARGO_MANIFEST_DIR`)から 3 つ上の `agents/` にする。配布するときの場所は段階 6 で決める
 - `RoleSource` は小文字で serialize し、`as_str` を持つ(`/api/fleet/roles` と出来事の記録の両方が `"bundled" | "user" | "project"` と書く)
@@ -50,10 +50,11 @@ crate の公開の口に関わるので、architect(fleet の run `acd0f35f`、`
 - `brief.rs` の `overlap` は、パスを区間ごとに比べる。TypeScript は `relative()` の文字列が `..` で始まるかを見る(`brief.ts:57`)ので、名前が `..` で始まるフォルダー(`/repo/..cache`)を親の外と読み、同じパスを 2 つの run が書けてしまう。Rust は親の中と読む
 - 役割のフォルダーのファイルは名前の順に読む。TypeScript の `readdirSync` の順は決まっていない(`settings.ts:105` のコメント)ので、名前の順は TypeScript が取りうる順の 1 つである
 - 役割のファイルを名前の順に読むので、同じフォルダーの中の 2 つのファイルが同じ名前の役割を書くと、名前があとのファイルが勝つ。TypeScript では `readdirSync` の順で決まり、移行の間に同じフォルダーを読む 2 つの fleet で、勝つファイルが違いうる
-- YAML の構文のエラーの文は Bun と違う(warning の `fleet: skipping invalid role file <パス>: ` のあと)
+- 警告とエラーの文のうち、理由の部分は Bun と違う。YAML の構文のエラー(`fleet: skipping invalid role file <パス>: ` のあと)、JSON の構文のエラー(Bun は `JSON Parse error: Unexpected EOF`、Rust は `EOF while parsing a value at line 1 column 0`)、ファイルの読み取りの失敗(Bun は `EISDIR: illegal operation on a directory, read`、Rust は `Is a directory (os error 21)`)、entrances の `Cannot read <ファイル>: <理由>` が当たる。本番のサーバーは役割と設定の警告を捨てる(`server/index.ts:534`、`:558`)が、API の Issue(#269)が `entrance_unreadable` の message をそのまま返すと、画面の文が変わる
 - saphyr 0.3.3 は、マッピングの `:` のあとのタブ(`description:<タブ>x`)を読み取りのエラーにする。Bun 1.4.4 は `{"description":"x"}` と読む。Rust はこのファイルを警告を付けて飛ばし、同じ名前の同梱の役割があればそれを使う。直すには frontmatter の文字列を saphyr に渡す前に書き換える必要があり、引用符の中のタブと見分けなければならないので、この Issue では直さない
+- CRLF の改行の frontmatter で、引用符の中の値が複数の行にわたるとき(`description: "a<CRLF>  b"`)、Bun は改行を残して `"a\nb"` と読み、saphyr は YAML 1.2 のとおり空白に折りたたんで `"a b"` と読む。単一引用符も同じで、空行を挟むと Bun は `"a\n\nb"`、saphyr は `"a\nb"` になる。LF の同じファイル、引用符のない値、`>` と `|` は両方同じ値になる。Bun のほうが YAML の仕様から外れているので、合わせない
 - alias を重ねて 100000 個を超えるノードに展開される frontmatter は、saphyr が読み取りのエラーにし(ADR `0279-orchestrator-yaml` の表)、Rust はこのファイルを警告を付けて飛ばす。Bun は同じオブジェクトを共有して読む。役割のファイルにこの形を書く理由はない
-- `fleet.json` を serde_json で読むので、`JSON.parse` が読めて serde_json が読めないファイルは、ファイル全体を `invalid JSON` の警告で飛ばす。f64 の範囲を超える数(`1e999`。`JSON.parse` は Infinity にする)と、128 段より深い入れ子が当たる。serde_json の feature を変えるには manifest を書く必要があり、ADR `0242-phase-3-split` により #247 では書けない
+- `fleet.json` を serde_json で読むので、`JSON.parse` が読めて serde_json が読めないファイルは、ファイル全体を `invalid JSON` の警告で飛ばす。f64 の範囲を超える数(`1e999`。`JSON.parse` は Infinity にする)、128 段より深い入れ子、対になっていない surrogate の escape(`"\ud83d"`。`JSON.parse` はそのまま文字列にする)が当たる。serde_json の feature を変えるには manifest を書く必要があり、ADR `0242-phase-3-split` により #247 では書けない
 
 ## 検討した代わり
 
@@ -80,5 +81,5 @@ crate の公開の口に関わるので、architect(fleet の run `acd0f35f`、`
 ## 確かめたこと
 
 - Bun 1.4.4(この PC、Linux)で `Bun.YAML.parse` と TypeScript の `discoverAgents`・`mergeConfig`・`parseCandidate`・`EntranceStore.skill()` を走らせ、その出力を `tests/{agents,config,entrances}.rs` の期待値にした。例: `edits: False` は `false`、`edits: no` は文字列、`model: Null` は null、`<<: {edits: false}` と `"<<": {edits: false}` は `edits: false`、`edits: !!bool "false"` は文字列、`model: !!str 1` は `"1"`
-- `cargo test --locked -p herdr-fleet-orchestrator --test agents --test roles --test brief --test config --test entrances` で 43 件が通る(rustc 1.99.1、#279 のマージのあと)。テストは先に書き、stub の `todo!()` で失敗することを見た
+- `cargo test --locked -p herdr-fleet-orchestrator --test agents --test roles --test brief --test config --test entrances` で 47 件が通る(rustc 1.99.1、#279 のマージのあと)。テストは先に書き、stub の `todo!()` で失敗することを見た
 - `HOME` と `XDG_CONFIG_HOME` を空の一時フォルダーに向けて同じテストを走らせ、通ったあとも一時フォルダーが空であることを見た
