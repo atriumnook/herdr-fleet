@@ -275,12 +275,15 @@ fn parse_frontmatter(text: &str) -> Result<(Map<String, Value>, &str), String> {
 /// read, so another YAML crate changes this function and [`Tree`] alone.
 fn parse_yaml(text: &str) -> Result<Value, String> {
     let mut tree = Tree::default();
-    saphyr_parser::Parser::new_from_str(text)
-        .load(&mut tree, true)
-        .map_err(|error| error.to_string())?;
-    // after its own failure the tree drops the rest of the events, so its documents are partial
-    if let Some(error) = tree.error {
-        return Err(error);
+    // events are pulled, not pushed through `Parser::load`, which recurses once per nested
+    // collection and overflows the stack on deep block nesting before the tree can stop it
+    for event in saphyr_parser::Parser::new_from_str(text) {
+        let (event, _) = event.map_err(|error| error.to_string())?;
+        tree.on_event(event);
+        // the tree's documents are partial once it fails
+        if let Some(error) = tree.error {
+            return Err(error);
+        }
     }
     let mut documents: Vec<Value> = tree.documents.iter().map(to_json).collect();
     Ok(match documents.len() {
@@ -307,6 +310,21 @@ enum Node<'a> {
 }
 
 impl Node<'_> {
+    /// The collections nested in the node, itself included.
+    fn depth(&self) -> usize {
+        match self {
+            Node::Sequence(items) => 1 + items.iter().map(Node::depth).max().unwrap_or(0),
+            Node::Mapping(entries) => {
+                1 + entries
+                    .iter()
+                    .map(|(_, value)| value.depth())
+                    .max()
+                    .unwrap_or(0)
+            }
+            Node::Scalar(..) | Node::Null => 0,
+        }
+    }
+
     /// Takes the node's size from `budget` as saphyr's loader counts it (one for the node and one
     /// for each entry of a mapping, its key included); false once the budget runs out. A mapping
     /// holds its keys as Bun reads them ([`mapping`]): strings, a repeated key once, merge keys
@@ -325,6 +343,15 @@ impl Node<'_> {
             Node::Scalar(..) | Node::Null => true,
         }
     }
+}
+
+/// The collections one node may sit in, itself included. Every function on [`Node`] recurses,
+/// so a deeper file (block nesting has no limit in saphyr-parser, flow nesting stops at 255)
+/// would overflow the stack and abort the process instead of failing to read.
+const MAX_DEPTH: usize = 256;
+
+fn too_deep() -> String {
+    format!("collections nested deeper than {MAX_DEPTH} levels")
 }
 
 /// The nodes an alias may copy in one load, as saphyr's loader allows by default: an alias
@@ -363,14 +390,15 @@ impl Default for Tree<'_> {
     }
 }
 
-impl<'a> saphyr_parser::EventReceiver<'a> for Tree<'a> {
+impl<'a> Tree<'a> {
+    /// Takes the parser's next event; on a failure it sets `error` and the tree is not to be read.
     fn on_event(&mut self, event: Event<'a>) {
-        if self.error.is_some() {
-            return;
-        }
         match event {
             Event::Scalar(text, style, anchor, tag) => {
                 self.add(Node::Scalar(text, style, tag), anchor)
+            }
+            Event::SequenceStart(..) | Event::MappingStart(..) if self.open.len() >= MAX_DEPTH => {
+                self.error = Some(too_deep());
             }
             Event::SequenceStart(anchor, _) => self.open.push((Open::Sequence(Vec::new()), anchor)),
             Event::MappingStart(anchor, _) => {
@@ -396,6 +424,10 @@ impl<'a> saphyr_parser::EventReceiver<'a> for Tree<'a> {
                             "alias expansion exceeded the maximum node budget (possible billion-laughs attack)"
                                 .to_owned(),
                         );
+                        return;
+                    }
+                    Some(node) if self.open.len() + node.depth() > MAX_DEPTH => {
+                        self.error = Some(too_deep());
                         return;
                     }
                     Some(node) => node.clone(),

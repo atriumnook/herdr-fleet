@@ -760,6 +760,53 @@ fn reads_aliases_of_a_mapping_with_a_sequence_key_as_bun_does() {
     assert_eq!(find(&agents, "seqkeyanchor").edits, Some(false));
 }
 
+// Review regression (/code-review high on d5da038): block sequences nested 5000 deep (about 10 KB)
+// once overflowed the stack and aborted the process. Bun 1.4.4's `Bun.YAML.parse` throws
+// `RangeError: Maximum call stack size exceeded` on this frontmatter, so TypeScript's
+// `discoverAgents` skips the file with a warning and keeps the other roles; so does Rust.
+#[test]
+fn skips_a_role_file_nested_too_deep_with_a_warning() {
+    let deep = format!("---\nname: deep\nk:\n{}a\n---\nx", "- ".repeat(5000));
+    let fixture = fixture(
+        &[("deep.md", &deep), ("fine.md", "---\nname: fine\n---\nx")],
+        &[],
+    );
+    let dirs = AgentDirs {
+        bundled: "/nonexistent".into(),
+        user: "/nonexistent".into(),
+    };
+    let mut warnings = Vec::new();
+    let agents = discover_agents(&fixture.cwd, &mut warnings, &dirs);
+    assert!(agents.iter().all(|role| role.name != "deep"));
+    assert_eq!(find(&agents, "fine").name, "fine");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(
+        warnings[0].starts_with("fleet: skipping invalid role file ")
+            && warnings[0].contains("deep.md: "),
+        "{warnings:?}"
+    );
+}
+
+// Not in Bun's tests: the nesting limit (ADR 0247) also holds for a node an alias copies, so an
+// anchor 200 deep read again 200 deep is too deep, though neither part is. Bun reads it.
+#[test]
+fn skips_a_role_file_whose_alias_nests_too_deep() {
+    let deep = format!(
+        "---\nname: deepalias\na: &a {}x\nb: {}*a\n---\nx",
+        "\n".to_owned() + &"- ".repeat(200),
+        "\n".to_owned() + &"- ".repeat(200)
+    );
+    let fixture = fixture(&[("deepalias.md", &deep)], &[]);
+    let dirs = AgentDirs {
+        bundled: "/nonexistent".into(),
+        user: "/nonexistent".into(),
+    };
+    let mut warnings = Vec::new();
+    let agents = discover_agents(&fixture.cwd, &mut warnings, &dirs);
+    assert!(agents.iter().all(|role| role.name != "deepalias"));
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+}
+
 // Not in agents.test.ts: a key that is not a string becomes JavaScript's `String()` of it, as in
 // Bun 1.4.4 (ADR 0279's "文字列でないキー"): a sequence is its items joined with `,`, a null item
 // written as nothing, a nested sequence flattened the same way, a mapping `[object Object]`. Bun
