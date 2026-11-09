@@ -201,12 +201,9 @@ impl GitHub {
         let limit = MERGED_PULL_REQUESTS_LIMIT.to_string();
         let args = ["pr", "list", "--state", "merged", "--limit", &limit];
         let fields = ["--json", "number,title,mergedAt,baseRefName"];
-        self.list(
-            repo,
-            &[&args[..], &fields[..]].concat(),
-            MERGED_PULL_REQUESTS_LIMIT,
-        )
-        .await
+        let args = [&args[..], &fields[..]].concat();
+        self.list(repo, "pr list", &args, MERGED_PULL_REQUESTS_LIMIT)
+            .await
     }
 
     /// The repository's issues, open and closed, the latest [`ISSUES_LIMIT`], and whether the list
@@ -215,18 +212,19 @@ impl GitHub {
         let limit = ISSUES_LIMIT.to_string();
         let args = ["issue", "list", "--state", "all", "--limit", &limit];
         let fields = ["--json", "number,title,createdAt,closedAt,labels"];
-        self.list(repo, &[&args[..], &fields[..]].concat(), ISSUES_LIMIT)
-            .await
+        let args = [&args[..], &fields[..]].concat();
+        self.list(repo, "issue list", &args, ISSUES_LIMIT).await
     }
 
     /// A list gh answers as JSON (`ghJson`, `github.ts:64`), and whether it is as long as `limit`.
+    /// `command` names it in the errors (`gh pr list failed or timed out.`).
     async fn list<T: DeserializeOwned>(
         &self,
         repo: &Path,
+        command: &str,
         args: &[&str],
         limit: usize,
     ) -> Result<Listing<T>, GhError> {
-        let command = args[..2].join(" ");
         let listed = match self.gh(repo, args).await {
             Ok(listed) => listed,
             Err(RunError::TimedOut) => {

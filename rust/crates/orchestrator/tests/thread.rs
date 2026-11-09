@@ -544,3 +544,28 @@ async fn a_detached_head_is_on_no_branch() {
     run_git(root.path(), &["checkout", "-q", "--detach"]);
     assert_eq!(thread::git_branch(root.path()).await, None);
 }
+
+/// Threads started at once for one repository each keep the worktrees out of `git status`: the
+/// line goes in once all the same (TypeScript's read and append ran on one event loop, so two
+/// calls could not interleave; /code-review high on #294).
+#[tokio::test(flavor = "multi_thread", worker_threads = 8)]
+async fn threads_started_at_once_add_the_exclude_line_once() {
+    for _ in 0..5 {
+        let root = repo("exclude-race");
+        let exclude = root.path().join(".git").join("info").join("exclude");
+        fs::write(&exclude, "# local\n").unwrap();
+        let calls: Vec<_> = (0..16)
+            .map(|_| {
+                let path = root.path().to_path_buf();
+                tokio::spawn(async move { thread::exclude_worktrees(&path).await })
+            })
+            .collect();
+        for call in calls {
+            call.await.unwrap().unwrap();
+        }
+        assert_eq!(
+            fs::read_to_string(&exclude).unwrap(),
+            "# local\n/.herdr-fleet/worktrees/\n"
+        );
+    }
+}

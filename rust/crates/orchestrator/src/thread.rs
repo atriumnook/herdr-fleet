@@ -9,6 +9,7 @@ use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
 use std::io::{self, Write as _};
 use std::path::{Path, PathBuf};
+use std::sync::{LazyLock, Mutex, PoisonError};
 use std::time::Duration;
 
 use child_process::{Command, Env, EnvPolicy, RunError, Runner, StreamLimit, git};
@@ -164,7 +165,7 @@ pub async fn branch_state(cwd: &Path, base: &str) -> Option<BranchState> {
     let range = format!("{base}...HEAD");
     // only the first lines are kept: a long status is cut, not failed
     let status = git::command(cwd, &["status", "--porcelain=v1", "--untracked-files=all"])
-        .stdout_limit(StreamLimit::Head(DEFAULT_STDOUT_LIMIT_BYTES));
+        .stdout_limit(StreamLimit::Head(STATUS_HEAD_BYTES));
     let status = async {
         let output = runner().run(status, &CancellationToken::new()).await.ok()?;
         (output.code == Some(0)).then(|| String::from_utf8_lossy(&output.stdout).into_owned())
@@ -272,6 +273,9 @@ pub async fn exclude_worktrees(repo: &Path) -> io::Result<()> {
         return Ok(());
     };
     let file = common.join("info").join("exclude");
+    // one at a time in the process: two threads started at once would both find the line missing
+    static EXCLUDE: Mutex<()> = Mutex::new(());
+    let _turn = EXCLUDE.lock().unwrap_or_else(PoisonError::into_inner);
     let line = format!("/{THREAD_WORKTREES}/");
     let current = match fs::read(&file) {
         Ok(bytes) => String::from_utf8_lossy(&bytes).into_owned(),
@@ -337,17 +341,21 @@ pub async fn run_setup(cwd: &Path, command: &str, cancel: &CancellationToken) ->
     }
 }
 
-/// The runner of git and the setup command: no limit on how many run at once, as in TypeScript
-/// (ADR 0242-phase-3-split; a limit, if one comes, is set here alone).
-fn runner() -> Runner {
-    Runner::new(usize::MAX)
+/// The runner of git and the setup command, one for the process: no limit on how many run at
+/// once, as in TypeScript (ADR 0255-thread-github-interface; a limit, if one comes, is set here
+/// alone, and holds for every call).
+fn runner() -> &'static Runner {
+    static RUNNER: LazyLock<Runner> = LazyLock::new(|| Runner::new(usize::MAX));
+    &RUNNER
 }
 
-/// The limit of the status read: the runner's own default size, kept instead of failed.
-const DEFAULT_STDOUT_LIMIT_BYTES: usize = 8 * 1024 * 1024;
+/// What the status read keeps: room for [`UNCOMMITTED_MAX`] lines of the longest path (4,096
+/// bytes on Linux), and the rest of a long status dropped instead of failing the read.
+const STATUS_HEAD_BYTES: usize = 128 * 1024;
 
 /// A git command's outcome: whether it exited 0, its output, and what it said went wrong
-/// (trimmed). A git that could not start or ran past `timeout` fails, saying why.
+/// (trimmed). A git that could not start or ran past `timeout` fails and says nothing, as
+/// TypeScript's killed git did: the callers then give their own words.
 struct GitOutcome {
     ok: bool,
     output: String,
@@ -362,10 +370,10 @@ async fn run_git<S: AsRef<OsStr>>(cwd: &Path, args: &[S], timeout: Duration) -> 
             output: String::from_utf8_lossy(&output.stdout).into_owned(),
             error: String::from_utf8_lossy(&output.stderr).trim().to_owned(),
         },
-        Err(error) => GitOutcome {
+        Err(_) => GitOutcome {
             ok: false,
             output: String::new(),
-            error: error.to_string(),
+            error: String::new(),
         },
     }
 }
