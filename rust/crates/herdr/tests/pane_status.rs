@@ -412,8 +412,14 @@ async fn rejects_frames_that_are_not_status_events() {
         .unwrap()
         .emit(json!({ "event": "pane_exited", "data": { "type": "pane_exited", "pane_id": "w1:p1" } }))
         .await;
+    // a good frame after it: once it is told, the one before was read
+    herdr
+        .status()
+        .unwrap()
+        .emit(status_frame("w1:p1", "working"))
+        .await;
     tick(0).await;
-    assert_eq!(recorder.statuses(), Vec::<String>::new());
+    assert_eq!(recorder.statuses(), strings(&["w1:p1:working"]));
     assert_eq!(recorder.log.lock().unwrap().ended, Vec::<String>::new());
     collector.stop();
 }
@@ -501,6 +507,12 @@ async fn rejects_unknown_or_malformed_structure_frames() {
     tick(20).await;
     assert_eq!(recorder.structure(), 0);
     assert_eq!(recorder.log.lock().unwrap().ended, Vec::<String>::new());
+    // a good frame after them: once it is told, the ones before were read
+    lifecycle
+        .emit(json!({ "data": { "type": "pane_exited", "pane_id": "w1:p9" } }))
+        .await;
+    tick(0).await;
+    assert_eq!(recorder.log.lock().unwrap().ended, strings(&["w1:p9"]));
     // nor does any of them ask for a snapshot
     assert_eq!(herdr.snapshot_calls(), calls);
     collector.stop();
@@ -525,8 +537,13 @@ async fn names_the_pane_a_focus_lands_on_from_the_live_frame() {
         .emit(json!({ "data": { "type": "pane_focused", "pane_id": 3 } }))
         .await;
     focus.emit(json!({})).await;
+    // a good frame after them: once it is told, the ones before were read
+    focus.emit(focused("w1A4:p2")).await;
     tick(0).await;
-    assert_eq!(recorder.log.lock().unwrap().focused, strings(&["w1A4:p1"]));
+    assert_eq!(
+        recorder.log.lock().unwrap().focused,
+        strings(&["w1A4:p1", "w1A4:p2"])
+    );
     collector.stop();
 }
 
@@ -1366,6 +1383,22 @@ async fn does_nothing_more_once_stopped_even_mid_recovery() {
     tick(60).await;
     assert_eq!(herdr.subscriptions().len(), subscriptions);
     assert_eq!(recorder.resyncs(), vec![]);
+}
+
+/// New: a zero backstop is refused when the subscription starts, not inside its task.
+#[tokio::test(start_paused = true)]
+#[should_panic(expected = "PaneStatusOptions::backstop must not be zero")]
+async fn refuses_a_zero_backstop_at_start() {
+    let herdr = FakeHerdr::new(vec![]);
+    let recorder = Arc::new(Recorder::default());
+    let _collector = start(
+        &herdr,
+        &recorder,
+        PaneStatusOptions {
+            backstop: Duration::ZERO,
+            ..fast()
+        },
+    );
 }
 
 /// New: `stop` closes every connection, a second `stop` does nothing, and dropping the

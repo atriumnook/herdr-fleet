@@ -54,7 +54,8 @@ pub struct PaneStatusOptions {
     /// First retry after a subscription closed; doubles per closure that never started.
     pub reconnect_min: Duration,
     pub reconnect_max: Duration,
-    /// How often every pane is checked against a snapshot anyway.
+    /// How often every pane is checked against a snapshot anyway; [`start`] panics when it is
+    /// zero (`setInterval` has no such period).
     pub backstop: Duration,
     pub debounce: Duration,
     /// Retry delay when a reconcile's snapshot fails.
@@ -107,9 +108,15 @@ pub fn start(
     handler: Arc<dyn PaneStatusHandler>,
     options: PaneStatusOptions,
 ) -> PaneStatus {
+    // here, not in the task: a panic there would go unseen
+    assert!(
+        !options.backstop.is_zero(),
+        "PaneStatusOptions::backstop must not be zero"
+    );
     let stopped = Arc::new(AtomicBool::new(false));
-    // the connections open and the first snapshot is asked for before this returns, as
-    // `startStatusCollector` does
+    // the connections open and the first snapshot's request is made before this returns, as in
+    // `startStatusCollector`; a source whose request is lazy (`Herdr`) sends it when the task
+    // first runs, before it reads any event
     let collector = collector::Collector::new(source, handler, options, Arc::clone(&stopped));
     let task = tokio::spawn(collector.run()).abort_handle();
     PaneStatus { stopped, task }
