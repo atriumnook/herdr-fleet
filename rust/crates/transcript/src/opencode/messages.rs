@@ -4,7 +4,7 @@
 
 use std::sync::LazyLock;
 
-use protocol::js::{cut_utf16, trim};
+use protocol::js::{cut_utf16, stringify_pretty, trim};
 use protocol::{
     ContextUsage, ConversationMetadata, ConversationPart, ConversationTurn, ImageRef,
     SkillActivity, SkillEvidence, SkillStatus, TextPhase, ToolPart, TurnRole,
@@ -13,7 +13,6 @@ use regex::Regex;
 use serde_json::Value;
 
 use super::time::{InvalidTime, iso};
-use crate::js_json::stringify_pretty;
 use crate::records::{IMAGE_TYPES, Row, record, token_count};
 use crate::tool_output::trim_output;
 
