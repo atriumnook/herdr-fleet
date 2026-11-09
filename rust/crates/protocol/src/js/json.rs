@@ -1,7 +1,7 @@
-//! `JSON.stringify(value, null, 2)` and Number::toString of JavaScript, for the CLI's `--json` and
-//! the numbers it writes into its text (the rules: docs/rust-migration/adr/0193-phase-2-dependencies.md,
-//! "`JSON.stringify` と serde_json"). A copy of transcript's `js_json`, which moves here in a later
-//! issue (ADR 0244-phase-3-dependencies).
+//! `JSON.stringify(value, null, 2)` and Number::toString of JavaScript, for the tool inputs a
+//! transcript page shows, the CLI's `--json` and the numbers the CLI writes into its text (the rules:
+//! docs/rust-migration/adr/0193-phase-2-dependencies.md, "`JSON.stringify` と serde_json"). Moved
+//! here from transcript's `js_json` (ADR 0244-phase-3-dependencies, #275).
 //!
 //! serde_json's pretty printer differs in two ways: it writes a whole number read as a float with a
 //! fraction (`1.0`, `-0.0`), and it keeps a JavaScript object's integer keys where they were read,
