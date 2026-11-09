@@ -8,7 +8,7 @@
 
 ADR `0244-phase-3-dependencies` の表は、child-process の外部の依存を tokio、tokio-util、rustix の 3 つにした。しかし段階 3 の次の 2 つの Issue は、child-process の中で JSON を読む。
 
-- #253(C2): `opencode api GET <path>` の返答を JSON として読む。TypeScript の `server/opencode-cli.ts` は、終了コード 0 で JSON として読めない返答を読み直し(145 行目)、エラーの返答の本文から `_tag` を読む(150 行目)。ADR `0107-crate-split` も「`record`(JSON の値をオブジェクトとして読む小さな関数)は、Rust では serde_json の機能で足りる」と書いており、child-process が serde_json を使う前提である
+- #253(C2): `opencode api GET <path>` の返答を JSON として読む。TypeScript の `server/opencode-cli.ts` は、終了コード 0 で JSON として読めない返答を読み直し(147 行目)、エラーの返答の本文から `_tag` を読む(152 行目)。ADR `0107-crate-split` も「`record`(JSON の値をオブジェクトとして読む小さな関数)は、Rust では serde_json の機能で足りる」と書いており、child-process が serde_json を使う前提である
 - #246(C1): C2 が中身を書く `opencode` の module の stub を、最終の signature で置く。`get` は、transcript の trait `OpencodeApi::get`(`rust/crates/transcript/src/opencode/mod.rs:33`)と同じく `serde_json::Value` を返す。core はこの client を包んで transcript の trait を実装する(ADR `0107-crate-split`)。C1 のテストは、安全上の判定の表(`fixtures/security/child-process/*.json`)も serde_json で読める
 
 ADR `0242-phase-3-split` の「Issue の分け方」により、C1 と C2 は child-process の manifest を書けない。そのため、manifest を書くこの Issue を別に開いた(ADR `0244-phase-3-dependencies` の「あとの Issue で feature や crate が足りないと分かったら、足す Issue を別に開いて待つ」)。
@@ -17,7 +17,7 @@ ADR `0242-phase-3-split` の「Issue の分け方」により、C1 と C2 は ch
 
 `rust/crates/child-process/Cargo.toml` の `[dependencies]` に `serde_json.workspace = true` を足す。feature は crate の側では足さず、workspace の指定(`float_roundtrip`、`preserve_order`)をそのまま使う。ほかの 8 つの crate(protocol、herdr-api、herdr、screen、transcript、orchestrator、core、cli)と同じ書き方である。
 
-ADR `0244-phase-3-dependencies` は書き換えない。child-process の依存は、その表の 3 つに serde_json を足した 4 つになる。
+この ADR は、ADR `0244-phase-3-dependencies` の決定を置き換えずに補う。ADR の README のとおり 0244 は書き換えないので、0244 の表の child-process の行(tokio、tokio-util、rustix)と、serde_json を足した crate の一覧(herdr-api、herdr、orchestrator、core、cli)には child-process が載っていない。child-process の外部の依存は、その 3 つに serde_json を足した 4 つである。
 
 ## 検討した代わり
 
@@ -39,5 +39,5 @@ ADR `0244-phase-3-dependencies` は書き換えない。child-process の依存�
 PC は Linux 7.2.15(omarchy)、rustc 1.99.1、`rust/` で実行した。
 
 - 変える前に `cargo tree -p herdr-fleet-child-process -e normal --depth 1` を走らせ、serde_json が出ないことを見た(rustix、tokio、tokio-util の 3 つだけ)。変えたあとは `serde_json v1.0.154` が加わった
-- `git diff rust...HEAD -- rust/Cargo.lock` の差分は、`herdr-fleet-child-process` の `dependencies` に `"serde_json"` を足す 1 行だけだった
+- `git diff origin/rust...HEAD -- rust/Cargo.lock`(`git fetch origin rust` のあと)の差分は、`herdr-fleet-child-process` の `dependencies` に `"serde_json"` を足す 1 行だけだった
 - `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`(235 件)が通った
