@@ -587,6 +587,23 @@ fn expands_merge_keys_and_reads_tags_as_bun_does() {
     );
 }
 
+// Review regression: Bun 1.4.4 reads the sequence key `[<<]` as the ordinary object key `"<<"`,
+// not as YAML's scalar merge key. `discoverAgents` therefore leaves `spawning` unset.
+#[test]
+fn does_not_expand_a_sequence_key_that_stringifies_to_merge() {
+    let fixture = fixture(
+        &[(
+            "sequence-merge.md",
+            "---\nname: sequence-merge\n? [<<]\n: {spawning: true}\n---\nx",
+        )],
+        &[],
+    );
+    let agents = fixture.discover();
+    let role = find(&agents, "sequence-merge");
+    assert_eq!(role.spawning, None);
+    assert!(!role.may_spawn(&RoleOverride::default()));
+}
+
 // Not in agents.test.ts: a key that is not a string becomes JavaScript's `String()` of it, as in
 // Bun 1.4.4 (ADR 0279's "文字列でないキー"): a sequence is its items joined with `,`, a null item
 // written as nothing, a nested sequence flattened the same way, a mapping `[object Object]`. Bun

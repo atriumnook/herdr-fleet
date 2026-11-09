@@ -305,10 +305,11 @@ fn to_json(node: &Yaml<'_>) -> Value {
             let mut own = Map::new();
             let mut merged = Vec::new();
             for (key, value) in entries {
+                let merge_key = is_merge_key(key);
                 let key = key_text(key);
-                match (key.as_ref(), to_json(value)) {
-                    ("<<", Value::Object(map)) => merged.push(map),
-                    ("<<", Value::Array(items)) if items.iter().all(Value::is_object) => {
+                match (merge_key, to_json(value)) {
+                    (true, Value::Object(map)) => merged.push(map),
+                    (true, Value::Array(items)) if items.iter().all(Value::is_object) => {
                         merged.extend(items.into_iter().filter_map(|item| match item {
                             Value::Object(map) => Some(map),
                             _ => None,
@@ -326,6 +327,16 @@ fn to_json(node: &Yaml<'_>) -> Value {
         }
         Yaml::Tagged(_, node) => to_json(node),
         Yaml::Alias(_) | Yaml::BadValue => Value::Null,
+    }
+}
+
+/// Whether the YAML key itself is the scalar `<<`. A collection such as `[<<]` becomes the same
+/// JavaScript object key after string conversion, but Bun treats it as an ordinary key.
+fn is_merge_key(key: &Yaml<'_>) -> bool {
+    match key {
+        Yaml::Representation(text, _, _) | Yaml::Value(Scalar::String(text)) => text == "<<",
+        Yaml::Tagged(_, node) => is_merge_key(node),
+        _ => false,
     }
 }
 
