@@ -15,15 +15,40 @@
 
 use std::ffi::OsString;
 use std::fmt;
+use std::io;
 use std::path::PathBuf;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use crate::Env;
+use tokio_util::sync::CancellationToken;
+
+use crate::{
+    Command, Env, EnvPolicy, KILL_GRACE, Output, RunError, Runner, Stream, StreamLimit, child_env,
+    empty_work_dir,
+};
+
+/// `CLI_TIMEOUT_MS`, `server/opencode-cli.ts:14`.
+const CLI_TIMEOUT: Duration = Duration::from_secs(20);
+
+/// A reply larger than this is no reply: 100 messages with a few large outputs is a few MB
+/// (`MAX_REPLY_BYTES`, `server/opencode-cli.ts:18`). [`OpencodeCli`]'s limit when the options name
+/// none.
+const MAX_REPLY_BYTES: usize = 32 * 1024 * 1024;
 
 /// A model list is tens of KB: far less than a page of messages (`MODEL_REPLY_BYTES`,
 /// `server/opencode-cli.ts:175`). [`opencode_api_get`]'s limit when the options name none.
-#[allow(dead_code, reason = "#253 reads it in opencode_api_get")]
 const MODEL_REPLY_BYTES: usize = 8 * 1024 * 1024;
+
+/// `MAX_CHILDREN`, `server/opencode-cli.ts:19`.
+const MAX_CHILDREN: usize = 4;
+
+/// `opencode service status` is asked at most this often: under the chat's own poll interval
+/// (`SERVICE_TTL_MS`, `server/opencode-cli.ts:21`).
+const SERVICE_TTL: Duration = Duration::from_secs(1);
+
+/// What is kept of the CLI's standard error: its first 4096 bytes (`readUpTo(child.stderr, 4096)`,
+/// `server/opencode-cli.ts:128`). TypeScript keeps nothing of a longer one; the head is kept here,
+/// where the start of a failure is said (the runner's `Head`, ADR 0246-child-process-interface).
+const STDERR_BYTES: usize = 4096;
 
 /// A GET that did not answer with a body: the same two cases as transcript's `OpencodeError`, so
 /// the core's conversion copies the fields.
@@ -77,32 +102,182 @@ pub struct OpencodeCliOptions {
 impl OpencodeCliOptions {
     /// The options of `server/opencode-cli.ts` for a CLI in `work_dir`, given the server's `env`.
     pub fn new(work_dir: impl Into<PathBuf>, env: Env) -> Self {
-        let _ = (work_dir.into(), env);
-        todo!("#253")
+        Self {
+            work_dir: work_dir.into(),
+            command: "opencode".into(),
+            env,
+            attempts: 3,
+            timeout: CLI_TIMEOUT,
+            kill_grace: KILL_GRACE,
+            max_reply_bytes: None,
+            max_children: MAX_CHILDREN,
+        }
     }
 }
 
 /// `opencode api GET <path>` and `opencode service status` (`opencodeCli`,
-/// `server/opencode-cli.ts:85`).
+/// `server/opencode-cli.ts:85`), run as a usage probe is: in a folder of ours, with only the
+/// environment the CLI needs to find its service (HOME, XDG_*). Not OPENCODE_*: a person who moves
+/// OpenCode's state with those would have this look at another service than their pane uses, and
+/// read "stopped" (the pane stays on its scrollback).
+///
+/// The CLI writes its reply and exits without waiting for the pipe to drain, so a large reply to a
+/// pipe can arrive cut. A reply that exited 0 and is not JSON is read again. A CLI that timed out,
+/// exited with an error, or answered too much is not: the same call would take as long again.
+///
+/// A reply is JSON as serde_json reads it: a lone surrogate escape or a number past f64, which
+/// `JSON.parse` reads, is no JSON here (ADR 0193-phase-2-dependencies), and so is one nested deeper
+/// than serde_json's 128 levels, which `JSON.parse` also reads (the `unbounded_depth` feature is
+/// not in the manifest). Each of these exits 0 and is read `attempts` times before it fails.
 #[derive(Debug)]
-pub struct OpencodeCli {}
+pub struct OpencodeCli {
+    work_dir: PathBuf,
+    command: OsString,
+    /// what the CLI gets: `child_env` of the server's, and no self-update
+    env: Env,
+    attempts: u32,
+    timeout: Duration,
+    kill_grace: Duration,
+    max_reply_bytes: usize,
+    runner: Runner,
+    /// set once the folder is emptied: once per client, so a second read of this client does not
+    /// empty it under a first one still running. Another client given the same folder empties it
+    /// again, as in TypeScript: `opencode_api_get` makes a client per call, and its caller (the
+    /// model list) reads one list at a time
+    prepared: tokio::sync::OnceCell<()>,
+    /// the last answer of `service status`; held while a question is out, so callers asking at
+    /// once wait for it and share its answer
+    service: tokio::sync::Mutex<Option<ServiceAnswer>>,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ServiceAnswer {
+    at: Instant,
+    running: bool,
+}
 
 impl OpencodeCli {
+    /// # Panics
+    ///
+    /// When `options.max_children` is 0: nothing would ever run ([`Runner::new`]).
     pub fn new(options: OpencodeCliOptions) -> Self {
-        let _ = options;
-        todo!("#253")
+        let mut env = child_env(&options.env, &[]);
+        env.insert("OPENCODE_DISABLE_AUTOUPDATE".into(), "true".into());
+        Self {
+            work_dir: options.work_dir,
+            command: options.command,
+            env,
+            attempts: options.attempts,
+            timeout: options.timeout,
+            kill_grace: options.kill_grace,
+            max_reply_bytes: options.max_reply_bytes.unwrap_or(MAX_REPLY_BYTES),
+            runner: Runner::new(options.max_children),
+            prepared: tokio::sync::OnceCell::new(),
+            service: tokio::sync::Mutex::new(None),
+        }
     }
 
     /// The parsed JSON body of a GET.
     pub async fn get(&self, path: &str) -> Result<serde_json::Value, OpencodeError> {
-        let _ = path;
-        todo!("#253")
+        let mut attempt = 1;
+        loop {
+            let output = self.run(&["api", "GET", path]).await?;
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let body: serde_json::Value = match serde_json::from_str(&stdout) {
+                Ok(body) => body,
+                Err(_) if output.code == Some(0) && attempt < self.attempts => {
+                    attempt += 1;
+                    continue;
+                }
+                Err(_) => {
+                    let exit = output
+                        .code
+                        .map_or_else(|| "by a signal".to_owned(), |code| code.to_string());
+                    let said = if js_trim(&stderr).is_empty() {
+                        String::new()
+                    } else {
+                        format!(": {}", head(&stderr))
+                    };
+                    return Err(OpencodeError::Other(format!(
+                        "opencode api returned no JSON (exit {exit}{said})"
+                    )));
+                }
+            };
+            if output.code == Some(0) {
+                return Ok(body);
+            }
+            return Err(OpencodeError::Http {
+                status: http_status(&stderr),
+                tag: tag(&body),
+            });
+        }
     }
 
     /// Whether the background service answers; never starts it. The answer is kept for a second,
     /// and callers asking at once share one question.
     pub async fn service_running(&self) -> bool {
-        todo!("#253")
+        let asked = Instant::now();
+        let mut service = self.service.lock().await;
+        // an answer given after this call asked is the question it waited on
+        if let Some(answer) = *service
+            && (answer.at >= asked || answer.at.elapsed() < SERVICE_TTL)
+        {
+            return answer.running;
+        }
+        // a status that cannot be asked is a service not known to run
+        let running = self
+            .run(&["service", "status"])
+            .await
+            .is_ok_and(|output| output.code == Some(0) && names_a_url(&output.stdout));
+        *service = Some(ServiceAnswer {
+            at: Instant::now(),
+            running,
+        });
+        running
+    }
+
+    /// Runs the CLI with `args` in its folder, emptied before its first run.
+    async fn run(&self, args: &[&str]) -> Result<Output, OpencodeError> {
+        let verb = args[0];
+        // off the async threads: removing what a run before left is file system work
+        self.prepared
+            .get_or_try_init(|| async {
+                let dir = self.work_dir.clone();
+                tokio::task::spawn_blocking(move || empty_work_dir(&dir))
+                    .await
+                    .unwrap_or_else(|error| Err(io::Error::other(error)))
+            })
+            .await
+            .map_err(|error| {
+                OpencodeError::Other(format!(
+                    "opencode {verb}: {}: {error}",
+                    self.work_dir.display()
+                ))
+            })?;
+        let command = Command::new(
+            &self.command,
+            &self.work_dir,
+            EnvPolicy::Only(self.env.clone()),
+            self.timeout,
+        )
+        .args(args)
+        .kill_grace(self.kill_grace)
+        .stdout_limit(StreamLimit::Fail(self.max_reply_bytes))
+        .stderr_limit(StreamLimit::Head(STDERR_BYTES));
+        self.runner
+            .run(command, &CancellationToken::new())
+            .await
+            .map_err(|error| {
+                OpencodeError::Other(match error {
+                    RunError::TimedOut => format!("opencode {verb} timed out"),
+                    RunError::TooLarge {
+                        stream: Stream::Stdout,
+                        limit,
+                    } => format!("opencode {verb} answered more than {limit} bytes"),
+                    error => format!("opencode {verb}: {error}"),
+                })
+            })
     }
 }
 
@@ -110,9 +285,147 @@ impl OpencodeCli {
 /// call; fails when no service runs, or it answers with an error or no JSON (`opencodeApiGet`,
 /// `server/opencode-cli.ts:178`). With no `max_reply_bytes`, a reply is at most 8 MiB.
 pub async fn opencode_api_get(
-    options: OpencodeCliOptions,
+    mut options: OpencodeCliOptions,
     path: &str,
 ) -> Result<serde_json::Value, OpencodeError> {
-    let _ = (options, path);
-    todo!("#253")
+    options.max_reply_bytes.get_or_insert(MODEL_REPLY_BYTES);
+    let cli = OpencodeCli::new(options);
+    if !cli.service_running().await {
+        return Err(OpencodeError::Other(
+            "no OpenCode service is running".into(),
+        ));
+    }
+    cli.get(path).await
+}
+
+/// Whether `service status` printed the service's URL (`/^https?:\/\//` on the trimmed output).
+fn names_a_url(stdout: &[u8]) -> bool {
+    let text = String::from_utf8_lossy(stdout);
+    let text = js_trim(&text);
+    text.starts_with("http://") || text.starts_with("https://")
+}
+
+/// The status code of `HTTP <3 digits>` in what the CLI said, or 0 when it names none
+/// (`/HTTP (\d{3})/`, `server/opencode-cli.ts:151`).
+fn http_status(stderr: &str) -> u16 {
+    stderr
+        .match_indices("HTTP ")
+        .find_map(|(at, found)| {
+            let digits = stderr.get(at + found.len()..at + found.len() + 3)?;
+            if digits.bytes().all(|byte| byte.is_ascii_digit()) {
+                digits.parse().ok()
+            } else {
+                None
+            }
+        })
+        .unwrap_or(0)
+}
+
+/// The body's `_tag`, or "" when it is not an object or has none (`String(record(body)["_tag"] ??
+/// "")`, `server/opencode-cli.ts:152`). A tag that is not a string is written as `String` writes
+/// it.
+fn tag(body: &serde_json::Value) -> String {
+    match body.get("_tag") {
+        None | Some(serde_json::Value::Null) => String::new(),
+        Some(tag) => js_string(tag),
+    }
+}
+
+/// JavaScript's `String(value)` of what `JSON.parse` gives: an array is its items joined with `,`
+/// (null as ""), an object `[object Object]`, a number as Number::toString writes it.
+fn js_string(value: &serde_json::Value) -> String {
+    use serde_json::Value;
+    match value {
+        Value::Null => "null".to_owned(),
+        Value::Bool(value) => value.to_string(),
+        Value::Number(number) => js_number(number.as_f64().unwrap_or(f64::NAN)),
+        Value::String(text) => text.clone(),
+        Value::Array(items) => items
+            .iter()
+            .map(|item| match item {
+                Value::Null => String::new(),
+                item => js_string(item),
+            })
+            .collect::<Vec<_>>()
+            .join(","),
+        Value::Object(_) => "[object Object]".to_owned(),
+    }
+}
+
+/// ECMAScript's Number::toString of a finite number (a number read from JSON is always finite),
+/// by the rule of ADR 0193-phase-2-dependencies ("数の書き方"): a copy of protocol's
+/// `js::json::number_to_string`, which child-process does not depend on.
+fn js_number(x: f64) -> String {
+    if x == 0.0 {
+        // -0 too
+        return "0".to_owned();
+    }
+    let (digits, exponent) = shortest_digits(x.abs());
+    let sign = if x < 0.0 { "-" } else { "" };
+    let k = i32::try_from(digits.len()).unwrap_or(i32::MAX);
+    // x = 0.d1d2…dk × 10^n
+    let n = exponent + 1;
+    let body = if k <= n && n <= 21 {
+        format!("{digits}{}", "0".repeat((n - k).unsigned_abs() as usize))
+    } else if 0 < n && n <= 21 {
+        let point = n.unsigned_abs() as usize;
+        format!("{}.{}", &digits[..point], &digits[point..])
+    } else if -6 < n && n <= 0 {
+        format!("0.{}{digits}", "0".repeat(n.unsigned_abs() as usize))
+    } else {
+        let mantissa = if k == 1 {
+            digits.clone()
+        } else {
+            format!("{}.{}", &digits[..1], &digits[1..])
+        };
+        let e = n - 1;
+        format!("{mantissa}e{}{}", if e < 0 { "-" } else { "+" }, e.abs())
+    };
+    format!("{sign}{body}")
+}
+
+/// The shortest digits that read back as `x` (positive and finite), and the decimal exponent of
+/// the first: `x` = d1.d2…dk × 10^exponent. Of two shortest digit strings ECMAScript takes the one
+/// closer to `x`; Rust's `{:e}` may take the other, and the correctly rounded string of the same
+/// length is that closer one whenever it reads back as `x`.
+fn shortest_digits(x: f64) -> (String, i32) {
+    let shortest = format!("{x:e}");
+    let length = split_exponent(&shortest).0.len();
+    let rounded = format!("{:.*e}", length.saturating_sub(1), x);
+    let chosen = if rounded.parse::<f64>().ok() == Some(x) {
+        rounded
+    } else {
+        shortest
+    };
+    split_exponent(&chosen)
+}
+
+/// `d.ddde±x` as its digits without the point, and the exponent.
+fn split_exponent(text: &str) -> (String, i32) {
+    let (mantissa, exponent) = text.split_once('e').unwrap_or((text, "0"));
+    (mantissa.replace('.', ""), exponent.parse().unwrap_or(0))
+}
+
+/// The head of what a CLI said on stderr, as one printable line: each run of characters outside
+/// printable ASCII made one space, trimmed, at most 200 characters (`head`,
+/// `server/opencode-cli.ts:54`).
+fn head(text: &str) -> String {
+    let mut line = String::with_capacity(text.len().min(1024));
+    let mut in_run = false;
+    for c in text.chars() {
+        if (' '..='~').contains(&c) {
+            line.push(c);
+            in_run = false;
+        } else if !in_run {
+            line.push(' ');
+            in_run = true;
+        }
+    }
+    line.trim_matches(' ').chars().take(200).collect()
+}
+
+/// `String.prototype.trim`: JavaScript's white space and line terminators, which are Unicode's
+/// White_Space without U+0085, and U+FEFF.
+fn js_trim(text: &str) -> &str {
+    text.trim_matches(|c: char| (c.is_whitespace() && c != '\u{85}') || c == '\u{feff}')
 }
