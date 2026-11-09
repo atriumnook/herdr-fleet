@@ -10,6 +10,8 @@
 //! The signatures are final (ADR 0246-child-process-interface); issue #253 (C2) writes the bodies
 //! with the runner. There is no trait here: the conversation reader takes transcript's
 //! `OpencodeApi`, which the core implements by wrapping [`OpencodeCli`] (ADR 0107-crate-split).
+//! transcript's trait is synchronous: the core calls these functions with tokio's
+//! `Handle::block_on` from inside `spawn_blocking` only (from an async task it panics).
 
 use std::ffi::OsString;
 use std::fmt;
@@ -19,8 +21,9 @@ use std::time::Duration;
 use crate::Env;
 
 /// A model list is tens of KB: far less than a page of messages (`MODEL_REPLY_BYTES`,
-/// `server/opencode-cli.ts:175`).
-pub const MODEL_REPLY_BYTES: usize = 8 * 1024 * 1024;
+/// `server/opencode-cli.ts:175`). [`opencode_api_get`]'s limit when the options name none.
+#[allow(dead_code, reason = "#253 reads it in opencode_api_get")]
+const MODEL_REPLY_BYTES: usize = 8 * 1024 * 1024;
 
 /// A GET that did not answer with a body: the same two cases as transcript's `OpencodeError`, so
 /// the core's conversion copies the fields.
@@ -63,8 +66,10 @@ pub struct OpencodeCliOptions {
     pub timeout: Duration,
     /// [`KILL_GRACE`](crate::KILL_GRACE)
     pub kill_grace: Duration,
-    /// a reply larger than this is no reply (32 MiB; the model list's is 8 MiB)
-    pub max_reply_bytes: usize,
+    /// a reply larger than this is no reply; `None`: 32 MiB for [`OpencodeCli`], 8 MiB for
+    /// [`opencode_api_get`] (a model list), as `server/opencode-cli.ts:179` puts it in when the
+    /// caller names none
+    pub max_reply_bytes: Option<usize>,
     /// CLIs running at once, whatever the number of panels and panes asking (4)
     pub max_children: usize,
 }
@@ -103,8 +108,7 @@ impl OpencodeCli {
 
 /// The JSON body of `opencode api GET <path>` on the running service, in a folder emptied for the
 /// call; fails when no service runs, or it answers with an error or no JSON (`opencodeApiGet`,
-/// `server/opencode-cli.ts:178`). TypeScript puts the model list's reply limit in by default; here
-/// the caller sets `max_reply_bytes` to [`MODEL_REPLY_BYTES`], since every option has a value.
+/// `server/opencode-cli.ts:178`). With no `max_reply_bytes`, a reply is at most 8 MiB.
 pub async fn opencode_api_get(
     options: OpencodeCliOptions,
     path: &str,

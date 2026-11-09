@@ -35,7 +35,7 @@ ADR `0242-phase-3-split` の「子プロセス」は、ペインの外で起動�
 ```rust
 pub struct Runner;                 // Clone。clone は同じ上限を分け合う
 impl Runner {
-    pub fn new(max_children: usize) -> Self;   // 0 は panic
+    pub fn new(max_children: usize) -> Self;   // 0 は panic。Semaphore::MAX_PERMITS を超える数はその数に丸める
     pub async fn run(&self, command: Command, cancel: &CancellationToken) -> Result<Output, RunError>;
     pub async fn session(&self, command: Command, cancel: &CancellationToken) -> Result<Session, RunError>;
 }
@@ -61,10 +61,12 @@ impl Session {
 
 - 同時に動かす数の上限は、`Runner` が持つ `tokio::sync::Semaphore` で数える。使い道ごとに 1 つの `Runner` を作る(`opencode api` は 4 つまで、`server/opencode-cli.ts:19`)。process 全体で 1 つの上限にはしない。TypeScript も使い道ごとに数えており、probe とモデル一覧と `opencode api` が互いを待つことはないため
 - 時間の上限は、順番を待ち終えて起動したときから数える(`server/opencode-cli.ts` の `slot` の中で timer を始めるのと同じ)。順番を待つ間に取り消されたら、起動せずに `Cancelled` を返す
+- 時計に足せないほど長い時間の上限と `kill_grace`(`Duration::MAX` など)は、tokio の `timeout` と同じく期限なしとして扱い、panic しない。段階 4 のサイドチャットは時間の上限を持たない(`server/side-chat.ts:161-174`)。`DEFAULT_STDOUT_LIMIT` と `DEFAULT_STDERR_LIMIT` も root から使える
 - 終了コードが 0 でないことは、エラーにせず `Output` の `code` で返す。`opencode api` は終了コード 1 の本文から HTTP の状態を読み(`server/opencode-cli.ts:151`)、git は失敗の文を `stderr` から読むため
 - 止め方: 時間の上限か取り消しで、子の pid に SIGTERM を rustix の `kill_process` で送る。`kill_grace` 後に SIGKILL(tokio の `start_kill`)、さらに `kill_grace` 後に読み取りをあきらめ、`TimedOut` か `Cancelled` を返す。子が SIGTERM で終わり、出力が閉じれば、その時点で返す。process group には送らない。SIGTERM を送るのは、tokio がまだ子を回収していないとき(`Child::id` が `Some`)だけにする。回収したあとの pid は、別のプロセスのものになっていることがあるため。Windows には SIGTERM がないので、`cfg(not(unix))` では最初の段階から `start_kill` にする
 - `StreamLimit` は、出力を最後まで読み、どれだけ残すかを決める。`Fail(n)` は n バイトを超えたら `TooLarge` で失敗し、すぐに SIGKILL を送る(`server/opencode-cli.ts:131` と同じ)。子が回収されるまで(長くて `kill_grace`)上限の 1 つを返さない。返すと、SIGKILL を受けてまだ回収されていない子が、上限の外で残るため(`/code-review high` の指摘)。`Head(n)` は先頭の n バイト、`Tail(n)` は末尾の n バイトを残す。`Tail` は setup のコマンドの出力の最後の 20 行(`server/fleet/thread.ts:179`)のため。既定の `Fail(8 MiB)` は ADR `0242-phase-3-split` が probe とモデル一覧に決めた値、`Head(4096)` は `server/opencode-cli.ts:128` が標準エラーを読む量。TypeScript は上限を超えた標準エラーを空の文字列にするが、Rust は先頭の 4096 バイトを残す。失敗の文の先頭が読めるほうが、原因を探しやすいため
 - `Session` は `codex app-server` の JSON-RPC(`server/fleet/usage.ts:426`、`server/fleet/model-lists.ts:127`)のための口。時間の上限は、起動から `close` までの全体にかかる(TypeScript の 1 つの `setTimeout` と同じ)。行の長さの上限は、標準出力の `StreamLimit` のバイト数にする。標準エラーは読まずに `/dev/null` に捨てる(TypeScript の `stderr: "ignore"`)。UTF-8 でないバイトは U+FFFD に置き換える。`close` は標準入力を閉じ、すぐに SIGTERM を送り(TypeScript の `finally` の `child.kill()`、`server/fleet/usage.ts:456`)、終わっていない子に `kill_grace` 後に SIGKILL を送る。`close` を呼ばずに落とした `Session` は、tokio の `kill_on_drop` で SIGKILL を受ける。`Session` も、`close` まで `Runner` の上限の 1 つを使う
+- 段階 4 のサイドチャットは、`Session` に加えて標準エラーの末尾(`server/side-chat.ts:336-337`)と終了コードを要る。どちらも後から足せる(例: `stderr_limit` に従って標準エラーを返す `Session::finish(self) -> Result<Output, RunError>`)ので、今は足さない
 
 ### git(`git`)
 
@@ -80,7 +82,7 @@ C2 が中身を書く公開の型と関数を、次の signature で置く。
 pub enum OpencodeError { Http { status: u16, tag: String }, Other(String) }
 pub struct OpencodeCliOptions { pub work_dir: PathBuf, pub command: OsString, pub env: Env,
                                 pub attempts: u32, pub timeout: Duration, pub kill_grace: Duration,
-                                pub max_reply_bytes: usize, pub max_children: usize }
+                                pub max_reply_bytes: Option<usize>, pub max_children: usize }
 impl OpencodeCliOptions { pub fn new(work_dir: impl Into<PathBuf>, env: Env) -> Self }   // 既定値は server/opencode-cli.ts のもの
 pub struct OpencodeCli;
 impl OpencodeCli {
@@ -89,13 +91,12 @@ impl OpencodeCli {
     pub async fn service_running(&self) -> bool;
 }
 pub async fn opencode_api_get(options: OpencodeCliOptions, path: &str) -> Result<serde_json::Value, OpencodeError>;
-pub const MODEL_REPLY_BYTES: usize = 8 * 1024 * 1024;
 ```
 
-- `opencode_api_get` は `options` をそのまま使う。TypeScript の `opencodeApiGet` は、`maxReplyBytes` が指定されていなければモデル一覧の上限(8 MiB)を入れる(`server/opencode-cli.ts:178`)が、Rust の `OpencodeCliOptions` はすべての項目に値を持ち、指定の有無を区別できない。そのため、モデル一覧を読む L4(#258)が `max_reply_bytes` に `MODEL_REPLY_BYTES` を入れる
+- `max_reply_bytes` は `Option<usize>` にする。`None` のとき、`OpencodeCli::new` は 32 MiB、`opencode_api_get` はモデル一覧の上限の 8 MiB を使う。TypeScript の `opencodeApiGet` が、呼ぶ側が上限を渡さなければ 8 MiB を入れる(`server/opencode-cli.ts:179` の `{ maxReplyBytes: MODEL_REPLY_BYTES, ...options }`)のと同じ。モデル一覧を読む側は上限を渡さず(`server/fleet/model-lists.ts:105, 109`)、上限を変えるのはテストだけ(`models.test.ts:295`)。8 MiB の定数は公開しない。上限の決まりを `opencode.rs` の 1 ファイルに置くため(architect の答え。最初の stub は呼ぶ側が定数を入れる形で、入れ忘れると 32 MiB まで読み、それを見つけるテストもなかった)
 - trait は置かない。会話の読み取りが受ける trait は transcript の `OpencodeApi` で、core がこの client を包む(ADR `0107-crate-split` の 59 行目)。child-process にも trait を置くと、同じ形の trait が 2 つになる
 - エラーの形は transcript の `OpencodeError`(`Http { status, tag }` と `Other`)と同じにし、core の変換を項目の写しだけにする
-- 関数は async にする。runner が tokio の上で動くため。transcript の trait は同期なので、core は `spawn_blocking` の中から tokio の `Handle::block_on` で呼ぶ
+- 関数は async にする。runner が tokio の上で動くため。transcript の trait は同期なので、core は `spawn_blocking` の中から tokio の `Handle::block_on` で呼ぶ。async の task の中から `block_on` を呼ぶと panic するので、`spawn_blocking` の中からだけ呼ぶ
 - `get` の返り値の `serde_json::Value` のために、child-process に serde_json が要る。#277 が manifest に足した(ADR `0277-child-process-serde-json`)。そのあと、テストが安全上の判定の表を読むのも、テストの中で書いた小さな JSON の関数から serde_json に替えた
 
 ## 検討した代わり
@@ -103,7 +104,7 @@ pub const MODEL_REPLY_BYTES: usize = 8 * 1024 * 1024;
 - `EnvPolicy` に既定の値を置く(`Command::new` の引数にしない): 呼ぶ側が書き忘れたとき、最小の環境か利用者の環境のどちらかが黙って選ばれる。最小を既定にすると `gh` がサインインを読めず、利用者の環境を既定にすると probe に API キーが渡る(`server/cli-child.ts:14-19` の注記)。ADR `0242-phase-3-split` が「呼ぶ側が起動ごとに明示する」と決めているので、引数にした
 - 同時に動かす数の上限を process 全体で 1 つにする: TypeScript は使い道ごとに数える。1 つにすると、遅い `opencode api` が使用量の probe を待たせる
 - 上限を超えた出力を、すべて失敗にする(`StreamLimit` を 1 種類にする): setup のコマンドは長い出力の末尾が要り、標準エラーは失敗の文の先頭が要る。どちらも、上限を超えたことで失敗にすると、TypeScript が返していた結果を返せない
-- SIGTERM を process group に送る: TypeScript は子の pid にだけ送る(`child.kill`)。group に送ると、git の alias や setup のコマンドが起動したプロセスまで止まり、振る舞いが変わる。ADR `0242-phase-3-split` も process group を使わないと決めている
+- SIGTERM を process group に送る: TypeScript は子の pid にだけ送る(`child.kill`)。group に送ると、git の alias や setup のコマンドが起動したプロセスまで止まり、振る舞いが変わる。ADR `0242-phase-3-split` も process group を使わないと決めている。ただし、これは段階 3 の呼ぶ側に限った判断である。段階 4 の Explain は自分の process group で起動し、group に送る(`server/explain.ts:275-289`)。そのときは `Command` に process group の指定を足す(tokio の `process_group` と rustix の `kill_process_group` は、どちらも safe)
 - git の関数が自分で起動する(`git::run(cwd, args)`): 時間の上限、出力の上限、同時に動かす数を呼ぶ側が選べなくなる。L6 は diff の 1 MiB(`DIFF_MAX_BYTES`)と、worktree の削除の長い時間の上限を使う
 - 安全上の判定の表を読むために、#277 を待ってからテストを書く: 表のテストは、テストを先に書く決まり(`.herdr-fleet/standing.md` の「Cutting and checking the work」の 3)の最初の手順で、待つと runner と git の作業も止まる。#277 を待つ間は、テストの中の小さな JSON の関数(194 行)で表を読み、#277 のあとに serde_json に替えた
 
@@ -117,10 +118,14 @@ pub const MODEL_REPLY_BYTES: usize = 8 * 1024 * 1024;
 - 使用量の probe、モデル一覧、git、`gh`、setup のコマンドは、時間の上限で SIGTERM のあと SIGKILL を受ける。TypeScript の `server/fleet/thread.ts`、`server/fleet/github.ts`、`server/files.ts`、使用量の probe、モデル一覧は SIGTERM を 1 回送るだけだった。この違いの根拠は `server/opencode-cli.ts:119-122` の注記で、probe とモデル一覧については ADR `0242-phase-3-split` が決めている。git、`gh`、setup のコマンドに当てるのは、runner を 1 つにした結果である
 - git と `gh` の標準出力にも既定の上限 `Fail(8 MiB)` がかかる。TypeScript は上限を置かない。8 MiB を超えうる読み取り(大きな diff など)は、L6 が `stdout_limit` で上限を選ぶ
 - `opencode` の module の関数の中身は `todo!("#253")` の stub で、C2(#253)が書く
+- 存在しないフォルダーを `git::command` に渡すと、git が動く前に `RunError::Spawn`(ENOENT)で失敗する。TypeScript は `-C` で git を起動し、終了コード 128 と `fatal: cannot change to …` を受けていた。L6 は `Spawn` を git の失敗と同じに扱う(`gitRoot` と `gitOutput` は `None`)。`removeThreadWorktree` の文(`server/fleet/thread.ts:121-125`)だけは、git の文の代わりに起動の失敗の文になる
+- L6 の diff(`server/fleet/thread.ts:75-85`。1 MiB で切り、切ったことを返す)は、`Head(DIFF_MAX_BYTES + 1)` で読み、長さが `DIFF_MAX_BYTES` を超えたら切ったことにする。`Output` に切ったかどうかの項目は足さない
 
 ## 確かめたこと
 
 PC は Linux 7.2.15(omarchy)、rustc 1.99.1、git 2.56.0、`rust/` で実行した。
+
+- architect(fleet の run 555650c3、読むだけ)に、実装した口を見せて決定ごとに残すか変えるかを聞いた。変えたのは opencode の `max_reply_bytes` の型だけで、ほかに `Duration::MAX` と `Runner::new(usize::MAX)` の panic、private な定数への doc のリンクを直した。直す前に、足したテスト 2 件(`a_limit_too_far_off_is_no_limit`、`a_runner_may_have_no_practical_limit`)が tokio の中の panic で失敗した
 
 - テストを先に書き、`todo!()` の stub で走らせて失敗を見た: `cargo test --locked -p herdr-fleet-child-process --no-fail-fast` で、env 9 件のうち 8 件、git 6 件、runner 25 件が失敗した(`panicked at crates/child-process/src/env.rs:12:5`、`src/work_dir.rs:5:5`、`src/runner.rs:74:9` ほか)。通った 1 件は表を読む JSON の関数のテストで、stub を呼ばない
 - 実装のあと、同じコマンドで 40 件すべてが通った。5 回続けて走らせ、5 回とも通った

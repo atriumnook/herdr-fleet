@@ -9,5 +9,8 @@ mod runner;
 mod work_dir;
 
 pub use env::{Env, EnvPolicy, child_env, claude_env};
-pub use runner::{Command, KILL_GRACE, Output, RunError, Runner, Session, Stream, StreamLimit};
+pub use runner::{
+    Command, DEFAULT_STDERR_LIMIT, DEFAULT_STDOUT_LIMIT, KILL_GRACE, Output, RunError, Runner,
+    Session, Stream, StreamLimit,
+};
 pub use work_dir::empty_work_dir;

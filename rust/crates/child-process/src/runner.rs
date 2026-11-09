@@ -218,7 +218,9 @@ pub struct Runner {
 }
 
 impl Runner {
-    /// A runner with `max_children` children at most at once.
+    /// A runner with `max_children` children at most at once. A number past what tokio's
+    /// semaphore can count (`Semaphore::MAX_PERMITS`) is taken as that many: in practice, no
+    /// limit (git and `gh` have none in TypeScript).
     ///
     /// # Panics
     ///
@@ -226,7 +228,7 @@ impl Runner {
     pub fn new(max_children: usize) -> Self {
         assert!(max_children > 0, "a runner must let one child run");
         Self {
-            slots: Arc::new(Semaphore::new(max_children)),
+            slots: Arc::new(Semaphore::new(max_children.min(Semaphore::MAX_PERMITS))),
         }
     }
 
@@ -284,7 +286,7 @@ impl Runner {
                 ended = child.wait(), if status.is_none() => {
                     status = Some(ended.map_err(RunError::Io)?);
                 }
-                () = sleep_until(stopping.at) => {
+                () = until(stopping.at) => {
                     if !stopping.next(&mut child, RunError::TimedOut) {
                         break;
                     }
@@ -336,8 +338,8 @@ impl Runner {
 /// The steps that stop a child: SIGTERM at the time limit (or on cancel), SIGKILL a grace later,
 /// and the read given up a grace after that.
 struct Stopping {
-    /// when the next step is due
-    at: Instant,
+    /// when the next step is due; `None` for a time too far off to reach
+    at: Option<Instant>,
     grace: Duration,
     /// set once the child is being stopped: what the run then fails with
     reason: Option<RunError>,
@@ -347,7 +349,7 @@ struct Stopping {
 impl Stopping {
     fn new(timeout: Duration, grace: Duration) -> Self {
         Self {
-            at: Instant::now() + timeout,
+            at: Instant::now().checked_add(timeout),
             grace,
             reason: None,
             killed: false,
@@ -357,7 +359,7 @@ impl Stopping {
     /// Takes the next step; false when there is none left and the read is given up. `reason` is
     /// what the run fails with when this starts the stopping.
     fn next(&mut self, child: &mut Child, reason: RunError) -> bool {
-        self.at = Instant::now() + self.grace;
+        self.at = Instant::now().checked_add(self.grace);
         if self.reason.is_none() {
             self.reason = Some(reason);
             terminate(child);
@@ -369,6 +371,15 @@ impl Stopping {
         } else {
             false
         }
+    }
+}
+
+/// Waits until `at`, or for ever without one (a time limit too far off to add to the clock, as
+/// tokio's own `timeout` takes it).
+async fn until(at: Option<Instant>) {
+    match at {
+        Some(at) => sleep_until(at).await,
+        None => std::future::pending().await,
     }
 }
 
@@ -485,7 +496,7 @@ impl Session {
             written = async { stdin.write_all(&bytes).await?; stdin.flush().await } => {
                 written.map_err(RunError::Io)
             }
-            () = sleep_until(at) => self.stop(RunError::TimedOut).await,
+            () = until(at) => self.stop(RunError::TimedOut).await,
             () = self.cancel.cancelled() => self.stop(RunError::Cancelled).await,
         }
     }
@@ -518,7 +529,7 @@ impl Session {
             let at = self.stopping.at;
             let n = tokio::select! {
                 n = self.stdout.read(&mut chunk) => n.map_err(RunError::Io)?,
-                () = sleep_until(at) => return self.stop(RunError::TimedOut).await,
+                () = until(at) => return self.stop(RunError::TimedOut).await,
                 () = self.cancel.cancelled() => return self.stop(RunError::Cancelled).await,
             };
             if n == 0 {

@@ -712,3 +712,34 @@ async fn a_child_that_wrote_too_much_is_reaped_before_the_run_returns() {
         "pid {pid} is not reaped"
     );
 }
+
+/// A time limit too far off to add to the clock is no limit (as tokio's own `timeout`), not a
+/// panic: the side chat (phase 4) has no limit (architect's review of ADR 0246).
+#[tokio::test]
+async fn a_limit_too_far_off_is_no_limit() {
+    let dir = TempDir::new("no-limit");
+    let program = fake(dir.path(), "cli", "echo done");
+    let output = Runner::new(1)
+        .run(
+            command(&program, &dir)
+                .timeout(Duration::MAX)
+                .kill_grace(Duration::MAX),
+            &CancellationToken::new(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(output.stdout, b"done\n");
+}
+
+/// A runner may set no practical limit on its children: git and `gh` have none in TypeScript
+/// (architect's review of ADR 0246).
+#[tokio::test]
+async fn a_runner_may_have_no_practical_limit() {
+    let dir = TempDir::new("no-practical-limit");
+    let program = fake(dir.path(), "cli", "echo done");
+    let output = Runner::new(usize::MAX)
+        .run(command(&program, &dir), &CancellationToken::new())
+        .await
+        .unwrap();
+    assert_eq!(output.stdout, b"done\n");
+}
