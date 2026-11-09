@@ -496,3 +496,35 @@ fn warns_about_the_projects_file_before_the_users() {
     );
     assert!(warnings[1].starts_with(&user), "{warnings:?}");
 }
+
+// Not in config.test.ts: `userFleetDir` builds the folder with `path.join`, which folds `.`, `..`
+// and repeated slashes and keeps a relative path relative. Node printed these for
+// join("/tmp//x/../y/", "herdr-fleet"), join("x/./../../y", "herdr-fleet"),
+// join(join("/home/a/../b", ".config"), "herdr-fleet") and join("/..//../z", "herdr-fleet").
+#[test]
+fn folds_the_users_fleet_folder_as_node_joins_it() {
+    let xdg = |value: &str| user_fleet_dir(Some(OsStr::new(value)), Path::new("/unused"));
+    assert_eq!(xdg("/tmp//x/../y/"), Path::new("/tmp/y/herdr-fleet"));
+    assert_eq!(xdg("x/./../../y"), Path::new("../y/herdr-fleet"));
+    assert_eq!(xdg("/..//../z"), Path::new("/z/herdr-fleet"));
+    assert_eq!(
+        user_fleet_dir(None, Path::new("/home/a/../b")),
+        Path::new("/home/b/.config/herdr-fleet")
+    );
+}
+
+// Not in config.test.ts: a count of -0 is 0, not -0: in Node, Math.max(0, Math.floor(-0)) is +0
+// (Object.is(Math.max(0, Math.floor(-0)), -0) printed false), and JSON writes 0.
+#[test]
+fn reads_a_count_of_minus_zero_as_zero() {
+    for text in [r#"{"maxDepth": -0}"#, r#"{"maxDepth": -0.0}"#] {
+        let raw: Map<String, Value> = serde_json::from_str(text).unwrap();
+        let config = merge_config(&FleetConfig::default(), &raw);
+        assert_eq!(
+            serde_json::to_string(&json!(config.max_depth)).unwrap(),
+            "0.0",
+            "{text}"
+        );
+        assert!(config.max_depth.is_sign_positive(), "{text}");
+    }
+}

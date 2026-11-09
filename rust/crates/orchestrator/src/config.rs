@@ -44,7 +44,8 @@ pub struct FleetConfig {
     pub max_used_percent: f64,
     /// How long an account sits out after a rate limit whose message names no time.
     pub rate_limit_cooldown_minutes: f64,
-    /// Kept in the order fleet.json names them, as a JavaScript object keeps its keys.
+    /// Kept in the order fleet.json names them, as a JavaScript object keeps its keys except that
+    /// JavaScript puts keys that read as integers (`"10"`) first, in ascending order.
     pub roles: IndexMap<String, RoleOverride>,
     pub models: IndexMap<String, ModelPolicy>,
     /// Only from the person's own fleet.json: a repository must not name commands the fleet runs.
@@ -121,9 +122,37 @@ pub struct CandidateEntry {
 /// variable's value and the home folder.
 pub fn user_fleet_dir(xdg_config_home: Option<&OsStr>, home: &Path) -> PathBuf {
     match xdg_config_home.filter(|value| !value.is_empty()) {
-        Some(config) => Path::new(config).join("herdr-fleet"),
-        None => home.join(".config").join("herdr-fleet"),
+        Some(config) => normalize(&Path::new(config).join("herdr-fleet")),
+        None => normalize(&home.join(".config").join("herdr-fleet")),
     }
+}
+
+/// Node's `path.normalize` on POSIX, which `path.join` ends with: `.` dropped, repeated `/`
+/// collapsed, `..` folded into the folder before it, never above the root, and kept at the start
+/// of a relative path, which stays relative (unlike `resolve`).
+pub(crate) fn normalize(path: &Path) -> PathBuf {
+    let mut out = PathBuf::new();
+    // folders in `out` that a `..` may fold
+    let mut depth = 0usize;
+    for component in path.components() {
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir if depth > 0 => {
+                out.pop();
+                depth -= 1;
+            }
+            Component::ParentDir if path.is_absolute() => {}
+            Component::Normal(_) => {
+                out.push(component);
+                depth += 1;
+            }
+            other => out.push(other),
+        }
+    }
+    if out.as_os_str().is_empty() {
+        out.push(".");
+    }
+    out
 }
 
 /// The nearest `.herdr-fleet/<name>` from `cwd` up, the project's own.
@@ -175,7 +204,8 @@ pub fn merge_config(base: &FleetConfig, raw: &Map<String, Value>) -> FleetConfig
     let count = |key: &str, min: f64, fallback: f64| {
         raw.get(key)
             .and_then(Value::as_f64)
-            .map_or(fallback, |n| n.floor().max(min))
+            // `+ 0.0` makes -0 +0, as `Math.max` does; `f64::max` may return either zero
+            .map_or(fallback, |n| n.floor().max(min) + 0.0)
     };
     FleetConfig {
         default_model: raw

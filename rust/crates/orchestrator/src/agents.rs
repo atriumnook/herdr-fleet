@@ -103,11 +103,8 @@ pub struct RoleVersion {
 /// built (`CARGO_MANIFEST_DIR`, three folders below the root); where a packaged build keeps it is
 /// decided in phase 6.
 pub fn bundled_agents_dir() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("..")
-        .join("..")
-        .join("..")
-        .join("agents")
+    // folded, as TypeScript's `path.resolve`, so the role files' paths have no `..`
+    crate::config::normalize(&Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../agents"))
 }
 
 /// Bundled roles, then the person's, then the project's (the nearest `.herdr-fleet/agents` from

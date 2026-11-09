@@ -618,3 +618,21 @@ fn reads_a_key_that_is_not_a_string_as_javascripts_string_of_it() {
     // the key is "description,x,[object Object]", so the description is the name (`agents.ts:40`)
     assert_eq!(role.description, "seqkey");
 }
+
+// Not in agents.test.ts: TypeScript's `BUNDLED_AGENTS_DIR` is `path.resolve`'s result, so the
+// role files' paths (`role_version`'s `file`, which the run records keep) have no `..` in them.
+#[test]
+fn names_the_bundled_folder_without_parent_steps() {
+    let dir = bundled_agents_dir();
+    assert!(
+        !dir.components()
+            .any(|part| part == std::path::Component::ParentDir),
+        "{}",
+        dir.display()
+    );
+    assert!(dir.join("lead.md").is_file());
+    assert_eq!(
+        dir.file_name().and_then(|name| name.to_str()),
+        Some("agents")
+    );
+}
