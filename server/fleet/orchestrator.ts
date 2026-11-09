@@ -1743,7 +1743,9 @@ export class Orchestrator {
    * woke it after a turn that broke off to wait) or the person typed in its pane. Without the
    * person, nothing else tells the coordinator, which waits for this news to go on. With the person,
    * it is read only after a turn that broke off without a report to wait for an agent its lead
-   * started: whether the thread goes on in a new run is decided here.
+   * started: it finishes the turn the fleet sent, and settles as that turn would have (a new run,
+   * the pull request, the merge gate and the person's question; a turn that asks nothing is news
+   * only without the person).
    */
   private async settleUnsentTurn(run: AgentRun): Promise<void> {
     const config = this.deps.config(run.cwd);
@@ -1751,7 +1753,7 @@ export class Orchestrator {
     await this.readTurn(run, config);
     await this.readThreadWork(run);
     const restartError = this.needsRestart(run) ? await this.restartThread(run) : undefined;
-    if (config.autonomous && !run.replacedBy) await this.settleThreadTurn(run, config, restartError);
+    if (!run.replacedBy) await this.settleThreadTurn(run, config, restartError);
     run.updatedAt = Date.now();
     this.save(run);
     this.settleWaiters(run);
