@@ -541,9 +541,14 @@ async fn watch_session(
         let _ = tokio::time::timeout(grace, child.wait()).await;
         return;
     }
-    // SIGTERM, then SIGKILL a grace later, then given up a grace after that
+    // SIGTERM, then SIGKILL a grace later (at once when the session is dropped meanwhile), then
+    // given up a grace after that
     stopping.next(&mut child, RunError::TimedOut);
-    if tokio::time::timeout(grace, child.wait()).await.is_err() {
+    let ended = tokio::select! {
+        ended = tokio::time::timeout(grace, child.wait()) => ended.is_ok(),
+        () = killing.cancelled() => false,
+    };
+    if !ended {
         stopping.next(&mut child, RunError::TimedOut);
         let _ = tokio::time::timeout(grace, child.wait()).await;
     }
@@ -564,8 +569,8 @@ pub struct Session {
     /// where a read lands before it joins `buffer`
     chunk: Box<[u8]>,
     max_line: usize,
-    /// set at once when this side ends the session (a line too long), before the watcher has
-    /// seen it
+    /// why the session ended, once a call has seen it: set at once when this side ends it (a line
+    /// too long), before the watcher has seen it, and kept so every later call fails alike
     ended: Option<Ended>,
     /// the time limit and the cancel, also checked here: the watcher may not have run yet
     deadline: Option<Instant>,
@@ -654,7 +659,7 @@ impl Session {
     }
 
     /// Fails when the session has ended: past its time limit, cancelled, or a line too long.
-    fn check(&self) -> Result<(), RunError> {
+    fn check(&mut self) -> Result<(), RunError> {
         let ended = self.ended.unwrap_or_else(|| {
             let now = *self.state.borrow();
             if now != Ended::Running && now != Ended::Exited {
@@ -667,6 +672,10 @@ impl Session {
                 now
             }
         });
+        // the first reason found stays the reason, whatever the watcher or the token say later
+        if !matches!(ended, Ended::Running | Ended::Exited) {
+            self.ended = Some(ended);
+        }
         match ended {
             Ended::Running | Ended::Exited => Ok(()),
             Ended::TimedOut => Err(RunError::TimedOut),

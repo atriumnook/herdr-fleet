@@ -886,3 +886,57 @@ async fn the_time_limit_holds_after_the_child_ends() {
     );
     session.close().await;
 }
+
+/// A session dropped while its child has SIGTERM's grace kills the child at once, without
+/// waiting out the grace (codex's second review of #280).
+#[cfg(target_os = "linux")]
+#[tokio::test]
+async fn a_session_dropped_during_the_grace_kills_at_once() {
+    let dir = TempDir::new("session-drop-grace");
+    let program = fake(dir.path(), "cli", "trap '' TERM\necho $$\nexec sleep 30");
+    let cancel = CancellationToken::new();
+    let mut session = Runner::new(1)
+        .session(
+            command(&program, &dir).kill_grace(Duration::from_secs(2)),
+            &cancel,
+        )
+        .await
+        .unwrap();
+    let pid: u32 = session.next_line().await.unwrap().unwrap().parse().unwrap();
+    cancel.cancel();
+    // the watcher sends SIGTERM and waits out its grace
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert!(common::alive(pid));
+    drop(session);
+    let started = Instant::now();
+    while common::alive(pid) && started.elapsed() < Duration::from_secs(1) {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert!(
+        !common::alive(pid),
+        "the child waited out the grace after the drop"
+    );
+}
+
+/// The first reason a session fails with stays its reason (codex's second review of #280).
+#[tokio::test]
+async fn a_session_keeps_the_reason_it_first_failed_with() {
+    let dir = TempDir::new("session-reason");
+    let program = fake(dir.path(), "cli", "echo one\nexec sleep 30");
+    let cancel = CancellationToken::new();
+    let mut session = Runner::new(1)
+        .session(
+            command(&program, &dir).timeout(Duration::from_millis(100)),
+            &cancel,
+        )
+        .await
+        .unwrap();
+    assert_eq!(session.next_line().await.unwrap().as_deref(), Some("one"));
+    // past the limit before the watcher has had a turn (the test's runtime has one thread)
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(matches!(session.next_line().await, Err(RunError::TimedOut)));
+    cancel.cancel();
+    let again = session.next_line().await;
+    assert!(matches!(again, Err(RunError::TimedOut)), "{again:?}");
+    session.close().await;
+}
