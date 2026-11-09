@@ -37,17 +37,17 @@ ADR `0242-phase-3-split` は、段階 3 の完了条件「fleet CLI の契約が
 
 ### 理由
 
-- job を分ける: bun の取得は外部の release に頼り、2026-11-08 に 504 を返したことがある(ADR `0194-ts-corpus-job`)。job `linux` に入れると、bun の取得の失敗で Rust の検査(fmt、clippy、test)の結果まで赤くなり、どちらが失敗したか見分けにくい。分けた分だけ cli の crate とその依存を 2 回 build するが、cli が依存するのは protocol、serde、serde_json、jiff、ureq(TLS なし)だけである
+- job を分ける: bun の取得は外部の release に頼り、2026-11-08 に 504 を返したことがある(ADR `0194-ts-corpus-job`)。job `linux` に入れると、bun の取得の失敗で Rust の検査(fmt、clippy、test)の結果まで赤くなり、どちらが失敗したか見分けにくい。分けた分だけ cli の crate とその依存を job `linux` と合わせて 2 回 build するが、cli が依存するのは protocol、serde、serde_json、jiff、ureq(TLS なし)だけで、手元(16 コア)のクリーン build は 8 秒だった
 - TypeScript の CLI でも走らせる: 件を Rust の答えに合わせて書き換え、`bin/fleet.ts` を直さない pull request は、Rust の CLI では通ってしまう。TypeScript の CLI でも走らせれば、その pull request は赤くなる。job `ts-corpus` が画面と会話ログの corpus に対して決めたこと(ADR `0194-ts-corpus-job`)を、fleet CLI の契約にも当てる。job `ts-corpus` に足さないのは、TypeScript と Rust の 2 回の実行を 1 つの job に並べ、同じ件の両方の結果を 1 か所で読めるようにするため
 - debug の build: 契約が確かめるのは引数・出力・終了コードで、最適化の有無で変わらない。Issue の検査のコマンド(`rust/target/debug/fleet`)とも同じになる
-- bun の手順を写す: composite action はこの Issue の書くパスの外にある。写しは 1 つで、版と sha256 を変えるときは 2 つの job を同じ pull request で直す(両方の job の注記に書いた)
+- bun の手順を写す: composite action はこの Issue の書くパスの外にある。写した手順は job `fleet-cli` の 1 か所だけで、版と sha256 を変えるときは 2 つの job を同じ pull request で直す(両方の job の注記に書いた)
 
 ## 検討した代わり
 
 - job `linux` の最後に手順を足す: cargo の build を共有できるが、上の理由で bun の取得の失敗が Rust の検査を巻き込む
 - job `ts-corpus` に Rust の build と Rust の CLI の実行を足す: job の名前と ADR `0194-ts-corpus-job` の目的(TypeScript の実装の確認)から外れ、Rust の toolchain を入れる手順がその job に加わる
 - Rust の CLI だけを走らせる: 件を Rust に合わせて書き換えたときに CI で見えない(上の理由)
-- cache(`actions/cache`)で build を速くする: ADR `0110-workspace-and-ci` は使う action を `actions/checkout` だけにしている。cli の build は数十秒で済む
+- cache(`actions/cache`)で build を速くする: ADR `0110-workspace-and-ci` は使う action を `actions/checkout` だけにしている。cli のクリーン build は手元(16 コア)で 8 秒だった
 
 ## 依存
 
@@ -62,8 +62,9 @@ ADR `0242-phase-3-split` は、段階 3 の完了条件「fleet CLI の契約が
 
 ## 確かめたこと
 
-- 手元(bun 1.4.4、`HERDR_*` を外し、`HERDR_TEST_MODE=unit HERDR_SOCKET=/nonexistent/herdr.sock`)で、node_modules なしの worktree で次が通った
+- 手元で、node_modules のない worktree で、bun 1.4.4 で `HERDR_*` を外し `HERDR_TEST_MODE=unit HERDR_SOCKET=/nonexistent/herdr.sock` を付けて、次が通った
   - `bun test bin/fleet-cli-fixtures.test.ts`(TypeScript の CLI): 98 件(契約の 87 件と、網羅と runner の 11 件)
   - `cargo build --locked -p herdr-fleet-cli` のあと、`HERDR_FLEET_CLI_TARGET=rust:rust/target/debug/fleet bun test bin/fleet-cli-fixtures.test.ts`: 98 件
 - workflow のファイルは YAML として読め、3 つの job(`linux`、`ts-corpus`、`fleet-cli`)を持つ(Python の `yaml.safe_load`)
+- `cargo build --locked -p herdr-fleet-cli` を空の target のフォルダーで走らせ、手元(16 コア)で 8 秒かかった
 - GitHub の runner での結果は、この Issue の pull request の check で確かめる
