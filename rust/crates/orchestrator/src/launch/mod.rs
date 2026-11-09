@@ -81,7 +81,9 @@ impl Host {
     }
 
     /// This process's `GIT_CONFIG_*` (a value that is not UTF-8 is left out, as if unset) and
-    /// `opencode::guard_plugin_dir()`.
+    /// `opencode::guard_plugin_dir()`, the checkout the crate was built in: a binary moved to another
+    /// machine, or built in a worktree since removed, finds no guard there (where a packaged build
+    /// keeps it is phase 6's, ADR 0242-phase-3-split).
     pub fn from_process() -> Self {
         let git_config = std::env::vars_os()
             .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
@@ -187,15 +189,11 @@ pub fn adapter_for(kind: FleetAgentKind) -> &'static Adapter {
     }
 }
 
-/// The kind as herdr and the settings name it.
-fn kind_name(kind: FleetAgentKind) -> &'static str {
-    match kind {
-        FleetAgentKind::Pi => "pi",
-        FleetAgentKind::Claude => "claude",
-        FleetAgentKind::Codex => "codex",
-        FleetAgentKind::Cursor => "cursor",
-        FleetAgentKind::Agy => "agy",
-        FleetAgentKind::Opencode => "opencode",
+/// The kind as herdr and the settings name it: `FleetAgentKind`'s own serde name.
+fn kind_name(kind: FleetAgentKind) -> String {
+    match serde_json::to_value(kind) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => format!("{kind:?}"),
     }
 }
 

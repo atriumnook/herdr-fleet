@@ -232,16 +232,17 @@ fn the_host_keeps_only_the_servers_git_config() {
         .unwrap();
     assert_eq!(env["GIT_CONFIG_KEY_0"], "a.b");
     assert_eq!(env["GIT_CONFIG_KEY_1"], "core.fsmonitor");
-    // from the process: the checkout's guard
+    // from the process: the checkout's guard, so a role that edits nothing starts, and our git config comes last
+    let host = Host::from_process();
+    let env = adapter_for(FleetAgentKind::Opencode)
+        .env(&pane(&host))
+        .unwrap();
+    let count: usize = env["GIT_CONFIG_COUNT"].parse().unwrap();
     assert_eq!(
-        Host::from_process(),
-        Host::new(
-            std::env::vars()
-                .filter(|(name, _)| name.starts_with("GIT_CONFIG_"))
-                .collect(),
-            opencode::guard_plugin_dir()
-        )
+        env[&format!("GIT_CONFIG_KEY_{}", count - 1)],
+        "core.fsmonitor"
     );
+    assert_eq!(env[&format!("GIT_CONFIG_VALUE_{}", count - 1)], "false");
 }
 
 // --- the rules' verdicts (adapters.test.ts: opencode adapter) ---

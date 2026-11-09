@@ -21,7 +21,7 @@ architect(fleet の run `7b51ed0d`)に 4 つの問いを出し、その答えに
 
 - `launch::Adapter` は、値と関数のポインターを持つ struct にし、CLI ごとに 1 つの `static` を置く。`adapter_for(kind) -> &'static Adapter` で引く。状態を持たず、CLI の種類は `FleetAgentKind` で閉じているので、trait にしない。screen の crate の `ScreenChecks` と同じ形である
   - 値: `kind`、`instructions_in_prompt`、`read_only_args`、`read_only_edits_result`、`note`、`usage_command`、`runs_fleet_command`(agent が fleet コマンドを実行できるか。agy だけ false)、`asks_before_outside_reads`(auto mode でも、作業フォルダーの外のファイルを読む前に確認画面を出すか。agy だけ true)
-  - 関数: `launch_args`、`env`、`read_only_note`、`refusal`
+  - 関数のポインター: `launch_args`、`env`、`read_only_note`。`refusal` は関数のポインターではなく、上の値を読む共通の method(下の「断る役割」)
 - 画面の判定には触れない。呼ぶ側(O1)は `screen::screen_checks(kind)` を直接呼ぶ。adapter から同じ判定に届く道を 2 つにしないため
 - 引数は `LaunchOptions`、ペインの環境変数は `PaneContext` から作る。TypeScript の同名の interface と同じ項目を持ち、パスは `&str` で受ける(herdr の `agent.start` に渡す argv は文字列で、TypeScript も文字列で扱う)
 - adapter は CLI ごとのモデル一覧(`models`)を持たない(ADR `0242-phase-3-split`)
