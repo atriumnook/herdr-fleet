@@ -1277,6 +1277,21 @@ describe("a thread outlives its lead run", () => {
     expect(threadState(registry.get(third.id)!)).toBe("waiting");
   });
 
+  it("goes on in a new run on another CLI when codex switched its lead to another model on usage limits, though the lead reported, and cools codex down", async () => {
+    const usage = new UsageTracker({ file: null });
+    const { fleet, runtime, registry, events, turn, report } = thread({ agents: [role("lead", { agent: "codex", fallbackModels: ["claude:"], interactive: true, spawning: true })], usage });
+    const first = await fleet.startThread({ title: "Fix", task: "Fix it.", cwd: "/repo" });
+    // the turn ran on the reserve model codex chose by itself (codex-rs tui/src/app/backend_banner_fallback.rs)
+    report(first, { state: "ready", summary: "Fixed.", evidence: ["bun test"] });
+    runtime.output = "› Fix it.\n\n• Automatically switched to Luna Reserve medium due to usage limits.\n\n• Fixed it.\n\n› Ask Codex to do anything\n\n  Luna Reserve medium · /repo";
+    await turn(first, "idle");
+    const old = registry.get(first.id)!;
+    expect(old).toMatchObject({ state: "failed", lastError: "Automatically switched to Luna Reserve medium due to usage limits." });
+    expect(registry.get(old.replacedBy!)).toMatchObject({ agent: "claude", thread: first.id, branch: `fleet/${first.id}`, avoid: ["codex"] });
+    expect(events.filter((e) => e.kind === "restart").map((e) => e.kind === "restart" && [e.why, e.agent, e.to])).toEqual([["failed", "codex", "claude"]]);
+    expect(usage.known("codex", undefined, 90)).toContain("codex is cooling down");
+  });
+
   it("stays with its lead when the report says ready, blocked, failed or waiting: a failed report waits for the person", async () => {
     const { fleet, registry, turn, report } = thread();
     const runs: AgentRun[] = [];

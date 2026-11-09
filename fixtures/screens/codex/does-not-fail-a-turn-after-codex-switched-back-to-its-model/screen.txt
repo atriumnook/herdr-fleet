@@ -1,0 +1,11 @@
+› Go on with the docs.
+
+• Automatically switched to Luna Reserve medium due to usage limits.
+
+• Automatically switched back to gpt-5.5 high because ordinary usage is available again.
+
+• Updated the docs.
+
+› Ask Codex to do anything
+
+  gpt-5.5 high · ~/git/app

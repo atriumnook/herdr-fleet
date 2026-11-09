@@ -1468,8 +1468,10 @@ export class Orchestrator {
       ...(run.outcome ? { report: run.outcome.report?.state ?? "none" } : {}),
     });
     // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
-    // are spent; a turn that wrote its report did its work, whatever its screen quotes
-    const turnError = !run.outcome?.report ? adapterFor(run.agent).turnError(run.lastOutput) : undefined;
+    // are spent; a turn that wrote its report did its work, whatever its screen quotes, unless the
+    // CLI moved to another model by itself on a usage limit: that work ran on a model nobody chose
+    const adapter = adapterFor(run.agent);
+    const turnError = adapter.modelSwitch?.(run.lastOutput) ?? (!run.outcome?.report ? adapter.turnError(run.lastOutput) : undefined);
     if (turnError && isCompleted(run.state)) {
       run.state = "failed";
       run.lastError = turnError;

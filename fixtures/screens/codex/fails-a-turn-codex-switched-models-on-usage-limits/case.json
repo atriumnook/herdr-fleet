@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: fails a turn whose screen says codex switched models by itself on usage limits. Synthesized from codex-rs strings (tui/src/app/backend_banner_fallback.rs, history_cell/notices.rs new_info_event, model_catalog.rs model_display_name), not captured from a real codex",
+  "adapter": "codex",
+  "check": "turnError",
+  "expected": "Automatically switched to Luna Reserve medium due to usage limits."
+}

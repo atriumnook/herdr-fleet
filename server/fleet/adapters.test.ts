@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { existsSync } from "node:fs";
 import { opencodeGitEnv } from "./opencode-config.ts";
 import { AGY_DENY, adapterFor, cursorUsage, type PaneContext, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
+import { rateLimitUntil } from "./usage.ts";
 
 const base = { name: "impl", systemPromptFile: "/tmp/i.md", systemPrompt: "Be brief.\nSay \"done\".", resultDir: "/state/results/r1", cwd: "/repo/.herdr-fleet/worktrees/t1" };
 
@@ -60,7 +61,7 @@ describe("codex adapter", () => {
   it("passes the instructions as developer_instructions on one argv line, and the level as reasoning effort", () => {
     const args = codex.launchArgs({ ...base, model: "gpt-5.5", thinking: "max" });
     expect(args).toEqual([
-      "--model", "gpt-5.5", "-c", 'model_reasoning_effort="max"', "-c", expect.stringMatching(/^developer_instructions="Be brief\.\\nSay \\"done\\"\.\\n\\n/), "--approve-for-me", "--add-dir", "/state/results/r1",
+      "--model", "gpt-5.5", "-c", 'model_reasoning_effort="max"', "-c", expect.stringMatching(/^developer_instructions="Be brief\.\\nSay \\"done\\"\.\\n\\n/), "-c", "notice.hide_rate_limit_model_nudge=true", "--approve-for-me", "--add-dir", "/state/results/r1",
     ]);
     expect(args.some((arg) => arg.includes("\n"))).toBe(false);
   });
@@ -75,6 +76,35 @@ describe("codex adapter", () => {
   it("runs the lowest level as low, the lowest effort codex's models take", () => {
     expect(codex.launchArgs({ ...base, thinking: "off" }).slice(0, 2)).toEqual(["-c", 'model_reasoning_effort="low"']);
     expect(codex.launchArgs({ ...base, thinking: "minimal" }).slice(0, 2)).toEqual(["-c", 'model_reasoning_effort="low"']);
+  });
+
+  // codex-rs tui/src/chatwidget/rate_limits.rs: near the limit codex opens a selection whose first
+  // item switches to another model, and the Enter the fleet sends after a message would choose it
+  it("starts codex with its rate-limit model switch prompt hidden, as a launch value rather than in the person's config", () => {
+    const args = codex.launchArgs(base);
+    const at = args.indexOf("notice.hide_rate_limit_model_nudge=true");
+    expect(at).toBeGreaterThan(0);
+    expect(args[at - 1]).toBe("-c");
+  });
+
+  // the notice as codex-rs tui/src/app/backend_banner_fallback.rs writes it, after its "• " bullet
+  const SWITCHED = "• Automatically switched to Luna Reserve medium due to usage limits.";
+
+  it("fails a turn whose screen says codex switched models by itself on usage limits, report or not", () => {
+    const screen = `› Fix the bug\n\n${SWITCHED}\n\n› Ask Codex to do anything\n\n  Luna Reserve medium · ~/repo`;
+    expect(codex.modelSwitch?.(screen)).toBe("Automatically switched to Luna Reserve medium due to usage limits.");
+    expect(codex.turnError(screen)).toBe("Automatically switched to Luna Reserve medium due to usage limits.");
+    // the fleet's cooldown takes it for a usage limit
+    expect(rateLimitUntil(codex.turnError(screen)!)).toBeUndefined();
+    // wrapped in a narrow pane, with colors
+    expect(codex.modelSwitch?.("\x1b[2m• \x1b[0mAutomatically switched to Luna Reserve\nmedium due to usage limits.\n")).toBe("Automatically switched to Luna Reserve medium due to usage limits.");
+  });
+
+  it("does not fail a turn once codex switched back, or on the notice's words quoted in a message", () => {
+    expect(codex.modelSwitch?.(`${SWITCHED}\n\n• Automatically switched back to gpt-5.5 high because ordinary usage is available again.\n`)).toBeUndefined();
+    expect(codex.modelSwitch?.("› If the screen says 'Automatically switched to … due to usage limits.', treat it as a failure\n")).toBeUndefined();
+    expect(codex.modelSwitch?.("› Read the notice\n  Automatically switched to Luna Reserve medium due to usage limits.\n")).toBeUndefined();
+    expect(codex.turnError("■ stream disconnected before completion")).toBe("stream disconnected before completion");
   });
 
   it("escapes what a TOML basic string cannot hold raw", () => {

@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: does not fail a turn on the notice's words quoted in a message. Synthesized, not captured from a real codex",
+  "adapter": "codex",
+  "check": "turnError",
+  "expected": null
+}

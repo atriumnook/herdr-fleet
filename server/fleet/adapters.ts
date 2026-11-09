@@ -71,6 +71,11 @@ export interface AgentAdapter {
   draft?(screen: string): boolean;
   /** a turn that settled without doing the work (an API error after the CLI's own retries) */
   turnError(output: string | undefined): string | undefined;
+  /**
+   * The CLI moved its session to another model by itself (codex when the account's usage runs
+   * out): what its screen says. The turn ran on a model nobody chose, so it failed, report or not.
+   */
+  modelSwitch?(output: string | undefined): string | undefined;
   /** what to type into a settled CLI to show its usage, for a CLI that tells it no other way (cursor) */
   readonly usageCommand?: string;
   /** the usage on that screen, once it shows */
@@ -210,6 +215,30 @@ export const claudeAdapter: AgentAdapter = {
 };
 
 /**
+ * When the account's ordinary usage runs out, codex moves the session to a model nobody chose (a
+ * reserve model) and back once usage is available again, writing a notice in its transcript for
+ * each (codex-rs tui/src/app/backend_banner_fallback.rs) that no setting turns off. The last
+ * notice, when it is the switch away: what it says. A notice opens its own line with a bullet; a
+ * line it wraps onto is read with it, and the words quoted inside a message are no notice.
+ */
+export function codexModelSwitch(output: string | undefined): string | undefined {
+  if (!output) return undefined;
+  const lines = stripVTControlCharacters(output).split("\n");
+  for (let at = lines.length - 1; at >= 0; at--) {
+    const head = /^\s*•\s+(Automatically switched .*)$/.exec(lines[at]!);
+    if (!head) continue;
+    let notice = head[1]!.trim();
+    // both notices end with a period: until then, the next lines are the rest of a wrapped one
+    for (let next = at + 1; next < Math.min(lines.length, at + 4) && !notice.endsWith(".") && /^\s*[^\s•›■]/.test(lines[next]!); next++) {
+      notice = `${notice} ${lines[next]!.trim()}`;
+    }
+    if (notice.startsWith("Automatically switched back to ")) return undefined;
+    if (/^Automatically switched to .+ due to usage limits\.$/.test(notice)) return notice;
+  }
+  return undefined;
+}
+
+/**
  * The workspace-write sandbox blocks the network, the loopback the fleet server listens on too.
  * Codex is told to ask for that one command outside the sandbox, which its automatic review then
  * judges, rather than the network being opened for every command.
@@ -229,6 +258,9 @@ export const codexAdapter: AgentAdapter = {
       ...(model ? ["--model", model] : []),
       ...(effort ? ["-c", `model_reasoning_effort=${tomlString(effort)}`] : []),
       "-c", `developer_instructions=${tomlString(`${options.systemPrompt}\n\n${CODEX_FLEET_NOTE}`)}`,
+      // near its usage limit codex opens a selection whose first item switches to another model, and
+      // the Enter the fleet sends after a message would choose it (codex-rs tui/src/chatwidget/rate_limits.rs)
+      "-c", "notice.hide_rate_limit_model_nudge=true",
       // approvals go to codex's automatic review; commands stay in the workspace-write sandbox
       "--approve-for-me",
       "--add-dir", options.resultDir,
@@ -237,9 +269,10 @@ export const codexAdapter: AgentAdapter = {
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },
+  modelSwitch: codexModelSwitch,
   turnError(output) {
     // codex shows a failed request as a `■ <reason>` line once its retries are spent
-    return lastMatch(output, /^\s*■\s+(.+)$/gm);
+    return codexModelSwitch(output) ?? lastMatch(output, /^\s*■\s+(.+)$/gm);
   },
 };
 
