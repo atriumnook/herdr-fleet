@@ -97,7 +97,7 @@ saphyr と saphyr-parser の `src/` に `unsafe` はない(`grep -rn unsafe` で
 ## 結果
 
 - #247(L1)は、役割のファイルの frontmatter を、上の「決定」の読み方で `saphyr::Yaml` に読める。`FleetConfig` の map を `indexmap::IndexMap` で書ける
-- #247 は、「saphyr が Bun 1.4.4 と違う点」の 8 点と、UTF-8 として不正なバイトの扱い(「決定」の `default-features = false` の項)について、Bun に合わせるか、違いを残して PR に書くかを決める。役割のファイルの読み取りで値が変わりうるのは、merge key、独自の tag、文書の数(0 個は `{}`、2 個以上は `frontmatter must be a mapping`)、alias の展開の上限。文字列でないキーは、`name`・`edits` などの文字列のキーで引く限り結果を変えない。エラーの文は、本番のサーバーが警告を捨てるので画面には出ないが、`discoverAgents` に warnings を渡すテストや呼び出し元では文が変わる
+- #247 は、「saphyr が Bun 1.4.4 と違う点」の 8 点と、UTF-8 として不正なバイトの扱い(「決定」の `default-features = false` の項)について、Bun に合わせるか、違いを残して PR に書くかを決める。役割のファイルの読み取りで値が変わりうるのは、merge key、独自の tag、文字列でないキー、文書の数(0 個は `{}`、2 個以上は `frontmatter must be a mapping`)、alias の展開の上限。文字列でないキーは、Bun が JavaScript の文字列に直すので、既知の項目の名前になりうる。`? [edits]` と次の行の `: false` は、Bun 1.4.4 では `{"edits":false}` になり、TypeScript は編集しない役割として起動する(`server/fleet/agents.ts:49`、`server/fleet/orchestrator.ts:578`)。saphyr はこのキーを `Sequence` のまま持ち、文字列 `"edits"` で引いても当たらないので、そのまま移すと編集の制限を見落とす。#247 は、この入力を Bun に合わせるかどうかを決める件に含める(列 `[a, b]` は Bun では `"a,b"` になる)。エラーの文は、本番のサーバーが警告を捨てるので画面には出ないが、`discoverAgents` に warnings を渡すテストや呼び出し元では文が変わる
 - `Cargo.lock` に 9 個の package が入る。orchestrator を build するたびに num-traits と thiserror の `build.rs` が rustc を起動する
 
 ## 確かめたこと
