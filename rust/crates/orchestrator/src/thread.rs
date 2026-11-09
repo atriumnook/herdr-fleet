@@ -2,8 +2,8 @@
 //!
 //! A thread is one piece of a project's work with its own herdr workspace and, in a repository,
 //! its own worktree on a branch. git runs through child-process's [`git::command`] (core.fsmonitor
-//! off, paths unquoted, no optional locks, no prompt) and the caller's [`Runner`]; the setup
-//! command through the same runner, with the server's environment (ADR 0242-phase-3-split, "子プロセス").
+//! off, paths unquoted, no optional locks, no prompt) and a [`Runner`] of this module's; the setup
+//! command through the same, with the server's environment (ADR 0242-phase-3-split, "子プロセス").
 
 use std::ffi::OsStr;
 use std::fs::{self, OpenOptions};
@@ -13,11 +13,18 @@ use std::time::Duration;
 
 use child_process::{Command, Env, EnvPolicy, RunError, Runner, StreamLimit, git};
 use protocol::DiffStat;
+use serde::Serialize;
 use tokio_util::sync::CancellationToken;
 
 /// Where a thread's worktree goes: inside the repository, which the agent CLIs already trust
 /// (claude, codex and cursor ask nothing there).
 pub const THREAD_WORKTREES: &str = ".herdr-fleet/worktrees";
+
+/// Where the thread `thread_id`'s worktree goes in the repository `repo` (`orchestrator.ts:528`,
+/// `:1146`): under [`THREAD_WORKTREES`], which [`exclude_worktrees`] keeps out of `git status`.
+pub fn worktree_path(repo: &Path, thread_id: &str) -> PathBuf {
+    repo.join(THREAD_WORKTREES).join(thread_id)
+}
 
 /// The most of a thread's diff the fleet hands the screen.
 pub const DIFF_MAX_BYTES: usize = 1024 * 1024;
@@ -28,8 +35,9 @@ pub const SETUP_TIMEOUT: Duration = Duration::from_secs(10 * 60);
 /// The lines of the setup command's output kept (`SETUP_TAIL_LINES`, `server/fleet/thread.ts:11`).
 pub const SETUP_TAIL_LINES: usize = 20;
 
-/// A thread's change as a unified diff, cut at [`DIFF_MAX_BYTES`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// A thread's change as a unified diff, cut at [`DIFF_MAX_BYTES`]; the screen reads it as
+/// `{ diff, truncated }` (`src/lib/api.ts:487`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct DiffText {
     pub diff: String,
     pub truncated: bool,
@@ -64,21 +72,15 @@ pub struct SetupOutcome {
 
 /// The repository `cwd` lies in, or `None`. The folder may be one nobody vetted, so git runs with
 /// core.fsmonitor off, as everywhere here.
-pub async fn git_root(runner: &Runner, cwd: &Path) -> Option<PathBuf> {
-    let outcome = run_git(
-        runner,
-        cwd,
-        &["rev-parse", "--show-toplevel"],
-        git::QUICK_TIMEOUT,
-    )
-    .await;
+pub async fn git_root(cwd: &Path) -> Option<PathBuf> {
+    let outcome = run_git(cwd, &["rev-parse", "--show-toplevel"], git::QUICK_TIMEOUT).await;
     let root = outcome.output.trim();
     (outcome.ok && !root.is_empty()).then(|| PathBuf::from(root))
 }
 
 /// The commit `cwd` is at: a thread's change is later measured against it.
-pub async fn git_head(runner: &Runner, cwd: &Path) -> Option<String> {
-    let head = git_output(runner, cwd, &["rev-parse", "HEAD"]).await?;
+pub async fn git_head(cwd: &Path) -> Option<String> {
+    let head = git_output(cwd, &["rev-parse", "HEAD"]).await?;
     let head = head.trim();
     let hex = head
         .bytes()
@@ -87,20 +89,17 @@ pub async fn git_head(runner: &Runner, cwd: &Path) -> Option<String> {
 }
 
 /// The branch `cwd` is on; `None` when it is on none (a detached HEAD).
-pub async fn git_branch(runner: &Runner, cwd: &Path) -> Option<String> {
-    let branch = git_output(runner, cwd, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
+pub async fn git_branch(cwd: &Path) -> Option<String> {
+    let branch = git_output(cwd, &["symbolic-ref", "--quiet", "--short", "HEAD"]).await?;
     non_empty(branch.trim())
 }
 
 /// What the worktree at `cwd` changed since it left `base` (a commit, or a branch it forked from),
 /// committed or not, in the files git tracks (a binary file counts no lines).
-pub async fn diff_stat(runner: &Runner, cwd: &Path, base: &str) -> Option<DiffStat> {
-    let output = git_output(
-        runner,
-        cwd,
-        &["diff", "--numstat", "--merge-base", base, "--"],
-    )
-    .await?;
+pub async fn diff_stat(cwd: &Path, base: &str) -> Option<DiffStat> {
+    let output = git_output(cwd, &["diff", "--numstat", "--merge-base", base, "--"]).await?;
+    // The runner's 8 MiB limit fails a longer numstat (over 100,000 files) instead of reading it
+    // all as TypeScript does: no count rather than a count of part (ADR 0246-child-process-interface).
     // a count is digits; a binary file's "-" counts none
     let count = |value: Option<&str>| match value {
         Some(value) if !value.is_empty() && value.bytes().all(|b| b.is_ascii_digit()) => {
@@ -125,7 +124,7 @@ pub async fn diff_stat(runner: &Runner, cwd: &Path, base: &str) -> Option<DiffSt
 /// The same change as [`diff_stat`], as a unified diff with a/ and b/ before the paths from the
 /// repository's top whatever the person's git config says, cut at [`DIFF_MAX_BYTES`]; `None`
 /// when git cannot say.
-pub async fn diff_text(runner: &Runner, cwd: &Path, base: &str) -> Option<DiffText> {
+pub async fn diff_text(cwd: &Path, base: &str) -> Option<DiffText> {
     let args = [
         "diff",
         "--no-color",
@@ -141,7 +140,10 @@ pub async fn diff_text(runner: &Runner, cwd: &Path, base: &str) -> Option<DiffTe
     let command = git::command(cwd, &args)
         .timeout(Duration::from_secs(15))
         .stdout_limit(StreamLimit::Head(DIFF_MAX_BYTES + 1));
-    let output = runner.run(command, &CancellationToken::new()).await.ok()?;
+    let output = runner()
+        .run(command, &CancellationToken::new())
+        .await
+        .ok()?;
     if output.code != Some(0) {
         return None;
     }
@@ -158,17 +160,17 @@ const UNCOMMITTED_MAX: usize = 20;
 
 /// The worktree's state beside the branch it lands on: what no commit holds, and the commits
 /// either side has that the other does not.
-pub async fn branch_state(runner: &Runner, cwd: &Path, base: &str) -> Option<BranchState> {
+pub async fn branch_state(cwd: &Path, base: &str) -> Option<BranchState> {
     let range = format!("{base}...HEAD");
     // only the first lines are kept: a long status is cut, not failed
     let status = git::command(cwd, &["status", "--porcelain=v1", "--untracked-files=all"])
         .stdout_limit(StreamLimit::Head(DEFAULT_STDOUT_LIMIT_BYTES));
     let status = async {
-        let output = runner.run(status, &CancellationToken::new()).await.ok()?;
+        let output = runner().run(status, &CancellationToken::new()).await.ok()?;
         (output.code == Some(0)).then(|| String::from_utf8_lossy(&output.stdout).into_owned())
     };
     let counts_args = ["rev-list", "--left-right", "--count", &range];
-    let counts = git_output(runner, cwd, &counts_args);
+    let counts = git_output(cwd, &counts_args);
     let (status, counts) = tokio::join!(status, counts);
     let (status, counts) = (status?, counts?);
     let mut numbers = counts.split_whitespace().map(str::parse::<u64>);
@@ -189,46 +191,40 @@ pub async fn branch_state(runner: &Runner, cwd: &Path, base: &str) -> Option<Bra
 }
 
 /// The commit a branch points at, or `None`.
-pub async fn branch_head(runner: &Runner, repo: &Path, branch: &str) -> Option<String> {
+pub async fn branch_head(repo: &Path, branch: &str) -> Option<String> {
     let reference = format!("refs/heads/{branch}");
-    let head = git_output(
-        runner,
-        repo,
-        &["rev-parse", "--verify", "--quiet", &reference],
-    )
-    .await?;
+    let head = git_output(repo, &["rev-parse", "--verify", "--quiet", &reference]).await?;
     non_empty(head.trim())
 }
 
 /// Whether every commit of `branch` is in `into`.
-pub async fn is_merged(runner: &Runner, repo: &Path, branch: &str, into: &str) -> bool {
+pub async fn is_merged(repo: &Path, branch: &str, into: &str) -> bool {
     let (branch, into) = (format!("refs/heads/{branch}"), format!("refs/heads/{into}"));
     let args = ["merge-base", "--is-ancestor", &branch, &into];
-    run_git(runner, repo, &args, git::TIMEOUT).await.ok
+    run_git(repo, &args, git::TIMEOUT).await.ok
 }
 
 /// Removes a thread's worktree and then its branch. A worktree holding work no commit has stays
 /// (files git ignores, such as installed dependencies, do not count), and so does a branch git does
 /// not call merged into the checked-out branch, unless `force` says to throw the thread away, or
 /// `branch_merged` says the fleet saw its commits merged where git cannot (a pull request on
-/// GitHub). Answers what stayed and why.
+/// GitHub). Fails with what stayed and why.
 pub async fn remove_thread(
-    runner: &Runner,
     repo: &Path,
     worktree: &Path,
     branch: &str,
     options: RemoveOptions,
-) -> Option<String> {
+) -> Result<(), String> {
     if worktree.exists() {
         let mut args = vec![OsStr::new("worktree"), OsStr::new("remove")];
         if options.force {
             args.push(OsStr::new("--force"));
         }
         args.push(worktree.as_os_str());
-        let removed = run_git(runner, repo, &args, Duration::from_secs(60)).await;
+        let removed = run_git(repo, &args, Duration::from_secs(60)).await;
         if !removed.ok {
             let why = or(&removed.error, "git could not remove it");
-            return Some(format!(
+            return Err(format!(
                 "The worktree {} was kept: {why}",
                 worktree.display()
             ));
@@ -239,26 +235,26 @@ pub async fn remove_thread(
     } else {
         "-d"
     };
-    let deleted = run_git(runner, repo, &["branch", flag, branch], git::TIMEOUT).await;
+    let deleted = run_git(repo, &["branch", flag, branch], git::TIMEOUT).await;
     if !deleted.ok && !deleted.error.contains("not found") {
         let why = or(&deleted.error, "git could not delete it");
-        return Some(format!("The branch {branch} was kept: {why}"));
+        return Err(format!("The branch {branch} was kept: {why}"));
     }
-    None
+    Ok(())
 }
 
 /// The git folder a repository's worktrees share (`<repo>/.git`), from any of its worktrees.
-async fn git_common_dir(runner: &Runner, cwd: &Path) -> Option<PathBuf> {
+async fn git_common_dir(cwd: &Path) -> Option<PathBuf> {
     let args = ["rev-parse", "--path-format=absolute", "--git-common-dir"];
-    let outcome = run_git(runner, cwd, &args, git::TIMEOUT).await;
+    let outcome = run_git(cwd, &args, git::TIMEOUT).await;
     let common = outcome.output.trim();
     (outcome.ok && !common.is_empty()).then(|| PathBuf::from(common))
 }
 
 /// The repository's main worktree, from any of its worktrees: a thread's worktree gives the project
 /// its fleet knows it by. A bare repository, which has no main worktree, gives the folder's own root.
-pub async fn main_worktree(runner: &Runner, cwd: &Path) -> Option<PathBuf> {
-    let (root, common) = tokio::join!(git_root(runner, cwd), git_common_dir(runner, cwd));
+pub async fn main_worktree(cwd: &Path) -> Option<PathBuf> {
+    let (root, common) = tokio::join!(git_root(cwd), git_common_dir(cwd));
     let root = root?;
     match common {
         Some(common) if common.file_name() == Some(OsStr::new(".git")) => {
@@ -271,8 +267,8 @@ pub async fn main_worktree(runner: &Runner, cwd: &Path) -> Option<PathBuf> {
 /// Keeps the threads' worktrees out of the repository's own `git status`, through its local
 /// `info/exclude`: the repository's .gitignore stays as it is, and nothing of this is committed.
 /// Nothing outside a repository; an error when the file cannot be read or written.
-pub async fn exclude_worktrees(runner: &Runner, repo: &Path) -> io::Result<()> {
-    let Some(common) = git_common_dir(runner, repo).await else {
+pub async fn exclude_worktrees(repo: &Path) -> io::Result<()> {
+    let Some(common) = git_common_dir(repo).await else {
         return Ok(());
     };
     let file = common.join("info").join("exclude");
@@ -307,18 +303,13 @@ const SETUP_STREAM_TAIL: usize = 1024 * 1024;
 /// once `cancel` is cancelled, which does not count as done. The output is the standard output,
 /// then the standard error, its last [`SETUP_TAIL_LINES`] lines; a command stopped or not
 /// started says why instead (the runner keeps no output of a stopped child).
-pub async fn run_setup(
-    runner: &Runner,
-    cwd: &Path,
-    command: &str,
-    cancel: &CancellationToken,
-) -> SetupOutcome {
+pub async fn run_setup(cwd: &Path, command: &str, cancel: &CancellationToken) -> SetupOutcome {
     let env: Env = [("GIT_TERMINAL_PROMPT".into(), "0".into())].into();
     let setup = Command::new("sh", cwd, EnvPolicy::Inherit(env), SETUP_TIMEOUT)
         .args(["-c", command])
         .stdout_limit(StreamLimit::Tail(SETUP_STREAM_TAIL))
         .stderr_limit(StreamLimit::Tail(SETUP_STREAM_TAIL));
-    match runner.run(setup, cancel).await {
+    match runner().run(setup, cancel).await {
         Ok(output) => {
             let text = format!(
                 "{}{}",
@@ -346,6 +337,12 @@ pub async fn run_setup(
     }
 }
 
+/// The runner of git and the setup command: no limit on how many run at once, as in TypeScript
+/// (ADR 0242-phase-3-split; a limit, if one comes, is set here alone).
+fn runner() -> Runner {
+    Runner::new(usize::MAX)
+}
+
 /// The limit of the status read: the runner's own default size, kept instead of failed.
 const DEFAULT_STDOUT_LIMIT_BYTES: usize = 8 * 1024 * 1024;
 
@@ -357,14 +354,9 @@ struct GitOutcome {
     error: String,
 }
 
-async fn run_git<S: AsRef<OsStr>>(
-    runner: &Runner,
-    cwd: &Path,
-    args: &[S],
-    timeout: Duration,
-) -> GitOutcome {
+async fn run_git<S: AsRef<OsStr>>(cwd: &Path, args: &[S], timeout: Duration) -> GitOutcome {
     let command = git::command(cwd, args).timeout(timeout);
-    match runner.run(command, &CancellationToken::new()).await {
+    match runner().run(command, &CancellationToken::new()).await {
         Ok(output) => GitOutcome {
             ok: output.code == Some(0),
             output: String::from_utf8_lossy(&output.stdout).into_owned(),
@@ -379,8 +371,8 @@ async fn run_git<S: AsRef<OsStr>>(
 }
 
 /// A git command's output, or `None` when it fails or takes longer than [`git::TIMEOUT`].
-async fn git_output(runner: &Runner, cwd: &Path, args: &[&str]) -> Option<String> {
-    let outcome = run_git(runner, cwd, args, git::TIMEOUT).await;
+async fn git_output(cwd: &Path, args: &[&str]) -> Option<String> {
+    let outcome = run_git(cwd, args, git::TIMEOUT).await;
     outcome.ok.then_some(outcome.output)
 }
 

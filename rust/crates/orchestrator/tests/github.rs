@@ -12,7 +12,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use child_process::Runner;
 use herdr_fleet_orchestrator::github::{
     GH_TIMEOUT, GhError, GitHub, ISSUES_LIMIT, IssueSummary, Label, Listing,
     MERGED_PULL_REQUESTS_LIMIT, MergedPullRequest, PullRequestReading,
@@ -110,7 +109,7 @@ exit 0"#
     }
 
     fn github(&self) -> GitHub {
-        GitHub::with_program(Runner::new(usize::MAX), &self.program)
+        GitHub::with_program(&self.program)
     }
 
     fn repo(&self) -> &Path {
@@ -336,7 +335,7 @@ async fn a_failure_says_gh_s_first_line_or_that_gh_could_not_read() {
 #[tokio::test]
 async fn no_gh_installed_is_said() {
     let dir = TempDir::new("missing");
-    let github = GitHub::with_program(Runner::new(1), dir.path().join("gh"));
+    let github = GitHub::with_program(dir.path().join("gh"));
     assert_eq!(
         github.read_pull_request(dir.path(), "fleet/t1").await,
         Err(GhError("The gh command is not installed.".into()))
@@ -567,4 +566,14 @@ async fn gh_only_reads_and_never_reads_the_sign_in() {
     ] {
         assert!(!source.contains(word), "github.rs names {word}");
     }
+}
+
+/// The orchestrator's ports take boxed futures that are `Send` (ADR 0242-phase-3-split).
+#[test]
+fn every_future_is_send() {
+    fn send<T: Send>(_: T) {}
+    let (github, path) = (GitHub::new(), Path::new("/nonexistent"));
+    send(github.read_pull_request(path, "fleet/t1"));
+    send(github.list_merged_pull_requests(path));
+    send(github.list_issues(path));
 }

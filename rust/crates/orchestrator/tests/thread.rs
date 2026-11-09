@@ -13,7 +13,6 @@ use std::process::Command as StdCommand;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use child_process::Runner;
 use herdr_fleet_orchestrator::thread::{
     self, BranchState, DIFF_MAX_BYTES, RemoveOptions, SETUP_TAIL_LINES, SETUP_TIMEOUT,
     SetupOutcome, THREAD_WORKTREES,
@@ -75,10 +74,6 @@ fn run_git(cwd: &Path, args: &[&str]) {
     assert!(status.success(), "git {args:?} in {}", cwd.display());
 }
 
-fn runner() -> Runner {
-    Runner::new(usize::MAX)
-}
-
 fn is_hex_sha(value: &str) -> bool {
     value.len() == 40
         && value
@@ -94,12 +89,11 @@ fn temp_dir() -> PathBuf {
 /// subfolder, and nothing outside a repository"
 #[tokio::test]
 async fn find_the_main_worktree_from_a_threads_worktree_from_a_subfolder_and_nothing_outside() {
-    let runner = runner();
     let root = repo("main-worktree");
     fs::write(root.join("a.txt"), "one\n").unwrap();
     run_git(root.path(), &["add", "a.txt"]);
     run_git(root.path(), &["commit", "-q", "-m", "base"]);
-    let worktree = root.path().join(THREAD_WORKTREES).join("t1");
+    let worktree = thread::worktree_path(root.path(), "t1");
     run_git(
         root.path(),
         &[
@@ -112,27 +106,23 @@ async fn find_the_main_worktree_from_a_threads_worktree_from_a_subfolder_and_not
         ],
     );
     fs::create_dir(root.join("sub")).unwrap();
-    let main = thread::git_root(&runner, root.path()).await;
+    let main = thread::git_root(root.path()).await;
     assert_eq!(main.as_deref(), Some(root.path()));
-    assert_eq!(thread::main_worktree(&runner, &worktree).await, main);
-    assert_eq!(
-        thread::main_worktree(&runner, &root.join("sub")).await,
-        main
-    );
-    assert_ne!(thread::git_root(&runner, &worktree).await, main);
-    assert_eq!(thread::main_worktree(&runner, &temp_dir()).await, None);
+    assert_eq!(thread::main_worktree(&worktree).await, main);
+    assert_eq!(thread::main_worktree(&root.join("sub")).await, main);
+    assert_ne!(thread::git_root(&worktree).await, main);
+    assert_eq!(thread::main_worktree(&temp_dir()).await, None);
 }
 
 /// thread.test.ts: "measure a worktree's change since a commit, committed or not, in the files git
 /// tracks"
 #[tokio::test]
 async fn measure_a_worktrees_change_since_a_commit_committed_or_not_in_tracked_files() {
-    let runner = runner();
     let root = repo("diff-stat");
     fs::write(root.join("a.txt"), "one\ntwo\nthree\n").unwrap();
     run_git(root.path(), &["add", "a.txt"]);
     run_git(root.path(), &["commit", "-q", "-m", "base"]);
-    let base = thread::git_head(&runner, root.path()).await.unwrap();
+    let base = thread::git_head(root.path()).await.unwrap();
     assert!(is_hex_sha(&base), "{base}");
     fs::write(root.join("a.txt"), "one\n2\nthree\nfour\n").unwrap();
     fs::write(root.join("b.txt"), "new\n").unwrap();
@@ -140,35 +130,31 @@ async fn measure_a_worktrees_change_since_a_commit_committed_or_not_in_tracked_f
     run_git(root.path(), &["commit", "-q", "-m", "b"]);
     fs::write(root.join("untracked.txt"), "not counted\n").unwrap();
     assert_eq!(
-        thread::diff_stat(&runner, root.path(), &base).await,
+        thread::diff_stat(root.path(), &base).await,
         Some(DiffStat {
             added: 3,
             removed: 1,
             files: 2
         })
     );
-    assert_eq!(
-        thread::diff_stat(&runner, root.path(), "0000000").await,
-        None
-    );
-    assert_eq!(thread::git_head(&runner, &temp_dir()).await, None);
+    assert_eq!(thread::diff_stat(root.path(), "0000000").await, None);
+    assert_eq!(thread::git_head(&temp_dir()).await, None);
 }
 
 /// thread.test.ts: "measure a thread's change from where it left its base branch, however far the
 /// base branch moved on"
 #[tokio::test]
 async fn measure_a_threads_change_from_where_it_left_its_base_branch() {
-    let runner = runner();
     let root = repo("base-moved");
     fs::write(root.join("a.txt"), "one\n").unwrap();
     run_git(root.path(), &["add", "a.txt"]);
     run_git(root.path(), &["commit", "-q", "-m", "base"]);
     run_git(root.path(), &["branch", "-M", "main"]);
     assert_eq!(
-        thread::git_branch(&runner, root.path()).await.as_deref(),
+        thread::git_branch(root.path()).await.as_deref(),
         Some("main")
     );
-    let worktree = root.path().join(THREAD_WORKTREES).join("t1");
+    let worktree = thread::worktree_path(root.path(), "t1");
     run_git(
         root.path(),
         &[
@@ -188,59 +174,43 @@ async fn measure_a_threads_change_from_where_it_left_its_base_branch() {
     run_git(root.path(), &["commit", "-q", "-m", "main"]);
     fs::write(worktree.join("new.txt"), "uncommitted\n").unwrap();
     assert_eq!(
-        thread::diff_stat(&runner, &worktree, "main").await,
+        thread::diff_stat(&worktree, "main").await,
         Some(DiffStat {
             added: 1,
             removed: 0,
             files: 1
         })
     );
-    let diff = thread::diff_text(&runner, &worktree, "main").await.unwrap();
+    let diff = thread::diff_text(&worktree, "main").await.unwrap();
     assert!(!diff.truncated);
     assert!(diff.diff.contains("+++ b/b.txt"), "{}", diff.diff);
     assert!(!diff.diff.contains("c.txt"), "{}", diff.diff);
     assert_eq!(
-        thread::branch_state(&runner, &worktree, "main").await,
+        thread::branch_state(&worktree, "main").await,
         Some(BranchState {
             uncommitted: vec!["new.txt".into()],
             ahead: 1,
             behind: 1
         })
     );
-    let head = thread::branch_head(&runner, root.path(), "fleet/t1").await;
+    let head = thread::branch_head(root.path(), "fleet/t1").await;
     assert!(head.as_deref().is_some_and(is_hex_sha), "{head:?}");
-    assert_eq!(
-        thread::branch_head(&runner, root.path(), "fleet/none").await,
-        None
-    );
-    assert!(!thread::is_merged(&runner, root.path(), "fleet/t1", "main").await);
+    assert_eq!(thread::branch_head(root.path(), "fleet/none").await, None);
+    assert!(!thread::is_merged(root.path(), "fleet/t1", "main").await);
     // work no commit holds keeps the worktree, and so does an unmerged branch
-    let kept = thread::remove_thread(
-        &runner,
-        root.path(),
-        &worktree,
-        "fleet/t1",
-        RemoveOptions::default(),
-    )
-    .await;
+    let kept =
+        thread::remove_thread(root.path(), &worktree, "fleet/t1", RemoveOptions::default()).await;
     assert!(
-        kept.as_deref()
-            .is_some_and(|kept| kept.contains("was kept")),
+        kept.as_ref().is_err_and(|kept| kept.contains("was kept")),
         "{kept:?}"
     );
     assert!(worktree.exists());
     fs::remove_file(worktree.join("new.txt")).unwrap();
-    let kept = thread::remove_thread(
-        &runner,
-        root.path(),
-        &worktree,
-        "fleet/t1",
-        RemoveOptions::default(),
-    )
-    .await;
+    let kept =
+        thread::remove_thread(root.path(), &worktree, "fleet/t1", RemoveOptions::default()).await;
     assert!(
-        kept.as_deref()
-            .is_some_and(|kept| kept.contains("The branch fleet/t1 was kept")),
+        kept.as_ref()
+            .is_err_and(|kept| kept.contains("The branch fleet/t1 was kept")),
         "{kept:?}"
     );
     assert!(!worktree.exists());
@@ -248,28 +218,17 @@ async fn measure_a_threads_change_from_where_it_left_its_base_branch() {
         root.path(),
         &["merge", "-q", "--no-ff", "-m", "merge", "fleet/t1"],
     );
-    assert!(thread::is_merged(&runner, root.path(), "fleet/t1", "main").await);
+    assert!(thread::is_merged(root.path(), "fleet/t1", "main").await);
     assert_eq!(
-        thread::remove_thread(
-            &runner,
-            root.path(),
-            &worktree,
-            "fleet/t1",
-            RemoveOptions::default()
-        )
-        .await,
-        None
+        thread::remove_thread(root.path(), &worktree, "fleet/t1", RemoveOptions::default()).await,
+        Ok(())
     );
-    assert_eq!(
-        thread::branch_head(&runner, root.path(), "fleet/t1").await,
-        None
-    );
+    assert_eq!(thread::branch_head(root.path(), "fleet/t1").await, None);
 }
 
 /// thread.test.ts: "throw a thread away whatever it holds"
 #[tokio::test]
 async fn throw_a_thread_away_whatever_it_holds() {
-    let runner = runner();
     let root = repo("discard");
     fs::write(root.join("a.txt"), "one\n").unwrap();
     run_git(root.path(), &["add", "a.txt"]);
@@ -293,42 +252,33 @@ async fn throw_a_thread_away_whatever_it_holds() {
         branch_merged: false,
     };
     assert_eq!(
-        thread::remove_thread(&runner, root.path(), &worktree, "fleet/t2", force).await,
-        None
+        thread::remove_thread(root.path(), &worktree, "fleet/t2", force).await,
+        Ok(())
     );
     assert!(!worktree.exists());
-    assert_eq!(
-        thread::branch_head(&runner, root.path(), "fleet/t2").await,
-        None
-    );
+    assert_eq!(thread::branch_head(root.path(), "fleet/t2").await, None);
 }
 
 /// thread.test.ts: "find a folder's repository, and none outside one"
 #[tokio::test]
 async fn find_a_folders_repository_and_none_outside_one() {
-    let runner = runner();
     let root = repo("git-root");
     assert_eq!(
-        thread::git_root(&runner, root.path()).await.as_deref(),
+        thread::git_root(root.path()).await.as_deref(),
         Some(root.path())
     );
-    assert_eq!(thread::git_root(&runner, &temp_dir()).await, None);
+    assert_eq!(thread::git_root(&temp_dir()).await, None);
 }
 
 /// thread.test.ts: "keep the threads' worktrees out of git status with one line in info/exclude,
 /// however often asked"
 #[tokio::test]
 async fn keep_the_threads_worktrees_out_of_git_status_with_one_line_however_often_asked() {
-    let runner = runner();
     let root = repo("exclude");
     let exclude = root.path().join(".git").join("info").join("exclude");
     fs::write(&exclude, "# local\n*.log").unwrap();
-    thread::exclude_worktrees(&runner, root.path())
-        .await
-        .unwrap();
-    thread::exclude_worktrees(&runner, root.path())
-        .await
-        .unwrap();
+    thread::exclude_worktrees(root.path()).await.unwrap();
+    thread::exclude_worktrees(root.path()).await.unwrap();
     assert_eq!(
         fs::read_to_string(&exclude).unwrap(),
         "# local\n*.log\n/.herdr-fleet/worktrees/\n"
@@ -338,18 +288,16 @@ async fn keep_the_threads_worktrees_out_of_git_status_with_one_line_however_ofte
 /// thread.test.ts: "run the setup command in the worktree, and keep the tail of a failure's output"
 #[tokio::test]
 async fn run_the_setup_command_in_the_worktree_and_keep_the_tail_of_a_failures_output() {
-    let runner = runner();
     let root = repo("setup");
     let cancel = CancellationToken::new();
     assert_eq!(
-        thread::run_setup(&runner, root.path(), "pwd", &cancel).await,
+        thread::run_setup(root.path(), "pwd", &cancel).await,
         SetupOutcome {
             ok: true,
             output: root.path().to_str().unwrap().into()
         }
     );
     let failed = thread::run_setup(
-        &runner,
         root.path(),
         "echo installing; echo 'npm ERR! missing script' >&2; exit 3",
         &cancel,
@@ -372,15 +320,66 @@ fn the_limits_are_the_typescripts() {
     assert_eq!(SETUP_TAIL_LINES, 20);
     assert_eq!(DIFF_MAX_BYTES, 1_048_576);
     assert_eq!(THREAD_WORKTREES, ".herdr-fleet/worktrees");
+    // orchestrator.ts:528 and :1146: join(project, THREAD_WORKTREES, threadId)
+    assert_eq!(
+        thread::worktree_path(Path::new("/repo"), "4705104e"),
+        PathBuf::from("/repo/.herdr-fleet/worktrees/4705104e")
+    );
+}
+
+/// thread.ts:175: past 10 minutes the command is stopped, which does not count as done, and the
+/// output says so. The paused clock jumps to the next timer while the runtime only waits on the
+/// child, so the 10 minutes pass at once (ADR 0242-phase-3-split keeps the paused clock from tests
+/// that wait on a child by accident; this one wants the jump).
+#[tokio::test(start_paused = true)]
+async fn a_setup_command_past_10_minutes_is_stopped_and_says_so() {
+    let root = TempDir::new("setup-timeout");
+    let started = Instant::now();
+    let outcome = thread::run_setup(root.path(), "sleep 30", &CancellationToken::new()).await;
+    assert_eq!(
+        outcome,
+        SetupOutcome {
+            ok: false,
+            output: "It ran longer than 10 minutes, and was stopped.".into()
+        }
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(25),
+        "{:?}",
+        started.elapsed()
+    );
+}
+
+/// The orchestrator's ports take boxed futures that are `Send` (ADR 0242-phase-3-split): every
+/// future here must be one.
+#[test]
+fn every_future_is_send() {
+    fn send<T: Send>(_: T) {}
+    let (path, cancel) = (Path::new("/nonexistent"), CancellationToken::new());
+    send(thread::git_root(path));
+    send(thread::git_head(path));
+    send(thread::git_branch(path));
+    send(thread::diff_stat(path, "main"));
+    send(thread::diff_text(path, "main"));
+    send(thread::branch_state(path, "main"));
+    send(thread::branch_head(path, "fleet/t1"));
+    send(thread::is_merged(path, "fleet/t1", "main"));
+    send(thread::remove_thread(
+        path,
+        path,
+        "fleet/t1",
+        RemoveOptions::default(),
+    ));
+    send(thread::main_worktree(path));
+    send(thread::exclude_worktrees(path));
+    send(thread::run_setup(path, "true", &cancel));
 }
 
 /// thread.ts:177: the output is stdout, then stderr, trimmed at the end, its last 20 lines.
 #[tokio::test]
 async fn the_setup_output_is_stdout_then_stderr_its_last_20_lines() {
-    let runner = runner();
     let root = TempDir::new("setup-tail");
     let outcome = thread::run_setup(
-        &runner,
         root.path(),
         "i=1; while [ $i -le 30 ]; do echo out$i; i=$((i+1)); done; echo err1 >&2; echo err2 >&2; printf '\\n\\n'",
         &CancellationToken::new(),
@@ -407,10 +406,8 @@ async fn the_setup_output_is_stdout_then_stderr_its_last_20_lines() {
 /// thread.ts:173: the server's environment with `GIT_TERMINAL_PROMPT=0` over it, and nothing to read.
 #[tokio::test]
 async fn the_setup_command_has_the_servers_environment_no_git_prompt_and_no_input() {
-    let runner = runner();
     let root = TempDir::new("setup-env");
     let outcome = thread::run_setup(
-        &runner,
         root.path(),
         r#"printf '%s|%s|' "$GIT_TERMINAL_PROMPT" "${PATH:+path}"; cat; echo end"#,
         &CancellationToken::new(),
@@ -428,7 +425,6 @@ async fn the_setup_command_has_the_servers_environment_no_git_prompt_and_no_inpu
 /// thread.ts:175-176: a cancel stops the command, which does not count as done.
 #[tokio::test]
 async fn a_cancelled_setup_command_is_stopped_and_fails() {
-    let runner = runner();
     let root = TempDir::new("setup-cancel");
     let cancel = CancellationToken::new();
     let started = Instant::now();
@@ -439,7 +435,7 @@ async fn a_cancelled_setup_command_is_stopped_and_fails() {
             cancel.cancel();
         })
     };
-    let outcome = thread::run_setup(&runner, root.path(), "sleep 30", &cancel).await;
+    let outcome = thread::run_setup(root.path(), "sleep 30", &cancel).await;
     stopper.await.unwrap();
     assert!(!outcome.ok, "{outcome:?}");
     assert!(
@@ -452,19 +448,16 @@ async fn a_cancelled_setup_command_is_stopped_and_fails() {
 /// thread.ts:84-89: a diff over 1 MiB is cut at 1 MiB and says so.
 #[tokio::test]
 async fn a_diff_over_a_mebibyte_is_cut_there() {
-    let runner = runner();
     let root = repo("diff-cut");
     fs::write(root.join("a.txt"), "one\n").unwrap();
     run_git(root.path(), &["add", "a.txt"]);
     run_git(root.path(), &["commit", "-q", "-m", "base"]);
-    let base = thread::git_head(&runner, root.path()).await.unwrap();
+    let base = thread::git_head(root.path()).await.unwrap();
     // 20,000 lines of 99 bytes: about 2 MB of diff
     let line = "x".repeat(98);
     let big: String = (0..20_000).map(|_| format!("{line}\n")).collect();
     fs::write(root.join("a.txt"), big).unwrap();
-    let diff = thread::diff_text(&runner, root.path(), &base)
-        .await
-        .unwrap();
+    let diff = thread::diff_text(root.path(), &base).await.unwrap();
     assert!(diff.truncated);
     assert_eq!(diff.diff.len(), 1_048_576);
     assert!(
@@ -477,7 +470,6 @@ async fn a_diff_over_a_mebibyte_is_cut_there() {
 /// thread.ts:94-101: the first 20 paths no commit holds, and none of the rest.
 #[tokio::test]
 async fn the_uncommitted_paths_are_the_first_20() {
-    let runner = runner();
     let root = repo("uncommitted");
     fs::write(root.join("a.txt"), "one\n").unwrap();
     run_git(root.path(), &["add", "a.txt"]);
@@ -486,9 +478,7 @@ async fn the_uncommitted_paths_are_the_first_20() {
     for n in 0..25 {
         fs::write(root.join(&format!("f{n:02}.txt")), "x\n").unwrap();
     }
-    let state = thread::branch_state(&runner, root.path(), "main")
-        .await
-        .unwrap();
+    let state = thread::branch_state(root.path(), "main").await.unwrap();
     let expected: Vec<String> = (0..20).map(|n| format!("f{n:02}.txt")).collect();
     assert_eq!(
         state,
@@ -499,7 +489,7 @@ async fn the_uncommitted_paths_are_the_first_20() {
         }
     );
     assert_eq!(
-        thread::branch_state(&runner, root.path(), "no-such-branch").await,
+        thread::branch_state(root.path(), "no-such-branch").await,
         None
     );
 }
@@ -508,7 +498,6 @@ async fn the_uncommitted_paths_are_the_first_20() {
 /// call it merged.
 #[tokio::test]
 async fn a_branch_merged_on_github_is_deleted_though_git_does_not_see_it_merged() {
-    let runner = runner();
     let root = repo("branch-merged");
     fs::write(root.join("a.txt"), "one\n").unwrap();
     run_git(root.path(), &["add", "a.txt"]);
@@ -533,29 +522,25 @@ async fn a_branch_merged_on_github_is_deleted_though_git_does_not_see_it_merged(
         branch_merged: true,
     };
     assert_eq!(
-        thread::remove_thread(&runner, root.path(), &worktree, "fleet/t3", merged).await,
-        None
+        thread::remove_thread(root.path(), &worktree, "fleet/t3", merged).await,
+        Ok(())
     );
     assert!(!worktree.exists());
-    assert_eq!(
-        thread::branch_head(&runner, root.path(), "fleet/t3").await,
-        None
-    );
+    assert_eq!(thread::branch_head(root.path(), "fleet/t3").await, None);
     // gone already: the worktree is skipped, and a branch git does not find is no failure
     assert_eq!(
-        thread::remove_thread(&runner, root.path(), &worktree, "fleet/t3", merged).await,
-        None
+        thread::remove_thread(root.path(), &worktree, "fleet/t3", merged).await,
+        Ok(())
     );
 }
 
 /// thread.ts:57-59: on no branch (a detached HEAD), none.
 #[tokio::test]
 async fn a_detached_head_is_on_no_branch() {
-    let runner = runner();
     let root = repo("detached");
     fs::write(root.join("a.txt"), "one\n").unwrap();
     run_git(root.path(), &["add", "a.txt"]);
     run_git(root.path(), &["commit", "-q", "-m", "base"]);
     run_git(root.path(), &["checkout", "-q", "--detach"]);
-    assert_eq!(thread::git_branch(&runner, root.path()).await, None);
+    assert_eq!(thread::git_branch(root.path()).await, None);
 }

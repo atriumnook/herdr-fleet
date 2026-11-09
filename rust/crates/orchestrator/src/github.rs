@@ -77,23 +77,30 @@ pub struct Listing<T> {
     pub limit_reached: bool,
 }
 
-/// Reads GitHub through the `gh` CLI, signed in as the person. Its runner may be shared with git's.
+/// Reads GitHub through the `gh` CLI, signed in as the person.
 #[derive(Debug, Clone)]
 pub struct GitHub {
     runner: Runner,
     program: OsString,
 }
 
+impl Default for GitHub {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl GitHub {
     /// `gh` as the server's `PATH` finds it.
-    pub fn new(runner: Runner) -> Self {
-        Self::with_program(runner, "gh")
+    pub fn new() -> Self {
+        Self::with_program("gh")
     }
 
     /// `program` in place of `gh`: a path, or a name looked up in the server's `PATH`.
-    pub fn with_program(runner: Runner, program: impl Into<OsString>) -> Self {
+    pub fn with_program(program: impl Into<OsString>) -> Self {
         GitHub {
-            runner,
+            // no limit on how many run at once, as in TypeScript (ADR 0242-phase-3-split)
+            runner: Runner::new(usize::MAX),
             program: program.into(),
         }
     }
