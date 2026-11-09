@@ -144,9 +144,18 @@ fn a_name_whose_shapes_differ_across_sections_is_prefixed_with_the_section() {
 
     let source = generator::generate(&schema);
 
-    assert!(source.contains("RequestKind"), "{source}");
-    assert!(source.contains("ResponseKind"), "{source}");
-    assert!(!source.contains(" Kind "), "{source}");
+    let names = identifiers(&source);
+    assert!(names.contains("RequestKind"), "{source}");
+    assert!(names.contains("ResponseKind"), "{source}");
+    assert!(!names.contains("Kind"), "{source}");
+}
+
+/// The Rust identifiers of a source text.
+fn identifiers(source: &str) -> std::collections::BTreeSet<&str> {
+    source
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
+        .filter(|word| !word.is_empty())
+        .collect()
 }
 
 // The same shape in two sections is one type, even though each section's `$ref` names its own
@@ -161,10 +170,12 @@ fn a_name_whose_shapes_match_across_sections_is_one_type() {
         },
     }));
     let source = generator::generate(&same);
+    let names = identifiers(&source);
     assert!(source.contains("pub struct Info {"), "{source}");
-    assert!(!source.contains("EventInfo"), "{source}");
-    assert!(!source.contains("ResponseInfo"), "{source}");
-    assert!(!source.contains("EventKind"), "{source}");
+    for name in ["EventInfo", "ResponseInfo", "EventKind", "ResponseKind"] {
+        assert!(!names.contains(name), "{name}: {source}");
+    }
+    assert!(names.contains("Kind"), "{source}");
 
     let different = schema_with(json!({
         "event": { "Info": info("event"), "Kind": { "type": "string", "enum": ["a"] } },
@@ -174,9 +185,12 @@ fn a_name_whose_shapes_match_across_sections_is_one_type() {
         },
     }));
     let source = generator::generate(&different);
+    let names = identifiers(&source);
     for name in ["EventInfo", "ResponseInfo", "EventKind", "ResponseKind"] {
-        assert!(source.contains(name), "{name}: {source}");
+        assert!(names.contains(name), "{name}: {source}");
     }
+    assert!(!names.contains("Info"), "{source}");
+    assert!(!names.contains("Kind"), "{source}");
 }
 
 // The issue's acceptance: a shape the generator cannot map becomes `serde_json::Value`, and the
@@ -223,4 +237,73 @@ fn a_shape_the_generator_cannot_map_becomes_a_value_and_is_listed() {
         .join("\n");
     assert!(header.contains("`Odd.mixed`"), "{header}");
     assert!(header.contains("`Clash`"), "{header}");
+}
+
+// JSON Schema: `additionalProperties: false` only forbids other properties, so the object is
+// still a struct of its properties.
+#[test]
+fn an_object_that_forbids_other_properties_is_a_struct() {
+    let schema = schema_with(json!({
+        "request": {
+            "Closed": {
+                "type": "object",
+                "properties": { "name": { "type": "string" } },
+                "required": ["name"],
+                "additionalProperties": false,
+            },
+        },
+    }));
+
+    let source = generator::generate(&schema);
+
+    assert!(source.contains("pub struct Closed {"), "{source}");
+    assert!(source.contains("pub name: String,"), "{source}");
+    // nothing was mapped to `Value`
+    assert!(source.contains("//! - none\n"), "{source}");
+}
+
+// `self` would be the variant `Self`, which Rust does not allow.
+#[test]
+fn a_value_named_self_is_a_variant_rust_allows() {
+    let schema = schema_with(json!({
+        "request": {
+            "Who": { "type": "string", "enum": ["self", "other_one"] },
+            "Pick": {
+                "oneOf": [{
+                    "type": "object",
+                    "properties": { "type": { "type": "string", "const": "self" } },
+                    "required": ["type"],
+                }],
+            },
+        },
+    }));
+
+    let source = generator::generate(&schema);
+
+    assert!(!identifiers(&source).contains("Self"), "{source}");
+    assert!(source.contains("VSelf = \"self\","), "{source}");
+}
+
+// A definition whose name is the struct of another union's shape is not dropped as if it were
+// the same type.
+#[test]
+#[should_panic(expected = "two types are named UA")]
+fn a_definition_named_like_the_shape_of_a_union_stops_the_generator() {
+    let schema = schema_with(json!({
+        "request": {
+            "U": {
+                "oneOf": [{
+                    "type": "object",
+                    "properties": {
+                        "type": { "type": "string", "const": "a" },
+                        "x": { "type": "string" },
+                    },
+                    "required": ["type", "x"],
+                }],
+            },
+            "UA": { "type": "object", "properties": { "y": { "type": "boolean" } } },
+        },
+    }));
+
+    generator::generate(&schema);
 }

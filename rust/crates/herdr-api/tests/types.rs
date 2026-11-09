@@ -9,12 +9,14 @@ use std::marker::PhantomData;
 use std::path::Path;
 
 use herdr_fleet_herdr_api::{
-    AgentStatus, EventData, EventDataPaneCreated, EventDataPaneExited, EventEnvelope, EventKind,
-    LayoutNode, LayoutNodePane, LayoutNodeSplit, METHOD_NAMES, Method, PaneInfo, PaneReadParams,
-    PopupSize, ReadSource, ResponseResult, ResponseResultPong, SessionSnapshot, SplitDirection,
-    Subscription, SubscriptionEventData, SubscriptionEventEnvelope,
-    SubscriptionPaneAgentStatusChanged, SuccessResponse, methods,
+    AgentStatus, AgentViewFilter, EventData, EventDataPaneCreated, EventDataPaneExited,
+    EventEnvelope, EventKind, EventMatch, LayoutNode, LayoutNodePane, LayoutNodeSplit,
+    METHOD_NAMES, Method, OutputMatch, PaneInfo, PaneMoveDestination, PaneReadParams, PopupSize,
+    ReadSource, ResponseResult, ResponseResultPong, SessionSnapshot, SplitDirection, Subscription,
+    SubscriptionEventData, SubscriptionEventEnvelope, SubscriptionPaneAgentStatusChanged,
+    SuccessResponse, methods,
 };
+use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
@@ -154,6 +156,114 @@ fn every_response_shape_of_the_schema_is_a_variant_of_response_result() {
     }
 }
 
+/// The smallest value the schema accepts for `node`: its required properties only, the first
+/// variant of a union that is not `null`, the first value of an enum.
+fn instance(schema: &Value, node: &Value, depth: usize) -> Value {
+    if node == &Value::Bool(true) {
+        return json!({ "any": [1, "two"] });
+    }
+    if let Some(reference) = node["$ref"].as_str() {
+        let parts: Vec<&str> = reference.split('/').collect();
+        let target = &schema["schemas"][parts[2]]["$defs"][parts[4]];
+        return instance(schema, target, depth + 1);
+    }
+    if let Some(constant) = node.get("const") {
+        return constant.clone();
+    }
+    if let Some(values) = node["enum"].as_array() {
+        return values[0].clone();
+    }
+    if let Some(variants) = node["oneOf"].as_array().or(node["anyOf"].as_array()) {
+        let variant = variants
+            .iter()
+            .find(|variant| variant["type"] != "null")
+            .unwrap();
+        return instance(schema, variant, depth);
+    }
+    let kind = match &node["type"] {
+        Value::String(kind) => kind.as_str(),
+        Value::Array(kinds) => kinds
+            .iter()
+            .filter_map(Value::as_str)
+            .find(|kind| *kind != "null")
+            .unwrap(),
+        other => panic!("no type: {other}"),
+    };
+    match kind {
+        "string" => json!("x"),
+        "boolean" => json!(true),
+        "integer" => json!(7),
+        "number" => json!(0.5),
+        // one item, until the depth stops a type that holds itself
+        "array" if depth < 6 => json!([instance(schema, &node["items"], depth + 1)]),
+        "array" => json!([]),
+        "object" => {
+            let mut object = serde_json::Map::new();
+            let required = node["required"].as_array().cloned().unwrap_or_default();
+            for name in required {
+                let name = name.as_str().unwrap();
+                let property = &node["properties"][name];
+                object.insert(name.to_owned(), instance(schema, property, depth + 1));
+            }
+            if let Some(values) = node.get("additionalProperties").filter(|v| v.is_object()) {
+                object.insert("k".to_owned(), instance(schema, values, depth + 1));
+            }
+            Value::Object(object)
+        }
+        other => panic!("unknown type {other}"),
+    }
+}
+
+/// Every shape of a tagged union reads to its own variant and writes back the same JSON.
+fn assert_round_trips<T: DeserializeOwned + Serialize + std::fmt::Debug>(
+    schema: &Value,
+    union: &Value,
+    is_other: impl Fn(&T) -> bool,
+) -> usize {
+    let variants = union["oneOf"].as_array().unwrap();
+    for variant in variants {
+        let json = instance(schema, variant, 0);
+        let read: T =
+            serde_json::from_value(json.clone()).unwrap_or_else(|error| panic!("{json}: {error}"));
+        assert!(!is_other(&read), "{json}: {read:?}");
+        assert_eq!(serde_json::to_value(&read).unwrap(), json);
+    }
+    variants.len()
+}
+
+#[test]
+fn every_shape_of_the_tagged_unions_reads_and_writes_back() {
+    let schema = schema();
+    let defs = |section: &str| schema["schemas"][section]["$defs"].clone();
+    let (request, response, event) = (defs("request"), defs("success_response"), defs("event"));
+    let count = assert_round_trips::<ResponseResult>(&schema, &response["ResponseResult"], |v| {
+        matches!(v, ResponseResult::Other(_))
+    });
+    assert_eq!(count, 63);
+    let count = assert_round_trips::<EventData>(&schema, &event["EventData"], |v| {
+        matches!(v, EventData::Other(_))
+    });
+    assert_eq!(count, 26);
+    assert_round_trips::<Subscription>(&schema, &request["Subscription"], |v| {
+        matches!(v, Subscription::Other(_))
+    });
+    assert_round_trips::<LayoutNode>(&schema, &request["LayoutNode"], |v| {
+        matches!(v, LayoutNode::Other(_))
+    });
+    assert_round_trips::<AgentViewFilter>(&schema, &request["AgentViewFilter"], |v| {
+        matches!(v, AgentViewFilter::Other(_))
+    });
+    assert_round_trips::<EventMatch>(&schema, &request["EventMatch"], |v| {
+        matches!(v, EventMatch::Other(_))
+    });
+    assert_round_trips::<OutputMatch>(&schema, &request["OutputMatch"], |v| {
+        matches!(v, OutputMatch::Other(_))
+    });
+    assert_round_trips::<PaneMoveDestination>(&schema, &request["PaneMoveDestination"], |v| {
+        matches!(v, PaneMoveDestination::Other(_))
+    });
+}
+
 #[test]
 fn a_success_response_decodes_to_its_shape() {
     let frame = json!({
@@ -291,6 +401,15 @@ fn an_enum_keeps_a_value_it_does_not_name() {
         assert_eq!(serde_json::to_value(&status).unwrap(), json!(text));
         assert_eq!(status.as_str(), text);
     }
+}
+
+#[test]
+fn a_named_value_built_by_hand_as_other_is_the_named_value() {
+    let by_hand = AgentStatus::Other("idle".to_owned());
+    assert_eq!(by_hand, AgentStatus::Idle);
+    let set: HashSet<AgentStatus> = [AgentStatus::Idle].into_iter().collect();
+    assert!(set.contains(&by_hand));
+    assert_ne!(AgentStatus::Other("idle2".to_owned()), AgentStatus::Idle);
 }
 
 #[test]

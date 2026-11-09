@@ -45,10 +45,12 @@ pub(crate) fn write<S: Serializer, T: Serialize>(
     }
 }
 
-/// The tag first, then the fields, as herdr writes them.
+/// The tag first, then the fields, as herdr writes them. A field named like the tag does not
+/// replace it: the tag is set again, in its first place, after the fields.
 fn tagged(key: &str, tag: &str, fields: Map<String, Value>) -> Map<String, Value> {
     let mut object = Map::new();
-    object.insert(key.to_owned(), Value::String(tag.to_owned()));
+    object.insert(key.to_owned(), Value::Null);
     object.extend(fields);
+    object.insert(key.to_owned(), Value::String(tag.to_owned()));
     object
 }

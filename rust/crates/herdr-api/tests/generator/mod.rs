@@ -186,13 +186,13 @@ impl<'a> Generator<'a> {
     fn definitions(&mut self) {
         let definitions = self.all_definitions();
         self.names = resolve_names(&definitions);
+        let mut emitted = BTreeSet::new();
         for (section, name, def) in &definitions {
             let rust = self.names[&key(section, name)].clone();
-            if self.items.contains_key(&rust) {
-                // the same shape in another section
-                continue;
+            // definitions of one name resolve to one Rust name only when their shapes match
+            if emitted.insert(rust.clone()) {
+                self.item(&rust, def);
             }
-            self.item(&rust, def);
         }
     }
 
@@ -259,8 +259,17 @@ impl<'a> Generator<'a> {
         {
             return self.union(name, variants);
         }
-        if is_object(def) && def.get("additionalProperties").is_none() {
-            return Body::Struct(self.fields(name, def, None));
+        if is_object(def) {
+            match def.get("additionalProperties") {
+                // `false` only forbids other properties
+                None | Some(Value::Bool(false)) => {
+                    return Body::Struct(self.fields(name, def, None));
+                }
+                Some(_) if def.get("properties").is_some() => {
+                    return self.alias_value(name, "an object of properties and other properties");
+                }
+                Some(_) => {}
+            }
         }
         Body::Alias(self.ty(def, name))
     }
@@ -855,7 +864,8 @@ fn pascal(text: &str) -> String {
             out.extend(chars);
         }
     }
-    if out.is_empty() || out.starts_with(|c: char| c.is_ascii_digit()) {
+    // `Self` is the one keyword spelled in PascalCase
+    if out.is_empty() || out.starts_with(|c: char| c.is_ascii_digit()) || out == "Self" {
         out.insert(0, 'V');
     }
     out

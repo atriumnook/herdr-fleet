@@ -29,11 +29,12 @@ herdr-api の manifest は serde と serde_json だけに依存し、この Issu
 
 | schema の形 | Rust の型 |
 |---|---|
-| `properties` を持つオブジェクト | struct。`required` にない項目は `Option<T>` で、`None` のときは書かない。`required` にあって `null` を許す項目は `Option<T>` で、`None` を `null` と書く |
+| `properties` を持つオブジェクト(`additionalProperties` がないか `false`) | struct。`required` にない項目は `Option<T>` で、`None` のときは書かない。`required` にあって `null` を許す項目は `Option<T>` で、`None` を `null` と書く |
 | `properties` も `additionalProperties` もないオブジェクト(`EmptyParams`) | 項目のない struct `{}`。JSON では `{}` になる(unit struct は `null` になる) |
 | `additionalProperties` だけのオブジェクト | `BTreeMap<String, T>` |
-| 文字列の `enum` | `open_enum!`: 値ごとの variant と、知らない値を持つ `Other(String)`。`as_str()` で herdr の綴りを返す |
-| 全 variant が同じ項目に違う文字列の定数を必須で持つ `oneOf` | `tagged_union!`: 定数だけの形は unit variant、ほかの項目を持つ形は struct `<union の名前><variant の名前>`(例: `ResponseResultPong`)を持つ variant。知らない定数は `Other(serde_json::Value)` に元の JSON のまま持つ。知っている定数でほかの項目が読めないときはエラーにする |
+| `properties` と、`false` でない `additionalProperties` の両方を持つオブジェクト | `serde_json::Value`(写せない形として一覧に書く) |
+| 文字列の `enum` | `open_enum!`: 値ごとの variant と、知らない値を持つ `Other(String)`。`as_str()` で herdr の綴りを返す。等しいかどうかと hash は `as_str()` で決めるので、手で作った `Other("idle")` は `Idle` と等しい |
+| 全 variant が同じ項目に違う文字列の定数を必須で持つ `oneOf` | `tagged_union!`: 定数だけの形は unit variant、ほかの項目を持つ形は struct `<union の名前><variant の名前>`(例: `ResponseResultPong`)を持つ variant。知らない定数は `Other(serde_json::Value)` に元の JSON のまま持つ。知っている定数でほかの項目が読めないときはエラーにする。オブジェクトでない値と、定数の項目がない、または文字列でない値もエラーにする(新しい形ではなく、壊れたフレームとして扱う) |
 | 区別する項目のない `oneOf` / `anyOf` | `#[serde(untagged)]` の enum。variant は schema の順で、serde はこの順に試す。オブジェクトの variant は struct `<union の名前><項目の名前>` を持つ |
 | `[T, null]` の `anyOf` | `Option<T>` |
 | `integer` | `format` のとおり(`uint`・`uint64` は `u64`、`uint32` は `u32`、`uint16` は `u16`、`int32` は `i32`、`format` なしは `i64`) |
@@ -43,7 +44,8 @@ herdr-api の manifest は serde と serde_json だけに依存し、この Issu
 | 生成器が写せない形(`allOf` などの組み合わせ、定義になっていない入れ子のオブジェクト・enum・union、型が 1 つに決まらないもの、Rust の名前が衝突する enum の値・union の variant・tag) | `serde_json::Value`。生成物の冒頭に一覧を書く |
 
 - 型、項目、enum の値、tag は名前の順に並べる。untagged の variant だけは schema の順にする(serde が試す順なので)
-- Rust の予約語の項目名(`type`、`match`)は `r#type` のように書く
+- Rust の予約語の項目名(`type`、`match`)は `r#type` のように書く。値や tag から作る名前が `Self` になるときは `VSelf` にする(数字で始まる名前の前にも `V` を付ける)
+- 生成した struct も unit variant も、schema にない項目を読み捨てる。新しい herdr が既知の形に足した項目は、読み取りを失敗させないが、書き戻すと消える
 - `required` になく `null` も許す項目(schema 全体で 304)は、「項目がない」と「`null`」を同じ `None` にし、書くときは項目を省く。herdr は serde で書かれた server で(`format: uint64` などの書き方から推測した)、両者を同じに読むと仮定した。食い違いは H2 の本物の herdr のテスト(`#[ignore]`)で分かる
 - 知っている tag の形の項目が読めないときのエラーの文は、tag で始まる(`pong: invalid type: …`)。H2 の `bad_frame` の文で、どの形が食い違ったかが分かる
 - schema が壊れているとき(同じ節に同じ名前の定義が 2 つある、`$ref` の先がない、生成する 2 つの型や 1 つの struct の 2 つの項目が同じ Rust の名前になる)は、生成器が panic し、テストが失敗する
@@ -77,6 +79,7 @@ herdr-api の manifest は serde と serde_json だけに依存し、この Issu
 - 呼ぶ側は herdr の応答と event を生成した型で受ける。新しい herdr が足した応答の形、event、enum の値は `Other` に元のまま入り、読み取りは失敗しない。一方、知っている形の項目が変わると(必須の項目が消える、型が変わる)、その形の読み取りはエラーになる。TypeScript は応答を型の確認なしで受けていたので、影響は読む項目だけだった
 - H2 の method と応答の形の表は、`ResponseResult` の variant から `ResponseResultPong` などの struct を取り出す関数として書ける
 - H3 は、event のペインの情報(`EventDataPaneCreated::pane`)と `session.snapshot` のペインの情報(`SessionSnapshot::panes`)を同じ `PaneInfo` で扱える
+- tagged union は、読むときに一度 `serde_json::Value` にしてから形の struct に読み、書くときも `Value` を経る。derive の実装より割り当てが 1 回分多いが、知らない形を元のまま持つためにこの形にした。herdr の socket の 1 行(JSON 1 つ)ごとに 1 回で、問題になれば `#[serde(flatten)]` などに替える
 - `SubscriptionEventData` は区別する項目を持たないので、variant の判定は必須の項目(`matched_line`、`agent_status`、`scroll`)の有無による。購読の event の種類は、envelope の `event`(`SubscriptionEventKind`)で判定するほうが確実である
 - schema の形が変わって名前に接頭辞が付くと、型の名前が変わり、呼ぶ側の build が失敗する。schema の更新(別の Issue)は、その変更を呼ぶ側にも入れる
 

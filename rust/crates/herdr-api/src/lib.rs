@@ -18,17 +18,18 @@ pub trait Method {
 }
 
 /// A string enum of the schema that keeps a value it does not name, as the TypeScript types widen
-/// such a union with `(string & {})`: herdr gives no stability guarantee.
+/// such a union with `(string & {})`: herdr gives no stability guarantee. Two values are equal when
+/// herdr writes them the same, so `Other("idle")` built by hand is `Idle`.
 macro_rules! open_enum {
     ($(#[$meta:meta])* $name:ident { $($variant:ident = $value:literal,)* }) => {
         $(#[$meta])*
-        #[derive(Debug, Clone, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
         #[serde(from = "String", into = "String")]
         pub enum $name {
             $(#[doc = concat!("`\"", $value, "\"`")] $variant,)*
-            /// A value this version of the schema does not name, kept as herdr wrote it. A value
-            /// the schema names is never put here: make one from a string with `From<String>`,
-            /// since `Other("idle")` is not equal to the variant for `"idle"`.
+            /// A value this version of the schema does not name, kept as herdr wrote it. Reading
+            /// never puts a value the schema names here; one built by hand is still equal to the
+            /// named variant.
             Other(String),
         }
 
@@ -39,6 +40,20 @@ macro_rules! open_enum {
                     $(Self::$variant => $value,)*
                     Self::Other(value) => value,
                 }
+            }
+        }
+
+        impl PartialEq for $name {
+            fn eq(&self, other: &Self) -> bool {
+                self.as_str() == other.as_str()
+            }
+        }
+
+        impl Eq for $name {}
+
+        impl std::hash::Hash for $name {
+            fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+                self.as_str().hash(state);
             }
         }
 
