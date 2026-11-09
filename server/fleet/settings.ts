@@ -6,9 +6,10 @@
 
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
-import type { FleetAgentKind, FleetSettings, FleetSettingsPatch, RoleCandidate, RoleSettings, ThinkingLevel } from "../../shared/fleet.ts";
+import type { FleetAgentKind, FleetSettings, FleetSettingsPatch, MergeSetting, RoleCandidate, RoleSettings, ThinkingLevel } from "../../shared/fleet.ts";
 import { adapterFor, isAgentKind } from "./adapters.ts";
 import { DEFAULT_CONFIG, findProjectPath, isLanguageName, mergeConfig, userFleetDir } from "./config.ts";
+import { checkMergeSetting, DEFAULT_MAX_LINES, mergeEntry } from "./merge-mode.ts";
 import { parseCandidate } from "./orchestrator.ts";
 import { FleetError } from "./runtime.ts";
 import { isThinkingLevel, type AgentDefinition, type FleetConfig, type RoleOverride } from "./types.ts";
@@ -17,6 +18,7 @@ import type { UsageTracker } from "./usage.ts";
 const MAX_CANDIDATES = 8;
 const KINDS: readonly FleetAgentKind[] = ["claude", "codex", "cursor", "agy", "opencode", "pi"];
 const MAX_SETUP_CHARS = 2000;
+const PERSON: MergeSetting = { mode: "person", branches: [], maxLines: DEFAULT_MAX_LINES, protected: [] };
 /**
  * The bundled roles in the order work passes between them: the coordinator starts threads, a
  * thread's lead asks an architect how to build, and hands an investigation to a scout, a part to a
@@ -81,7 +83,8 @@ export class FleetSettingsStore {
       file: this.file, roles,
       maxUsedPercent: user.maxUsedPercent, rateLimitCooldownMinutes: user.rateLimitCooldownMinutes, maxConcurrent: user.maxConcurrent, closeOnSettle: user.closeOnSettle,
       language: user.language ?? "",
-      projects: Object.entries(user.projects).filter(([, project]) => project.setup).map(([path, project]) => ({ path, setup: project.setup! })),
+      projects: Object.entries(user.projects).filter(([, project]) => project.setup || project.merge?.mode === "gated")
+        .map(([path, project]) => ({ path, setup: project.setup ?? "", merge: project.merge ?? PERSON })),
       readOnlyAgents,
     };
   }
@@ -202,12 +205,23 @@ export function applyPatch(raw: Record<string, unknown>, patch: FleetSettingsPat
     const projects: Record<string, unknown> = isObject(raw["projects"]) ? { ...raw["projects"] } : {};
     for (const [path, change] of Object.entries(patch.projects)) {
       if (!isAbsolute(path)) throw new FleetError("invalid_settings", `A project is named by its absolute path: ${path}`);
-      const setup = isObject(change) && typeof change["setup"] === "string" ? change["setup"].trim() : undefined;
-      if (setup === undefined || setup.length > MAX_SETUP_CHARS) throw new FleetError("invalid_settings", `A setup command is text of up to ${MAX_SETUP_CHARS} characters`);
+      if (!isObject(change) || (change["setup"] === undefined && change["merge"] === undefined)) throw new FleetError("invalid_settings", "A project change names its setup command or its merge authority");
       const key = resolve(path);
-      const { setup: _old, ...kept } = isObject(projects[key]) ? projects[key] : {};
-      if (setup) projects[key] = { ...kept, setup };
-      else if (Object.keys(kept).length) projects[key] = kept;
+      let entry: Record<string, unknown> = isObject(projects[key]) ? { ...projects[key] } : {};
+      if (change["setup"] !== undefined) {
+        const setup = typeof change["setup"] === "string" ? change["setup"].trim() : undefined;
+        if (setup === undefined || setup.length > MAX_SETUP_CHARS) throw new FleetError("invalid_settings", `A setup command is text of up to ${MAX_SETUP_CHARS} characters`);
+        const { setup: _old, ...kept } = entry;
+        entry = setup ? { ...kept, setup } : kept;
+      }
+      if (change["merge"] !== undefined) {
+        let merge: MergeSetting;
+        try { merge = checkMergeSetting(change["merge"]); } catch (error) { throw new FleetError("invalid_settings", (error as Error).message); }
+        const { merge: _old, ...kept } = entry;
+        const written = mergeEntry(merge);
+        entry = written ? { ...kept, merge: written } : kept;
+      }
+      if (Object.keys(entry).length) projects[key] = entry;
       else delete projects[key];
     }
     next["projects"] = projects;

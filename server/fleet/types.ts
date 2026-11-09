@@ -3,7 +3,7 @@
  * role, followed turn by turn until it settles. Ported from pi-herdr-fleet, without pi.
  */
 
-import type { FleetAgentKind, ThinkingLevel } from "../../shared/fleet.ts";
+import type { FleetAgentKind, MergeSetting, ThinkingLevel } from "../../shared/fleet.ts";
 import type { Brief } from "./brief.ts";
 
 export type { AgentRun, AgentState, ContractItem, SkippedCandidate, ThinkingLevel, ThreadState, ThreadSummary } from "../../shared/fleet.ts";
@@ -76,6 +76,8 @@ export interface ModelPolicy {
 export interface ProjectConfig {
   /** the shell command a thread's fresh worktree runs before its lead starts (dependencies are not in a new checkout) */
   setup?: string;
+  /** who may merge the project's threads (merge-mode.ts); absent, every merge waits for the person */
+  merge?: MergeSetting;
 }
 
 export interface FleetConfig {
@@ -102,7 +104,7 @@ export interface FleetConfig {
   rateLimitCooldownMinutes: number;
   roles: Record<string, RoleOverride>;
   models: Record<string, ModelPolicy>;
-  /** only from the user's own fleet.json: a repository must not name commands the fleet runs */
+  /** only from the user's own fleet.json: a repository must not name commands the fleet runs, nor grant itself merges */
   projects: Record<string, ProjectConfig>;
 }
 

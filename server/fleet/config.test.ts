@@ -100,6 +100,28 @@ describe("project setup commands", () => {
   });
 });
 
+describe("a project's merge authority", () => {
+  it("comes from the person's fleet.json only: a repository cannot grant itself merges", () => {
+    const { userDir, cwd } = fixture(
+      JSON.stringify({ projects: { "/repos/rs": { merge: { mode: "gated", branches: ["rust"], protected: ["docs/plan.md"] } } } }),
+      JSON.stringify({ projects: { "/repos/app": { merge: { mode: "gated", branches: ["main"], maxLines: 100000 } }, "/repos/rs": { merge: { mode: "gated", branches: ["main"] } } } }),
+    );
+    const config = loadConfig(cwd, [], userDir);
+    // maxLines left out is 200, dsh-superagent's delivery rule
+    expect(config.projects).toEqual({ "/repos/rs": { merge: { mode: "gated", branches: ["rust"], maxLines: 200, protected: ["docs/plan.md"] } } });
+  });
+
+  it("is the person's by default, and an entry that does not parse merges nothing on its own", () => {
+    expect(loadConfig(fixture().cwd, [], fixture().userDir).projects).toEqual({});
+    const { userDir, cwd } = fixture(JSON.stringify({ projects: {
+      "/a": { merge: { mode: "auto", branches: ["main"] } },
+      "/b": { merge: "gated" },
+      "/c": { merge: { mode: "gated", branches: ["../x", "ok", 3], maxLines: -5, protected: ["", "src/**"] } },
+    } }));
+    expect(loadConfig(cwd, [], userDir).projects).toEqual({ "/a": {}, "/b": {}, "/c": { merge: { mode: "gated", branches: ["ok"], maxLines: 200, protected: ["src/**"] } } });
+  });
+});
+
 describe("standing orders", () => {
   it("are empty without files, then the user's before the nearest project's", () => {
     const { userDir, cwd } = fixture();

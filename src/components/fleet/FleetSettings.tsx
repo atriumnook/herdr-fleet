@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, Minus, Plus, X } from "lucide-react";
 import type { Emit } from "../../ui/bubble.ts";
 import type { FleetSettingsModel } from "../../ui/fleetView.ts";
 import type { UiEvent } from "../../ui/state.ts";
-import type { FleetAgentKind, FleetEntrance, FleetSettings, RoleCandidate, RoleSettings, ThinkingLevel } from "../../../shared/fleet.ts";
+import type { FleetAgentKind, FleetEntrance, FleetSettings, MergeSetting, RoleCandidate, RoleSettings, ThinkingLevel } from "../../../shared/fleet.ts";
 import { t } from "../../lib/i18n.ts";
 import { AgentMark } from "../AgentMark.tsx";
 import { Segmented } from "../Segmented.tsx";
@@ -234,9 +234,47 @@ function ProjectsSection({ model, change }: { model: FleetSettingsModel; change:
         <div key={project.path} className="fleet-setting fleet-setting-project">
           <div className="fleet-setting-text"><b>{project.name}</b><span className="mono">{project.path}</span></div>
           <SetupField value={project.setup} name={project.name} commit={(setup) => change({ projects: { [project.path]: { setup } } })} />
+          <MergeField value={project.merge} name={project.name} commit={(merge) => change({ projects: { [project.path]: { merge } } })} />
         </div>
       ))}
     </section>
+  );
+}
+
+/** Who may merge a project's threads: the person, or the coordinator under a gate on the branches listed. */
+function MergeField({ value, name, commit }: { value: MergeSetting; name: string; commit: (merge: MergeSetting) => void }) {
+  // what is typed: the fields' own until they are saved
+  const [branches, setBranches] = useState(value.branches.join(", "));
+  const [maxLines, setMaxLines] = useState(String(value.maxLines));
+  const [paths, setPaths] = useState(value.protected.join("\n"));
+  useEffect(() => { setBranches(value.branches.join(", ")); setMaxLines(String(value.maxLines)); setPaths(value.protected.join("\n")); }, [value]);
+  const draft = (): MergeSetting => ({
+    mode: "gated",
+    branches: branches.split(/[,\s]+/).filter(Boolean),
+    maxLines: /^\d+$/.test(maxLines.trim()) ? Number(maxLines.trim()) : value.maxLines,
+    protected: paths.split("\n").map((line) => line.trim()).filter(Boolean),
+  });
+  const save = () => { const next = draft(); if (JSON.stringify(next) !== JSON.stringify(value)) commit(next); };
+  return (
+    <div className="fleet-merge" role="group" aria-label={t("Merges for {name}", { name })}>
+      <div className="fleet-merge-mode">
+        <b>{t("Merges")}</b>
+        <Segmented label={t("Who merges {name}", { name })}>
+          <button type="button" aria-pressed={value.mode === "person"} onClick={() => value.mode !== "person" && commit({ mode: "person", branches: [], maxLines: value.maxLines, protected: [] })}>{t("Person")}</button>
+          <button type="button" aria-pressed={value.mode === "gated"} onClick={() => value.mode !== "gated" && commit({ ...draft(), mode: "gated" })}>{t("Gated")}</button>
+        </Segmented>
+      </div>
+      <span className="fleet-merge-note">{t(value.mode === "gated"
+        ? "On the branches listed, the coordinator merges a thread on its own only when every condition of the gate holds. Anything else waits for you."
+        : "Every merge waits for you.")}</span>
+      {value.mode === "gated" && (
+        <div className="fleet-merge-gate">
+          <label>{t("Branches")}<input className="input mono" value={branches} spellCheck={false} placeholder={t("None")} onChange={(event) => setBranches(event.target.value)} onBlur={save} onKeyDown={(event) => { if (event.key === "Enter") save(); }} /></label>
+          <label>{t("Line limit")}<input className="input mono" inputMode="numeric" value={maxLines} onChange={(event) => setMaxLines(event.target.value)} onBlur={save} onKeyDown={(event) => { if (event.key === "Enter") save(); }} /></label>
+          <label>{t("Protected paths")}<textarea className="input mono" rows={3} value={paths} spellCheck={false} placeholder={t("One path or glob per line")} onChange={(event) => setPaths(event.target.value)} onBlur={save} /></label>
+        </div>
+      )}
+    </div>
   );
 }
 

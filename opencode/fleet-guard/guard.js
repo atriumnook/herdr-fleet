@@ -17,8 +17,11 @@
  *   relative paths: none starting with `/` or `~`, none with a `..` path segment, none naming a `.env`
  *   file (git diff of two paths outside the repository is an implicit --no-index and reads any file);
  * - `gh pr view|checks <number>`, `gh run view <number>`, `gh pr list`, with whitelisted flags;
- * - for the coordinator: `gh pr merge <number> --merge`, `git pull --ff-only`,
- *   `git merge --no-ff <fleet or agents branch>`, `git merge --abort`.
+ * - for the coordinator: `gh pr merge <number> --merge`, `gh pr merge <number> --merge
+ *   --match-head-commit <sha>` (a merge the project's gate allowed, pinned to the commit it checked),
+ *   `git pull --ff-only`, `git merge --no-ff <fleet or agents branch>`, `git merge --abort`,
+ *   `git revert -m 1 --no-edit <sha>`, `git revert --abort`, and `git push origin <branch>` (a revert
+ *   of a pull request's merge reaches the base branch on GitHub; no flag, refspec or other remote).
  */
 
 /** characters of a plain word; `~` only after its first character, so nothing expands (in the fleet command's arguments an unquoted `~` expands to $HOME: harmless, an absolute path is allowed there anyway) */
@@ -26,6 +29,9 @@ const WORD = /^(?!~)[A-Za-z0-9_.,:@%+=\/^~-]+$/;
 const PLAIN = /[A-Za-z0-9_.,:@%+=\/^~-]/;
 const DIGITS = /^[0-9]{1,9}$/;
 const BRANCH = /^(?:fleet|agents)\/[A-Za-z0-9._-]+$/;
+const SHA = /^[0-9a-f]{7,40}$/;
+/** a base branch to push to: plain names joined by `/`; no flag, `+` (force), `:` (refspec), `..` or HEAD */
+const PUSHED = /^(?!HEAD$)[A-Za-z0-9_][A-Za-z0-9_.-]*(?:\/[A-Za-z0-9_][A-Za-z0-9_.-]*)*$/;
 
 const EXACT = new Set(["git status", "git ls-files", "ls", "pwd"]);
 
@@ -94,10 +100,13 @@ function github(words) {
 }
 
 function merge(command) {
-  if (command === "git pull --ff-only" || command === "git merge --abort") return true;
+  if (command === "git pull --ff-only" || command === "git merge --abort" || command === "git revert --abort") return true;
   const words = command.split(" ");
   if (words.length === 4 && words[0] === "git" && words[1] === "merge" && words[2] === "--no-ff") return BRANCH.test(words[3]);
-  return words.length === 5 && command.startsWith("gh pr merge ") && DIGITS.test(words[3]) && words[4] === "--merge";
+  if (words.length === 6 && command.startsWith("git revert -m 1 --no-edit ")) return SHA.test(words[5]);
+  if (words.length === 4 && command.startsWith("git push origin ")) return PUSHED.test(words[3]) && !words[3].includes("..");
+  if (!command.startsWith("gh pr merge ") || !DIGITS.test(words[3]) || words[4] !== "--merge") return false;
+  return words.length === 5 || (words.length === 7 && words[5] === "--match-head-commit" && SHA.test(words[6]));
 }
 
 /** the fleet command's arguments (after the command itself): words of plain characters and quoted strings */

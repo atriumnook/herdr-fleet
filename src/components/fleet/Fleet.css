@@ -928,6 +928,14 @@ pre.fleet-plan-code { padding: var(--space-2) var(--space-3); }
 .fleet-setting-text b { color: var(--ink-strong); font-weight: var(--fw-semibold); }
 .fleet-setting-text span { color: var(--sub); font-size: var(--fs-xs); overflow-wrap: anywhere; }
 .fleet-setting-project .input { flex: 1 1 100%; }
+.fleet-merge { flex: 1 1 100%; display: flex; flex-direction: column; gap: var(--space-2); }
+.fleet-merge-mode { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2) var(--space-3); }
+.fleet-merge-mode b { color: var(--ink-strong); font-weight: var(--fw-semibold); font-size: var(--fs-sm); }
+.fleet-merge-note { color: var(--sub); font-size: var(--fs-xs); }
+.fleet-merge-gate { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--space-2) var(--space-3); }
+.fleet-merge-gate label { display: flex; flex-direction: column; gap: 4px; min-width: 0; color: var(--sub); font-size: var(--fs-xs); }
+.fleet-merge-gate label:last-child { grid-column: 1 / -1; }
+.fleet-merge-gate textarea { resize: vertical; }
 .fleet-setting-entrance .fleet-setting-text b { font-size: var(--fs-sm); font-weight: var(--fw-regular); overflow-wrap: anywhere; }
 .fleet-setting-text .fleet-entrance-readers { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; }
 .fleet-entrance-reader { display: inline-flex; align-items: center; gap: 4px; color: var(--ink); }

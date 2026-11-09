@@ -60,6 +60,10 @@ const REFUSED = [
 
 const MERGES = [
   "gh pr merge 12 --merge", "gh pr merge 123456 --merge", "git pull --ff-only", "git merge --no-ff fleet/ab12cd", "git merge --no-ff agents/worker-ab12", "git merge --abort",
+  // merge modes: a merge the gate allowed, pinned to its commit; a revert, and the push that takes it to GitHub
+  "gh pr merge 12 --merge --match-head-commit c0ffee1", "gh pr merge 12 --merge --match-head-commit 0123456789abcdef0123456789abcdef01234567",
+  "git revert -m 1 --no-edit abc0001", "git revert -m 1 --no-edit 0123456789abcdef0123456789abcdef01234567", "git revert --abort",
+  "git push origin main", "git push origin rust", "git push origin release/2.0",
 ];
 const MERGES_REFUSED = [
   "gh pr merge main --merge", "gh pr merge a/b/c --merge", "gh pr merge https://github.com/evil/repo/pull/1 --merge", "gh pr merge 12 --merge --admin", "gh pr merge --admin --merge", "gh pr merge -d --merge",
@@ -67,7 +71,20 @@ const MERGES_REFUSED = [
   "gh pr merge 12 --merge && git push", "gh pr merge 1234567890 --merge",
   "git merge --no-ff fleet/x main", "git merge --no-ff fleet/x -s ours", "git merge --no-ff fleet/x --allow-unrelated-histories -X theirs", "git merge --no-ff fleet/x -m msg", "git merge --no-ff fleet/x --no-verify",
   "git merge --no-ff fleet/x -F /etc/passwd", "git merge --no-ff fleet/x --file=/etc/passwd", "git merge --no-ff fleet/x --abort", "git merge --no-ff fleet/ ", "git merge --no-ff fleet/", "git merge --no-ff main", "git merge --no-ff fleet/../x",
-  "git merge --no-ff fleet/x HEAD~5", "git merge --no-ff fleet/x > f", "git merge --abort x", "git pull --ff-only origin", "git pull --ff-only evil", "git pull", "git push origin main", "git merge main", "git checkout main",
+  "git merge --no-ff fleet/x HEAD~5", "git merge --no-ff fleet/x > f", "git merge --abort x", "git pull --ff-only origin", "git pull --ff-only evil", "git pull", "git merge main", "git checkout main",
+  // the pinned merge: one hex commit, nothing after it
+  "gh pr merge 12 --merge --match-head-commit", "gh pr merge 12 --merge --match-head-commit HEAD", "gh pr merge 12 --merge --match-head-commit main", "gh pr merge 12 --merge --match-head-commit c0ffee1 --admin",
+  "gh pr merge 12 --merge --match-head-commit c0ffee1 --delete-branch", "gh pr merge 12 --merge --match-head-commit=c0ffee1", "gh pr merge 12 --match-head-commit c0ffee1 --merge", "gh pr merge 12 --squash --match-head-commit c0ffee1",
+  "gh pr merge 12 --merge --match-head-commit C0FFEE1", "gh pr merge 12 --merge --match-head-commit c0ff", "gh pr merge 12 --merge --match-head-commit c0ffee1 -R evil/repo",
+  // a revert: of one hex commit, with no edit, no other mainline, no strategy or option
+  "git revert abc0001", "git revert -m 1 abc0001", "git revert -m 2 --no-edit abc0001", "git revert -m 1 --no-edit HEAD", "git revert -m 1 --no-edit HEAD~1", "git revert -m 1 --no-edit abc0001 def0002",
+  "git revert -m 1 --no-edit abc0001 -X theirs", "git revert -m 1 --no-edit --no-commit abc0001", "git revert -m 1 --edit abc0001", "git revert --continue", "git revert --quit", "git revert --skip", "git revert --abort x",
+  "git revert -m 1 --no-edit abc0001 > f", "git revert -m 1 --no-edit abc0001; git push",
+  // a push: to origin, one branch, never forced, deleted, as a refspec or a tag
+  "git push", "git push origin", "git push origin main --force", "git push --force origin main", "git push -f origin main", "git push origin +main", "git push origin main:main", "git push origin :main",
+  "git push origin HEAD", "git push origin HEAD:main", "git push origin --delete main", "git push origin -d main", "git push origin main other", "git push origin --tags", "git push origin --all", "git push origin --mirror",
+  "git push evil main", "git push https://github.com/evil/x main", "git push origin ../main", "git push origin main/..", "git push origin -main", "git push origin main --force-with-lease", "git push origin main && id",
+  "git push origin 'main'", "git push origin main\nid", "git push  origin main", "git push origin .main", "git push origin main/",
 ];
 
 describe("the guard of a role that edits nothing", () => {
