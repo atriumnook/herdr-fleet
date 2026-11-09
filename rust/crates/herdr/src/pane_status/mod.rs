@@ -55,7 +55,7 @@ pub struct PaneStatusOptions {
     pub reconnect_min: Duration,
     pub reconnect_max: Duration,
     /// How often every pane is checked against a snapshot anyway; [`start`] panics when it is
-    /// zero (`setInterval` has no such period).
+    /// zero (tokio's `interval` takes no zero period).
     pub backstop: Duration,
     pub debounce: Duration,
     /// Retry delay when a reconcile's snapshot fails.
