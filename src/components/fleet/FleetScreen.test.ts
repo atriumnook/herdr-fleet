@@ -159,6 +159,11 @@ describe("Fleet screen views", () => {
     expect(checks).toContain("test · lint");
     expect(checks).toContain(">Fix CI<");
     expect(checks).toContain("No review on another CLI");
+    // each reviewer with its model's company, which the gate goes by, or that it is not known
+    const reviewers = [run("r1", { role: "reviewer", group: target.group, agent: "agy", model: "claude-opus-5-5-high" }), run("r2", { role: "reviewer", group: target.group, agent: "cursor", ...reported("ready", "No findings.") })];
+    const reviewed = screen(state([coordinator, target, ...reviewers], { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null }, tab: "checks" }, landing }));
+    expect(reviewed).toContain("Reviewed on another CLI");
+    expect(reviewed).toContain("reviewer · agy:claude-opus-5-5-high (Anthropic) / reviewer · cursor:gpt-6 (company not known) — ready — No findings.");
   });
 
   it("offers Revert on a merged thread, says the gate merged it, and draws the merge gate among the checks", () => {
