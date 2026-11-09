@@ -1498,10 +1498,9 @@ export class Orchestrator {
         if (!isLive(run)) return;
         const previous = run.state;
         // a turn the fleet did not send starts (a helper's result woke the agent, or the person typed)
-        if (!pending && current === "working" && (isCompleted(previous) || previous === "blocked")) {
-          this.clearTurnFiles(run);
-          if (isThread(run)) this.unsentTurnStarts.set(run.id, Date.now());
-        }
+        if (!pending && current === "working" && (isCompleted(previous) || previous === "blocked")) this.clearTurnFiles(run);
+        // it starts when it leaves a settled state, working or at an approval (whose working after it may go unseen)
+        if (!pending && isThread(run) && isCompleted(previous) && (current === "working" || current === "blocked")) this.unsentTurnStarts.set(run.id, Date.now());
         // a reviewer's turn nobody sent (the person typed, or it woke itself), from whatever state: what it writes is not compared
         if (!pending && current === "working" && run.role === REVIEWER_ROLE) { delete run.reviewClean; run.turnHead ??= "unknown"; }
         if (current !== run.state) this.updateState(run, current);

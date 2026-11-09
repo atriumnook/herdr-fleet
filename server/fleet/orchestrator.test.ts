@@ -1381,6 +1381,22 @@ describe("a thread outlives its lead run", () => {
     });
   }
 
+  it("closes an unanswered plan when the waiting lead's own turn starts at an approval and its working is never seen", async () => {
+    const { fleet, registry, root, turn, report } = thread({ agents: [lead, role("reviewer", { interactive: true })] });
+    const first = await fleet.startThread({ title: "Fix", task: "t", cwd: "/repo" });
+    fleet.submitPlan(first.id, { title: "Retry limit", claims: [{ text: "Three retries.", exhibit: { kind: "list", items: ["three"] } }] });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: first.group, cwd: first.cwd });
+    await turn(first, "idle");
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    await turn(reviewer, "idle");
+    // The own turn first shows an approval; the status read misses its brief working after the person allows it.
+    await turn(first, "blocked");
+    report(first, { state: "ready", summary: "Implemented three retries without answers.", evidence: [] });
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+    expect(registry.get(first.id)!.plan!.closedAt).toBeNumber();
+  });
+
   it("goes on in a new run when its lead waited across a fleet server restart and its own next turn leaves no report", async () => {
     const reviewerRole = role("reviewer", { interactive: true });
     const { fleet, runtime, root, states, turn, write } = thread({ agents: [lead, reviewerRole] });
