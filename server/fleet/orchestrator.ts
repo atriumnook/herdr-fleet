@@ -1471,7 +1471,7 @@ export class Orchestrator {
     // are spent; a turn that wrote its report did its work, whatever its screen quotes, unless the
     // CLI moved to another model by itself on a usage limit: that work ran on a model nobody chose
     const adapter = adapterFor(run.agent);
-    const turnError = adapter.modelSwitch?.(run.lastOutput) ?? (!run.outcome?.report ? adapter.turnError(run.lastOutput) : undefined);
+    const turnError = adapter.modelSwitch?.(run.lastOutput, run.model) ?? (!run.outcome?.report ? adapter.turnError(run.lastOutput, run.model) : undefined);
     if (turnError && isCompleted(run.state)) {
       run.state = "failed";
       run.lastError = turnError;

@@ -69,13 +69,14 @@ export interface AgentAdapter {
    * types into a settled CLI would join it, so the fleet types nothing then.
    */
   draft?(screen: string): boolean;
-  /** a turn that settled without doing the work (an API error after the CLI's own retries) */
-  turnError(output: string | undefined): string | undefined;
+  /** a turn that settled without doing the work (an API error after the CLI's own retries); `model` is the one the run was started on */
+  turnError(output: string | undefined, model?: string): string | undefined;
   /**
-   * The CLI moved its session to another model by itself (codex when the account's usage runs
-   * out): what its screen says. The turn ran on a model nobody chose, so it failed, report or not.
+   * The CLI moved its session off `model`, the one the run was started on, by itself (codex when
+   * the account's usage runs out): what its screen says. The turn ran on a model nobody chose, so
+   * it failed, report or not.
    */
-  modelSwitch?(output: string | undefined): string | undefined;
+  modelSwitch?(output: string | undefined, model?: string): string | undefined;
   /** what to type into a settled CLI to show its usage, for a CLI that tells it no other way (cursor) */
   readonly usageCommand?: string;
   /** the usage on that screen, once it shows */
@@ -217,8 +218,19 @@ export const claudeAdapter: AgentAdapter = {
 /** codex's status line, which the fleet has open with the model in use (codex-rs tui/src/chatwidget/status_surfaces.rs) */
 const CODEX_STATUS_LINE = ["model-with-reasoning", "current-dir"];
 
-/** a model's name as the status line or a notice writes it, compared: its slug and its catalog name read the same */
-const modelKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+/** the level codex writes after a model's name, in its notices and its status line (codex-rs ReasoningEffort::as_str, or "default") */
+const CODEX_LEVEL = /^(?:default|none|minimal|low|medium|high|xhigh|max|ultra|persistent)$/;
+
+/**
+ * The model a notice or the status line names (`<model> <level>[ <service tier>]`), as a key that
+ * reads a slug and its catalog name the same (gpt-6.1-terra, GPT-6.1 Terra).
+ */
+function modelKey(text: string): string {
+  const words = text.trim().split(/\s+/);
+  const level = words.findIndex((word, at) => at > 0 && CODEX_LEVEL.test(word));
+  const name = level > 0 ? words.slice(0, level) : words.length > 1 ? words.slice(0, -1) : words;
+  return name.join(" ").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
 
 /**
  * When the account's ordinary usage runs out, codex moves the session to a model nobody chose and
@@ -227,13 +239,16 @@ const modelKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
  * bullet, so a notice counts only while the status line, the screen's last line, shows the model it
  * switched to. The reserve model codex switches to (`gpt-reserve`, shown as Luna Reserve) cannot be
  * chosen by hand: a status line showing it is a switch, though its notice scrolled out of the read.
- * Returns what the screen says of the switch.
+ * A status line that shows `model`, the one the run was started on, shows no switch: a notice
+ * naming that model is a quote. Returns what the screen says of the switch.
  */
-export function codexModelSwitch(output: string | undefined): string | undefined {
+export function codexModelSwitch(output: string | undefined, model?: string): string | undefined {
   if (!output) return undefined;
   const lines = stripVTControlCharacters(output).split("\n");
   const last = [...lines].reverse().find((line) => line.trim() !== "")?.trim() ?? "";
   const shown = last.includes(" · ") ? last.slice(0, last.indexOf(" · ")) : undefined;
+  const inUse = shown === undefined ? undefined : modelKey(shown);
+  if (inUse !== undefined && model && inUse === modelKey(model)) return undefined;
   for (let at = lines.length - 1; at >= 0; at--) {
     const head = /^\s*•\s+(Automatically switched .*)$/.exec(lines[at]!);
     if (!head) continue;
@@ -245,13 +260,10 @@ export function codexModelSwitch(output: string | undefined): string | undefined
     if (notice.startsWith("Automatically switched back to ")) break;
     const target = /^Automatically switched to (.+) due to usage limits\.$/.exec(notice)?.[1];
     if (!target) continue;
-    // the target is the model and its level; a model without a level (codex-auto-*) is one word
-    const words = target.split(" ");
-    const model = modelKey(words.length > 1 ? words.slice(0, -1).join(" ") : target);
-    if (shown === undefined || modelKey(shown).startsWith(model)) return notice;
+    if (inUse === undefined || inUse === modelKey(target)) return notice;
     break;
   }
-  if (shown !== undefined && /^(?:lunareserve|gptreserve)/.test(modelKey(shown))) return `codex runs on ${shown}, the reserve model it switches to by itself on usage limits`;
+  if (inUse === "lunareserve" || inUse === "gptreserve") return `codex runs on ${shown}, the reserve model it switches to by itself on usage limits`;
   return undefined;
 }
 
@@ -288,10 +300,12 @@ export const codexAdapter: AgentAdapter = {
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },
-  modelSwitch: codexModelSwitch,
-  turnError(output) {
+  modelSwitch(output, model) {
+    return codexModelSwitch(output, splitThinking(model).model);
+  },
+  turnError(output, model) {
     // codex shows a failed request as a `■ <reason>` line once its retries are spent
-    return codexModelSwitch(output) ?? lastMatch(output, /^\s*■\s+(.+)$/gm);
+    return codexModelSwitch(output, splitThinking(model).model) ?? lastMatch(output, /^\s*■\s+(.+)$/gm);
   },
 };
 

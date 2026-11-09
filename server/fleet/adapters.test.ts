@@ -113,6 +113,16 @@ describe("codex adapter", () => {
     expect(codex.modelSwitch?.("• Automatically switched to gpt-6.1-terra medium due to usage limits.\n\n› Ask Codex to do anything\n\n  GPT-6.1 Terra medium · ~/repo")).toBe("Automatically switched to gpt-6.1-terra medium due to usage limits.");
   });
 
+  it("takes the switch notice for a quoted one while the status line shows the model the fleet asked for", () => {
+    // the quote names the model in use: only the model asked for at launch tells it from a real switch
+    const quoted = "• Automatically switched to gpt-6.1-terra medium due to usage limits.\n\n› Ask Codex to do anything\n\n  GPT-6.1 Terra medium · ~/repo";
+    expect(codex.modelSwitch?.(quoted, "gpt-6.1-terra:medium")).toBeUndefined();
+    expect(codex.turnError(quoted, "gpt-6.1-terra")).toBeUndefined();
+    expect(codex.modelSwitch?.(quoted, "gpt-5.5")).toBe("Automatically switched to gpt-6.1-terra medium due to usage limits.");
+    // gpt-6.1 is not gpt-6.1-terra
+    expect(codex.modelSwitch?.(quoted, "gpt-6.1")).toBe("Automatically switched to gpt-6.1-terra medium due to usage limits.");
+  });
+
   it("fails a turn whose status line shows the reserve model, once the switch notice scrolled out of what the fleet reads", () => {
     const failure = codex.modelSwitch?.("• Fixed it and ran the tests.\n\n› Ask Codex to do anything\n\n  Luna Reserve medium · ~/repo\n\n");
     expect(failure).toBe("codex runs on Luna Reserve medium, the reserve model it switches to by itself on usage limits");

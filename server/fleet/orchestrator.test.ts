@@ -1292,6 +1292,18 @@ describe("a thread outlives its lead run", () => {
     expect(usage.known("codex", undefined, 90)).toContain("codex is cooling down");
   });
 
+  it("stays with a codex lead whose answer quotes the switch notice while it runs on the model the fleet asked for", async () => {
+    const usage = new UsageTracker({ file: null });
+    const { fleet, runtime, registry, turn, report } = thread({ agents: [role("lead", { agent: "codex", model: "gpt-5.5", fallbackModels: ["claude:"], interactive: true, spawning: true })], usage });
+    const first = await fleet.startThread({ title: "Fix", task: "Fix it.", cwd: "/repo" });
+    report(first, { state: "ready", summary: "Matched the notice.", evidence: ["bun test"] });
+    runtime.output = "› What does codex print?\n\n• Automatically switched to gpt-5.5 high due to usage limits.\n\n› Ask Codex to do anything\n\n  GPT-5.5 high · /repo";
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+    expect(registry.get(first.id)!.lastError).toBeUndefined();
+    expect(usage.known("codex", "gpt-5.5", 90)).toBeUndefined();
+  });
+
   it("stays with its lead when the report says ready, blocked, failed or waiting: a failed report waits for the person", async () => {
     const { fleet, registry, turn, report } = thread();
     const runs: AgentRun[] = [];
