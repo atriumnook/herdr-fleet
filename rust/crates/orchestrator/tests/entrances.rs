@@ -227,3 +227,42 @@ fn writes_the_skill_typescript_writes() {
         "---\nname: herdr-fleet\ndescription: Hand work in this repository to herdr-fleet, or check on work handed to it. Use when the person says to ask, hand or delegate something to the fleet (for example 「fleet に頼んで」), or asks how the fleet's threads are going.\n---\n<!-- herdr-fleet entrance: written by herdr-fleet's Settings page, which updates and removes it -->\n\nIf HERDR_FLEET_RUN is set, you are one of the fleet's own agents: do not use this skill.\n\nRun this, and follow what it prints:\n\n    HERDR_FLEET_URL=U C guide\n"
     );
 }
+
+// Review regression (/code-review high on d5da038): TypeScript's `install` is synchronous, so two
+// requests never interleave, but the server calls `EntranceStore` from several threads at once.
+// With a temporary file named by the process id alone, two installs of one entrance wrote the same
+// temporary file and the second `rename` failed. Both installs must succeed, as two TypeScript
+// requests in a row do.
+#[test]
+fn installs_one_entrance_from_two_threads_at_once() {
+    let home = Home::new();
+    let store = home.store(URL, false);
+    for _ in 0..200 {
+        let barrier = std::sync::Barrier::new(2);
+        let results: Vec<_> = std::thread::scope(|scope| {
+            let threads: Vec<_> = (0..2)
+                .map(|_| {
+                    scope.spawn(|| {
+                        barrier.wait();
+                        store.install("claude").map(|_| ())
+                    })
+                })
+                .collect();
+            threads
+                .into_iter()
+                .map(|thread| thread.join().unwrap())
+                .collect()
+        });
+        for result in results {
+            assert!(
+                result.is_ok(),
+                "{:?}",
+                result.err().map(|error| error.message)
+            );
+        }
+    }
+    assert_eq!(
+        states(&store)[&EntranceId::Claude],
+        EntranceState::Installed
+    );
+}

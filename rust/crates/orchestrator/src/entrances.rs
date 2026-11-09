@@ -8,6 +8,7 @@
 use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use protocol::{EntranceId, EntranceState, FleetAgentKind, FleetEntrance, FleetEntrances};
 
@@ -120,7 +121,15 @@ impl EntranceStore {
         let file = self.owned(id)?;
         let folder = file.parent().unwrap_or(&file);
         fs::create_dir_all(folder).map_err(|error| unwritable(folder, &error))?;
-        let temp = PathBuf::from(format!("{}.{}.tmp", file.display(), std::process::id()));
+        // the process id keeps two processes apart, the count two threads of this one (TypeScript's
+        // `install` is synchronous, so its `<file>.<pid>.tmp` never meets another call's)
+        static COUNT: AtomicU64 = AtomicU64::new(0);
+        let count = COUNT.fetch_add(1, Ordering::Relaxed);
+        let temp = PathBuf::from(format!(
+            "{}.{}.{count}.tmp",
+            file.display(),
+            std::process::id()
+        ));
         write_new(&temp, self.skill().as_bytes()).map_err(|error| unwritable(&temp, &error))?;
         fs::rename(&temp, &file).map_err(|error| unwritable(&file, &error))?;
         self.list()
