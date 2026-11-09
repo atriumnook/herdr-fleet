@@ -1284,6 +1284,47 @@ describe("a thread outlives its lead run", () => {
     expect(threadState(registry.get(third.id)!)).toBe("waiting");
   });
 
+  it("goes on in a new run on another CLI when codex switched its lead to another model on usage limits, though the lead reported, and cools codex down", async () => {
+    const usage = new UsageTracker({ file: null });
+    const { fleet, runtime, registry, events, turn, report } = thread({ agents: [role("lead", { agent: "codex", fallbackModels: ["claude:"], interactive: true, spawning: true })], usage });
+    const first = await fleet.startThread({ title: "Fix", task: "Fix it.", cwd: "/repo" });
+    // the turn ran on the reserve model codex chose by itself (codex-rs tui/src/app/backend_banner_fallback.rs)
+    report(first, { state: "ready", summary: "Fixed.", evidence: ["bun test"] });
+    runtime.output = "› Fix it.\n\n• Automatically switched to Luna Reserve medium due to usage limits.\n\n• Fixed it.\n\n› Ask Codex to do anything\n\n  Luna Reserve medium · /repo";
+    await turn(first, "idle");
+    const old = registry.get(first.id)!;
+    expect(old).toMatchObject({ state: "failed", lastError: "Automatically switched to Luna Reserve medium due to usage limits." });
+    expect(registry.get(old.replacedBy!)).toMatchObject({ agent: "claude", thread: first.id, branch: `fleet/${first.id}`, avoid: ["codex"] });
+    expect(events.filter((e) => e.kind === "restart").map((e) => e.kind === "restart" && [e.why, e.agent, e.to])).toEqual([["failed", "codex", "claude"]]);
+    expect(usage.known("codex", undefined, 90)).toContain("codex is cooling down");
+  });
+
+  it("keeps out the CLIs a thread failed on before when codex switched models on a turn that reported", async () => {
+    const { fleet, runtime, registry, turn, report } = thread({ agents: [role("lead", { agent: "claude", fallbackModels: ["codex:", "pi:"], interactive: true, spawning: true })] });
+    const first = await fleet.startThread({ title: "Fix", task: "Fix it.", cwd: "/repo" });
+    runtime.output = "⎿  API Error: 529 overloaded";
+    await turn(first, "idle");
+    const second = registry.get(registry.get(first.id)!.replacedBy!)!;
+    expect(second).toMatchObject({ agent: "codex", avoid: ["claude"] });
+    // the report came from the reserve model: no progress, so claude stays out
+    report(second, { state: "ready", summary: "Fixed.", evidence: ["bun test"] });
+    runtime.output = "• Automatically switched to Luna Reserve medium due to usage limits.\n\n• Fixed it.\n\n› Ask Codex to do anything\n\n  Luna Reserve medium · /repo";
+    await turn(second, "idle");
+    expect(registry.get(registry.get(second.id)!.replacedBy!)).toMatchObject({ agent: "pi", avoid: ["claude", "codex"] });
+  });
+
+  it("stays with a codex lead whose answer quotes the switch notice while it runs on the model the fleet asked for", async () => {
+    const usage = new UsageTracker({ file: null });
+    const { fleet, runtime, registry, turn, report } = thread({ agents: [role("lead", { agent: "codex", model: "gpt-5.5", fallbackModels: ["claude:"], interactive: true, spawning: true })], usage });
+    const first = await fleet.startThread({ title: "Fix", task: "Fix it.", cwd: "/repo" });
+    report(first, { state: "ready", summary: "Matched the notice.", evidence: ["bun test"] });
+    runtime.output = "› What does codex print?\n\n• Automatically switched to gpt-5.5 high due to usage limits.\n\n› Ask Codex to do anything\n\n  GPT-5.5 high · /repo";
+    await turn(first, "idle");
+    expect(registry.get(first.id)!.replacedBy).toBeUndefined();
+    expect(registry.get(first.id)!.lastError).toBeUndefined();
+    expect(usage.known("codex", "gpt-5.5", 90)).toBeUndefined();
+  });
+
   it("stays with its lead when the report says ready, blocked, failed or waiting: a failed report waits for the person", async () => {
     const { fleet, registry, turn, report } = thread();
     const runs: AgentRun[] = [];
@@ -3344,6 +3385,26 @@ describe("merge authority", () => {
     git.pr = { ...PR, head: "d00d" };
     await turn(thread, "idle");
     expect(registry.get(thread.id)!.gate!.checks.filter((check) => !check.ok)).toEqual([{ id: "review", ok: false, detail: "The review by pi:google/gemini-3-pro was of another commit than the branch's latest." }]);
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("take no review from a codex turn that codex switched to another model on usage limits, though it reported ready", async () => {
+    const { fleet, registry, root, runtime, git, turn, to } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "codex" })]);
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+    // the review ran on the reserve model codex chose by itself (codex-rs tui/src/app/backend_banner_fallback.rs)
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    runtime.output = "• Automatically switched to Luna Reserve medium due to usage limits.\n\n• No findings.\n\n› Ask Codex to do anything\n\n  Luna Reserve medium · /repo";
+    await turn(reviewer, "idle");
+    expect(registry.get(reviewer.id)).toMatchObject({ state: "failed", lastError: "Automatically switched to Luna Reserve medium due to usage limits." });
+    runtime.output = "agent output";
+    writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 parses — evidence: cargo test\n");
+    writeReport(root, thread.id, "ready", "Opened #12.");
+    git.pr = { ...PR };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review on a CLI other than claude passed." });
     expect(to(coordinator)).toEqual(["port"]);
   });
 

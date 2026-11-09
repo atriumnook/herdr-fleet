@@ -1,0 +1,6 @@
+{
+  "about": "fleet/adapters.test.ts: fails a turn left at codex's reserve picker, which hides the status line, once the switch notice scrolled out. Synthesized from codex-rs strings (tui/src/chatwidget/backend_banners.rs refresh_backend_banner_visibility, luna_reserve_usage_with_upsell snapshot), not captured from a real codex",
+  "adapter": "codex",
+  "check": "turnError",
+  "expected": "codex runs on Luna Reserve, the reserve model it switches to by itself on usage limits"
+}

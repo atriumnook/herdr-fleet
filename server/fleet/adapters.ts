@@ -69,8 +69,14 @@ export interface AgentAdapter {
    * types into a settled CLI would join it, so the fleet types nothing then.
    */
   draft?(screen: string): boolean;
-  /** a turn that settled without doing the work (an API error after the CLI's own retries) */
-  turnError(output: string | undefined): string | undefined;
+  /** a turn that settled without doing the work (an API error after the CLI's own retries); `model` is the one the run was started on */
+  turnError(output: string | undefined, model?: string): string | undefined;
+  /**
+   * The CLI moved its session off `model`, the one the run was started on, by itself (codex when
+   * the account's usage runs out): what its screen says. The turn ran on a model nobody chose, so
+   * it failed, report or not.
+   */
+  modelSwitch?(output: string | undefined, model?: string): string | undefined;
   /** what to type into a settled CLI to show its usage, for a CLI that tells it no other way (cursor) */
   readonly usageCommand?: string;
   /** the usage on that screen, once it shows */
@@ -209,6 +215,63 @@ export const claudeAdapter: AgentAdapter = {
   },
 };
 
+/** codex's status line, which the fleet has open with the model in use (codex-rs tui/src/chatwidget/status_surfaces.rs) */
+const CODEX_STATUS_LINE = ["model-with-reasoning", "current-dir"];
+
+/** the level codex writes after a model's name, in its notices and its status line (codex-rs ReasoningEffort::as_str, or "default") */
+const CODEX_LEVEL = /^(?:default|none|minimal|low|medium|high|xhigh|max|ultra|persistent)$/;
+
+/**
+ * The model a notice or the status line names (`<model> <level>[ <service tier>]`), as a key that
+ * reads a slug and its catalog name the same (gpt-6.1-terra, GPT-6.1 Terra).
+ */
+function modelKey(text: string): string {
+  const words = text.trim().split(/\s+/);
+  const level = words.findIndex((word, at) => at > 0 && CODEX_LEVEL.test(word));
+  const name = level > 0 ? words.slice(0, level) : words.length > 1 ? words.slice(0, -1) : words;
+  return name.join(" ").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/**
+ * When the account's ordinary usage runs out, codex moves the session to a model nobody chose and
+ * back once usage is available again, writing a notice in its transcript for each (codex-rs
+ * tui/src/app/backend_banner_fallback.rs) that no setting turns off. An answer opens with the same
+ * bullet, so a notice counts only while the status line, the screen's last line, shows the model it
+ * switched to. The reserve model codex switches to (`gpt-reserve`, shown as Luna Reserve) cannot be
+ * chosen by hand: a status line showing it is a switch, though its notice scrolled out of the read,
+ * and so is the picker codex opens in place of the input and the status line on its first switch to
+ * it (codex-rs tui/src/chatwidget/backend_banners.rs), whose Enter would choose "Add credits". A
+ * status line that shows `model`, the one the run was started on, shows no switch: a notice naming
+ * that model is a quote. Returns what the screen says of the switch.
+ */
+export function codexModelSwitch(output: string | undefined, model?: string): string | undefined {
+  if (!output) return undefined;
+  const lines = stripVTControlCharacters(output).split("\n");
+  const last = [...lines].reverse().find((line) => line.trim() !== "")?.trim() ?? "";
+  const shown = last.includes(" · ") ? last.slice(0, last.indexOf(" · ")) : undefined;
+  const inUse = shown === undefined ? undefined : modelKey(shown);
+  if (inUse !== undefined && model && inUse === modelKey(model)) return undefined;
+  if (/esc to continue working$/.test(last) && lines.slice(-12).some((line) => /^\s*(?:›\s*)?\d+\.\s+Continue with Luna Reserve\s*$/.test(line))) {
+    return "codex runs on Luna Reserve, the reserve model it switches to by itself on usage limits";
+  }
+  for (let at = lines.length - 1; at >= 0; at--) {
+    const head = /^\s*•\s+(Automatically switched .*)$/.exec(lines[at]!);
+    if (!head) continue;
+    let notice = head[1]!.trim();
+    // both notices end with a period: until then, the next lines are the rest of a wrapped one
+    for (let next = at + 1; next < Math.min(lines.length, at + 4) && !notice.endsWith(".") && /^\s*[^\s•›■]/.test(lines[next]!); next++) {
+      notice = `${notice} ${lines[next]!.trim()}`;
+    }
+    // a notice whose model the status line does not show is a quote: one above it may be real
+    const back = /^Automatically switched back to (.+) because ordinary usage is available again\.$/.exec(notice)?.[1];
+    if (back !== undefined && (inUse === undefined || inUse === modelKey(back))) break;
+    const target = /^Automatically switched to (.+) due to usage limits\.$/.exec(notice)?.[1];
+    if (target !== undefined && (inUse === undefined || inUse === modelKey(target))) return notice;
+  }
+  if (inUse === "lunareserve" || inUse === "gptreserve") return `codex runs on ${shown}, the reserve model it switches to by itself on usage limits`;
+  return undefined;
+}
+
 /**
  * The workspace-write sandbox blocks the network, the loopback the fleet server listens on too.
  * Codex is told to ask for that one command outside the sandbox, which its automatic review then
@@ -229,6 +292,11 @@ export const codexAdapter: AgentAdapter = {
       ...(model ? ["--model", model] : []),
       ...(effort ? ["-c", `model_reasoning_effort=${tomlString(effort)}`] : []),
       "-c", `developer_instructions=${tomlString(`${options.systemPrompt}\n\n${CODEX_FLEET_NOTE}`)}`,
+      // near its usage limit codex opens a selection whose first item switches to another model, and
+      // the Enter the fleet sends after a message would choose it (codex-rs tui/src/chatwidget/rate_limits.rs)
+      "-c", "notice.hide_rate_limit_model_nudge=true",
+      // the model in use opens the status line, where codexModelSwitch reads it
+      "-c", `tui.status_line=${JSON.stringify(CODEX_STATUS_LINE)}`,
       // approvals go to codex's automatic review; commands stay in the workspace-write sandbox
       "--approve-for-me",
       "--add-dir", options.resultDir,
@@ -237,9 +305,12 @@ export const codexAdapter: AgentAdapter = {
   startupError(screen) {
     return lastMatch(screen, /^\s*(?:Error|error): (.+)$/gm);
   },
-  turnError(output) {
+  modelSwitch(output, model) {
+    return codexModelSwitch(output, splitThinking(model).model);
+  },
+  turnError(output, model) {
     // codex shows a failed request as a `■ <reason>` line once its retries are spent
-    return lastMatch(output, /^\s*■\s+(.+)$/gm);
+    return codexModelSwitch(output, splitThinking(model).model) ?? lastMatch(output, /^\s*■\s+(.+)$/gm);
   },
 };
 

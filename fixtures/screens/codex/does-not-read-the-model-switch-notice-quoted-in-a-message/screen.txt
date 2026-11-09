@@ -1,0 +1,9 @@
+› If the end-of-turn screen contains 'Automatically switched to … due to usage limits.', treat it as a
+  usage-limit failure.
+
+• I will match the notice line codex writes:
+  Automatically switched to Luna Reserve medium due to usage limits.
+
+› Ask Codex to do anything
+
+  gpt-5.5 high · ~/git/app
