@@ -19,8 +19,8 @@ ADR `0242-phase-3-split` の「Issue の分け方」により、#254 は crate �
 
 orchestrator が使う jiff の機能は次の 2 つである。
 
-- `TimeZone::get`(地域の名前から): 解除の時刻の括弧の中の名前を tz データベースで引く。名前が見つからなければ `Err` を返すので、TypeScript の `zonedTime` が NaN を返す場合に当たる。Unix では `/usr/share/zoneinfo` を読み(`tzdb-zoneinfo`)、Windows では jiff に同梱のデータを使う(`tzdb-bundle-platform`)
-- `TimeZone::system`(サーバーの地域): エラーの文の時計の時刻を、サーバーのプロセスの地域で読む。jiff は環境変数 `TZ` を先に見て、なければ `/etc/localtime` を読む(Windows では OS の設定)。Bun の `Date` がサーバーのプロセスの地域を使うのと同じである。ADR `0242-phase-3-split` は CLI に `TimeZone::system` を使わせない(CLI は `run` に渡された `env` の `TZ` を使うため)が、orchestrator はサーバーのプロセスそのものの地域を読むので、この制約は当たらない
+- `TimeZone::get`(地域の名前から): 解除の時刻の括弧の中の名前を tz データベースで引く。名前が見つからなければ `Err` を返す(TypeScript の `zonedTime` が NaN を返す場合に当たる)。名前は大文字と小文字を区別せずに引く(`src/tz/db/zoneinfo/enabled.rs`)。Unix では `/usr/share/zoneinfo` を読み(`tzdb-zoneinfo`)、Windows では jiff に同梱のデータを使う(`tzdb-bundle-platform`)
+- `TimeZone::system`(サーバーの地域): エラーの文の時計の時刻を、サーバーのプロセスの地域で読む。jiff は環境変数 `TZ` を先に見て、なければ `/etc/localtime` を読む(Windows では OS の設定)。Bun の `Date` も、サーバーのプロセスの地域で時刻を読む。ADR `0242-phase-3-split` は CLI に `TimeZone::system` を使わせない(CLI は `run` に渡された `env` の `TZ` を使うため)が、orchestrator はサーバーのプロセスそのものの地域を読むので、この制約は当たらない
 
 この ADR は、ADR `0244-phase-3-dependencies` の決定を置き換えずに補う。ADR の README のとおり 0244 は書き換えないので、0244 の表の jiff の行は使う crate を cli だけとしているが、jiff を使う crate は cli と orchestrator の 2 つである。
 
@@ -38,6 +38,10 @@ orchestrator が使う jiff の機能は次の 2 つである。
 
 - #254 は、解除の時刻を `TimeZone::get` で、エラーの文の時計の時刻を `TimeZone::system` で読める
 - crate の間の依存は変わらない(ADR `0107-crate-split` の表のまま)。jiff は外部 crate で、orchestrator が新しく依存する workspace の crate はない
+- jiff と TypeScript の違いのうち、次の 3 つは #254 が扱いを決め、TypeScript と違う結果になる場合は PR に書く
+  - `TimeZone::system` は、地域を決められないとき(`/etc/localtime` がない環境など)、警告を log に出すだけで UTC と同じに振る舞う `Etc/Unknown` を返し、エラーにしない。失敗を見分けるには `TimeZone::try_system` を使う
+  - `TimeZone::system` は、読んだ地域を 5 分のあいだ覚える(`src/tz/system/mod.rs` の `TTL`)。サーバーが動いている間に `TZ` か `/etc/localtime` が変わると、最大 5 分は古い地域で読む
+  - `TimeZone::get` が引けるのは tz データベースにある名前だけで、`+09:00` のようなオフセットの形は引けない。Linux では `/usr/share/zoneinfo` がないと、どの名前も引けない(`tzdb-bundle-platform` が同梱のデータを使うのは Windows と wasm だけ。ADR `0244-phase-3-dependencies` の「依存」)。TypeScript の `Intl.DateTimeFormat` が同じ名前を受け付けるかは、確かめていない
 - `TimeZone::system` はプロセスの環境変数 `TZ` を読む。edition 2024 では `std::env::set_var` が unsafe で、workspace は `unsafe_code = "forbid"` なので、テストの中でプロセスの `TZ` を変えることはできない。サーバーの地域に依存する読み取りをどう確かめるかは、#254 が決める
 
 ## 確かめたこと
@@ -47,5 +51,5 @@ PC は Linux 7.2.15(omarchy)、rustc 1.99.1、`rust/` で実行した。
 - 変える前に `cargo tree --locked -p herdr-fleet-orchestrator -e normal --depth 1` を走らせ、jiff が出ないことを見た。変えたあとは `jiff v0.2.41` が加わった
 - `git diff origin/rust...HEAD -- rust/Cargo.lock`(`git fetch origin rust` のあと)の差分は、`herdr-fleet-orchestrator` の `dependencies` に `"jiff"` を足す 1 行だけだった
 - `cargo tree -e features -i jiff --workspace --depth 1` で、有効な feature が jiff の既定の feature(と、それが有効にする `alloc`)であることを見た
-- jiff 0.2.41 のソース(`src/tz/timezone.rs`)で、`TimeZone::get(&str) -> Result<TimeZone, Error>` と `TimeZone::system() -> TimeZone` が公開されていること、`system` が `TZ` を先に見て、なければ `/etc/localtime` を読むことを見た
+- jiff 0.2.41 のソース(`src/tz/timezone.rs`)で、`TimeZone::get(&str) -> Result<TimeZone, Error>` と `TimeZone::system() -> TimeZone` が公開されていること、`system` が `TZ` を先に見て、なければ `/etc/localtime` を読むことを見た。同じソースで、`system` が失敗を `Etc/Unknown` で返すこと、地域を 5 分覚えること(`src/tz/system/mod.rs:69`)、zoneinfo の名前の検索が大文字と小文字を区別しないこと(`src/tz/db/zoneinfo/enabled.rs:557`)を見た
 - `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` が通った(522 件。`origin/rust` を取り込んだあとは 555 件)
