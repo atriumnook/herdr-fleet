@@ -11,7 +11,15 @@ screen.workspace = true
 herdr.workspace = true
 child-process.workspace = true
 axum = { workspace = true, features = ["json", "query"] }
+# The roles' and fleet.json's user-named maps keep the order they were written in
+# (ADR 0244-phase-3-dependencies, "map の順").
+indexmap.workspace = true
 regex.workspace = true
+# The YAML frontmatter of the role files (ADR 0279-orchestrator-yaml). The loader's
+# `allow_duplicate_keys`, which Bun's last-value-wins needs, takes saphyr-parser's
+# `Parser`, which saphyr does not re-export; no default features drops encoding_rs.
+saphyr = { version = "0.3.3", default-features = false }
+saphyr-parser = "0.3.3"
 serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
