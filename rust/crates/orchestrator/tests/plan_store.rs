@@ -747,3 +747,25 @@ const TYPESCRIPTS_FILE: &str = r#"{
   "writtenAt": 1000
 }
 "#;
+
+/// A write that fails leaves no temporary file behind: here the rename fails, as the plan's file
+/// is a folder that holds a file.
+#[test]
+fn leaves_no_temporary_file_when_the_write_fails() {
+    let w = Worktree::new();
+    let plan = prepare_plan(
+        &input(json!({ "kind": "list", "items": ["x"] })),
+        &w.tree,
+        1,
+        0,
+    )
+    .unwrap();
+    let file = w.root.join("plans/r1.json");
+    fs::create_dir_all(file.join("inside")).unwrap();
+    assert!(write_plan(&file, &plan).is_err());
+    let left: Vec<String> = fs::read_dir(w.root.join("plans"))
+        .unwrap()
+        .map(|entry| entry.unwrap().file_name().to_string_lossy().into_owned())
+        .collect();
+    assert_eq!(left, ["r1.json"]);
+}
