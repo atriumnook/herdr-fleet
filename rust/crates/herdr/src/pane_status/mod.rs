@@ -1,16 +1,21 @@
 //! The status of every pane of the session (`server/collector.ts`), told to a
-//! [`PaneStatusHandler`]. The signatures are final (ADR 0242-phase-3-split, "ペインの状態の購読");
-//! the body is #257's.
+//! [`PaneStatusHandler`]. The signatures are ADR 0242-phase-3-split's ("ペインの状態の購読");
+//! how herdr's subscription is coped with is in `collector.rs`.
 //!
 //! The threading contract: [`start`] spawns onto the current Tokio runtime (it panics outside
 //! one, as `tokio::spawn` does), and the handler's methods are called one at a time from that
 //! task, so they must not block: a handler with slow work spawns it.
 
+mod collector;
+mod frames;
+
 use crate::events::EventSource;
 use herdr_api::{AgentStatus, PaneInfo};
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
+use tokio::task::AbortHandle;
 
 /// What a pane was last heard as, before a snapshot showed a status no event told.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -76,13 +81,17 @@ impl Default for PaneStatusOptions {
 /// A running subscription; [`PaneStatus::stop`] or dropping it ends it.
 #[derive(Debug)]
 pub struct PaneStatus {
-    _private: (),
+    stopped: Arc<AtomicBool>,
+    task: AbortHandle,
 }
 
 impl PaneStatus {
     /// Closes every connection and cancels every timer. Calling it again does nothing.
     pub fn stop(&self) {
-        // stub: #257
+        // the flag keeps the handler from being told more within the turn the task is in (a
+        // handler that stops it); the abort drops the task, and its connections and timers with it
+        self.stopped.store(true, Ordering::SeqCst);
+        self.task.abort();
     }
 }
 
@@ -98,6 +107,10 @@ pub fn start(
     handler: Arc<dyn PaneStatusHandler>,
     options: PaneStatusOptions,
 ) -> PaneStatus {
-    let _ = (source, handler, options);
-    todo!("#257")
+    let stopped = Arc::new(AtomicBool::new(false));
+    // the connections open and the first snapshot is asked for before this returns, as
+    // `startStatusCollector` does
+    let collector = collector::Collector::new(source, handler, options, Arc::clone(&stopped));
+    let task = tokio::spawn(collector.run()).abort_handle();
+    PaneStatus { stopped, task }
 }
