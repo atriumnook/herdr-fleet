@@ -14,6 +14,9 @@ axum = { workspace = true, features = ["json", "query"] }
 # The roles' and fleet.json's user-named maps keep the order they were written in
 # (ADR 0244-phase-3-dependencies, "map の順").
 indexmap.workspace = true
+# The usage readings' reset times in a named IANA zone and in the server's own zone
+# (`TimeZone::get`, `TimeZone::system`; ADR 0288-orchestrator-jiff).
+jiff.workspace = true
 regex.workspace = true
 # The YAML frontmatter of the role files (ADR 0279-orchestrator-yaml). The loader's
 # `allow_duplicate_keys`, which Bun's last-value-wins needs, takes saphyr-parser's
