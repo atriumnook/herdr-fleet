@@ -32,7 +32,7 @@ ADR `0242-phase-3-split` は、エージェント CLI ごとの起動の引数�
 
 - #176 の 6(agy の `--effort` と model の level の衝突): TypeScript と同じく、level を名前に含む agy の model id(`-low`、`-medium`、`-high`、`-xhigh`、`-max` で終わる)には `--effort` を付けない。fleet の argv から agy の衝突(`--model X conflicts with --effort=Y`)は起きない。衝突と未知のモデルを `readyError` が起動の失敗として扱うのは screen の crate(段階 2)である
 - #189 の 8(agy の sandbox の note と、fleet コマンドを使う役割の矛盾): `Adapter::refusal(&RoleFit)` を置き、agy は `spawning: true` の役割(lead、coordinator)を断る。O2 は、これを候補の選び方で `avoided`(`orchestrator.ts:460`)と同じく、飛ばす理由として使う。fleet コマンドを使う役割が agy で起動しないので、sandbox の note(fleet コマンドは失敗する)と役割の指示は矛盾しない
-- #190(agy のレビュアーが作業フォルダーの外のファイルの確認画面で止まる): agy は名前が `reviewer` の役割も断る。thread が `--avoid agy` を付けなくても、fleet は agy でレビュアーを起動しない(#190 の「当面の扱い」は、thread ごとに `--avoid agy` を付けることだった)
+- #190(agy のレビュアーが作業フォルダーの外のファイルの確認画面で止まる): agy は名前が `reviewer` の役割も断る。thread が `--avoid agy` を付けなくても、fleet は agy でレビュアーを起動しない(#190 の「当面の扱い」は、thread ごとに `--avoid agy` を付けることだった)。名前で断るのは、作業フォルダーの外のファイルを読む役割かどうかを示す項目が、役割の定義にないためである(同梱の `agents/reviewer.md` は `edits: false` も持たない)。名前の違うレビューの役割(利用者が足した `code-reviewer` など)は断らず、それは agy の確認画面で run が `blocked` になる(screen の crate の agy の `question`)。役割の定義に項目を足すのは役割の読み込み(L1、#247)の範囲で、この Issue では足さない
 
 ### TypeScript から変えた点
 
@@ -50,6 +50,7 @@ ADR `0242-phase-3-split` は、エージェント CLI ごとの起動の引数�
 - #190 で、agy の `--settings` で作業フォルダーの外の読み取りを許す: そのための設定の項目を、実物の agy で確かめられない(モデルを呼ばずには確認画面に届かない)。確かめていない項目には頼らない
 - #190 で、`--add-dir` に決まりのファイルのフォルダーを足す: どのフォルダーを読むかは project の決まり(`standing.md`)が決め、adapter は知らない
 - #189 の 8 で、役割の名前(`lead`、`coordinator`)で断る: 利用者が足した役割で fleet コマンドを使うものを見落とす。fleet コマンドで agent を起動するかは、役割の `spawning` が示す
+- #190 を screen の側(agy の `question` が確認画面で run を `blocked` にする)と thread ごとの `--avoid agy` だけに任せる: Issue #248 は「確認画面なしで読めるようにするか、レビュアーを agy に割り当てないか」のどちらかを求めており、`blocked` で止まるのは #190 が報告した振る舞いそのものである
 
 ## 依存
 
@@ -64,5 +65,5 @@ ADR `0242-phase-3-split` は、エージェント CLI ごとの起動の引数�
 
 ## 確かめたこと
 
-- `cargo test --locked -p herdr-fleet-orchestrator --test launch --test opencode_config`(Arch Linux、rustc 1.99.1。`rust/rust-toolchain.toml` の版): launch 31 件、opencode_config 16 件が通る。安全上の判定の表 `opencodeConfig.json`(9 件)と `opencodeGitEnv.json`(10 件)は全件が一致し、設定の JSON は鍵の順まで TypeScript の `JSON.stringify` と同じ文字列になる
-- 実装の前に同じコマンドを走らせ、stub の `todo!()` で launch 29 件、opencode_config 16 件が失敗することを確かめた
+- `cargo test --locked -p herdr-fleet-orchestrator --test launch --test opencode_config`(Arch Linux、rustc 1.99.1。`rust/rust-toolchain.toml` の版): launch 33 件、opencode_config 16 件が通る。安全上の判定の表 `opencodeConfig.json`(9 件)と `opencodeGitEnv.json`(10 件)は全件が一致し、設定の JSON は鍵の順まで TypeScript の `JSON.stringify` と同じ文字列になる
+- 実装の前に同じコマンドを走らせ、stub の `todo!()` で launch 29 件(当時の 31 件のうち)、opencode_config 16 件が失敗することを確かめた。`/code-review high` の指摘で足した 2 件(node の `dirname` の値、`:low` のような model)も、直す前に失敗することを確かめた
