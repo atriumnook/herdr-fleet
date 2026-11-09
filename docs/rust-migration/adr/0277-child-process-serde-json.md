@@ -17,7 +17,7 @@ ADR `0242-phase-3-split` の「Issue の分け方」により、C1 と C2 は ch
 
 `rust/crates/child-process/Cargo.toml` の `[dependencies]` に `serde_json.workspace = true` を足す。feature は crate の側では足さず、workspace の指定(`float_roundtrip`、`preserve_order`)をそのまま使う。ほかの 8 つの crate(protocol、herdr-api、herdr、screen、transcript、orchestrator、core、cli)と同じ書き方である。
 
-この ADR は、ADR `0244-phase-3-dependencies` の決定を置き換えずに補う。ADR の README のとおり 0244 は書き換えないので、0244 の表の child-process の行(tokio、tokio-util、rustix)と、serde_json を足した crate の一覧(herdr-api、herdr、orchestrator、core、cli)には child-process が載っていない。child-process の外部の依存は、その 3 つに serde_json を足した 4 つである。
+この ADR は、ADR `0244-phase-3-dependencies` の決定を置き換えずに補う。ADR の README のとおり 0244 は書き換えないので、0244 の表の child-process の行(tokio、tokio-util、rustix)には serde_json が載っておらず、serde_json を足した crate の一覧(herdr-api、herdr、orchestrator、core、cli)には child-process が載っていない。child-process の外部の依存は、その 3 つに serde_json を足した 4 つである。
 
 ## 検討した代わり
 
