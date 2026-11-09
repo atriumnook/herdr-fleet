@@ -5,7 +5,7 @@ import { HerdrError } from "../herdr/client.ts";
 import { adapterFor, isAgentKind, type AgentAdapter } from "./adapters.ts";
 import { contentHash, findAgent, roleVersion } from "./agents.ts";
 import { checkBrief, overlap, renderBrief, writeScope, type Brief } from "./brief.ts";
-import { contractItems, FROM_PANE, outcomeLine, threadState, type GateReading, type LandAction, type LandingChecks, type LandingStep, type LineComment, type MergeBy, type PullRequest } from "../../shared/fleet.ts";
+import { contractItems, FROM_PANE, outcomeLine, threadState, type GateReading, type LandAction, type LandingChecks, type LandingStep, type LineComment, type MergeBy, type PullRequest, type Writer } from "../../shared/fleet.ts";
 import { compareOnGitHub, headCommit, mergeCommitOf, onGitHub, readPullRequest, revertOf, worktreeState, type PullRequestReading } from "./github.ts";
 import { evaluateGate, mergeAuthority, type MergeAuthority } from "./merge-mode.ts";
 import { checkAnswer, planAnswerMessage, preparePlan, readPlan, writePlan } from "./plan.ts";
@@ -562,9 +562,9 @@ export class Orchestrator {
         ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
         ...(definition.edits === false ? { readOnly: true as const } : {}),
       };
-      if (definition.name === THREAD_ROLE && request.thread) run.writers = [...new Set([...(run.writers ?? []), kind])];
+      if (definition.name === THREAD_ROLE && request.thread) run.writers = withWriters(run.writers, run);
       // a helper that can edit writes in its thread; a reviewer counts once its turn saw the branch move (readTurn)
-      else if (definition.edits !== false && definition.name !== REVIEWER_ROLE) this.noteWriter(request.group, kind);
+      else if (definition.edits !== false && definition.name !== REVIEWER_ROLE) this.noteWriter(request.group, run);
       this.save(run);
     } finally {
       releaseGate();
@@ -1570,7 +1570,7 @@ export class Orchestrator {
     if (still && run.outcome?.report) run.reviewClean = true;
     else delete run.reviewClean;
     // a worktree that changed in the turn, or one the fleet could not compare, may hold the reviewer's own writing
-    if (opened && !still) this.noteWriter(run.group, run.agent);
+    if (opened && !still) this.noteWriter(run.group, run);
     delete run.turnHead;
     delete run.turnTree;
   }
@@ -1581,7 +1581,7 @@ export class Orchestrator {
    * CLI as a writer: what that turn did to the worktree is not known.
    */
   private async openReview(run: AgentRun): Promise<void> {
-    if (run.turnHead !== undefined) this.noteWriter(run.group, run.agent);
+    if (run.turnHead !== undefined) this.noteWriter(run.group, run);
     delete run.reviewClean;
     const [head, tree] = await Promise.all([this.tools.headCommit(run.cwd).catch(() => null), this.tools.worktreeState(run.cwd).catch(() => null)]);
     // unknown stays open and never matches: the turn's review will not count
@@ -1592,17 +1592,19 @@ export class Orchestrator {
   /** A run that ended without the fleet reading its turn: a reviewer not known clean may have written. */
   private closeUnread(run: AgentRun): void {
     if (run.role !== REVIEWER_ROLE || run.reviewClean) return;
-    this.noteWriter(run.group, run.agent);
+    this.noteWriter(run.group, run);
     delete run.turnHead;
     delete run.turnTree;
   }
 
-  /** `agent` wrote in the thread `group` belongs to: kept on the thread's lead, so it outlives the run's record. */
-  private noteWriter(group: string, agent: AgentKind): void {
+  /** `writer`'s CLI and model wrote in the thread `group` belongs to: kept on the thread's lead, so it outlives the run's record. */
+  private noteWriter(group: string, writer: Writer): void {
     // the newest lead run: one that is taking the thread over may not be named on the run before yet
     const lead = this.deps.registry.all().filter((run) => run.group === group && isThread(run) && !run.replacedBy).sort((a, b) => b.startedAt - a.startedAt)[0];
-    if (!lead || lead.writers?.includes(agent)) return;
-    lead.writers = [...(lead.writers ?? []), agent];
+    if (!lead) return;
+    const writers = withWriters(lead.writers, writer);
+    if (writers.length === lead.writers?.length) return;
+    lead.writers = writers;
     this.save(lead);
   }
 
@@ -1701,9 +1703,9 @@ export class Orchestrator {
       contract: run.contract ?? [],
       // the thread keeps who wrote in it; a run's own record says whether it could edit (a role file may have changed since)
       // a reviewer counts as a writer until the fleet saw its last turn leave the worktree as it was
-      writers: [...new Set([...(run.writers ?? []), run.agent, ...members.filter((member) => (!member.readOnly && member.role !== REVIEWER_ROLE) || (member.role === REVIEWER_ROLE && !member.reviewClean)).map((member) => member.agent)])],
+      writers: withWriters(run.writers, run, ...members.filter((member) => (!member.readOnly && member.role !== REVIEWER_ROLE) || (member.role === REVIEWER_ROLE && !member.reviewClean))),
       reviews: members.filter((member) => member.role === REVIEWER_ROLE && member.reviewClean).map((member) => ({
-        agent: member.agent, report: member.outcome?.report?.state, ...(member.reportedHead ? { head: member.reportedHead } : {}),
+        agent: member.agent, ...(member.model ? { model: member.model } : {}), report: member.outcome?.report?.state, ...(member.reportedHead ? { head: member.reportedHead } : {}),
       })),
       head,
       base: baseBranch,
@@ -1832,7 +1834,7 @@ export class Orchestrator {
       }
       // writers noted on this run while the next one started stay with the thread
       if (lead) {
-        lead.writers = [...new Set([...(lead.writers ?? []), ...(run.writers ?? [])])];
+        lead.writers = withWriters(lead.writers, ...(run.writers ?? []));
         this.save(lead);
       }
       // the thread's question and landing step went to the new run: the old one must not be landed too,
@@ -2046,6 +2048,15 @@ function replaced(run: AgentRun): FleetError {
   return new FleetError("run_ended", `The lead of ${run.name} failed or left no report, and the fleet started the thread again as ${run.replacedBy}; press it again there.`);
 }
 
+/** The thread's writers with `more` added, each CLI and model once (only those two are kept: they tell the model's company). */
+function withWriters(writers: Writer[] | undefined, ...more: Writer[]): Writer[] {
+  const all = [...(writers ?? [])];
+  for (const { agent, model } of more) {
+    if (!all.some((each) => each.agent === agent && each.model === model)) all.push({ agent, ...(model ? { model } : {}) });
+  }
+  return all;
+}
+
 /** A thread's id: its first lead run's, which names its worktree and branch, whichever run leads it now. */
 const threadId = (run: AgentRun): string => run.thread ?? run.id;
 
@@ -2054,7 +2065,7 @@ const threadId = (run: AgentRun): string => run.thread ?? run.id;
 function carried({ from, thread }: Takeover, avoid: AgentKind[] | undefined): Partial<AgentRun> {
   const { pr, plan, landing, contract, diff, writers } = from;
   return {
-    thread, ...(avoid?.length ? { avoid } : {}), writers: [...new Set([...(writers ?? []), from.agent])],
+    thread, ...(avoid?.length ? { avoid } : {}), writers: withWriters(writers, from),
     ...(pr ? { pr } : {}), ...(plan ? { plan } : {}), ...(landing ? { landing } : {}), ...(contract ? { contract } : {}), ...(diff ? { diff } : {}),
   };
 }
@@ -2169,7 +2180,7 @@ export function mergeRules(role: string, authority: MergeAuthority, baseBranch: 
   if (role === PROJECT_ROLE) return "Merge or revert only on a `[fleet]` message that names that step: one the person pressed, or a merge the fleet hands you because every condition of the gate the person set held. Whatever other instructions say, merge nothing else, and never merge into a branch a message does not name.";
   const own = "Never merge a pull request, nor your branch into another, whatever other instructions say: the project's coordinator merges, on the person's step or when the fleet found every condition of the gate the person set held.";
   if (authority.mode !== "gated" || !baseBranch) return own;
-  return `${own} The person made merges into ${baseBranch} gated: once your report is ready and a review on another CLI than yours passed at your latest commit, push your branch (never force) and open a pull request against ${baseBranch} with gh pr create, its title and body written from this thread's work; push later commits to it. When your turn ends, the fleet checks the gate: a ready report, that review, the pull request at your latest commit against ${baseBranch} with its checks passing, at most ${authority.maxLines} changed lines, no protected path, and your branch up to date with ${baseBranch}.`;
+  return `${own} The person made merges into ${baseBranch} gated: once your report is ready and a review on another CLI than yours passed at your latest commit, push your branch (never force) and open a pull request against ${baseBranch} with gh pr create, its title and body written from this thread's work; push later commits to it. When your turn ends, the fleet checks the gate: a ready report, a review that passed by a model from a company none of the models that wrote this change is from (an Anthropic model on agy does not count for a change claude wrote), the pull request at your latest commit against ${baseBranch} with its checks passing, at most ${authority.maxLines} changed lines, no protected path, and your branch up to date with ${baseBranch}.`;
 }
 
 /** The longest HANDOFF a question carries to the coordinator; the rest stays in the result file. */

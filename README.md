@@ -185,7 +185,7 @@ fleet thread --title "通知の重複を直す" --task "リトライで通知が
 - `person`(既定): すべてのマージが、使う人が Fleet 画面で押すのを待ちます
 - `gated`: 挙げたブランチ(`branches`)に入るスレッドは、次の条件がすべて成り立つときだけ coordinator が自分でマージします。1 つでも欠ければ `person` と同じく待ちます。lead は報告が ready になったら、自分で push して PR を開きます
   - lead の最新の報告が ready
-  - 変更を書いた CLI のどれとも違う CLI の reviewer が、そのコミットで合格を出した
+  - 変更を書いたどのモデルの会社とも違う会社のモデルの reviewer が、そのコミットで合格を出した。会社は各 run の CLI とモデルで決まる(claude は Anthropic、codex は OpenAI、agy・pi・opencode はモデル名から。たとえば agy の `claude-*` は Anthropic、`gemini-*` は Google、`gpt-oss-*` は OpenAI)。claude が書いた変更を agy の claude のモデルがレビューしても、同じ Anthropic のモデルなので数えない。書き手かレビュアーの会社が判定できないとき(cursor、名前から会社が分からないモデル、モデルを記録していなかった古い記録の agy など)は数えない。レビューを回す先の選び方(書いた CLI を `--avoid` で外す)は変わらず、gate が数えるレビューだけがこの条件で決まる
   - PR のチェックが通っている(チェックがなければ受け入れ条件がすべて満たされている)
   - 変更が `maxLines` 行(既定 200)以下
   - 保護するパス(`protected`。`.herdr-fleet/`、`.github/`、fleet 自身のコードはいつも含む)に触れない
@@ -223,7 +223,7 @@ Merge into main、Merge PR、Revert、Discard は、何が起きるかと取り�
 Checks は、マージの前に確かめることをまとめて出します。開いたときに git と GitHub を読みます。
 
 - Branch: worktree にコミットされていない変更がないか、main から遅れていないか(遅れていれば Update branch)
-- Thread: 受け入れ条件、lead と別の CLI でのレビュー、まだ送っていないコメント
+- Thread: 受け入れ条件、lead と別の CLI でのレビュー(各 reviewer のモデルとその会社を添える)、まだ送っていないコメント
 - Pull request: PR の状態と CI。CI が落ちるとスレッドは Needs you になる
 
 GitHub は `gh` で読みます。サインインは gh が持っているもので、fleet はトークンを読みません。fleet 自身は GitHub に書き込みません(push、PR の作成、マージはエージェントが行います)。PR が開いているスレッドがある間は、fleet が 1 分おきに PR とチェックを読み直します。使う人が GitHub でマージしたときも、それを見つけてスレッドを片付けます。main から遅れているかどうかは、手元の main と比べます(fetch はしません)。

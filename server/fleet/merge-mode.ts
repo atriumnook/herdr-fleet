@@ -7,7 +7,8 @@
  *
  * Pure: the orchestrator reads the facts (git and gh, github.ts) and hands them in.
  */
-import type { ContractItem, FleetAgentKind, GateCheck, GateResult, MergeSetting, PullRequest, ReportState } from "../../shared/fleet.ts";
+import type { ContractItem, GateCheck, GateResult, MergeSetting, PullRequest, ReportState, Writer } from "../../shared/fleet.ts";
+import { independentCompany, modelCompany, modelLabel } from "../../shared/model-company.ts";
 
 /** dsh-superagent's delivery rule: a change under 200 lines */
 export const DEFAULT_MAX_LINES = 200;
@@ -25,8 +26,9 @@ const MAX_PATTERN_CHARS = 200;
 export const ALWAYS_PROTECTED: readonly string[] = [
   ".herdr-fleet/", ".github/",
   // herdr-fleet's own: the whole fleet server (the gate's reads, the runs' records it trusts, the
-  // adapters that keep a role from editing), access control, the bundled roles and the OpenCode guard
-  "server/fleet/", "server/access.ts", "agents/", "opencode/",
+  // adapters that keep a role from editing), access control, the bundled roles and the OpenCode guard,
+  // and the table that tells a model's company, which decides the reviews the gate counts
+  "server/fleet/", "server/access.ts", "agents/", "opencode/", "shared/model-company.ts",
 ];
 
 const isObject = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -77,10 +79,10 @@ export interface GateFacts {
   /** the state of the lead's latest report */
   report?: ReportState;
   contract: ContractItem[];
-  /** the CLIs that wrote the change: every run of the thread that could edit files */
-  writers: FleetAgentKind[];
-  /** the thread's reviews by runs that could not edit: their CLI, the state of their latest report, and the commit the branch was at when it ended */
-  reviews: Array<{ agent: FleetAgentKind; report?: ReportState; head?: string }>;
+  /** the CLIs and models that wrote the change: every run of the thread that could edit files */
+  writers: Writer[];
+  /** the thread's reviews by runs that could not edit: their CLI and model, the state of their latest report, and the commit the branch was at when it ended */
+  reviews: Array<Writer & { report?: ReportState; head?: string }>;
   /** the branch's latest commit here; null when git could not say */
   head: string | null;
   /** the base branch the thread lands on, under the gate */
@@ -110,18 +112,14 @@ function matches(pattern: string, file: string): boolean {
 /** Every condition of the gate, each with what was found; the merge goes ahead only when all hold. */
 export function evaluateGate(authority: Extract<MergeAuthority, { mode: "gated" }>, facts: GateFacts): GateResult {
   const contractMet = facts.contract.length > 0 && facts.contract.every((item) => item.state === "met");
-  const writers = new Set(facts.writers);
-  const passed = facts.reviews.filter((review) => !writers.has(review.agent) && review.report === "ready");
+  // a review counts only by a model from a company none of the writers' models is from, every company known
+  const ready = facts.reviews.filter((review) => review.report === "ready");
+  const passed = ready.filter((review) => independentCompany(facts.writers, review));
   const fresh = facts.head === null ? [] : passed.filter((review) => review.head === facts.head);
   const touched = facts.files?.filter((file) => [...ALWAYS_PROTECTED, ...authority.protected].some((pattern) => matches(pattern, file))) ?? [];
   const checks: GateCheck[] = [
     { id: "report", ok: facts.report === "ready", detail: facts.report === "ready" ? "The lead's latest report is ready." : `The lead's latest report is ${facts.report ?? "missing"}, not ready.` },
-    {
-      id: "review", ok: fresh.length > 0,
-      detail: fresh.length ? `A review on ${fresh[0]!.agent} passed at the branch's latest commit.`
-        : passed.length ? `The review on ${passed.map((each) => each.agent).join(", ")} was of another commit than the branch's latest.`
-          : `No review on a CLI other than ${[...writers].join(", ") || "the writer's"} passed.`,
-    },
+    { id: "review", ok: fresh.length > 0, detail: reviewDetail(facts.writers, ready, passed, fresh) },
     checksCondition(facts.pr, facts.head, facts.base, facts.report === "ready" && contractMet),
     {
       id: "size", ok: facts.lines !== null && facts.lines <= authority.maxLines,
@@ -137,6 +135,16 @@ export function evaluateGate(authority: Extract<MergeAuthority, { mode: "gated" 
     },
   ];
   return { ok: checks.every((check) => check.ok), checks };
+}
+
+function reviewDetail(writers: Writer[], ready: Writer[], passed: Writer[], fresh: Writer[]): string {
+  if (fresh.length) return `A review by ${independentCompany(writers, fresh[0]!)}'s model on ${modelLabel(fresh[0]!)} passed at the branch's latest commit.`;
+  const unknown = writers.filter((writer) => !modelCompany(writer.agent, writer.model));
+  if (unknown.length) return `The company of the model that wrote on ${unknown.map(modelLabel).join(", ")} is not known, so no review counts.`;
+  if (passed.length) return `The review by ${passed.map(modelLabel).join(", ")} was of another commit than the branch's latest.`;
+  const companies = [...new Set(writers.map((writer) => modelCompany(writer.agent, writer.model)!))];
+  const missed = ready.map((review) => `${modelLabel(review)} (${modelCompany(review.agent, review.model) ?? "company not known"})`);
+  return `No review by a model from a company other than ${companies.join(", ") || "the writers'"} passed.${missed.length ? ` Not counted: ${missed.join(", ")}.` : ""}`;
 }
 
 function checksCondition(pr: GateFacts["pr"], head: string | null, base: string, recordedPassed: boolean): GateCheck {

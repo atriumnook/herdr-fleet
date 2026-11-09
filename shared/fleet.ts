@@ -13,6 +13,15 @@ export type AgentState = "starting" | "working" | "idle" | "done" | "blocked" | 
 /** The agent CLIs the fleet can start: herdr's `agent start --kind` values it has an adapter for (server/fleet/adapters.ts). */
 export type FleetAgentKind = "pi" | "claude" | "codex" | "cursor" | "agy" | "opencode";
 
+/**
+ * A run that wrote in a thread, or reviewed it: its CLI and model, which tell the model's company
+ * (shared/model-company.ts). A record from before writers named their model holds the CLI alone.
+ */
+export interface Writer {
+  agent: FleetAgentKind;
+  model?: string;
+}
+
 /** A spawn candidate passed over before the one a run started on, and why. */
 export interface SkippedCandidate {
   /** the candidate entry as configured: a model, or `<agent>:<model>` */
@@ -56,8 +65,8 @@ export interface AgentRun {
   /** a reviewer's: the fleet read its last turn settle, and that turn changed nothing in the worktree; nothing ran in it since */
   reviewClean?: true;
   reportedHead?: string;
-  /** a thread lead's: every CLI that wrote in the thread so far (its lead runs, helpers that edit, a reviewer whose turn saw the branch move) */
-  writers?: FleetAgentKind[];
+  /** a thread lead's: every CLI and model that wrote in the thread so far (its lead runs, helpers that edit, a reviewer whose turn saw the branch move) */
+  writers?: Writer[];
   /** the run's role kept it from editing files when it started */
   readOnly?: true;
   /** the model this run replaced after a configured fallback */

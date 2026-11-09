@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { chmodSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import type { FleetAgentKind, Writer } from "../../shared/fleet.ts";
 import type { AgentRun } from "./types.ts";
 
 export function makeId(): string {
@@ -41,6 +42,9 @@ export class RunRegistry {
     for (const run of stored as AgentRun[]) {
       if (typeof run?.id !== "string" || typeof run.paneId !== "string") continue;
       if (now - (run.updatedAt ?? 0) > STALE_RUN_MS) continue;
+      // a record from before writers named their model holds the CLI alone: its model's company is
+      // told only where the CLI tells it (shared/model-company.ts), and otherwise no review counts
+      if (Array.isArray(run.writers)) run.writers = (run.writers as unknown[]).map((writer) => (typeof writer === "string" ? { agent: writer as FleetAgentKind } : writer as Writer));
       this.runs.set(run.id, run);
     }
   }
