@@ -77,3 +77,73 @@ fn counts_and_cuts_utf16_code_units() {
     // hold: the cut goes before the pair (ADR 0193-phase-2-dependencies)
     assert_eq!(js::cut_utf16("a😀b", 2), "a");
 }
+
+// `JSON.stringify(value, null, 2)` and Number::toString, for the CLI's `--json` and the numbers it
+// shows. Expected values: Bun 1.4.4, `JSON.stringify(n)` for each number (scratchpad js.ts of #196,
+// the same cases as transcript's js_json tests).
+#[test]
+fn writes_numbers_as_javascript_does() {
+    let cases = [
+        ("0", "0"),
+        ("-0", "0"),
+        ("-0.0", "0"),
+        ("1", "1"),
+        ("1.0", "1"),
+        ("1e3", "1000"),
+        ("1.5", "1.5"),
+        ("-2.25", "-2.25"),
+        ("0.1", "0.1"),
+        ("0.30000000000000004", "0.30000000000000004"),
+        ("100", "100"),
+        ("123456789012345680000", "123456789012345680000"),
+        ("1e21", "1e+21"),
+        ("1.7976931348623157e308", "1.7976931348623157e+308"),
+        ("5e-324", "5e-324"),
+        ("1e-7", "1e-7"),
+        ("-1e-10", "-1e-10"),
+        ("0.000001", "0.000001"),
+        ("0.000001234", "0.000001234"),
+        ("652282746268236.2", "652282746268236.2"),
+        ("12345.6789e10", "123456789000000"),
+        // 2^53 + 1 is rounded to an f64 first
+        ("9007199254740993", "9007199254740992"),
+    ];
+    for (json, expected) in cases {
+        let value: serde_json::Value = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            js::stringify_pretty(&value),
+            expected,
+            "JSON.stringify({json})"
+        );
+        assert_eq!(
+            js::number_to_string(value.as_f64().unwrap()),
+            expected,
+            "String({json})"
+        );
+    }
+}
+
+// Bun 1.4.4: JSON.stringify({s:"a\"b\\c\n\r\t\b\f\u0001\u001f\u007f\u2028é😀/<>"}, null, 2)
+#[test]
+fn escapes_strings_as_javascript_does() {
+    let value =
+        serde_json::from_str(r#"{"s":"a\"b\\c\n\r\t\b\f\u0001\u001f\u007f\u2028é😀/<>"}"#).unwrap();
+    assert_eq!(
+        js::stringify_pretty(&value),
+        "{\n  \"s\": \"a\\\"b\\\\c\\n\\r\\t\\b\\f\\u0001\\u001f\u{7f}\u{2028}é😀/<>\"\n}"
+    );
+}
+
+// Bun 1.4.4: JSON.stringify(JSON.parse(<the input>), null, 2)
+#[test]
+fn lists_integer_keys_first_and_indents_by_two() {
+    let pretty = |json: &str| js::stringify_pretty(&serde_json::from_str(json).unwrap());
+    assert_eq!(
+        pretty(
+            r#"{"b":0,"10":10,"2":2,"a":1,"4294967295":5,"4294967294":4,"01":6,"n":{"z":[],"y":{},"1":[1,{"x":null}],"t":true}}"#
+        ),
+        "{\n  \"2\": 2,\n  \"10\": 10,\n  \"4294967294\": 4,\n  \"b\": 0,\n  \"a\": 1,\n  \"4294967295\": 5,\n  \"01\": 6,\n  \"n\": {\n    \"1\": [\n      1,\n      {\n        \"x\": null\n      }\n    ],\n    \"z\": [],\n    \"y\": {},\n    \"t\": true\n  }\n}"
+    );
+    assert_eq!(pretty("{}"), "{}");
+    assert_eq!(pretty("[]"), "[]");
+}

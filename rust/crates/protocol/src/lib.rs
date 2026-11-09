@@ -2,13 +2,19 @@
 //!
 //! Responsibility and dependencies: docs/rust-migration/adr/0107-crate-split.md.
 
+mod absent;
 mod conversation;
 mod fleet;
+mod fleet_api;
+pub mod fleet_cli;
 pub mod js;
 mod patch;
+mod plan;
 mod prompt;
 
 pub use conversation::*;
 pub use fleet::*;
+pub use fleet_api::*;
 pub use patch::*;
+pub use plan::*;
 pub use prompt::*;
