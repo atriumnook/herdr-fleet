@@ -4,7 +4,10 @@
 # with -D warnings, so a use of these fails the check.
 # std::os::unix does not exist on a Windows target, where clippy warns that its
 # paths are not reachable; allow-invalid = true keeps that quiet, and on Unix
-# the paths resolve and are banned as the others are.
+# the paths resolve and are banned as the others are. It also hides a path
+# that stops resolving on Unix (a typo, a rename in std), which would then ban
+# nothing: after changing one of these entries, run clippy on Linux once
+# without allow-invalid and see that it gives no "not reachable" warning.
 disallowed-types = [
   { path = "std::fs::File", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
   { path = "std::fs::OpenOptions", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
