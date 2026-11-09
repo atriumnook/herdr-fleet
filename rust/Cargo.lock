@@ -296,6 +296,7 @@ dependencies = [
  "herdr-fleet-screen",
  "http-body-util",
  "indexmap",
+ "jiff",
  "regex",
  "saphyr",
  "saphyr-parser",
