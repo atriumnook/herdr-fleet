@@ -4,11 +4,9 @@
 
 use std::sync::LazyLock;
 
-use protocol::js::{self, cut_utf16, utf16_len};
+use protocol::js::{self, cut_utf16, stringify_pretty, utf16_len};
 use regex::{Captures, Regex};
 use serde_json::Value;
-
-use crate::js_json::stringify_pretty;
 
 /// A command's answer is a notice, not a log: the rest of a long one stays in the terminal.
 const LOCAL_COMMAND_MAX_CHARS: usize = 4000;
