@@ -48,6 +48,7 @@ tokio の `Instant` にしなかったのは、Linux の `CLOCK_MONOTONIC` が s
 - source のない種類の一覧は残さない(`models.ts:36` は `kept.set` の前に返す)
 - 一覧が空なら、完全でない一覧として、エラー `<種類> listed no models` を付けて 1 分残す
 - agy・cursor・pi の CLI がエラーで終わったとき、または 20 秒の上限で止めたときは、`<プログラム> <引数> failed` で失敗する(TypeScript は上限で kill し、終了コードが 0 でなくなるので同じ文になる)
+- `codex app-server` を 20 秒の上限で止めたときは、`codex app-server closed before it answered` で失敗する(TypeScript は上限で kill し、読み取りが答えなしで終わるので同じ文になる)
 
 ### TypeScript と違う振る舞い
 

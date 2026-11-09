@@ -613,20 +613,23 @@ fn hanging() -> ModelSource {
 
 /// models.test.ts: a CLI that fails or hangs > holds a spawn up for no longer than the wait, then
 /// lets the model through
-#[tokio::test]
+///
+/// On tokio's paused clock, which moves only to the next timer, the lookup ends at the wait
+/// exactly; TypeScript's test bounds the real time by a second.
+#[tokio::test(start_paused = true)]
 async fn holds_a_spawn_up_for_no_longer_than_the_wait_then_lets_the_model_through() {
     let mut options = CatalogOptions::new("/nonexistent", Env::new());
     options.spawn_wait = Duration::from_millis(30);
     options.sources = Arc::new(|_kind| Some(hanging()));
     let models = ModelCatalog::new(options);
-    let started = Instant::now();
+    let started = tokio::time::Instant::now();
     assert_eq!(
         models
             .unknown(FleetAgentKind::Codex, Some("anything"))
             .await,
         None
     );
-    assert!(started.elapsed() < Duration::from_secs(1));
+    assert_eq!(started.elapsed(), Duration::from_millis(30));
 }
 
 /// The spawn's wait when the options name none is 3 seconds (`SPAWN_WAIT_MS`,
@@ -705,6 +708,12 @@ async fn is_asked_anew_by_a_fresh_lookup_not_answered_by_an_older_one_still_unde
     assert_eq!(fresh.await.models, vec![model("new")]);
     first.send(vec![model("old")]).unwrap();
     older.await;
+    // the older read ended last, and its answer is the one kept, as `kept.set` takes no account
+    // of which read began later (`server/fleet/models.ts:45`; ADR 0258-model-catalog)
+    assert_eq!(
+        models.list(FleetAgentKind::Codex, false).await.models,
+        vec![model("old")]
+    );
 }
 
 // ---------------------------------------------------------------------------------------------

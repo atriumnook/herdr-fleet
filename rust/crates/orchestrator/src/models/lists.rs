@@ -387,7 +387,11 @@ async fn list_codex_models(options: &ListOptions) -> Result<Vec<ListedModel>, St
 
 /// The JSON-RPC exchange of [`list_codex_models`].
 async fn codex_exchange(session: &mut Session) -> Result<Vec<ListedModel>, String> {
-    let broken = |error: RunError| format!("codex app-server: {error}");
+    let broken = |error: RunError| match error {
+        // TypeScript kills the child at the time limit, and its read then ends without an answer
+        RunError::TimedOut => "codex app-server closed before it answered".to_owned(),
+        error => format!("codex app-server: {error}"),
+    };
     let send = |message: Value| {
         let mut line = json!({ "jsonrpc": "2.0" });
         if let (Some(line), Value::Object(message)) = (line.as_object_mut(), message) {
