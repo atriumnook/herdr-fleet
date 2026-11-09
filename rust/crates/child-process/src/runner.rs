@@ -258,7 +258,7 @@ impl Runner {
         let input = child.stdin.take();
         let stdout = child.stdout.take().expect("stdout is piped");
         let stderr = child.stderr.take().expect("stderr is piped");
-        let reads = pin!(async {
+        let mut reads = pin!(async {
             let (stdout, stderr, ()) = tokio::try_join!(
                 read_stream(stdout, command.stdout_limit, Stream::Stdout),
                 read_stream(stderr, command.stderr_limit, Stream::Stderr),
@@ -266,7 +266,6 @@ impl Runner {
             )?;
             Ok::<_, RunError>((stdout, stderr))
         });
-        let mut reads = reads;
         let mut read: Option<(Vec<u8>, Vec<u8>)> = None;
         let mut status: Option<ExitStatus> = None;
         let mut stopping = Stopping::new(command.timeout, command.kill_grace);
