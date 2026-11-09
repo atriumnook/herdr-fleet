@@ -44,8 +44,8 @@ pub struct FleetConfig {
     pub max_used_percent: f64,
     /// How long an account sits out after a rate limit whose message names no time.
     pub rate_limit_cooldown_minutes: f64,
-    /// Kept in the order fleet.json names them, as a JavaScript object keeps its keys except that
-    /// JavaScript puts keys that read as integers (`"10"`) first, in ascending order.
+    /// Kept in the order fleet.json names them. Unlike a JavaScript object, this does not move keys
+    /// that read as integers (`"10"`) first in ascending order (ADR 0247-roles-and-config).
     pub roles: IndexMap<String, RoleOverride>,
     pub models: IndexMap<String, ModelPolicy>,
     /// Only from the person's own fleet.json: a repository must not name commands the fleet runs.
