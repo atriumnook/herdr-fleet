@@ -2,7 +2,7 @@
 
 use std::collections::{HashMap, HashSet};
 
-use protocol::js;
+use protocol::js::{self, stringify_pretty};
 use protocol::{ConversationPart, ConversationTurn, ImageRef, SkillStatus, ToolPart, TurnRole};
 use serde_json::Value;
 
@@ -11,7 +11,6 @@ use super::text::{
     unwrap_pastes, written_together,
 };
 use super::{claude_result_text, is_context_clear, peer_id, peer_notice};
-use crate::js_json::stringify_pretty;
 use crate::records::{IMAGE_TYPES, Row, lines, parse_line, record, text, tool_input, tool_summary};
 use crate::skill_activity::invoked_skill;
 use crate::tool_output::trim_output;
