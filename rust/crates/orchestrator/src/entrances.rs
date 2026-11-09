@@ -130,8 +130,14 @@ impl EntranceStore {
             file.display(),
             std::process::id()
         ));
-        write_new(&temp, self.skill().as_bytes()).map_err(|error| unwritable(&temp, &error))?;
-        fs::rename(&temp, &file).map_err(|error| unwritable(&file, &error))?;
+        let written = write_new(&temp, self.skill().as_bytes())
+            .map_err(|error| unwritable(&temp, &error))
+            .and_then(|()| fs::rename(&temp, &file).map_err(|error| unwritable(&file, &error)));
+        if written.is_err() {
+            // each call names its own temporary file, so no later call would write over this one
+            let _ = fs::remove_file(&temp);
+        }
+        written?;
         self.list()
     }
 
