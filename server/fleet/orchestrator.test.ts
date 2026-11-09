@@ -3229,7 +3229,7 @@ describe("merge authority", () => {
     const merges = runtime.instructions[0]!.split("## Merges\n")[1]!;
     expect(merges).toContain("Never merge a pull request");
     expect(merges).toContain("The person made merges into rust gated: once your report is ready and a review on another CLI than yours passed at your latest commit, push your branch (never force) and open a pull request against rust with gh pr create");
-    expect(merges).toContain("a review that passed by a model from a company none of the models that wrote this change is from (an Anthropic model on agy does not count for a change claude wrote)");
+    expect(merges).toContain("a review that passed by a model from a company none of the models that wrote this change is from (a review on another CLI by the same company's model, such as an Anthropic model on agy for a change claude wrote, opens the pull request but leaves its merge to the person)");
     expect(merges).toContain("at most 200 changed lines");
   });
 
