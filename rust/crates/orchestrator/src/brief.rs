@@ -49,7 +49,11 @@ pub struct Overlap {
 /// write list is present: the helper only reads.
 pub fn check_brief(brief: Option<BriefDraft>) -> Result<Brief, FleetError> {
     let brief = brief.unwrap_or_default();
-    let blank = |field: &Option<String>| field.as_deref().is_none_or(|text| text.trim().is_empty());
+    let blank = |field: &Option<String>| {
+        field
+            .as_deref()
+            .is_none_or(|text| protocol::js::trim(text).is_empty())
+    };
     let missing: Vec<&str> = [
         ("goal", blank(&brief.goal)),
         ("write", brief.write.is_none()),
@@ -98,15 +102,15 @@ pub fn render_brief(brief: &Brief, note: Option<&str>) -> String {
     };
     let mut parts = vec![
         "## Goal".to_owned(),
-        brief.goal.trim().to_owned(),
+        protocol::js::trim(&brief.goal).to_owned(),
         "## You may change".to_owned(),
         may_change,
         "## Context".to_owned(),
-        brief.context.trim().to_owned(),
+        protocol::js::trim(&brief.context).to_owned(),
         "## Done when".to_owned(),
-        brief.done.trim().to_owned(),
+        protocol::js::trim(&brief.done).to_owned(),
         "## Verify".to_owned(),
-        brief.verify.trim().to_owned(),
+        protocol::js::trim(&brief.verify).to_owned(),
     ];
     if let Some(forbidden) = given(brief.forbidden.as_deref()) {
         parts.extend(["## Forbidden".to_owned(), forbidden.to_owned()]);
@@ -125,7 +129,9 @@ pub fn render_brief(brief: &Brief, note: Option<&str>) -> String {
 
 /// A field given with text in it, trimmed.
 fn given(field: Option<&str>) -> Option<&str> {
-    field.map(str::trim).filter(|text| !text.is_empty())
+    field
+        .map(protocol::js::trim)
+        .filter(|text| !text.is_empty())
 }
 
 /// The write paths as absolute paths, so two runs in the same folder compare whatever they wrote.

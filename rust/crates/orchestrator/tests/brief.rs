@@ -158,3 +158,25 @@ fn resolves_a_write_path_as_node_does() {
         ]
     );
 }
+
+// Not in brief.test.ts: a field is blank and trimmed as JavaScript's `String.prototype.trim` reads
+// it (`brief.ts`): U+FEFF is white space and U+0085 is not. Bun 1.4.4 printed
+// ["","\u0085","x\u0085"] for ["﻿".trim(), "\u0085".trim(), " ﻿x\u0085 ".trim()].
+#[test]
+fn trims_a_field_as_javascript_does() {
+    let error = check_brief(Some(draft(Brief {
+        goal: "\u{feff}".into(),
+        ..full()
+    })))
+    .unwrap_err();
+    assert!(error.message.contains("missing: goal"), "{}", error.message);
+    let brief = check_brief(Some(draft(Brief {
+        goal: "\u{85}".into(),
+        context: " \u{feff}x\u{85} ".into(),
+        ..full()
+    })))
+    .unwrap();
+    let task = render_brief(&brief, None);
+    assert!(task.contains("## Goal\n\n\u{85}\n"), "{task:?}");
+    assert!(task.contains("\n\nx\u{85}\n"), "{task:?}");
+}
