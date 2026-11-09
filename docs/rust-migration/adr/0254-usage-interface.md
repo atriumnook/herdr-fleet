@@ -101,7 +101,7 @@ ADR `0242-phase-3-split` が決めた違い:
 - `list()` の順は、Bun 1.4.4 の `localeCompare`(en-US)と同じ順を ASCII の鍵について作る(空白、記号、数字、文字の順に重みを比べ、最後に小文字を先にする)。ASCII の外の文字(`é` など)は文字のあとに code point の順で並べる。ロケールは `é` を `e` の隣に置くので、そこだけ違う。鍵の provider の部分は利用者のモデル名(`pi` と `opencode` の `<provider>/<model>`)から来るので、ASCII の外の文字を含む provider の名前を利用者が書いたときに、この違いが一覧の順に出る
 - 失敗の文: 子プロセスが時間の上限を過ぎたときは `<CLI> did not answer within <秒>s`、シグナルで終わったときは `<CLI> was ended by a signal`、起動できなかったときは child-process の文(`could not start: …`)、答えが JSON でないときは `<CLI>: the answer is not JSON: …` にする。TypeScript は、kill のあとの終了コードで `exited with …` を書くか、Bun と JSON の例外の文をそのまま書く。この文は `UsageEntry.error` に入って画面に出るだけで、判断には使わない
 - `Date.parse` は ISO の形(日付だけ、日付と時刻、`Z` か `+09:00` か `+0900` の時差)だけを読む。エンジンによっては `Oct 4 2026` のような形も読むが、usage が読む CLI はその形を書かない
-- 正規表現: JavaScript の `\d` を `[0-9]`、`\b` を ASCII の語の境界 `(?-u:\b)`、`.` を行の区切り(`\n`、`\r`、U+2028、U+2029)以外の文字、`\s` を JavaScript の空白と行の区切りの文字の集合にして、`u` の flag のない JavaScript と同じに読む(`/code-review high` の指摘)。大文字小文字を同一視する規則だけは Rust の regex の Unicode の規則のままで、JavaScript と違うのは、ASCII に折りたたまれる ASCII の外の文字(`ſ`、ケルビンの記号)だけである
+- 正規表現: JavaScript の `\d` を `[0-9]`、`\b` を ASCII の語の境界 `(?-u:\b)`、`.` を行の区切り(`\n`、`\r`、U+2028、U+2029)以外の文字、`\s` を JavaScript の空白と行の区切りの文字の集合にして、`u` の flag のない JavaScript と同じに読む(`/code-review high` の指摘)。1 回だけの `.?` は UTF-16 の 1 単位なので、U+FFFF より後ろの文字(2 単位)を除く(PR #295 の codex のレビューの指摘。Bun 1.4.4 で `RATE_LIMITED.test("rate😀limit")` は false)。時計の時刻の `\s` も同じ集合にした(同じレビューの指摘)。大文字小文字を同一視する規則だけは Rust の regex の Unicode の規則のままで、JavaScript と違うのは、ASCII に折りたたまれる ASCII の外の文字(`ſ`、ケルビンの記号)だけである
 - `toISOString` は `Date` が持てる範囲(±8.64e15 ミリ秒)の外の時刻で例外を投げる。Rust は `String(new Date(t))` と同じ `Invalid Date` を書く(`retry in 100000000000000000000 days` のような文で起きる。`/code-review high` の指摘)
 
 ## 検討した代わり
@@ -136,4 +136,5 @@ PC は Linux 7.2.15(omarchy)、rustc 1.99.1、Bun 1.4.4。`rust/` で実行し�
 - architect が見つけた欠陥(closure が future を返す前に panic すると、その CLI の probe が二度と動かない)は、直す前に `a_probe_that_panics_before_its_future_is_asked_again` が `panicked at crates/orchestrator/tests/usage.rs:201:28`(`no entry codex`)で失敗した
 - 一覧の順は、Bun 1.4.4 で `[...keys].sort((a, b) => a.localeCompare(b))` を走らせた出力を期待値にした。小文字にして比べるだけの最初の実装では、`lists_the_accounts_in_the_order_of_locale_compare` が失敗した
 - `/code-review high` の指摘(範囲外の時刻、`.` と `\s`)は、直す前に `writes_a_time_past_what_a_date_holds_as_invalid_date` と `reads_dots_and_spaces_as_javascript_does` が失敗した(`left: Until(None)` / `right: NotOne`、`+292278994-08-17T07:12:55.807Z`)
+- codex のレビューの指摘(`.?` と U+FFFF より後ろの文字、時計の時刻の `\s`)は、直す前に `reads_code_units_and_the_clocks_spaces_as_javascript_does` が `usage.rs:942` で失敗した(`left: Until(None)` / `right: NotOne`)。期待値は Bun 1.4.4 の答えと、手で求めた時刻
 - 実装のあと、`cargo test --locked -p herdr-fleet-orchestrator --test usage` の 48 件と、`cargo test --locked --workspace` の全件が通った。`cargo fmt --check` と `cargo clippy --locked --workspace --all-targets -- -D warnings` も通った

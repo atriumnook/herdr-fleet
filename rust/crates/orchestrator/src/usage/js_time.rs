@@ -11,8 +11,12 @@ use regex::Regex;
 const DAY_MS: f64 = 86_400_000.0;
 
 /// JavaScript's `.` in a pattern without the `s` flag: any character but a line terminator. Rust's
-/// `.` stops only at `\n`.
+/// `.` stops only at `\n`. Repeated (`.+`), it also takes a character past U+FFFF, one UTF-16 unit
+/// at a time; once (`.?`), see [`DOT_UNIT`].
 pub(crate) const DOT: &str = r"[^\n\r\u{2028}\u{2029}]";
+/// JavaScript's `.` taken once, in a pattern without the `u` flag: one UTF-16 code unit, so not a
+/// character past U+FFFF (two units), which Rust's regex would take as one.
+pub(crate) const DOT_UNIT: &str = r"[^\n\r\u{2028}\u{2029}\u{10000}-\u{10FFFF}]";
 /// JavaScript's `\s`: its white space (tab, vertical tab, form feed, U+FEFF and the space
 /// separators) and its line terminators. Rust's `\s` also takes U+0085 and leaves out U+FEFF.
 pub(crate) const SPACE: &str = r"[\t\n\x0B\x0C\r \u{A0}\u{1680}\u{2000}-\u{200A}\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}\u{FEFF}]";

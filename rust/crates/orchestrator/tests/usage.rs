@@ -928,6 +928,35 @@ fn reads_dots_and_spaces_as_javascript_does() {
     );
 }
 
+/// This crate's own (review of #295): JavaScript reads a pattern without the `u` flag by UTF-16
+/// code units, so `.?` cannot take a character past U+FFFF (two units), and the clock time's `\s`
+/// is JavaScript's set as well. The answers are Bun 1.4.4's: `RATE_LIMITED.test("rate😀limit")`
+/// and `("resource😀exhausted")` are false, `("rate\u{FFFF}limit")` is true; the clock pattern
+/// reads "at\u{FEFF}3:45 PM" as 3:45 PM, reads nothing in "at\u{85}3:45 PM", and reads
+/// "at 3:45\u{85}pm" as 3:45 with no meridiem. NOW is 07:00Z in UTC, so 3:45 PM is 15:45Z today,
+/// and 3:45 (am) has passed today and is 03:45Z tomorrow.
+#[test]
+fn reads_code_units_and_the_clocks_spaces_as_javascript_does() {
+    let utc = TimeZone::UTC;
+    let until = |message: &str| rate_limit_until(message, now_ms(), &utc);
+    assert_eq!(until("rate😀limit"), RateLimit::NotOne);
+    assert_eq!(until("resource😀exhausted"), RateLimit::NotOne);
+    assert_eq!(until("rate\u{10000}limit"), RateLimit::NotOne);
+    assert_eq!(until("rate\u{ffff}limit"), RateLimit::Until(None));
+    assert_eq!(
+        until("rate limit, retry at\u{feff}3:45 PM"),
+        RateLimit::Until(Some(ms("2026-10-04T15:45:00Z")))
+    );
+    assert_eq!(
+        until("rate limit, retry at\u{85}3:45 PM"),
+        RateLimit::Until(None)
+    );
+    assert_eq!(
+        until("rate limit, retry at 3:45\u{85}pm"),
+        RateLimit::Until(Some(ms("2026-10-05T03:45:00Z")))
+    );
+}
+
 /// This crate's own: a clock time on the night summer time starts, worked out by hand as
 /// `setHours` and `setDate` do it in America/New_York. At 2026-03-07T12:00Z (7am EST) "at 2:30
 /// am" has passed today, so it is tomorrow's; 2:30 does not exist on Mar 8, and JavaScript reads
