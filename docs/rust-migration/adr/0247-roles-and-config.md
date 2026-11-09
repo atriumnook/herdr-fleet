@@ -19,11 +19,12 @@ crate の公開の口に関わるので、architect(fleet の run `acd0f35f`、`
 ### YAML の frontmatter
 
 - YAML の部分集合を自分で書かず、crate の saphyr 0.3.3 で読む。orchestrator の manifest に `saphyr`(`default-features = false`)、`saphyr-parser`、`indexmap.workspace = true` を足すことは、別の Issue #279 で行い、#247 はそれを待つ
-- saphyr の値は、`agents.rs` の非公開の関数 `parse_yaml` と `to_json` だけが読み、`serde_json::Value` に変える。その先は `loadDir`(`agents.ts:36-53`)の `typeof` の検査を 1 対 1 で写す。crate を替えても、変えるのはこの 2 つの関数だけで済む
+- saphyr と saphyr-parser の型は、`agents.rs` の非公開の関数 `parse_yaml`・`to_json` と型 `Tree` だけが使い、`serde_json::Value` に変える。その先は `loadDir`(`agents.ts:36-53`)の `typeof` の検査を 1 対 1 で写す。crate を替えても、変えるのはこの 3 つだけで済む
+- ADR `0279-orchestrator-yaml` は `saphyr::YamlLoader` で `saphyr::Yaml` に読む形を示したが、`agents.rs` はこの loader を使わない。saphyr-parser の event から、マッピングのすべての項目を順に持つ自分の木(`Tree`、`Node`)を組む。`YamlLoader` は、同じキーが 2 度出たマッピングで前の値を捨てる(saphyr 0.3.3 の `src/loader.rs` の `insert_new_node`)。そのため、1 つのマッピングに merge key `<<` が 2 つあると、Bun が 2 つとも展開するのに、Rust は後の 1 つしか展開できなかった(codex の reviewer `aa300c3c` の指摘)。alias の展開の上限は、`YamlLoader` と同じ 100000 個で、数え方も同じ(ノードごとに 1、マッピングの項目ごとに 1)。crate の公開の口と manifest は変わらない
 - 読み方は Bun 1.4.4 の `Bun.YAML.parse` に合わせる。合わせ方は次のとおりで、どれも Bun の出力を期待値にしたテストがある(`tests/agents.rs`)
-  - 重複したキーは後の値にする(`YamlLoader::allow_duplicate_keys(true)`。そのため `saphyr_parser::Parser` で読む)
+  - 重複したキーは後の値にする(木はすべての項目を持ち、`to_json` が後の値で上書きする。`saphyr_parser::Parser` で読む)
   - スカラーの型は saphyr に決めさせず(`early_parse(false)`)、自分で決める。quoted とブロックのスカラーは tag によらず文字列、plain のスカラーは tag がないか `!!bool`・`!!int`・`!!float`・`!!null` なら YAML 1.2 の core schema で読み(空で tag がなければ null)、ほかの tag なら文字列。saphyr の既定は、core schema の外の tag の付いた plain のスカラーの型を推す(`!foo true` が真偽値になる)が、Bun は文字列にする
-  - merge key `<<` は、quoted でも alias を通しても展開する。そのマッピング自身のキーが勝ち、列で並べたマッピングは先のものが勝つ。saphyr は展開しない
+  - merge key `<<` は、quoted でも tag 付きでも alias を通しても展開する。そのマッピング自身のキーが勝ち、先の merge key と、列で先に並べたマッピングが勝つ。1 つのマッピングの中の merge key は、いくつあってもすべて展開する。列の中のマッピングでない要素は捨てる(`<<: [1, {edits: false}]` は `edits: false`)。値がマッピングでも列でもない merge key(`<<: 5`)は、`<<` という普通のキーになる。列のキー(`? [<<]`)は、文字列にすると `<<` になるが merge key ではない。saphyr は展開しない
   - JSON で書けない数(`.inf`、`.nan`)は null にする(Bun と同じ)
   - 文字列でないキーは、JavaScript の `String()` の値にする(ADR `0279-orchestrator-yaml` の「文字列でないキー」)。列は要素を `,` でつなぎ、null の要素は空の文字列にし、入れ子の列も同じようにつなぐ。マッピングは `[object Object]` にする。そのため `? [edits]` と次の行の `: false` は `edits: false` になり、TypeScript と同じく編集しない役割として起動する。数のキーの書き方は JavaScript と違う(`1.0` は Bun では `"1"`、Rust では `"1.0"`)が、数を名前にする役割の項目はないので、読み取る値は変わらない
   - UTF-8 として不正なバイトは U+FFFD に置き換えて読む(TypeScript の `readFileSync(file, "utf8")` と同じ)
