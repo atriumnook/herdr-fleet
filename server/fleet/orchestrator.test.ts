@@ -3404,7 +3404,7 @@ describe("merge authority", () => {
     writeReport(root, thread.id, "ready", "Opened #12.");
     git.pr = { ...PR };
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review on a CLI other than claude passed." });
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review by a model from a company other than Anthropic passed." });
     expect(to(coordinator)).toEqual(["port"]);
   });
 
