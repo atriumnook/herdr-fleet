@@ -180,3 +180,20 @@ fn trims_a_field_as_javascript_does() {
     assert!(task.contains("## Goal\n\n\u{85}\n"), "{task:?}");
     assert!(task.contains("\n\nx\u{85}\n"), "{task:?}");
 }
+
+// Not in brief.test.ts: `overlap` compares the paths component by component, so a folder whose
+// name starts with `..` is inside its parent. TypeScript differs on purpose (ADR 0247): in Bun
+// 1.4.4, overlap(["/repo/..cache"], ["/repo"]) is undefined, so two runs could write the same path.
+#[test]
+fn finds_a_folder_named_with_two_dots_inside_its_parent() {
+    let mine = write_scope("/repo".as_ref(), &["..cache".into()]);
+    let theirs = write_scope("/repo".as_ref(), &[".".into()]);
+    assert_eq!(mine, vec!["/repo/..cache".to_string()]);
+    assert_eq!(
+        overlap(&mine, &theirs),
+        Some(Overlap {
+            mine: "/repo/..cache".into(),
+            theirs: "/repo".into()
+        })
+    );
+}

@@ -144,7 +144,8 @@ pub fn write_scope(cwd: &Path, write: &[String]) -> Vec<String> {
 
 /// The first path of `a` that is, contains or lies within a path of `b`. The paths are compared
 /// part by part, so a folder whose name starts with `..` lies within its parent; TypeScript reads
-/// `relative()`'s text and takes such a folder for one outside (`brief.ts:57`).
+/// `relative()`'s text and takes such a folder for one outside (`brief.ts:57`). Both lists are
+/// `write_scope`'s results: a path with `.` or `..` left in it is not folded here.
 pub fn overlap(a: &[String], b: &[String]) -> Option<Overlap> {
     let within = |inner: &str, outer: &str| PathBuf::from(inner).starts_with(outer);
     a.iter().find_map(|mine| {
