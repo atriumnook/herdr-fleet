@@ -9,6 +9,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 use std::sync::LazyLock;
 
 use indexmap::IndexMap;
@@ -296,15 +297,17 @@ fn parse_yaml(text: &str) -> Result<Value, String> {
 /// A YAML node before Bun's rules make it JSON. saphyr's own `Yaml` keeps one entry of equal keys,
 /// but Bun expands every merge key of a mapping (`<<: {a: 1}` then `<<: {b: 2}` gives both), so a
 /// mapping here is built from all its entries ([`mapping`]). A collection's tag is dropped: Bun
-/// reads a tagged collection as its value.
+/// reads a tagged collection as its value. A collection is shared, not copied, by the anchor that
+/// names it and by each alias that reads it again, so neither takes memory for its items; only
+/// [`to_json`] writes an alias's items out, within the alias budget.
 #[derive(Clone)]
 enum Node<'a> {
     /// The scalar's text, untyped: it is typed as Bun types it from its style and tag.
     Scalar(Cow<'a, str>, ScalarStyle, Option<Cow<'a, Tag>>),
-    Sequence(Vec<Node<'a>>),
-    /// Each key as JavaScript's object key, set when the mapping ends ([`mapping`]), so an alias
+    Sequence(Rc<Vec<Node<'a>>>),
+    /// Each key as JavaScript's object key, set when the mapping ends ([`mapping`]), so a merge
     /// copies a key as one string, never the collection it was written as.
-    Mapping(Vec<(String, Node<'a>)>),
+    Mapping(Rc<Vec<(String, Node<'a>)>>),
     /// An empty document.
     Null,
 }
@@ -328,8 +331,9 @@ impl Node<'_> {
     /// Takes the node's size from `budget` as saphyr's loader counts it (one for the node and one
     /// for each entry of a mapping, its key included); false once the budget runs out. A mapping
     /// holds its keys as Bun reads them ([`mapping`]): strings, a repeated key once, merge keys
-    /// expanded. Without merge keys the count is no larger than saphyr's, and it is every node a
-    /// copy makes. A scalar counts as one node whatever its length, as in saphyr.
+    /// expanded. Without merge keys the count is no larger than saphyr's, and it is every node an
+    /// alias adds to [`to_json`]'s value. A scalar counts as one node whatever its length, as in
+    /// saphyr.
     fn take_size(&self, budget: &mut usize) -> bool {
         let Some(left) = budget.checked_sub(1) else {
             return false;
@@ -354,8 +358,9 @@ fn too_deep() -> String {
     format!("collections nested deeper than {MAX_DEPTH} levels")
 }
 
-/// The nodes an alias may copy in one load, as saphyr's loader allows by default: an alias
-/// copies the anchored node, so nested anchors can grow exponentially (ADR 0279's table).
+/// The nodes aliases may add to the JSON value in one load, as saphyr's loader allows by default:
+/// each alias writes out the anchored node again, so nested anchors can grow exponentially (ADR
+/// 0279's table).
 const ALIAS_BUDGET: usize = 100_000;
 
 /// Builds [`Node`]s from saphyr-parser's events, as saphyr's `YamlLoader` builds its `Yaml` but
@@ -410,7 +415,7 @@ impl<'a> Tree<'a> {
                     .pop()
                     .expect("the parser ends only what it started");
                 let node = match open {
-                    Open::Sequence(items) => Node::Sequence(items),
+                    Open::Sequence(items) => Node::Sequence(Rc::new(items)),
                     Open::Mapping(entries, _) => mapping(entries),
                 };
                 self.add(node, anchor);
@@ -418,7 +423,7 @@ impl<'a> Tree<'a> {
             Event::Alias(anchor) => {
                 // the parser fails on an unknown anchor, so a missing one is not reached
                 let node = match self.anchors.get(&anchor) {
-                    // measured before it is copied, so a copy past the budget is never made
+                    // measured before it is read again, so `to_json` never writes out more than the budget
                     Some(node) if !node.take_size(&mut self.alias_budget) => {
                         self.error = Some(
                             "alias expansion exceeded the maximum node budget (possible billion-laughs attack)"
@@ -458,13 +463,13 @@ fn mapping<'a>(entries: Vec<(Node<'a>, Node<'a>)>) -> Node<'a> {
     for (key, value) in entries {
         let value = match (is_merge_key(&key), value) {
             (true, Node::Mapping(items)) => {
-                merged.extend(items);
+                merged.extend(items.iter().cloned());
                 continue;
             }
             (true, Node::Sequence(items)) => {
-                for item in items {
+                for item in items.iter() {
                     if let Node::Mapping(items) = item {
-                        merged.extend(items);
+                        merged.extend(items.iter().cloned());
                     }
                 }
                 continue;
@@ -486,7 +491,7 @@ fn mapping<'a>(entries: Vec<(Node<'a>, Node<'a>)>) -> Node<'a> {
             kept.push((key, value));
         }
     }
-    Node::Mapping(kept)
+    Node::Mapping(Rc::new(kept))
 }
 
 impl<'a> Tree<'a> {

@@ -807,6 +807,49 @@ fn skips_a_role_file_whose_alias_nests_too_deep() {
     assert_eq!(warnings.len(), 1, "{warnings:?}");
 }
 
+// Review regression (claude:sonnet review cd63cba9): 254 nested anchors around 20000 scalars, with
+// no alias, once made a copy of each anchored collection when it ended (561 MB for this 42 KB
+// file); collections are now shared, so an anchor copies nothing. Memory is not observable here,
+// and the old code read the file too, so this test only pins what Bun reads: TypeScript's
+// `discoverAgents` under Bun 1.4.4 read it with no warning and `edits: false`.
+#[test]
+fn reads_nested_anchors_around_many_scalars_as_bun_does() {
+    let opens: String = (1..=254).map(|level| format!("&a{level} [")).collect();
+    let text = format!(
+        "---\nname: anchors\nedits: false\nx: {opens}{}{}\n---\nx",
+        ["x"; 20000].join(", "),
+        "]".repeat(254)
+    );
+    let fixture = fixture(&[("anchors.md", &text)], &[]);
+    let dirs = AgentDirs {
+        bundled: "/nonexistent".into(),
+        user: "/nonexistent".into(),
+    };
+    let mut warnings = Vec::new();
+    let agents = discover_agents(&fixture.cwd, &mut warnings, &dirs);
+    assert_eq!(warnings, Vec::<String>::new());
+    assert_eq!(find(&agents, "anchors").edits, Some(false));
+}
+
+// Not in Bun's tests: the nesting limit's edge (ADR 0247). The root mapping and 255 block
+// sequences are 256 collections and read; one sequence more is too deep. Bun reads both.
+#[test]
+fn reads_256_nested_collections_and_skips_257() {
+    let nested =
+        |dashes: usize| format!("---\nname: n{dashes}\nk:\n{}a\n---\nx", "- ".repeat(dashes));
+    let fixture = fixture(&[("n255.md", &nested(255)), ("n256.md", &nested(256))], &[]);
+    let dirs = AgentDirs {
+        bundled: "/nonexistent".into(),
+        user: "/nonexistent".into(),
+    };
+    let mut warnings = Vec::new();
+    let agents = discover_agents(&fixture.cwd, &mut warnings, &dirs);
+    assert_eq!(find(&agents, "n255").name, "n255");
+    assert!(agents.iter().all(|role| role.name != "n256"));
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("n256.md: "), "{warnings:?}");
+}
+
 // Not in agents.test.ts: a key that is not a string becomes JavaScript's `String()` of it, as in
 // Bun 1.4.4 (ADR 0279's "文字列でないキー"): a sequence is its items joined with `,`, a null item
 // written as nothing, a nested sequence flattened the same way, a mapping `[object Object]`. Bun
