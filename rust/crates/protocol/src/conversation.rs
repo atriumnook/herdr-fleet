@@ -1,15 +1,9 @@
 //! A structured agent conversation as GET /api/pane/conversation answers it (`shared/protocol.ts`,
 //! `ConversationTurn` to `ConversationResponse`).
 
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
-/// A field that may be absent (`None`), `null` (`Some(None)`) or a value: called only when the
-/// field is present, so a `null` is kept apart from an absent field.
-fn present<'de, D: Deserializer<'de>, T: Deserialize<'de>>(
-    deserializer: D,
-) -> Result<Option<Option<T>>, D::Error> {
-    Option::<T>::deserialize(deserializer).map(Some)
-}
+use crate::absent::present;
 
 /// One turn of a structured agent conversation (the chat lens source).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
