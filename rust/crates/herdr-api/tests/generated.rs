@@ -307,3 +307,44 @@ fn a_definition_named_like_the_shape_of_a_union_stops_the_generator() {
 
     generator::generate(&schema);
 }
+
+// codex's review of #282: the prefixed name of a colliding definition can be the name of another
+// definition; the generator stops instead of dropping one of them.
+#[test]
+#[should_panic(expected = "two types are named EventKind")]
+fn a_prefixed_name_that_another_definition_has_stops_the_generator() {
+    let schema = schema_with(json!({
+        "event": { "Kind": { "type": "string", "enum": ["event-kind"] } },
+        "request": {
+            "Kind": { "type": "string", "enum": ["request-kind"] },
+            "EventKind": { "type": "integer", "format": "uint64" },
+        },
+    }));
+
+    generator::generate(&schema);
+}
+
+// codex's review of #282: two object variants of a union without a tag that would have the same
+// Rust name make the union a `Value`, as other names that collide do.
+#[test]
+fn object_variants_of_one_name_make_the_union_a_value() {
+    let schema = schema_with(json!({
+        "request": {
+            "U": {
+                "anyOf": [
+                    { "type": "object", "properties": { "x": { "type": "string" } }, "required": ["x"] },
+                    { "type": "object", "properties": { "x": { "type": "integer" } }, "required": ["x"] },
+                ],
+            },
+        },
+    }));
+
+    let source = generator::generate(&schema);
+
+    assert!(source.contains("pub type U = Value;"), "{source}");
+    assert!(!identifiers(&source).contains("UX"), "{source}");
+    assert!(
+        source.contains("//! - `U`: two variants of a union have the same Rust name"),
+        "{source}"
+    );
+}

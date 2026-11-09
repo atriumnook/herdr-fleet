@@ -186,12 +186,19 @@ impl<'a> Generator<'a> {
     fn definitions(&mut self) {
         let definitions = self.all_definitions();
         self.names = resolve_names(&definitions);
-        let mut emitted = BTreeSet::new();
+        // the definition each Rust name was made for
+        let mut emitted: HashMap<String, &str> = HashMap::new();
         for (section, name, def) in &definitions {
             let rust = self.names[&key(section, name)].clone();
-            // definitions of one name resolve to one Rust name only when their shapes match
-            if emitted.insert(rust.clone()) {
-                self.item(&rust, def);
+            match emitted.get(&rust) {
+                // definitions of one name resolve to one Rust name only when their shapes match
+                Some(earlier) if earlier == name => {}
+                // a prefixed name that another definition has as its own
+                Some(_) => panic!("two types are named {rust}"),
+                None => {
+                    emitted.insert(rust.clone(), name);
+                    self.item(&rust, def);
+                }
             }
         }
     }
@@ -301,33 +308,35 @@ impl<'a> Generator<'a> {
         if let Some(key) = discriminator(variants) {
             return self.tagged(name, variants, &key);
         }
-        let mut out = Vec::new();
+        // the names first, so that a collision makes the union a `Value` before any shape's
+        // struct is added
+        let mut named = Vec::new();
         for (index, variant) in variants.iter().enumerate() {
-            let doc = description(variant);
             if let Some(reference) = variant["$ref"].as_str() {
                 let target = self.reference(reference);
-                out.push((target.clone(), Ty::Named(target), doc));
+                named.push((target.clone(), Ty::Named(target), None));
             } else if is_object(variant) && variant.get("properties").is_some() {
                 let fields: Vec<&str> = sorted_keys(&variant["properties"]);
                 let ident = fields.iter().map(|field| pascal(field)).collect::<String>();
                 let payload = format!("{name}{ident}");
-                let body = Body::Struct(self.fields(&payload, variant, None));
-                self.insert(
-                    &payload,
-                    Item {
-                        doc: Some(format!("A shape of [`{name}`].")),
-                        body,
-                    },
-                );
-                out.push((ident, Ty::Named(payload), doc));
+                named.push((ident, Ty::Named(payload), Some(variant)));
             } else {
                 let ty = self.ty(variant, &format!("{name}[{index}]"));
-                out.push((variant_name(&ty), ty, doc));
+                named.push((variant_name(&ty), ty, None));
             }
         }
-        let idents: Vec<String> = out.iter().map(|variant| variant.0.clone()).collect();
+        let idents: Vec<String> = named.iter().map(|variant| variant.0.clone()).collect();
         if !unique(&idents) {
             return self.alias_value(name, "two variants of a union have the same Rust name");
+        }
+        let mut out = Vec::new();
+        for ((ident, ty, object), variant) in named.into_iter().zip(variants) {
+            if let (Some(object), Ty::Named(payload)) = (object, &ty) {
+                let body = Body::Struct(self.fields(payload, object, None));
+                let doc = Some(format!("A shape of [`{name}`]."));
+                self.insert(payload, Item { doc, body });
+            }
+            out.push((ident, ty, description(variant)));
         }
         Body::Untagged(out)
     }
