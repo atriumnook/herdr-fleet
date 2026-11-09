@@ -385,6 +385,10 @@ async fn a_tag_that_is_not_a_string_is_written_as_javascript_writes_it() {
         (r#"{"_tag":0.0000001}"#, "1e-7"),
         (r#"{"_tag":true}"#, "true"),
         (r#"{"_tag":-0}"#, "0"),
+        // two shortest digit strings: ECMAScript takes the closer one (ADR 0193-phase-2-dependencies)
+        (r#"{"_tag":652282746268236.2}"#, "652282746268236.2"),
+        (r#"{"_tag":-1.5e-7}"#, "-1.5e-7"),
+        (r#"{"_tag":123e18}"#, "123000000000000000000"),
         (r#"{"_tag":null}"#, ""),
         ("[1]", ""),
     ] {

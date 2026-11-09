@@ -332,7 +332,7 @@ fn tag(body: &serde_json::Value) -> String {
 }
 
 /// JavaScript's `String(value)` of what `JSON.parse` gives: an array is its items joined with `,`
-/// (null as ""), an object `[object Object]`, a number as `Number.prototype.toString` writes it.
+/// (null as ""), an object `[object Object]`, a number as Number::toString writes it.
 fn js_string(value: &serde_json::Value) -> String {
     use serde_json::Value;
     match value {
@@ -352,22 +352,58 @@ fn js_string(value: &serde_json::Value) -> String {
     }
 }
 
-/// `Number.prototype.toString()` of a finite number: the shortest digits that read back as it, in
-/// plain notation from 1e-6 up to 1e21 and in exponent notation (`1e+21`, `1e-7`) outside.
-fn js_number(number: f64) -> String {
-    if number == 0.0 {
+/// ECMAScript's Number::toString of a finite number (a number read from JSON is always finite),
+/// by the rule of ADR 0193-phase-2-dependencies ("数の書き方"): a copy of protocol's
+/// `js::json::number_to_string`, which child-process does not depend on.
+fn js_number(x: f64) -> String {
+    if x == 0.0 {
         // -0 too
         return "0".to_owned();
     }
-    let size = number.abs();
-    if (1e-6..1e21).contains(&size) {
-        return number.to_string();
-    }
-    let written = format!("{number:e}");
-    match written.split_once('e') {
-        Some((digits, exponent)) if !exponent.starts_with('-') => format!("{digits}e+{exponent}"),
-        _ => written,
-    }
+    let (digits, exponent) = shortest_digits(x.abs());
+    let sign = if x < 0.0 { "-" } else { "" };
+    let k = i32::try_from(digits.len()).unwrap_or(i32::MAX);
+    // x = 0.d1d2…dk × 10^n
+    let n = exponent + 1;
+    let body = if k <= n && n <= 21 {
+        format!("{digits}{}", "0".repeat((n - k).unsigned_abs() as usize))
+    } else if 0 < n && n <= 21 {
+        let point = n.unsigned_abs() as usize;
+        format!("{}.{}", &digits[..point], &digits[point..])
+    } else if -6 < n && n <= 0 {
+        format!("0.{}{digits}", "0".repeat(n.unsigned_abs() as usize))
+    } else {
+        let mantissa = if k == 1 {
+            digits.clone()
+        } else {
+            format!("{}.{}", &digits[..1], &digits[1..])
+        };
+        let e = n - 1;
+        format!("{mantissa}e{}{}", if e < 0 { "-" } else { "+" }, e.abs())
+    };
+    format!("{sign}{body}")
+}
+
+/// The shortest digits that read back as `x` (positive and finite), and the decimal exponent of
+/// the first: `x` = d1.d2…dk × 10^exponent. Of two shortest digit strings ECMAScript takes the one
+/// closer to `x`; Rust's `{:e}` may take the other, and the correctly rounded string of the same
+/// length is that closer one whenever it reads back as `x`.
+fn shortest_digits(x: f64) -> (String, i32) {
+    let shortest = format!("{x:e}");
+    let length = split_exponent(&shortest).0.len();
+    let rounded = format!("{:.*e}", length.saturating_sub(1), x);
+    let chosen = if rounded.parse::<f64>().ok() == Some(x) {
+        rounded
+    } else {
+        shortest
+    };
+    split_exponent(&chosen)
+}
+
+/// `d.ddde±x` as its digits without the point, and the exponent.
+fn split_exponent(text: &str) -> (String, i32) {
+    let (mantissa, exponent) = text.split_once('e').unwrap_or((text, "0"));
+    (mantissa.replace('.', ""), exponent.parse().unwrap_or(0))
 }
 
 /// The head of what a CLI said on stderr, as one printable line: each run of characters outside
