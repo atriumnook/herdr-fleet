@@ -21,7 +21,7 @@ CLI が読む型は protocol の公開の口(crate の interface)なので、arc
 
 ### 外部 crate と、crate ごとの feature
 
-`rust/Cargo.toml` の `[workspace.dependencies]` は版だけを決め、feature を 1 つも有効にしない(axum、rustix、tokio-util、tower、ureq は `default-features = false`、tokio は既定の feature がない)。各 crate が、自分の使う feature を自分の manifest に書く。cargo は workspace の中で同じ crate の feature を合わせるので、build の結果は 1 か所に書いた場合と同じになる。crate ごとに書くのは、どの crate が何のために使うかを manifest で読めるようにするため。
+`rust/Cargo.toml` の `[workspace.dependencies]` は、段階 3 の外部 crate のうち 6 つについて版だけを決め、feature を有効にしない(axum、rustix、tokio-util、tower、ureq は `default-features = false`、tokio は既定の feature がない)。各 crate が、自分の使う feature を自分の manifest に書く。例外は 2 つある。jiff は既定の feature を workspace の指定で有効にする(cli だけが使い、既定の feature をすべて使うため)。indexmap は protocol だけが使う feature `serde` を workspace に書く(serde_json もこの crate を使うので、feature を合わせる場所を 1 つにした)。cargo は workspace の中で同じ crate の feature を合わせるので、build の結果は 1 か所に書いた場合と同じになる。crate ごとに書くのは、どの crate が何のために使うかを manifest で読めるようにするため。
 
 | 外部 crate | 使う crate | feature | 使い道 |
 |---|---|---|---|
@@ -34,7 +34,7 @@ CLI が読む型は protocol の公開の口(crate の interface)なので、arc
 | axum | core | `http1`、`json`、`query`、`tokio` | `axum::serve` で待ち受け、router を mount する |
 | ureq | cli | なし(`default-features = false`) | `http://127.0.0.1:<port>` への平文の HTTP。既定の `rustls` と `gzip` は使わない。JSON は cli が serde_json で読み書きするので、ureq の `json` も使わない |
 | rustix | child-process(`cfg(unix)` だけ) | `process`、`std` | `kill_process` で SIGTERM を送る。Windows は tokio の `start_kill`(ADR `0242-phase-3-split` の「子プロセス」) |
-| jiff | cli | 既定(`std`、`tz-system`、`tzdb-bundle-platform`、`tzdb-zoneinfo`、`tzdb-concatenated`、`perf-inline`) | `run` に渡された `TZ` の名前から地域の時刻を作る。名前を引くのに tz データベースが要り、Windows では同梱のもの(`tzdb-bundle-platform`)を使う。`tz-system` は有効だが、ADR `0242-phase-3-split` のとおり CLI は `TimeZone::system()` を呼ばない |
+| jiff | cli | 既定(`std`、`tz-system`、`tz-fat`、`tzdb-bundle-platform`、`tzdb-zoneinfo`、`tzdb-concatenated`、`perf-inline`) | `run` に渡された `TZ` の名前から地域の時刻を作る。名前を引くのに tz データベースが要り、Windows では同梱のもの(`tzdb-bundle-platform`)を使う。`tz-fat` は地域の時刻の切り替わりのデータを多く持ち、検索を速くする(読み込むときのメモリーは増えうる)。CLI が 1 回の実行で引く地域は 1 つなので、既定のまま有効にした。`tz-system` は有効だが、ADR `0242-phase-3-split` のとおり CLI は `TimeZone::system()` を呼ばない |
 | tower | orchestrator(dev) | `util` | テストが `ServiceExt::oneshot` で router を直接呼ぶ |
 | http-body-util | orchestrator(dev) | なし | テストが `BodyExt::collect` で応答の本文を読む |
 | indexmap | protocol | `serde` | `FleetSettingsPatch` の `roles`・`projects` と、`PlanAnswer` の `choices` の map を、JSON のオブジェクトに書かれた順のまま持つ(下の「map の順」) |
