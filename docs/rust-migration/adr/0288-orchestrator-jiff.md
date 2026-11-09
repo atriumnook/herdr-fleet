@@ -50,6 +50,6 @@ PC は Linux 7.2.15(omarchy)、rustc 1.99.1、`rust/` で実行した。
 
 - 変える前に `cargo tree --locked -p herdr-fleet-orchestrator -e normal --depth 1` を走らせ、jiff が出ないことを見た。変えたあとは `jiff v0.2.41` が加わった
 - `git diff origin/rust...HEAD -- rust/Cargo.lock`(`git fetch origin rust` のあと)の差分は、`herdr-fleet-orchestrator` の `dependencies` に `"jiff"` を足す 1 行だけだった
-- `cargo tree -e features -i jiff --workspace --depth 1` で、有効な feature が jiff の既定の feature(と、それが有効にする `alloc`)であることを見た
+- `cargo tree -e features -i jiff --workspace --depth 1` で、有効な feature が jiff の既定の feature(と、それが有効にする `alloc`)であり、`origin/rust` の内容(`git archive` で書き出したもの)で走らせた出力と同じであることを見た
 - jiff 0.2.41 のソース(`src/tz/timezone.rs`)で、`TimeZone::get(&str) -> Result<TimeZone, Error>` と `TimeZone::system() -> TimeZone` が公開されていること、`system` が `TZ` を先に見て、なければ `/etc/localtime` を読むことを見た。同じソースで、`system` が失敗を `Etc/Unknown` で返すこと、地域を 5 分覚えること(`src/tz/system/mod.rs:69`)、zoneinfo の名前の検索が大文字と小文字を区別しないこと(`src/tz/db/zoneinfo/enabled.rs:557`)を見た
 - `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` が通った(522 件。`origin/rust` を取り込んだあとは 555 件)
