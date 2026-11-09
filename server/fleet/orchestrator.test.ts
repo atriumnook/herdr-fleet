@@ -3378,6 +3378,26 @@ describe("merge authority", () => {
     expect(to(coordinator)).toEqual(["port"]);
   });
 
+  it("take no review from a codex turn that codex switched to another model on usage limits, though it reported ready", async () => {
+    const { fleet, registry, root, runtime, git, turn, to } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "codex" })]);
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+    // the review ran on the reserve model codex chose by itself (codex-rs tui/src/app/backend_banner_fallback.rs)
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    runtime.output = "• Automatically switched to Luna Reserve medium due to usage limits.\n\n• No findings.\n\n› Ask Codex to do anything\n\n  Luna Reserve medium · /repo";
+    await turn(reviewer, "idle");
+    expect(registry.get(reviewer.id)).toMatchObject({ state: "failed", lastError: "Automatically switched to Luna Reserve medium due to usage limits." });
+    runtime.output = "agent output";
+    writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 parses — evidence: cargo test\n");
+    writeReport(root, thread.id, "ready", "Opened #12.");
+    git.pr = { ...PR };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review on a CLI other than claude passed." });
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
   it("take a review only of a branch that stayed put through its turn, and count its CLI as a writer when the branch moved", async () => {
     const { fleet, registry, root, git, turn, to } = project();
     const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });

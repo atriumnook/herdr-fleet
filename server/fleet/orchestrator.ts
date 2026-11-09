@@ -1704,7 +1704,8 @@ export class Orchestrator {
       // the thread keeps who wrote in it; a run's own record says whether it could edit (a role file may have changed since)
       // a reviewer counts as a writer until the fleet saw its last turn leave the worktree as it was
       writers: [...new Set([...(run.writers ?? []), run.agent, ...members.filter((member) => (!member.readOnly && member.role !== REVIEWER_ROLE) || (member.role === REVIEWER_ROLE && !member.reviewClean)).map((member) => member.agent)])],
-      reviews: members.filter((member) => member.role === REVIEWER_ROLE && member.reviewClean).map((member) => ({
+      // a failed turn reviewed nothing, though it reported (its CLI ran it on a model it switched to by itself)
+      reviews: members.filter((member) => member.role === REVIEWER_ROLE && member.reviewClean && member.state !== "failed").map((member) => ({
         agent: member.agent, report: member.outcome?.report?.state, ...(member.reportedHead ? { head: member.reportedHead } : {}),
       })),
       head,
