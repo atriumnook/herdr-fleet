@@ -737,6 +737,29 @@ fn counts_the_expanded_mapping_of_repeated_merge_keys_toward_the_alias_budget() 
     assert_eq!(find(&agents, "nested").edits, Some(false));
 }
 
+// Review regression (codex review fd6b8681): a mapping keeps a key written as a sequence as its
+// JavaScript string, so a thousand aliases of a mapping whose key is a thousand scalars copy one
+// string each, not a thousand nodes the budget does not count. Before the fix the same file was
+// read too, by copying about a million nodes, so this test only pins what Bun reads: TypeScript's
+// `discoverAgents` under Bun 1.4.4 read it with no warning and `edits: false`.
+#[test]
+fn reads_aliases_of_a_mapping_with_a_sequence_key_as_bun_does() {
+    let key = ["x"; 1000].join(", ");
+    let aliases = ["*d"; 1000].join(", ");
+    let text = format!(
+        "---\nname: seqkeyanchor\nd: &d {{? [{key}] : y, edits: false}}\n<<: *d\nl: [{aliases}]\n---\nx"
+    );
+    let fixture = fixture(&[("seqkeyanchor.md", &text)], &[]);
+    let dirs = AgentDirs {
+        bundled: "/nonexistent".into(),
+        user: "/nonexistent".into(),
+    };
+    let mut warnings = Vec::new();
+    let agents = discover_agents(&fixture.cwd, &mut warnings, &dirs);
+    assert_eq!(warnings, Vec::<String>::new());
+    assert_eq!(find(&agents, "seqkeyanchor").edits, Some(false));
+}
+
 // Not in agents.test.ts: a key that is not a string becomes JavaScript's `String()` of it, as in
 // Bun 1.4.4 (ADR 0279's "文字列でないキー"): a sequence is its items joined with `,`, a null item
 // written as nothing, a nested sequence flattened the same way, a mapping `[object Object]`. Bun

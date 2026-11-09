@@ -299,16 +299,19 @@ enum Node<'a> {
     /// The scalar's text, untyped: it is typed as Bun types it from its style and tag.
     Scalar(Cow<'a, str>, ScalarStyle, Option<Cow<'a, Tag>>),
     Sequence(Vec<Node<'a>>),
-    Mapping(Vec<(Node<'a>, Node<'a>)>),
+    /// Each key as JavaScript's object key, set when the mapping ends ([`mapping`]), so an alias
+    /// copies a key as one string, never the collection it was written as.
+    Mapping(Vec<(String, Node<'a>)>),
     /// An empty document.
     Null,
 }
 
 impl Node<'_> {
     /// Takes the node's size from `budget` as saphyr's loader counts it (one for the node and one
-    /// for each entry of a mapping, a key's own nodes not counted); false once the budget runs out.
-    /// A mapping holds its keys as Bun reads them ([`mapping`]): a repeated key once, merge keys
-    /// expanded. Without merge keys the count is no larger than saphyr's.
+    /// for each entry of a mapping, its key included); false once the budget runs out. A mapping
+    /// holds its keys as Bun reads them ([`mapping`]): strings, a repeated key once, merge keys
+    /// expanded. Without merge keys the count is no larger than saphyr's, and it is every node a
+    /// copy makes. A scalar counts as one node whatever its length, as in saphyr.
     fn take_size(&self, budget: &mut usize) -> bool {
         let Some(left) = budget.checked_sub(1) else {
             return false;
@@ -417,7 +420,7 @@ impl<'a> saphyr_parser::EventReceiver<'a> for Tree<'a> {
 /// the ordinary key `<<`. The mappings merged were built the same way, so the result holds no merge
 /// key to expand.
 fn mapping<'a>(entries: Vec<(Node<'a>, Node<'a>)>) -> Node<'a> {
-    let mut kept: Vec<(Node<'a>, Node<'a>)> = Vec::with_capacity(entries.len());
+    let mut kept: Vec<(String, Node<'a>)> = Vec::with_capacity(entries.len());
     let mut places: HashMap<String, usize> = HashMap::new();
     let mut merged = Vec::new();
     for (key, value) in entries {
@@ -436,7 +439,8 @@ fn mapping<'a>(entries: Vec<(Node<'a>, Node<'a>)>) -> Node<'a> {
             }
             (_, value) => value,
         };
-        match places.entry(key_text(&key).into_owned()) {
+        let key = key_text(&key).into_owned();
+        match places.entry(key.clone()) {
             Entry::Occupied(place) => kept[*place.get()].1 = value,
             Entry::Vacant(place) => {
                 place.insert(kept.len());
@@ -445,7 +449,7 @@ fn mapping<'a>(entries: Vec<(Node<'a>, Node<'a>)>) -> Node<'a> {
         }
     }
     for (key, value) in merged {
-        if let Entry::Vacant(place) = places.entry(key_text(&key).into_owned()) {
+        if let Entry::Vacant(place) = places.entry(key.clone()) {
             place.insert(kept.len());
             kept.push((key, value));
         }
@@ -482,7 +486,7 @@ fn to_json(node: &Node<'_>) -> Value {
         Node::Mapping(entries) => Value::Object(
             entries
                 .iter()
-                .map(|(key, value)| (key_text(key).into_owned(), to_json(value)))
+                .map(|(key, value)| (key.clone(), to_json(value)))
                 .collect(),
         ),
         Node::Null => Value::Null,
