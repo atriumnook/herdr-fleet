@@ -30,7 +30,7 @@ use std::path::{Path, PathBuf};
 use protocol::FleetAgentKind;
 use serde_json::{Map, Value, json};
 
-use super::{Adapter, LaunchOptions, PaneContext, split_thinking, takes_every_role};
+use super::{Adapter, LaunchOptions, PaneContext, split_thinking};
 use crate::FleetError;
 
 /// The agent a role that edits nothing runs as (`OPENCODE_READ_ONLY_AGENT`).
@@ -302,10 +302,11 @@ pub(super) static ADAPTER: Adapter = Adapter {
     read_only_edits_result: true,
     note: None,
     usage_command: None,
+    runs_fleet_command: true,
+    asks_before_outside_reads: false,
     launch_args,
     env,
     read_only_note: Some(read_only_note),
-    refusal: takes_every_role,
 };
 
 fn launch_args(_: &LaunchOptions<'_>) -> Vec<String> {
@@ -318,10 +319,12 @@ fn launch_args(_: &LaunchOptions<'_>) -> Vec<String> {
 /// 0242-phase-3-split; TypeScript does not look).
 fn env(context: &PaneContext<'_>) -> Result<BTreeMap<String, String>, FleetError> {
     if context.read_only {
-        let entry = context.guard_plugin.join("index.js");
+        let entry = context.host.guard_plugin.join("index.js");
         if !entry.is_file() {
+            // a broken install, not a model failure: the code keeps the model from a cooldown and the
+            // spawn from trying the next candidate (ADR 0248-launch-adapters)
             return Err(FleetError::new(
-                "agent_start_failed",
+                "guard_plugin_missing",
                 format!(
                     "The guard plugin of a role that edits nothing on OpenCode is missing: no {} found.",
                     entry.display()
@@ -341,11 +344,11 @@ fn env(context: &PaneContext<'_>) -> Result<BTreeMap<String, String>, FleetError
         read_only: context.read_only,
         merges: context.merges,
     };
-    let mut env = git_env(context.server_env);
+    let mut env = git_env(&context.host.git_config);
     env.insert("OPENCODE_DISABLE_AUTOUPDATE".to_owned(), "true".to_owned());
     env.insert(
         "OPENCODE_CONFIG_CONTENT".to_owned(),
-        config(&role, context.guard_plugin).to_string(),
+        config(&role, &context.host.guard_plugin).to_string(),
     );
     Ok(env)
 }

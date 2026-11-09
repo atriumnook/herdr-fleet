@@ -4,7 +4,7 @@
 
 use protocol::{FleetAgentKind, ThinkingLevel};
 
-use super::{Adapter, LaunchOptions, effort_for, no_env, split_thinking, takes_every_role};
+use super::{Adapter, LaunchOptions, effort_for, no_env, split_thinking};
 
 pub(super) static ADAPTER: Adapter = Adapter {
     kind: FleetAgentKind::Claude,
@@ -14,10 +14,11 @@ pub(super) static ADAPTER: Adapter = Adapter {
     read_only_edits_result: false,
     note: None,
     usage_command: None,
+    runs_fleet_command: true,
+    asks_before_outside_reads: false,
     launch_args,
     env: no_env,
     read_only_note: None,
-    refusal: takes_every_role,
 };
 
 const EFFORTS: [(ThinkingLevel, &str); 5] = [

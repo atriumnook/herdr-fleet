@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use protocol::{FleetAgentKind, ThinkingLevel};
 use serde_json::json;
 
-use super::{Adapter, LaunchOptions, PaneContext, RoleFit, dirname, effort_for, split_thinking};
+use super::{Adapter, LaunchOptions, PaneContext, dirname, effort_for, split_thinking};
 use crate::FleetError;
 
 /// What agy is told to refuse in every mode (`permissions.deny`, which wins over its auto mode's
@@ -58,10 +58,13 @@ pub(super) static ADAPTER: Adapter = Adapter {
     read_only_edits_result: false,
     note: Some(SANDBOX_NOTE),
     usage_command: None,
+    // the terminal sandbox hides the fleet command (SANDBOX_NOTE); a role that runs it is not given to agy (#189's 8)
+    runs_fleet_command: false,
+    // asked in auto mode too, for a file outside the workspace and the --add-dir folders (#190)
+    asks_before_outside_reads: true,
     launch_args,
     env,
     read_only_note: None,
-    refusal,
 };
 
 const EFFORTS: [(ThinkingLevel, &str); 4] = [
@@ -112,20 +115,4 @@ fn env(_: &PaneContext<'_>) -> Result<BTreeMap<String, String>, FleetError> {
         "AGY_CLI_DISABLE_AUTO_UPDATE".to_owned(),
         "true".to_owned(),
     )]))
-}
-
-/// The roles agy cannot take: one that starts agents runs the fleet command, which the sandbox hides
-/// (#189's 8: the sandbox note would contradict its instructions), and the reviewer, which stops at
-/// agy's question before it reads the files outside its folders that a review is asked to read (#190).
-fn refusal(role: &RoleFit<'_>) -> Option<String> {
-    if role.spawning {
-        Some(
-            "agy cannot run the fleet command, which this role uses: its terminal sandbox hides it"
-                .to_owned(),
-        )
-    } else if role.name == "reviewer" {
-        Some("agy stops at its question before it reads a file outside its folders, which a review reads".to_owned())
-    } else {
-        None
-    }
 }

@@ -4,10 +4,9 @@
 //! lists to the models module (ADR 0242-phase-3-split); their `it`s are not here.
 
 use std::collections::BTreeMap;
-use std::path::Path;
 
 use herdr_fleet_orchestrator::launch::{
-    self, LaunchOptions, PaneContext, RoleFit, adapter_for, agy, split_thinking, toml_string,
+    self, Host, LaunchOptions, PaneContext, RoleFit, adapter_for, agy, split_thinking, toml_string,
     with_thinking,
 };
 use protocol::{FleetAgentKind, ThinkingLevel};
@@ -50,16 +49,20 @@ fn no_env() -> BTreeMap<String, String> {
     BTreeMap::new()
 }
 
-/// `pane` of adapters.test.ts's opencode describe, with the server's environment and the guard.
-fn pane<'a>(server_env: &'a BTreeMap<String, String>, guard: &'a Path) -> PaneContext<'a> {
+/// What the fleet server's process gives: `git_config` as its environment, and the checkout's guard.
+fn host(git_config: BTreeMap<String, String>) -> Host {
+    Host::new(git_config, launch::opencode::guard_plugin_dir())
+}
+
+/// `pane` of adapters.test.ts's opencode describe.
+fn pane(host: &Host) -> PaneContext<'_> {
     PaneContext {
         result_dir: "/state/fleet-results/r1",
         fleet_command: FLEET,
         model: None,
         read_only: false,
         merges: false,
-        server_env,
-        guard_plugin: guard,
+        host,
     }
 }
 
@@ -515,77 +518,81 @@ fn agy_deny_lists_the_push_flags_in_order() {
 // environment; this is the issue's acceptance, written as the live check starts agy.
 #[test]
 fn agy_starts_with_its_self_update_off() {
-    let server_env = no_env();
-    let guard = launch::opencode::guard_plugin_dir();
-    let env = adapter_for(FleetAgentKind::Agy)
-        .env(&pane(&server_env, &guard))
-        .unwrap();
+    let host = host(no_env());
+    let env = adapter_for(FleetAgentKind::Agy).env(&pane(&host)).unwrap();
     assert_eq!(
         env,
         BTreeMap::from([("AGY_CLI_DISABLE_AUTO_UPDATE".to_owned(), "true".to_owned())])
     );
 }
 
-// added (CLAUDE.md "エージェント CLI の癖"): the sandbox note goes to every agy agent, and agy takes no role that
-// runs the fleet command (#189's 8), nor the reviewer (#190)
+fn role(read_only: bool, spawning: bool, reads_outside_folders: bool) -> RoleFit {
+    RoleFit {
+        read_only,
+        spawning,
+        reads_outside_folders,
+    }
+}
+
+// orchestrator.test.ts (the skipped candidate "codex cannot be kept from editing files", and cursor's): a role that
+// edits nothing is not given to a CLI that cannot be held to it (orchestrator.ts:461, moved into the adapter)
+#[test]
+fn a_cli_that_cannot_be_kept_from_editing_takes_no_role_that_edits_nothing() {
+    let read_only = role(true, false, false);
+    assert_eq!(
+        adapter_for(FleetAgentKind::Codex)
+            .refusal(&read_only)
+            .as_deref(),
+        Some("codex cannot be kept from editing files")
+    );
+    assert_eq!(
+        adapter_for(FleetAgentKind::Cursor)
+            .refusal(&read_only)
+            .as_deref(),
+        Some("cursor cannot be kept from editing files")
+    );
+    assert_eq!(
+        adapter_for(FleetAgentKind::Agy)
+            .refusal(&read_only)
+            .as_deref(),
+        Some("agy cannot be kept from editing files")
+    );
+    for kind in [
+        FleetAgentKind::Pi,
+        FleetAgentKind::Claude,
+        FleetAgentKind::Opencode,
+    ] {
+        assert_eq!(adapter_for(kind).refusal(&read_only), None, "{kind:?}");
+    }
+}
+
+// added (CLAUDE.md "エージェント CLI の癖"; #189's 8, #190): the sandbox note goes to every agy agent, and agy takes no
+// role that runs the fleet command, nor one asked to read files outside its folders
 #[test]
 fn agy_tells_its_sandbox_and_takes_no_role_that_runs_the_fleet_command() {
     let agy = adapter_for(FleetAgentKind::Agy);
     let note = agy.note.unwrap();
     assert!(note.contains("the fleet command fail there"), "{note}");
-    for role in [
-        RoleFit {
-            name: "lead",
-            spawning: true,
-        },
-        RoleFit {
-            name: "coordinator",
-            spawning: true,
-        },
-        RoleFit {
-            name: "my-planner",
-            spawning: true,
-        },
-        RoleFit {
-            name: "reviewer",
-            spawning: false,
-        },
-    ] {
-        assert!(agy.refusal(&role).is_some(), "{role:?}");
-    }
-    for role in [
-        RoleFit {
-            name: "worker",
-            spawning: false,
-        },
-        RoleFit {
-            name: "scout",
-            spawning: false,
-        },
-        RoleFit {
-            name: "architect",
-            spawning: false,
-        },
-    ] {
-        assert_eq!(agy.refusal(&role), None, "{role:?}");
-    }
-    // the other CLIs take every role, and tell nothing to every agent
+    let spawning = agy.refusal(&role(false, true, false)).unwrap();
+    assert!(spawning.contains("fleet command"), "{spawning}");
+    let outside = agy.refusal(&role(false, false, true)).unwrap();
+    assert!(outside.contains("outside"), "{outside}");
+    // the coordinator (edits nothing, starts agents) is refused for editing first, as TypeScript words it
+    assert_eq!(
+        agy.refusal(&role(true, true, false)).as_deref(),
+        Some("agy cannot be kept from editing files")
+    );
+    assert_eq!(agy.refusal(&RoleFit::default()), None);
+    // the other CLIs take any role they can hold to it, and tell nothing to every agent
     for kind in ALL_KINDS
         .into_iter()
         .filter(|kind| *kind != FleetAgentKind::Agy)
     {
-        for role in [
-            RoleFit {
-                name: "lead",
-                spawning: true,
-            },
-            RoleFit {
-                name: "reviewer",
-                spawning: false,
-            },
-        ] {
-            assert_eq!(adapter_for(kind).refusal(&role), None, "{kind:?} {role:?}");
-        }
+        assert_eq!(
+            adapter_for(kind).refusal(&role(false, true, true)),
+            None,
+            "{kind:?}"
+        );
         assert_eq!(adapter_for(kind).note, None, "{kind:?}");
     }
 }
@@ -623,13 +630,12 @@ fn config_of(env: &BTreeMap<String, String>) -> Value {
 // adapters.test.ts: opencode adapter > gives the pane the model, no self-update and no sharing, and none of the switches version 2 dropped
 #[test]
 fn opencode_gives_the_pane_the_model_no_self_update_no_sharing_and_none_of_the_dropped_switches() {
-    let server_env = no_env();
-    let guard = launch::opencode::guard_plugin_dir();
+    let host = host(no_env());
     let opencode = adapter_for(FleetAgentKind::Opencode);
     let env = opencode
         .env(&PaneContext {
             model: Some("anthropic/claude-sonnet-5-5:low"),
-            ..pane(&server_env, &guard)
+            ..pane(&host)
         })
         .unwrap();
     assert_eq!(
@@ -661,11 +667,11 @@ fn opencode_gives_the_pane_the_model_no_self_update_no_sharing_and_none_of_the_d
     let variant = opencode
         .env(&PaneContext {
             model: Some("p/m#high"),
-            ..pane(&server_env, &guard)
+            ..pane(&host)
         })
         .unwrap();
     assert_eq!(config_of(&variant)["model"], "p/m#high");
-    let none = opencode.env(&pane(&server_env, &guard)).unwrap();
+    let none = opencode.env(&pane(&host)).unwrap();
     assert_eq!(config_of(&none).get("model"), None);
     // the config text is read with {env:...} and {file:...} substituted
     assert!(!none["OPENCODE_CONFIG_CONTENT"].contains("{env:"));
@@ -676,8 +682,7 @@ fn opencode_gives_the_pane_the_model_no_self_update_no_sharing_and_none_of_the_d
 // `{ ...context, ...(model ? { model } : {}) }`; values printed by bun from server/fleet/adapters.ts)
 #[test]
 fn opencode_keeps_a_model_that_is_only_a_level_as_written() {
-    let server_env = no_env();
-    let guard = launch::opencode::guard_plugin_dir();
+    let host = host(no_env());
     for (model, expected) in [
         (":low", Some(":low")),
         ("", None),
@@ -687,7 +692,7 @@ fn opencode_keeps_a_model_that_is_only_a_level_as_written() {
         let env = adapter_for(FleetAgentKind::Opencode)
             .env(&PaneContext {
                 model: Some(model),
-                ..pane(&server_env, &guard)
+                ..pane(&host)
             })
             .unwrap();
         let config = config_of(&env);
@@ -702,15 +707,14 @@ fn opencode_keeps_a_model_that_is_only_a_level_as_written() {
 // adapters.test.ts: opencode adapter > gives the pane the model ... (the server's GIT_CONFIG_* reach the pane through PaneContext)
 #[test]
 fn opencode_keeps_the_servers_own_git_config_before_its_own() {
-    let server_env = BTreeMap::from([
+    let host = host(BTreeMap::from([
         ("GIT_CONFIG_COUNT".to_owned(), "1".to_owned()),
         ("GIT_CONFIG_KEY_0".to_owned(), "a.b".to_owned()),
         ("GIT_CONFIG_VALUE_0".to_owned(), "1".to_owned()),
         ("PATH".to_owned(), "/usr/bin".to_owned()),
-    ]);
-    let guard = launch::opencode::guard_plugin_dir();
+    ]));
     let env = adapter_for(FleetAgentKind::Opencode)
-        .env(&pane(&server_env, &guard))
+        .env(&pane(&host))
         .unwrap();
     assert_eq!(env["GIT_CONFIG_COUNT"], "2");
     assert_eq!(env["GIT_CONFIG_KEY_0"], "a.b");
@@ -723,14 +727,13 @@ fn opencode_keeps_the_servers_own_git_config_before_its_own() {
 // are not in version 2, and the config sets no `lsp`
 #[test]
 fn opencode_uses_none_of_the_switches_version_2_dropped() {
-    let server_env = no_env();
-    let guard = launch::opencode::guard_plugin_dir();
+    let host = host(no_env());
     for (read_only, merges) in [(false, false), (true, false), (true, true)] {
         let env = adapter_for(FleetAgentKind::Opencode)
             .env(&PaneContext {
                 read_only,
                 merges,
-                ..pane(&server_env, &guard)
+                ..pane(&host)
             })
             .unwrap();
         for dropped in [
@@ -765,17 +768,6 @@ fn opencode_tells_a_read_only_role_what_its_shell_allows_and_the_coordinator_wha
             "{kind:?}"
         );
     }
-}
-
-// adapters.test.ts: opencode adapter > refuses an opencode that is not version 2 while starting, not once ready: it has no ready check (fixtures/screens: its help)
-#[test]
-fn opencode_has_no_ready_check() {
-    assert!(
-        adapter_for(FleetAgentKind::Opencode)
-            .screen()
-            .ready_error
-            .is_none()
-    );
 }
 
 // --- every CLI ---
@@ -847,8 +839,10 @@ fn no_argv_holds_a_line_break() {
 // added: the CLIs configured by arguments give the pane no environment
 #[test]
 fn the_clis_configured_by_arguments_give_the_pane_no_environment() {
-    let server_env = BTreeMap::from([("GIT_CONFIG_COUNT".to_owned(), "1".to_owned())]);
-    let guard = launch::opencode::guard_plugin_dir();
+    let host = host(BTreeMap::from([(
+        "GIT_CONFIG_COUNT".to_owned(),
+        "1".to_owned(),
+    )]));
     for kind in [
         FleetAgentKind::Pi,
         FleetAgentKind::Claude,
@@ -856,7 +850,7 @@ fn the_clis_configured_by_arguments_give_the_pane_no_environment() {
         FleetAgentKind::Cursor,
     ] {
         assert_eq!(
-            adapter_for(kind).env(&pane(&server_env, &guard)).unwrap(),
+            adapter_for(kind).env(&pane(&host)).unwrap(),
             BTreeMap::new(),
             "{kind:?}"
         );

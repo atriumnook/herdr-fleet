@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use herdr_fleet_orchestrator::launch::opencode::{self, OpencodeRole};
-use herdr_fleet_orchestrator::launch::{PaneContext, adapter_for};
+use herdr_fleet_orchestrator::launch::{Host, PaneContext, adapter_for};
 use protocol::FleetAgentKind;
 use regex::Regex;
 use serde::Deserialize;
@@ -121,19 +121,19 @@ fn the_guard_plugin_is_the_checkouts_opencode_fleet_guard() {
     assert!(guard.join("index.js").is_file());
 }
 
-fn no_env() -> BTreeMap<String, String> {
-    BTreeMap::new()
+/// What the fleet server's process gives, with the guard plugin at `guard`.
+fn host_with_guard(guard: &Path) -> Host {
+    Host::new(BTreeMap::new(), guard.to_path_buf())
 }
 
-fn pane<'a>(server_env: &'a BTreeMap<String, String>, guard: &'a Path) -> PaneContext<'a> {
+fn pane(host: &Host) -> PaneContext<'_> {
     PaneContext {
         result_dir: "/state/fleet-results/r1",
         fleet_command: FLEET,
         model: None,
         read_only: true,
         merges: false,
-        server_env,
-        guard_plugin: guard,
+        host,
     }
 }
 
@@ -165,16 +165,16 @@ impl Drop for Scratch {
 // added: a role that edits nothing does not start without its guard: the error names the folder looked in
 #[test]
 fn a_read_only_run_does_not_start_without_the_guard() {
-    let server_env = no_env();
     let scratch = Scratch::new();
     let empty = scratch.0.join("fleet-guard");
+    let empty_host = host_with_guard(&empty);
     fs::create_dir_all(&empty).unwrap();
     let opencode = adapter_for(FleetAgentKind::Opencode);
     for merges in [false, true] {
         let error = opencode
             .env(&PaneContext {
                 merges,
-                ..pane(&server_env, &empty)
+                ..pane(&empty_host)
             })
             .unwrap_err();
         assert!(
@@ -183,10 +183,13 @@ fn a_read_only_run_does_not_start_without_the_guard() {
             error.message
         );
         assert!(error.message.contains("index.js"), "{}", error.message);
+        // a broken install, not a model failure: no cooldown of the model, no next candidate (ADR 0248-launch-adapters)
+        assert_eq!(error.code, "guard_plugin_missing");
     }
     // a folder that is not there at all, too
     let missing = scratch.0.join("not-there");
-    let error = opencode.env(&pane(&server_env, &missing)).unwrap_err();
+    let missing_host = host_with_guard(&missing);
+    let error = opencode.env(&pane(&missing_host)).unwrap_err();
     assert!(
         error.message.contains(missing.to_str().unwrap()),
         "{}",
@@ -197,15 +200,48 @@ fn a_read_only_run_does_not_start_without_the_guard() {
         opencode
             .env(&PaneContext {
                 read_only: false,
-                ..pane(&server_env, &missing)
+                ..pane(&missing_host)
             })
             .is_ok()
     );
     // with the guard there, the config names it
     fs::write(empty.join("index.js"), "").unwrap();
-    let env = opencode.env(&pane(&server_env, &empty)).unwrap();
+    let env = opencode.env(&pane(&empty_host)).unwrap();
     let config: Value = serde_json::from_str(&env["OPENCODE_CONFIG_CONTENT"]).unwrap();
     assert_eq!(config["plugins"][0]["package"], empty.to_str().unwrap());
+}
+
+// added: the host keeps the server's GIT_CONFIG_* alone, so a pane's context holds no other variable (ADR 0248-launch-adapters)
+#[test]
+fn the_host_keeps_only_the_servers_git_config() {
+    let server = BTreeMap::from([
+        ("GIT_CONFIG_COUNT".to_owned(), "1".to_owned()),
+        ("GIT_CONFIG_KEY_0".to_owned(), "a.b".to_owned()),
+        ("GIT_CONFIG_VALUE_0".to_owned(), "1".to_owned()),
+        ("ANTHROPIC_API_KEY".to_owned(), "sk-ant-secret".to_owned()),
+        ("PATH".to_owned(), "/usr/bin".to_owned()),
+    ]);
+    let host = Host::new(server, opencode::guard_plugin_dir());
+    assert!(!format!("{host:?}").contains("sk-ant-secret"));
+    assert!(!format!("{host:?}").contains("/usr/bin"));
+    let env = adapter_for(FleetAgentKind::Opencode)
+        .env(&PaneContext {
+            read_only: false,
+            ..pane(&host)
+        })
+        .unwrap();
+    assert_eq!(env["GIT_CONFIG_KEY_0"], "a.b");
+    assert_eq!(env["GIT_CONFIG_KEY_1"], "core.fsmonitor");
+    // from the process: the checkout's guard
+    assert_eq!(
+        Host::from_process(),
+        Host::new(
+            std::env::vars()
+                .filter(|(name, _)| name.starts_with("GIT_CONFIG_"))
+                .collect(),
+            opencode::guard_plugin_dir()
+        )
+    );
 }
 
 // --- the rules' verdicts (adapters.test.ts: opencode adapter) ---

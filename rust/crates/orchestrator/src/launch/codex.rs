@@ -4,9 +4,7 @@
 
 use protocol::{FleetAgentKind, ThinkingLevel};
 
-use super::{
-    Adapter, LaunchOptions, effort_for, no_env, split_thinking, takes_every_role, toml_string,
-};
+use super::{Adapter, LaunchOptions, effort_for, no_env, split_thinking, toml_string};
 
 /// The workspace-write sandbox blocks the network, the loopback the fleet server listens on too.
 /// Codex is told to ask for that one command outside the sandbox, which its automatic review then
@@ -20,10 +18,11 @@ pub(super) static ADAPTER: Adapter = Adapter {
     read_only_edits_result: false,
     note: None,
     usage_command: None,
+    runs_fleet_command: true,
+    asks_before_outside_reads: false,
     launch_args,
     env: no_env,
     read_only_note: None,
-    refusal: takes_every_role,
 };
 
 /// what codex's models list (model/list) as their efforts: low is the lowest, max only on some

@@ -3,7 +3,8 @@
 //! What differs between agent CLIs at launch lives here, so the orchestrator stays apart from the
 //! kind: the argv after the executable for herdr's `agent.start`, the pane's environment, the
 //! arguments and note for a role that edits nothing, and the roles a CLI cannot take. How each CLI
-//! looks on its screen is the screen crate's (`screen::screen_checks`); the adapter only carries it.
+//! looks on its screen is the screen crate's: callers use `screen::screen_checks(kind)`. The adapter
+//! knows no role by name: the orchestrator turns a role into the facts of `RoleFit`.
 //! The CLIs' model lists are not here: the models module holds them (ADR 0242-phase-3-split).
 
 pub mod agy;
@@ -14,10 +15,9 @@ pub mod opencode;
 mod pi;
 
 use std::collections::BTreeMap;
-use std::path::Path;
+use std::path::PathBuf;
 
 use protocol::{FleetAgentKind, ThinkingLevel};
-use screen::ScreenChecks;
 
 use crate::FleetError;
 
@@ -53,19 +53,60 @@ pub struct PaneContext<'a> {
     pub read_only: bool,
     /// the role merges for the person (the project's coordinator)
     pub merges: bool,
-    /// the fleet server's own environment, whose `GIT_CONFIG_*` a pane keeps (TypeScript reads `process.env`)
-    pub server_env: &'a BTreeMap<String, String>,
-    /// the guard plugin's folder for a role that edits nothing on OpenCode: `opencode::guard_plugin_dir()`
-    pub guard_plugin: &'a Path,
+    /// what the adapters read from the fleet server's process
+    pub host: &'a Host,
 }
 
-/// What a role asks of the CLI it runs on, for the roles a CLI cannot take.
-#[derive(Debug, Clone, Copy)]
-pub struct RoleFit<'a> {
-    /// the role's name
-    pub name: &'a str,
+/// What the adapters read from the fleet server's process rather than from a run: the server's own
+/// `GIT_CONFIG_*` (TypeScript reads `process.env`) and the guard plugin's folder. Built once at
+/// startup with `from_process`; nothing else of the environment is kept, so it holds no secret.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Host {
+    git_config: BTreeMap<String, String>,
+    guard_plugin: PathBuf,
+}
+
+impl Host {
+    /// `git_config`: the server's `GIT_CONFIG_COUNT`, `GIT_CONFIG_KEY_<n>` and `GIT_CONFIG_VALUE_<n>`
+    /// (other variables are ignored); `guard_plugin`: the guard plugin's folder.
+    pub fn new(git_config: BTreeMap<String, String>, guard_plugin: PathBuf) -> Self {
+        let git_config = git_config
+            .into_iter()
+            .filter(|(name, _)| is_git_config(name))
+            .collect();
+        Host {
+            git_config,
+            guard_plugin,
+        }
+    }
+
+    /// This process's `GIT_CONFIG_*` (a value that is not UTF-8 is left out, as if unset) and
+    /// `opencode::guard_plugin_dir()`.
+    pub fn from_process() -> Self {
+        let git_config = std::env::vars_os()
+            .filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?)))
+            .collect();
+        Host::new(git_config, opencode::guard_plugin_dir())
+    }
+}
+
+fn is_git_config(name: &str) -> bool {
+    name == "GIT_CONFIG_COUNT"
+        || name.starts_with("GIT_CONFIG_KEY_")
+        || name.starts_with("GIT_CONFIG_VALUE_")
+}
+
+/// What a role asks of the CLI it runs on, for the roles a CLI cannot take. The orchestrator fills it
+/// from the role's definition.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct RoleFit {
+    /// the role edits no file (`edits: false`)
+    pub read_only: bool,
     /// the role may start agents (lead, coordinator): it runs the fleet command
     pub spawning: bool,
+    /// the role is asked to read files outside its folders, such as the standing orders' skills (the
+    /// reviewer, #190)
+    pub reads_outside_folders: bool,
 }
 
 /// What differs between agent CLIs at launch (`AgentAdapter`, its launch part); one per kind.
@@ -85,18 +126,16 @@ pub struct Adapter {
     pub note: Option<&'static str>,
     /// what to type into a settled CLI to show its usage, for a CLI that tells it no other way (cursor)
     pub usage_command: Option<&'static str>,
+    /// the agent can run the fleet command (agy's terminal sandbox hides it)
+    pub runs_fleet_command: bool,
+    /// the CLI stops at a question before it reads a file outside its folders, whatever its mode (agy)
+    pub asks_before_outside_reads: bool,
     launch_args: fn(&LaunchOptions<'_>) -> Vec<String>,
     env: fn(&PaneContext<'_>) -> Result<BTreeMap<String, String>, FleetError>,
     read_only_note: Option<fn(bool, &str) -> String>,
-    refusal: fn(&RoleFit<'_>) -> Option<String>,
 }
 
 impl Adapter {
-    /// how the CLI looks on its screen: the screen crate's checks for this kind
-    pub fn screen(&self) -> ScreenChecks {
-        screen::screen_checks(self.kind)
-    }
-
     /// argv after the executable, for herdr's `agent.start`
     pub fn launch_args(&self, options: &LaunchOptions<'_>) -> Vec<String> {
         (self.launch_args)(options)
@@ -114,9 +153,25 @@ impl Adapter {
         self.read_only_note.map(|note| note(merges, fleet_command))
     }
 
-    /// why this CLI cannot take the role, if it cannot
-    pub fn refusal(&self, role: &RoleFit<'_>) -> Option<String> {
-        (self.refusal)(role)
+    /// Why this CLI cannot take the role, if it cannot: a role that edits nothing on a CLI that cannot
+    /// be held to it (worded as TypeScript's candidate loop words it, orchestrator.ts:461), a role
+    /// that runs the fleet command where the agent cannot (#189's 8), and a role asked to read files
+    /// outside its folders on a CLI that stops to ask before each (#190).
+    pub fn refusal(&self, role: &RoleFit) -> Option<String> {
+        let kind = kind_name(self.kind);
+        if role.read_only && self.read_only_args.is_none() {
+            Some(format!("{kind} cannot be kept from editing files"))
+        } else if role.spawning && !self.runs_fleet_command {
+            Some(format!(
+                "{kind} cannot run the fleet command, which this role uses"
+            ))
+        } else if role.reads_outside_folders && self.asks_before_outside_reads {
+            Some(format!(
+                "{kind} asks before it reads each file outside its folders, which this role reads"
+            ))
+        } else {
+            None
+        }
     }
 }
 
@@ -129,6 +184,18 @@ pub fn adapter_for(kind: FleetAgentKind) -> &'static Adapter {
         FleetAgentKind::Cursor => &cursor::ADAPTER,
         FleetAgentKind::Agy => &agy::ADAPTER,
         FleetAgentKind::Opencode => &opencode::ADAPTER,
+    }
+}
+
+/// The kind as herdr and the settings name it.
+fn kind_name(kind: FleetAgentKind) -> &'static str {
+    match kind {
+        FleetAgentKind::Pi => "pi",
+        FleetAgentKind::Claude => "claude",
+        FleetAgentKind::Codex => "codex",
+        FleetAgentKind::Cursor => "cursor",
+        FleetAgentKind::Agy => "agy",
+        FleetAgentKind::Opencode => "opencode",
     }
 }
 
@@ -244,9 +311,4 @@ fn dirname(path: &str) -> String {
 /// No environment: the CLI is configured by its arguments.
 fn no_env(_: &PaneContext<'_>) -> Result<BTreeMap<String, String>, FleetError> {
     Ok(BTreeMap::new())
-}
-
-/// The CLI takes every role.
-fn takes_every_role(_: &RoleFit<'_>) -> Option<String> {
-    None
 }
