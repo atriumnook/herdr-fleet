@@ -11,5 +11,11 @@ serde.workspace = true
 serde_json.workspace = true
 tokio = { workspace = true, features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 
+# `test-util` lets the tests stop tokio's clock (`#[tokio::test(start_paused = true)]`)
+# when cargo builds this crate alone (`cargo test -p herdr-fleet-herdr`), not only
+# when the orchestrator's dev-dependency turns it on in a workspace build (#289).
+[dev-dependencies]
+tokio = { workspace = true, features = ["test-util"] }
+
 [lints]
 workspace = true
