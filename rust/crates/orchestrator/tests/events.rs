@@ -280,6 +280,30 @@ fn takes_a_line_that_ends_exactly_at_its_size_limit() {
     assert!(!rotated_path(&file).exists());
 }
 
+// #249 / #176 item 8 requires a size bound even when one event is larger than the whole log.
+// Dropping that event must not replace either file's previously recorded events.
+#[test]
+fn drops_a_single_event_larger_than_the_size_limit() {
+    let root = Folder::new();
+    let file = root.path().join("fleet-events.jsonl");
+    let events = log(&file);
+    let mut oversized = state(AgentState::Working, None);
+    if let FleetEvent::State(event) = &mut oversized {
+        event.project = Some("x".repeat(8_388_608));
+    }
+    // An oversized first event must not create an oversized file either.
+    events.record(oversized.clone());
+    assert!(!file.exists() || fs::metadata(&file).unwrap().len() <= 8_388_608);
+    events.record(state(AgentState::Working, None));
+    let before = fs::read(&file).unwrap();
+    fs::write(rotated_path(&file), "older\n").unwrap();
+    events.record(oversized);
+    assert_eq!(fs::read(&file).unwrap(), before);
+    assert_eq!(fs::read(rotated_path(&file)).unwrap(), b"older\n");
+    events.record(state(AgentState::Idle, None));
+    assert_eq!(lines(&file).len(), 2);
+}
+
 #[test]
 fn loses_the_event_but_never_fails_when_it_cannot_write() {
     let root = Folder::new();

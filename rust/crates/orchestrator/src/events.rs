@@ -245,12 +245,16 @@ impl EventLog {
     }
 
     fn append(&self, line: &[u8]) -> std::io::Result<()> {
+        let length = u64::try_from(line.len()).unwrap_or(u64::MAX);
+        // A single event must fit too. Drop it before rotating so it cannot discard older events.
+        if length > EVENTS_MAX_BYTES {
+            return Ok(());
+        }
         let size = match fs::metadata(&self.file) {
             Ok(meta) => meta.len(),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => 0,
             Err(error) => return Err(error),
         };
-        let length = u64::try_from(line.len()).unwrap_or(u64::MAX);
         if size > 0 && size.saturating_add(length) > EVENTS_MAX_BYTES {
             fs::rename(&self.file, rotated_path(&self.file))?;
         }
