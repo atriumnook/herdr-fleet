@@ -652,3 +652,98 @@ fn reads_the_lines_of_files_without_a_final_newline() {
         lines(&["a", "b"])
     );
 }
+
+/// preparePlan reads the shared exhibit before the claims', so its problem comes first.
+#[test]
+fn lists_the_shared_exhibits_problem_before_the_claims() {
+    let w = Worktree::new();
+    let error = prepare_plan(
+        &json!({ "title": "t", "claims": [{ "text": "c", "exhibit": { "kind": "code", "path": "a.ts", "start": 1 } }], "shared": { "text": "s", "exhibit": { "kind": "code", "path": "b.ts", "start": 1 } } }),
+        &w.tree,
+        1,
+        0,
+    )
+    .expect_err("neither file is there");
+    assert_eq!(
+        error.message,
+        "The plan has problems:\n- b.ts is not a file in the thread's worktree\n- a.ts is not a file in the thread's worktree"
+    );
+}
+
+/// The file TypeScript's writePlan wrote for the same plan (bun 1.4.4), byte for byte: the same
+/// keys in the same order, two spaces of indent, a final newline.
+#[test]
+fn writes_the_file_typescript_writes() {
+    let w = Worktree::new();
+    w.write(
+        "src/retry.ts",
+        "export const RETRIES = 3;\n\nexport function shouldRetry(attempt: number): boolean {\n",
+    );
+    let mut plan_input =
+        input(json!({ "kind": "code", "path": "src/retry.ts", "start": 1, "end": 2 }));
+    plan_input["shared"] = json!({ "text": "One table.", "exhibit": { "kind": "schema", "lang": "sql", "text": "create table t ()" } });
+    plan_input["scope"] = json!(["Drafts"]);
+    plan_input["why"] = json!(["retries spam the log"]);
+    let plan = prepare_plan(&plan_input, &w.tree, 1, 1000).unwrap();
+    let file = w.root.join("p.json");
+    write_plan(&file, &plan).unwrap();
+    assert_eq!(fs::read_to_string(&file).unwrap(), TYPESCRIPTS_FILE);
+}
+
+const TYPESCRIPTS_FILE: &str = r#"{
+  "title": "Retry limit",
+  "why": [
+    "retries spam the log"
+  ],
+  "claims": [
+    {
+      "text": "A failed send is tried three times.",
+      "ask": {
+        "id": "limit",
+        "question": "How many retries?",
+        "options": [
+          {
+            "value": "three",
+            "label": "3 retries"
+          },
+          {
+            "value": "five",
+            "label": "5 retries",
+            "note": "claim 1.1 goes"
+          }
+        ],
+        "recommended": "three"
+      },
+      "children": [
+        {
+          "text": "shouldRetry stops at RETRIES.",
+          "exhibit": {
+            "kind": "code",
+            "path": "src/retry.ts",
+            "start": 1,
+            "end": 2,
+            "lines": [
+              "export const RETRIES = 3;",
+              ""
+            ]
+          },
+          "children": []
+        }
+      ]
+    }
+  ],
+  "shared": {
+    "text": "One table.",
+    "exhibit": {
+      "kind": "schema",
+      "text": "create table t ()",
+      "lang": "sql"
+    }
+  },
+  "scope": [
+    "Drafts"
+  ],
+  "version": 1,
+  "writtenAt": 1000
+}
+"#;

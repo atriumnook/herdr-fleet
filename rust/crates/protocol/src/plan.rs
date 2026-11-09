@@ -11,14 +11,11 @@ use serde_json::Value;
 
 use crate::js;
 
-/// A plan as the lead writes it and the server keeps it.
+/// A plan as the lead writes it and the server keeps it. The fields are in the order plan.ts's
+/// `preparePlan` writes a new plan's keys in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Plan {
-    /// Counts the plans this thread's lead handed over: answers name the one they answer.
-    pub version: u32,
-    /// When the server took it (epoch ms).
-    pub written_at: i64,
     /// The change and the place, in a few words.
     pub title: String,
     /// The person's own words that asked for it.
@@ -30,6 +27,10 @@ pub struct Plan {
     pub shared: Option<PlanShared>,
     /// What the change leaves alone.
     pub scope: Vec<String>,
+    /// Counts the plans this thread's lead handed over: answers name the one they answer.
+    pub version: u32,
+    /// When the server took it (epoch ms).
+    pub written_at: i64,
     /// When the person answered this version (epoch ms).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub answered_at: Option<i64>,
@@ -91,9 +92,9 @@ pub enum PlanExhibit {
         lines: Option<Vec<String>>,
     },
     Schema {
+        text: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         lang: Option<String>,
-        text: String,
     },
     Calls {
         rows: Vec<PlanCallRow>,

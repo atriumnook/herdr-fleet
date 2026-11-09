@@ -30,8 +30,11 @@ pub const PLAN_STORED_MAX_BYTES: usize = 256 * 1024;
 /// units, as JavaScript's `length`.
 pub const CODE_LINE_MAX_CHARS: usize = 400;
 
-/// JavaScript's `.`, which matches all but a line terminator.
-const DOT: &str = r"[^\n\r\u{2028}\u{2029}]";
+/// JavaScript's `.`, which matches all but a line terminator: `js::LINE_TERMINATOR`'s class, negated.
+static DOT: LazyLock<String> = LazyLock::new(|| {
+    let class = js::LINE_TERMINATOR;
+    format!("[^{}]", &class[1..class.len() - 1])
+});
 
 /// Files a plan never shows, by name: environment files, keys, credentials and the state that holds
 /// them. A worktree may hold them, and the Fleet screen may be open on a phone. Credentials and
@@ -39,14 +42,15 @@ const DOT: &str = r"[^\n\r\u{2028}\u{2029}]";
 /// its name (src/credentials.ts). TypeScript's expression has the `i` flag, which for this ASCII
 /// pattern matches ASCII letters of either case only: the name is matched lowercased in ASCII.
 static SECRET_NAMES: LazyLock<Regex> = LazyLock::new(|| {
+    let dot = DOT.as_str();
     let names = [
-        format!(r"\.env(?:\.{DOT}*)?"),
-        format!(r"{DOT}*\.(?:pem|key|p12|pfx|keystore|jks|tfstate|tfstate\.backup|tfvars)"),
+        format!(r"\.env(?:\.{dot}*)?"),
+        format!(r"{dot}*\.(?:pem|key|p12|pfx|keystore|jks|tfstate|tfstate\.backup|tfvars)"),
         r"id_(?:rsa|dsa|ecdsa|ed25519)(?:_sk)?(?:\.pub)?".to_owned(),
         r"\.netrc|\.npmrc|\.pypirc|\.htpasswd|\.pgpass|kubeconfig|authorized_keys|known_hosts"
             .to_owned(),
         format!(
-            r"(?:{DOT}*[._-])?(?:credentials?|secrets?|client_secret[^/]*)(?:\.(?:json|ya?ml|toml|ini|env|txt|cfg|conf|properties|xml))?"
+            r"(?:{dot}*[._-])?(?:credentials?|secrets?|client_secret[^/]*)(?:\.(?:json|ya?ml|toml|ini|env|txt|cfg|conf|properties|xml))?"
         ),
     ];
     Regex::new(&format!("^(?:{})$", names.join("|"))).expect("SECRET_NAMES")
@@ -212,12 +216,13 @@ pub fn prepare_plan(
             walk(&mut claim.children, fill);
         }
     }
-    let mut claims = input.claims;
-    walk(&mut claims, &mut fill);
+    // the shared exhibit first, as plan.ts reads it, so the problems come in its order
     let mut shared = input.shared;
     if let Some(shared) = &mut shared {
         fill(&mut shared.exhibit);
     }
+    let mut claims = input.claims;
+    walk(&mut claims, &mut fill);
     let plan = Plan {
         version,
         written_at: now,
@@ -338,8 +343,15 @@ pub fn write_plan(file: &Path, plan: &Plan) -> io::Result<()> {
     options.write(true).create(true).truncate(true);
     #[cfg(unix)]
     std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
-    options.open(&temp)?.write_all(text.as_bytes())?;
-    fs::rename(&temp, file)
+    let written = options
+        .open(&temp)
+        .and_then(|mut opened| opened.write_all(text.as_bytes()))
+        .and_then(|()| fs::rename(&temp, file));
+    // each write names its own temporary file, so a failed one would stay; plan.ts reuses one name
+    if written.is_err() {
+        let _ = fs::remove_file(&temp);
+    }
+    written
 }
 
 /// `String(value)` of JavaScript, for a value the person sent that the message names. `None` is
