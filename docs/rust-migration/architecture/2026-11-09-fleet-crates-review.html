@@ -1,0 +1,199 @@
+<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>herdr と fleet の調査</title>
+    <script src="https://cdn.tailwindcss.com/3.4.16"></script>
+    <script type="module">
+      import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
+      mermaid.initialize({ startOnLoad: true, theme: "neutral", securityLevel: "strict" });
+    </script>
+    <style>
+      .deep { background: linear-gradient(135deg, #0f172a, #1e293b); color: #f8fafc; }
+    </style>
+  </head>
+  <body class="bg-stone-50 text-slate-900 font-sans">
+    <main class="max-w-5xl mx-auto px-4 py-12 space-y-12">
+      <header class="space-y-3">
+        <h1 class="font-serif text-3xl">段階 3 の herdr と fleet の crate に移す TypeScript のコードの調査</h1>
+        <p class="text-sm text-slate-600">2026-11-09。Issue #242。対象は、計画の段階 3 で Rust の <code>herdr-fleet-herdr-api</code>、<code>herdr-fleet-herdr</code>、<code>herdr-fleet-child-process</code>、<code>herdr-fleet-orchestrator</code>、<code>herdr-fleet-cli</code> に移すコード: herdr の socket のクライアント(<code>server/herdr/client.ts</code>、404 行)、ペインの状態の購読(<code>server/collector.ts</code>、480 行)、子プロセスの決まり(<code>server/cli-child.ts</code>、<code>server/opencode-cli.ts</code>)、fleet の orchestrator(<code>server/fleet/orchestrator.ts</code>、1,936 行)と <code>server/fleet/</code> のほかのファイル、<code>bin/fleet.ts</code>(335 行)。手順は <code>improve-codebase-architecture</code>、語は <code>codebase-design</code>(module、interface、depth、seam、adapter、leverage、locality)と <code>docs/rust-migration/GLOSSARY.md</code> に従う。行番号は <code>rust</code> のコミット <code>d7965e3</code> のもの。</p>
+        <p class="text-sm text-slate-600">調べ方: 範囲は計画が決めている。2026-10-15 以降のコミットで変更の多いファイルは、<code>server/fleet/orchestrator.ts</code>(37 回)、<code>events.ts</code>(8)、<code>metrics.ts</code>(7)、<code>adapters.ts</code>(7)、<code>outbox.ts</code>(5)で、orchestrator に変更が集まっている。subagent 3 つが、orchestrator とそのテスト、herdr のクライアントと購読、子プロセス・使用量・モデル一覧・fleet CLI の契約を調べ、lead が要点を読んで確かめた。</p>
+        <div class="flex flex-wrap gap-4 text-xs text-slate-600">
+          <span>実線の箱 = module</span><span>破線 = seam</span><span class="text-red-600">赤い箱 = 1 つの概念が複数の場所に散る</span><span>濃い箱 = deep module</span>
+        </div>
+      </header>
+
+      <section id="candidates" class="space-y-10">
+
+        <!-- 1 -->
+        <article id="c1" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">1. orchestrator の 1 つの class を、関心ごとの module に分け、共有する状態を 1 か所で持つ</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/fleet/orchestrator.ts(1,936 行、private の Map が 16、Promise の連なりの lock が 4 つ:
+  reconcileLocks、threadLocks、projectStarts、spawnGate)
+  土台(22-104、113-185、241-339、1725-1763、1898-1918、約 230 行)
+  起動 spawn(351、418-431、493-712、約 330 行)      ターン(716、1159-1250、1358-1448、1629-1723、約 340 行)
+  候補・使用量・モデルの代わり(191、440-491、1586、1607-1627、約 130 行)
+  thread(360-374、407-416、727、1490)               thread の起動し直し(1503-1579、1766-1781、約 120 行)
+  取り込み・マージ・GitHub・閉じる(740-1063、1137-1153、1478、約 300 行)
+  project と自律(380-404、1070-1131、約 130 行)    知らせの配達(260-269、1258-1347、約 140 行)
+  計画(290-296、848-925、約 90 行)
+server/fleet/orchestrator.test.ts(2,943 行、156 件の it。FakeRuntime は 18-63)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart TB
+  O[Orchestrator class: 16 Map, 4 lock]
+  O --- S[spawn]
+  O --- T[turns]
+  O --- F[finalize 1420: 決着の集まる所]
+  F --> C[候補]
+  F --> R[起動し直し]
+  F --> L[取り込み]
+  F --> N[知らせ]
+  F --> P[計画]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class O,F leak
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  API[/api/fleet/] --> O[Orchestrator: 状態と lock を 1 か所]
+  O --> S[spawn.rs]
+  O --> T[turns.rs]
+  O --> L[landing.rs]
+  O --> N[notices.rs]
+  O --> P[plans.rs]
+  O -.seam.-> RT[AgentRuntime]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class O deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 起動、ターン、thread の取り込み、知らせ、計画が 1 つの class の private の Map を直接読み書きし、ターンの決着(<code>finalize</code> 1420、<code>settleThreadTurn</code> 1478)がほとんどの関心を呼ぶ。1 つの関心を直すにも、ほかの関心が触る Map と lock の順序を読む必要がある。テストの describe も関心をまたぐ(「a thread outlives its lead run」の 22 件は、起動し直し、取り込み、知らせを合わせて試す)。</p>
+          <p><strong>Solution:</strong> Rust では、共有する状態(run、ターン、lock、知らせ、監督の時刻)の型を土台の module が最初にすべて決め、関心ごとの <code>impl</code> を別のファイルに置く。決着の流れ(<code>finalize</code>)は土台が 1 回だけ書き、各関心の関数を呼ぶ。</p>
+          <ul class="list-disc pl-6 text-sm"><li>関心ごとの作業が別々のファイルで並行できる</li><li>状態と lock の順序を読む場所が 1 つになる(locality)</li><li>テストは公開の口(<code>/api/fleet</code> の操作に当たる method)と FakeRuntime で書ける</li></ul>
+        </article>
+
+        <!-- 2 -->
+        <article id="c2" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">2. Runtime の seam の後ろに herdr のエラーを閉じ込める</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">local-substitutable</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/fleet/runtime.ts(AgentRuntime 33-46、HerdrRuntime 87-249、FleetError agent_start_failed 166、agent_not_ready 183)
+server/fleet/orchestrator.ts(HerdrError を import 4、agent_blocked 1235、agent_not_found / not_found / pane_not_found 1406、
+  agent_start_failed 480、agent_not_ready 595)
+server/fleet/api.ts(HerdrError を import 1、502 にする 302)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart LR
+  O[orchestrator] -.AgentRuntime.-> H[HerdrRuntime]
+  O --> E[(HerdrError の code の文字列)]
+  A[api.ts] --> E
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class E leak
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  O[orchestrator] -.AgentRuntime + RuntimeError.-> H[herdr の adapter]
+  O -.同じ seam.-> F[FakeRuntime]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class O deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> orchestrator と <code>/api/fleet</code> のルートが herdr のエラーコードの文字列を直接見ている。テストの FakeRuntime も <code>HerdrError</code> を投げる(<code>orchestrator.test.ts</code> の 223、373、403、465、2887、2893)。adapter は herdr のものとテストのものの 2 つで本物の seam だが、エラーが seam を越えている。</p>
+          <p><strong>Solution:</strong> Runtime の port が自分のエラーの enum を返し、herdr のコードからの変換は herdr の adapter だけが行う(ADR <code>0107-crate-split</code> がすでに決めている)。起動の失敗(<code>agent_start_failed</code>)と準備ができない(<code>agent_not_ready</code>)も、その enum の値にする。</p>
+          <ul class="list-disc pl-6 text-sm"><li>orchestrator のテストは herdr の型を知らずに書ける</li><li>herdr のエラーコードが変わっても直す場所は adapter の 1 つ</li></ul>
+        </article>
+
+        <!-- 3 -->
+        <article id="c3" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">3. 子プロセスの決まり(環境変数、作業フォルダー、時間の上限と kill、出力の上限、同時に動かす数)を 1 つの module にまとめる</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-emerald-100 text-emerald-800 px-2 py-0.5">Strong</span><span class="rounded bg-slate-100 px-2 py-0.5">local-substitutable</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/cli-child.ts(childEnv 19、claudeEnv 28、emptyWorkDir 38。時間の上限も kill もない)
+server/opencode-cli.ts(20 秒、SIGTERM のあと 2 秒で SIGKILL 117-125、標準出力 32 MiB(モデル一覧 8 MiB 175)、標準エラー 4 KiB 128、
+  同時に 4 つ 19 と 98、service status の答えを 1 秒覚える 21、JSON でない答えを 3 回まで読み直す 143)
+server/fleet/usage.ts(run 403、codexProbe 426: SIGTERM だけ、出力の上限なし)
+server/fleet/model-lists.ts(run 30: 同じ)
+server/files.ts 16、server/fleet/thread.ts 18・33・134(git -c core.fsmonitor=false。process.env をすべて渡す)
+server/fleet/github.ts 11-24(gh。process.env をすべて渡す)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart TB
+  U[usage.ts run] --> K1[SIGTERM だけ]
+  M[model-lists.ts run] --> K2[SIGTERM だけ]
+  OC[opencode-cli.ts] --> K3[SIGTERM, SIGKILL, 上限, 4 つ]
+  T[thread.ts git] --> G1[fsmonitor=false]
+  FI[files.ts git] --> G2[fsmonitor=false]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class K1,K2,K3,G1,G2 leak
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  U[使用量の probe] --> CP[child-process: 起動の種類ごとの決まり]
+  M[モデル一覧] --> CP
+  OC[opencode api] --> CP
+  G[git] --> CP
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class CP deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> ADR <code>0107-crate-split</code> は child-process に「起動の種類ごとの決まり」を置くと決めたが、今のコードで時間の上限・SIGKILL・出力の上限・同時に動かす数をすべて持つのは <code>opencode-cli.ts</code> だけで、使用量の probe とモデル一覧の起動は SIGTERM を 1 回送るだけで出力を限りなく読む。git の <code>core.fsmonitor=false</code> は 2 つのファイルに重複している。</p>
+          <p><strong>Solution:</strong> child-process に、起動の種類(使用量の probe、モデル一覧、<code>opencode api</code>、git)ごとに環境変数と作業フォルダーと上限を決めた 1 つの起動の口を置く。呼ぶ側は種類を選ぶだけにする。</p>
+          <ul class="list-disc pl-6 text-sm"><li>決まりを試す場所が 1 つ(安全上の判定の表の child-process の分もここ)</li><li>TypeScript と振る舞いが変わる箇所(上限と SIGKILL を足す)は、決めたうえで ADR に書く</li></ul>
+        </article>
+
+        <!-- 4 -->
+        <article id="c4" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">4. ペインの状態の購読を、fleet と HTTP の両方が使う 1 つの module にする</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-amber-100 text-amber-800 px-2 py-0.5">Worth exploring</span><span class="rounded bg-slate-100 px-2 py-0.5">local-substitutable</span></div>
+          <pre class="font-mono text-sm text-slate-700">server/collector.ts(startStatusCollector 236、StatusCollectorDeps。テストは 54 件の it)
+server/index.ts 1048-1083(購読の知らせを fleet の onPaneStatus、onPaneEnded、reconcileAll と、HTTP の broadcast、push、CompletionTracker に配る)
+server/fleet/orchestrator.ts 1356-1376(知らせは起こすきっかけだけで、状態は runtime.get で読み直す)
+server/herdr/client.ts subscribeEvents 319(長くつなぐ 1 本。つなぎ直さない)</pre>
+          <div class="grid md:grid-cols-2 gap-4">
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">Before</p>
+              <pre class="mermaid">
+flowchart LR
+  C[collector] --> I[index.ts のコールバック]
+  I --> FL[fleet]
+  I --> HT[broadcast, push, 完了]
+  classDef leak stroke:#dc2626,stroke-width:2px;
+  class I leak
+              </pre></div>
+            <div class="rounded-lg border border-slate-200 p-3"><p class="text-xs uppercase tracking-wider text-slate-500">After</p>
+              <pre class="mermaid">
+flowchart LR
+  C[ペインの状態の購読] -.seam.-> FL[orchestrator]
+  C -.seam.-> HT[core の HTTP 段階 4]
+  classDef deep fill:#0f172a,color:#f8fafc;
+  class C deep
+              </pre></div>
+          </div>
+          <p><strong>Problem:</strong> 購読(つなぎ直し、ペインが増えたときの購読し直し、取りこぼしの読み直し、debounce)と、知らせを配る先(fleet と HTTP)が、<code>index.ts</code> のコールバックの組み立てでつながっている。段階 3 は fleet の側だけを、段階 4 は HTTP の側を作るので、購読の置き場所と配る口の形を先に決める必要がある。</p>
+          <p><strong>Solution:</strong> 置き場所と形は ADR <code>0242-phase-3-split</code> で決める(下の一番の推奨の節)。</p>
+        </article>
+
+        <!-- 5 -->
+        <article id="c5" class="rounded-xl border border-slate-200 bg-white p-6 space-y-4">
+          <h2 class="font-serif text-2xl">5. fleet CLI の応答の型を protocol から取る</h2>
+          <div class="flex gap-2 text-xs"><span class="rounded bg-amber-100 text-amber-800 px-2 py-0.5">Worth exploring</span><span class="rounded bg-slate-100 px-2 py-0.5">in-process</span></div>
+          <pre class="font-mono text-sm text-slate-700">bin/fleet.ts(Run、ThreadSummary、UsageEntry を shared/fleet.ts と別に定義)
+shared/fleet.ts(AgentRun 23、ThreadSummary 179、UsageEntry 208 ほか)
+fixtures/fleet-cli/(87 件。scripts/fleet-cli-fixtures.ts が stub のサーバーを起動し、HERDR_FLEET_CLI_TARGET で CLI を選ぶ)</pre>
+          <p><strong>Problem:</strong> CLI とサーバーが同じ形を 2 か所に書いている。ADR <code>0107-crate-split</code> は CLI が protocol の型を取ると決めた。protocol の fleet の型を、CLI、orchestrator、core が同時に要るので、段階 3 の最初に置く必要がある。</p>
+          <p><strong>Solution:</strong> 段階 3 の土台の Issue が <code>shared/fleet.ts</code> の型を protocol に置き、CLI は項目が欠けても失敗しない読み方で使う。正しいかは fleet CLI の契約(87 件)で確かめる。</p>
+        </article>
+
+      </section>
+
+      <section id="top-recommendation" class="rounded-xl deep p-8 space-y-3">
+        <h2 class="font-serif text-2xl">一番の推奨: <a class="underline" href="#c1">1. orchestrator の関心ごとの module と、共有する状態の 1 か所</a></h2>
+        <p>段階 3 の作業を並行できるかは、orchestrator の共有する状態(run、ターン、lock、知らせ)と決着の流れを最初の Issue が書き終え、あとの Issue が関心ごとのファイルだけを書けるかで決まる。orchestrator は段階 3 のコードの半分を占め、変更も集まっているので、最初に決める。候補 2 と 3 は ADR <code>0107-crate-split</code> がすでに方向を決めたもので、段階 3 の土台の Issue がその形を作る。候補 4 と 5 は、段階 3 と段階 4 の境目と、crate の間の型の置き場所の問題である。ADR <code>0242-phase-3-split</code> は、architect に聞いた答えをもとに、1〜5 を Issue の分け方にした。</p>
+      </section>
+    </main>
+  </body>
+</html>
