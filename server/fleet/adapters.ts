@@ -214,16 +214,26 @@ export const claudeAdapter: AgentAdapter = {
   },
 };
 
+/** codex's status line, which the fleet has open with the model in use (codex-rs tui/src/chatwidget/status_surfaces.rs) */
+const CODEX_STATUS_LINE = ["model-with-reasoning", "current-dir"];
+
+/** a model's name as the status line or a notice writes it, compared: its slug and its catalog name read the same */
+const modelKey = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, "");
+
 /**
- * When the account's ordinary usage runs out, codex moves the session to a model nobody chose (a
- * reserve model) and back once usage is available again, writing a notice in its transcript for
- * each (codex-rs tui/src/app/backend_banner_fallback.rs) that no setting turns off. The last
- * notice, when it is the switch away: what it says. A notice opens its own line with a bullet; a
- * line it wraps onto is read with it, and the words quoted inside a message are no notice.
+ * When the account's ordinary usage runs out, codex moves the session to a model nobody chose and
+ * back once usage is available again, writing a notice in its transcript for each (codex-rs
+ * tui/src/app/backend_banner_fallback.rs) that no setting turns off. An answer opens with the same
+ * bullet, so a notice counts only while the status line, the screen's last line, shows the model it
+ * switched to. The reserve model codex switches to (`gpt-reserve`, shown as Luna Reserve) cannot be
+ * chosen by hand: a status line showing it is a switch, though its notice scrolled out of the read.
+ * Returns what the screen says of the switch.
  */
 export function codexModelSwitch(output: string | undefined): string | undefined {
   if (!output) return undefined;
   const lines = stripVTControlCharacters(output).split("\n");
+  const last = [...lines].reverse().find((line) => line.trim() !== "")?.trim() ?? "";
+  const shown = last.includes(" · ") ? last.slice(0, last.indexOf(" · ")) : undefined;
   for (let at = lines.length - 1; at >= 0; at--) {
     const head = /^\s*•\s+(Automatically switched .*)$/.exec(lines[at]!);
     if (!head) continue;
@@ -232,9 +242,16 @@ export function codexModelSwitch(output: string | undefined): string | undefined
     for (let next = at + 1; next < Math.min(lines.length, at + 4) && !notice.endsWith(".") && /^\s*[^\s•›■]/.test(lines[next]!); next++) {
       notice = `${notice} ${lines[next]!.trim()}`;
     }
-    if (notice.startsWith("Automatically switched back to ")) return undefined;
-    if (/^Automatically switched to .+ due to usage limits\.$/.test(notice)) return notice;
+    if (notice.startsWith("Automatically switched back to ")) break;
+    const target = /^Automatically switched to (.+) due to usage limits\.$/.exec(notice)?.[1];
+    if (!target) continue;
+    // the target is the model and its level; a model without a level (codex-auto-*) is one word
+    const words = target.split(" ");
+    const model = modelKey(words.length > 1 ? words.slice(0, -1).join(" ") : target);
+    if (shown === undefined || modelKey(shown).startsWith(model)) return notice;
+    break;
   }
+  if (shown !== undefined && /^(?:lunareserve|gptreserve)/.test(modelKey(shown))) return `codex runs on ${shown}, the reserve model it switches to by itself on usage limits`;
   return undefined;
 }
 
@@ -261,6 +278,8 @@ export const codexAdapter: AgentAdapter = {
       // near its usage limit codex opens a selection whose first item switches to another model, and
       // the Enter the fleet sends after a message would choose it (codex-rs tui/src/chatwidget/rate_limits.rs)
       "-c", "notice.hide_rate_limit_model_nudge=true",
+      // the model in use opens the status line, where codexModelSwitch reads it
+      "-c", `tui.status_line=${JSON.stringify(CODEX_STATUS_LINE)}`,
       // approvals go to codex's automatic review; commands stay in the workspace-write sandbox
       "--approve-for-me",
       "--add-dir", options.resultDir,

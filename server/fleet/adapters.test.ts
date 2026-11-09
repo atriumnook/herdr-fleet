@@ -61,7 +61,7 @@ describe("codex adapter", () => {
   it("passes the instructions as developer_instructions on one argv line, and the level as reasoning effort", () => {
     const args = codex.launchArgs({ ...base, model: "gpt-5.5", thinking: "max" });
     expect(args).toEqual([
-      "--model", "gpt-5.5", "-c", 'model_reasoning_effort="max"', "-c", expect.stringMatching(/^developer_instructions="Be brief\.\\nSay \\"done\\"\.\\n\\n/), "-c", "notice.hide_rate_limit_model_nudge=true", "--approve-for-me", "--add-dir", "/state/results/r1",
+      "--model", "gpt-5.5", "-c", 'model_reasoning_effort="max"', "-c", expect.stringMatching(/^developer_instructions="Be brief\.\\nSay \\"done\\"\.\\n\\n/), "-c", "notice.hide_rate_limit_model_nudge=true", "-c", 'tui.status_line=["model-with-reasoning","current-dir"]', "--approve-for-me", "--add-dir", "/state/results/r1",
     ]);
     expect(args.some((arg) => arg.includes("\n"))).toBe(false);
   });
@@ -98,6 +98,27 @@ describe("codex adapter", () => {
     expect(rateLimitUntil(codex.turnError(screen)!)).toBeUndefined();
     // wrapped in a narrow pane, with colors
     expect(codex.modelSwitch?.("\x1b[2m• \x1b[0mAutomatically switched to Luna Reserve\nmedium due to usage limits.\n")).toBe("Automatically switched to Luna Reserve medium due to usage limits.");
+  });
+
+  // codex-rs tui/src/chatwidget/status_surfaces.rs: the status line under the input names the model in use
+  it("starts codex with a status line that opens with the model in use, so the fleet can read it off the screen", () => {
+    const args = codex.launchArgs(base);
+    expect(args[args.indexOf('tui.status_line=["model-with-reasoning","current-dir"]') - 1]).toBe("-c");
+  });
+
+  it("takes the switch notice for an answer that quotes it when the status line still shows another model", () => {
+    // an assistant message opens with the same dim bullet as the notice (codex-rs AgentMarkdownCell)
+    expect(codex.modelSwitch?.(`› What does codex say on a usage limit?\n\n${SWITCHED}\n\n› Ask Codex to do anything\n\n  GPT-5.5 high · ~/repo`)).toBeUndefined();
+    // the status line names a model by its catalog name (models-manager/models.json), the notice by its slug
+    expect(codex.modelSwitch?.("• Automatically switched to gpt-6.1-terra medium due to usage limits.\n\n› Ask Codex to do anything\n\n  GPT-6.1 Terra medium · ~/repo")).toBe("Automatically switched to gpt-6.1-terra medium due to usage limits.");
+  });
+
+  it("fails a turn whose status line shows the reserve model, once the switch notice scrolled out of what the fleet reads", () => {
+    const failure = codex.modelSwitch?.("• Fixed it and ran the tests.\n\n› Ask Codex to do anything\n\n  Luna Reserve medium · ~/repo\n\n");
+    expect(failure).toBe("codex runs on Luna Reserve medium, the reserve model it switches to by itself on usage limits");
+    expect(rateLimitUntil(failure!)).toBeUndefined();
+    expect(codex.modelSwitch?.("• Fixed it.\n\n› Ask Codex to do anything\n\n  gpt-reserve low · ~/repo")).toBe("codex runs on gpt-reserve low, the reserve model it switches to by itself on usage limits");
+    expect(codex.modelSwitch?.("• Fixed it.\n\n› Ask Codex to do anything\n\n  GPT-5.5 high · ~/repo")).toBeUndefined();
   });
 
   it("does not fail a turn once codex switched back, or on the notice's words quoted in a message", () => {
