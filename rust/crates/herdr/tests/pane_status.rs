@@ -604,6 +604,54 @@ async fn reopens_the_whole_status_connection_when_the_pane_set_changes() {
     collector.stop();
 }
 
+/// A status connection that never runs dry holds back neither the other connections, nor the
+/// timers, nor a snapshot's answer: a pane created while status frames keep coming still gets the
+/// status connection reopened with it (Bun's event loop turns to timers and other sockets between
+/// reads of one socket).
+#[tokio::test(start_paused = true)]
+async fn a_status_connection_that_never_runs_dry_holds_nothing_else_back() {
+    let herdr = FakeHerdr::new(vec![pane("w1:p1", "idle")]);
+    let recorder = Arc::new(Recorder::default());
+    let collector = start(&herdr, &recorder, fast());
+    tick(0).await;
+    let first = herdr.status().unwrap();
+    first.start().await;
+    tick(20).await;
+    // frames of no status: they take the connection's turn and tell the handler nothing. Three
+    // senders fill the buffer faster than the collector drains it (each task gets Tokio's same
+    // budget a turn), as herdr's client does when one read brings many frames.
+    let floods: Vec<_> = (0..3)
+        .map(|_| {
+            let sender = first.sender.lock().unwrap().clone().unwrap();
+            tokio::spawn(async move {
+                let frame = EventFrame {
+                    event: Some("pane.output_changed".to_owned()),
+                    data: json!({ "pane_id": "w1:p1" }),
+                };
+                while sender.send(StreamItem::Event(frame.clone())).await {}
+            })
+        })
+        .collect();
+    herdr.set_panes(vec![pane("w1:p1", "idle"), pane("w2:p1", "idle")]);
+    herdr.lifecycle().emit(created("w2:p1")).await;
+    // the flood keeps the runtime busy, so the paused clock moves only by hand
+    for _ in 0..20 {
+        tokio::time::advance(ms(5)).await;
+        for _ in 0..300 {
+            tokio::task::yield_now().await;
+        }
+    }
+    assert!(first.closed_by_collector());
+    assert_eq!(
+        herdr.status().unwrap().pane_ids,
+        strings(&["w1:p1", "w2:p1"])
+    );
+    collector.stop();
+    for flood in floods {
+        flood.await.unwrap();
+    }
+}
+
 /// `PaneStatusOptions::focus` chooses whether the focus connection opens.
 #[tokio::test(start_paused = true)]
 async fn opens_the_focus_connection_only_when_asked() {

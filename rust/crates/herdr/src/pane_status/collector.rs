@@ -166,6 +166,12 @@ impl Reconcile {
     }
 }
 
+/// Connection items [`Collector::run`] reads in a row before one wake takes any ready branch at
+/// random: one full buffer of a connection (`BUFFERED_ITEMS` in `events.rs`) is read in order, but
+/// a connection that never runs dry cannot keep the other connections, the timers or a snapshot's
+/// answer waiting (Bun turns to timers and other sockets between reads of one socket).
+const CONNECTION_BURST: u32 = 256;
+
 enum Wake {
     Status(Option<StreamItem>),
     Lifecycle(ResilientWake),
@@ -270,20 +276,35 @@ impl Collector {
         let period = self.options.backstop;
         let mut backstop: Interval = interval_at(Instant::now() + period, period);
         backstop.set_missed_tick_behavior(MissedTickBehavior::Delay);
+        let mut burst = 0;
         loop {
             if self.stopped() {
                 return;
             }
+            macro_rules! next_wake {
+                ($($biased:ident)?) => {
+                    tokio::select! {
+                        $($biased;)?
+                        item = status_item(&mut self.status) => Wake::Status(item),
+                        wake = self.lifecycle.wake() => Wake::Lifecycle(wake),
+                        wake = focus_wake(&mut self.focus) => Wake::Focus(wake),
+                        wake = self.reconcile.wake() => Wake::Reconcile(wake),
+                        () = fire(&mut self.reconcile_timer) => Wake::Timer,
+                        _ = backstop.tick() => Wake::Backstop,
+                    }
+                };
+            }
             // Connections first: an event read in the same turn as a snapshot's answer came
-            // before it, as Bun runs the event's callback before the answer's continuation.
-            let wake = tokio::select! {
-                biased;
-                item = status_item(&mut self.status) => Wake::Status(item),
-                wake = self.lifecycle.wake() => Wake::Lifecycle(wake),
-                wake = focus_wake(&mut self.focus) => Wake::Focus(wake),
-                wake = self.reconcile.wake() => Wake::Reconcile(wake),
-                () = fire(&mut self.reconcile_timer) => Wake::Timer,
-                _ = backstop.tick() => Wake::Backstop,
+            // before it, as Bun runs the event's callback before the answer's continuation. Past
+            // CONNECTION_BURST connection items in a row, any ready branch may go first.
+            let wake = if burst < CONNECTION_BURST {
+                next_wake!(biased)
+            } else {
+                next_wake!()
+            };
+            burst = match wake {
+                Wake::Status(_) | Wake::Lifecycle(_) | Wake::Focus(_) => burst + 1,
+                Wake::Reconcile(_) | Wake::Timer | Wake::Backstop => 0,
             };
             if self.stopped() {
                 return;
