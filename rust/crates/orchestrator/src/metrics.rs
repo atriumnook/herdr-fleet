@@ -141,14 +141,36 @@ pub struct MetricsInput<'a> {
     /// for 7 days), or one whose last state event failed to be written, stays working in the log. A
     /// run whose last state event up to `to` is working or starting, but that is not here or is here
     /// in another state, is taken to have stood still from that event on: the last time it was seen
-    /// moving.
+    /// moving. The map holds every run of the registry: a run left out of it counts as not moving,
+    /// so an empty map takes every run the log leaves moving as still.
     pub current: &'a HashMap<String, AgentState>,
 }
 
 /// The events of the log at `file`, after those of the file it moved to when it reached its limit
 /// ([`rotated_path`]), skipping a line that does not parse; none from a missing file.
 pub fn read_events(file: &Path) -> Vec<TimedEvent> {
-    [rotated_path(file), file.to_path_buf()]
+    // The log may move to the rotated file between the two reads, which would lose a whole file of
+    // events: read again while the rotated file changes under the reads (a move happens once per
+    // 8 MiB of events, so a second read finds it settled).
+    let rotated = rotated_path(file);
+    let stamp = || {
+        std::fs::metadata(&rotated)
+            .ok()
+            .map(|meta| (meta.len(), meta.modified().ok()))
+    };
+    let mut events = Vec::new();
+    for _ in 0..3 {
+        let before = stamp();
+        events = read_files(&[rotated.clone(), file.to_path_buf()]);
+        if stamp() == before {
+            break;
+        }
+    }
+    events
+}
+
+fn read_files(paths: &[std::path::PathBuf]) -> Vec<TimedEvent> {
+    paths
         .iter()
         .flat_map(|path| {
             // line by line: a byte that is not UTF-8 loses its line only
@@ -166,12 +188,13 @@ fn is_moving(state: AgentState) -> bool {
     matches!(state, AgentState::Working | AgentState::Starting)
 }
 
-/// The name an agent goes by in the log and the report.
+/// The name an agent goes by in the log and the report: `FleetAgentKind`'s own serde name, as
+/// `launch`'s `kind_name` reads it.
 fn agent_name(agent: FleetAgentKind) -> String {
-    serde_json::to_value(agent)
-        .ok()
-        .and_then(|value| value.as_str().map(str::to_owned))
-        .unwrap_or_default()
+    match serde_json::to_value(agent) {
+        Ok(serde_json::Value::String(name)) => name,
+        _ => format!("{agent:?}"),
+    }
 }
 
 /// The runs of `project` in the events: its coordinator and threads, and the helpers in their
@@ -236,41 +259,24 @@ impl Counts {
 /// the fleet recorded one).
 struct StartCounts<'a> {
     version_of: HashMap<&'a str, &'a RoleEvent>,
-    by_agent: Vec<(FleetAgentKind, Counts)>,
-    by_version: Vec<((String, String), Option<&'a RoleEvent>, Counts)>,
+    by_agent: IndexMap<FleetAgentKind, Counts>,
+    /// by the role and its version's hash (empty for no recorded version), as metrics.ts keys them
+    by_version: IndexMap<(String, String), (Option<&'a RoleEvent>, Counts)>,
 }
 
 impl<'a> StartCounts<'a> {
     fn count(&mut self, event: &StateEvent, key: Count) {
-        match self
-            .by_agent
-            .iter_mut()
-            .find(|(agent, _)| *agent == event.agent)
-        {
-            Some((_, counts)) => counts.add(key),
-            None => {
-                let mut counts = Counts::default();
-                counts.add(key);
-                self.by_agent.push((event.agent, counts));
-            }
-        }
+        self.by_agent.entry(event.agent).or_default().add(key);
         let version = self.version_of.get(event.run.as_str()).copied();
         let version_key = (
             event.role.clone(),
             version.map(|v| v.hash.clone()).unwrap_or_default(),
         );
-        match self
-            .by_version
-            .iter_mut()
-            .find(|(k, _, _)| *k == version_key)
-        {
-            Some((_, _, counts)) => counts.add(key),
-            None => {
-                let mut counts = Counts::default();
-                counts.add(key);
-                self.by_version.push((version_key, version, counts));
-            }
-        }
+        self.by_version
+            .entry(version_key)
+            .or_insert_with(|| (version, Counts::default()))
+            .1
+            .add(key);
     }
 }
 
@@ -312,8 +318,8 @@ pub fn metrics(input: &MetricsInput<'_>) -> FactoryMetrics {
     }
     let mut counts = StartCounts {
         version_of,
-        by_agent: Vec::new(),
-        by_version: Vec::new(),
+        by_agent: IndexMap::new(),
+        by_version: IndexMap::new(),
     };
     // each run's last state change in the window, its open turn's end (cleared when it works again),
     // and whether its start failed
@@ -403,7 +409,7 @@ pub fn metrics(input: &MetricsInput<'_>) -> FactoryMetrics {
             row.none += 1;
         }
     }
-    reports.sort_by_key(|row| agent_name(row.agent));
+    reports.sort_by_cached_key(|row| agent_name(row.agent));
 
     let restart_events: Vec<&RestartEvent> = in_window
         .iter()
@@ -451,12 +457,12 @@ pub fn metrics(input: &MetricsInput<'_>) -> FactoryMetrics {
             }
         })
         .collect();
-    starts.sort_by_key(|row| agent_name(row.agent));
+    starts.sort_by_cached_key(|row| agent_name(row.agent));
     // per role, the recorded versions by hash, then the runs of no recorded version
     let mut roles: Vec<RoleStarts> = counts
         .by_version
         .iter()
-        .map(|((role, _), version, counts)| RoleStarts {
+        .map(|((role, _), (version, counts))| RoleStarts {
             role: role.clone(),
             hash: version.map(|v| v.hash.clone()),
             source: version.map(|v| v.source.clone()),

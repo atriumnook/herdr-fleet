@@ -40,6 +40,7 @@ architect(fleet の run `035296bf`)に問い、その答えに従った。
 ### 出来事の記録の読み方
 
 - `read_events` は、`rotated_path(file)` を先に、次に `file` を読む。片方がなくても、ある方を読む(#259 への atriumnook のコメント、2026-11-09T04:07)
+- 2 つのファイルを読む間に記録が `<file>.1` に移ると、移った世代を読み落とす。そのため、`<file>.1` の大きさと更新時刻が読む前と後で違えば、3 回まで読み直す(`/code-review high` の指摘)
 - バイト列を `\n` で分け、行ごとに `serde_json::from_slice` で読む。読めない行と空白だけの行は飛ばす。UTF-8 でないバイトがある行は、その行だけが読めなくなる
 - 古い記録にある `anomaly` の行は `TimedEvent` に読めないので飛ばす。#238 で取り込んだ main は `anomaly` の出来事を書かなくなり、代わりに書く `restart` の出来事を metrics が読む(#189 の 7)。metrics.ts も `anomaly` を数えないので、数は変わらない
 
@@ -59,7 +60,7 @@ architect(fleet の run `035296bf`)に問い、その答えに従った。
 ## 結果
 
 - API(#269)は、`read_events` の結果、`gh` の 2 つの `Listing`、registry の run の状態、サーバーの `TimeZone` を渡して報告を作る
-- 残る隙間: サーバーが止まっていた間に終わった run は、再起動したサーバーがその時刻に終わりの出来事を書くまで、動いていると数えられる。herdr はサーバーが止まっている間もペインを動かすので、その時間は「動いていたか分からない時間」である。サーバーの起動の出来事と、報告でのこの時間の示し方は、#303 で決める
+- 直らない場合: サーバーが止まっていた間に終わった run は、再起動したサーバーがその時刻に終わりの出来事を書くまで、動いていると数えられる。herdr はサーバーが止まっている間もペインを動かすので、その時間は「動いていたか分からない時間」である。サーバーの起動の出来事と、報告でのこの時間の示し方は、#303 で決める
 - metrics.ts と違う振る舞いは、上の 4 つと、#189 の 1 の 1 つ: `interactive` も `turn` の出来事もない古い出来事の run が `stopped` で終わったとき、「HANDOFF なしで終わった」と数えない(lead だったかもしれないため)。`failed` で終わった run は、これまでどおり数える
 - 役割の名前の並べ替えは、バイトの順にする。metrics.ts は `localeCompare` で並べる。役割の名前が英小文字と数字とハイフンだけなら、2 つの順は同じになる。agent の名前は英小文字だけなので、同じ順になる
 
@@ -67,5 +68,5 @@ architect(fleet の run `035296bf`)に問い、その答えに従った。
 
 PC は Linux 7.2.15(omarchy)、`rust/` で実行した。
 
-- `cargo test --locked -p herdr-fleet-orchestrator --test metrics`: metrics.test.ts の 10 件と、Rust 版が違う箇所の件が通った
+- `cargo test --locked -p herdr-fleet-orchestrator --test metrics`: metrics.test.ts から移した 10 件と、Rust 版の振る舞い(報告の全文、地域の時刻、metrics.ts と違う振る舞い)を確かめる 10 件の、計 20 件が通った
 - metrics.test.ts の `result` の報告を、bun 1.4.4 で `TZ=Etc/GMT-1` にして metrics.ts の `render` で書き、Rust の `render` の出力(同じ出来事、地域は UTC+1 の固定)と全文が一致した
