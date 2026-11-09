@@ -74,10 +74,33 @@ pub fn looks_secret(path: &str) -> bool {
             .any(|part| SECRET_FOLDERS.contains(&part.to_lowercase().as_str()))
 }
 
-/// Node's posix `basename`: the part after the last `/`, trailing slashes left out.
+/// Node's `basename` for the platform the fleet runs on: `path.win32` on Windows, where `\` also
+/// separates folders, and `path.posix` elsewhere.
 fn basename(path: &str) -> &str {
+    if cfg!(windows) {
+        win32_basename(path)
+    } else {
+        posix_basename(path)
+    }
+}
+
+/// `path.posix.basename`: the part after the last `/`, trailing slashes left out.
+fn posix_basename(path: &str) -> &str {
     let trimmed = path.trim_end_matches('/');
     trimmed.rsplit('/').next().unwrap_or("")
+}
+
+/// `path.win32.basename`: a leading drive (`C:`) left out, then the part after the last `/` or
+/// `\`, trailing separators left out.
+fn win32_basename(path: &str) -> &str {
+    let bytes = path.as_bytes();
+    let path = if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        &path[2..]
+    } else {
+        path
+    };
+    let trimmed = path.trim_end_matches(['/', '\\']);
+    trimmed.rsplit(['/', '\\']).next().unwrap_or("")
 }
 
 /// Node's `resolve(root, path)`: `path` on `root`, or alone when absolute, made absolute and with
@@ -654,4 +677,37 @@ fn open_no_follow(path: &Path) -> io::Result<File> {
         return Err(io::Error::other("a symlink"));
     }
     File::open(path)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{posix_basename, win32_basename};
+
+    /// Node's `path.win32.basename` and `path.posix.basename` for the same strings (bun 1.4.4), the
+    /// one `basename` takes on Windows and the one it takes elsewhere.
+    #[test]
+    fn takes_the_name_as_node_does_on_each_platform() {
+        let cases = [
+            ("config\\.env", ".env", "config\\.env"),
+            (
+                "config\\secrets.json",
+                "secrets.json",
+                "config\\secrets.json",
+            ),
+            ("C:.env", ".env", "C:.env"),
+            ("C:\\work\\id_rsa", "id_rsa", "C:\\work\\id_rsa"),
+            ("a\\b\\", "b", "a\\b\\"),
+            ("C:", "", "C:"),
+            ("a/b\\.env\\\\", ".env", "b\\.env\\\\"),
+            (
+                "\\\\server\\share\\.npmrc",
+                ".npmrc",
+                "\\\\server\\share\\.npmrc",
+            ),
+        ];
+        for (path, win32, posix) in cases {
+            assert_eq!(win32_basename(path), win32, "win32 {path:?}");
+            assert_eq!(posix_basename(path), posix, "posix {path:?}");
+        }
+    }
 }

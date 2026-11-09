@@ -4,7 +4,7 @@
 //! branch's `server/fleet/plan.ts`).
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicU32, Ordering};
 
 use herdr_fleet_orchestrator::FleetError;
@@ -94,7 +94,7 @@ fn lines(texts: &[&str]) -> Vec<String> {
 }
 
 #[cfg(unix)]
-fn symlink(target: &Path, link: &Path) {
+fn symlink(target: &std::path::Path, link: &std::path::Path) {
     std::os::unix::fs::symlink(target, link).unwrap();
 }
 
@@ -144,7 +144,7 @@ fn is_never_read_outside_the_worktree() {
 }
 
 /// server/fleet/plan.test.ts: "never shows an environment file, a key or credentials, by the name written or the one a symlink leads to"
-#[cfg(unix)]
+/// (the symlink's part on unix alone, where the test can make one)
 #[test]
 fn never_shows_an_environment_file_a_key_or_credentials() {
     let w = Worktree::new();
@@ -175,11 +175,14 @@ fn never_shows_an_environment_file_a_key_or_credentials() {
             &format!("{name} looks like a secret"),
         );
     }
-    symlink(&w.tree.join(".env"), &w.tree.join("src/settings.txt"));
-    assert_fails(
-        read_code_lines(&w.tree, "src/settings.txt", 1, 1),
-        "src/settings.txt looks like a secret",
-    );
+    #[cfg(unix)]
+    {
+        symlink(&w.tree.join(".env"), &w.tree.join("src/settings.txt"));
+        assert_fails(
+            read_code_lines(&w.tree, "src/settings.txt", 1, 1),
+            "src/settings.txt looks like a secret",
+        );
+    }
     // ordinary source whose name only starts like one is shown
     for name in [
         "src/environment.ts",
@@ -194,6 +197,26 @@ fn never_shows_an_environment_file_a_key_or_credentials() {
         assert_eq!(
             read_code_lines(&w.tree, name, 1, 1).unwrap(),
             ["export {};"]
+        );
+    }
+}
+
+/// On Windows, Node's `basename` also splits at `\`, so a secret's name written with backslashes
+/// is refused there too. The names are what `path.win32.basename` gives (bun 1.4.4), each one
+/// that TypeScript's `looksSecret` refuses.
+#[cfg(windows)]
+#[test]
+fn never_shows_a_secret_named_with_backslashes_on_windows() {
+    let w = Worktree::new();
+    for (written, file) in [
+        ("config\\.env", "config/.env"),
+        ("config\\secrets.json", "config/secrets.json"),
+        ("keys\\id_rsa", "keys/id_rsa"),
+    ] {
+        w.write(file, "TOKEN=abc\n");
+        assert_fails(
+            read_code_lines(&w.tree, written, 1, 1),
+            &format!("{written} looks like a secret"),
         );
     }
 }
