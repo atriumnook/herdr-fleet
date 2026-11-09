@@ -17,10 +17,12 @@ pub struct SystemClock;
 
 impl Clock for SystemClock {
     fn now_ms(&self) -> i64 {
-        let since = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("the system clock is after 1970");
-        i64::try_from(since.as_millis()).expect("milliseconds since 1970 fit an i64")
+        // a clock set before 1970 reads negative, as `Date.now()` does
+        let (since, sign) = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(since) => (since, 1),
+            Err(before) => (before.duration(), -1),
+        };
+        sign * i64::try_from(since.as_millis()).unwrap_or(i64::MAX)
     }
 }
 

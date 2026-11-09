@@ -35,6 +35,9 @@ cli = { package = "herdr-fleet-cli", path = "crates/cli" }
 # are in docs/rust-migration/adr/0193-phase-2-dependencies.md. Features merge
 # across the workspace, so serde_json's features are written here once.
 base64 = "0.23.1"
+# Maps that keep the order JSON objects were read in, as JavaScript's objects do
+# (ADR 0244-phase-3-dependencies); serde_json's preserve_order already uses it.
+indexmap = { version = "2.14.2", features = ["serde"] }
 regex = "1.13.1"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = { version = "1.0.154", features = ["float_roundtrip", "preserve_order"] }

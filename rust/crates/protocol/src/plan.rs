@@ -2,8 +2,7 @@
 //! answers in place, before the lead builds a large change. This module holds the types and the
 //! limits; the checks (`parsePlan`, `numberClaims`, `planAsks`, `planOpen`) come with #250.
 
-use std::collections::BTreeMap;
-
+use indexmap::IndexMap;
 use serde::{Deserialize, Serialize};
 
 /// A plan as the lead writes it and the server keeps it.
@@ -128,8 +127,8 @@ pub struct PlanOption {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PlanAnswer {
     pub version: u32,
-    /// The option picked for each decision, by its id.
-    pub choices: BTreeMap<String, String>,
+    /// The option picked for each decision, by its id, in the order the object lists them.
+    pub choices: IndexMap<String, String>,
     /// The decisions the person looked at: the others keep the lead's recommendation, unopened.
     pub seen: Vec<String>,
     /// Comments on claims, by the claim's number (1, 1.2, 1.2.1, shared).

@@ -392,3 +392,192 @@ fn the_routes_are_the_ones_the_cli_calls_and_the_server_answers() {
         }
     }
 }
+
+/// A JavaScript object keeps the order its keys were added in, and so do the maps of a patch and
+/// of a plan's answers: a written fleet.json and a stored plan list them as the person sent them.
+#[test]
+fn maps_keep_the_order_the_object_lists_them_in() {
+    let patch = json!({
+        "roles": { "zeta": null, "alpha": { "candidates": [] }, "mid": null },
+        "projects": { "/z": { "setup": "a" }, "/a": { "setup": "b" } },
+    });
+    let read: FleetSettingsPatch = serde_json::from_value(patch.clone()).unwrap();
+    assert_eq!(
+        serde_json::to_string(&read).unwrap(),
+        serde_json::to_string(&patch).unwrap()
+    );
+    let mut answered = plan();
+    answered["answer"]["choices"] = json!({ "store": "db", "cache": "none", "auth": "token" });
+    let read: Plan = serde_json::from_value(answered.clone()).unwrap();
+    assert_eq!(
+        serde_json::to_value(&read).unwrap()["answer"]["choices"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        ["store", "cache", "auth"]
+    );
+}
+
+/// fleet.json's counts are floored with no upper bound (`server/fleet/config.ts`'s `count`), so the
+/// settings may carry one past `u32`.
+#[test]
+fn the_settings_carry_counts_past_u32() {
+    round_trip::<FleetSettings>(json!({
+        "file": "/f", "roles": [], "maxUsedPercent": 90, "rateLimitCooldownMinutes": 5_000_000_000_i64,
+        "maxConcurrent": 10_000_000_000_i64, "closeOnSettle": false, "language": "", "projects": [],
+        "readOnlyAgents": [],
+    }));
+}
+
+/// The string values of each string union of `shared/fleet.ts`, in its order: `name` is the type
+/// alias, or `interface.field` for a field's inline union.
+fn union(source: &str, name: &str) -> Vec<String> {
+    let pattern = match name.split_once('.') {
+        None => format!(r"export type {name} = ([^;]+);"),
+        Some((interface, field)) => {
+            format!(r"(?s)export interface {interface} \{{.*?\n  {field}\??: ([^;]+);")
+        }
+    };
+    let found = Regex::new(&pattern)
+        .unwrap()
+        .captures(source)
+        .unwrap_or_else(|| panic!("{name} in shared/fleet.ts"))[1]
+        .to_owned();
+    Regex::new(r#""([^"]+)""#)
+        .unwrap()
+        .captures_iter(&found)
+        .map(|value| value[1].to_owned())
+        .collect()
+}
+
+/// Every enum of the fleet's types writes the strings its union in `shared/fleet.ts` names, and
+/// reads each of them.
+#[test]
+fn the_enums_spell_typescripts_values() {
+    use herdr_fleet_protocol::{
+        AgentState, ChecksState, ContractState, EntranceId, EntranceState, FleetAgentKind, Landed,
+        PullRequestState, ThinkingLevel, ThreadState,
+    };
+    fn check<T: Serialize + DeserializeOwned + PartialEq + std::fmt::Debug>(
+        source: &str,
+        name: &str,
+        all: &[T],
+    ) {
+        let typescript = union(source, name);
+        let rust: Vec<String> = all
+            .iter()
+            .map(|value| {
+                serde_json::to_value(value)
+                    .unwrap()
+                    .as_str()
+                    .unwrap()
+                    .to_owned()
+            })
+            .collect();
+        assert_eq!(rust, typescript, "{name}");
+        for (text, value) in typescript.iter().zip(all) {
+            assert_eq!(&serde_json::from_value::<T>(json!(text)).unwrap(), value);
+        }
+    }
+    let source = fs::read_to_string(repository().join("shared/fleet.ts")).unwrap();
+    use ThinkingLevel as T;
+    check(
+        &source,
+        "ThinkingLevel",
+        &[
+            T::Off,
+            T::Minimal,
+            T::Low,
+            T::Medium,
+            T::High,
+            T::Xhigh,
+            T::Max,
+        ],
+    );
+    use AgentState as A;
+    check(
+        &source,
+        "AgentState",
+        &[
+            A::Starting,
+            A::Working,
+            A::Idle,
+            A::Done,
+            A::Blocked,
+            A::Unknown,
+            A::Failed,
+            A::Stopped,
+        ],
+    );
+    use FleetAgentKind as K;
+    check(
+        &source,
+        "FleetAgentKind",
+        &[K::Pi, K::Claude, K::Codex, K::Cursor, K::Agy, K::Opencode],
+    );
+    check(&source, "LandAction", &LandAction::ALL);
+    use ThreadState as S;
+    check(
+        &source,
+        "ThreadState",
+        &[
+            S::Working,
+            S::Waiting,
+            S::Review,
+            S::Landing,
+            S::Idle,
+            S::Failed,
+            S::Ended,
+            S::Resolved,
+        ],
+    );
+    check(
+        &source,
+        "PullRequest.state",
+        &[
+            PullRequestState::Open,
+            PullRequestState::Merged,
+            PullRequestState::Closed,
+        ],
+    );
+    check(
+        &source,
+        "PullRequest.checks",
+        &[
+            ChecksState::Pending,
+            ChecksState::Pass,
+            ChecksState::Fail,
+            ChecksState::None,
+        ],
+    );
+    check(
+        &source,
+        "ContractItem.state",
+        &[
+            ContractState::Met,
+            ContractState::Open,
+            ContractState::Unmet,
+        ],
+    );
+    check(
+        &source,
+        "AgentRun.landed",
+        &[Landed::Merged, Landed::Discarded],
+    );
+    check(
+        &source,
+        "FleetEntrance.id",
+        &[EntranceId::Claude, EntranceId::Agents, EntranceId::Gemini],
+    );
+    check(
+        &source,
+        "FleetEntrance.state",
+        &[
+            EntranceState::Installed,
+            EntranceState::Missing,
+            EntranceState::Outdated,
+            EntranceState::Taken,
+        ],
+    );
+}

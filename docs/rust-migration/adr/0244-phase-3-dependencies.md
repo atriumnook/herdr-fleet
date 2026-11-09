@@ -37,6 +37,7 @@ CLI が読む型は protocol の公開の口(crate の interface)なので、arc
 | jiff | cli | 既定(`std`、`tz-system`、`tzdb-bundle-platform`、`tzdb-zoneinfo`、`tzdb-concatenated`、`perf-inline`) | `run` に渡された `TZ` の名前から地域の時刻を作る。名前を引くのに tz データベースが要り、Windows では同梱のもの(`tzdb-bundle-platform`)を使う。`tz-system` は有効だが、ADR `0242-phase-3-split` のとおり CLI は `TimeZone::system()` を呼ばない |
 | tower | orchestrator(dev) | `util` | テストが `ServiceExt::oneshot` で router を直接呼ぶ |
 | http-body-util | orchestrator(dev) | なし | テストが `BodyExt::collect` で応答の本文を読む |
+| indexmap | protocol | `serde` | `FleetSettingsPatch` の `roles`・`projects` と、`PlanAnswer` の `choices` の map を、JSON のオブジェクトに書かれた順のまま持つ(下の「map の順」) |
 
 workspace にすでにある crate(段階 2 で入れたもの)を、段階 3 の crate に次のとおり足した。新しい外部 crate ではない。
 
@@ -44,7 +45,7 @@ workspace にすでにある crate(段階 2 で入れたもの)を、段階 3 �
 - regex: orchestrator(`server/fleet/adapters.ts` の `stripVTControlCharacters` ほかの正規表現)
 - sha2: orchestrator(`server/fleet/agents.ts:75` の役割のファイルの sha256)
 
-一覧から外したものはない。一覧にない外部 crate も足していない。次のものは足さないと決めた。
+一覧から外したものはない。一覧にない crate として indexmap を足した。理由は下の「map の順」に書いた。indexmap は serde_json の `preserve_order` がすでに使っており(`Cargo.lock` の package は増えない)、足したのは protocol の直接の依存と、indexmap の feature `serde` だけである。次のものは足さないと決めた。
 
 - 乱数の crate(getrandom など): run の id(`server/fleet/registry.ts` の `randomBytes(4)`)は、std の `std::hash::RandomState`(プロセスごとに OS の乱数で鍵を作る)で値を作れる。std の `std::random` は rustc 1.99.1 では不安定の機能(`E0658`)で使えない。どう作るかは #249(L5)が決める
 - 16 進の crate: `format!("{:08x}")` で足りる
@@ -77,6 +78,10 @@ architect の答えに従い、次のとおりにした。
 
 同じ項目名を、サーバーが書く型と `fleet_cli` の型の 2 か所に書くことになる。食い違えば、`protocol/tests/fleet_cli.rs` の照合のテスト(サーバーの型で書いた JSON を `fleet_cli` の型で読み、各項目を比べる)が見つける。
 
+### map の順
+
+JavaScript のオブジェクトは、キーを足した順に並べる(配列の添字の形のキーだけは先に、値の順に並べる)。fleet の型のうち、キーが利用者の決める名前の map(`FleetSettingsPatch` の `roles` と `projects`、`PlanAnswer` の `choices`)は、Rust では `indexmap::IndexMap` にし、読んだ JSON の順のまま持つ。`BTreeMap` にすると名前の順に並べ替わり、settings の store が書く fleet.json と、server が保存する計画の JSON のキーの順が TypeScript と変わる(`/code-review high` の指摘)。添字の形のキーを先に並べる規則は、書くときに `protocol::js::stringify_pretty` が当てる。
+
 ### 数の型
 
 JavaScript の number を、値の出どころで次のとおりに分けた。
@@ -84,7 +89,7 @@ JavaScript の number を、値の出どころで次のとおりに分けた。
 - `Clock`(`Date.now()`)から作る時刻は `i64`: `AgentRun` の `startedAt`・`updatedAt`・`resolvedAt`、`LandingStep` の `at`、計画の `writtenAt`・`answeredAt`・`closedAt`
 - 使用量の時刻と割合は `f64`: `UsageWindow` の `usedPercent`・`resetsAt`、`UsageReading` の `readAt`、`Cooldown` の `until`・`since`。Codex の秒に 1000 を掛けた値は小数を持ちうる。`Cooldown` の `until` は `resetsAt` から作られうる(`server/fleet/usage.ts:277`)
 - 数えるものは整数: `depth`、行の番号、計画の版は `u32`。pull request の番号、差分の行の数、`ahead`・`behind` は `u64`
-- `FleetSettings` の `maxUsedPercent` は `f64`(`server/fleet/config.ts:108` が小数を通す)。`FleetSettingsPatch` の 3 つの数は `f64` にする。整数でない値は、settings の store(#260)が TypeScript と同じ文(`must be a whole number from …`)で断るため
+- `FleetSettings` の `maxUsedPercent`、`rateLimitCooldownMinutes`、`maxConcurrent` は `f64`。`server/fleet/config.ts:108` は `maxUsedPercent` の小数を通し、ほかの 2 つは切り捨てるだけで上限を置かない(`count`、`:97`)ので、fleet.json の値は `u32` を超えうる(`/code-review high` の指摘)。`FleetSettingsPatch` の 3 つの数は `f64` にする。整数でない値は、settings の store(#260)が TypeScript と同じ文(`must be a whole number from …`)で断るため
 - `fleet_cli` の数はすべて `f64`(TypeScript の CLI は number として読むだけ)
 
 serde_json は `f64` の整数を `80.0` と書き、JavaScript の `JSON.stringify` は `80` と書く。JSON の値としては同じで、Web UI と CLI の読み取りは変わらない。書いた文を比べる場面(CLI の `--json` と、数を埋め込む文)は `protocol::js` の関数で書く。
@@ -129,6 +134,7 @@ protocol の `ErrorBody` に、任意の `run: Option<AgentRun>` を足した。
 | jiff | 0.2.41 | crates.io、https://github.com/BurntSushi/jiff | Unlicense OR MIT | 2026-11-08 公開。73 版。2024 年から続き、2026-10 から 2026-11 に 4 版 | なし |
 | tower | 0.5.3 | crates.io、https://github.com/tower-rs/tower | MIT | 2026-01-12 公開。26 版。tower-rs の organization が保守する | なし |
 | http-body-util | 0.1.5 | crates.io、https://github.com/hyperium/http-body | MIT | 2026-08-12 公開。9 版。hyperium の organization が保守する | なし |
+| indexmap | 2.14.2(すでに `Cargo.lock` にあった版) | crates.io、https://github.com/indexmap-rs/indexmap | Apache-2.0 OR MIT | 2026-09-05 公開。57 版。indexmap-rs の organization が保守する | なし |
 
 `Cargo.lock` に新しく入った package は 54 個(上の 8 個を含む)。ライセンスはすべて次のどれか: MIT、MIT OR Apache-2.0、Apache-2.0 OR MIT、Apache-2.0、Unlicense OR MIT、Apache-2.0 WITH LLVM-exception OR Apache-2.0 OR MIT、MIT AND BSD-3-Clause(matchit)、Apache-2.0 OR BSL-1.0(ryu)。推移的な crate の `build.rs` は次のとおり。
 
@@ -143,6 +149,7 @@ protocol の `ErrorBody` に、任意の `run: Option<AgentRun>` を足した。
 - fleet CLI(#251)は、応答を `protocol::fleet_cli` の型と `serde_json::Value` の 2 通りに読み、`--json` を `protocol::js::stringify_pretty` で書き、数を `protocol::js::number_to_string` で文に埋め込む。状態の分岐は `known_state()` の enum の網羅の match で書ける
 - API の Issue(#269)は、エラーを `protocol::ErrorBody` で書き、`wait_timeout` の 408 では `run` を入れる。`FleetError` から `ErrorBody` への変換がある
 - CC(#274)への注意(architect の答えから): `--json` で run を書く 10 件(`focus-json`、`interrupt-json`、`list-json`、`project-json`、`send-failed-json`、`spawn-json`、`thread-brief-json`、`threads-json`、`wait-replaced-json`、`wait-timeout-json`)は、本物の core の応答では件の `stdout` と一致しない。core が `AgentRun` の必須の項目(`herdrName` など)を必ず書き、CLI がそれをそのまま書くため。`usage-json` も、`UsageReading` の項目の順(`windows`、`readAt`)が件(`readAt`、`windows`)と違うので一致しない。CC がこれらの分け方を決める
+- `AgentRun` は、TypeScript が必須とする項目を必須にし、種類と状態を enum で読む。TypeScript の registry は `runs.json` を検査せずに読み、`id` と `paneId` が文字列の run をすべて残す(`server/fleet/registry.ts:39-45`)。Rust の registry(#249)が `runs.json` を `Vec<AgentRun>` として一度に読むと、1 件の読み取りの失敗で全件を失う。#249 は 1 件ずつ読み、読めない run をどう扱うかを決めて PR に書く(`/code-review high` の指摘)
 - #275 が終わるまで、`JSON.stringify` の写しが protocol と transcript の 2 か所にある
 - `protocol/src/plan.rs` は型と `PLAN_LIMITS` だけを持つ。`parsePlan`、`numberClaims`、`planAsks`、`planOpen` は #250(L7)が足す
 
@@ -155,7 +162,8 @@ PC は Linux 7.2.15(omarchy)、rustc 1.99.1、`rust/` で実行した。
   - `cargo test --locked -p herdr-fleet-protocol --test fleet_cli`: 項目に serde の属性を付けない素朴な型で 5 件すべてが失敗した。corpus の往復では、JSON の本文 67 個のうち 46 個が一致しなかった(例: `list-json: GET /runs: wrote {"runs":[{…,"pane_id":null,…}]}`)
   - `cargo test --locked -p herdr-fleet-protocol --test js`: `JSON.stringify` の 3 件が stub の `todo!()` で失敗した(`panicked at crates/protocol/src/js/json.rs:7:5`)
   - `cargo test --locked -p herdr-fleet-orchestrator`: `clock` と `error` の 3 件が stub の `todo!()` で失敗した
-- 実装のあと、`cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`(232 件)、`cargo test --locked -p herdr-fleet-protocol` が通った
+- `/code-review high` の指摘で足したテスト(`fleet_types.rs` の map の順と、`u32` を超える数)は、直す前のコードで 2 件とも失敗した(`maps_keep_the_order_the_object_lists_them_in` はキーの順の違い、`the_settings_carry_counts_past_u32` は読み取りのエラー)
+- 実装のあと、`cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`(235 件)、`cargo test --locked -p herdr-fleet-protocol` が通った
 - CI の手順 `Parsing crates have no I/O dependencies`(`.github/workflows/rust.yml`)を手元で走らせ、終了コード 0 だった。screen と transcript から届く package に tokio、axum、hyper、herdr、child-process はなかった
 - `PLAN_LIMITS`、`REPORT_STATES` と `LandAction::ALL` の順、`/api/fleet` のルートは、テストが TypeScript のファイル(`shared/plan.ts`、`server/fleet/api.ts`)と corpus の要求の path を読んで比べる
 - std の `std::random::random` を rustc 1.99.1 で compile し、`error[E0658]: use of unstable library feature 'random'` を確かめた

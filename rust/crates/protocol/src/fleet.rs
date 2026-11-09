@@ -5,9 +5,9 @@
 //! Absent and `null` fields follow ADR 0193-protocol-types (see `crate::absent`): a TypeScript
 //! `field?: T` is an `Option<T>` that is left out when `None`.
 
-use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
+use indexmap::IndexMap;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
 
@@ -635,9 +635,11 @@ pub struct FleetSettings {
     /// A candidate is passed over while a window of its account is used this much (percent).
     pub max_used_percent: f64,
     /// How long an account sits out after a rate limit whose message names no time (minutes).
-    pub rate_limit_cooldown_minutes: u32,
+    /// JavaScript numbers: fleet.json's values are floored but have no upper bound
+    /// (`server/fleet/config.ts`), so they may pass `u32`.
+    pub rate_limit_cooldown_minutes: f64,
     /// Agents starting or working at once.
-    pub max_concurrent: u32,
+    pub max_concurrent: f64,
     /// A helper's pane closes when its turn ends.
     pub close_on_settle: bool,
     /// The language the person reads; empty when unset.
@@ -666,13 +668,13 @@ pub struct ProjectPatch {
 }
 
 /// A change to the person's fleet.json: what is named changes, the rest stays. A role set to
-/// `null` goes back to its file's candidates. The numbers are JavaScript numbers, so the settings
+/// `null` goes back to its file's candidates. The maps keep the order the object lists them in. The numbers are JavaScript numbers, so the settings
 /// store can refuse one that is not whole with its own message.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FleetSettingsPatch {
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub roles: Option<BTreeMap<String, Option<RolePatch>>>,
+    pub roles: Option<IndexMap<String, Option<RolePatch>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_used_percent: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -686,7 +688,7 @@ pub struct FleetSettingsPatch {
     pub language: Option<String>,
     /// An empty setup command removes it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub projects: Option<BTreeMap<String, ProjectPatch>>,
+    pub projects: Option<IndexMap<String, ProjectPatch>>,
 }
 
 /// A folder agent CLIs read skills from, where the Settings page puts the fleet skill.
