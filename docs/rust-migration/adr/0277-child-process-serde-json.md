@@ -40,4 +40,4 @@ PC は Linux 7.2.15(omarchy)、rustc 1.99.1、`rust/` で実行した。
 
 - 変える前に `cargo tree -p herdr-fleet-child-process -e normal --depth 1` を走らせ、serde_json が出ないことを見た(rustix、tokio、tokio-util の 3 つだけ)。変えたあとは `serde_json v1.0.154` が加わった
 - `git diff origin/rust...HEAD -- rust/Cargo.lock`(`git fetch origin rust` のあと)の差分は、`herdr-fleet-child-process` の `dependencies` に `"serde_json"` を足す 1 行だけだった
-- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`(235 件)が通った
+- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` が通った(235 件。`origin/rust` を取り込んだあとは 264 件)
