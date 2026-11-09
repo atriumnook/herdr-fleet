@@ -713,6 +713,30 @@ fn counts_a_repeated_key_once_toward_the_alias_budget() {
     assert_eq!(find(&agents, "dupanchor").edits, Some(false));
 }
 
+// Review regression (codex review fd7a2909): a mapping's merge keys are expanded when the mapping
+// ends, so an alias copies and counts only the keys Bun reads. Six levels that each merge the level
+// below ten times hold one key each; kept unexpanded they would be a million nodes. TypeScript's
+// `discoverAgents` under Bun 1.4.4 read this file with no warning and `edits: false`.
+#[test]
+fn counts_the_expanded_mapping_of_repeated_merge_keys_toward_the_alias_budget() {
+    let mut text = String::from("---\nname: nested\nm0: &m0 {edits: false}\n");
+    for level in 1..=6 {
+        let below = format!("<<: *m{}", level - 1);
+        let merges = [below.as_str(); 10].join(", ");
+        text.push_str(&format!("m{level}: &m{level} {{{merges}}}\n"));
+    }
+    text.push_str("<<: *m6\n---\nx");
+    let fixture = fixture(&[("nested.md", &text)], &[]);
+    let dirs = AgentDirs {
+        bundled: "/nonexistent".into(),
+        user: "/nonexistent".into(),
+    };
+    let mut warnings = Vec::new();
+    let agents = discover_agents(&fixture.cwd, &mut warnings, &dirs);
+    assert_eq!(warnings, Vec::<String>::new());
+    assert_eq!(find(&agents, "nested").edits, Some(false));
+}
+
 // Not in agents.test.ts: a key that is not a string becomes JavaScript's `String()` of it, as in
 // Bun 1.4.4 (ADR 0279's "文字列でないキー"): a sequence is its items joined with `,`, a null item
 // written as nothing, a nested sequence flattened the same way, a mapping `[object Object]`. Bun

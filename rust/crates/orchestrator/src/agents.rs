@@ -292,8 +292,8 @@ fn parse_yaml(text: &str) -> Result<Value, String> {
 
 /// A YAML node before Bun's rules make it JSON. saphyr's own `Yaml` keeps one entry of equal keys,
 /// but Bun expands every merge key of a mapping (`<<: {a: 1}` then `<<: {b: 2}` gives both), so a
-/// mapping here keeps all its entries in order. A collection's tag is dropped: Bun reads a tagged
-/// collection as its value.
+/// mapping here is built from all its entries ([`mapping`]). A collection's tag is dropped: Bun
+/// reads a tagged collection as its value.
 #[derive(Clone)]
 enum Node<'a> {
     /// The scalar's text, untyped: it is typed as Bun types it from its style and tag.
@@ -307,7 +307,8 @@ enum Node<'a> {
 impl Node<'_> {
     /// Takes the node's size from `budget` as saphyr's loader counts it (one for the node and one
     /// for each entry of a mapping, a key's own nodes not counted); false once the budget runs out.
-    /// A mapping holds a repeated key once ([`mapping`]), so the count is no larger than saphyr's.
+    /// A mapping holds its keys as Bun reads them ([`mapping`]): a repeated key once, merge keys
+    /// expanded. Without merge keys the count is no larger than saphyr's.
     fn take_size(&self, budget: &mut usize) -> bool {
         let Some(left) = budget.checked_sub(1) else {
             return false;
@@ -408,23 +409,45 @@ impl<'a> saphyr_parser::EventReceiver<'a> for Tree<'a> {
     }
 }
 
-/// A mapping as Bun reads it: a repeated key (by its JavaScript string) keeps its first place and
-/// its last value, and every merge key stays. Dropping the rest here, rather than in [`to_json`],
-/// keeps an alias from copying and counting entries that are never read.
+/// A mapping as Bun reads it, built when the mapping ends so that an alias copies and counts only
+/// what Bun reads. A repeated key (by its JavaScript string) keeps its first place and its last
+/// value. Each merge key (`<<`, quoted or not, or through an alias) whose value is a mapping or a
+/// sequence is expanded, the sequence's items that are not mappings dropped, with the mapping's own
+/// keys winning and an earlier merged mapping winning over a later one; with any other value it is
+/// the ordinary key `<<`. The mappings merged were built the same way, so the result holds no merge
+/// key to expand.
 fn mapping<'a>(entries: Vec<(Node<'a>, Node<'a>)>) -> Node<'a> {
     let mut kept: Vec<(Node<'a>, Node<'a>)> = Vec::with_capacity(entries.len());
     let mut places: HashMap<String, usize> = HashMap::new();
+    let mut merged = Vec::new();
     for (key, value) in entries {
-        if is_merge_key(&key) {
-            kept.push((key, value));
-            continue;
-        }
+        let value = match (is_merge_key(&key), value) {
+            (true, Node::Mapping(items)) => {
+                merged.extend(items);
+                continue;
+            }
+            (true, Node::Sequence(items)) => {
+                for item in items {
+                    if let Node::Mapping(items) = item {
+                        merged.extend(items);
+                    }
+                }
+                continue;
+            }
+            (_, value) => value,
+        };
         match places.entry(key_text(&key).into_owned()) {
             Entry::Occupied(place) => kept[*place.get()].1 = value,
             Entry::Vacant(place) => {
                 place.insert(kept.len());
                 kept.push((key, value));
             }
+        }
+    }
+    for (key, value) in merged {
+        if let Entry::Vacant(place) = places.entry(key_text(&key).into_owned()) {
+            place.insert(kept.len());
+            kept.push((key, value));
         }
     }
     Node::Mapping(kept)
@@ -450,37 +473,18 @@ impl<'a> Tree<'a> {
 }
 
 /// A YAML node as the JSON value Bun gives: keys as strings, numbers JSON cannot hold (`.inf`,
-/// `.nan`) as null, a repeated key's last value. Each merge key (`<<`, quoted or not, or through an
-/// alias) whose value is a mapping or a sequence is expanded, the sequence's items that are not
-/// mappings dropped, with the mapping's own keys winning and an earlier merged mapping winning over
-/// a later one; with any other value it is the ordinary key `<<`. No role file field reads a
-/// number, so the numbers' exact text does not matter.
+/// `.nan`) as null. A mapping's merge keys and repeated keys were settled when it was built
+/// ([`mapping`]). No role file field reads a number, so the numbers' exact text does not matter.
 fn to_json(node: &Node<'_>) -> Value {
     match node {
         Node::Scalar(text, style, tag) => scalar_to_json(&scalar(text, *style, tag.as_deref())),
         Node::Sequence(items) => Value::Array(items.iter().map(to_json).collect()),
-        Node::Mapping(entries) => {
-            let mut own = Map::new();
-            let mut merged = Vec::new();
-            for (key, value) in entries {
-                match (is_merge_key(key), to_json(value)) {
-                    (true, Value::Object(map)) => merged.push(map),
-                    (true, Value::Array(items)) => {
-                        merged.extend(items.into_iter().filter_map(|item| match item {
-                            Value::Object(map) => Some(map),
-                            _ => None,
-                        }));
-                    }
-                    (_, value) => {
-                        own.insert(key_text(key).into_owned(), value);
-                    }
-                }
-            }
-            for (key, value) in merged.into_iter().flatten() {
-                own.entry(key).or_insert(value);
-            }
-            Value::Object(own)
-        }
+        Node::Mapping(entries) => Value::Object(
+            entries
+                .iter()
+                .map(|(key, value)| (key_text(key).into_owned(), to_json(value)))
+                .collect(),
+        ),
         Node::Null => Value::Null,
     }
 }
