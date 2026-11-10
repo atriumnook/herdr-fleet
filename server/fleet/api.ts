@@ -147,6 +147,8 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
       return jsonResponse({ runs: await fleet.closeDone(group(await readBody())) });
     }
     if (parts[0] === "runs") {
+      // the threads' reports as their leads last wrote them, also after a turn the fleet did not settle
+      if (parts.length <= 2 && method === "GET") fleet.followReports();
       if (parts.length === 1 && method === "GET") return jsonResponse({ runs: fleet.list(group()) });
       const target = parts[1];
       if (!target) return notFound();

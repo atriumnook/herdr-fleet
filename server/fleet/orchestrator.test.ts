@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
+import { handleFleetRequest } from "./api.ts";
 import { DEFAULT_CONFIG, mergeConfig } from "./config.ts";
 import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES, type LandingTools } from "./orchestrator.ts";
 import type { FleetEvent } from "./events.ts";
@@ -3347,7 +3348,7 @@ describe("merge authority", () => {
     });
   }
 
-  it("reads no turn the fleet did not send of a lead that was not waiting, with the person", async () => {
+  it("settles no turn the fleet did not send of a lead that was not waiting, with the person, and shows what it reported", async () => {
     const { fleet, registry, root, turn, to } = project(null);
     const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
     await turn(coordinator, "idle");
@@ -3357,9 +3358,61 @@ describe("merge authority", () => {
     // The person types in the lead's pane: a turn the fleet did not send.
     await turn(thread, "working");
     writeReport(root, thread.id, "blocked", "Asked in the pane.", "May the old flag go?");
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "## HANDOFF\nAsked in the pane.");
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.outcome?.report?.state).toBe("ready");
+    // the thread shows the turn's report and handoff, read as its turn ended; the coordinator hears nothing of it
+    expect(registry.get(thread.id)!.outcome?.report).toMatchObject({ state: "blocked", summary: "Asked in the pane.", human_action: "May the old flag go?" });
+    expect(registry.get(thread.id)!.result).toBe("## HANDOFF\nAsked in the pane.");
+    expect(threadState(registry.get(thread.id)!)).toBe("waiting");
     expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("follows the report and handoff a lead rewrites after its turn ended, in fleet threads and the runs the Fleet screen reads", async () => {
+    const { fleet, registry, root, turn, to } = project(null);
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const handoff = join(root, "results", thread.id, "handoff.md");
+    writeReport(root, thread.id, "waiting", "Waiting for the codex review.");
+    writeFileSync(handoff, "## HANDOFF\nWaiting for the codex review.");
+    await turn(thread, "idle");
+    const before = (await fleet.threads({ cwd: "/repo" }))[0]!;
+    expect(before).toMatchObject({ state: "idle", status: "waiting — Waiting for the codex review." });
+    // the lead writes its files again with no turn herdr shows: what it wrote after the review passed
+    writeReport(root, thread.id, "ready", "codex review: PASS.");
+    writeFileSync(handoff, "## HANDOFF\ncodex review: PASS.");
+    const after = (await fleet.threads({ cwd: "/repo" }))[0]!;
+    expect(after).toMatchObject({ state: "review", status: "ready — codex review: PASS." });
+    expect(after.run.result).toBe("## HANDOFF\ncodex review: PASS.");
+    expect(registry.get(thread.id)!.outcome?.report?.state).toBe("ready");
+    // the Fleet screen reads the runs: they carry the same report
+    writeReport(root, thread.id, "blocked", "The reviewer found a regression.", "Keep the old flag?");
+    const url = new URL("http://localhost/api/fleet/runs");
+    const { runs } = await (await handleFleetRequest(new Request(url), url, fleet)).json() as { runs: AgentRun[] };
+    expect(runs.find((run) => run.id === thread.id)!.outcome?.report).toMatchObject({ state: "blocked", human_action: "Keep the old flag?" });
+    // a report is the lead's, not news: the coordinator heard nothing of the rewrites
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("reads a lead's report again only once it changed, and keeps the last one while a turn runs or the file is gone", async () => {
+    const { fleet, registry, root, turn } = project(null);
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    writeReport(root, thread.id, "ready", "Done.");
+    await turn(thread, "idle");
+    // an outcome the file does not hold: the fleet does not read the unchanged file over it
+    registry.upsert({ ...registry.get(thread.id)!, outcome: { report: { state: "ready", summary: "Kept.", evidence: [] } } });
+    expect((await fleet.threads({ cwd: "/repo" }))[0]!.status).toBe("ready — Kept.");
+    // a turn the fleet did not send: it removes the report, and what the lead writes meanwhile waits for the turn's end
+    await turn(thread, "working");
+    expect((await fleet.threads({ cwd: "/repo" }))[0]!).toMatchObject({ state: "working", status: "ready — Kept." });
+    writeReport(root, thread.id, "waiting", "Half way.");
+    expect((await fleet.threads({ cwd: "/repo" }))[0]!).toMatchObject({ state: "working", status: "ready — Kept." });
+    rmSync(join(root, "results", thread.id, "report.json"));
+    await turn(thread, "idle");
+    // the turn left no file: the last report stays
+    expect((await fleet.threads({ cwd: "/repo" }))[0]!).toMatchObject({ state: "review", status: "ready — Kept." });
   });
 
   it("leave the merge to the person when a condition of the gate fails, saying which", async () => {
