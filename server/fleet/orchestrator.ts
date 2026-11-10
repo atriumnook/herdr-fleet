@@ -41,6 +41,8 @@ export const RESULT_MAX_BYTES = 64 * 1024;
 const RESULT_FILE = "handoff.md";
 /** a thread lead's task as the thread was given it, beside its result file: a later run of the thread reads it */
 const TASK_FILE = "task.md";
+/** where git in a reviewer's pane records the commands it runs (GIT_TRACE2_EVENT), beside its result file: it tells the reviewer's own commit from the lead's */
+const GIT_TRACE_FILE = "git-trace.jsonl";
 
 /** A spawn whose configured fallbacks (candidate entries) are still untried: consulted if its first turn fails. */
 /** A spawn with its brief turned into the task and the paths it may write, ready to try candidates for. */
@@ -531,7 +533,8 @@ export class Orchestrator {
     const takeover = request.thread?.takeover;
     // a lead that takes a thread over works on the thread's branch; a thread's first lead gets one of its own
     const branch = takeover ? takeover.from.branch : worktree && request.thread ? `fleet/${id}` : undefined;
-    const env = { ...this.deps.agentEnv(), ...adapter.env?.({ resultDir: join(this.deps.resultsDir, id), fleetCommand: this.deps.fleetCommand, model, readOnly: definition.edits === false, merges: definition.name === PROJECT_ROLE }), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
+    const env = { ...this.deps.agentEnv(), ...adapter.env?.({ resultDir: join(this.deps.resultsDir, id), fleetCommand: this.deps.fleetCommand, model, readOnly: definition.edits === false, merges: definition.name === PROJECT_ROLE }),
+      ...(definition.name === REVIEWER_ROLE ? { GIT_TRACE2_EVENT: join(this.deps.resultsDir, id, GIT_TRACE_FILE) } : {}), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
 
     // the budget counts runs across fleets: the check and the first save must not interleave
     const previousGate = this.spawnGate;
@@ -1587,18 +1590,24 @@ export class Orchestrator {
   /**
    * The commit a reviewer's settled turn reviewed: the one its folder was at when the turn was sent,
    * kept only when the folder is still there now. A branch that moved during the turn (or before the
-   * fleet read it settled) leaves no reviewed commit, and its CLI counts as a writer of the thread.
+   * fleet read it settled) leaves no reviewed commit, and its CLI counts as a writer of the thread,
+   * unless the branch alone moved while the reviewer's own git only read: then the commit is
+   * another's, the lead's, made in its own pane.
    */
   private async readReviewedHead(run: AgentRun): Promise<void> {
     const [head, tree] = await Promise.all([this.tools.headCommit(run.cwd).catch(() => null), this.tools.worktreeState(run.cwd).catch(() => null)]);
     const opened = run.turnHead !== undefined;
     const still = opened && head !== null && tree !== null && head === run.turnHead && tree === run.turnTree;
+    // a worktree that changed in the turn, or one the fleet could not compare, may hold the reviewer's own writing;
+    // what the reviewer wrote without git and the lead then committed is not told apart
+    const anothers = opened && !still && run.turnHead !== "unknown" && run.turnTree !== "unknown" && head !== null && tree === run.turnTree
+      && gitTraceWrites(join(this.resultDir(run), GIT_TRACE_FILE)) === false;
     if (run.outcome?.report && still) run.reportedHead = head!;
     else delete run.reportedHead;
-    if (still && run.outcome?.report) run.reviewClean = true;
+    // a review of neither commit, by a reviewer that wrote nothing: not a writer, and no review the gate takes (no reportedHead)
+    if ((still || anothers) && run.outcome?.report) run.reviewClean = true;
     else delete run.reviewClean;
-    // a worktree that changed in the turn, or one the fleet could not compare, may hold the reviewer's own writing
-    if (opened && !still) this.noteWriter(run.group, run);
+    if (opened && !still && !anothers) this.noteWriter(run.group, run);
     delete run.turnHead;
     delete run.turnTree;
   }
@@ -1611,6 +1620,8 @@ export class Orchestrator {
   private async openReview(run: AgentRun): Promise<void> {
     if (run.turnHead !== undefined) this.noteWriter(run.group, run);
     delete run.reviewClean;
+    // the turn's git commands alone: none recorded means none known, not none run
+    rmSync(join(this.resultDir(run), GIT_TRACE_FILE), { force: true });
     const [head, tree] = await Promise.all([this.tools.headCommit(run.cwd).catch(() => null), this.tools.worktreeState(run.cwd).catch(() => null)]);
     // unknown stays open and never matches: the turn's review will not count
     run.turnHead = head ?? "unknown";
@@ -2125,6 +2136,94 @@ function withWriters(writers: Writer[] | undefined, ...more: Writer[]): Writer[]
     if (!all.some((each) => each.agent === agent && each.model === model)) all.push({ agent, ...(model ? { model } : {}) });
   }
   return all;
+}
+
+/** git commands that cannot make a commit or move HEAD, whatever their arguments */
+const GIT_READS = new Set([
+  "status", "diff", "log", "show", "rev-parse", "rev-list", "ls-files", "ls-tree", "ls-remote", "cat-file", "blame", "annotate", "grep",
+  "merge-base", "describe", "shortlog", "for-each-ref", "show-ref", "show-branch", "name-rev", "diff-tree", "diff-index", "diff-files",
+  "range-diff", "check-ignore", "check-attr", "check-ref-format", "var", "version", "help", "whatchanged", "count-objects", "cherry",
+  "fetch-pack", "upload-pack", "index-pack", "unpack-objects", "pack-objects", "remote-https", "remote-http", "remote-curl",
+  "maintenance", "gc", "repack", "pack-refs", "commit-graph", "multi-pack-index", "prune", "prune-packed",
+]);
+/**
+ * A command that reads with these arguments (those after its name), and may write with others. Each
+ * lists the options it reads with: an option not listed, a newer one or one written shortened, is a write.
+ */
+const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
+  // a subcommand comes first: a later word may be an option's value (`--comment get`)
+  config: (args) => gitOptionsOnly(args, "lz", ["get", "get-all", "get-regexp", "get-urlmatch", "get-color", "get-colorbool", "list", "global", "system", "local", "worktree", "show-origin", "show-scope", "name-only", "null", "type=", "default=", "includes", "no-includes", "bool", "int", "bool-or-int", "path", "expiry-date", "all", "regexp", "value=", "fixed-value", "url="])
+    && (args.some((arg) => /^(?:--get(?:-all|-regexp|-urlmatch|-color|-colorbool)?|-l|--list)$/.test(arg)) || /^(?:get|list)$/.test(args[0] ?? "")),
+  // no word but options: a word names a branch to create, unless a list option comes before it, and an
+  // option that takes a value may have taken that list option as its value (`--format --list`)
+  branch: (args) => !positional(args).length && gitOptionsOnly(args, "arvli", ["all", "remotes", "verbose", "list", "show-current", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "no-color", "column", "no-column", "ignore-case", "abbrev", "no-abbrev", "omit-empty"]),
+  tag: (args) => !positional(args).length && gitOptionsOnly(args, "lin0123456789", ["list", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "column", "no-column", "ignore-case", "omit-empty"]),
+  // git refuses to fetch into a branch a worktree has checked out unless told it may (-u, --update-head-ok), which is not listed;
+  // a refspec that names where it goes (`main:refs/heads/x`, `+main`, `tag v1`) writes that ref, and so do --tags and --prune-tags
+  fetch: (args) => !positional(args).some((word) => word.includes(":") || word.startsWith("+") || word === "tag") && gitOptionsOnly(args, "qvpnj0123456789", ["quiet", "verbose", "all", "prune", "no-tags", "dry-run", "progress", "no-progress", "jobs", "depth", "shallow-since", "shallow-exclude", "recurse-submodules", "no-recurse-submodules", "filter", "multiple", "no-write-fetch-head"]),
+  stash: (args) => /^(?:list|show)$/.test(args[0] ?? ""),
+  remote: (args) => /^(?:show|get-url)?$/.test((/^(?:-v|--verbose)$/.test(args[0] ?? "") ? args[1] : args[0]) ?? ""),
+  worktree: (args) => args[0] === "list",
+  "symbolic-ref": (args) => positional(args).length <= 1 && gitOptionsOnly(args, "q", ["quiet", "short", "no-recurse"]),
+};
+/**
+ * Whether every option in `args` is one of these: short ones alone or bundled (`-av`), long ones in
+ * full, with or without a value after `=`; one listed as `name=` only with its value after `=`, so
+ * that it cannot take the next word, an option the fleet reads as another (`--default --get`)
+ */
+function gitOptionsOnly(args: string[], short: string, long: string[]): boolean {
+  return args.every((arg) => {
+    if (!arg.startsWith("-")) return true;
+    if (/^-[^-]/.test(arg)) return [...arg.slice(1)].every((letter) => short.includes(letter));
+    const [, name, value] = /^--([^=]+)(=.*)?$/.exec(arg) ?? [];
+    return name !== undefined && (long.includes(name) || (value !== undefined && long.includes(`${name}=`)));
+  });
+}
+const positional = (args: string[]): string[] => args.filter((arg) => !arg.startsWith("-"));
+/** past this, a record is not read: one turn's git commands write far less */
+const GIT_TRACE_MAX_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Whether the git commands a trace2 event file records may have made a commit or moved HEAD: true
+ * when any is not known to only read (or a line is not git's), false when all only read, null when
+ * there is no record to read.
+ */
+function gitTraceWrites(file: string): boolean | null {
+  let text: string;
+  try {
+    const fd = openSync(file, constants.O_RDONLY);
+    try {
+      if (fstatSync(fd).size > GIT_TRACE_MAX_BYTES) return true;
+      text = readFileSync(fd, "utf8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  const argv = new Map<string, string[]>();
+  let named = false;
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let event: { event?: unknown; sid?: unknown; argv?: unknown; name?: unknown };
+    try { event = JSON.parse(line); } catch { return true; }
+    if (typeof event.sid !== "string") return true;
+    if (event.event === "start" && Array.isArray(event.argv)) argv.set(event.sid, event.argv.map(String));
+    if (event.event !== "cmd_name") continue;
+    if (typeof event.name !== "string") return true;
+    named = true;
+    const args = argv.get(event.sid);
+    if (!args) return true;
+    const at = args.indexOf(event.name, 1);
+    // a setting given before the command changes what it does (`-c remote.origin.fetch=…`)
+    if (args.slice(1, at < 0 ? undefined : at).some((arg) => /^(?:-c|--config-env)/.test(arg))) return true;
+    // a command that reads still writes the file it is told to (`--output`), which may be a ref's
+    if (args.some((arg) => "output".startsWith(/^--([^=]+)/.exec(arg)?.[1] ?? "-"))) return true;
+    if (GIT_READS.has(event.name)) continue;
+    const reads = GIT_READS_WITH[event.name];
+    if (!reads || at < 0 || !reads(args.slice(at + 1))) return true;
+  }
+  return named ? false : null;
 }
 
 /** A thread's id: its first lead run's, which names its worktree and branch, whichever run leads it now. */

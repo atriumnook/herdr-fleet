@@ -3261,6 +3261,143 @@ describe("merge authority", () => {
   ];
   const PR = { number: 12, url: "https://github.com/o/rs/pull/12", state: "OPEN", checks: "pass", head: "c0ffee", base: "rust", checksRead: true } as const;
   const GATE = "[fleet] The person made this project's merges gated in their own settings, and the fleet found every condition of the gate held for these. Each is your approval for that merge only.";
+  /** what git 2.56 wrote to GIT_TRACE2_EVENT for each command (its start and cmd_name events, times left out): recorded, not made up */
+  const TRACE = {
+    status: [
+      `{"event":"start","sid":"20261110T094715.211114Z-Hb58fc00a-P0000c63c","thread":"main","file":"common-init.c","line":78,"t_abs":0.000190,"argv":["git","status","-s"]}`,
+      `{"event":"cmd_name","sid":"20261110T094715.211114Z-Hb58fc00a-P0000c63c","thread":"main","file":"git.c","line":507,"name":"status","hierarchy":"status"}`,
+    ],
+    log: [
+      `{"event":"start","sid":"20261110T094715.213095Z-Hb58fc00a-P0000c63d","thread":"main","file":"common-init.c","line":78,"t_abs":0.000174,"argv":["git","log","-1","--oneline"]}`,
+      `{"event":"cmd_name","sid":"20261110T094715.213095Z-Hb58fc00a-P0000c63d","thread":"main","file":"git.c","line":507,"name":"log","hierarchy":"log"}`,
+    ],
+    configGet: [
+      `{"event":"start","sid":"20261110T094715.214660Z-Hb58fc00a-P0000c63e","thread":"main","file":"common-init.c","line":78,"t_abs":0.000203,"argv":["git","config","--get","user.name"]}`,
+      `{"event":"cmd_name","sid":"20261110T094715.214660Z-Hb58fc00a-P0000c63e","thread":"main","file":"git.c","line":507,"name":"config","hierarchy":"config"}`,
+    ],
+    branchShow: [
+      `{"event":"start","sid":"20261110T124729.922814Z-Hb58fc00a-P00170558","thread":"main","file":"common-init.c","line":78,"t_abs":0.000258,"argv":["git","branch","--show-current"]}`,
+      `{"event":"cmd_name","sid":"20261110T124729.922814Z-Hb58fc00a-P00170558","thread":"main","file":"git.c","line":507,"name":"branch","hierarchy":"branch"}`,
+    ],
+    diff: [
+      `{"event":"start","sid":"20261110T124729.926914Z-Hb58fc00a-P0017055b","thread":"main","file":"common-init.c","line":78,"t_abs":0.000180,"argv":["git","diff","--stat","HEAD~1"]}`,
+      `{"event":"cmd_name","sid":"20261110T124729.926914Z-Hb58fc00a-P0017055b","thread":"main","file":"git.c","line":507,"name":"diff","hierarchy":"diff"}`,
+    ],
+    configSet: [
+      `{"event":"start","sid":"20261110T124729.925096Z-Hb58fc00a-P0017055a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000283,"argv":["git","config","user.name","x"]}`,
+      `{"event":"cmd_name","sid":"20261110T124729.925096Z-Hb58fc00a-P0017055a","thread":"main","file":"git.c","line":507,"name":"config","hierarchy":"config"}`,
+    ],
+    // a fetch from a repository on disk, and the upload-pack it starts
+    fetch: [
+      `{"event":"start","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386","thread":"main","file":"common-init.c","line":78,"t_abs":0.000226,"argv":["git","fetch","-q","origin"]}`,
+      `{"event":"cmd_name","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386","thread":"main","file":"git.c","line":507,"name":"fetch","hierarchy":"fetch"}`,
+      `{"event":"start","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386/20261110T125914.769286Z-Hb58fc00a-P00177387","thread":"main","file":"common-init.c","line":78,"t_abs":0.000185,"argv":["git-upload-pack","/repo/src"]}`,
+      `{"event":"cmd_name","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386/20261110T125914.769286Z-Hb58fc00a-P00177387","thread":"main","file":"git.c","line":507,"name":"upload-pack","hierarchy":"fetch/upload-pack"}`,
+      `{"event":"start","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386/20261110T125914.769286Z-Hb58fc00a-P00177387/20261110T125914.771145Z-Hb58fc00a-P00177389","thread":"main","file":"common-init.c","line":78,"t_abs":0.000151,"argv":["/usr/lib/git-core/git","pack-objects","--revs","--stdout","--thin","--delta-base-offset","--include-tag","--quiet"]}`,
+      `{"event":"cmd_name","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386/20261110T125914.769286Z-Hb58fc00a-P00177387/20261110T125914.771145Z-Hb58fc00a-P00177389","thread":"main","file":"git.c","line":507,"name":"pack-objects","hierarchy":"fetch/upload-pack/pack-objects"}`,
+      `{"event":"start","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386/20261110T125914.773006Z-Hb58fc00a-P0017738a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000225,"argv":["/usr/lib/git-core/git","unpack-objects","-q","--pack_header=2,1"]}`,
+      `{"event":"cmd_name","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386/20261110T125914.773006Z-Hb58fc00a-P0017738a","thread":"main","file":"git.c","line":507,"name":"unpack-objects","hierarchy":"fetch/unpack-objects"}`,
+      `{"event":"start","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386/20261110T125914.774583Z-Hb58fc00a-P0017738b","thread":"main","file":"common-init.c","line":78,"t_abs":0.000137,"argv":["/usr/lib/git-core/git","rev-list","--objects","--stdin","--not","--exclude-hidden=fetch","--all","--quiet","--alternate-refs"]}`,
+      `{"event":"cmd_name","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386/20261110T125914.774583Z-Hb58fc00a-P0017738b","thread":"main","file":"git.c","line":507,"name":"rev-list","hierarchy":"fetch/rev-list"}`,
+      `{"event":"start","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386/20261110T125914.776397Z-Hb58fc00a-P0017738c","thread":"main","file":"common-init.c","line":78,"t_abs":0.000147,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
+      `{"event":"cmd_name","sid":"20261110T125914.766583Z-Hb58fc00a-P00177386/20261110T125914.776397Z-Hb58fc00a-P0017738c","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
+    ],
+    // a fetch into the checked-out branch: it moves HEAD
+    fetchIntoHead: [
+      `{"event":"start","sid":"20261110T125914.778537Z-Hb58fc00a-P0017738e","thread":"main","file":"common-init.c","line":78,"t_abs":0.000171,"argv":["git","fetch","-q","--update-head-ok","origin","main:main"]}`,
+      `{"event":"cmd_name","sid":"20261110T125914.778537Z-Hb58fc00a-P0017738e","thread":"main","file":"git.c","line":507,"name":"fetch","hierarchy":"fetch"}`,
+      `{"event":"start","sid":"20261110T125914.778537Z-Hb58fc00a-P0017738e/20261110T125914.781193Z-Hb58fc00a-P0017738f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000154,"argv":["git-upload-pack","/repo/src"]}`,
+      `{"event":"cmd_name","sid":"20261110T125914.778537Z-Hb58fc00a-P0017738e/20261110T125914.781193Z-Hb58fc00a-P0017738f","thread":"main","file":"git.c","line":507,"name":"upload-pack","hierarchy":"fetch/upload-pack"}`,
+      `{"event":"start","sid":"20261110T125914.778537Z-Hb58fc00a-P0017738e/20261110T125914.782779Z-Hb58fc00a-P00177390","thread":"main","file":"common-init.c","line":78,"t_abs":0.000174,"argv":["/usr/lib/git-core/git","rev-list","--objects","--stdin","--not","--exclude-hidden=fetch","--all","--quiet","--alternate-refs"]}`,
+      `{"event":"cmd_name","sid":"20261110T125914.778537Z-Hb58fc00a-P0017738e/20261110T125914.782779Z-Hb58fc00a-P00177390","thread":"main","file":"git.c","line":507,"name":"rev-list","hierarchy":"fetch/rev-list"}`,
+      `{"event":"start","sid":"20261110T125914.778537Z-Hb58fc00a-P0017738e/20261110T125914.784958Z-Hb58fc00a-P00177392","thread":"main","file":"common-init.c","line":78,"t_abs":0.000152,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
+      `{"event":"cmd_name","sid":"20261110T125914.778537Z-Hb58fc00a-P0017738e/20261110T125914.784958Z-Hb58fc00a-P00177392","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
+    ],
+    // the same, with the option abbreviated as git allows
+    fetchIntoHeadAbbreviated: [
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000193,"argv":["git","fetch","-q","--update-head-o","origin","main:main"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a","thread":"main","file":"git.c","line":507,"name":"fetch","hierarchy":"fetch"}`,
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.300607Z-Hb58fc00a-P0017de3f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000154,"argv":["git-upload-pack","/repo/src"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.300607Z-Hb58fc00a-P0017de3f","thread":"main","file":"git.c","line":507,"name":"upload-pack","hierarchy":"fetch/upload-pack"}`,
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.300607Z-Hb58fc00a-P0017de3f/20261110T131359.302947Z-Hb58fc00a-P0017de47","thread":"main","file":"common-init.c","line":78,"t_abs":0.000203,"argv":["/usr/lib/git-core/git","pack-objects","--revs","--stdout","--thin","--delta-base-offset","--include-tag","--quiet"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.300607Z-Hb58fc00a-P0017de3f/20261110T131359.302947Z-Hb58fc00a-P0017de47","thread":"main","file":"git.c","line":507,"name":"pack-objects","hierarchy":"fetch/upload-pack/pack-objects"}`,
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.304991Z-Hb58fc00a-P0017de48","thread":"main","file":"common-init.c","line":78,"t_abs":0.000182,"argv":["/usr/lib/git-core/git","unpack-objects","-q","--pack_header=2,1"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.304991Z-Hb58fc00a-P0017de48","thread":"main","file":"git.c","line":507,"name":"unpack-objects","hierarchy":"fetch/unpack-objects"}`,
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.306987Z-Hb58fc00a-P0017de49","thread":"main","file":"common-init.c","line":78,"t_abs":0.000170,"argv":["/usr/lib/git-core/git","rev-list","--objects","--stdin","--not","--exclude-hidden=fetch","--all","--quiet","--alternate-refs"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.306987Z-Hb58fc00a-P0017de49","thread":"main","file":"git.c","line":507,"name":"rev-list","hierarchy":"fetch/rev-list"}`,
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.309109Z-Hb58fc00a-P0017de4a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000189,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.309109Z-Hb58fc00a-P0017de4a","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
+    ],
+    // a branch option newer than the fleet's table of git's options (2.56), its value attached
+    branchDeleteMerged: [
+      `{"event":"start","sid":"20261110T133043.713361Z-Hb58fc00a-P0018a167","thread":"main","file":"common-init.c","line":78,"t_abs":0.000159,"argv":["git","branch","--delete-merged=main"]}`,
+      `{"event":"cmd_name","sid":"20261110T133043.713361Z-Hb58fc00a-P0018a167","thread":"main","file":"git.c","line":507,"name":"branch","hierarchy":"branch"}`,
+    ],
+    // a config write whose comment option takes the value "get"
+    configCommentGet: [
+      `{"event":"start","sid":"20261110T133952.500692Z-Hb58fc00a-P00191c28","thread":"main","file":"common-init.c","line":78,"t_abs":0.000280,"argv":["git","config","--comment","get","x.y","z"]}`,
+      `{"event":"cmd_name","sid":"20261110T133952.500692Z-Hb58fc00a-P00191c28","thread":"main","file":"git.c","line":507,"name":"config","hierarchy":"config"}`,
+    ],
+    // a stash whose message is "list", and what it starts
+    stashMessageList: [
+      `{"event":"start","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19","thread":"main","file":"common-init.c","line":78,"t_abs":0.000170,"argv":["git","stash","-m","list"]}`,
+      `{"event":"cmd_name","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19","thread":"main","file":"git.c","line":507,"name":"stash","hierarchy":"stash"}`,
+      `{"event":"start","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19/20261110T134008.939815Z-Hb58fc00a-P00191e1a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000157,"argv":["/usr/lib/git-core/git","update-index","--ignore-skip-worktree-entries","-z","--add","--remove","--stdin"]}`,
+      `{"event":"cmd_name","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19/20261110T134008.939815Z-Hb58fc00a-P00191e1a","thread":"main","file":"git.c","line":507,"name":"update-index","hierarchy":"stash/update-index"}`,
+      `{"event":"start","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19/20261110T134008.942140Z-Hb58fc00a-P00191e1b","thread":"main","file":"common-init.c","line":78,"t_abs":0.000156,"argv":["/usr/lib/git-core/git","reset","--hard","-q","--no-recurse-submodules"]}`,
+      `{"event":"cmd_name","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19/20261110T134008.942140Z-Hb58fc00a-P00191e1b","thread":"main","file":"git.c","line":507,"name":"reset","hierarchy":"stash/reset"}`,
+    ],
+    // a log that writes what it shows to a file (the file's path shortened): it could be a ref's
+    logOutput: [
+      `{"event":"start","sid":"20261110T135545.678231Z-Hb58fc00a-P0019bc04","thread":"main","file":"common-init.c","line":78,"t_abs":0.000204,"argv":["git","log","-1","--format=%H","--output=/tmp/out.txt"]}`,
+      `{"event":"cmd_name","sid":"20261110T135545.678231Z-Hb58fc00a-P0019bc04","thread":"main","file":"git.c","line":507,"name":"log","hierarchy":"log"}`,
+    ],
+    // a branch whose format option takes the value "--list": it creates the branch
+    branchFormatList: [
+      `{"event":"start","sid":"20261110T135545.680102Z-Hb58fc00a-P0019bc05","thread":"main","file":"common-init.c","line":78,"t_abs":0.000153,"argv":["git","branch","--format","--list","created-by-branch"]}`,
+      `{"event":"cmd_name","sid":"20261110T135545.680102Z-Hb58fc00a-P0019bc05","thread":"main","file":"git.c","line":507,"name":"branch","hierarchy":"branch"}`,
+    ],
+    // a fetch into a branch it names: it creates that branch
+    fetchIntoBranch: [
+      `{"event":"start","sid":"20261110T140550.399249Z-Hb58fc00a-P0019f70e","thread":"main","file":"common-init.c","line":78,"t_abs":0.000175,"argv":["git","fetch","-q","origin","main:refs/heads/reviewer-created"]}`,
+      `{"event":"cmd_name","sid":"20261110T140550.399249Z-Hb58fc00a-P0019f70e","thread":"main","file":"git.c","line":507,"name":"fetch","hierarchy":"fetch"}`,
+      `{"event":"start","sid":"20261110T140550.399249Z-Hb58fc00a-P0019f70e/20261110T140550.402375Z-Hb58fc00a-P0019f70f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000155,"argv":["git-upload-pack","/repo/src"]}`,
+      `{"event":"cmd_name","sid":"20261110T140550.399249Z-Hb58fc00a-P0019f70e/20261110T140550.402375Z-Hb58fc00a-P0019f70f","thread":"main","file":"git.c","line":507,"name":"upload-pack","hierarchy":"fetch/upload-pack"}`,
+      `{"event":"start","sid":"20261110T140550.399249Z-Hb58fc00a-P0019f70e/20261110T140550.404069Z-Hb58fc00a-P0019f710","thread":"main","file":"common-init.c","line":78,"t_abs":0.000173,"argv":["/usr/lib/git-core/git","rev-list","--objects","--stdin","--not","--exclude-hidden=fetch","--all","--quiet","--alternate-refs"]}`,
+      `{"event":"cmd_name","sid":"20261110T140550.399249Z-Hb58fc00a-P0019f70e/20261110T140550.404069Z-Hb58fc00a-P0019f710","thread":"main","file":"git.c","line":507,"name":"rev-list","hierarchy":"fetch/rev-list"}`,
+      `{"event":"start","sid":"20261110T140550.399249Z-Hb58fc00a-P0019f70e/20261110T140550.406574Z-Hb58fc00a-P0019f711","thread":"main","file":"common-init.c","line":78,"t_abs":0.000149,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
+      `{"event":"cmd_name","sid":"20261110T140550.399249Z-Hb58fc00a-P0019f70e/20261110T140550.406574Z-Hb58fc00a-P0019f711","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
+    ],
+    // a fetch whose refspec comes from a setting given before the command: it creates that branch
+    fetchConfigRefspec: [
+      `{"event":"start","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17","thread":"main","file":"common-init.c","line":78,"t_abs":0.000287,"argv":["git","-c","remote.origin.fetch=refs/heads/main:refs/heads/by-config","fetch","-q","origin"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17","thread":"main","file":"git.c","line":507,"name":"fetch","hierarchy":"fetch"}`,
+      `{"event":"start","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.319298Z-Hb58fc00a-P001a2d18","thread":"main","file":"common-init.c","line":78,"t_abs":0.000179,"argv":["git-upload-pack","/repo/src"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.319298Z-Hb58fc00a-P001a2d18","thread":"main","file":"git.c","line":507,"name":"upload-pack","hierarchy":"fetch/upload-pack"}`,
+      `{"event":"start","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.321089Z-Hb58fc00a-P001a2d19","thread":"main","file":"common-init.c","line":78,"t_abs":0.000155,"argv":["/usr/lib/git-core/git","rev-list","--objects","--stdin","--not","--exclude-hidden=fetch","--all","--quiet","--alternate-refs"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.321089Z-Hb58fc00a-P001a2d19","thread":"main","file":"git.c","line":507,"name":"rev-list","hierarchy":"fetch/rev-list"}`,
+      `{"event":"start","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.323563Z-Hb58fc00a-P001a2d1a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000160,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.323563Z-Hb58fc00a-P001a2d1a","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
+    ],
+    // a fetch of every tag: it creates them
+    fetchTags: [
+      `{"event":"start","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e","thread":"main","file":"common-init.c","line":78,"t_abs":0.000187,"argv":["git","fetch","-q","--tags","origin"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e","thread":"main","file":"git.c","line":507,"name":"fetch","hierarchy":"fetch"}`,
+      `{"event":"start","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.331648Z-Hb58fc00a-P001a2d1f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000242,"argv":["git-upload-pack","/repo/src"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.331648Z-Hb58fc00a-P001a2d1f","thread":"main","file":"git.c","line":507,"name":"upload-pack","hierarchy":"fetch/upload-pack"}`,
+      `{"event":"start","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.333412Z-Hb58fc00a-P001a2d20","thread":"main","file":"common-init.c","line":78,"t_abs":0.000146,"argv":["/usr/lib/git-core/git","rev-list","--objects","--stdin","--not","--exclude-hidden=fetch","--all","--quiet","--alternate-refs"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.333412Z-Hb58fc00a-P001a2d20","thread":"main","file":"git.c","line":507,"name":"rev-list","hierarchy":"fetch/rev-list"}`,
+      `{"event":"start","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.335793Z-Hb58fc00a-P001a2d21","thread":"main","file":"common-init.c","line":78,"t_abs":0.000172,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.335793Z-Hb58fc00a-P001a2d21","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
+    ],
+    // a commit, and the maintenance it starts after itself
+    commit: [
+      `{"event":"start","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000179,"argv":["git","-c","user.name=a","-c","user.email=a@b","commit","-q","--allow-empty","-m","two"]}`,
+      `{"event":"cmd_name","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f","thread":"main","file":"git.c","line":507,"name":"commit","hierarchy":"commit"}`,
+      `{"event":"start","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f/20261110T094715.217932Z-Hb58fc00a-P0000c640","thread":"main","file":"common-init.c","line":78,"t_abs":0.000156,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
+      `{"event":"cmd_name","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f/20261110T094715.217932Z-Hb58fc00a-P0000c640","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"commit/maintenance"}`,
+    ],
+  };
 
   /** a project whose person's settings make merges into `rust` gated, with every fact the gate reads in `git` */
   function project(merge: Record<string, unknown> | null = { mode: "gated", branches: ["rust"], protected: ["docs/plan.md"] }, roles = agents, landing: Partial<LandingTools> = {}, extra: SetupOptions = {}) {
@@ -3570,6 +3707,82 @@ describe("merge authority", () => {
     await turn(thread, "idle");
     expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review by a model from a company other than Anthropic, Google passed." });
     expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("count no reviewer as a writer for a commit the lead made during its turn while the reviewer's git only read, and take the next review of that commit", async () => {
+    const { fleet, registry, runtime, root, git, turn, to } = project();
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+    // the reviewer reads with git; the lead commits its fixes in its own pane meanwhile (herdr-fleet-rs b34364f5, 7232fa1)
+    const trace = join(root, "results", reviewer.id, "git-trace.jsonl");
+    writeFileSync(trace, [...TRACE.status, ...TRACE.log, ...TRACE.configGet, ...TRACE.branchShow, ...TRACE.diff, ...TRACE.fetch].join("\n") + "\n");
+    git.head = "d00d";
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    await turn(reviewer, "idle");
+    // a review of neither commit, but not the reviewer's writing
+    expect(registry.get(reviewer.id)!.reportedHead).toBeUndefined();
+    expect(registry.get(thread.id)!.writers).toEqual([{ agent: "claude" }]);
+    // the next review, of the lead's commit, counts
+    const again = await fleet.spawn({ role: "reviewer", task: "review again", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+    writeReport(root, again.id, "ready", "No findings.");
+    await turn(again, "idle");
+    expect(registry.get(again.id)!.reportedHead).toBe("d00d");
+    writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 parses — evidence: cargo test\n");
+    writeReport(root, thread.id, "ready", "Opened #12.");
+    git.pr = { ...PR, head: "d00d" };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")!.ok).toBe(true);
+    expect(to(coordinator).at(-1)).toStartWith(GATE);
+    // git in a reviewer's pane, and only there, records each command it runs in the reviewer's result folder
+    const envOf = (run: AgentRun) => runtime.locations.find((location) => location.env["HERDR_FLEET_RUN"] === run.id)!.env;
+    expect(envOf(reviewer)["GIT_TRACE2_EVENT"]).toBe(trace);
+    expect(envOf(thread)["GIT_TRACE2_EVENT"]).toBeUndefined();
+  });
+
+  it("count a reviewer as a writer when the branch moved and its git wrote, left no record, or the worktree changed too", async () => {
+    const { fleet, registry, root, git, turn } = project();
+    const moved = async (title: string, trace: string[] | null, tree = "clean") => {
+      git.head = "c0ffee";
+      git.tree = "clean";
+      const thread = await fleet.startThread({ title, task: "t", cwd: "/repo" });
+      const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+      if (trace) writeFileSync(join(root, "results", reviewer.id, "git-trace.jsonl"), trace.join("\n") + "\n");
+      git.head = "d00d";
+      git.tree = tree;
+      writeReport(root, reviewer.id, "ready", "No findings.");
+      await turn(reviewer, "idle");
+      const writers = registry.get(thread.id)!.writers;
+      // the lead's turn ends, so the next case's agents fit under the concurrency limit
+      await turn(thread, "idle");
+      return writers;
+    };
+    const both = [{ agent: "claude" as const }, { agent: "pi" as const, model: GEMINI }];
+    // the reviewer committed itself
+    expect(await moved("Commit", [...TRACE.status, ...TRACE.commit])).toEqual(both);
+    // it changed git's settings: not a command that only reads
+    expect(await moved("Config", [...TRACE.status, ...TRACE.configSet])).toEqual(both);
+    // it fetched into the branch checked out
+    expect(await moved("Fetch", [...TRACE.status, ...TRACE.fetchIntoHead])).toEqual(both);
+    expect(await moved("Fetch abbreviated", [...TRACE.status, ...TRACE.fetchIntoHeadAbbreviated])).toEqual(both);
+    expect(await moved("Fetch into a branch", [...TRACE.status, ...TRACE.fetchIntoBranch])).toEqual(both);
+    expect(await moved("Fetch by a setting", [...TRACE.status, ...TRACE.fetchConfigRefspec])).toEqual(both);
+    expect(await moved("Fetch tags", [...TRACE.status, ...TRACE.fetchTags])).toEqual(both);
+    // an option the fleet does not know to only read
+    expect(await moved("Branch", [...TRACE.status, ...TRACE.branchDeleteMerged])).toEqual(both);
+    // an option's value that reads as a subcommand
+    expect(await moved("Config comment", [...TRACE.status, ...TRACE.configCommentGet])).toEqual(both);
+    expect(await moved("Stash message", [...TRACE.status, ...TRACE.stashMessageList])).toEqual(both);
+    expect(await moved("Branch format", [...TRACE.status, ...TRACE.branchFormatList])).toEqual(both);
+    // a command that reads, told to write a file
+    expect(await moved("Log output", [...TRACE.status, ...TRACE.logOutput])).toEqual(both);
+    // no record: its CLI may not pass the environment on, or its git did not run
+    expect(await moved("Unknown", null)).toEqual(both);
+    // a record that is not git's
+    expect(await moved("Garbled", ["not json"])).toEqual(both);
+    // the uncommitted changes differ from the turn's start: they may be the reviewer's edits
+    expect(await moved("Edited", [...TRACE.status], "edited")).toEqual(both);
   });
 
   it("count a reviewer as a writer when its turn changed the worktree without a commit, or ended unseen", async () => {
