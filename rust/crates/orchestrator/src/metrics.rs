@@ -629,6 +629,18 @@ fn clock(at: i64, zone: &TimeZone) -> String {
     }
 }
 
+/// The number of `key` when JavaScript reads it as an array index: the canonical decimal of a
+/// number below 2^32 - 1, with no sign or leading zero ("1" is one, "01" is not).
+fn array_index(key: &str) -> Option<u32> {
+    let canonical = !key.is_empty()
+        && key.bytes().all(|byte| byte.is_ascii_digit())
+        && (key == "0" || !key.starts_with('0'));
+    if !canonical {
+        return None;
+    }
+    key.parse::<u32>().ok().filter(|index| *index != u32::MAX)
+}
+
 /// Whole minutes, rounded half up as `Math.round` does.
 fn minutes(ms: i64) -> i64 {
     (ms as f64 / 60_000.0 + 0.5).floor() as i64
@@ -675,9 +687,12 @@ pub fn render(project: &str, base: &str, metrics: &FactoryMetrics, zone: &TimeZo
     let own_turns = if metrics.own_turns.is_empty() {
         "none".to_owned()
     } else {
-        metrics
-            .own_turns
-            .iter()
+        // in the order `Object.entries` lists metrics.ts's object: the integer-index keys first, in
+        // numeric order, then the others as they were added (a stable sort keeps that order)
+        let mut entries: Vec<(&String, &u64)> = metrics.own_turns.iter().collect();
+        entries.sort_by_key(|(role, _)| array_index(role).map_or((1, 0), |index| (0, index)));
+        entries
+            .into_iter()
             .map(|(role, count)| format!("{role} {count}"))
             .collect::<Vec<_>>()
             .join(", ")

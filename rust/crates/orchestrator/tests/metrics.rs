@@ -1122,3 +1122,68 @@ fn writes_each_time_with_the_offset_of_its_instant() {
         "2026-07-01 02:00 to 2026-11-01 01:00 (no events for this project)"
     );
 }
+
+// codex's review of PR #306: metrics.ts keeps the own turns in a JavaScript object, whose
+// `Object.entries` lists the integer-index keys first, in numeric order, then the others in the
+// order they were added. What metrics.ts's `render` wrote under bun 1.4.4 for runs of the roles
+// "2", "1", "x" and "01", in that order, each starting one turn by itself.
+#[test]
+fn lists_the_turns_an_agent_started_by_itself_in_the_order_of_a_javascript_object() {
+    let none = || json!({});
+    let mut log = Vec::new();
+    for (index, (run, role)) in [("a", "2"), ("b", "1"), ("x1", "x"), ("d", "01")]
+        .into_iter()
+        .enumerate()
+    {
+        let t = index as f64;
+        log.extend([
+            state(t, run, role, "claude", None, "starting", false, none()),
+            state(
+                t + 0.1,
+                run,
+                role,
+                "claude",
+                Some("starting"),
+                "working",
+                true,
+                none(),
+            ),
+            state(
+                t + 0.2,
+                run,
+                role,
+                "claude",
+                Some("working"),
+                "idle",
+                true,
+                none(),
+            ),
+            state(
+                t + 0.3,
+                run,
+                role,
+                "claude",
+                Some("idle"),
+                "working",
+                false,
+                none(),
+            ),
+            state(
+                t + 0.4,
+                run,
+                role,
+                "claude",
+                Some("working"),
+                "idle",
+                false,
+                none(),
+            ),
+        ]);
+    }
+    let inputs = Inputs::new(log);
+    let text = report(&metrics(&inputs.input(10 * MIN, None)));
+    assert!(
+        text.contains("- Turns an agent started by itself: 1 1, 2 1, x 1, 01 1\n"),
+        "{text}"
+    );
+}
