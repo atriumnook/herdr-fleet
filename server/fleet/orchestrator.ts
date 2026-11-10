@@ -2159,8 +2159,8 @@ const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
   branch: (args) => !positional(args).length && gitOptionsOnly(args, "arvli", ["all", "remotes", "verbose", "list", "show-current", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "no-color", "column", "no-column", "ignore-case", "abbrev", "no-abbrev", "omit-empty"]),
   tag: (args) => !positional(args).length && gitOptionsOnly(args, "lin0123456789", ["list", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "column", "no-column", "ignore-case", "omit-empty"]),
   // git refuses to fetch into a branch a worktree has checked out unless told it may (-u, --update-head-ok), which is not listed;
-  // a refspec that names where it goes (`main:refs/heads/x`, `+main`, `tag v1`) writes that ref
-  fetch: (args) => !positional(args).some((word) => word.includes(":") || word.startsWith("+") || word === "tag") && gitOptionsOnly(args, "qvptPnj0123456789", ["quiet", "verbose", "all", "prune", "prune-tags", "tags", "no-tags", "dry-run", "progress", "no-progress", "jobs", "depth", "shallow-since", "shallow-exclude", "recurse-submodules", "no-recurse-submodules", "filter", "multiple", "no-write-fetch-head"]),
+  // a refspec that names where it goes (`main:refs/heads/x`, `+main`, `tag v1`) writes that ref, and so do --tags and --prune-tags
+  fetch: (args) => !positional(args).some((word) => word.includes(":") || word.startsWith("+") || word === "tag") && gitOptionsOnly(args, "qvpnj0123456789", ["quiet", "verbose", "all", "prune", "no-tags", "dry-run", "progress", "no-progress", "jobs", "depth", "shallow-since", "shallow-exclude", "recurse-submodules", "no-recurse-submodules", "filter", "multiple", "no-write-fetch-head"]),
   stash: (args) => /^(?:list|show)$/.test(args[0] ?? ""),
   remote: (args) => /^(?:show|get-url)?$/.test((/^(?:-v|--verbose)$/.test(args[0] ?? "") ? args[1] : args[0]) ?? ""),
   worktree: (args) => args[0] === "list",
@@ -2213,11 +2213,14 @@ function gitTraceWrites(file: string): boolean | null {
     if (typeof event.name !== "string") return true;
     named = true;
     const args = argv.get(event.sid);
+    if (!args) return true;
+    const at = args.indexOf(event.name, 1);
+    // a setting given before the command changes what it does (`-c remote.origin.fetch=…`)
+    if (args.slice(1, at < 0 ? undefined : at).some((arg) => /^(?:-c|--config-env)/.test(arg))) return true;
     // a command that reads still writes the file it is told to (`--output`), which may be a ref's
-    if (!args || args.some((arg) => "output".startsWith(/^--([^=]+)/.exec(arg)?.[1] ?? "-"))) return true;
+    if (args.some((arg) => "output".startsWith(/^--([^=]+)/.exec(arg)?.[1] ?? "-"))) return true;
     if (GIT_READS.has(event.name)) continue;
     const reads = GIT_READS_WITH[event.name];
-    const at = args.indexOf(event.name, 1);
     if (!reads || at < 0 || !reads(args.slice(at + 1))) return true;
   }
   return named ? false : null;

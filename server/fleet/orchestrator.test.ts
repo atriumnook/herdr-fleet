@@ -3368,6 +3368,28 @@ describe("merge authority", () => {
       `{"event":"start","sid":"20261110T140550.399249Z-Hb58fc00a-P0019f70e/20261110T140550.406574Z-Hb58fc00a-P0019f711","thread":"main","file":"common-init.c","line":78,"t_abs":0.000149,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
       `{"event":"cmd_name","sid":"20261110T140550.399249Z-Hb58fc00a-P0019f70e/20261110T140550.406574Z-Hb58fc00a-P0019f711","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
     ],
+    // a fetch whose refspec comes from a setting given before the command: it creates that branch
+    fetchConfigRefspec: [
+      `{"event":"start","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17","thread":"main","file":"common-init.c","line":78,"t_abs":0.000287,"argv":["git","-c","remote.origin.fetch=refs/heads/main:refs/heads/by-config","fetch","-q","origin"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17","thread":"main","file":"git.c","line":507,"name":"fetch","hierarchy":"fetch"}`,
+      `{"event":"start","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.319298Z-Hb58fc00a-P001a2d18","thread":"main","file":"common-init.c","line":78,"t_abs":0.000179,"argv":["git-upload-pack","/repo/src"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.319298Z-Hb58fc00a-P001a2d18","thread":"main","file":"git.c","line":507,"name":"upload-pack","hierarchy":"fetch/upload-pack"}`,
+      `{"event":"start","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.321089Z-Hb58fc00a-P001a2d19","thread":"main","file":"common-init.c","line":78,"t_abs":0.000155,"argv":["/usr/lib/git-core/git","rev-list","--objects","--stdin","--not","--exclude-hidden=fetch","--all","--quiet","--alternate-refs"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.321089Z-Hb58fc00a-P001a2d19","thread":"main","file":"git.c","line":507,"name":"rev-list","hierarchy":"fetch/rev-list"}`,
+      `{"event":"start","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.323563Z-Hb58fc00a-P001a2d1a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000160,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.315945Z-Hb58fc00a-P001a2d17/20261110T141420.323563Z-Hb58fc00a-P001a2d1a","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
+    ],
+    // a fetch of every tag: it creates them
+    fetchTags: [
+      `{"event":"start","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e","thread":"main","file":"common-init.c","line":78,"t_abs":0.000187,"argv":["git","fetch","-q","--tags","origin"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e","thread":"main","file":"git.c","line":507,"name":"fetch","hierarchy":"fetch"}`,
+      `{"event":"start","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.331648Z-Hb58fc00a-P001a2d1f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000242,"argv":["git-upload-pack","/repo/src"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.331648Z-Hb58fc00a-P001a2d1f","thread":"main","file":"git.c","line":507,"name":"upload-pack","hierarchy":"fetch/upload-pack"}`,
+      `{"event":"start","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.333412Z-Hb58fc00a-P001a2d20","thread":"main","file":"common-init.c","line":78,"t_abs":0.000146,"argv":["/usr/lib/git-core/git","rev-list","--objects","--stdin","--not","--exclude-hidden=fetch","--all","--quiet","--alternate-refs"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.333412Z-Hb58fc00a-P001a2d20","thread":"main","file":"git.c","line":507,"name":"rev-list","hierarchy":"fetch/rev-list"}`,
+      `{"event":"start","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.335793Z-Hb58fc00a-P001a2d21","thread":"main","file":"common-init.c","line":78,"t_abs":0.000172,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
+      `{"event":"cmd_name","sid":"20261110T141420.328582Z-Hb58fc00a-P001a2d1e/20261110T141420.335793Z-Hb58fc00a-P001a2d21","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
+    ],
     // a commit, and the maintenance it starts after itself
     commit: [
       `{"event":"start","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000179,"argv":["git","-c","user.name=a","-c","user.email=a@b","commit","-q","--allow-empty","-m","two"]}`,
@@ -3745,6 +3767,8 @@ describe("merge authority", () => {
     expect(await moved("Fetch", [...TRACE.status, ...TRACE.fetchIntoHead])).toEqual(both);
     expect(await moved("Fetch abbreviated", [...TRACE.status, ...TRACE.fetchIntoHeadAbbreviated])).toEqual(both);
     expect(await moved("Fetch into a branch", [...TRACE.status, ...TRACE.fetchIntoBranch])).toEqual(both);
+    expect(await moved("Fetch by a setting", [...TRACE.status, ...TRACE.fetchConfigRefspec])).toEqual(both);
+    expect(await moved("Fetch tags", [...TRACE.status, ...TRACE.fetchTags])).toEqual(both);
     // an option the fleet does not know to only read
     expect(await moved("Branch", [...TRACE.status, ...TRACE.branchDeleteMerged])).toEqual(both);
     // an option's value that reads as a subcommand
