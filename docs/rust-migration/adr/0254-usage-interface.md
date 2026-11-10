@@ -137,4 +137,4 @@ PC は Linux 7.2.15(omarchy)、rustc 1.99.1、Bun 1.4.4。`rust/` で実行し�
 - 一覧の順は、Bun 1.4.4 で `[...keys].sort((a, b) => a.localeCompare(b))` を走らせた出力を期待値にした。小文字にして比べるだけの最初の実装では、`lists_the_accounts_in_the_order_of_locale_compare` が失敗した
 - `/code-review high` の指摘(範囲外の時刻、`.` と `\s`)は、直す前に `writes_a_time_past_what_a_date_holds_as_invalid_date` と `reads_dots_and_spaces_as_javascript_does` が失敗した(`left: Until(None)` / `right: NotOne`、`+292278994-08-17T07:12:55.807Z`)
 - codex のレビューの指摘(`.?` と U+FFFF より後ろの文字、時計の時刻の `\s`)は、直す前に `reads_code_units_and_the_clocks_spaces_as_javascript_does` が `usage.rs:942` で失敗した(`left: Until(None)` / `right: NotOne`)。期待値は Bun 1.4.4 の答えと、手で求めた時刻
-- 実装のあと、`cargo test --locked -p herdr-fleet-orchestrator --test usage` の 48 件と、`cargo test --locked --workspace` の全件が通った。`cargo fmt --check` と `cargo clippy --locked --workspace --all-targets -- -D warnings` も通った
+- 実装のあと、`cargo test --locked -p herdr-fleet-orchestrator --test usage` の 49 件(codex のレビューの直しで足した 1 件を含む)と、`cargo test --locked --workspace` の全件が通った。`cargo fmt --check` と `cargo clippy --locked --workspace --all-targets -- -D warnings` も通った
