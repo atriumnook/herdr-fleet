@@ -1,4 +1,4 @@
-import { closeSync, constants, copyFileSync, fstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
+import { closeSync, constants, copyFileSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, readSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
@@ -230,6 +230,10 @@ export class Orchestrator {
   private readonly waitingLeads = new Set<string>();
   /** when a turn the fleet did not send started, seen by this server */
   private readonly unsentTurnStarts = new Map<string, number>();
+  /** per run, the report and handoff files as the fleet last read them (fileVersion): each version is read once */
+  private readonly readFiles = new Map<string, { report: string | null; result: string | null }>();
+  /** runs whose turn the fleet is settling now: a report written meanwhile is not taken into that settlement (settleTurn) */
+  private readonly settling = new Set<string>();
   /** callers waiting for a run's turn to settle or block */
   private readonly waiters = new Map<string, Set<(run: AgentRun) => void>>();
   /** the concurrency check and the run's first save happen as one step */
@@ -432,6 +436,7 @@ export class Orchestrator {
     const cwd = resolve(request.cwd ?? process.cwd());
     const project = caller?.project ?? await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
     return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project && !run.replacedBy).map((run) => {
+      this.followReport(run);
       const contract = readResult(join(this.deps.resultsDir, run.id, CONTRACT_FILE));
       return { run, state: threadState(run), ...(run.outcome ? { status: outcomeLine(run.outcome) } : {}), ...(contract ? { contract: contractItems(contract) } : {}) };
     });
@@ -1518,9 +1523,9 @@ export class Orchestrator {
         if (!pending && current === "working" && run.role === REVIEWER_ROLE) { delete run.reviewClean; run.turnHead ??= "unknown"; }
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
-        else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
+        else if (pending?.armed && isCompleted(run.state)) await this.settleTurn(run, () => this.finalize(run, pending));
         // a lead that broke off to wait may start its next turn at an approval, which herdr shows without working first
-        else if (!pending && (previous === "working" || (previous === "blocked" && this.waitingLeads.has(run.id))) && isCompleted(run.state) && isThread(run)) await this.settleUnsentTurn(run);
+        else if (!pending && (previous === "working" || (previous === "blocked" && this.waitingLeads.has(run.id))) && isCompleted(run.state) && isThread(run)) await this.settleTurn(run, () => this.settleUnsentTurn(run));
         // free again, after the fleet's turn or the person's: the questions of the threads it hears for
         if (!this.pending.has(run.id) && isCompleted(run.state)) void this.deliverNotices(run);
       } catch (error) {
@@ -1537,6 +1542,16 @@ export class Orchestrator {
     });
     this.reconcileLocks.set(run.id, next);
     try { await next; } finally { if (this.reconcileLocks.get(run.id) === next) this.reconcileLocks.delete(run.id); }
+  }
+
+  /**
+   * A settled turn's settlement: it goes on what the turn's end read, and a report or handoff written
+   * while it runs is shown once it is done (followReport), not taken into its news, new run or gate.
+   */
+  private async settleTurn(run: AgentRun, settle: () => Promise<void>): Promise<void> {
+    this.settling.add(run.id);
+    try { await settle(); } finally { this.settling.delete(run.id); }
+    this.followReport(run);
   }
 
   private async finalize(run: AgentRun, pending: PendingTurn): Promise<void> {
@@ -1625,6 +1640,8 @@ export class Orchestrator {
   private async readTurn(run: AgentRun, config: FleetConfig): Promise<void> {
     this.waitingLeads.delete(run.id);
     run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
+    // taken before the reads: a file written while they run differs from it, and is read again (followReport)
+    this.readFiles.set(run.id, this.turnFileVersions(run));
     run.result = readResult(this.resultFile(run));
     // a project's coordinator talks with the person and keeps no result folder: it reports nothing
     run.outcome = run.role === PROJECT_ROLE ? undefined : readReport(this.resultDir(run));
@@ -1647,6 +1664,41 @@ export class Orchestrator {
     }
     // the thread made progress: the CLIs its runs failed on before get another chance
     else if (run.outcome?.report) delete run.avoid;
+  }
+
+  private turnFileVersions(run: AgentRun): { report: string | null; result: string | null } {
+    return { report: fileVersion(join(this.resultDir(run), REPORT_FILE)), result: fileVersion(this.resultFile(run)) };
+  }
+
+  /**
+   * The report and handoff a settled thread lead wrote since the fleet last read them: a turn the fleet
+   * did not settle (the person's or the lead's own, with the person), or files written again after the
+   * turn ended. Only what they say is taken, as at a turn's end, and nothing else follows from it: no
+   * news, no new run, no gate. A file that is gone (a turn removes it as it starts) leaves the last one
+   * read; during a turn and its settlement nothing is read, the turn's end does.
+   */
+  private followReport(run: AgentRun): void {
+    if (!isThread(run) || run.replacedBy || !isCompleted(run.state) || this.pending.has(run.id) || this.settling.has(run.id)) return;
+    const seen = this.readFiles.get(run.id);
+    const now = this.turnFileVersions(run);
+    this.readFiles.set(run.id, now);
+    let changed = false;
+    if (now.report !== null && now.report !== seen?.report) {
+      run.outcome = readReport(this.resultDir(run));
+      changed = true;
+    }
+    if (now.result !== null && now.result !== seen?.result) {
+      run.result = readResult(this.resultFile(run));
+      changed = true;
+    }
+    if (!changed) return;
+    run.updatedAt = Date.now();
+    this.save(run);
+  }
+
+  /** Every thread lead's report and handoff as they are now on disk (followReport), for those who read the runs. */
+  followReports(): void {
+    for (const run of this.deps.registry.all()) this.followReport(run);
   }
 
   /**
@@ -1778,6 +1830,7 @@ export class Orchestrator {
     const waited = this.waitingLeads.has(run.id);
     const startedAt = this.unsentTurnStarts.get(run.id);
     this.unsentTurnStarts.delete(run.id);
+    // with the person, it settles nothing: the thread shows what the turn reported (settleTurn)
     if (!config.autonomous && !waited) return;
     await this.readTurn(run, config);
     await this.readThreadWork(run);
@@ -2219,6 +2272,16 @@ export function threadQuestion(run: AgentRun): string | undefined {
     : "";
   const quoted = handoff ? `\n${handoff.split("\n").map((line) => `  ${line}`).join("\n")}` : "";
   return `${threadLabel(run)} asks the person: ${report.human_action ?? report.summary}${quoted}${plan}`;
+}
+
+/** A file's version, without following a symlink: it changes whenever the file is written or replaced. Null when there is none. */
+function fileVersion(file: string): string | null {
+  try {
+    const stat = lstatSync(file, { bigint: true });
+    return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+  } catch {
+    return null;
+  }
 }
 
 /**
