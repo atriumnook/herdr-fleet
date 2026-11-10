@@ -226,8 +226,8 @@ fn quotes_an_unknown_state_as_javascript_writes_it() {
 }
 
 // This crate's own: a folder in report.json's place, and a FIFO, are not regular files; reading the
-// FIFO does not wait for a writer (`O_NONBLOCK`, as report.ts opens it); report.ts answered the same
-// for both under bun 1.4.4.
+// FIFO does not wait for a writer (`O_NONBLOCK`, as report.ts opens it), which the 2-second limit
+// makes a failure rather than a hang; report.ts answered the same for both under bun 1.4.4.
 #[cfg(unix)]
 #[test]
 fn is_no_report_from_a_folder_or_a_fifo() {
@@ -244,7 +244,22 @@ fn is_no_report_from_a_folder_or_a_fifo() {
         .unwrap();
     assert!(made.success());
     assert_eq!(
-        read_report(fifo.path()),
+        read_report_within_2_seconds(fifo.path()),
         none("report.json is not a regular file.")
     );
+}
+
+/// `read_report`'s answer, or a panic when it does not come within 2 seconds: a FIFO opened
+/// without `O_NONBLOCK` waits for a writer, and the test would hang rather than fail.
+#[cfg(unix)]
+fn read_report_within_2_seconds(dir: &Path) -> TurnOutcome {
+    let dir = dir.to_owned();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    // A thread stuck in `open` cannot be stopped; the test process ends it.
+    std::thread::spawn(move || {
+        let _ = sender.send(read_report(&dir));
+    });
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(2))
+        .expect("read_report answers within 2 seconds")
 }
