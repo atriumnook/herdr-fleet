@@ -298,6 +298,7 @@ dependencies = [
  "indexmap",
  "jiff",
  "regex",
+ "rustix",
  "saphyr",
  "saphyr-parser",
  "serde",
