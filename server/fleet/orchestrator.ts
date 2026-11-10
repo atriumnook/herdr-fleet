@@ -2076,7 +2076,7 @@ const GIT_READS = new Set([
   "status", "diff", "log", "show", "rev-parse", "rev-list", "ls-files", "ls-tree", "ls-remote", "cat-file", "blame", "annotate", "grep",
   "merge-base", "describe", "shortlog", "for-each-ref", "show-ref", "show-branch", "name-rev", "diff-tree", "diff-index", "diff-files",
   "range-diff", "check-ignore", "check-attr", "check-ref-format", "var", "version", "help", "whatchanged", "count-objects", "cherry",
-  "fetch", "fetch-pack", "index-pack", "unpack-objects", "pack-objects", "maintenance", "gc", "remote-https", "remote-http", "remote-curl",
+  "fetch-pack", "upload-pack", "index-pack", "unpack-objects", "pack-objects", "maintenance", "gc", "remote-https", "remote-http", "remote-curl",
 ]);
 /** a command that reads with these arguments (those after its name), and may write with others */
 const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
@@ -2085,6 +2085,8 @@ const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
     && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--show-current|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
   tag: (args) => !args.some((arg) => /^(?:-[dafsmFu]|--(?:delete|annotate|force|sign|message|file|local-user)(?:=.*)?)$/.test(arg))
     && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
+  // git refuses to fetch into a branch a worktree has checked out, unless told it may
+  fetch: (args) => !args.some((arg) => arg === "--update-head-ok" || /^-[^-]*u/.test(arg)),
   stash: (args) => /^(?:list|show)$/.test(positional(args)[0] ?? ""),
   remote: (args) => /^(?:show|get-url)?$/.test(positional(args)[0] ?? ""),
   worktree: (args) => positional(args)[0] === "list",
