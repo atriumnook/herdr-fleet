@@ -4,6 +4,7 @@ import type { Emit } from "../../ui/bubble.ts";
 import type { CheckModel, DiffFileModel, DiffLineModel, LandingModel, PlanModel } from "../../ui/fleetView.ts";
 import type { ThreadTab, UiEvent } from "../../ui/state.ts";
 import type { LandAction } from "../../../shared/fleet.ts";
+import { modelLabel } from "../../../shared/model-company.ts";
 import { t } from "../../lib/i18n.ts";
 import { ConfirmDialog } from "../ConfirmDialog.tsx";
 import { Segmented } from "../Segmented.tsx";
@@ -197,7 +198,7 @@ function checkText(check: CheckModel, landing: LandingModel): { title: string; s
         : { title: t("No contract") };
     case "review":
       return check.reviewers.length
-        ? { title: t("Reviewed on another CLI"), sub: check.reviewers.map((reviewer) => `reviewer · ${reviewer.agent}${reviewer.status ? ` — ${reviewer.status}` : ""}`).join(" / ") }
+        ? { title: t("Reviewed on another CLI"), sub: check.reviewers.map((reviewer) => `reviewer · ${modelLabel(reviewer)} (${reviewer.company ?? "company not known"})${reviewer.status ? ` — ${reviewer.status}` : ""}`).join(" / ") }
         : { title: t("No review on another CLI") };
     case "comments":
       return check.count

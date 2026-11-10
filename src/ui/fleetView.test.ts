@@ -167,7 +167,10 @@ describe("the projects, their threads and the run open in the Overview", () => {
     const review = opened("t");
     expect(review).toMatchObject({ stage: "review", baseBranch: "main", branch: "fleet/t", repo: "/repo", tab: "chat", can: { lead: true, merge: true, discard: true } });
     expect(review.offers).toEqual({ createPr: true, mergeLocal: true, discard: true, fixCi: false, mergePr: false, revert: false });
+    // cursor's model routes across companies: its company is not known, and the gate would not count its review
     expect(review.checks.thread.find((check) => check.kind === "review")).toEqual({ kind: "review", tone: "ok", reviewers: [{ agent: "cursor", status: "ready — No findings." }] });
+    const onAgy = fleetScreenModel(withRuns(runs.map((each) => (each.id === "rev" ? { ...each, agent: "agy" as const, model: "gemini-3.8-pro-high" } : each)), { fleetView: { ...INITIAL_STATE.fleetView, open: { kind: "thread", runId: "t", member: null } } }), NOW).open!.landing!;
+    expect(onAgy.checks.thread.find((check) => check.kind === "review")).toEqual({ kind: "review", tone: "ok", reviewers: [{ agent: "agy", model: "gemini-3.8-pro-high", company: "Google", status: "ready — No findings." }] });
     expect(opened("pr")).toMatchObject({ stage: "landing", offers: { createPr: false, mergeLocal: false, discard: false, mergePr: true }, mergePrReady: false });
     expect(opened("red")).toMatchObject({ offers: { fixCi: true }, attention: true });
     expect(opened("red").checks.pr.map((check) => [check.kind, check.tone])).toEqual([["pr", "ok"], ["ci", "bad"]]);

@@ -746,6 +746,13 @@ describe("registry", () => {
     expect(reloaded.get(run.id)?.lastOutput).toBeUndefined();
     expect(new RunRegistry(join(root, "runs.json"), Date.now() + 8 * 24 * 3_600_000).all()).toEqual([]);
   });
+
+  it("reads a thread's writers recorded as CLIs alone, before they named their model, as CLIs without a model", async () => {
+    const { fleet, registry, root } = setup();
+    const run = await spawn(fleet);
+    registry.upsert({ ...registry.get(run.id)!, writers: ["claude", "agy"] as never });
+    expect(new RunRegistry(join(root, "runs.json")).get(run.id)!.writers).toEqual([{ agent: "claude" }, { agent: "agy" }]);
+  });
 });
 
 describe("result files", () => {
@@ -3184,10 +3191,12 @@ describe("plans", () => {
 });
 
 describe("merge authority", () => {
+  /** the reviewers' model: Google's, another company's than claude's, which leads the threads */
+  const GEMINI = "google/gemini-3-pro";
   const agents = [
     role("coordinator", { agent: "claude", interactive: true, spawning: true, edits: false }),
     role("lead", { agent: "claude", interactive: true, spawning: true }),
-    role("reviewer", { agent: "pi", edits: false }),
+    role("reviewer", { agent: "pi", model: GEMINI, edits: false }),
   ];
   const PR = { number: 12, url: "https://github.com/o/rs/pull/12", state: "OPEN", checks: "pass", head: "c0ffee", base: "rust", checksRead: true } as const;
   const GATE = "[fleet] The person made this project's merges gated in their own settings, and the fleet found every condition of the gate held for these. Each is your approval for that merge only.";
@@ -3261,6 +3270,7 @@ describe("merge authority", () => {
     const merges = runtime.instructions[0]!.split("## Merges\n")[1]!;
     expect(merges).toContain("Never merge a pull request");
     expect(merges).toContain("The person made merges into rust gated: once your report is ready and a review on another CLI than yours passed at your latest commit, push your branch (never force) and open a pull request against rust with gh pr create");
+    expect(merges).toContain("a review that passed by a model from a company none of the models that wrote this change is from (a review on another CLI by the same company's model, such as an Anthropic model on agy for a change claude wrote, opens the pull request but leaves its merge to the person)");
     expect(merges).toContain("at most 200 changed lines");
   });
 
@@ -3374,7 +3384,7 @@ describe("merge authority", () => {
     git.head = "d00d";
     git.pr = { ...PR, head: "d00d" };
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.gate!.checks.filter((check) => !check.ok)).toEqual([{ id: "review", ok: false, detail: "The review on pi was of another commit than the branch's latest." }]);
+    expect(registry.get(thread.id)!.gate!.checks.filter((check) => !check.ok)).toEqual([{ id: "review", ok: false, detail: "The review by pi:google/gemini-3-pro was of another commit than the branch's latest." }]);
     expect(to(coordinator)).toEqual(["port"]);
   });
 
@@ -3394,7 +3404,7 @@ describe("merge authority", () => {
     writeReport(root, thread.id, "ready", "Opened #12.");
     git.pr = { ...PR };
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review on a CLI other than claude passed." });
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review by a model from a company other than Anthropic passed." });
     expect(to(coordinator)).toEqual(["port"]);
   });
 
@@ -3410,17 +3420,17 @@ describe("merge authority", () => {
     writeReport(root, reviewer.id, "ready", "No findings.");
     await turn(reviewer, "idle");
     expect(registry.get(reviewer.id)!.reportedHead).toBeUndefined();
-    expect(registry.get(thread.id)!.writers).toEqual(["claude", "pi"]);
+    expect(registry.get(thread.id)!.writers).toEqual([{ agent: "claude" }, { agent: "pi", model: GEMINI }]);
     writeReport(root, thread.id, "ready", "Opened #12.");
     writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 parses\n");
     git.pr = { ...PR, head: "d00d" };
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review on a CLI other than claude, pi passed." });
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review by a model from a company other than Anthropic, Google passed." });
     expect(to(coordinator)).toEqual(["port"]);
   });
 
   it("count a reviewer as a writer when its turn changed the worktree without a commit, or ended unseen", async () => {
-    const { fleet, registry, root, git, turn } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi" })]);
+    const { fleet, registry, root, git, turn } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi", model: GEMINI })]);
     const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo" });
     const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
     // it edits files and commits nothing: the lead may commit them later
@@ -3428,22 +3438,22 @@ describe("merge authority", () => {
     writeReport(root, reviewer.id, "ready", "Fixed two things.");
     await turn(reviewer, "idle");
     expect(registry.get(reviewer.id)!.reportedHead).toBeUndefined();
-    expect(registry.get(thread.id)!.writers).toEqual(["claude", "pi"]);
+    expect(registry.get(thread.id)!.writers).toEqual([{ agent: "claude" }, { agent: "pi", model: GEMINI }]);
     // another thread: its reviewer's pane closes before the fleet read its turn
     const other = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo" });
     const gone = await fleet.spawn({ role: "reviewer", task: "review", group: other.group, cwd: other.cwd, avoid: ["claude"] });
     fleet.onPaneEnded(gone.paneId);
-    expect(registry.get(other.id)!.writers).toEqual(["claude", "pi"]);
+    expect(registry.get(other.id)!.writers).toEqual([{ agent: "claude" }, { agent: "pi", model: GEMINI }]);
   });
 
   it("count a reviewer as a writer while it works, and once a turn nobody sent ran in it after its review", async () => {
     // a reviewer that talks in its pane: its pane stays after its turn, and the person can type there
-    const { registry, git, turn, reviewed } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi", interactive: true })]);
+    const { registry, git, turn, reviewed } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi", model: GEMINI, interactive: true })]);
     const { thread, reviewer } = await reviewed();
     // the person types into the reviewer's pane after its clean review: what that turn writes is not compared
     await turn(reviewer, "working");
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review on a CLI other than claude, pi passed." });
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review by a model from a company other than Anthropic, Google passed." });
     // that turn ends: still not a review the fleet compared, and pi stays a writer of the thread
     await turn(reviewer, "idle");
     git.pr = { ...PR, checks: "pending" };
@@ -3483,18 +3493,29 @@ describe("merge authority", () => {
     expect(registry.get(thread.id)!.landing).toMatchObject({ by: "gate", sent: false });
   });
 
+  it("count no review by a model of the writers' company, though on another CLI", async () => {
+    const { registry, turn, to, reviewed } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi", model: "anthropic/claude-opus-5-5", edits: false })]);
+    const { coordinator, thread } = await reviewed();
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.filter((check) => !check.ok)).toEqual([{
+      id: "review", ok: false,
+      detail: "No review by a model from a company other than Anthropic passed. Not counted: pi:anthropic/claude-opus-5-5 (Anthropic).",
+    }]);
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
   it("take the bundled reviewer, which may edit, as a review when its turn left the branch where it was", async () => {
-    const { registry, turn, reviewed } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi" })]);
+    const { registry, turn, reviewed } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "pi", model: GEMINI })]);
     const { thread } = await reviewed();
     await turn(thread, "idle");
     expect(registry.get(thread.id)!.gate).toMatchObject({ ok: true });
   });
 
   it("keep on the thread the CLIs that wrote in it, so a helper's record gone does not make its CLI a fit reviewer", async () => {
-    const { fleet, registry, turn, to, reviewed } = project(undefined, [...agents, role("worker", { agent: "pi" })]);
+    const { fleet, registry, turn, to, reviewed } = project(undefined, [...agents, role("worker", { agent: "pi", model: GEMINI })]);
     const { coordinator, thread } = await reviewed();
     const worker = await fleet.spawn({ role: "worker", task: "part", group: thread.group, cwd: thread.cwd });
-    expect(registry.get(thread.id)!.writers).toEqual(["claude", "pi"]);
+    expect(registry.get(thread.id)!.writers).toEqual([{ agent: "claude" }, { agent: "pi", model: GEMINI }]);
     // the worker's record leaves the thread's fleet (as the registry drops a run untouched for days)
     registry.upsert({ ...registry.get(worker.id)!, group: "gone" });
     await turn(thread, "idle");
@@ -3600,7 +3621,7 @@ describe("merge authority", () => {
     git.head = "d00d";
     await turn(coordinator, "idle");
     expect(to(coordinator)).toEqual(["port"]);
-    expect(registry.get(thread.id)!.landing!.error).toStartWith("The gate no longer held when the coordinator was free: The review on pi was of another commit than the branch's latest.");
+    expect(registry.get(thread.id)!.landing!.error).toStartWith("The gate no longer held when the coordinator was free: The review by pi:google/gemini-3-pro was of another commit than the branch's latest.");
     // and when the person's setting changed meanwhile
     const other = project();
     const second = await other.reviewed();

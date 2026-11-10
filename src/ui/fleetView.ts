@@ -1,4 +1,5 @@
 import { currentLead, modelListed, needsPerson, outcomeLine, threadState, type AgentRun, type AgentState, type ContractItem, type DiffStat, type FleetAgentKind, type FleetEntrance, type FleetSettings, type GateReading, type LandAction, type MergeBy, type MergeSetting, type LineComment, type ModelListing, type PullRequest, type SkippedCandidate, type ThinkingLevel, type ThreadState, type UsageEntry, type UsageWindow } from "../../shared/fleet.ts";
+import { modelCompany, type ModelCompany } from "../../shared/model-company.ts";
 import type { ConversationTurn } from "../../shared/protocol.ts";
 import { parseDiff, type DiffLine } from "./diff.ts";
 import { isEnded, planDraft, type ConfirmedStep, type PlanDraft, type ThreadTab, type UiState } from "./state.ts";
@@ -207,7 +208,8 @@ export type CheckModel = { tone: CheckTone } & (
   | { kind: "committed"; uncommitted: string[]; ahead: number }
   | { kind: "base"; baseBranch: string; behind: number; action?: "update" }
   | { kind: "contract"; items: ContractItem[] }
-  | { kind: "review"; reviewers: Array<{ agent: FleetAgentKind; status?: string }> }
+  /** the reviewers on another CLI than the lead's, with their model's company when it is known (the gate counts only another company's) */
+  | { kind: "review"; reviewers: Array<{ agent: FleetAgentKind; model?: string; company?: ModelCompany; status?: string }> }
   | { kind: "comments"; count: number; action?: "comments" }
   | { kind: "pr"; pr?: PullRequest; error?: string }
   | { kind: "ci"; pr: PullRequest; action?: "fix-ci" }
@@ -619,7 +621,10 @@ function landingModel(run: AgentRun & { branch: string; project: string }, helpe
   ] : [];
   const threadChecks: CheckModel[] = [
     { kind: "contract", tone: !run.contract?.length ? "none" : contractOpen ? "warn" : "ok", items: run.contract ?? [] },
-    { kind: "review", tone: reviewers.length ? "ok" : "warn", reviewers: reviewers.map((helper) => ({ agent: helper.agent, ...(helper.outcome ? { status: outcomeLine(helper.outcome) } : {}) })) },
+    { kind: "review", tone: reviewers.length ? "ok" : "warn", reviewers: reviewers.map((helper) => {
+      const company = modelCompany(helper.agent, helper.model);
+      return { agent: helper.agent, ...(helper.model ? { model: helper.model } : {}), ...(company ? { company } : {}), ...(helper.outcome ? { status: outcomeLine(helper.outcome) } : {}) };
+    }) },
     { kind: "comments", tone: comments.length ? "warn" : "ok", count: comments.length, ...(comments.length ? { action: "comments" as const } : {}) },
     ...(run.gate ? [{ kind: "gate" as const, tone: run.gate.ok ? "ok" as const : "warn" as const, gate: run.gate }] : []),
   ];

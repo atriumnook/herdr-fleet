@@ -8,8 +8,8 @@ const GATED: MergeSetting = { mode: "gated", branches: ["rust"], maxLines: 200, 
 const passing = (): GateFacts => ({
   report: "ready",
   contract: [{ id: "A1", state: "met" }],
-  writers: ["claude"],
-  reviews: [{ agent: "codex", report: "ready", head: "c0ffee" }],
+  writers: [{ agent: "claude" }],
+  reviews: [{ agent: "codex", model: "gpt-5.6-sol", report: "ready", head: "c0ffee" }],
   head: "c0ffee",
   base: "rust",
   pr: { state: "OPEN", checks: "pass", head: "c0ffee", base: "rust", checksRead: true },
@@ -52,11 +52,11 @@ describe("the merge gate", () => {
     expect(failed({ ...passing(), report: "blocked", pr: { state: "OPEN", checks: "none", head: "c0ffee", base: "rust", checksRead: true } })).toEqual(["report", "checks"]);
   });
 
-  it("b) waits unless a reviewer on a CLI none of the writers used passed at the branch's latest commit", () => {
+  it("b) waits unless a reviewer whose model is from a company none of the writers' models is from passed at the branch's latest commit", () => {
     // reviewed on the writer's own CLI
     expect(failed({ ...passing(), reviews: [{ agent: "claude", report: "ready", head: "c0ffee" }] })).toEqual(["review"]);
     // a lead run of the thread was restarted on codex, or codex edited as a helper: codex wrote too
-    expect(failed({ ...passing(), writers: ["claude", "codex"] })).toEqual(["review"]);
+    expect(failed({ ...passing(), writers: [{ agent: "claude" }, { agent: "codex", model: "gpt-5.6-sol" }] })).toEqual(["review"]);
     // the review found issues
     expect(failed({ ...passing(), reviews: [{ agent: "codex", report: "failed", head: "c0ffee" }] })).toEqual(["review"]);
     // the lead committed its fixes after the review, whatever date the commit says: nobody reviewed them
@@ -64,6 +64,36 @@ describe("the merge gate", () => {
     expect(failed({ ...passing(), reviews: [{ agent: "codex", report: "ready" }] })).toEqual(["review"]);
     expect(failed({ ...passing(), head: null })).toEqual(["review", "checks"]);
     expect(failed({ ...passing(), reviews: [] })).toEqual(["review"]);
+  });
+
+  it("b) counts a review on another CLI only when its model is from another company than the writers' models", () => {
+    const review = (agent: "agy" | "codex" | "pi" | "opencode", model?: string) => ({ reviews: [{ agent, ...(model ? { model } : {}), report: "ready" as const, head: "c0ffee" }] });
+    // claude wrote it: agy's claude model is Anthropic's too, and tends to miss what claude missed
+    expect(failed({ ...passing(), ...review("agy", "claude-opus-5-5-high") })).toEqual(["review"]);
+    expect(failed({ ...passing(), ...review("pi", "anthropic/claude-sonnet-5-5") })).toEqual(["review"]);
+    // Google's and OpenAI's models count
+    expect(failed({ ...passing(), ...review("agy", "gemini-3.8-pro-high") })).toEqual([]);
+    expect(failed({ ...passing(), ...review("codex") })).toEqual([]);
+    expect(failed({ ...passing(), ...review("opencode", "opencode-go/kimi-k3") })).toEqual([]);
+    // a reviewer whose model's company is not known does not count
+    expect(failed({ ...passing(), ...review("pi", "openrouter/auto") })).toEqual(["review"]);
+    expect(failed({ ...passing(), ...review("agy") })).toEqual(["review"]);
+    // agy wrote with Google's model: a Google model on pi does not count, codex does
+    expect(failed({ ...passing(), writers: [{ agent: "agy", model: "gemini-3.8-pro-high" }], ...review("pi", "google/gemini-3-pro") })).toEqual(["review"]);
+    expect(failed({ ...passing(), writers: [{ agent: "agy", model: "gemini-3.8-pro-high" }] })).toEqual([]);
+    const detail = (facts: Partial<GateFacts>) => evaluateGate(gate, { ...passing(), ...facts }).checks.find((check) => check.id === "review")!.detail;
+    expect(detail(review("agy", "gemini-3.8-pro-high"))).toBe("A review by Google's model on agy:gemini-3.8-pro-high passed at the branch's latest commit.");
+    expect(detail(review("agy", "claude-opus-5-5-high"))).toBe("No review by a model from a company other than Anthropic passed. Not counted: agy:claude-opus-5-5-high (Anthropic).");
+    expect(detail(review("pi", "openrouter/auto"))).toBe("No review by a model from a company other than Anthropic passed. Not counted: pi:openrouter/auto (company not known).");
+  });
+
+  it("b) counts no review when the company of a writer's model is not known", () => {
+    // a writer recorded before writers named their model, or a model no company is known for
+    expect(failed({ ...passing(), writers: [{ agent: "claude" }, { agent: "agy" }] })).toEqual(["review"]);
+    expect(failed({ ...passing(), writers: [{ agent: "claude" }, { agent: "opencode", model: "opencode/big-pickle" }] })).toEqual(["review"]);
+    expect(failed({ ...passing(), writers: [{ agent: "claude" }, { agent: "cursor", model: "gpt-5" }] })).toEqual(["review"]);
+    expect(evaluateGate(gate, { ...passing(), writers: [{ agent: "claude" }, { agent: "agy" }, { agent: "pi", model: "openrouter/auto" }] }).checks.find((check) => check.id === "review")!.detail)
+      .toBe("The company of the model that wrote on agy, pi:openrouter/auto is not known, so no review counts.");
   });
 
   it("c) waits unless the pull request's checks passed, or it has none and the lead's contract is met", () => {
@@ -105,7 +135,8 @@ describe("the merge gate", () => {
       expect(evaluateGate(wild, { ...passing(), files: [file] }).ok).toBe(false);
     }
     expect(evaluateGate(wild, { ...passing(), files: ["src/privateer.rs", "packages/api/src/main.rs"] }).ok).toBe(true);
-    for (const file of ["server/fleet/adapters.ts", "server/fleet/report.ts", "agents/reviewer.md"]) expect(failed({ ...passing(), files: [file] })).toEqual(["paths"]);
+    // the table that tells a model's company decides which reviews count
+    for (const file of ["server/fleet/adapters.ts", "server/fleet/report.ts", "agents/reviewer.md", "shared/model-company.ts"]) expect(failed({ ...passing(), files: [file] })).toEqual(["paths"]);
     expect(evaluateGate(gate, { ...passing(), files: [".github/workflows/ci.yml"] }).checks.find((check) => check.id === "paths")!.detail).toBe("It touches protected paths: .github/workflows/ci.yml.");
   });
 
