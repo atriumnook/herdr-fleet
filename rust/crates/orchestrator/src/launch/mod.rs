@@ -160,7 +160,7 @@ impl Adapter {
     /// that runs the fleet command where the agent cannot (#189's 8), and a role asked to read files
     /// outside its folders on a CLI that stops to ask before each (#190).
     pub fn refusal(&self, role: &RoleFit) -> Option<String> {
-        let kind = kind_name(self.kind);
+        let kind = self.kind.name();
         if role.read_only && self.read_only_args.is_none() {
             Some(format!("{kind} cannot be kept from editing files"))
         } else if role.spawning && !self.runs_fleet_command {
@@ -186,14 +186,6 @@ pub fn adapter_for(kind: FleetAgentKind) -> &'static Adapter {
         FleetAgentKind::Cursor => &cursor::ADAPTER,
         FleetAgentKind::Agy => &agy::ADAPTER,
         FleetAgentKind::Opencode => &opencode::ADAPTER,
-    }
-}
-
-/// The kind as herdr and the settings name it: `FleetAgentKind`'s own serde name.
-fn kind_name(kind: FleetAgentKind) -> String {
-    match serde_json::to_value(kind) {
-        Ok(serde_json::Value::String(name)) => name,
-        _ => format!("{kind:?}"),
     }
 }
 
