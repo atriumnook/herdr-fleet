@@ -3203,7 +3203,7 @@ describe("merge authority", () => {
   const GATE = "[fleet] The person made this project's merges gated in their own settings, and the fleet found every condition of the gate held for these. Each is your approval for that merge only.";
 
   /** a project whose person's settings make merges into `rust` gated, with every fact the gate reads in `git` */
-  function project(merge: Record<string, unknown> | null = { mode: "gated", branches: ["rust"], protected: ["docs/plan.md"] }, roles = agents, landing: Partial<LandingTools> = {}) {
+  function project(merge: Record<string, unknown> | null = { mode: "gated", branches: ["rust"], protected: ["docs/plan.md"] }, roles = agents, landing: Partial<LandingTools> = {}, extra: SetupOptions = {}) {
     const states = new Map<string, AgentState>();
     const events: FleetEvent[] = [];
     const removed: string[] = [];
@@ -3213,7 +3213,7 @@ describe("merge authority", () => {
       merged: false, mergeCommit: "abc0001" as string | null, revert: null as string | null, revertOnGitHub: true, slow: 0,
     };
     const harness = setup({
-      agents: roles, gitRoot: async () => "/repo", events: (event) => events.push(event),
+      ...extra, agents: roles, gitRoot: async () => "/repo", events: (event) => events.push(event),
       config: merge ? { projects: { "/repo": { merge } } } : {},
       landing: {
         gitBranch: async () => "rust",
@@ -3391,6 +3391,36 @@ describe("merge authority", () => {
     const { runs } = await (await handleFleetRequest(new Request(url), url, fleet)).json() as { runs: AgentRun[] };
     expect(runs.find((run) => run.id === thread.id)!.outcome?.report).toMatchObject({ state: "blocked", human_action: "Keep the old flag?" });
     // a report is the lead's, not news: the coordinator heard nothing of the rewrites
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("keeps a report written while the lead's turn settles out of that settlement, and shows it once the turn settled", async () => {
+    let hold = false;
+    let held = false;
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const { fleet, root, turn, to } = project(null, agents, {}, {
+      gitHead: async () => "abc1234",
+      diffStat: async () => { if (hold) { held = true; await released; } return { added: 1, removed: 0, files: 1 }; },
+    });
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    writeReport(root, thread.id, "ready", "Done.");
+    hold = true;
+    const settling = turn(thread, "idle");
+    // the fleet read the turn's report and now reads its change: the lead writes its report again, and the Fleet screen reads the runs
+    await until(() => held, "the turn's settlement reads the change");
+    writeReport(root, thread.id, "blocked", "Rewritten while settling.", "May the old flag go?");
+    const url = new URL("http://localhost/api/fleet/runs");
+    await handleFleetRequest(new Request(url), url, fleet);
+    await fleet.threads({ cwd: "/repo" });
+    release();
+    await settling;
+    await Bun.sleep(30);
+    // the turn settled on what it reported: the rewrite asks the coordinator nothing
+    expect(to(coordinator)).toEqual(["port"]);
+    expect((await fleet.threads({ cwd: "/repo" }))[0]!).toMatchObject({ state: "waiting", status: "blocked — Rewritten while settling." });
     expect(to(coordinator)).toEqual(["port"]);
   });
 

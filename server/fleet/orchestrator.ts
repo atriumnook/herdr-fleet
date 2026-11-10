@@ -232,6 +232,8 @@ export class Orchestrator {
   private readonly unsentTurnStarts = new Map<string, number>();
   /** per run, the report and handoff files as the fleet last read them (fileVersion): each version is read once */
   private readonly readFiles = new Map<string, { report: string | null; result: string | null }>();
+  /** runs whose turn the fleet is settling now: a report written meanwhile is not taken into that settlement (settleTurn) */
+  private readonly settling = new Set<string>();
   /** callers waiting for a run's turn to settle or block */
   private readonly waiters = new Map<string, Set<(run: AgentRun) => void>>();
   /** the concurrency check and the run's first save happen as one step */
@@ -1508,9 +1510,9 @@ export class Orchestrator {
         if (!pending && current === "working" && run.role === REVIEWER_ROLE) { delete run.reviewClean; run.turnHead ??= "unknown"; }
         if (current !== run.state) this.updateState(run, current);
         if (pending?.armed && run.state === "blocked") await this.reportBlocked(run, pending);
-        else if (pending?.armed && isCompleted(run.state)) await this.finalize(run, pending);
+        else if (pending?.armed && isCompleted(run.state)) await this.settleTurn(run, () => this.finalize(run, pending));
         // a lead that broke off to wait may start its next turn at an approval, which herdr shows without working first
-        else if (!pending && (previous === "working" || (previous === "blocked" && this.waitingLeads.has(run.id))) && isCompleted(run.state) && isThread(run)) await this.settleUnsentTurn(run);
+        else if (!pending && (previous === "working" || (previous === "blocked" && this.waitingLeads.has(run.id))) && isCompleted(run.state) && isThread(run)) await this.settleTurn(run, () => this.settleUnsentTurn(run));
         // free again, after the fleet's turn or the person's: the questions of the threads it hears for
         if (!this.pending.has(run.id) && isCompleted(run.state)) void this.deliverNotices(run);
       } catch (error) {
@@ -1527,6 +1529,16 @@ export class Orchestrator {
     });
     this.reconcileLocks.set(run.id, next);
     try { await next; } finally { if (this.reconcileLocks.get(run.id) === next) this.reconcileLocks.delete(run.id); }
+  }
+
+  /**
+   * A settled turn's settlement: it goes on what the turn's end read, and a report or handoff written
+   * while it runs is shown once it is done (followReport), not taken into its news, new run or gate.
+   */
+  private async settleTurn(run: AgentRun, settle: () => Promise<void>): Promise<void> {
+    this.settling.add(run.id);
+    try { await settle(); } finally { this.settling.delete(run.id); }
+    this.followReport(run);
   }
 
   private async finalize(run: AgentRun, pending: PendingTurn): Promise<void> {
@@ -1650,10 +1662,10 @@ export class Orchestrator {
    * did not settle (the person's or the lead's own, with the person), or files written again after the
    * turn ended. Only what they say is taken, as at a turn's end, and nothing else follows from it: no
    * news, no new run, no gate. A file that is gone (a turn removes it as it starts) leaves the last one
-   * read; during a turn nothing is read, the turn's end does.
+   * read; during a turn and its settlement nothing is read, the turn's end does.
    */
   private followReport(run: AgentRun): void {
-    if (!isThread(run) || run.replacedBy || !isCompleted(run.state) || this.pending.has(run.id)) return;
+    if (!isThread(run) || run.replacedBy || !isCompleted(run.state) || this.pending.has(run.id) || this.settling.has(run.id)) return;
     const seen = this.readFiles.get(run.id);
     const now = this.turnFileVersions(run);
     this.readFiles.set(run.id, now);
@@ -1804,11 +1816,8 @@ export class Orchestrator {
     const waited = this.waitingLeads.has(run.id);
     const startedAt = this.unsentTurnStarts.get(run.id);
     this.unsentTurnStarts.delete(run.id);
-    // with the person, the thread shows what the turn reported; it settles nothing more
-    if (!config.autonomous && !waited) {
-      this.followReport(run);
-      return;
-    }
+    // with the person, it settles nothing: the thread shows what the turn reported (settleTurn)
+    if (!config.autonomous && !waited) return;
     await this.readTurn(run, config);
     await this.readThreadWork(run);
     const restartError = this.needsRestart(run) ? await this.restartThread(run) : undefined;
