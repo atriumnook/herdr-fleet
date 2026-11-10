@@ -3347,6 +3347,16 @@ describe("merge authority", () => {
       `{"event":"start","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19/20261110T134008.942140Z-Hb58fc00a-P00191e1b","thread":"main","file":"common-init.c","line":78,"t_abs":0.000156,"argv":["/usr/lib/git-core/git","reset","--hard","-q","--no-recurse-submodules"]}`,
       `{"event":"cmd_name","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19/20261110T134008.942140Z-Hb58fc00a-P00191e1b","thread":"main","file":"git.c","line":507,"name":"reset","hierarchy":"stash/reset"}`,
     ],
+    // a log that writes what it shows to a file (the file's path shortened): it could be a ref's
+    logOutput: [
+      `{"event":"start","sid":"20261110T135545.678231Z-Hb58fc00a-P0019bc04","thread":"main","file":"common-init.c","line":78,"t_abs":0.000204,"argv":["git","log","-1","--format=%H","--output=/tmp/out.txt"]}`,
+      `{"event":"cmd_name","sid":"20261110T135545.678231Z-Hb58fc00a-P0019bc04","thread":"main","file":"git.c","line":507,"name":"log","hierarchy":"log"}`,
+    ],
+    // a branch whose format option takes the value "--list": it creates the branch
+    branchFormatList: [
+      `{"event":"start","sid":"20261110T135545.680102Z-Hb58fc00a-P0019bc05","thread":"main","file":"common-init.c","line":78,"t_abs":0.000153,"argv":["git","branch","--format","--list","created-by-branch"]}`,
+      `{"event":"cmd_name","sid":"20261110T135545.680102Z-Hb58fc00a-P0019bc05","thread":"main","file":"git.c","line":507,"name":"branch","hierarchy":"branch"}`,
+    ],
     // a commit, and the maintenance it starts after itself
     commit: [
       `{"event":"start","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000179,"argv":["git","-c","user.name=a","-c","user.email=a@b","commit","-q","--allow-empty","-m","two"]}`,
@@ -3728,6 +3738,9 @@ describe("merge authority", () => {
     // an option's value that reads as a subcommand
     expect(await moved("Config comment", [...TRACE.status, ...TRACE.configCommentGet])).toEqual(both);
     expect(await moved("Stash message", [...TRACE.status, ...TRACE.stashMessageList])).toEqual(both);
+    expect(await moved("Branch format", [...TRACE.status, ...TRACE.branchFormatList])).toEqual(both);
+    // a command that reads, told to write a file
+    expect(await moved("Log output", [...TRACE.status, ...TRACE.logOutput])).toEqual(both);
     // no record: its CLI may not pass the environment on, or its git did not run
     expect(await moved("Unknown", null)).toEqual(both);
     // a record that is not git's

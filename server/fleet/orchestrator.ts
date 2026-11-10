@@ -2152,13 +2152,12 @@ const GIT_READS = new Set([
  */
 const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
   // a subcommand comes first: a later word may be an option's value (`--comment get`)
-  config: (args) => gitOptionsOnly(args, "lz", ["get", "get-all", "get-regexp", "get-urlmatch", "get-color", "get-colorbool", "list", "global", "system", "local", "worktree", "show-origin", "show-scope", "name-only", "null", "type", "default", "includes", "no-includes", "bool", "int", "bool-or-int", "path", "expiry-date", "all", "regexp", "value", "fixed-value", "url"])
+  config: (args) => gitOptionsOnly(args, "lz", ["get", "get-all", "get-regexp", "get-urlmatch", "get-color", "get-colorbool", "list", "global", "system", "local", "worktree", "show-origin", "show-scope", "name-only", "null", "type=", "default=", "includes", "no-includes", "bool", "int", "bool-or-int", "path", "expiry-date", "all", "regexp", "value=", "fixed-value", "url="])
     && (args.some((arg) => /^(?:--get(?:-all|-regexp|-urlmatch|-color|-colorbool)?|-l|--list)$/.test(arg)) || /^(?:get|list)$/.test(args[0] ?? "")),
-  // a pattern after these lists the branches that match it; without them, a name creates a branch
-  branch: (args) => gitOptionsOnly(args, "arvli", ["all", "remotes", "verbose", "list", "show-current", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "no-color", "column", "no-column", "ignore-case", "abbrev", "no-abbrev", "omit-empty"])
-    && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
-  tag: (args) => gitOptionsOnly(args, "lin0123456789", ["list", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "column", "no-column", "ignore-case", "omit-empty"])
-    && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
+  // no word but options: a word names a branch to create, unless a list option comes before it, and an
+  // option that takes a value may have taken that list option as its value (`--format --list`)
+  branch: (args) => !positional(args).length && gitOptionsOnly(args, "arvli", ["all", "remotes", "verbose", "list", "show-current", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "no-color", "column", "no-column", "ignore-case", "abbrev", "no-abbrev", "omit-empty"]),
+  tag: (args) => !positional(args).length && gitOptionsOnly(args, "lin0123456789", ["list", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "column", "no-column", "ignore-case", "omit-empty"]),
   // git refuses to fetch into a branch a worktree has checked out unless told it may (-u, --update-head-ok), which is not listed
   fetch: (args) => gitOptionsOnly(args, "qvptPnj0123456789", ["quiet", "verbose", "all", "prune", "prune-tags", "tags", "no-tags", "dry-run", "progress", "no-progress", "jobs", "depth", "shallow-since", "shallow-exclude", "recurse-submodules", "no-recurse-submodules", "filter", "multiple", "no-write-fetch-head"]),
   stash: (args) => /^(?:list|show)$/.test(args[0] ?? ""),
@@ -2166,13 +2165,17 @@ const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
   worktree: (args) => args[0] === "list",
   "symbolic-ref": (args) => positional(args).length <= 1 && gitOptionsOnly(args, "q", ["quiet", "short", "no-recurse"]),
 };
-/** Whether every option in `args` is one of these: short ones alone or bundled (`-av`), long ones in full, with or without a value after `=` */
+/**
+ * Whether every option in `args` is one of these: short ones alone or bundled (`-av`), long ones in
+ * full, with or without a value after `=`; one listed as `name=` only with its value after `=`, so
+ * that it cannot take the next word, an option the fleet reads as another (`--default --get`)
+ */
 function gitOptionsOnly(args: string[], short: string, long: string[]): boolean {
   return args.every((arg) => {
     if (!arg.startsWith("-")) return true;
     if (/^-[^-]/.test(arg)) return [...arg.slice(1)].every((letter) => short.includes(letter));
-    const name = /^--([^=]+)/.exec(arg)?.[1];
-    return name !== undefined && long.includes(name);
+    const [, name, value] = /^--([^=]+)(=.*)?$/.exec(arg) ?? [];
+    return name !== undefined && (long.includes(name) || (value !== undefined && long.includes(`${name}=`)));
   });
 }
 const positional = (args: string[]): string[] => args.filter((arg) => !arg.startsWith("-"));
@@ -2208,11 +2211,13 @@ function gitTraceWrites(file: string): boolean | null {
     if (event.event !== "cmd_name") continue;
     if (typeof event.name !== "string") return true;
     named = true;
+    const args = argv.get(event.sid);
+    // a command that reads still writes the file it is told to (`--output`), which may be a ref's
+    if (!args || args.some((arg) => "output".startsWith(/^--([^=]+)/.exec(arg)?.[1] ?? "-"))) return true;
     if (GIT_READS.has(event.name)) continue;
     const reads = GIT_READS_WITH[event.name];
-    const args = argv.get(event.sid);
-    const at = args?.indexOf(event.name, 1) ?? -1;
-    if (!reads || !args || at < 0 || !reads(args.slice(at + 1))) return true;
+    const at = args.indexOf(event.name, 1);
+    if (!reads || at < 0 || !reads(args.slice(at + 1))) return true;
   }
   return named ? false : null;
 }
