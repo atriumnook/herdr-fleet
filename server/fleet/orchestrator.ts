@@ -2084,7 +2084,9 @@ const GIT_READS = new Set([
  * lists the options it reads with: an option not listed, a newer one or one written shortened, is a write.
  */
 const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
-  config: (args) => args.some((arg) => /^(?:--get(?:-all|-regexp|-urlmatch|-color|-colorbool)?|-l|--list)$/.test(arg)) || /^(?:get|list)$/.test(positional(args)[0] ?? ""),
+  // a subcommand comes first: a later word may be an option's value (`--comment get`)
+  config: (args) => gitOptionsOnly(args, "lz", ["get", "get-all", "get-regexp", "get-urlmatch", "get-color", "get-colorbool", "list", "global", "system", "local", "worktree", "show-origin", "show-scope", "name-only", "null", "type", "default", "includes", "no-includes", "bool", "int", "bool-or-int", "path", "expiry-date", "all", "regexp", "value", "fixed-value", "url"])
+    && (args.some((arg) => /^(?:--get(?:-all|-regexp|-urlmatch|-color|-colorbool)?|-l|--list)$/.test(arg)) || /^(?:get|list)$/.test(args[0] ?? "")),
   // a pattern after these lists the branches that match it; without them, a name creates a branch
   branch: (args) => gitOptionsOnly(args, "arvli", ["all", "remotes", "verbose", "list", "show-current", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "no-color", "column", "no-column", "ignore-case", "abbrev", "no-abbrev", "omit-empty"])
     && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
@@ -2092,9 +2094,9 @@ const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
     && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
   // git refuses to fetch into a branch a worktree has checked out unless told it may (-u, --update-head-ok), which is not listed
   fetch: (args) => gitOptionsOnly(args, "qvptPnj0123456789", ["quiet", "verbose", "all", "prune", "prune-tags", "tags", "no-tags", "dry-run", "progress", "no-progress", "jobs", "depth", "shallow-since", "shallow-exclude", "recurse-submodules", "no-recurse-submodules", "filter", "multiple", "no-write-fetch-head"]),
-  stash: (args) => /^(?:list|show)$/.test(positional(args)[0] ?? ""),
-  remote: (args) => /^(?:show|get-url)?$/.test(positional(args)[0] ?? ""),
-  worktree: (args) => positional(args)[0] === "list",
+  stash: (args) => /^(?:list|show)$/.test(args[0] ?? ""),
+  remote: (args) => /^(?:show|get-url)?$/.test((/^(?:-v|--verbose)$/.test(args[0] ?? "") ? args[1] : args[0]) ?? ""),
+  worktree: (args) => args[0] === "list",
   "symbolic-ref": (args) => positional(args).length <= 1 && gitOptionsOnly(args, "q", ["quiet", "short", "no-recurse"]),
 };
 /** Whether every option in `args` is one of these: short ones alone or bundled (`-av`), long ones in full, with or without a value after `=` */

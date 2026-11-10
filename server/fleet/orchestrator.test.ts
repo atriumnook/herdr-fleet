@@ -3272,6 +3272,20 @@ describe("merge authority", () => {
       `{"event":"start","sid":"20261110T133043.713361Z-Hb58fc00a-P0018a167","thread":"main","file":"common-init.c","line":78,"t_abs":0.000159,"argv":["git","branch","--delete-merged=main"]}`,
       `{"event":"cmd_name","sid":"20261110T133043.713361Z-Hb58fc00a-P0018a167","thread":"main","file":"git.c","line":507,"name":"branch","hierarchy":"branch"}`,
     ],
+    // a config write whose comment option takes the value "get"
+    configCommentGet: [
+      `{"event":"start","sid":"20261110T133952.500692Z-Hb58fc00a-P00191c28","thread":"main","file":"common-init.c","line":78,"t_abs":0.000280,"argv":["git","config","--comment","get","x.y","z"]}`,
+      `{"event":"cmd_name","sid":"20261110T133952.500692Z-Hb58fc00a-P00191c28","thread":"main","file":"git.c","line":507,"name":"config","hierarchy":"config"}`,
+    ],
+    // a stash whose message is "list", and what it starts
+    stashMessageList: [
+      `{"event":"start","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19","thread":"main","file":"common-init.c","line":78,"t_abs":0.000170,"argv":["git","stash","-m","list"]}`,
+      `{"event":"cmd_name","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19","thread":"main","file":"git.c","line":507,"name":"stash","hierarchy":"stash"}`,
+      `{"event":"start","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19/20261110T134008.939815Z-Hb58fc00a-P00191e1a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000157,"argv":["/usr/lib/git-core/git","update-index","--ignore-skip-worktree-entries","-z","--add","--remove","--stdin"]}`,
+      `{"event":"cmd_name","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19/20261110T134008.939815Z-Hb58fc00a-P00191e1a","thread":"main","file":"git.c","line":507,"name":"update-index","hierarchy":"stash/update-index"}`,
+      `{"event":"start","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19/20261110T134008.942140Z-Hb58fc00a-P00191e1b","thread":"main","file":"common-init.c","line":78,"t_abs":0.000156,"argv":["/usr/lib/git-core/git","reset","--hard","-q","--no-recurse-submodules"]}`,
+      `{"event":"cmd_name","sid":"20261110T134008.937455Z-Hb58fc00a-P00191e19/20261110T134008.942140Z-Hb58fc00a-P00191e1b","thread":"main","file":"git.c","line":507,"name":"reset","hierarchy":"stash/reset"}`,
+    ],
     // a commit, and the maintenance it starts after itself
     commit: [
       `{"event":"start","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000179,"argv":["git","-c","user.name=a","-c","user.email=a@b","commit","-q","--allow-empty","-m","two"]}`,
@@ -3568,6 +3582,9 @@ describe("merge authority", () => {
     expect(await moved("Fetch abbreviated", [...TRACE.status, ...TRACE.fetchIntoHeadAbbreviated])).toEqual(both);
     // an option the fleet does not know to only read
     expect(await moved("Branch", [...TRACE.status, ...TRACE.branchDeleteMerged])).toEqual(both);
+    // an option's value that reads as a subcommand
+    expect(await moved("Config comment", [...TRACE.status, ...TRACE.configCommentGet])).toEqual(both);
+    expect(await moved("Stash message", [...TRACE.status, ...TRACE.stashMessageList])).toEqual(both);
     // no record: its CLI may not pass the environment on, or its git did not run
     expect(await moved("Unknown", null)).toEqual(both);
     // a record that is not git's
