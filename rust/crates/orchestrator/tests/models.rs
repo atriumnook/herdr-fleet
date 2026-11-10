@@ -31,16 +31,6 @@ use herdr_fleet_orchestrator::models::{
 use protocol::{FleetAgentKind, ListedModel, ModelListing, model_listed};
 use serde_json::json;
 
-/// `AGENT_KINDS` of `server/fleet/adapters.ts`, in its order.
-const AGENT_KINDS: [FleetAgentKind; 6] = [
-    FleetAgentKind::Pi,
-    FleetAgentKind::Claude,
-    FleetAgentKind::Codex,
-    FleetAgentKind::Cursor,
-    FleetAgentKind::Agy,
-    FleetAgentKind::Opencode,
-];
-
 fn model(id: &str) -> ListedModel {
     ListedModel {
         id: id.to_owned(),
@@ -481,7 +471,7 @@ fn the_catalog_and_its_lookups_can_move_between_tasks() {
 /// and opencode accepts any `provider/model`.
 #[test]
 fn only_codex_cursor_and_agy_give_a_complete_list() {
-    let complete: Vec<(FleetAgentKind, bool)> = AGENT_KINDS
+    let complete: Vec<(FleetAgentKind, bool)> = FleetAgentKind::ALL
         .iter()
         .map(|&kind| (kind, source_for(kind).complete))
         .collect();
@@ -600,10 +590,10 @@ async fn is_not_asked_again_for_a_minute_then_is() {
     models.list(FleetAgentKind::Codex, false).await;
     models.list_all().await;
     // codex once, and every other kind once: they share the stub
-    assert_eq!(asked.load(Ordering::SeqCst), AGENT_KINDS.len());
+    assert_eq!(asked.load(Ordering::SeqCst), FleetAgentKind::ALL.len());
     clock.set(61_000);
     models.list(FleetAgentKind::Codex, false).await;
-    assert_eq!(asked.load(Ordering::SeqCst), AGENT_KINDS.len() + 1);
+    assert_eq!(asked.load(Ordering::SeqCst), FleetAgentKind::ALL.len() + 1);
 }
 
 /// A source that never answers.
