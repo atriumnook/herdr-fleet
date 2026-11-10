@@ -999,17 +999,22 @@ export class Orchestrator {
     return reading;
   }
 
-  /** The lead's turn after a landing step ended: whether the step happened, as git and GitHub say. */
-  private async settleLeadStep(run: AgentRun): Promise<void> {
+  /**
+   * The lead's turn after a landing step ended: whether the step happened, as git and GitHub say.
+   * Returns the pull request it read, which may show it merged already.
+   */
+  private async settleLeadStep(run: AgentRun): Promise<PullRequestReading | null | undefined> {
     const step = run.landing!;
     const thread = run as AgentRun & { project: string; branch: string };
     let error: string | undefined;
+    let reading: PullRequestReading | null | undefined;
     try {
       if (step.action === "pr") {
-        const pr = await this.readPullRequest(thread);
-        if (pr?.state !== "OPEN") error = `The lead's turn ended without an open pull request for ${thread.branch}.`;
+        reading = await this.readPullRequest(thread);
+        // opened and merged within the turn: the step happened, and the thread closes
+        if (reading?.state !== "OPEN" && reading?.state !== "MERGED") error = `The lead's turn ended without an open pull request for ${thread.branch}.`;
       } else {
-        if (run.pr?.state === "OPEN") await this.readPullRequest(thread);
+        if (run.pr?.state === "OPEN" || run.pr?.state === "MERGED") reading = await this.readPullRequest(thread);
         if (step.action === "update") {
           const baseBranch = await this.baseBranchOf(thread);
           const state = await this.tools.branchState(run.cwd, baseBranch);
@@ -1021,6 +1026,7 @@ export class Orchestrator {
     }
     if (error) run.landing = { ...step, error };
     else delete run.landing;
+    return reading;
   }
 
   /** The coordinator's turn ended: the merges it was handed, checked in git and on GitHub, and the threads that landed closed. */
@@ -1083,9 +1089,14 @@ export class Orchestrator {
     });
   }
 
+  /** A thread whose pull request GitHub merged, closed under its lock, once: a thread that closed meanwhile is left alone. */
+  private closeMerged(run: AgentRun, reading: PullRequestReading, by?: MergeBy): Promise<void | undefined> {
+    return this.onLead(run, (lead) => this.mergedOnGitHub(lead, reading, by));
+  }
+
   /**
    * A thread whose pull request GitHub merged: recorded, closed, its branch deleted when GitHub merged
-   * the commit it is at here. `by` is who merged it: a merge none of the fleet's steps asked for is
+   * the commit it is at here (under the thread's lock: closeMerged, onLead). `by` is who merged it: a merge none of the fleet's steps asked for is
    * someone else's on GitHub (the person there, or an agent that should not have).
    */
   private async mergedOnGitHub(thread: AgentRun & { project: string; branch: string }, reading: PullRequestReading, by: MergeBy = this.handedMerge(thread) ?? "github"): Promise<void> {
@@ -1118,11 +1129,13 @@ export class Orchestrator {
   /**
    * The open pull requests, read again: their checks, and whether the person merged or closed one
    * on GitHub. A merged one closes its thread once its lead is not at work (else as its turn ends);
-   * checks that came to pass let the merge gate look at it again. The server calls this from time
-   * to time; it asks GitHub nothing while no thread has an open pull request.
+   * checks that came to pass let the merge gate look at it again. A thread still open with its pull
+   * request read as merged (seen while its lead worked, or before the server started again) is read
+   * once more and closes the same way. The server calls this from time to time; it asks GitHub
+   * nothing while no open thread has an open or merged pull request.
    */
   async refreshPullRequests(): Promise<void> {
-    for (const run of this.list().filter((each) => isThread(each) && each.pr?.state === "OPEN" && !each.landed && !each.replacedBy)) {
+    for (const run of this.list().filter((each) => isThread(each) && (each.pr?.state === "OPEN" || each.pr?.state === "MERGED") && !each.landed && !each.replacedBy)) {
       const thread = run as AgentRun & { project: string; branch: string };
       try {
         const before = run.pr?.checks;
@@ -1693,16 +1706,17 @@ export class Orchestrator {
    * why the thread could not start again when it could not (its contract and change are read before).
    */
   private async settleThreadTurn(run: AgentRun, config: FleetConfig, restartError?: string): Promise<void> {
+    let reading: PullRequestReading | null | undefined;
     if (run.landing?.sent && !run.landing.error && LEAD_STEPS.has(run.landing.action)) {
       // a lead that broke off the step's turn to wait for an agent it started finishes the step in a later turn
-      if (!this.waitingLeads.has(run.id)) await this.settleLeadStep(run);
+      if (!this.waitingLeads.has(run.id)) reading = await this.settleLeadStep(run);
     }
     // without the person, or under a gate, a lead opens its pull request itself: read it as its turn ends
-    else if (run.pr?.state === "OPEN" || ((config.autonomous || (await this.authorityOf(run)).mode === "gated") && !run.landed)) {
-      const reading = await this.readPullRequest(run).catch(() => null);
-      // merged while the lead worked (by the person on GitHub): the thread closes now its turn ended
-      if (reading?.state === "MERGED" && !run.landed) await this.mergedOnGitHub(run as AgentRun & { project: string; branch: string }, reading);
+    else if (run.pr?.state === "OPEN" || run.pr?.state === "MERGED" || ((config.autonomous || (await this.authorityOf(run)).mode === "gated") && !run.landed)) {
+      reading = await this.readPullRequest(run).catch(() => null);
     }
+    // merged while the lead worked (by the person on GitHub, or the polling saw it): the thread closes now its turn ended
+    if (reading?.state === "MERGED" && !run.landed) await this.closeMerged(run, reading);
     if (!run.landed) await this.considerGate(run);
     const news = threadQuestion(run) ?? (config.autonomous ? threadTurnEnded(run) : undefined);
     this.queueNews(run, news && restartError ? `${news}\n  The fleet could not start the thread again on another CLI: ${restartError}` : news);
