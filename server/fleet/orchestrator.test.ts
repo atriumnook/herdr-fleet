@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { HerdrError } from "../herdr/client.ts";
+import { handleFleetRequest } from "./api.ts";
 import { DEFAULT_CONFIG, mergeConfig } from "./config.ts";
 import { AgentWaitTimeoutError, applyModelPolicy, Orchestrator, readResult, RESULT_MAX_BYTES, type LandingTools } from "./orchestrator.ts";
 import type { FleetEvent } from "./events.ts";
@@ -84,10 +85,12 @@ interface SetupOptions {
   models?: Pick<ModelCatalog, "unknown">;
   quietMs?: number;
   events?: (event: FleetEvent) => void;
+  /** a folder an earlier setup used: its runs, outbox and results, as a server started again finds them */
+  root?: string;
 }
 
 function setup(options: SetupOptions = {}) {
-  const root = mkdtempSync(join(tmpdir(), "fleet-orchestrator-"));
+  const root = options.root ?? mkdtempSync(join(tmpdir(), "fleet-orchestrator-"));
   roots.push(root);
   const runtime = new FakeRuntime();
   const registry = new RunRegistry(join(root, "runs.json"));
@@ -2649,12 +2652,12 @@ describe("landing", () => {
   const agents = [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true }), role("reviewer")];
   const PR = { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "pending", head: "c0ffee" } as const;
 
-  function project() {
+  function project(root?: string) {
     const states = new Map<string, AgentState>();
     const removed: Array<{ repo: string; worktree: string; branch: string; options: unknown }> = [];
     const git = { pr: null as typeof PR | null | { state: string; [key: string]: unknown }, prError: undefined as string | undefined, merged: false, behind: 0, head: "c0ffee" as string | null, kept: undefined as string | undefined };
     const harness = setup({
-      agents, gitRoot: async () => "/repo",
+      agents, gitRoot: async () => "/repo", root,
       landing: {
         gitBranch: async () => "main",
         readPullRequest: async () => { if (git.prError) throw new Error(git.prError); return git.pr as never; },
@@ -2972,6 +2975,64 @@ describe("landing", () => {
     // GitHub merged another commit than the branch is at here: the branch stays
     expect(removed.at(-1)!.options).toEqual({ force: false, branchMerged: false });
     expect(registry.get(thread.id)!.landed).toBe("merged");
+  });
+
+  it("close the thread when the pull request its lead opened for Create PR was merged before the turn ended", async () => {
+    // herdr-fleet 1084a4e6 (#307) and e8ae496a (#316): the lead opened the pull request and it was
+    // merged 21 and 25 seconds later, before the lead's turn ended; the thread stayed open
+    const { fleet, registry, root, turn, ready, git, removed } = project();
+    const { thread } = await ready();
+    await fleet.land(thread.id, "pr");
+    git.pr = { ...PR, state: "MERGED", checks: "none", base: "main", mergeCommit: "abc0001" };
+    writeReport(root, thread.id, "ready", "Opened #70; it was merged.");
+    await turn(thread, "idle");
+    const closed = registry.get(thread.id)!;
+    expect(closed).toMatchObject({ landed: "merged", state: "stopped", merged: { by: "github", via: "pr", base: "main", commit: "abc0001" } });
+    expect(closed.landing).toBeUndefined();
+    expect(removed).toEqual([{ repo: "/repo", worktree: `/repo/.herdr-fleet/worktrees/${thread.id}`, branch: thread.branch!, options: { force: false, branchMerged: true } }]);
+    expect(threadState(closed)).toBe("resolved");
+  });
+
+  for (const [what, send] of [
+    ["a message", (fleet: Orchestrator, id: string) => fleet.send(id, "go on")],
+    ["the person's comments", (fleet: Orchestrator, id: string) => fleet.land(id, "comments", { comments: [{ file: "a.ts", line: 1, text: "Rename it." }] })],
+  ] as const) {
+    it(`close a thread whose pull request the polling saw merged while its lead was on ${what} from the fleet, as that turn ends`, async () => {
+      const { fleet, registry, root, turn, ready, git, removed } = project();
+      const { thread } = await ready();
+      registry.upsert({ ...registry.get(thread.id)!, pr: { number: 70, url: PR.url, state: "OPEN", checks: "pending" } });
+      git.pr = PR;
+      await send(fleet, thread.id);
+      // the person merges on GitHub while the lead works: the polling leaves the thread to the turn's end
+      git.pr = { ...PR, state: "MERGED", checks: "none", mergeCommit: "abc0001" };
+      await fleet.refreshPullRequests();
+      expect(registry.get(thread.id)!).toMatchObject({ pr: { state: "MERGED" } });
+      expect(registry.get(thread.id)!.landed).toBeUndefined();
+      writeReport(root, thread.id, "ready", "Done.");
+      await turn(thread, "idle");
+      expect(registry.get(thread.id)!).toMatchObject({ landed: "merged", merged: { by: "github", commit: "abc0001" } });
+      expect(removed).toHaveLength(1);
+    });
+  }
+
+  it("close a thread left open with its pull request merged once the server starts again, and only once", async () => {
+    const first = project();
+    const { thread } = await first.ready();
+    // the record the two stuck threads were left with: the pull request read as merged, the Create PR step failed
+    first.registry.upsert({
+      ...first.registry.get(thread.id)!,
+      pr: { number: 70, url: PR.url, state: "MERGED", checks: "none", checksRead: false, base: "main", mergeCommit: "abc0001" } as never,
+      landing: { action: "pr", at: 1, sent: true, error: `The lead's turn ended without an open pull request for ${thread.branch}.` },
+    });
+    first.fleet.stop();
+    const again = project(first.root);
+    again.git.pr = { ...PR, state: "MERGED", checks: "none", base: "main", mergeCommit: "abc0001" };
+    await Promise.all([again.fleet.refreshPullRequests(), again.fleet.refreshPullRequests()]);
+    await again.fleet.refreshPullRequests();
+    const closed = again.registry.get(thread.id)!;
+    expect(closed).toMatchObject({ landed: "merged", merged: { by: "github", via: "pr", commit: "abc0001" } });
+    expect(closed.landing).toBeUndefined();
+    expect(again.removed).toEqual([{ repo: "/repo", worktree: `/repo/.herdr-fleet/worktrees/${thread.id}`, branch: thread.branch!, options: { force: false, branchMerged: true } }]);
   });
 
   it("answer the checks: the worktree, the branch beside its base, and the pull request, or why GitHub could not say", async () => {
@@ -3296,7 +3357,7 @@ describe("merge authority", () => {
   };
 
   /** a project whose person's settings make merges into `rust` gated, with every fact the gate reads in `git` */
-  function project(merge: Record<string, unknown> | null = { mode: "gated", branches: ["rust"], protected: ["docs/plan.md"] }, roles = agents, landing: Partial<LandingTools> = {}) {
+  function project(merge: Record<string, unknown> | null = { mode: "gated", branches: ["rust"], protected: ["docs/plan.md"] }, roles = agents, landing: Partial<LandingTools> = {}, extra: SetupOptions = {}) {
     const states = new Map<string, AgentState>();
     const events: FleetEvent[] = [];
     const removed: string[] = [];
@@ -3306,7 +3367,7 @@ describe("merge authority", () => {
       merged: false, mergeCommit: "abc0001" as string | null, revert: null as string | null, revertOnGitHub: true, slow: 0,
     };
     const harness = setup({
-      agents: roles, gitRoot: async () => "/repo", events: (event) => events.push(event),
+      ...extra, agents: roles, gitRoot: async () => "/repo", events: (event) => events.push(event),
       config: merge ? { projects: { "/repo": { merge } } } : {},
       landing: {
         gitBranch: async () => "rust",
@@ -3441,7 +3502,7 @@ describe("merge authority", () => {
     });
   }
 
-  it("reads no turn the fleet did not send of a lead that was not waiting, with the person", async () => {
+  it("settles no turn the fleet did not send of a lead that was not waiting, with the person, and shows what it reported", async () => {
     const { fleet, registry, root, turn, to } = project(null);
     const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
     await turn(coordinator, "idle");
@@ -3451,9 +3512,91 @@ describe("merge authority", () => {
     // The person types in the lead's pane: a turn the fleet did not send.
     await turn(thread, "working");
     writeReport(root, thread.id, "blocked", "Asked in the pane.", "May the old flag go?");
+    writeFileSync(join(root, "results", thread.id, "handoff.md"), "## HANDOFF\nAsked in the pane.");
     await turn(thread, "idle");
-    expect(registry.get(thread.id)!.outcome?.report?.state).toBe("ready");
+    // the thread shows the turn's report and handoff, read as its turn ended; the coordinator hears nothing of it
+    expect(registry.get(thread.id)!.outcome?.report).toMatchObject({ state: "blocked", summary: "Asked in the pane.", human_action: "May the old flag go?" });
+    expect(registry.get(thread.id)!.result).toBe("## HANDOFF\nAsked in the pane.");
+    expect(threadState(registry.get(thread.id)!)).toBe("waiting");
     expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("follows the report and handoff a lead rewrites after its turn ended, in fleet threads and the runs the Fleet screen reads", async () => {
+    const { fleet, registry, root, turn, to } = project(null);
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const handoff = join(root, "results", thread.id, "handoff.md");
+    writeReport(root, thread.id, "waiting", "Waiting for the codex review.");
+    writeFileSync(handoff, "## HANDOFF\nWaiting for the codex review.");
+    await turn(thread, "idle");
+    const before = (await fleet.threads({ cwd: "/repo" }))[0]!;
+    expect(before).toMatchObject({ state: "idle", status: "waiting — Waiting for the codex review." });
+    // the lead writes its files again with no turn herdr shows: what it wrote after the review passed
+    writeReport(root, thread.id, "ready", "codex review: PASS.");
+    writeFileSync(handoff, "## HANDOFF\ncodex review: PASS.");
+    const after = (await fleet.threads({ cwd: "/repo" }))[0]!;
+    expect(after).toMatchObject({ state: "review", status: "ready — codex review: PASS." });
+    expect(after.run.result).toBe("## HANDOFF\ncodex review: PASS.");
+    expect(registry.get(thread.id)!.outcome?.report?.state).toBe("ready");
+    // the Fleet screen reads the runs: they carry the same report
+    writeReport(root, thread.id, "blocked", "The reviewer found a regression.", "Keep the old flag?");
+    const url = new URL("http://localhost/api/fleet/runs");
+    const { runs } = await (await handleFleetRequest(new Request(url), url, fleet)).json() as { runs: AgentRun[] };
+    expect(runs.find((run) => run.id === thread.id)!.outcome?.report).toMatchObject({ state: "blocked", human_action: "Keep the old flag?" });
+    // a report is the lead's, not news: the coordinator heard nothing of the rewrites
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("keeps a report written while the lead's turn settles out of that settlement, and shows it once the turn settled", async () => {
+    let hold = false;
+    let held = false;
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    const { fleet, root, turn, to } = project(null, agents, {}, {
+      gitHead: async () => "abc1234",
+      diffStat: async () => { if (hold) { held = true; await released; } return { added: 1, removed: 0, files: 1 }; },
+    });
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    writeReport(root, thread.id, "ready", "Done.");
+    hold = true;
+    const settling = turn(thread, "idle");
+    // the fleet read the turn's report and now reads its change: the lead writes its report again, and the Fleet screen reads the runs
+    await until(() => held, "the turn's settlement reads the change");
+    writeReport(root, thread.id, "blocked", "Rewritten while settling.", "May the old flag go?");
+    const url = new URL("http://localhost/api/fleet/runs");
+    await handleFleetRequest(new Request(url), url, fleet);
+    await fleet.threads({ cwd: "/repo" });
+    release();
+    await settling;
+    await Bun.sleep(30);
+    // the turn settled on what it reported: the rewrite asks the coordinator nothing
+    expect(to(coordinator)).toEqual(["port"]);
+    expect((await fleet.threads({ cwd: "/repo" }))[0]!).toMatchObject({ state: "waiting", status: "blocked — Rewritten while settling." });
+    expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("reads a lead's report again only once it changed, and keeps the last one while a turn runs or the file is gone", async () => {
+    const { fleet, registry, root, turn } = project(null);
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    writeReport(root, thread.id, "ready", "Done.");
+    await turn(thread, "idle");
+    // an outcome the file does not hold: the fleet does not read the unchanged file over it
+    registry.upsert({ ...registry.get(thread.id)!, outcome: { report: { state: "ready", summary: "Kept.", evidence: [] } } });
+    expect((await fleet.threads({ cwd: "/repo" }))[0]!.status).toBe("ready — Kept.");
+    // a turn the fleet did not send: it removes the report, and what the lead writes meanwhile waits for the turn's end
+    await turn(thread, "working");
+    expect((await fleet.threads({ cwd: "/repo" }))[0]!).toMatchObject({ state: "working", status: "ready — Kept." });
+    writeReport(root, thread.id, "waiting", "Half way.");
+    expect((await fleet.threads({ cwd: "/repo" }))[0]!).toMatchObject({ state: "working", status: "ready — Kept." });
+    rmSync(join(root, "results", thread.id, "report.json"));
+    await turn(thread, "idle");
+    // the turn left no file: the last report stays
+    expect((await fleet.threads({ cwd: "/repo" }))[0]!).toMatchObject({ state: "review", status: "ready — Kept." });
   });
 
   it("leave the merge to the person when a condition of the gate fails, saying which", async () => {
