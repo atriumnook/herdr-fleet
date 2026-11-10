@@ -2076,22 +2076,34 @@ const GIT_READS = new Set([
   "status", "diff", "log", "show", "rev-parse", "rev-list", "ls-files", "ls-tree", "ls-remote", "cat-file", "blame", "annotate", "grep",
   "merge-base", "describe", "shortlog", "for-each-ref", "show-ref", "show-branch", "name-rev", "diff-tree", "diff-index", "diff-files",
   "range-diff", "check-ignore", "check-attr", "check-ref-format", "var", "version", "help", "whatchanged", "count-objects", "cherry",
-  "fetch-pack", "upload-pack", "index-pack", "unpack-objects", "pack-objects", "maintenance", "gc", "remote-https", "remote-http", "remote-curl",
+  "fetch-pack", "upload-pack", "index-pack", "unpack-objects", "pack-objects", "remote-https", "remote-http", "remote-curl",
+  "maintenance", "gc", "repack", "pack-refs", "commit-graph", "multi-pack-index", "prune", "prune-packed",
 ]);
 /** a command that reads with these arguments (those after its name), and may write with others */
 const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
   config: (args) => args.some((arg) => /^(?:--get(?:-all|-regexp|-urlmatch|-color|-colorbool)?|-l|--list)$/.test(arg)) || /^(?:get|list)$/.test(positional(args)[0] ?? ""),
-  branch: (args) => !args.some((arg) => /^(?:-[dDmMcCfu]|--(?:delete|move|copy|force|set-upstream-to|unset-upstream|edit-description|track|create-reflog)(?:=.*)?)$/.test(arg))
+  branch: (args) => !gitFlags(args, "dDmMcCfu", ["delete", "move", "copy", "force", "set-upstream-to", "unset-upstream", "edit-description", "track", "create-reflog"])
     && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--show-current|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
-  tag: (args) => !args.some((arg) => /^(?:-[dafsmFu]|--(?:delete|annotate|force|sign|message|file|local-user)(?:=.*)?)$/.test(arg))
+  tag: (args) => !gitFlags(args, "dafsmFu", ["delete", "annotate", "force", "sign", "message", "file", "local-user"])
     && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
   // git refuses to fetch into a branch a worktree has checked out, unless told it may
-  fetch: (args) => !args.some((arg) => arg === "--update-head-ok" || /^-[^-]*u/.test(arg)),
+  fetch: (args) => !gitFlags(args, "u", ["update-head-ok"]),
   stash: (args) => /^(?:list|show)$/.test(positional(args)[0] ?? ""),
   remote: (args) => /^(?:show|get-url)?$/.test(positional(args)[0] ?? ""),
   worktree: (args) => positional(args)[0] === "list",
-  "symbolic-ref": (args) => positional(args).length <= 1 && !args.some((arg) => /^(?:-d|--delete)$/.test(arg)),
+  "symbolic-ref": (args) => positional(args).length <= 1 && !gitFlags(args, "d", ["delete"]),
 };
+/**
+ * Whether `args` may hold one of these options: a short one anywhere in a bundle of them (`-vd`), or
+ * a long one written in full or shortened, as git takes any prefix that names one option alone (`--update-head-o`)
+ */
+function gitFlags(args: string[], short: string, long: string[]): boolean {
+  return args.some((arg) => {
+    if (/^-[^-]/.test(arg)) return [...arg.slice(1)].some((letter) => short.includes(letter));
+    const name = /^--([^=]+)/.exec(arg)?.[1];
+    return name !== undefined && long.some((option) => option.startsWith(name));
+  });
+}
 const positional = (args: string[]): string[] => args.filter((arg) => !arg.startsWith("-"));
 /** past this, a record is not read: one turn's git commands write far less */
 const GIT_TRACE_MAX_BYTES = 32 * 1024 * 1024;

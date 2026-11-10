@@ -3252,6 +3252,21 @@ describe("merge authority", () => {
       `{"event":"start","sid":"20261110T125914.778537Z-Hb58fc00a-P0017738e/20261110T125914.784958Z-Hb58fc00a-P00177392","thread":"main","file":"common-init.c","line":78,"t_abs":0.000152,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
       `{"event":"cmd_name","sid":"20261110T125914.778537Z-Hb58fc00a-P0017738e/20261110T125914.784958Z-Hb58fc00a-P00177392","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
     ],
+    // the same, with the option abbreviated as git allows
+    fetchIntoHeadAbbreviated: [
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000193,"argv":["git","fetch","-q","--update-head-o","origin","main:main"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a","thread":"main","file":"git.c","line":507,"name":"fetch","hierarchy":"fetch"}`,
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.300607Z-Hb58fc00a-P0017de3f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000154,"argv":["git-upload-pack","/repo/src"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.300607Z-Hb58fc00a-P0017de3f","thread":"main","file":"git.c","line":507,"name":"upload-pack","hierarchy":"fetch/upload-pack"}`,
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.300607Z-Hb58fc00a-P0017de3f/20261110T131359.302947Z-Hb58fc00a-P0017de47","thread":"main","file":"common-init.c","line":78,"t_abs":0.000203,"argv":["/usr/lib/git-core/git","pack-objects","--revs","--stdout","--thin","--delta-base-offset","--include-tag","--quiet"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.300607Z-Hb58fc00a-P0017de3f/20261110T131359.302947Z-Hb58fc00a-P0017de47","thread":"main","file":"git.c","line":507,"name":"pack-objects","hierarchy":"fetch/upload-pack/pack-objects"}`,
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.304991Z-Hb58fc00a-P0017de48","thread":"main","file":"common-init.c","line":78,"t_abs":0.000182,"argv":["/usr/lib/git-core/git","unpack-objects","-q","--pack_header=2,1"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.304991Z-Hb58fc00a-P0017de48","thread":"main","file":"git.c","line":507,"name":"unpack-objects","hierarchy":"fetch/unpack-objects"}`,
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.306987Z-Hb58fc00a-P0017de49","thread":"main","file":"common-init.c","line":78,"t_abs":0.000170,"argv":["/usr/lib/git-core/git","rev-list","--objects","--stdin","--not","--exclude-hidden=fetch","--all","--quiet","--alternate-refs"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.306987Z-Hb58fc00a-P0017de49","thread":"main","file":"git.c","line":507,"name":"rev-list","hierarchy":"fetch/rev-list"}`,
+      `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.309109Z-Hb58fc00a-P0017de4a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000189,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
+      `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.309109Z-Hb58fc00a-P0017de4a","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
+    ],
     // a commit, and the maintenance it starts after itself
     commit: [
       `{"event":"start","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000179,"argv":["git","-c","user.name=a","-c","user.email=a@b","commit","-q","--allow-empty","-m","two"]}`,
@@ -3545,6 +3560,7 @@ describe("merge authority", () => {
     expect(await moved("Config", [...TRACE.status, ...TRACE.configSet])).toEqual(both);
     // it fetched into the branch checked out
     expect(await moved("Fetch", [...TRACE.status, ...TRACE.fetchIntoHead])).toEqual(both);
+    expect(await moved("Fetch abbreviated", [...TRACE.status, ...TRACE.fetchIntoHeadAbbreviated])).toEqual(both);
     // no record: its CLI may not pass the environment on, or its git did not run
     expect(await moved("Unknown", null)).toEqual(both);
     // a record that is not git's
