@@ -84,10 +84,12 @@ interface SetupOptions {
   models?: Pick<ModelCatalog, "unknown">;
   quietMs?: number;
   events?: (event: FleetEvent) => void;
+  /** a folder an earlier setup used: its runs, outbox and results, as a server started again finds them */
+  root?: string;
 }
 
 function setup(options: SetupOptions = {}) {
-  const root = mkdtempSync(join(tmpdir(), "fleet-orchestrator-"));
+  const root = options.root ?? mkdtempSync(join(tmpdir(), "fleet-orchestrator-"));
   roots.push(root);
   const runtime = new FakeRuntime();
   const registry = new RunRegistry(join(root, "runs.json"));
@@ -2649,12 +2651,12 @@ describe("landing", () => {
   const agents = [role("coordinator", { interactive: true, spawning: true }), role("lead", { interactive: true, spawning: true }), role("reviewer")];
   const PR = { number: 70, url: "https://github.com/o/r/pull/70", state: "OPEN", checks: "pending", head: "c0ffee" } as const;
 
-  function project() {
+  function project(root?: string) {
     const states = new Map<string, AgentState>();
     const removed: Array<{ repo: string; worktree: string; branch: string; options: unknown }> = [];
     const git = { pr: null as typeof PR | null | { state: string; [key: string]: unknown }, prError: undefined as string | undefined, merged: false, behind: 0, head: "c0ffee" as string | null, kept: undefined as string | undefined };
     const harness = setup({
-      agents, gitRoot: async () => "/repo",
+      agents, gitRoot: async () => "/repo", root,
       landing: {
         gitBranch: async () => "main",
         readPullRequest: async () => { if (git.prError) throw new Error(git.prError); return git.pr as never; },
@@ -2972,6 +2974,64 @@ describe("landing", () => {
     // GitHub merged another commit than the branch is at here: the branch stays
     expect(removed.at(-1)!.options).toEqual({ force: false, branchMerged: false });
     expect(registry.get(thread.id)!.landed).toBe("merged");
+  });
+
+  it("close the thread when the pull request its lead opened for Create PR was merged before the turn ended", async () => {
+    // herdr-fleet 1084a4e6 (#307) and e8ae496a (#316): the lead opened the pull request and it was
+    // merged 21 and 25 seconds later, before the lead's turn ended; the thread stayed open
+    const { fleet, registry, root, turn, ready, git, removed } = project();
+    const { thread } = await ready();
+    await fleet.land(thread.id, "pr");
+    git.pr = { ...PR, state: "MERGED", checks: "none", base: "main", mergeCommit: "abc0001" };
+    writeReport(root, thread.id, "ready", "Opened #70; it was merged.");
+    await turn(thread, "idle");
+    const closed = registry.get(thread.id)!;
+    expect(closed).toMatchObject({ landed: "merged", state: "stopped", merged: { by: "github", via: "pr", base: "main", commit: "abc0001" } });
+    expect(closed.landing).toBeUndefined();
+    expect(removed).toEqual([{ repo: "/repo", worktree: `/repo/.herdr-fleet/worktrees/${thread.id}`, branch: thread.branch!, options: { force: false, branchMerged: true } }]);
+    expect(threadState(closed)).toBe("resolved");
+  });
+
+  for (const [what, send] of [
+    ["a message", (fleet: Orchestrator, id: string) => fleet.send(id, "go on")],
+    ["the person's comments", (fleet: Orchestrator, id: string) => fleet.land(id, "comments", { comments: [{ file: "a.ts", line: 1, text: "Rename it." }] })],
+  ] as const) {
+    it(`close a thread whose pull request the polling saw merged while its lead was on ${what} from the fleet, as that turn ends`, async () => {
+      const { fleet, registry, root, turn, ready, git, removed } = project();
+      const { thread } = await ready();
+      registry.upsert({ ...registry.get(thread.id)!, pr: { number: 70, url: PR.url, state: "OPEN", checks: "pending" } });
+      git.pr = PR;
+      await send(fleet, thread.id);
+      // the person merges on GitHub while the lead works: the polling leaves the thread to the turn's end
+      git.pr = { ...PR, state: "MERGED", checks: "none", mergeCommit: "abc0001" };
+      await fleet.refreshPullRequests();
+      expect(registry.get(thread.id)!).toMatchObject({ pr: { state: "MERGED" } });
+      expect(registry.get(thread.id)!.landed).toBeUndefined();
+      writeReport(root, thread.id, "ready", "Done.");
+      await turn(thread, "idle");
+      expect(registry.get(thread.id)!).toMatchObject({ landed: "merged", merged: { by: "github", commit: "abc0001" } });
+      expect(removed).toHaveLength(1);
+    });
+  }
+
+  it("close a thread left open with its pull request merged once the server starts again, and only once", async () => {
+    const first = project();
+    const { thread } = await first.ready();
+    // the record the two stuck threads were left with: the pull request read as merged, the Create PR step failed
+    first.registry.upsert({
+      ...first.registry.get(thread.id)!,
+      pr: { number: 70, url: PR.url, state: "MERGED", checks: "none", checksRead: false, base: "main", mergeCommit: "abc0001" } as never,
+      landing: { action: "pr", at: 1, sent: true, error: `The lead's turn ended without an open pull request for ${thread.branch}.` },
+    });
+    first.fleet.stop();
+    const again = project(first.root);
+    again.git.pr = { ...PR, state: "MERGED", checks: "none", base: "main", mergeCommit: "abc0001" };
+    await Promise.all([again.fleet.refreshPullRequests(), again.fleet.refreshPullRequests()]);
+    await again.fleet.refreshPullRequests();
+    const closed = again.registry.get(thread.id)!;
+    expect(closed).toMatchObject({ landed: "merged", merged: { by: "github", via: "pr", commit: "abc0001" } });
+    expect(closed.landing).toBeUndefined();
+    expect(again.removed).toEqual([{ repo: "/repo", worktree: `/repo/.herdr-fleet/worktrees/${thread.id}`, branch: thread.branch!, options: { force: false, branchMerged: true } }]);
   });
 
   it("answer the checks: the worktree, the branch beside its base, and the pull request, or why GitHub could not say", async () => {
