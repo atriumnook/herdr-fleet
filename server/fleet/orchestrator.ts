@@ -2158,8 +2158,9 @@ const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
   // option that takes a value may have taken that list option as its value (`--format --list`)
   branch: (args) => !positional(args).length && gitOptionsOnly(args, "arvli", ["all", "remotes", "verbose", "list", "show-current", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "no-color", "column", "no-column", "ignore-case", "abbrev", "no-abbrev", "omit-empty"]),
   tag: (args) => !positional(args).length && gitOptionsOnly(args, "lin0123456789", ["list", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "column", "no-column", "ignore-case", "omit-empty"]),
-  // git refuses to fetch into a branch a worktree has checked out unless told it may (-u, --update-head-ok), which is not listed
-  fetch: (args) => gitOptionsOnly(args, "qvptPnj0123456789", ["quiet", "verbose", "all", "prune", "prune-tags", "tags", "no-tags", "dry-run", "progress", "no-progress", "jobs", "depth", "shallow-since", "shallow-exclude", "recurse-submodules", "no-recurse-submodules", "filter", "multiple", "no-write-fetch-head"]),
+  // git refuses to fetch into a branch a worktree has checked out unless told it may (-u, --update-head-ok), which is not listed;
+  // a refspec that names where it goes (`main:refs/heads/x`, `+main`, `tag v1`) writes that ref
+  fetch: (args) => !positional(args).some((word) => word.includes(":") || word.startsWith("+") || word === "tag") && gitOptionsOnly(args, "qvptPnj0123456789", ["quiet", "verbose", "all", "prune", "prune-tags", "tags", "no-tags", "dry-run", "progress", "no-progress", "jobs", "depth", "shallow-since", "shallow-exclude", "recurse-submodules", "no-recurse-submodules", "filter", "multiple", "no-write-fetch-head"]),
   stash: (args) => /^(?:list|show)$/.test(args[0] ?? ""),
   remote: (args) => /^(?:show|get-url)?$/.test((/^(?:-v|--verbose)$/.test(args[0] ?? "") ? args[1] : args[0]) ?? ""),
   worktree: (args) => args[0] === "list",
