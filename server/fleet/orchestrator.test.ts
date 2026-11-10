@@ -3200,6 +3200,40 @@ describe("merge authority", () => {
   ];
   const PR = { number: 12, url: "https://github.com/o/rs/pull/12", state: "OPEN", checks: "pass", head: "c0ffee", base: "rust", checksRead: true } as const;
   const GATE = "[fleet] The person made this project's merges gated in their own settings, and the fleet found every condition of the gate held for these. Each is your approval for that merge only.";
+  /** what git 2.56 wrote to GIT_TRACE2_EVENT for each command (its start and cmd_name events, times left out): recorded, not made up */
+  const TRACE = {
+    status: [
+      `{"event":"start","sid":"20261110T094715.211114Z-Hb58fc00a-P0000c63c","thread":"main","file":"common-init.c","line":78,"t_abs":0.000190,"argv":["git","status","-s"]}`,
+      `{"event":"cmd_name","sid":"20261110T094715.211114Z-Hb58fc00a-P0000c63c","thread":"main","file":"git.c","line":507,"name":"status","hierarchy":"status"}`,
+    ],
+    log: [
+      `{"event":"start","sid":"20261110T094715.213095Z-Hb58fc00a-P0000c63d","thread":"main","file":"common-init.c","line":78,"t_abs":0.000174,"argv":["git","log","-1","--oneline"]}`,
+      `{"event":"cmd_name","sid":"20261110T094715.213095Z-Hb58fc00a-P0000c63d","thread":"main","file":"git.c","line":507,"name":"log","hierarchy":"log"}`,
+    ],
+    configGet: [
+      `{"event":"start","sid":"20261110T094715.214660Z-Hb58fc00a-P0000c63e","thread":"main","file":"common-init.c","line":78,"t_abs":0.000203,"argv":["git","config","--get","user.name"]}`,
+      `{"event":"cmd_name","sid":"20261110T094715.214660Z-Hb58fc00a-P0000c63e","thread":"main","file":"git.c","line":507,"name":"config","hierarchy":"config"}`,
+    ],
+    branchShow: [
+      `{"event":"start","sid":"20261110T124729.922814Z-Hb58fc00a-P00170558","thread":"main","file":"common-init.c","line":78,"t_abs":0.000258,"argv":["git","branch","--show-current"]}`,
+      `{"event":"cmd_name","sid":"20261110T124729.922814Z-Hb58fc00a-P00170558","thread":"main","file":"git.c","line":507,"name":"branch","hierarchy":"branch"}`,
+    ],
+    diff: [
+      `{"event":"start","sid":"20261110T124729.926914Z-Hb58fc00a-P0017055b","thread":"main","file":"common-init.c","line":78,"t_abs":0.000180,"argv":["git","diff","--stat","HEAD~1"]}`,
+      `{"event":"cmd_name","sid":"20261110T124729.926914Z-Hb58fc00a-P0017055b","thread":"main","file":"git.c","line":507,"name":"diff","hierarchy":"diff"}`,
+    ],
+    configSet: [
+      `{"event":"start","sid":"20261110T124729.925096Z-Hb58fc00a-P0017055a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000283,"argv":["git","config","user.name","x"]}`,
+      `{"event":"cmd_name","sid":"20261110T124729.925096Z-Hb58fc00a-P0017055a","thread":"main","file":"git.c","line":507,"name":"config","hierarchy":"config"}`,
+    ],
+    // a commit, and the maintenance it starts after itself
+    commit: [
+      `{"event":"start","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000179,"argv":["git","-c","user.name=a","-c","user.email=a@b","commit","-q","--allow-empty","-m","two"]}`,
+      `{"event":"cmd_name","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f","thread":"main","file":"git.c","line":507,"name":"commit","hierarchy":"commit"}`,
+      `{"event":"start","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f/20261110T094715.217932Z-Hb58fc00a-P0000c640","thread":"main","file":"common-init.c","line":78,"t_abs":0.000156,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
+      `{"event":"cmd_name","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f/20261110T094715.217932Z-Hb58fc00a-P0000c640","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"commit/maintenance"}`,
+    ],
+  };
 
   /** a project whose person's settings make merges into `rust` gated, with every fact the gate reads in `git` */
   function project(merge: Record<string, unknown> | null = { mode: "gated", branches: ["rust"], protected: ["docs/plan.md"] }, roles = agents, landing: Partial<LandingTools> = {}) {
@@ -3427,6 +3461,65 @@ describe("merge authority", () => {
     await turn(thread, "idle");
     expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({ ok: false, detail: "No review by a model from a company other than Anthropic, Google passed." });
     expect(to(coordinator)).toEqual(["port"]);
+  });
+
+  it("count no reviewer as a writer for a commit the lead made during its turn while the reviewer's git only read, and take the next review of that commit", async () => {
+    const { fleet, registry, runtime, root, git, turn, to } = project();
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+    // the reviewer reads with git; the lead commits its fixes in its own pane meanwhile (herdr-fleet-rs b34364f5, 7232fa1)
+    const trace = join(root, "results", reviewer.id, "git-trace.jsonl");
+    writeFileSync(trace, [...TRACE.status, ...TRACE.log, ...TRACE.configGet, ...TRACE.branchShow, ...TRACE.diff].join("\n") + "\n");
+    git.head = "d00d";
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    await turn(reviewer, "idle");
+    // a review of neither commit, but not the reviewer's writing
+    expect(registry.get(reviewer.id)!.reportedHead).toBeUndefined();
+    expect(registry.get(thread.id)!.writers).toEqual([{ agent: "claude" }]);
+    // the next review, of the lead's commit, counts
+    const again = await fleet.spawn({ role: "reviewer", task: "review again", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+    writeReport(root, again.id, "ready", "No findings.");
+    await turn(again, "idle");
+    expect(registry.get(again.id)!.reportedHead).toBe("d00d");
+    writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 parses — evidence: cargo test\n");
+    writeReport(root, thread.id, "ready", "Opened #12.");
+    git.pr = { ...PR, head: "d00d" };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")!.ok).toBe(true);
+    expect(to(coordinator).at(-1)).toStartWith(GATE);
+    // git in a reviewer's pane, and only there, records each command it runs in the reviewer's result folder
+    const envOf = (run: AgentRun) => runtime.locations.find((location) => location.env["HERDR_FLEET_RUN"] === run.id)!.env;
+    expect(envOf(reviewer)["GIT_TRACE2_EVENT"]).toBe(trace);
+    expect(envOf(thread)["GIT_TRACE2_EVENT"]).toBeUndefined();
+  });
+
+  it("count a reviewer as a writer when the branch moved and its git wrote, left no record, or the worktree changed too", async () => {
+    const { fleet, registry, root, git, turn } = project();
+    const moved = async (title: string, trace: string[] | null, tree = "clean") => {
+      git.head = "c0ffee";
+      git.tree = "clean";
+      const thread = await fleet.startThread({ title, task: "t", cwd: "/repo" });
+      const reviewer = await fleet.spawn({ role: "reviewer", task: "review", group: thread.group, cwd: thread.cwd, avoid: ["claude"] });
+      if (trace) writeFileSync(join(root, "results", reviewer.id, "git-trace.jsonl"), trace.join("\n") + "\n");
+      git.head = "d00d";
+      git.tree = tree;
+      writeReport(root, reviewer.id, "ready", "No findings.");
+      await turn(reviewer, "idle");
+      return registry.get(thread.id)!.writers;
+    };
+    const both = [{ agent: "claude" as const }, { agent: "pi" as const, model: GEMINI }];
+    // the reviewer committed itself
+    expect(await moved("Commit", [...TRACE.status, ...TRACE.commit])).toEqual(both);
+    // it changed git's settings: not a command that only reads
+    expect(await moved("Config", [...TRACE.status, ...TRACE.configSet])).toEqual(both);
+    // no record: its CLI may not pass the environment on, or its git did not run
+    expect(await moved("Unknown", null)).toEqual(both);
+    // a record that is not git's
+    expect(await moved("Garbled", ["not json"])).toEqual(both);
+    // the uncommitted changes differ from the turn's start: they may be the reviewer's edits
+    expect(await moved("Edited", [...TRACE.status], "edited")).toEqual(both);
   });
 
   it("count a reviewer as a writer when its turn changed the worktree without a commit, or ended unseen", async () => {

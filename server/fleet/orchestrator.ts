@@ -41,6 +41,8 @@ export const RESULT_MAX_BYTES = 64 * 1024;
 const RESULT_FILE = "handoff.md";
 /** a thread lead's task as the thread was given it, beside its result file: a later run of the thread reads it */
 const TASK_FILE = "task.md";
+/** where git in a reviewer's pane records the commands it runs (GIT_TRACE2_EVENT), beside its result file: it tells the reviewer's own commit from the lead's */
+const GIT_TRACE_FILE = "git-trace.jsonl";
 
 /** A spawn whose configured fallbacks (candidate entries) are still untried: consulted if its first turn fails. */
 /** A spawn with its brief turned into the task and the paths it may write, ready to try candidates for. */
@@ -526,7 +528,8 @@ export class Orchestrator {
     const takeover = request.thread?.takeover;
     // a lead that takes a thread over works on the thread's branch; a thread's first lead gets one of its own
     const branch = takeover ? takeover.from.branch : worktree && request.thread ? `fleet/${id}` : undefined;
-    const env = { ...this.deps.agentEnv(), ...adapter.env?.({ resultDir: join(this.deps.resultsDir, id), fleetCommand: this.deps.fleetCommand, model, readOnly: definition.edits === false, merges: definition.name === PROJECT_ROLE }), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
+    const env = { ...this.deps.agentEnv(), ...adapter.env?.({ resultDir: join(this.deps.resultsDir, id), fleetCommand: this.deps.fleetCommand, model, readOnly: definition.edits === false, merges: definition.name === PROJECT_ROLE }),
+      ...(definition.name === REVIEWER_ROLE ? { GIT_TRACE2_EVENT: join(this.deps.resultsDir, id, GIT_TRACE_FILE) } : {}), HERDR_FLEET_GROUP: request.group, HERDR_FLEET_DEPTH: String(depth), HERDR_FLEET_RUN: id };
 
     // the budget counts runs across fleets: the check and the first save must not interleave
     const previousGate = this.spawnGate;
@@ -1559,18 +1562,24 @@ export class Orchestrator {
   /**
    * The commit a reviewer's settled turn reviewed: the one its folder was at when the turn was sent,
    * kept only when the folder is still there now. A branch that moved during the turn (or before the
-   * fleet read it settled) leaves no reviewed commit, and its CLI counts as a writer of the thread.
+   * fleet read it settled) leaves no reviewed commit, and its CLI counts as a writer of the thread,
+   * unless the branch alone moved while the reviewer's own git only read: then the commit is
+   * another's, the lead's, made in its own pane.
    */
   private async readReviewedHead(run: AgentRun): Promise<void> {
     const [head, tree] = await Promise.all([this.tools.headCommit(run.cwd).catch(() => null), this.tools.worktreeState(run.cwd).catch(() => null)]);
     const opened = run.turnHead !== undefined;
     const still = opened && head !== null && tree !== null && head === run.turnHead && tree === run.turnTree;
+    // a worktree that changed in the turn, or one the fleet could not compare, may hold the reviewer's own writing;
+    // what the reviewer wrote without git and the lead then committed is not told apart
+    const anothers = opened && !still && run.turnHead !== "unknown" && run.turnTree !== "unknown" && head !== null && tree === run.turnTree
+      && gitTraceWrites(join(this.resultDir(run), GIT_TRACE_FILE)) === false;
     if (run.outcome?.report && still) run.reportedHead = head!;
     else delete run.reportedHead;
-    if (still && run.outcome?.report) run.reviewClean = true;
+    // a review of neither commit, by a reviewer that wrote nothing: not a writer, and no review the gate takes (no reportedHead)
+    if ((still || anothers) && run.outcome?.report) run.reviewClean = true;
     else delete run.reviewClean;
-    // a worktree that changed in the turn, or one the fleet could not compare, may hold the reviewer's own writing
-    if (opened && !still) this.noteWriter(run.group, run);
+    if (opened && !still && !anothers) this.noteWriter(run.group, run);
     delete run.turnHead;
     delete run.turnTree;
   }
@@ -1583,6 +1592,8 @@ export class Orchestrator {
   private async openReview(run: AgentRun): Promise<void> {
     if (run.turnHead !== undefined) this.noteWriter(run.group, run);
     delete run.reviewClean;
+    // the turn's git commands alone: none recorded means none known, not none run
+    rmSync(join(this.resultDir(run), GIT_TRACE_FILE), { force: true });
     const [head, tree] = await Promise.all([this.tools.headCommit(run.cwd).catch(() => null), this.tools.worktreeState(run.cwd).catch(() => null)]);
     // unknown stays open and never matches: the turn's review will not count
     run.turnHead = head ?? "unknown";
@@ -2058,6 +2069,67 @@ function withWriters(writers: Writer[] | undefined, ...more: Writer[]): Writer[]
     if (!all.some((each) => each.agent === agent && each.model === model)) all.push({ agent, ...(model ? { model } : {}) });
   }
   return all;
+}
+
+/** git commands that cannot make a commit or move HEAD, whatever their arguments */
+const GIT_READS = new Set([
+  "status", "diff", "log", "show", "rev-parse", "rev-list", "ls-files", "ls-tree", "ls-remote", "cat-file", "blame", "annotate", "grep",
+  "merge-base", "describe", "shortlog", "for-each-ref", "show-ref", "show-branch", "name-rev", "diff-tree", "diff-index", "diff-files",
+  "range-diff", "check-ignore", "check-attr", "check-ref-format", "var", "version", "help", "whatchanged", "count-objects", "cherry",
+  "fetch", "fetch-pack", "index-pack", "unpack-objects", "pack-objects", "maintenance", "gc", "remote-https", "remote-http", "remote-curl",
+]);
+/** a command that reads with these arguments (those after its name), and may write with others */
+const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
+  config: (args) => args.some((arg) => /^(?:--get(?:-all|-regexp|-urlmatch|-color|-colorbool)?|-l|--list)$/.test(arg)) || /^(?:get|list)$/.test(positional(args)[0] ?? ""),
+  branch: (args) => !args.some((arg) => /^(?:-[dDmMcCfu]|--(?:delete|move|copy|force|set-upstream-to|unset-upstream|edit-description|track|create-reflog)(?:=.*)?)$/.test(arg))
+    && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--show-current|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
+  tag: (args) => !args.some((arg) => /^(?:-[dafsmFu]|--(?:delete|annotate|force|sign|message|file|local-user)(?:=.*)?)$/.test(arg))
+    && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
+  stash: (args) => /^(?:list|show)$/.test(positional(args)[0] ?? ""),
+  remote: (args) => /^(?:show|get-url)?$/.test(positional(args)[0] ?? ""),
+  worktree: (args) => positional(args)[0] === "list",
+  "symbolic-ref": (args) => positional(args).length <= 1 && !args.some((arg) => /^(?:-d|--delete)$/.test(arg)),
+};
+const positional = (args: string[]): string[] => args.filter((arg) => !arg.startsWith("-"));
+/** past this, a record is not read: one turn's git commands write far less */
+const GIT_TRACE_MAX_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Whether the git commands a trace2 event file records may have made a commit or moved HEAD: true
+ * when any is not known to only read (or a line is not git's), false when all only read, null when
+ * there is no record to read.
+ */
+function gitTraceWrites(file: string): boolean | null {
+  let text: string;
+  try {
+    const fd = openSync(file, constants.O_RDONLY);
+    try {
+      if (fstatSync(fd).size > GIT_TRACE_MAX_BYTES) return true;
+      text = readFileSync(fd, "utf8");
+    } finally {
+      closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  const argv = new Map<string, string[]>();
+  let named = false;
+  for (const line of text.split("\n")) {
+    if (!line.trim()) continue;
+    let event: { event?: unknown; sid?: unknown; argv?: unknown; name?: unknown };
+    try { event = JSON.parse(line); } catch { return true; }
+    if (typeof event.sid !== "string") return true;
+    if (event.event === "start" && Array.isArray(event.argv)) argv.set(event.sid, event.argv.map(String));
+    if (event.event !== "cmd_name") continue;
+    if (typeof event.name !== "string") return true;
+    named = true;
+    if (GIT_READS.has(event.name)) continue;
+    const reads = GIT_READS_WITH[event.name];
+    const args = argv.get(event.sid);
+    const at = args?.indexOf(event.name, 1) ?? -1;
+    if (!reads || !args || at < 0 || !reads(args.slice(at + 1))) return true;
+  }
+  return named ? false : null;
 }
 
 /** A thread's id: its first lead run's, which names its worktree and branch, whichever run leads it now. */
