@@ -2,6 +2,12 @@
 # uses no std::fs, std::process or std::net. Clippy reads this file for this
 # crate only (it looks in the crate's folder first), and the CI runs clippy
 # with -D warnings, so a use of these fails the check.
+# std::os::unix does not exist on a Windows target, where clippy warns that its
+# paths are not reachable; allow-invalid = true keeps that quiet, and on Unix
+# the paths resolve and are banned as the others are. It also hides a path
+# that stops resolving on Unix (a typo, a rename in std), which would then ban
+# nothing: after changing one of these entries, run clippy on Linux once
+# without allow-invalid and see that it gives no "not reachable" warning.
 disallowed-types = [
   { path = "std::fs::File", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
   { path = "std::fs::OpenOptions", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
@@ -12,9 +18,9 @@ disallowed-types = [
   { path = "std::net::TcpStream", reason = "herdr-fleet-screen does no network I/O (ADR 0107-crate-split)" },
   { path = "std::net::TcpListener", reason = "herdr-fleet-screen does no network I/O (ADR 0107-crate-split)" },
   { path = "std::net::UdpSocket", reason = "herdr-fleet-screen does no network I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::net::UnixStream", reason = "herdr-fleet-screen does no socket I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::net::UnixListener", reason = "herdr-fleet-screen does no socket I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::net::UnixDatagram", reason = "herdr-fleet-screen does no socket I/O (ADR 0107-crate-split)" },
+  { path = "std::os::unix::net::UnixStream", reason = "herdr-fleet-screen does no socket I/O (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::net::UnixListener", reason = "herdr-fleet-screen does no socket I/O (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::net::UnixDatagram", reason = "herdr-fleet-screen does no socket I/O (ADR 0107-crate-split)", allow-invalid = true },
 ]
 disallowed-methods = [
   { path = "std::fs::read", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
@@ -35,7 +41,7 @@ disallowed-methods = [
   { path = "std::fs::remove_file", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
   { path = "std::fs::remove_dir", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
   { path = "std::fs::remove_dir_all", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::symlink", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
+  { path = "std::os::unix::fs::symlink", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)", allow-invalid = true },
   { path = "std::path::Path::exists", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
   { path = "std::path::Path::try_exists", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
   { path = "std::path::Path::is_file", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
@@ -47,12 +53,12 @@ disallowed-methods = [
   { path = "std::path::Path::read_link", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
   { path = "std::path::Path::canonicalize", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
   { path = "std::fs::soft_link", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::chown", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::fchown", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::lchown", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::chroot", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::OpenOptionsExt::custom_flags", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::OpenOptionsExt::mode", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)" },
+  { path = "std::os::unix::fs::chown", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::fs::fchown", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::fs::lchown", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::fs::chroot", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::fs::OpenOptionsExt::custom_flags", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::fs::OpenOptionsExt::mode", reason = "herdr-fleet-screen does no file I/O (ADR 0107-crate-split)", allow-invalid = true },
   { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "herdr-fleet-screen does no network I/O (ADR 0107-crate-split)" },
   { path = "std::process::exit", reason = "herdr-fleet-screen uses no std::process (ADR 0107-crate-split)" },
   { path = "std::process::abort", reason = "herdr-fleet-screen uses no std::process (ADR 0107-crate-split)" },

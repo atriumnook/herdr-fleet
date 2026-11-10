@@ -1,5 +1,6 @@
-//! report.json, read as a turn's report (`server/fleet/report.ts`). The four tests are
-//! `server/fleet/report.test.ts`'s, with its expected values; the last two are this crate's own.
+//! report.json, read as a turn's report (`server/fleet/report.ts`). The first five tests are
+//! `server/fleet/report.test.ts`'s four, with its expected values (its symlink and size-limit test
+//! is split in two, as only the symlink needs Unix); the rest are this crate's own.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -137,7 +138,7 @@ fn is_no_report_with_why_when_it_is_missing_or_does_not_say_a_known_state_a_summ
 // server/fleet/report.test.ts: "is never read through a symlink, nor past its size limit"
 #[cfg(unix)]
 #[test]
-fn is_never_read_through_a_symlink_nor_past_its_size_limit() {
+fn is_never_read_through_a_symlink() {
     let dir = Folder::new();
     let secret = dir.path().join("secret.json");
     fs::write(
@@ -150,6 +151,11 @@ fn is_never_read_through_a_symlink_nor_past_its_size_limit() {
         read_report(dir.path()),
         none("report.json is not a regular file.")
     );
+}
+
+// server/fleet/report.test.ts: "is never read through a symlink, nor past its size limit"
+#[test]
+fn is_never_read_past_its_size_limit() {
     let big = json!({ "state": "ready", "summary": "x".repeat(REPORT_MAX_BYTES), "evidence": [] });
     assert_eq!(
         read(&big.to_string()),
