@@ -152,6 +152,14 @@ fn is_symlink_loop(error: &io::Error) -> bool {
     error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error())
 }
 
+// Linux's and Apple's open(2) fail with `ELOOP` on a symlink under `O_NOFOLLOW`; other systems
+// answer otherwise (FreeBSD's open(2) documents `EMLINK`), and a symlinked report.json would then
+// read as "cannot be read" rather than "is not a regular file".
+#[cfg(all(unix, not(any(target_os = "linux", target_vendor = "apple"))))]
+compile_error!(
+    "check which error this target's open(2) gives a symlink under O_NOFOLLOW, and teach is_symlink_loop in orchestrator's src/report.rs"
+);
+
 /// Off unix there is no `O_NOFOLLOW`: a symlink is turned down before the file is opened.
 #[cfg(not(unix))]
 fn open_no_follow(path: &Path) -> io::Result<File> {
