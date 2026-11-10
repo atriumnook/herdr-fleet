@@ -3267,6 +3267,11 @@ describe("merge authority", () => {
       `{"event":"start","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.309109Z-Hb58fc00a-P0017de4a","thread":"main","file":"common-init.c","line":78,"t_abs":0.000189,"argv":["/usr/lib/git-core/git","maintenance","run","--auto","--quiet","--detach"]}`,
       `{"event":"cmd_name","sid":"20261110T131359.297904Z-Hb58fc00a-P0017de3a/20261110T131359.309109Z-Hb58fc00a-P0017de4a","thread":"main","file":"git.c","line":507,"name":"maintenance","hierarchy":"fetch/maintenance"}`,
     ],
+    // a branch option newer than the fleet's table of git's options (2.56), its value attached
+    branchDeleteMerged: [
+      `{"event":"start","sid":"20261110T133043.713361Z-Hb58fc00a-P0018a167","thread":"main","file":"common-init.c","line":78,"t_abs":0.000159,"argv":["git","branch","--delete-merged=main"]}`,
+      `{"event":"cmd_name","sid":"20261110T133043.713361Z-Hb58fc00a-P0018a167","thread":"main","file":"git.c","line":507,"name":"branch","hierarchy":"branch"}`,
+    ],
     // a commit, and the maintenance it starts after itself
     commit: [
       `{"event":"start","sid":"20261110T094715.215925Z-Hb58fc00a-P0000c63f","thread":"main","file":"common-init.c","line":78,"t_abs":0.000179,"argv":["git","-c","user.name=a","-c","user.email=a@b","commit","-q","--allow-empty","-m","two"]}`,
@@ -3561,6 +3566,8 @@ describe("merge authority", () => {
     // it fetched into the branch checked out
     expect(await moved("Fetch", [...TRACE.status, ...TRACE.fetchIntoHead])).toEqual(both);
     expect(await moved("Fetch abbreviated", [...TRACE.status, ...TRACE.fetchIntoHeadAbbreviated])).toEqual(both);
+    // an option the fleet does not know to only read
+    expect(await moved("Branch", [...TRACE.status, ...TRACE.branchDeleteMerged])).toEqual(both);
     // no record: its CLI may not pass the environment on, or its git did not run
     expect(await moved("Unknown", null)).toEqual(both);
     // a record that is not git's

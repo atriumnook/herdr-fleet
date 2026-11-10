@@ -2079,29 +2079,31 @@ const GIT_READS = new Set([
   "fetch-pack", "upload-pack", "index-pack", "unpack-objects", "pack-objects", "remote-https", "remote-http", "remote-curl",
   "maintenance", "gc", "repack", "pack-refs", "commit-graph", "multi-pack-index", "prune", "prune-packed",
 ]);
-/** a command that reads with these arguments (those after its name), and may write with others */
+/**
+ * A command that reads with these arguments (those after its name), and may write with others. Each
+ * lists the options it reads with: an option not listed, a newer one or one written shortened, is a write.
+ */
 const GIT_READS_WITH: Record<string, (args: string[]) => boolean> = {
   config: (args) => args.some((arg) => /^(?:--get(?:-all|-regexp|-urlmatch|-color|-colorbool)?|-l|--list)$/.test(arg)) || /^(?:get|list)$/.test(positional(args)[0] ?? ""),
-  branch: (args) => !gitFlags(args, "dDmMcCfu", ["delete", "move", "copy", "force", "set-upstream-to", "unset-upstream", "edit-description", "track", "create-reflog"])
-    && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--show-current|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
-  tag: (args) => !gitFlags(args, "dafsmFu", ["delete", "annotate", "force", "sign", "message", "file", "local-user"])
+  // a pattern after these lists the branches that match it; without them, a name creates a branch
+  branch: (args) => gitOptionsOnly(args, "arvli", ["all", "remotes", "verbose", "list", "show-current", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "no-color", "column", "no-column", "ignore-case", "abbrev", "no-abbrev", "omit-empty"])
     && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
-  // git refuses to fetch into a branch a worktree has checked out, unless told it may
-  fetch: (args) => !gitFlags(args, "u", ["update-head-ok"]),
+  tag: (args) => gitOptionsOnly(args, "lin0123456789", ["list", "contains", "no-contains", "merged", "no-merged", "points-at", "sort", "format", "color", "column", "no-column", "ignore-case", "omit-empty"])
+    && (!positional(args).length || args.some((arg) => /^(?:-l|--list|--(?:no-)?contains|--(?:no-)?merged|--points-at)$/.test(arg))),
+  // git refuses to fetch into a branch a worktree has checked out unless told it may (-u, --update-head-ok), which is not listed
+  fetch: (args) => gitOptionsOnly(args, "qvptPnj0123456789", ["quiet", "verbose", "all", "prune", "prune-tags", "tags", "no-tags", "dry-run", "progress", "no-progress", "jobs", "depth", "shallow-since", "shallow-exclude", "recurse-submodules", "no-recurse-submodules", "filter", "multiple", "no-write-fetch-head"]),
   stash: (args) => /^(?:list|show)$/.test(positional(args)[0] ?? ""),
   remote: (args) => /^(?:show|get-url)?$/.test(positional(args)[0] ?? ""),
   worktree: (args) => positional(args)[0] === "list",
-  "symbolic-ref": (args) => positional(args).length <= 1 && !gitFlags(args, "d", ["delete"]),
+  "symbolic-ref": (args) => positional(args).length <= 1 && gitOptionsOnly(args, "q", ["quiet", "short", "no-recurse"]),
 };
-/**
- * Whether `args` may hold one of these options: a short one anywhere in a bundle of them (`-vd`), or
- * a long one written in full or shortened, as git takes any prefix that names one option alone (`--update-head-o`)
- */
-function gitFlags(args: string[], short: string, long: string[]): boolean {
-  return args.some((arg) => {
-    if (/^-[^-]/.test(arg)) return [...arg.slice(1)].some((letter) => short.includes(letter));
+/** Whether every option in `args` is one of these: short ones alone or bundled (`-av`), long ones in full, with or without a value after `=` */
+function gitOptionsOnly(args: string[], short: string, long: string[]): boolean {
+  return args.every((arg) => {
+    if (!arg.startsWith("-")) return true;
+    if (/^-[^-]/.test(arg)) return [...arg.slice(1)].every((letter) => short.includes(letter));
     const name = /^--([^=]+)/.exec(arg)?.[1];
-    return name !== undefined && long.some((option) => option.startsWith(name));
+    return name !== undefined && long.includes(name);
   });
 }
 const positional = (args: string[]): string[] => args.filter((arg) => !arg.startsWith("-"));
