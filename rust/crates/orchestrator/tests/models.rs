@@ -1098,7 +1098,8 @@ async fn each_listing_passes_its_arguments_and_fails_on_an_error_exit() {
 
 /// `fakeOpencode` of models.test.ts: `service status` says where the service is (or nothing, or
 /// fails as 1.x does for a command it does not know), `api GET` answers an empty list the first
-/// time and the models after, like a place the service has not loaded.
+/// time and the models after, like a place the service has not loaded. Each run notes its process
+/// id in `<file>.pids`.
 fn fake_opencode(dir: &Path, behaviour: &str) -> PathBuf {
     let file = dir.join("opencode");
     let q = |ending: &str| sh_quote(&noted(&file, ending));
@@ -1115,6 +1116,7 @@ fn fake_opencode(dir: &Path, behaviour: &str) -> PathBuf {
 pwd > {cwd}
 ls -A > {ls}
 printf '%s\n' "$*" >> {args}
+echo $$ >> {pids}
 if [ "$1" = service ]; then {status}; fi
 if [ "$1" = api ]; then n=$(cat {n} 2>/dev/null || echo 0); echo $((n+1)) > {n}; if [ "$n" = 0 ]; then echo '{{"data":[]}}'; else echo '{{"data":[{{"providerID":"anthropic","id":"claude-sonnet-5-5"}},{{"providerID":"opencode","id":"big-pickle"}}]}}'; fi; exit 0; fi
 exit 1"#,
@@ -1122,6 +1124,7 @@ exit 1"#,
             cwd = q("cwd"),
             ls = q("ls"),
             args = q("args"),
+            pids = q("pids"),
         ),
     );
     file
@@ -1170,24 +1173,91 @@ async fn opencode_lists_from_the_running_service_by_opencode_api_asking_again_on
 /// opencode asks again 2 seconds after an empty list when the options name no other wait
 /// (`retryAfterMs ?? 2000`, `server/fleet/model-lists.ts:115`), and only once: a second empty
 /// list is no list.
-#[tokio::test]
+///
+/// The 2 seconds are tokio's paused clock, not the wall's, which a loaded machine stretches
+/// (issue #327). The CLIs run in real time meanwhile: a blocking task under way keeps the clock
+/// from jumping by itself to the CLIs' time limit while the runtime waits on them, so the clock
+/// moves only when the test advances it.
+#[tokio::test(start_paused = true)]
 async fn opencode_asks_again_once_two_seconds_after_an_empty_list() {
     let dir = TempDir::new("opencode-wait");
     let opencode = fake_opencode(dir.path(), "running");
     let first = options(&dir.path().join("model-list").join("opencode"), &opencode);
     assert_eq!(first.retry_after, Duration::from_secs(2));
-    let started = Instant::now();
-    assert_eq!(
-        listed(FleetAgentKind::Opencode, first)
-            .await
-            .map(|m| m.len()),
-        Ok(2)
-    );
-    let waited = started.elapsed();
-    assert!(waited >= Duration::from_secs(2), "{waited:?}");
-    assert!(waited < Duration::from_secs(10), "{waited:?}");
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let hold = tokio::task::spawn_blocking(move || {
+        let _ = held.recv();
+    });
+    let started = tokio::time::Instant::now();
+    let listing = tokio::spawn(async move {
+        let models = listed(FleetAgentKind::Opencode, first).await;
+        (models, tokio::time::Instant::now())
+    });
 
-    // a service that answers [] twice: asked twice, and no list
+    // the first ask's two CLIs (service status, then api GET) have ended and been reaped; what
+    // the listing still waits on of them is output already at hand, which the next turns read
+    let pids = noted(&opencode, "pids");
+    until("the first ask's end", || {
+        let pids = fs::read_to_string(&pids).unwrap_or_default();
+        let pids: Vec<&str> = pids.lines().collect();
+        pids.len() == 2 && !Path::new("/proc").join(pids[1]).exists()
+    })
+    .await;
+    for _ in 0..100 {
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        read(noted(&opencode, "args")),
+        "service status\napi GET /api/model\n"
+    );
+
+    // a millisecond short of 2 seconds, it has not asked again
+    tokio::time::advance(Duration::from_millis(1999)).await;
+    let real = Instant::now();
+    while real.elapsed() < Duration::from_millis(100) {
+        std::thread::sleep(Duration::from_millis(1));
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        read(noted(&opencode, "args")),
+        "service status\napi GET /api/model\n"
+    );
+    assert!(!listing.is_finished());
+
+    // at 2 seconds it asks again, and the list it gets is the answer
+    tokio::time::advance(Duration::from_millis(1)).await;
+    until("the listing's end", || listing.is_finished()).await;
+    let (models, finished) = listing.await.unwrap();
+    assert_eq!(models.map(|m| m.len()), Ok(2));
+    assert_eq!(finished - started, Duration::from_secs(2));
+    assert_eq!(
+        read(noted(&opencode, "args")),
+        "service status\napi GET /api/model\nservice status\napi GET /api/model\n"
+    );
+    drop(release);
+    hold.await.unwrap();
+}
+
+/// Yields to the runtime until `done` holds, the thread sleeping a millisecond between tries:
+/// the CLIs, and the runtime's reading of what they wrote, go on in real time while tokio's clock
+/// is paused. A wait that never ends fails after a minute instead of hanging the run.
+async fn until(what: &str, mut done: impl FnMut() -> bool) {
+    let real = Instant::now();
+    while !done() {
+        assert!(
+            real.elapsed() < Duration::from_secs(60),
+            "{what} did not come"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+        tokio::task::yield_now().await;
+    }
+}
+
+/// opencode gives no list when the service answers an empty list twice: it asks twice
+/// (`server/fleet/model-lists.ts:115`).
+#[tokio::test]
+async fn opencode_gives_no_list_when_the_service_answers_an_empty_list_twice() {
+    let dir = TempDir::new("opencode-empty");
     let empty = dir.path().join("opencode-empty");
     let args = sh_quote(&noted(&empty, "args"));
     write_script(
