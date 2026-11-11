@@ -65,7 +65,17 @@ impl Orchestrator {
             Err(_) => run.plan.as_ref().map_or(0, |mark| mark.version),
         };
         let now = self.now();
-        let plan = prepare_plan(value, Path::new(&run.cwd), previous.saturating_add(1), now)?;
+        // answers name the version they answer: one counted twice would take another's answers
+        let version = previous.checked_add(1).ok_or_else(|| {
+            FleetError::new(
+                "invalid_plan",
+                format!(
+                    "{} has handed over the last version a plan can have; start a new thread.",
+                    run.name
+                ),
+            )
+        })?;
+        let plan = prepare_plan(value, Path::new(&run.cwd), version, now)?;
         write_plan(&file, &plan)?;
         let mark = PlanMark {
             version: plan.version,
