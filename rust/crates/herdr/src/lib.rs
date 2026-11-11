@@ -16,3 +16,4 @@ pub use answer::{ANSWERS, Answer};
 pub use client::Herdr;
 pub use error::HerdrError;
 pub use events::{EventFrame, EventSender, EventSource, EventStream, SnapshotFuture, StreamItem};
+pub use herdr_api;
