@@ -1130,9 +1130,8 @@ async fn closes_a_carried_plan_when_the_new_run_went_on_to_a_report_other_than_b
 // The expected value differs from TypeScript's (`:1429` expects `closedAt` undefined): a plan the
 // lead went on from stays answerable when no run could take the thread over, which is #240's 3, a
 // defect of main's fleet that #265 and #267 ask the Rust version not to copy. #338 closes the plan
-// in `turns.rs`'s `finalize` (ADR 0265-plans); until it lands, this test waits for it.
+// in `turns.rs`'s `finalize` (ADR 0265-plans).
 #[tokio::test(start_paused = true)]
-#[ignore = "waits on #338: finalize closes the plan when no run could take the thread over (#240's 3)"]
 async fn closes_a_plan_the_lead_went_on_from_when_a_turn_failed_and_no_run_could_take_over() {
     let t = thread();
     let _tree = with_tree(&t);
@@ -1152,6 +1151,21 @@ async fn closes_a_plan_the_lead_went_on_from_when_a_turn_failed_and_no_run_could
     t.turn(&other, AgentState::Idle).await;
     assert_eq!(t.run(&other.id).state, AgentState::Failed);
     assert!(t.run(&other.id).plan.unwrap().closed_at.is_some());
+}
+
+// #338: a landed thread is not restarted, so a turn without a report does not close its plan.
+#[tokio::test(start_paused = true)]
+async fn keeps_a_plan_open_when_a_landed_thread_ends_a_turn_without_a_report() {
+    let t = thread();
+    let _tree = with_tree(&t);
+    let run = t.start_thread("Other", "t", None).await;
+    t.fleet.submit_plan(&run.id, &plan_value(), None).unwrap();
+    t.registry
+        .update(&run.id, |run| run.landed = Some(Landed::Merged))
+        .unwrap();
+    t.turn(&run, AgentState::Idle).await;
+    assert_eq!(t.run(&run.id).replaced_by, None);
+    assert_eq!(t.run(&run.id).plan.unwrap().closed_at, None);
 }
 
 // orchestrator.test.ts: "hands Merge into main the coordinator has not heard yet to it once, though the thread started again meanwhile"
