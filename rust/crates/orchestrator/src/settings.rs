@@ -3,13 +3,13 @@
 //! changes written back into it. Keys the page does not know stay as they are. The interface:
 //! docs/rust-migration/adr/0260-settings-store.md.
 
-use std::cmp::Ordering;
 use std::fs::{self, OpenOptions};
 use std::io::{self, ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use protocol::js::locale_compare;
 use protocol::{
     FleetAgentKind, FleetSettings, FleetSettingsPatch, ProjectPatch, ProjectSetup, RoleCandidate,
     RoleCandidateSetting, RoleCandidates, RolePatch, RoleSettings,
@@ -424,39 +424,6 @@ fn by_flow(mut definitions: Vec<AgentDefinition>) -> Vec<AgentDefinition> {
             .then_with(|| locale_compare(&a.name, &b.name))
     });
     definitions
-}
-
-/// `a.localeCompare(b)` as Bun 1.4.4 orders ASCII names in the en-US locale: by the characters'
-/// primary weights first (spaces, then punctuation and symbols in the order below, digits, then
-/// letters with case set aside), then lower case before upper case. A character past ASCII is
-/// weighed after the letters by its code point, where the locale would weigh `é` next to `e`. The
-/// same order as the usage tracker's `list()` (`usage/tracker.rs`).
-fn locale_compare(a: &str, b: &str) -> Ordering {
-    /// The punctuation and symbols of ASCII in the order of the locale's collation (the Unicode
-    /// collation's default table), after a space and before the digits.
-    const PUNCTUATION: &str = "_-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
-    let weight = |c: char| -> u32 {
-        if c.is_ascii_whitespace() {
-            0
-        } else if let Some(index) = PUNCTUATION.find(c) {
-            1 + index as u32
-        } else if c.is_ascii_digit() {
-            100 + u32::from(c as u8 - b'0')
-        } else if c.is_ascii_alphabetic() {
-            200 + u32::from(c.to_ascii_lowercase() as u8 - b'a')
-        } else {
-            300 + u32::from(c)
-        }
-    };
-    a.chars()
-        .map(weight)
-        .cmp(b.chars().map(weight))
-        .then_with(|| {
-            a.chars()
-                .map(|c| c.is_ascii_uppercase())
-                .cmp(b.chars().map(|c| c.is_ascii_uppercase()))
-        })
-        .then_with(|| a.cmp(b))
 }
 
 /// A role's candidates in the order the orchestrator tries them (its `spawn_with_fallbacks`): the

@@ -148,3 +148,76 @@ fn lists_integer_keys_first_and_indents_by_two() {
     assert_eq!(pretty("{}"), "{}");
     assert_eq!(pretty("[]"), "[]");
 }
+
+// Bun 1.4.4 under LANG=en_US.UTF-8: the 128 characters of ASCII from U+007F down to U+0000, each a
+// string, .sort((a, b) => a.localeCompare(b)).join(""). The ignored control characters tie, so a
+// stable sort keeps them in the order given.
+#[test]
+fn orders_ascii_characters_as_locale_compare_does() {
+    let order = "\u{7F}\u{1F}\u{1E}\u{1D}\u{1C}\u{1B}\u{1A}\u{19}\u{18}\u{17}\u{16}\u{15}\u{14}\u{13}\u{12}\u{11}\u{10}\u{0F}\u{0E}\u{08}\u{07}\u{06}\u{05}\u{04}\u{03}\u{02}\u{01}\u{00}\t\n\u{0B}\u{0C}\r _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ";
+    let mut chars: Vec<String> = (0..128u8)
+        .rev()
+        .map(|b| char::from(b).to_string())
+        .collect();
+    chars.sort_by(|a, b| js::locale_compare(a, b));
+    assert_eq!(chars.concat(), order);
+}
+
+// Bun 1.4.4 under LANG=en_US.UTF-8: [...words].sort((a, b) => a.localeCompare(b)).
+#[test]
+fn orders_words_as_locale_compare_does() {
+    let expected = [
+        "a b",
+        "a_b",
+        "a-b",
+        "a:b",
+        "a1",
+        "a10",
+        "a9",
+        "ab",
+        "Ab",
+        "agy",
+        "agy:gemini",
+        "b",
+        "B",
+        "ba",
+        "bA",
+        "Ba",
+        "beta",
+        "Beta",
+        "claude",
+        "codex",
+        "pi:anthropic",
+        "pi:openai",
+        "Zeta",
+    ];
+    let mut words = expected.to_vec();
+    words.reverse();
+    words.sort_by(|a, b| js::locale_compare(a, b));
+    assert_eq!(words, expected);
+}
+
+// Bun 1.4.4 under LANG=en_US.UTF-8: a.localeCompare(b) of each pair. The control characters other
+// than \t, \n, \v, \f and \r are ignored, and those five and a space weigh differently.
+#[test]
+fn compares_pairs_as_locale_compare_does() {
+    use std::cmp::Ordering::{Equal, Greater, Less};
+    for (a, b, expected) in [
+        ("a", "a", Equal),
+        ("a", "A", Less),
+        ("A", "a", Greater),
+        ("ab", "aB", Less),
+        ("", "a", Less),
+        ("a b", "ab", Less),
+        ("a\tz", "a b", Less),
+        ("a\u{0B}b", "aab", Less),
+        ("a\u{01}b", "ab", Equal),
+        ("a\u{7F}b", "ab", Equal),
+        ("x", "x\u{00}", Equal),
+        ("a\u{01}B", "ab", Greater),
+        ("a\u{01}b", "aB", Less),
+        ("\u{01}", "", Equal),
+    ] {
+        assert_eq!(js::locale_compare(a, b), expected, "{a:?} vs {b:?}");
+    }
+}
