@@ -93,3 +93,4 @@ herdr の状態を変える呼び出しは最後まで走らせ、token と競�
 - テストを先に書き、口だけ置いて中身を `todo!()` にした stub で `cargo test --locked -p herdr-fleet-orchestrator --test herdr_runtime` を走らせ、`test result: FAILED. 0 passed; 41 failed; 3 ignored` を確かめた
 - 実装のあと、同じコマンドで 41 件が通った。H2 の偽のサーバーで、10 の method が送る method と params、4 つの場所の分かれ方、`launch_pending` のあとの `interactive_ready` の待ち、250 ミリ秒ごとの問い合わせ、`not an available shell` の 4 回までのやり直しと待ちの伸び、起動の失敗、準備ができないこと、取り消し、エラーコードの変換を確かめる
 - 隔離した herdr のセッション `herdr-fleet-rs-5875b04e`(`HERDR_*` を外し、`ZDOTDIR` を worktree の `rust/.dev-state/` の空のフォルダーにした)で `-- --ignored` を走らせ、`runtime.herdr.test.ts` の 3 件を移したテストが通った。`screen` のスクロールの判定を外した実装では、スクロールのテストが失敗することも確かめた
+- herdr 0.9.1 の `worktree.create` は、worktree のワークスペースのほかに、repo のフォルダーのワークスペースも開く。repo のワークスペースは、worktree のワークスペースを閉じるまで `workspace.close` で閉じられない(`workspace_group_close_required`)。live テストは、作成の前後で増えたワークスペースを新しいほうから閉じる。TypeScript のテストは repo のワークスペースを閉じずに残す
