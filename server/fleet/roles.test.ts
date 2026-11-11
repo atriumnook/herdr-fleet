@@ -34,11 +34,14 @@ const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> =
       "has every change reviewed on another CLI": /Every change gets a review, on another CLI than the one that wrote it \(`--avoid`/,
       "gives an agy reviewer the diff and checks as files": /reviewer on agy cannot run git/,
       "waits for an agent it started in the same turn, or reports first": /wait for it with `wait <agent>` in the same turn: do not end your turn to wait, and if you must end it, write your report first/,
-      "hands broad investigation to a scout": /Broad investigation .* `spawn --role scout --read-only`/,
-      "hands an independent, fully specified mechanical change to a worker": /independent, fully specified mechanical change .* `spawn --role worker` with its `--write` paths/,
+      "plans, designs, briefs, checks and decides rather than implementing": /You plan, design, brief, check results and decide/,
+      "writes code only for a design judgement or a security change": /You write code yourself only for a change that needs a design judgement or touches security/,
+      "hands every other change to a worker by default": /Every other change goes to a worker: `spawn --role worker` with its `--write` paths/,
+      "hands broad investigation to a scout": /Broad investigation .* goes to a scout: `spawn --role scout --read-only`/,
       "briefs a scout or a worker in full": /Brief both with `--goal`, `--context`, `--done` and `--verify`/,
-      "writes a change that needs a design judgement or touches security itself": /needs a design judgement or touches security you write yourself/,
-      "checks a worker's change and has it reviewed": /You check a worker's change, and it gets a review like any other/,
+      "checks each helper's result before going on": /Check each result before you go on/,
+      "runs independent changes on separate workers side by side": /Changes that do not depend on each other go to separate workers with separate `--write` paths, side by side/,
+      "sends a failed change back once, then writes it itself and reports it": /send it back with what failed; only when it fails a second time do you write it yourself, and say so in your report/,
       "asks an architect how to build": /spawn --role architect --read-only/,
       "asks the person what to build when it cannot be undone": /When the assumption would be hard to undo, do not guess/,
       "ends a turn with the contract's state": /Contract: A1/,
@@ -97,6 +100,12 @@ describe("bundled roles", () => {
       });
     });
   }
+
+  // #305 made handing work on optional, and leads then wrote every change themselves
+  it("does not let a lead do the work itself by default", () => {
+    const lead = findAgent(bundled, "lead")!;
+    expect(`${lead.description} ${lead.systemPrompt}`.replace(/\s+/g, " ")).not.toMatch(/do the work yourself|only what gains from another agent|only when that gains something/i);
+  });
 
   it("never puts the coordinator or a lead on agy, first or as a fallback", () => {
     for (const name of NEVER_ON_AGY) {
