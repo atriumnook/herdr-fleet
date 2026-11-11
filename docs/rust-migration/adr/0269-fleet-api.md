@@ -78,6 +78,7 @@ pub fn router(deps: FleetApiDeps) -> axum::Router
 ### 取り消し
 
 - private な `in_task(work)` が、新しい `CancellationToken` と、その `drop_guard` を作り、`work(token)` を `tokio::spawn` で動かして待つ。axum は接続が切れると handler の future を drop するので、guard が token を cancel する。spawn した task は drop されないので、後始末(spawn の途中ならペインを閉じる)は最後まで走る
+- ファイルを読み書きする同期の処理(`roles` の役割のファイルの読み取り、settings と entrances の store)は、private な `blocking(work)` で `spawn_blocking` の中で動かし、ほかの要求の task を止めない。TypeScript は同じ処理を event loop の上で行う
 - token を取る method かどうかに関係なく、handler の中で await するものはすべて `in_task` を通す(`interrupt`、`focus`、`close_done`、`diff`、`checks`、`read`、`threads`、`usage.refresh`、`models.list_all`、report も含む)。Bun は接続が切れても promise を最後まで走らせるので、TypeScript ではどの操作も途中で止まらない。await を spawn の外に置くと、たとえば `close_done` が herdr を変えたあと、記録を保存する前に止まりうる
 - task が panic したときは、500 `internal_error` で、本文は panic の文にする
 
@@ -88,6 +89,7 @@ pub fn router(deps: FleetApiDeps) -> axum::Router
   - `guard_plugin_missing` は 500(#269 のコメント 1)。編集しない役割の opencode を起動するのに要る fleet-guard の `index.js` が、サーバーの install にないときのエラーで、要求した側の誤りではない
   - `internal_error` は 500。Rust の settings と entrances の store は、TypeScript が素の Error を投げた箇所(TypeScript では 500)で `FleetError::new("internal_error", …)` を返す。表に行がないと 400 になり、TypeScript と違ってしまう
 - `OrchestratorError` は、コードではなく variant で分ける。同じ `agent_blocked` でも、`FleetError` として返るときは 409 で、herdr のエラー(`RuntimeError::Blocked`)として返るときは、TypeScript では `HerdrError` だったので 502 になる
+- `RuntimeError::Herdr` のうち code が `internal_error` のものは 500 にする。`herdr_runtime` は、TypeScript が素の Error を投げた箇所(例: branch の名前のない worktree の run)で、このエラーを作る(`internal`)
 
 | 元のエラー | 状態 | 本文の code と message |
 |---|---|---|
@@ -95,7 +97,8 @@ pub fn router(deps: FleetApiDeps) -> axum::Router
 | `WaitTimeout` | 408 | `wait_timeout`、Display の文、`run` も付ける |
 | `RuntimeError::Cancelled` | 499 | `aborted`、`request cancelled` |
 | `RuntimeError::StartFailed`、`NotReady` | 表の値(502、504) | `error.code()`、文 |
-| `RuntimeError::Blocked`、`NotFound`、`Herdr` | 502 | `error.code()`、文 |
+| `RuntimeError::Herdr`(code が `internal_error`) | 500 | `internal_error`、文 |
+| `RuntimeError::Blocked`、`NotFound`、ほかの `Herdr` | 502 | `error.code()`、文 |
 | `OrchestratorError::Io`、`GhError`、panic | 500 | `internal_error`、文 |
 | ルートがない | 404 | `not_found`、`Unknown fleet endpoint` |
 
@@ -118,7 +121,7 @@ pub fn router(deps: FleetApiDeps) -> axum::Router
 - axum の既定の振る舞いを、TypeScript に合わせて 4 つ変える
   - 一覧にないパスも、既知のパスへの別の method も、405 ではなく 404 `not_found` にする(`.fallback` と `.method_not_allowed_fallback`)
   - GET のルートに来た HEAD は 404 にする。axum は HEAD を GET の handler に渡すが、`api.ts` のどの分岐も `method === "GET"` を見る
-  - 本文は `Bytes` で受けて `serde_json::from_slice` で読む。axum の `Json` は Content-Type のない要求を 415 で断るが、TypeScript は Content-Type を見ない
+  - 本文は `Bytes` で受けて `serde_json::from_slice` で読む。axum の `Json` は Content-Type のない要求を 415 で断るが、TypeScript は Content-Type を見ない。先頭の UTF-8 の BOM は捨てる(Fetch の仕様の `json()` は、本文を UTF-8 として decode するときに BOM を捨てる)
   - `POST /runs/:target/<step>` は、step が POST を受けないもの(`diff`、`landing`、`read`、知らない名前)でも、先に本文を読む。`api.ts` は step を見る前に本文を読む(173-174 行)ので、JSON のオブジェクトでない本文には `invalid_json` か `invalid_body` を返し、読めた本文には 404 を返す
 - query は `Query<Vec<(String, String)>>` で受け、同じ名前の値が複数あれば最初の値を使う(`URLSearchParams.get` と同じ)
 
@@ -151,6 +154,7 @@ pub fn router(deps: FleetApiDeps) -> axum::Router
   - 末尾が `/` のパス(`/runs/`)は 404 になる。TypeScript は `/runs` と同じに扱う。CLI と fleet CLI の corpus に、末尾が `/` の要求はない
   - パスの target の percent-encoding が UTF-8 として読めないとき、axum は 400 を text で返す。TypeScript は `decodeURIComponent` の例外が handler の外に出て、サーバーの既定のエラーになる。どちらの場合も要求は失敗する。CLI は `encodeURIComponent` で encode するので、この場合は起きない
   - 本文が 2 MiB を超える要求は、axum の既定の上限で 413 になる。Bun は既定で 128 MiB まで受ける。計画は 64 KiB を超えると `invalid_plan` で断られ、ほかの本文がこの大きさになることはない
+  - 本文の JSON のうち、`serde_json` が読めず `JSON.parse` が読むもの(f64 の範囲を超える数 `1e999`、単独のサロゲート `"\ud800"`)は `invalid_json` になる。TypeScript では、`1e999` は `Infinity` として読まれ、項目の検査(例: `timeout_ms` の `invalid_timeout`)で断られる。CLI はこうした本文を送らない
   - `?lines=` の小数(`2.5`)は切り捨てて 2 行にする。TypeScript は 2.5 をそのまま runtime に渡す。`timeout_ms` の小数も切り捨てる(1 以上の値だけを受けるので、0 にはならない)
   - usage の読み取りの `readAt` などの JavaScript の数は、整数でも `1.0` と書かれる(protocol の型が `f64` のため)。JSON を読む側(JavaScript の `JSON.parse` など)は、どちらも同じ数として読む
 - `api/js.rs` の `number` は `cli::js::number` の写しで、2 か所に同じ規則がある。protocol に移して写しを消す作業は #352 にある
@@ -163,3 +167,4 @@ PC は Linux 7.2.15(omarchy)、`rust/` で `HERDR_*` を外して実行した。
 - 実装のあと、同じコマンドで 20 件が通った。内訳は、`api.test.ts` から移した 11 件(`X-Herdr-Fleet` の 1 件を除く)、ヘッダーを router が見ないことの 1 件、ルートの一覧の 3 件、report の `main_worktree` とエラーの 2 件、取り消しの 1 件、herdr のエラーと `guard_plugin_missing` の 2 件
 - `in_task` の `drop_guard` の行を消すと、取り消しのテストが `w1:p1 was not closed: []` で失敗し、戻すと通ることを見た
 - `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` が通った
+- `/code-review high` の指摘で、`RuntimeError::Blocked` を 409 から 502 に、code が `internal_error` の `RuntimeError::Herdr` を 502 から 500 に直し、BOM のある本文を読めるようにした。直す前に、足したテストが `(409, "agent_blocked")` と、BOM のある本文の 400 で失敗することを見た
