@@ -713,11 +713,15 @@ impl Orchestrator {
         {
             // a turn that failed or left no report went nowhere; a lead taking a thread over starts
             // with its plan still open, and keeps it so while it reports blocked on it
-            if let Some(TurnOutcome::Report(report)) = &run.outcome
-                && !(pending.generation == 1
-                    && run.thread.is_some()
-                    && report.state == protocol::ReportState::Blocked)
-            {
+            let passed = match &run.outcome {
+                Some(TurnOutcome::Report(report)) => {
+                    !(pending.generation == 1
+                        && run.thread.is_some()
+                        && report.state == protocol::ReportState::Blocked)
+                }
+                _ => restart_error.is_some(),
+            };
+            if passed {
                 self.close_stale_plan(id, pending.submitted_at);
             }
             self.settle_thread_turn(id, &config, restart_error).await;
