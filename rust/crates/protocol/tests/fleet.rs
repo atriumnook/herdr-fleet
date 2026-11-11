@@ -5,9 +5,9 @@
 //! `shared/fleet.ts` with bun.
 
 use herdr_fleet_protocol::{
-    AgentRun, ContractItem, ContractState, FROM_PANE, FromPane, ModelListing, ThreadState,
-    TurnOutcome, contract_items, current_lead, from_pane, model_listed, needs_person, outcome_line,
-    thread_state,
+    AgentRun, ContractItem, ContractState, FROM_PANE, FleetAgentKind, FromPane, ModelListing,
+    ThreadState, TurnOutcome, contract_items, current_lead, from_pane, model_listed, needs_person,
+    outcome_line, thread_state,
 };
 use serde_json::{Value, json};
 
@@ -345,4 +345,38 @@ fn reads_the_pane_a_message_came_from() {
     assert_eq!(from_pane("[from pane w1:p2]\nx"), None);
     assert_eq!(from_pane(" [from pane w1:p2]\n\nx"), None);
     assert_eq!(from_pane("typed on the Fleet screen"), None);
+}
+
+/// `AGENT_KINDS` of `server/fleet/adapters.ts`, in its order, and each kind's name as herdr
+/// and the settings spell it.
+#[test]
+fn every_agent_kind_in_the_order_of_agent_kinds_and_its_name() {
+    let names = FleetAgentKind::ALL.map(FleetAgentKind::name);
+    assert_eq!(
+        names,
+        ["pi", "claude", "codex", "cursor", "agy", "opencode"]
+    );
+    // the name is the one the records carry
+    for kind in FleetAgentKind::ALL {
+        assert_eq!(serde_json::to_value(kind).unwrap(), json!(kind.name()));
+    }
+}
+
+/// `ALL` is kept by hand and the compiler does not check that it holds every kind; serde's derive
+/// lists every kind it reads in its error for one it does not know, so a kind left out of `ALL`
+/// fails here.
+#[test]
+fn every_kind_serde_reads_is_in_all() {
+    let error = serde_json::from_value::<FleetAgentKind>(json!("none")).unwrap_err();
+    let named: Vec<String> = FleetAgentKind::ALL
+        .iter()
+        .map(|kind| format!("`{}`", kind.name()))
+        .collect();
+    assert_eq!(
+        error.to_string(),
+        format!(
+            "unknown variant `none`, expected one of {}",
+            named.join(", ")
+        )
+    );
 }
