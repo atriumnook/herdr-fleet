@@ -57,6 +57,10 @@ const paneId = env["HERDR_PANE_ID"];
 const group = env["HERDR_FLEET_GROUP"] || (paneId ? `fleet-${paneId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}` : "fleet-default");
 const depth = Number.parseInt(env["HERDR_FLEET_DEPTH"] ?? "0", 10) || 0;
 const callerRun = env["HERDR_FLEET_RUN"] || undefined;
+// who calls, on every request that names an agent or acts in a fleet: the server takes the caller's own
+// fleet from its run, or from its pane when a resumed session lost the variables above
+const caller = { caller_run: callerRun, caller_pane_id: paneId || undefined };
+const callerQuery = Object.entries(caller).map(([key, value]) => (value ? `&${key}=${encodeURIComponent(value)}` : "")).join("");
 
 /** What the fleet skill (server/fleet/entrances.ts) has an agent in a pane's conversation read; kept here so it matches this CLI. */
 const GUIDE = `herdr-fleet runs a team of coding agents in herdr. Each repository has one coordinator: it talks with
@@ -170,7 +174,7 @@ async function waitFor(target: string, timeout: number | undefined, json: boolea
   for (;;) {
     let run: Run;
     try {
-      ({ run } = await call<{ run: Run }>("POST", `/runs/${enc(current)}/wait`, { group, ...(timeout ? { timeout_ms: timeout } : {}) }));
+      ({ run } = await call<{ run: Run }>("POST", `/runs/${enc(current)}/wait`, { group, ...caller, ...(timeout ? { timeout_ms: timeout } : {}) }));
     } catch (error) {
       if (error instanceof CliError && error.exitCode === 124 && error.body?.run) {
         print(json, error.body.run, () => `${describe(error.body!.run!)}\nwait timed out; the agent is still ${error.body!.run!.state}`);
@@ -218,7 +222,7 @@ async function main(argv: string[]): Promise<number> {
       const { run } = await call<{ run: Run }>("POST", "/spawn", {
         role: values.role, task: values.task, brief, name: values.name, model: values.model, thinking: values.thinking,
         cwd: values.cwd ?? process.cwd(), worktree: values.worktree, interactive: values.interactive, direction: values.direction,
-        group, depth, caller_pane_id: paneId, avoid: values.avoid,
+        group, depth, ...caller, avoid: values.avoid,
       });
       if (values.wait) return waitFor(run.id, timeout, json);
       print(json, run, () => [describe(run), run.lastError ? `note: ${run.lastError}` : ""].filter(Boolean).join("\n"));
@@ -227,25 +231,27 @@ async function main(argv: string[]): Promise<number> {
     case "thread": {
       const brief = briefOf(values);
       if (!values.title || (!values.task && !brief)) throw new CliError("fleet thread: --title and --task (or a brief) are required", 2);
-      const { run } = await call<{ run: Run }>("POST", "/threads", { title: values.title, task: values.task, brief, cwd: values.cwd ?? process.cwd(), depth, caller_run: callerRun, caller_pane_id: paneId });
+      const { run } = await call<{ run: Run }>("POST", "/threads", { title: values.title, task: values.task, brief, cwd: values.cwd ?? process.cwd(), depth, ...caller });
       print(json, run, () => [describe(run), run.lastError ? `note: ${run.lastError}` : ""].filter(Boolean).join("\n"));
       return run.state === "blocked" ? 4 : 0;
     }
     case "threads": {
-      const { threads } = await call<{ threads: ThreadSummary[] }>("GET", `/threads?cwd=${enc(values.cwd ?? process.cwd())}${callerRun ? `&caller_run=${enc(callerRun)}` : ""}`);
+      const { threads } = await call<{ threads: ThreadSummary[] }>("GET", `/threads?cwd=${enc(values.cwd ?? process.cwd())}${callerQuery}`);
       print(json, threads, () => threads.length ? threads.map(describeThread).join("\n") : "no threads");
       return 0;
     }
     case "plan": {
       const file = positionals[0];
       if (!file || positionals.length > 1) throw new CliError("fleet plan: give the plan's JSON file (- for stdin)", 2);
-      if (!callerRun) throw new CliError("fleet plan: only a thread's lead the fleet started writes a plan (HERDR_FLEET_RUN is not set)", 2);
+      // a lead resumed without HERDR_FLEET_RUN still names itself by its pane
+      const self = callerRun ?? paneId;
+      if (!self) throw new CliError("fleet plan: only a thread's lead the fleet started writes a plan (neither HERDR_FLEET_RUN nor HERDR_PANE_ID is set)", 2);
       const text = file === "-" ? await Bun.stdin.text() : await Bun.file(file).text().catch((error: unknown) => {
         throw new CliError(`cannot read ${file}: ${error instanceof Error ? error.message : String(error)}`, 2);
       });
       let plan: unknown;
       try { plan = JSON.parse(text); } catch (error) { throw new CliError(`${file} is not JSON: ${error instanceof Error ? error.message : String(error)}`, 2); }
-      const saved = await call<{ plan: { version: number; title: string; claims: unknown[] } }>("POST", `/runs/${enc(callerRun)}/plan`, { plan, group });
+      const saved = await call<{ plan: { version: number; title: string; claims: unknown[] } }>("POST", `/runs/${enc(self)}/plan`, { plan, group, ...caller });
       print(json, saved.plan, () => `plan "${saved.plan.title}" version ${saved.plan.version} is on the Fleet screen. End your turn with a BLOCKED HANDOFF that says the plan waits for the person; their answers come back as your next task.`);
       return 0;
     }
@@ -263,30 +269,30 @@ async function main(argv: string[]): Promise<number> {
     case "send": {
       const message = positionals.slice(1).join(" ");
       if (!message) throw new CliError("fleet send: give the message", 2);
-      const { run } = await call<{ run: Run }>("POST", `/runs/${enc(target())}/send`, { message, group, caller_pane_id: paneId });
+      const { run } = await call<{ run: Run }>("POST", `/runs/${enc(target())}/send`, { message, group, ...caller });
       print(json, run, () => describe(run));
       return run.state === "failed" ? 1 : run.state === "blocked" ? 4 : 0;
     }
     case "wait":
       return waitFor(target(), timeout, json);
     case "read": {
-      const { text } = await call<{ text: string }>("GET", `/runs/${enc(target())}/read?group=${enc(group)}${values.lines ? `&lines=${enc(values.lines)}` : ""}`);
+      const { text } = await call<{ text: string }>("GET", `/runs/${enc(target())}/read?group=${enc(group)}${callerQuery}${values.lines ? `&lines=${enc(values.lines)}` : ""}`);
       print(json, { text }, () => text.trimEnd());
       return 0;
     }
     case "list": {
-      const { runs } = await call<{ runs: Run[] }>("GET", values.all ? "/runs" : `/runs?group=${enc(group)}`);
+      const { runs } = await call<{ runs: Run[] }>("GET", values.all ? "/runs" : `/runs?group=${enc(group)}${callerQuery}`);
       print(json, runs, () => runs.length ? runs.map((run) => `${describe(run)}${values.all ? `  [${run.group}]` : ""}`).join("\n") : "no agents");
       return 0;
     }
     case "interrupt":
     case "focus": {
-      const { run } = await call<{ run: Run }>("POST", `/runs/${enc(target())}/${command}`, { group });
+      const { run } = await call<{ run: Run }>("POST", `/runs/${enc(target())}/${command}`, { group, ...caller });
       print(json, run, () => describe(run));
       return 0;
     }
     case "close-done": {
-      const { runs } = await call<{ runs: Run[] }>("POST", "/close-done", { group });
+      const { runs } = await call<{ runs: Run[] }>("POST", "/close-done", { group, ...caller });
       print(json, runs, () => runs.length ? runs.map((run) => `closed ${describe(run)}`).join("\n") : "nothing to close");
       return 0;
     }
