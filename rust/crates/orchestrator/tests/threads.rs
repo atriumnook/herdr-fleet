@@ -647,3 +647,40 @@ async fn not_before_herdr_shows_the_turn_when_the_server_restarted_while_the_pro
     assert_eq!(run.result.as_deref(), Some(HANDOFF));
     restarted.fleet.stop();
 }
+
+// codex's review of #262: TypeScript awaits gitHead before it asks gitBranch
+// (orchestrator.ts:368-369); the branch is read only once the head read finished
+#[tokio::test(start_paused = true)]
+async fn reads_the_branch_only_after_the_head_as_typescript_awaits_them_in_turn() {
+    let landing = git_root_always("/repo");
+    let head_read = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let branch_saw = Arc::new(Mutex::new(None));
+    let done = head_read.clone();
+    landing.answers().git_head = answer(move |_: PathBuf| {
+        let done = done.clone();
+        async move {
+            tokio::task::yield_now().await;
+            done.store(true, std::sync::atomic::Ordering::SeqCst);
+            Some("abc1234".to_owned())
+        }
+    });
+    let (seen, saw) = (head_read.clone(), branch_saw.clone());
+    landing.answers().git_branch = answer(move |_: PathBuf| {
+        let (seen, saw) = (seen.clone(), saw.clone());
+        async move {
+            *saw.lock().unwrap_or_else(PoisonError::into_inner) =
+                Some(seen.load(std::sync::atomic::Ordering::SeqCst));
+            Some("rust".to_owned())
+        }
+    });
+    let s = with(vec![lead()], &landing);
+    let thread = start_thread(&s.fleet, titled("Fix", "/repo"))
+        .await
+        .unwrap();
+    assert_eq!(
+        *branch_saw.lock().unwrap_or_else(PoisonError::into_inner),
+        Some(true)
+    );
+    assert_eq!(thread.base.as_deref(), Some("abc1234"));
+    assert_eq!(thread.base_branch.as_deref(), Some("rust"));
+}

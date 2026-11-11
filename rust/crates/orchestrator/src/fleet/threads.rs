@@ -69,7 +69,9 @@ impl Orchestrator {
         let (base, base_branch) = match &repo {
             Some(repo) => {
                 landing.exclude_worktrees(repo).await?;
-                tokio::join!(landing.git_head(repo), landing.git_branch(repo))
+                // in turn, as TypeScript awaits them (orchestrator.ts:368-369)
+                let base = landing.git_head(repo).await;
+                (base, landing.git_branch(repo).await)
             }
             None => (None, None),
         };
