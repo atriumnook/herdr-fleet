@@ -31,6 +31,12 @@ sha2.workspace = true
 tokio = { workspace = true, features = ["macros", "net", "rt", "sync", "time"] }
 tokio-util.workspace = true
 
+# report.json is opened without following a symlink or waiting for a FIFO's writer, with the
+# flags' values from rustix (ADR 0284-report-rustix); off unix, report.rs turns a symlink down
+# before it opens the file.
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["fs"] }
+
 # CC (ADR 0242-phase-3-split) runs the CLI's library against the router over real
 # TCP; the other tests call the router with tower's `oneshot` and pause tokio's clock.
 [dev-dependencies]
