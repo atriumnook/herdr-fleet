@@ -5,7 +5,7 @@
 //! [`plan_answer_message`] hands them to the lead as one message.
 
 use std::collections::HashMap;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Read as _, Write as _};
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
@@ -19,6 +19,7 @@ use regex::Regex;
 use serde_json::{Map, Value};
 
 use crate::FleetError;
+use crate::safe_open::open_no_follow;
 
 /// The largest file a code exhibit reads lines of.
 const CODE_FILE_MAX_BYTES: u64 = 2 * 1024 * 1024;
@@ -626,57 +627,6 @@ pub fn plan_answer_message(plan: &Plan, answer: &PlanAnswer) -> String {
         "Build the change to these answers. Where a comment changes what the plan says, follow it, or say in your HANDOFF why not. If the answers change the plan's shape, write a new plan with `plan` and end your turn BLOCKED again.".into(),
     ]);
     out.join("\n")
-}
-
-// `O_NOFOLLOW` and `O_NONBLOCK` of the targets the plan builds for, as their C libraries define
-// them: std exports neither, and this crate depends on no libc binding. The same values as
-// `report.rs`, from libc 0.2.191 (src/unix/linux_like/linux/gnu/b64/x86_64/mod.rs:448 and :294,
-// aarch64/mod.rs:359 and :206, src/unix/bsd/mod.rs:276 and :275); #284 moves both to rustix.
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-const O_NOFOLLOW: i32 = 0x20000;
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const O_NOFOLLOW: i32 = 0x8000;
-#[cfg(target_vendor = "apple")]
-const O_NOFOLLOW: i32 = 0x100;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
-const O_NONBLOCK: i32 = 0o4000;
-#[cfg(target_vendor = "apple")]
-const O_NONBLOCK: i32 = 0x4;
-#[cfg(all(
-    unix,
-    not(any(
-        all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ),
-        target_vendor = "apple",
-    ))
-))]
-compile_error!(
-    "add this target's O_NOFOLLOW and O_NONBLOCK, taken from libc, to orchestrator's src/plan.rs"
-);
-
-/// `path` opened for reading, as plan.ts opens it: a symlink in the last place fails, and a FIFO
-/// opens without waiting for a writer (the `fstat` then turns it down).
-#[cfg(unix)]
-fn open_no_follow(path: &Path) -> io::Result<File> {
-    use std::os::unix::fs::OpenOptionsExt as _;
-    fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(O_NOFOLLOW | O_NONBLOCK)
-        .open(path)
-}
-
-/// Off unix there is no `O_NOFOLLOW`: a symlink is turned down before the file is opened.
-#[cfg(not(unix))]
-fn open_no_follow(path: &Path) -> io::Result<File> {
-    if fs::symlink_metadata(path)?.file_type().is_symlink() {
-        return Err(io::Error::other("a symlink"));
-    }
-    File::open(path)
 }
 
 #[cfg(test)]

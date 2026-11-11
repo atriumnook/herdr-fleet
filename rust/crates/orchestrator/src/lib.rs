@@ -34,5 +34,7 @@ pub mod runtime;
 
 pub mod api;
 
+mod safe_open;
+
 pub use clock::{Clock, SystemClock};
 pub use error::FleetError;

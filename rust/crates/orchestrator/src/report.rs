@@ -4,12 +4,13 @@
 //! report", whatever the agent's prose or screen says. A file rather than a fleet command, because
 //! agy's sandbox runs no fleet command.
 
-use std::fs::File;
 use std::io::{self, Read as _};
 use std::path::Path;
 
 use protocol::{REPORT_STATES, ReportState, RunReport, TurnOutcome, js};
 use serde_json::Value;
+
+use crate::safe_open::{is_symlink_loop, open_no_follow};
 
 /// The file an agent writes its report of a turn to, beside its handoff in the run's result folder.
 pub const REPORT_FILE: &str = "report.json";
@@ -130,62 +131,4 @@ fn stringify(value: &Value) -> String {
         Value::Number(number) => js::number_to_string(number.as_f64().unwrap_or(0.0)),
         other => serde_json::to_string(other).unwrap_or_default(),
     }
-}
-
-/// `path` opened for reading, as report.ts opens it: a symlink in the last place fails with
-/// `ELOOP`, and a FIFO opens without waiting for a writer (the `fstat` then turns it down). std adds
-/// `O_CLOEXEC` and takes the access mode from `read`; rustix names the two flags std does not
-/// export, for each target as its C library defines them (ADR 0284-report-rustix).
-#[cfg(unix)]
-fn open_no_follow(path: &Path) -> io::Result<File> {
-    use rustix::fs::OFlags;
-    use std::os::unix::fs::OpenOptionsExt as _;
-    std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags((OFlags::NOFOLLOW | OFlags::NONBLOCK).bits().cast_signed())
-        .open(path)
-}
-
-/// std's `ErrorKind::FilesystemLoop` is unstable in the Rust release this workspace builds with.
-#[cfg(unix)]
-fn is_symlink_loop(error: &io::Error) -> bool {
-    error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error())
-}
-
-// Linux's and Apple's open(2) fail with `ELOOP` on a symlink under `O_NOFOLLOW`; other systems
-// answer otherwise (FreeBSD's open(2) documents `EMLINK`), and a symlinked report.json would then
-// read as "cannot be read" rather than "is not a regular file".
-#[cfg(all(unix, not(any(target_os = "linux", target_vendor = "apple"))))]
-compile_error!(
-    "check which error this target's open(2) gives a symlink under O_NOFOLLOW, and teach is_symlink_loop in orchestrator's src/report.rs"
-);
-
-/// Off unix there is no `O_NOFOLLOW`: a symlink is turned down before the file is opened.
-#[cfg(not(unix))]
-fn open_no_follow(path: &Path) -> io::Result<File> {
-    if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
-        return Err(io::Error::other(SymlinkRefused));
-    }
-    File::open(path)
-}
-
-#[cfg(not(unix))]
-#[derive(Debug)]
-struct SymlinkRefused;
-
-#[cfg(not(unix))]
-impl std::fmt::Display for SymlinkRefused {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str("report.json is a symlink")
-    }
-}
-
-#[cfg(not(unix))]
-impl std::error::Error for SymlinkRefused {}
-
-#[cfg(not(unix))]
-fn is_symlink_loop(error: &io::Error) -> bool {
-    error
-        .get_ref()
-        .is_some_and(|inner| inner.is::<SymlinkRefused>())
 }
