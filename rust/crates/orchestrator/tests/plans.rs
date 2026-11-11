@@ -16,7 +16,7 @@ use common::{
 };
 use herdr_fleet_orchestrator::agents::AgentDefinition;
 use herdr_fleet_orchestrator::fleet::{
-    LandingTools, Orchestrator, OrchestratorError, ThreadRequest, Timings,
+    LandingTools, Orchestrator, OrchestratorError, ThreadRequest,
 };
 use herdr_fleet_orchestrator::outbox::Outbox;
 use herdr_fleet_orchestrator::registry::RunRegistry;
@@ -540,12 +540,21 @@ async fn come_only_from_a_threads_lead_and_only_plans_that_hold_together() {
     p.fleet().stop();
 }
 
-// ---- describe "threads" ----
-
-/// `role("lead", { interactive: true, spawning: true })` (orchestrator.test.ts:985).
-fn lead() -> AgentDefinition {
-    talking("lead")
+// codex's review of #265: a plan past the last u32 version would reuse it; refused, the kept stays
+#[tokio::test(start_paused = true)]
+async fn refuse_a_plan_past_the_last_version_rather_than_count_one_twice() {
+    let p = project();
+    let (_, thread, _) = p.planned().await;
+    let mut kept = p.kept(&thread);
+    kept["version"] = json!(4_294_967_295_u32);
+    fs::write(p.plan_file(&thread), kept.to_string()).unwrap();
+    let refused = code(p.fleet().submit_plan(&thread.id, &plan_value(), None));
+    assert_eq!(refused, "invalid_plan");
+    assert_eq!(p.kept(&thread), kept);
+    p.fleet().stop();
 }
+
+// ---- describe "threads" ----
 
 /// herdr's states as run 4bff4935 showed them on 2026-11-08: done, then working and done again
 /// (`flicker`, orchestrator.test.ts).
@@ -560,7 +569,7 @@ async fn flicker(fleet: &Orchestrator, runtime: &common::FakeRuntime) {
 /// server stopped.
 async fn restart_after_send() -> (common::Setup, AgentRun) {
     let s = setup(SetupOptions {
-        agents: Some(vec![lead()]),
+        agents: Some(vec![talking("lead")]),
         landing: in_repo(),
         ..SetupOptions::default()
     });
@@ -584,12 +593,9 @@ fn restarted(s: &common::Setup) -> (Orchestrator, Arc<RunRegistry>) {
         &s.root,
         s.clock.clone(),
         common::config(None),
-        vec![lead()],
+        vec![talking("lead")],
     );
-    deps.timings = Timings {
-        pre_visual_grace: GRACE,
-        ..Timings::default()
-    };
+    deps.timings.pre_visual_grace = GRACE;
     (Orchestrator::new(deps).unwrap(), registry)
 }
 
