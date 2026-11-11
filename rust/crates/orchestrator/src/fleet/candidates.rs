@@ -12,15 +12,16 @@ use std::time::Duration;
 use protocol::{
     AgentRun, AgentState, FleetAgentKind, SkippedCandidate, ThinkingLevel, UsageReading,
 };
+use serde_json::Value;
 use tokio::time::Instant;
 use tokio_util::sync::CancellationToken;
 
 use super::spawn::{Attempt, PlannedSpawn, read_lines};
 use super::{
-    BoxFuture, ModelGate, Orchestrator, OrchestratorError, UsageGate, is_completed, is_live,
-    is_thread, locked,
+    BoxFuture, ModelGate, Orchestrator, OrchestratorError, UsageGate, is_completed, is_thread,
+    locked,
 };
-use crate::config::{FleetConfig, role_candidates};
+use crate::config::{FleetConfig, parse_thinking_level, role_candidates};
 use crate::error::FleetError;
 use crate::launch::{RoleFit, adapter_for};
 use crate::models::ModelCatalog;
@@ -30,29 +31,23 @@ use crate::usage::UsageTracker;
 /// how often a CLI's usage screen and its settling are looked at (`READY_SCREEN_POLL_MS`)
 const USAGE_SCREEN_POLL: Duration = Duration::from_millis(250);
 
-/// The levels from the lowest (`THINKING_LEVELS`), as fleet.json and the errors spell them.
-const LEVELS: [(ThinkingLevel, &str); 7] = [
-    (ThinkingLevel::Off, "off"),
-    (ThinkingLevel::Minimal, "minimal"),
-    (ThinkingLevel::Low, "low"),
-    (ThinkingLevel::Medium, "medium"),
-    (ThinkingLevel::High, "high"),
-    (ThinkingLevel::Xhigh, "xhigh"),
-    (ThinkingLevel::Max, "max"),
+/// The levels from the lowest (`THINKING_LEVELS`): the order `ThinkingLevel` does not carry.
+const LEVELS: [ThinkingLevel; 7] = [
+    ThinkingLevel::Off,
+    ThinkingLevel::Minimal,
+    ThinkingLevel::Low,
+    ThinkingLevel::Medium,
+    ThinkingLevel::High,
+    ThinkingLevel::Xhigh,
+    ThinkingLevel::Max,
 ];
 
-fn level_name(level: ThinkingLevel) -> &'static str {
-    LEVELS
-        .iter()
-        .find(|(each, _)| *each == level)
-        .map_or("", |(_, name)| name)
-}
-
-fn level_named(name: &str) -> Option<ThinkingLevel> {
-    LEVELS
-        .iter()
-        .find(|(_, each)| *each == name)
-        .map(|(level, _)| *level)
+/// The level as fleet.json spells it: its serde name, as the config reads it.
+fn level_name(level: ThinkingLevel) -> String {
+    serde_json::to_value(level)
+        .ok()
+        .and_then(|name| name.as_str().map(str::to_owned))
+        .unwrap_or_default()
 }
 
 /// A spawn's untried fallbacks, kept until its first turn settles (`SpawnPlan`).
@@ -84,7 +79,7 @@ pub fn apply_model_policy(
     // `/^(.*):(off|…|max)$/`: the last colon, with a level after it
     let suffix = model
         .rsplit_once(':')
-        .and_then(|(base, level)| level_named(level).map(|level| (base, level)));
+        .and_then(|(base, level)| parse_thinking_level(&Value::from(level)).map(|l| (base, l)));
     let (base, effective) = match suffix {
         Some((base, level)) => (base, Some(level)),
         None => (model, thinking),
@@ -101,20 +96,19 @@ pub fn apply_model_policy(
         return Ok(effective);
     }
     if explicit || suffix.is_some() {
-        let names: Vec<&str> = allowed.iter().copied().map(level_name).collect();
+        let names: Vec<String> = allowed.iter().copied().map(level_name).collect();
         return Err(FleetError::new(
             "thinking_not_allowed",
             format!(
                 "Thinking level \"{}\" is not allowed for {base}. Allowed: {}.",
-                effective.map_or("undefined", level_name),
+                effective.map_or_else(|| "undefined".to_owned(), level_name),
                 names.join(", ")
             ),
         ));
     }
     Ok(LEVELS
-        .iter()
+        .into_iter()
         .rev()
-        .map(|(level, _)| *level)
         .find(|level| allowed.contains(level)))
 }
 
@@ -175,18 +169,17 @@ impl Orchestrator {
                 (None, Some(models)) => models.unknown(kind, model).await,
                 (None, None) => None,
             };
-            let refused_first = refused.is_some();
+            // a candidate refused for what it is, else for what its account has left
             let unusable = match (refused, usage) {
-                (Some(reason), _) => Some(reason),
-                (None, Some(usage)) => {
-                    usage
-                        .unavailable(kind, model, role.config.max_used_percent)
-                        .await
-                }
+                (Some(reason), _) => Some((reason, false)),
+                (None, Some(usage)) => usage
+                    .unavailable(kind, model, role.config.max_used_percent)
+                    .await
+                    .map(|reason| (reason, true)),
                 (None, None) => None,
             };
-            if let Some(reason) = unusable {
-                out_of_usage |= !refused_first;
+            if let Some((reason, for_usage)) = unusable {
+                out_of_usage |= for_usage;
                 failures.push(format!("{label}: {reason}"));
                 skipped.push(SkippedCandidate {
                     candidate: label.to_owned(),
@@ -278,11 +271,14 @@ impl Orchestrator {
     /// before the task is handed over, so a first turn that settles at once finds the plan.
     pub(crate) fn keep_spawn_plan(&self, id: &str, request: &PlannedSpawn, fallbacks: &[String]) {
         let mut state = locked(&self.inner.candidates);
-        // a run whose record went away before its turn settled leaves its plan behind
+        // a run whose record went away, or whose pane ended, before its first turn settled leaves
+        // its plan behind; a failed run keeps it until its settlement takes it (`respawn`)
         let registry = self.registry();
-        state
-            .plans
-            .retain(|id, _| registry.get(id).is_some_and(|run| is_live(&run)));
+        state.plans.retain(|id, _| {
+            registry
+                .get(id)
+                .is_some_and(|run| run.state != AgentState::Stopped)
+        });
         state.plans.insert(
             id.to_owned(),
             SpawnPlan {
