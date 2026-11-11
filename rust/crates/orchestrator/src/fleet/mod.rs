@@ -79,6 +79,7 @@ use crate::thread::{BranchState, DiffText, RemoveOptions, SetupOutcome};
 pub use autonomy::MergeSeen;
 pub use candidates::apply_model_policy;
 pub use spawn::SpawnRequest;
+pub use threads::ThreadRequest;
 pub use turns::{RESULT_MAX_BYTES, read_result};
 
 /// A boxed future, as the traits of this module return (they are used as `dyn`).
