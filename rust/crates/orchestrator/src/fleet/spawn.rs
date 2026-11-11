@@ -747,18 +747,23 @@ impl Orchestrator {
             }
         };
         let now = self.now();
-        let Some(run) = self.change(&run.id, |run| {
+        // the pane may have ended while the agent started: the run then stays stopped, and no task
+        // is typed into the gone pane
+        let Some(run) = self.change_live(&run.id, |run| {
             run.state = state;
             if last_error.is_some() {
                 run.last_error = last_error;
             }
             run.updated_at = now;
         }) else {
-            return Err(FleetError::new(
-                "run_not_found",
-                "The run's record went away while it started.",
-            )
-            .into());
+            return match self.registry().get(&run.id) {
+                Some(run) => Ok(run),
+                None => Err(FleetError::new(
+                    "run_not_found",
+                    "The run's record went away while it started.",
+                )
+                .into()),
+            };
         };
         let fleet = request
             .group

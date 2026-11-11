@@ -94,14 +94,26 @@ fn open_no_follow(path: &Path) -> io::Result<File> {
         .open(path)
 }
 
-/// Off unix there is no `O_NOFOLLOW`: a symlink is turned down before the file is opened.
-#[cfg(not(unix))]
+/// On Windows the file is opened with `FILE_FLAG_OPEN_REPARSE_POINT` (0x0020_0000, from
+/// winbase.h): a symlink in the last place opens as the link itself, whose metadata is not a regular
+/// file, so `read_result` turns it down from the handle it read, with no window between a check and
+/// the open.
+#[cfg(windows)]
 fn open_no_follow(path: &Path) -> io::Result<File> {
-    if std::fs::symlink_metadata(path)?.file_type().is_symlink() {
-        return Err(io::Error::other("a symlink"));
-    }
-    File::open(path)
+    use std::os::windows::fs::OpenOptionsExt as _;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
 }
+
+// A target that is neither unix nor Windows has neither flag; the fleet does not build for one
+// (ADR 0111-cross-build). Stop the build rather than read a result through a symlink.
+#[cfg(not(any(unix, windows)))]
+compile_error!(
+    "teach open_no_follow in orchestrator's src/fleet/turns.rs to open without following a symlink on this target"
+);
 
 /// A waiter of `wait`, taken back from the table when the wait ends by its timeout or cancel (or
 /// its future is dropped); a settled waiter is gone already.
@@ -315,7 +327,8 @@ impl Orchestrator {
     ) -> Result<AgentRun, OrchestratorError> {
         let run = self.get(target, group)?;
         self.deps().runtime.focus(&run.herdr_name).await?;
-        Ok(run)
+        // the run as it is now: it may have changed while herdr focused it
+        Ok(self.registry().get(&run.id).unwrap_or(run))
     }
 
     /// Closes the panes of finished non-interactive runs herdr still reports as done; never blocked
@@ -446,20 +459,26 @@ impl Orchestrator {
                     }
                     other => other,
                 };
+                // the pane may have ended while the prompt was typed: the run then stays stopped,
+                // and its turn (dropped as the pane ended) is not armed again
                 self.update_state(id, state, None);
                 let now = self.now();
-                if let Some(pending) = locked(&self.inner.turns)
+                let armed = match locked(&self.inner.turns)
                     .pending
                     .get_mut(id)
                     .filter(|pending| pending.generation == generation)
                 {
-                    pending.armed = true;
-                    pending.submitted_at = Some(now);
-                    // a reconcile on another worker may have seen it working already
-                    pending.saw_working |= submitted == AgentState::Working;
-                }
+                    Some(pending) => {
+                        pending.armed = true;
+                        pending.submitted_at = Some(now);
+                        // a reconcile on another worker may have seen it working already
+                        pending.saw_working |= submitted == AgentState::Working;
+                        true
+                    }
+                    None => false,
+                };
                 // a turn fast enough to settle before the TUI ever flips may send no further event
-                if submitted != AgentState::Working {
+                if armed && submitted != AgentState::Working {
                     self.arm_settle_check(id, generation);
                 }
                 Ok(self.registry().get(id).unwrap_or(run))
@@ -479,13 +498,12 @@ impl Orchestrator {
                     other => {
                         let now = self.now();
                         let message = other.to_string();
-                        Ok(self
-                            .change(id, |run| {
-                                run.state = AgentState::Failed;
-                                run.last_error = Some(message);
-                                run.updated_at = now;
-                            })
-                            .unwrap_or(run))
+                        self.change_live(id, |run| {
+                            run.state = AgentState::Failed;
+                            run.last_error = Some(message);
+                            run.updated_at = now;
+                        });
+                        Ok(self.registry().get(id).unwrap_or(run))
                     }
                 }
             }
@@ -1006,10 +1024,12 @@ impl Orchestrator {
 
     /// The run `id` in `state`, saved; `output` replaces its last output when given
     /// (`updateState`).
+    /// A run that is no longer live keeps its state: every caller decided on a state herdr reported
+    /// before an await, during which the pane may have ended.
     pub(crate) fn update_state(&self, id: &str, state: AgentState, output: Option<Option<String>>) {
         let now = self.now();
         let mut previous = None;
-        self.change(id, |run| {
+        self.change_live(id, |run| {
             previous = Some(run.state);
             run.state = state;
             if let Some(output) = output {

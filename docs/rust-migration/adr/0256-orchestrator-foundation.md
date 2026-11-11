@@ -93,7 +93,13 @@ TypeScript と同じく、報告なしで決着したペインはすぐには閉
 - `submit` は、herdr が `working` を見たという印を上書きせず、足す(`|=`)
 - timer の表は、task を起動してからその handle を入れるまで lock を持つ。すぐに発火した task が自分の項目を消せずに残すことを防ぐ
 
-次の 3 件は直さず、理由を PR に書いた。
+codex の reviewer(gpt-5.6-sol、run `43307d4b`)の指摘で、次を直した。
+
+- herdr の答えを待つ間にペインが終わっても(`on_pane_ended` が run を `stopped` にする)、待つ前に決めた state を書き戻さない。run を変える口に、生きている run だけを変える `change_live` を足し、`update_state`、`submit` の失敗、`start_agent` の起動の結果はこれで変える。生きているかの判定と変更は registry の lock の中で行う。起動中にペインが終わった run には task を送らない(テスト `keeps_a_run_stopped_when_its_pane_ended_while_the_prompt_was_typed`、`keeps_a_run_stopped_when_its_pane_ended_while_the_agent_started`)
+- Windows では、結果ファイルを `FILE_FLAG_OPEN_REPARSE_POINT` で開き、開いたハンドルの種類で symlink を断る。確かめてから開く 2 段では、その間に symlink に差し替えられうる。unix でも Windows でもない target は `compile_error!` で止める。L5 の `report.rs` の unix 以外の経路にも同じ 2 段があるが、O1 の書くパスの外なので、PR に書いた
+- `focus` は、herdr がペインを前に出したあとに読み直した run を返す(テスト `answers_a_focus_with_the_run_as_it_is_afterwards`)
+
+`/code-review high` の指摘のうち、次の 3 件は直さず、理由を PR に書いた。
 
 - `RuntimeError::NotFound` が herdr の 3 つのコードを 1 つにまとめ、`code()` が `agent_not_found` を返す。variant の形は ADR `0242-phase-3-split` と #256 の受け入れ条件が決めている。`focus` や `interrupt` で herdr の元のコードと文を CLI に出すかは、fleet CLI の契約と照らして HR(#261)と CC(#274)が確かめる
 - spawn の gate の中で `registry.all()` がすべての run を複製する。TypeScript も同じ所で `registry.all()` を呼ぶ。registry の口は L5 のもの
@@ -128,4 +134,5 @@ Linux(Omarchy、kernel 7.2.15)、`rust/` で、2026-11-11 に実行した。
 - main の欠陥の 4 件のテストは、実装を TypeScript の振る舞い(#240 の 2: 画面の await のあとでファイルを読む、#189 の 4: timer を張らない、#176 の 4: 送っていないターンでファイルを消さない、再起動で timer を張り直さない)に一時的に戻すと、それぞれ失敗し、戻すと通った
 - architect の答えのあとで 2 件を足した。再起動のあとの #189 の 4 のテストは、上のとおり timer の張り直しを外すと失敗することで確かめた。future が `Send` であることのテストは型の検査なので、先に失敗させられない
 - `/code-review high` の指摘を直したあとで 2 件を足した(下の「レビューで直した点」)。どちらも、直しを外すと失敗し、戻すと通った
-- 同じコマンドで、spawn 16 件、turns 19 件、result_files 7 件、agent_kinds 10 件の計 52 件がすべて通った。`cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` も通った
+- codex の指摘で 3 件を足した。直す前に走らせ、3 件とも失敗した(`left: Working` / `right: Stopped` など)。Windows の経路は、この PC に Windows の target がなく、コンパイルしていない
+- 同じコマンドで、spawn 16 件、turns 22 件、result_files 7 件、agent_kinds 10 件の計 55 件がすべて通った。`cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` も通った

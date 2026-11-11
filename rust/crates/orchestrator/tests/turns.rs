@@ -495,3 +495,70 @@ async fn keeps_a_failed_verdict_reached_while_herdr_was_asked() {
         AgentState::Failed
     );
 }
+
+// codex review (High): the pane ends while herdr types the prompt. The answer from before that
+// end must not bring the stopped run back to working, with no turn left to settle it
+// (TypeScript's `onPaneEnded` marks the run stopped and `submit` changes that one object, whose
+// later `updateState` the fleet reads as live; ADR 0256: read the run again after an await).
+#[tokio::test(start_paused = true)]
+async fn keeps_a_run_stopped_when_its_pane_ended_while_the_prompt_was_typed() {
+    let s = setup(SetupOptions::default());
+    let run = spawn(&s.fleet, request()).await.unwrap();
+    let (fleet, pane) = (s.fleet.clone(), run.pane_id.clone());
+    s.runtime.on_prompt(move |_, _, _| {
+        fleet.on_pane_ended(&pane);
+        async { Ok(AgentState::Working) }
+    });
+    let sent = s
+        .fleet
+        .send(&run.id, "more", Some("g1"), &none())
+        .await
+        .unwrap();
+    assert_eq!(sent.state, AgentState::Stopped);
+    assert_eq!(
+        s.fleet.get(&run.id, None).unwrap().state,
+        AgentState::Stopped
+    );
+}
+
+// codex review (High): the pane ends while the agent starts; the start's answer (here a question
+// on its screen) does not bring the run back, and no task is typed into the gone pane.
+#[tokio::test(start_paused = true)]
+async fn keeps_a_run_stopped_when_its_pane_ended_while_the_agent_started() {
+    let s = setup(SetupOptions::default());
+    for answer in [AgentState::Blocked, AgentState::Idle] {
+        let (fleet, registry) = (s.fleet.clone(), s.registry.clone());
+        s.runtime.on_start(move |options| {
+            let pane = registry
+                .all()
+                .into_iter()
+                .find(|run| run.pane_id == options.pane_id)
+                .unwrap()
+                .pane_id;
+            fleet.on_pane_ended(&pane);
+            async move { Ok(answer) }
+        });
+        let run = spawn(&s.fleet, request()).await.unwrap();
+        assert_eq!(run.state, AgentState::Stopped, "{answer:?}");
+        assert_eq!(
+            s.fleet.get(&run.id, None).unwrap().state,
+            AgentState::Stopped
+        );
+    }
+    assert!(s.runtime.prompts().is_empty());
+}
+
+// codex review (Medium): `focus` answers with the run as it is after herdr focused it, as
+// TypeScript returns the registry's object, which a change during the await updated.
+#[tokio::test(start_paused = true)]
+async fn answers_a_focus_with_the_run_as_it_is_afterwards() {
+    let s = setup(SetupOptions::default());
+    let run = spawn(&s.fleet, request()).await.unwrap();
+    let (fleet, pane) = (s.fleet.clone(), run.pane_id.clone());
+    s.runtime.on_focus(move |_| {
+        fleet.on_pane_ended(&pane);
+        async { Ok(()) }
+    });
+    let focused = s.fleet.focus(&run.id, Some("g1")).await.unwrap();
+    assert_eq!(focused.state, AgentState::Stopped);
+}

@@ -724,6 +724,29 @@ impl Orchestrator {
         Some(saved)
     }
 
+    /// `change` on the run `id` only while it is live, decided under the registry's lock: an answer
+    /// herdr gave before the pane ended does not bring a stopped or failed run back. The run as
+    /// saved, or `None` when it is gone or no longer live.
+    pub(crate) fn change_live(
+        &self,
+        id: &str,
+        change: impl FnOnce(&mut AgentRun),
+    ) -> Option<AgentRun> {
+        let mut saved = None;
+        let written = self.registry().update(id, |run| {
+            if is_live(run) {
+                change(run);
+                saved = Some(run.clone());
+            }
+        });
+        if let Err(error) = written {
+            eprintln!("herdr-fleet: the runs file could not be written: {error}");
+        }
+        let saved = saved?;
+        self.saved(&saved);
+        Some(saved)
+    }
+
     /// A new run's first save, as `change` saves.
     pub(crate) fn insert(&self, run: AgentRun) {
         if let Err(error) = self.registry().insert(run.clone()) {

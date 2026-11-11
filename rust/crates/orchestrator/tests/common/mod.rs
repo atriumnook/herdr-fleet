@@ -144,6 +144,7 @@ type PromptImpl = Arc<
 >;
 type GetImpl =
     Arc<dyn Fn(String) -> BoxFuture<'static, Result<AgentState, RuntimeError>> + Send + Sync>;
+type FocusImpl = Arc<dyn Fn(String) -> BoxFuture<'static, Result<(), RuntimeError>> + Send + Sync>;
 type ReadImpl =
     Arc<dyn Fn(String) -> BoxFuture<'static, Result<String, RuntimeError>> + Send + Sync>;
 
@@ -156,6 +157,7 @@ pub struct Overrides {
     pub prompt: Option<PromptImpl>,
     pub get: Option<GetImpl>,
     pub read: Option<ReadImpl>,
+    pub focus: Option<FocusImpl>,
 }
 
 /// herdr as the tests stand it in: it records each call, and answers with what the test set.
@@ -263,6 +265,14 @@ impl FakeRuntime {
         Fut: Future<Output = Result<AgentState, RuntimeError>> + Send + 'static,
     {
         self.overrides().get = Some(Arc::new(move |name| Box::pin(imp(name))));
+    }
+
+    pub fn on_focus<F, Fut>(&self, imp: F)
+    where
+        F: Fn(String) -> Fut + Send + Sync + 'static,
+        Fut: Future<Output = Result<(), RuntimeError>> + Send + 'static,
+    {
+        self.overrides().focus = Some(Arc::new(move |name| Box::pin(imp(name))));
     }
 
     pub fn on_read<F, Fut>(&self, imp: F)
@@ -398,8 +408,14 @@ impl AgentRuntime for FakeRuntime {
         Box::pin(async { Ok(()) })
     }
 
-    fn focus<'a>(&'a self, _name: &'a str) -> RuntimeFuture<'a, ()> {
-        Box::pin(async { Ok(()) })
+    fn focus<'a>(&'a self, name: &'a str) -> RuntimeFuture<'a, ()> {
+        let imp = self.overrides().focus.clone();
+        Box::pin(async move {
+            match imp {
+                Some(imp) => imp(name.to_owned()).await,
+                None => Ok(()),
+            }
+        })
     }
 
     fn report_metadata(&self, metadata: AgentMetadata) -> RuntimeFuture<'_, ()> {
