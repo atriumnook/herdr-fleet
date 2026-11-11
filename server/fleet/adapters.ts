@@ -60,6 +60,11 @@ export interface AgentAdapter {
    * ready and whenever a turn seems to settle, so the run blocks instead of passing for done.
    */
   question?(screen: string): string | undefined;
+  /**
+   * A question on the screen the fleet never answers and no agent may (one whose answer can change
+   * the CLI's settings for good): why a non-interactive run fails on it instead of waiting.
+   */
+  unanswerable?(screen: string): string | undefined;
   /** the screen once herdr calls the agent ready: a start that did not go as asked (an unknown model swapped for the default one) */
   readyError?(screen: string): string | undefined;
   /** herdr calls the CLI ready before it draws its input or its questions: the screen once it has */
@@ -394,6 +399,9 @@ const AGY_INPUT = /^\s*>(?:\s+Auto mode: .*)?\s*$/m;
  */
 const AGY_SANDBOX_NOTE = "Your terminal runs in Antigravity CLI's sandbox, which hides the repository's git data and the tools installed under the home folder: git, the project's test runner and build, and the fleet command fail there. Do not look for ways around it or ask to run outside the sandbox. Read files with your file tools, work from the diff and the check output your caller gives you, and say in your HANDOFF which checks you could not run, so your caller runs them.";
 
+/** what agy's file access screen asks, as `question` says it */
+const AGY_FILE_ACCESS = "Antigravity CLI asks to read a file outside its workspace.";
+
 /**
  * agy ends a turn its account has no quota left for on `⚠ Individual quota reached. … Resets in
  * 75h7m14s.` and an `Error ID:` line, the warning wrapping onto the next lines on a narrow pane.
@@ -470,8 +478,14 @@ export const agyAdapter: AgentAdapter = {
       [/You are currently not signed in/, "Antigravity CLI is not signed in."],
       [/Requesting permission for:/, "Antigravity CLI asks for permission to use a tool."],
       // asked in auto mode too, for a file outside the run's folders and the ones given with --add-dir
-      [/Allow access to this file\?/, "Antigravity CLI asks to read a file outside its workspace."],
+      [/Allow access to this file\?/, AGY_FILE_ACCESS],
     ]);
+  },
+  // any answer may be "always allow", which agy keeps in its settings: a helper whose caller waits on it fails instead
+  unanswerable(screen) {
+    if (this.question?.(screen) !== AGY_FILE_ACCESS) return undefined;
+    const file = lastMatch(screen, /^\s*Read: (.+)$/gm) ?? "a file";
+    return `Antigravity CLI asked to read ${file}, outside its workspace and the result folders. The fleet answers nothing on that screen, since an answer can change agy's settings for good, so the run failed: put what it needs in your result folder and name it in --context, or start it on another CLI.`;
   },
   readyError(screen) {
     const unknown = /model (\S+) is not recognized as a known model/.exec(screen);

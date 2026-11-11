@@ -979,8 +979,51 @@ describe("agent kinds", () => {
     expect(await settled).toMatchObject({ state: "idle" });
   });
 
-  describe("an agy helper that ran out of quota", () => {
+  describe("an agy helper at a screen nobody answers", () => {
     const READY = ">\n? for shortcuts    auto · Gemini 4 Argon · high";
+    const FILE_ACCESS = "● Used ReadFile (ctrl+o to expand)\n\nFile access\n──────\n\nRead: /home/someone/notes.md\nReason: outside workspace\n\nAllow access to this file?\n> 1. Yes, allow access\n  2. Yes, and always allow non-workspace access\n  3. No, deny access\n\n  ↑/↓ Navigate\nesc to cancel    auto · Gemini 4 Argon · high";
+
+    async function stopAtFileAccess(agents: AgentDefinition[]) {
+      const { fleet, runtime } = setup({ agents });
+      runtime.output = READY;
+      const run = await spawn(fleet);
+      const sent = runtime.prompts.length;
+      const waiting = fleet.wait(run.id, 2000, "g1");
+      // herdr reports agy's file access screen as done
+      runtime.getStatus = "done";
+      runtime.output = FILE_ACCESS;
+      await Bun.sleep(GRACE + 10);
+      fleet.onPaneStatus(run.paneId);
+      return { fleet, runtime, run, sent, waiting };
+    }
+
+    it("fails at a file access screen with nothing typed into it, and the wait follows the next candidate", async () => {
+      const { fleet, runtime, run, sent, waiting } = await stopAtFileAccess([role("worker", { agent: "agy", fallbackModels: ["claude:sonnet"] })]);
+      const failed = await waiting;
+      expect(failed.state).toBe("failed");
+      expect(failed.lastError).toContain("/home/someone/notes.md");
+      expect(fleet.get(failed.replacedBy!, "g1")).toMatchObject({ agent: "claude", model: "sonnet" });
+      // no choice, no Esc, no text to the agy pane, and its pane stays where the person can see it
+      expect(runtime.interrupts).toBe(0);
+      expect(runtime.prompts.slice(sent).filter((prompt) => prompt.name === run.herdrName)).toEqual([]);
+      expect(runtime.closed).not.toContain(run.paneId);
+      await Bun.sleep(20);
+      expect(fleet.get(run.id, "g1").state).toBe("failed");
+    });
+
+    it("fails with the reason when no candidate is left, so its caller's wait returns", async () => {
+      const { fleet, waiting, run } = await stopAtFileAccess([role("worker", { agent: "agy" })]);
+      const failed = await waiting;
+      expect(failed).toMatchObject({ state: "failed" });
+      expect(failed.replacedBy).toBeUndefined();
+      expect(failed.lastError).toContain("/home/someone/notes.md");
+      expect(await fleet.wait(run.id, 50, "g1")).toMatchObject({ state: "failed" });
+    });
+
+    it("keeps an interactive agy run blocked at it, for the person who watches that pane", async () => {
+      const { waiting } = await stopAtFileAccess([role("worker", { agent: "agy", interactive: true })]);
+      expect(await waiting).toMatchObject({ state: "blocked" });
+    });
 
     it("fails a turn that ended on the quota warning, cools agy's Gemini models down until it resets, and re-spawns past them", async () => {
       const usage = new UsageTracker({ file: null });

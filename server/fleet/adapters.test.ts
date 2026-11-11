@@ -264,6 +264,15 @@ describe("agy adapter", () => {
     expect(agy.turnError(after)).toBeUndefined();
   });
 
+  it("names a file access screen as one nobody answers, with the file it asks for, and nothing else", () => {
+    const reason = agy.unanswerable?.(screen("asks-to-read-a-skill-outside-the-workspace-1"));
+    expect(reason).toContain("/home/someone/.claude/skills/clarify-ja/SKILL.md");
+    expect(reason).toContain("outside its workspace");
+    expect(agy.unanswerable?.(screen("asks-to-read-a-file-outside-the-workspace-1"))).toContain("/elsewhere/note.txt");
+    // asked, answered and the input drawn again: nothing is open
+    expect(agy.unanswerable?.(`${screen("asks-to-read-a-skill-outside-the-workspace-1")}\n● Explored 1 file\n\n──────\n>\n──────\n? for shortcuts`)).toBeUndefined();
+    expect(agy.unanswerable?.("Requesting permission for:\n  rm -rf build\nRun this command?")).toBeUndefined();
+  });
 
 });
 
