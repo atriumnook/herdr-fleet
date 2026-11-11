@@ -6,7 +6,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::LazyLock;
 
-use protocol::js::{self, WHITESPACE, cut_utf16};
+use protocol::js::{self, WHITESPACE, cut_utf16, stringify_pretty};
 use protocol::{
     ConversationPart, ConversationTurn, ImageRef, SkillStatus, TextPhase, ToolPart, TurnRole,
     patch_files, patch_text,
@@ -18,7 +18,6 @@ use super::images::image_parts;
 use super::memory::without_memory_citations;
 use super::skills::{codex_read_call, codex_read_skills};
 use crate::format::LiveParser;
-use crate::js_json::stringify_pretty;
 use crate::records::{Row, lines, parse_line, record};
 use crate::skill_activity::selected_skill;
 use crate::tool_output::trim_output;

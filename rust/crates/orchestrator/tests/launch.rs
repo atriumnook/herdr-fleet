@@ -12,15 +12,6 @@ use herdr_fleet_orchestrator::launch::{
 use protocol::{FleetAgentKind, ThinkingLevel};
 use serde_json::{Value, json};
 
-const ALL_KINDS: [FleetAgentKind; 6] = [
-    FleetAgentKind::Pi,
-    FleetAgentKind::Claude,
-    FleetAgentKind::Codex,
-    FleetAgentKind::Cursor,
-    FleetAgentKind::Agy,
-    FleetAgentKind::Opencode,
-];
-
 /// `base` of adapters.test.ts.
 fn base() -> LaunchOptions<'static> {
     LaunchOptions {
@@ -344,7 +335,7 @@ fn cursor_usage_is_typed_as_slash_usage() {
         adapter_for(FleetAgentKind::Cursor).usage_command,
         Some("/usage")
     );
-    for kind in ALL_KINDS
+    for kind in FleetAgentKind::ALL
         .into_iter()
         .filter(|kind| *kind != FleetAgentKind::Cursor)
     {
@@ -584,7 +575,7 @@ fn agy_tells_its_sandbox_and_takes_no_role_that_runs_the_fleet_command() {
     );
     assert_eq!(agy.refusal(&RoleFit::default()), None);
     // the other CLIs take any role they can hold to it, and tell nothing to every agent
-    for kind in ALL_KINDS
+    for kind in FleetAgentKind::ALL
         .into_iter()
         .filter(|kind| *kind != FleetAgentKind::Agy)
     {
@@ -758,7 +749,7 @@ fn opencode_tells_a_read_only_role_what_its_shell_allows_and_the_coordinator_wha
     let merging = opencode.read_only_note(true, FLEET).unwrap();
     assert!(merging.contains("gh pr merge <number> --merge"));
     assert!(merging.contains("git merge --no-ff <branch>"));
-    for kind in ALL_KINDS
+    for kind in FleetAgentKind::ALL
         .into_iter()
         .filter(|kind| *kind != FleetAgentKind::Opencode)
     {
@@ -799,7 +790,7 @@ fn every_cli_starts_in_its_auto_mode_and_none_approves_everything() {
     assert!(!agy.iter().any(|arg| arg == "--mode"));
     assert_eq!(agy_settings_of(&agy)["agentMode"], "auto");
     assert_eq!(agy_settings_of(&agy)["enableTerminalSandbox"], true);
-    for kind in ALL_KINDS {
+    for kind in FleetAgentKind::ALL {
         // agy's settings refuse `git push --force`: the flags looked for are the CLI's own, outside that value
         let all = args(kind, base());
         let settings_at = all
@@ -829,7 +820,7 @@ fn every_cli_starts_in_its_auto_mode_and_none_approves_everything() {
 // added: herdr refuses multiline argv, so no CLI's argv holds a line break, whatever the instructions hold
 #[test]
 fn no_argv_holds_a_line_break() {
-    for kind in ALL_KINDS {
+    for kind in FleetAgentKind::ALL {
         for arg in args(kind, base()) {
             assert!(!arg.contains('\n'), "{kind:?}: {arg}");
         }
@@ -886,7 +877,7 @@ fn split_thinking_splits_a_level_suffix_off_a_model() {
 // adapters.test.ts: kinds > knows only the kinds it has an adapter for
 #[test]
 fn knows_only_the_kinds_it_has_an_adapter_for() {
-    for kind in ALL_KINDS {
+    for kind in FleetAgentKind::ALL {
         assert_eq!(adapter_for(kind).kind, kind);
     }
     for name in ["pi", "claude", "codex", "cursor", "agy", "opencode"] {

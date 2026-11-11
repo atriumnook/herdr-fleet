@@ -78,9 +78,10 @@ fn counts_and_cuts_utf16_code_units() {
     assert_eq!(js::cut_utf16("a😀b", 2), "a");
 }
 
-// `JSON.stringify(value, null, 2)` and Number::toString, for the CLI's `--json` and the numbers it
-// shows. Expected values: Bun 1.4.4, `JSON.stringify(n)` for each number (scratchpad js.ts of #196,
-// the same cases as transcript's js_json tests).
+// `JSON.stringify(value, null, 2)` and Number::toString, for transcript's tool inputs, the CLI's
+// `--json` and the numbers it shows. Expected values: Bun 1.4.4, `JSON.stringify(n)` for each number
+// (scratchpad js.ts of #196). These three tests hold every case of transcript's former js_json tests
+// (#275).
 #[test]
 fn writes_numbers_as_javascript_does() {
     let cases = [

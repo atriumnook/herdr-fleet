@@ -132,57 +132,33 @@ fn stringify(value: &Value) -> String {
     }
 }
 
-// `O_NOFOLLOW` and `O_NONBLOCK` of the targets the plan builds for, as their C libraries define
-// them: std exports neither, and this crate depends on no libc binding. libc 0.2.191:
-// src/unix/linux_like/linux/gnu/b64/x86_64/mod.rs:448 and :294, aarch64/mod.rs:359 and :206,
-// src/unix/bsd/mod.rs:276 and :275 (Apple's targets among them). `ELOOP`: x86_64/mod.rs:311,
-// aarch64/mod.rs:228, src/unix/bsd/apple/mod.rs:2577.
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-const O_NOFOLLOW: i32 = 0x20000;
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const O_NOFOLLOW: i32 = 0x8000;
-#[cfg(target_vendor = "apple")]
-const O_NOFOLLOW: i32 = 0x100;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
-const O_NONBLOCK: i32 = 0o4000;
-#[cfg(target_vendor = "apple")]
-const O_NONBLOCK: i32 = 0x4;
-#[cfg(target_os = "linux")]
-const ELOOP: i32 = 40;
-#[cfg(target_vendor = "apple")]
-const ELOOP: i32 = 62;
-#[cfg(all(
-    unix,
-    not(any(
-        all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ),
-        target_vendor = "apple",
-    ))
-))]
-compile_error!(
-    "add this target's O_NOFOLLOW, O_NONBLOCK and ELOOP, taken from libc, to orchestrator's src/report.rs"
-);
-
 /// `path` opened for reading, as report.ts opens it: a symlink in the last place fails with
-/// `ELOOP`, and a FIFO opens without waiting for a writer (the `fstat` then turns it down).
+/// `ELOOP`, and a FIFO opens without waiting for a writer (the `fstat` then turns it down). std adds
+/// `O_CLOEXEC` and takes the access mode from `read`; rustix names the two flags std does not
+/// export, for each target as its C library defines them (ADR 0284-report-rustix).
 #[cfg(unix)]
 fn open_no_follow(path: &Path) -> io::Result<File> {
+    use rustix::fs::OFlags;
     use std::os::unix::fs::OpenOptionsExt as _;
     std::fs::OpenOptions::new()
         .read(true)
-        .custom_flags(O_NOFOLLOW | O_NONBLOCK)
+        .custom_flags((OFlags::NOFOLLOW | OFlags::NONBLOCK).bits().cast_signed())
         .open(path)
 }
 
+/// std's `ErrorKind::FilesystemLoop` is unstable in the Rust release this workspace builds with.
 #[cfg(unix)]
 fn is_symlink_loop(error: &io::Error) -> bool {
-    error.raw_os_error() == Some(ELOOP)
+    error.raw_os_error() == Some(rustix::io::Errno::LOOP.raw_os_error())
 }
+
+// Linux's and Apple's open(2) fail with `ELOOP` on a symlink under `O_NOFOLLOW`; other systems
+// answer otherwise (FreeBSD's open(2) documents `EMLINK`), and a symlinked report.json would then
+// read as "cannot be read" rather than "is not a regular file".
+#[cfg(all(unix, not(any(target_os = "linux", target_vendor = "apple"))))]
+compile_error!(
+    "check which error this target's open(2) gives a symlink under O_NOFOLLOW, and teach is_symlink_loop in orchestrator's src/report.rs"
+);
 
 /// Off unix there is no `O_NOFOLLOW`: a symlink is turned down before the file is opened.
 #[cfg(not(unix))]
