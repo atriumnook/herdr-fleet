@@ -925,6 +925,28 @@ async fn keeps_a_plan_open_across_a_restart_the_new_runs_turn_waiting_on_it_does
     assert_eq!(kept.get("closedAt"), None);
 }
 
+// codex's review of #267 (no `it` of TypeScript's, whose `carried` and `carryFiles` copy the plan
+// once as well): a plan the lead hands over while its new run starts is the thread's plan once the
+// new run holds the thread, as `sends a message for the old run ...` hands a message to it
+#[tokio::test(start_paused = true)]
+async fn hands_a_plan_handed_over_to_the_old_run_while_the_new_run_starts_to_the_new_run() {
+    let t = thread();
+    let _tree = with_tree(&t);
+    let first = t.start_thread("Fix", "t", None).await;
+    let (gate, starting) = (Gate::new(), Flag::default());
+    hold_codex(&t, &gate, &starting);
+    let failing = t.turn_task(&first, AgentState::Idle);
+    until(|| starting.up(), "the new lead starting").await;
+    let plan = t.fleet.submit_plan(&first.id, &plan_value(), None).unwrap();
+    assert_eq!(plan.version, 1);
+    gate.open();
+    failing.await.unwrap();
+    let next = t.next(&first);
+    let mark = next.plan.clone().expect("the new run holds the plan");
+    assert_eq!((mark.version, mark.closed_at), (1, None));
+    assert_eq!(t.fleet.plan(&first.id, None).unwrap().version, 1);
+}
+
 // orchestrator.test.ts: "sends a message for the old run, made while the new run starts, to the new run"
 #[tokio::test(start_paused = true)]
 async fn sends_a_message_for_the_old_run_made_while_the_new_run_starts_to_the_new_run() {

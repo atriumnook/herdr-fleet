@@ -13,7 +13,7 @@ use super::Orchestrator;
 use super::spawn::{PlannedSpawn, TASK_FILE, Takeover, ThreadPlace, write_private};
 use super::threads::CONTRACT_FILE;
 use super::turns::read_result;
-use super::{THREAD_ROLE, is_live, is_thread, thread_id};
+use super::{THREAD_ROLE, is_live, is_thread, locked, thread_id};
 use crate::events::{FleetEvent, RestartEvent, RestartWhy};
 
 /// The check before any outside action that a lead taking a thread over is told to make
@@ -165,7 +165,7 @@ impl Orchestrator {
     /// The thread is the new run `next`'s: the old run points to it, gives it the landing step and
     /// its notices, and its pane closes.
     async fn hand_over(&self, run: &AgentRun, next: &AgentRun) {
-        let old = self.change(&run.id, |old| old.replaced_by = Some(next.id.clone()));
+        let old = self.take_over_plan(run, next);
         // the new run took the landing step over as it started: a step marked sent meanwhile goes
         // as marked
         if let Some(step) = old.and_then(|old| old.landing) {
@@ -201,6 +201,34 @@ impl Orchestrator {
             old.updated_at = now;
         });
         self.drop_pending(&run.id);
+    }
+
+    /// The old run points to the new run `next`, and a plan its lead handed over while `next`
+    /// started (a newer version than `next` holds) goes on as `next`'s; the old run as saved.
+    /// Both happen under the plans' lock, which `submit_plan` holds while it finds the lead: a plan
+    /// handed over before goes to `next` here, one after reaches `next` itself (ADR 0267-restart).
+    fn take_over_plan(&self, run: &AgentRun, next: &AgentRun) -> Option<AgentRun> {
+        let _plans = locked(&self.inner.plans);
+        let old = self.change(&run.id, |old| old.replaced_by = Some(next.id.clone()))?;
+        let version = |run: Option<&AgentRun>| {
+            run.and_then(|run| run.plan.as_ref())
+                .map_or(0, |mark| mark.version)
+        };
+        if version(Some(&old)) > version(self.registry().get(&next.id).as_ref()) {
+            let plan = |id: &str| self.plans_dir().join(format!("{id}.json"));
+            match fs::copy(plan(&old.id), plan(&next.id)) {
+                Ok(_) => {
+                    self.change(&next.id, |lead| lead.plan.clone_from(&old.plan));
+                }
+                Err(error) => {
+                    eprintln!(
+                        "herdr-fleet: the plan of {} was not carried: {error}",
+                        old.id
+                    );
+                }
+            }
+        }
+        Some(old)
     }
 
     /// A thread's turn the fleet did not send ended: its agent started it itself (a helper's
