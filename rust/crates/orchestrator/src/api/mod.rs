@@ -131,6 +131,24 @@ where
     }
 }
 
+/// `work`, which reads or writes files, on tokio's threads for blocking work, so it holds up no
+/// other request (TypeScript does the same work on its event loop). A panic in it is a server
+/// error.
+async fn blocking<T>(
+    work: impl FnOnce() -> Result<T, ApiError> + Send + 'static,
+) -> Result<T, ApiError>
+where
+    T: Send + 'static,
+{
+    match tokio::task::spawn_blocking(work).await {
+        Ok(answer) => answer,
+        Err(failed) => Err(ApiError::Internal(match failed.try_into_panic() {
+            Ok(payload) => panic_message(payload),
+            Err(_) => "The operation was cancelled.".to_owned(),
+        })),
+    }
+}
+
 /// What a panic said, when it said it as text (TypeScript's `String(error)`).
 fn panic_message(payload: Box<dyn Any + Send>) -> String {
     match payload.downcast::<String>() {

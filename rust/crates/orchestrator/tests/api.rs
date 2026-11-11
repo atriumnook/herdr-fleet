@@ -550,6 +550,14 @@ async fn reads_a_body_as_json_whatever_its_content_type_says_and_wants_an_object
     );
     let (status, body) = api.call("POST", "/close-done", None).await;
     assert_eq!((status, code(&body)), (400, "invalid_json"));
+    // the Fetch standard's `json()` decodes the bytes as UTF-8, dropping a byte order mark
+    let request = Request::builder()
+        .method("POST")
+        .uri("/close-done")
+        .body(Body::from(b"\xEF\xBB\xBF{}".to_vec()))
+        .unwrap();
+    let response = api.router.clone().oneshot(request).await.unwrap();
+    assert_eq!(response.status().as_u16(), 200);
     let (status, body) = api.call("POST", "/close-done", Some(json!([1]))).await;
     assert_eq!((status, code(&body)), (400, "invalid_body"));
     assert_eq!(
@@ -1381,6 +1389,26 @@ async fn answers_herdrs_errors_with_their_code_and_a_cancel_with_499() {
         (
             504,
             json!({ "error": { "code": "agent_not_ready", "message": "not ready in time" } })
+        )
+    );
+    // herdr's agent_blocked was a HerdrError in TypeScript, 502; only the fleet's own
+    // FleetError("agent_blocked") is 409 (api.ts:295, :302)
+    api.runtime
+        .on_focus(|_| async { Err(RuntimeError::Blocked) });
+    let (status, body) = focus().await;
+    assert_eq!((status, code(&body)), (502, "agent_blocked"));
+    // a failure herdr_runtime builds for TypeScript's plain Error is 500 (api.ts:304)
+    api.runtime.on_focus(|_| async {
+        Err(RuntimeError::Herdr {
+            code: "internal_error".to_owned(),
+            message: "A worktree run needs a branch name.".to_owned(),
+        })
+    });
+    assert_eq!(
+        focus().await,
+        (
+            500,
+            json!({ "error": { "code": "internal_error", "message": "A worktree run needs a branch name." } })
         )
     );
 }

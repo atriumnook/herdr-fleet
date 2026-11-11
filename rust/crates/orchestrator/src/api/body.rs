@@ -19,8 +19,10 @@ pub(crate) type Body = Map<String, Value>;
 /// The most line comments one landing step takes (`COMMENTS_MAX`).
 const COMMENTS_MAX: usize = 200;
 
-/// `readBody`: the body as a JSON object. Neither the content type nor the method is looked at.
+/// `readBody`: the body as a JSON object. Neither the content type nor the method is looked at. A
+/// UTF-8 byte order mark before it is dropped, as the Fetch standard's `json()` decodes the bytes.
 pub(crate) fn read_body(bytes: &[u8]) -> Result<Body, FleetError> {
+    let bytes = bytes.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(bytes);
     let parsed: Value = serde_json::from_slice(bytes)
         .map_err(|_| FleetError::new("invalid_json", "request body must be JSON"))?;
     match parsed {

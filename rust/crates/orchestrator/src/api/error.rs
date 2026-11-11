@@ -113,12 +113,11 @@ impl IntoResponse for ApiError {
             ApiError::Fleet(error) | ApiError::Orchestrator(OrchestratorError::Fleet(error)) => {
                 fleet(error)
             }
-            ApiError::Orchestrator(OrchestratorError::WaitTimeout { run, timeout_ms }) => {
-                let message = OrchestratorError::WaitTimeout {
-                    run: run.clone(),
-                    timeout_ms,
-                }
-                .to_string();
+            ApiError::Orchestrator(error @ OrchestratorError::WaitTimeout { .. }) => {
+                let message = error.to_string();
+                let OrchestratorError::WaitTimeout { run, .. } = error else {
+                    unreachable!("matched above")
+                };
                 answer(408, "wait_timeout", message, Some(*run))
             }
             ApiError::Orchestrator(OrchestratorError::Runtime(error)) => runtime(error),
@@ -140,10 +139,17 @@ fn runtime(error: RuntimeError) -> Response {
     let code = error.code().to_owned();
     match error {
         RuntimeError::Cancelled => answer(499, "aborted", "request cancelled".to_owned(), None),
-        RuntimeError::Blocked | RuntimeError::StartFailed(_) | RuntimeError::NotReady(_) => {
+        // the fleet's own codes in TypeScript (`FleetError`), through the table
+        RuntimeError::StartFailed(_) | RuntimeError::NotReady(_) => {
             answer(status_of(&code), &code, error.to_string(), None)
         }
-        RuntimeError::NotFound | RuntimeError::Herdr { .. } => {
+        // TypeScript's plain Error where herdr_runtime stands one in (`internal`)
+        RuntimeError::Herdr { .. } if code == "internal_error" => {
+            answer(500, &code, error.to_string(), None)
+        }
+        // herdr's own errors, a HerdrError in TypeScript: agent_blocked too, which only the
+        // fleet's own refusal answers with 409
+        RuntimeError::Blocked | RuntimeError::NotFound | RuntimeError::Herdr { .. } => {
             answer(502, &code, error.to_string(), None)
         }
     }

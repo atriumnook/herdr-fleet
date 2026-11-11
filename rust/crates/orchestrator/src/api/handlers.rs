@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 
 use super::body::{self, Body};
 use super::error::{ApiError, json_response};
-use super::{in_task, js, report};
+use super::{blocking, in_task, js, report};
 use crate::FleetError;
 use crate::plan::PLAN_MAX_BYTES;
 use crate::usage::AUTO_REFRESH;
@@ -63,14 +63,16 @@ fn body_group(body: &Body, query: &Pairs) -> Option<String> {
     body::group(Some(body), first(query, "group"))
 }
 
-fn json_of<T: serde::Serialize>(value: T) -> Value {
-    serde_json::to_value(value).unwrap_or(Value::Null)
+/// `value` itself as the answer's body.
+fn ok_as<T: serde::Serialize>(value: &T) -> Answer {
+    Ok(json_response(StatusCode::OK, value))
 }
 
 pub(super) async fn roles(State(api): State<super::State>, query: Pairs) -> Answer {
-    let roles: Vec<Value> = api
-        .fleet
-        .roles(&folder_or_servers(first(&query, "cwd")))
+    let cwd = folder_or_servers(first(&query, "cwd"));
+    // the role files are read from disk
+    let roles = blocking(move || Ok(api.fleet.roles(&cwd))).await?;
+    let roles: Vec<Value> = roles
         .into_iter()
         .map(|role| {
             json!({ "name": role.name, "description": role.description, "agent": role.agent, "source": role.source })
@@ -172,18 +174,31 @@ pub(super) async fn clear_cooldown(State(api): State<super::State>, bytes: Bytes
 }
 
 pub(super) async fn settings(State(api): State<super::State>, query: Pairs) -> Answer {
-    let settings = api.settings.as_ref().ok_or(ApiError::NotFound)?;
-    let read = settings.read(&folder_or_servers(first(&query, "cwd")))?;
+    if api.settings.is_none() {
+        return Err(ApiError::NotFound);
+    }
+    let cwd = folder_or_servers(first(&query, "cwd"));
+    let read = blocking(move || Ok(settings_of(&api)?.read(&cwd)?)).await?;
     ok(json!({ "settings": read }))
 }
 
 pub(super) async fn change_settings(State(api): State<super::State>, bytes: Bytes) -> Answer {
-    let settings = api.settings.as_ref().ok_or(ApiError::NotFound)?;
+    if api.settings.is_none() {
+        return Err(ApiError::NotFound);
+    }
     let body = body::read_body(&bytes)?;
-    let cwd = body::optional_string(&body, "cwd")?;
+    let cwd = folder_or_servers(body::optional_string(&body, "cwd")?.as_deref());
     let patch = body::settings_patch(&body)?;
-    let changed = settings.update(&folder_or_servers(cwd.as_deref()), &patch)?;
+    let changed = blocking(move || Ok(settings_of(&api)?.update(&cwd, &patch)?)).await?;
     ok(json!({ "settings": changed }))
+}
+
+fn settings_of(api: &super::State) -> Result<&crate::settings::FleetSettingsStore, ApiError> {
+    api.settings.as_ref().ok_or(ApiError::NotFound)
+}
+
+fn entrances_of(api: &super::State) -> Result<&crate::entrances::EntranceStore, ApiError> {
+    api.entrances.as_ref().ok_or(ApiError::NotFound)
 }
 
 pub(super) async fn models(State(api): State<super::State>) -> Answer {
@@ -193,19 +208,24 @@ pub(super) async fn models(State(api): State<super::State>) -> Answer {
 }
 
 pub(super) async fn entrances(State(api): State<super::State>) -> Answer {
-    let entrances = api.entrances.as_ref().ok_or(ApiError::NotFound)?;
-    ok(json_of(entrances.list()?))
+    entrances_of(&api)?;
+    let listed = blocking(move || Ok(entrances_of(&api)?.list()?)).await?;
+    ok_as(&listed)
 }
 
 pub(super) async fn change_entrance(State(api): State<super::State>, bytes: Bytes) -> Answer {
-    let entrances = api.entrances.as_ref().ok_or(ApiError::NotFound)?;
+    entrances_of(&api)?;
     let (id, install) = body::entrance_change(&body::read_body(&bytes)?)?;
-    let changed = if install {
-        entrances.install(&id)?
-    } else {
-        entrances.remove(&id)?
-    };
-    ok(json_of(changed))
+    let changed = blocking(move || {
+        let entrances = entrances_of(&api)?;
+        Ok(if install {
+            entrances.install(&id)?
+        } else {
+            entrances.remove(&id)?
+        })
+    })
+    .await?;
+    ok_as(&changed)
 }
 
 pub(super) async fn close_done(
@@ -241,7 +261,7 @@ pub(super) async fn diff(
     let (fleet, group) = (api.fleet.clone(), query_group(&query));
     let diff =
         in_task(move |_| async move { Ok(fleet.diff(&target, group.as_deref()).await?) }).await?;
-    ok(json_of(diff))
+    ok_as(&diff)
 }
 
 pub(super) async fn checks(
