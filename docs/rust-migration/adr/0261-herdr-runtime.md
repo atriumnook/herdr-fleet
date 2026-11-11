@@ -58,7 +58,7 @@ herdr の状態を変える呼び出しは最後まで走らせ、token と競�
 
 ### herdr_api の型の名指し
 
-`Herdr::call::<M>` の method の型(`herdr_api::methods::AgentGet` など)と params の型は、herdr の crate が再 export する `herdr::herdr_api` から名指す(#328)。orchestrator の manifest には herdr-api を足さない。
+`Herdr::call::<M>` の method の型(`herdr_api::methods::AgentGet` など)と params の型は、herdr の crate が再 export する `herdr::herdr_api` から名指す(ADR `0328-herdr-reexports-herdr-api`)。orchestrator の manifest には herdr-api を足さない。
 
 ## TypeScript との違い
 
