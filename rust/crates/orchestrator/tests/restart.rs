@@ -1076,7 +1076,7 @@ fn deny_new_folders(dir: &std::path::Path) {
 }
 
 // #347, not an `it` of the describe: TypeScript's `carryFiles` throws when the contract cannot be
-// written, and the candidate's `spawnAttempt` fails (orchestrator.ts:553-554, 636-640)
+// written, and the candidate's `spawnAttempt` fails
 #[cfg(target_os = "linux")]
 #[tokio::test(start_paused = true)]
 async fn fails_the_new_run_and_sends_it_no_task_when_the_contract_cannot_be_carried_to_its_result_folder()
@@ -1105,7 +1105,8 @@ async fn fails_the_new_run_and_sends_it_no_task_when_the_contract_cannot_be_carr
     assert!(
         errors[0]
             .as_deref()
-            .is_some_and(|error| error.contains("Permission denied")),
+            .is_some_and(|error| error.contains("the contract was not carried to")
+                && error.contains("Permission denied")),
         "{errors:?}"
     );
 }

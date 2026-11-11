@@ -304,7 +304,16 @@ impl Orchestrator {
     pub(crate) fn carry_files(&self, from: &AgentRun, to: &AgentRun) -> io::Result<()> {
         if let Some(contract) = read_result(&self.result_dir(&from.id).join(CONTRACT_FILE)) {
             let file = self.result_dir(&to.id).join(CONTRACT_FILE);
-            write_private(&file, &format!("{contract}\n"))?;
+            // the error names the file, as Node's does
+            write_private(&file, &format!("{contract}\n")).map_err(|error| {
+                io::Error::new(
+                    error.kind(),
+                    format!(
+                        "the contract was not carried to {}: {error}",
+                        file.display()
+                    ),
+                )
+            })?;
         }
         let plan = |id: &str| self.plans_dir().join(format!("{id}.json"));
         // the thread has no plan when there is none to copy
