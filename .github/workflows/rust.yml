@@ -73,8 +73,10 @@ jobs:
       # that value from rustix: custom_flags is passed
       # OFlags::NONBLOCK.bits().cast_signed(), and outside comments the parsing
       # crates' src/ names rustix only in that file's `use rustix::fs::OFlags;`,
-      # so no rustix function opens, writes or removes a file there. A folder
-      # grep cannot read fails the step too.
+      # so no rustix function opens, writes or removes a file there; neither
+      # crate may depend on rustix under another name (`package = "rustix"`),
+      # which src/ could call without naming rustix. A folder grep cannot read
+      # fails the step too.
       - name: Parsing crates allow their banned APIs only in tests
         run: |
           exception=crates/transcript/src/nonblocking_open.rs
@@ -119,6 +121,18 @@ jobs:
           if [ -n "$found" ]; then
             printf '%s\n' "$found"
             echo "::error::screen and transcript name rustix only in $exception, as use rustix::fs::OFlags;"
+            exit 1
+          fi
+          renamed=$(cargo metadata --locked --format-version 1 --no-deps | jq -r '
+            .packages[]
+            | select(.name == "herdr-fleet-screen" or .name == "herdr-fleet-transcript")
+            | .name as $crate
+            | .dependencies[]
+            | select(.name == "rustix" and .rename != null)
+            | "\($crate) depends on rustix as \(.rename)"')
+          if [ -n "$renamed" ]; then
+            printf '%s\n' "$renamed"
+            echo "::error::screen and transcript depend on rustix by its own name only"
             exit 1
           fi
 
