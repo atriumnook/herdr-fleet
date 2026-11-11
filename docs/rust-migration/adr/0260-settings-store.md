@@ -63,7 +63,9 @@ TypeScript が実行時に調べる型(候補の CLI が知っている名前か
 ### 役割を CLI が引き受けられるか
 
 - 画面の候補の `skip` と、`update` で断る判定の両方に `adapter_for(kind).refusal(&fit)` を使う。読み取りだけの役割に `read_only_args` のない CLI を選んだときの文は、TypeScript と同じ `<役割> edits no file, and <CLI> cannot be kept from editing files` のまま。ほかの理由は `<役割> cannot run on <CLI>: <理由>` にする
-- `RoleFit` は settings.rs の private の関数 `role_fit` で作る。`read_only` は `edits: false`、`spawning` は利用者の fleet.json の `spawning` を見た `may_spawn`、`reads_outside_folders` は名前が `reviewer` であること(ADR `0248-launch-adapters` の「断る役割」)。ADR `0247-roles-and-config` は、この関数を O1 が置くと決めたが、O1 は置かずにマージされた。#263(O2)と同じ規則を 2 か所に書かないよう、`AgentDefinition::role_fit` を agents.rs に置いて ST と O2 が使う Issue を #329 で開いた。#260 はそれを待たない
+- `RoleFit` は settings.rs の private の関数 `role_fit` で作る。`read_only` は `edits: false`、`spawning` は `may_spawn`、`reads_outside_folders` は名前が `reviewer` であること(ADR `0248-launch-adapters` の「断る役割」)
+- `read` の `skip` は cwd の project で使う設定を示すため、利用者と project の fleet.json を合わせた `spawning` を使う。`update` は利用者の fleet.json を全 project に対して変更するため、利用者の設定だけで拒否を決める
+- ADR `0247-roles-and-config` は、`role_fit` を O1 が置くと決めたが、O1 は置かずにマージされた。#263(O2)と同じ規則を 2 か所に書かないよう、`AgentDefinition::role_fit` を agents.rs に置いて ST と O2 が使う Issue を #329 で開いた。#260 はそれを待たない
 
 ### 役割の並び
 

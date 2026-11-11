@@ -123,7 +123,11 @@ impl FleetSettingsStore {
             .map(|definition| {
                 let read_only = definition.edits == Some(false);
                 let over = user.roles.get(&definition.name).unwrap_or(&no_override);
-                let fit = role_fit(&definition, over);
+                let project_over = project_config
+                    .roles
+                    .get(&definition.name)
+                    .unwrap_or(&no_override);
+                let fit = role_fit(&definition, project_over);
                 let own = candidates_of(&definition, &no_override, &defaults);
                 let chosen = candidates_of(&definition, over, &user);
                 let candidates = chosen
@@ -142,16 +146,8 @@ impl FleetSettingsStore {
                         }
                     })
                     .collect();
-                let project = sets_role(project_roles.get(&definition.name)).then(|| {
-                    candidates_of(
-                        &definition,
-                        project_config
-                            .roles
-                            .get(&definition.name)
-                            .unwrap_or(&no_override),
-                        &project_config,
-                    )
-                });
+                let project = sets_role(project_roles.get(&definition.name))
+                    .then(|| candidates_of(&definition, project_over, &project_config));
                 RoleSettings {
                     changed: sets_role(user_roles.get(&definition.name)),
                     name: definition.name,

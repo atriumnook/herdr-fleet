@@ -694,6 +694,41 @@ fn refuses_agy_for_a_role_that_runs_the_fleet_command_or_reads_outside_its_folde
     assert_eq!(worker.candidates, vec![shown(Agy, None, None)]);
 }
 
+// Not in settings.ts: the skip reason is for the project named by `cwd`, so its fleet.json's
+// `spawning` override is included (ADR 0248-launch-adapters, "断る役割").
+#[test]
+fn says_a_project_makes_a_role_on_agy_run_the_fleet_command() {
+    let folder = Folder::new();
+    let user_dir = folder.path().join("config");
+    let store = FleetSettingsStore::new(FleetSettingsDeps {
+        agents: agents(vec![role("worker")]),
+        usage: None,
+        user_dir: user_dir.clone(),
+    });
+    fs::create_dir_all(&user_dir).unwrap();
+    fs::write(
+        user_dir.join("fleet.json"),
+        json!({ "roles": { "worker": { "agent": "agy" } } }).to_string(),
+    )
+    .unwrap();
+    fs::create_dir(folder.path().join(".herdr-fleet")).unwrap();
+    fs::write(
+        folder.path().join(".herdr-fleet/fleet.json"),
+        json!({ "roles": { "worker": { "spawning": true } } }).to_string(),
+    )
+    .unwrap();
+
+    let settings = store.read(folder.path()).unwrap();
+    assert_eq!(
+        settings.roles[0].candidates,
+        vec![shown(
+            Agy,
+            None,
+            Some("agy cannot run the fleet command, which this role uses")
+        )]
+    );
+}
+
 // settings.ts's `writeUserFile` throws the file system's error when fleet.json cannot be written,
 // which `/api/fleet` answers as `internal_error` (api.ts:304); the file written beside it does not
 // stay.
