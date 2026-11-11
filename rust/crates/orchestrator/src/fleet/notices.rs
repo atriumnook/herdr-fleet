@@ -198,8 +198,10 @@ impl Orchestrator {
         let Some(run) = self.registry().get(coordinator) else {
             return;
         };
-        if self.due_to(coordinator).is_empty() || self.turn_in_flight(coordinator) || !is_live(&run)
-        {
+        let Some(due) = self.due_to(coordinator) else {
+            return;
+        };
+        if due.is_empty() || self.turn_in_flight(coordinator) || !is_live(&run) {
             return;
         }
         self.inner
@@ -215,7 +217,9 @@ impl Orchestrator {
             return;
         }
         // read again after the waits: the person may have thrown a thread away meanwhile
-        let notices = self.due_to(coordinator);
+        let Some(notices) = self.due_to(coordinator) else {
+            return;
+        };
         let news = if self.config(&run.cwd).autonomous {
             NEWS_HEADER
         } else {
@@ -255,30 +259,33 @@ impl Orchestrator {
     }
 
     /// The queued notices `coordinator` hears now, in the order written; the merge steps no thread
-    /// waits on any more leave the outbox first.
-    fn due_to(&self, coordinator: &str) -> Vec<Notice> {
+    /// waits on any more leave the outbox first, and are never among them. None when the outbox file
+    /// could not let those steps go: the delivery stops there, as TypeScript's throw stopped it, so
+    /// an approval the person took back never reaches the coordinator.
+    fn due_to(&self, coordinator: &str) -> Option<Vec<Notice>> {
         let outbox = &self.inner.outbox;
-        // the steps and the hearers are read from the registry outside the outbox's lock
-        let stale: HashSet<u64> = outbox
+        // one reading of the outbox: the notices handed back are the ones checked here. The steps
+        // and the hearers are read from the registry outside the outbox's lock.
+        let (stale, fresh): (Vec<Notice>, Vec<Notice>) = outbox
             .pending()
             .into_iter()
-            .filter(|notice| self.stale_step(notice))
-            .map(|notice| notice.seq)
-            .collect();
+            .partition(|notice| self.stale_step(notice));
         if !stale.is_empty() {
-            log_unwritten(
-                "outbox",
-                outbox.prune(|notice| !stale.contains(&notice.seq)),
-            );
+            let stale: HashSet<u64> = stale.iter().map(|notice| notice.seq).collect();
+            if let Err(error) = outbox.prune(|notice| !stale.contains(&notice.seq)) {
+                log_unwritten("outbox", Err(error));
+                return None;
+            }
         }
-        outbox
-            .pending()
-            .into_iter()
-            .filter(|notice| {
-                self.hearer_of(notice)
-                    .is_some_and(|hearer| hearer.id == coordinator)
-            })
-            .collect()
+        Some(
+            fresh
+                .into_iter()
+                .filter(|notice| {
+                    self.hearer_of(notice)
+                        .is_some_and(|hearer| hearer.id == coordinator)
+                })
+                .collect(),
+        )
     }
 
     /// The landing steps of `notices` marked sent before they leave the outbox, on the run that
