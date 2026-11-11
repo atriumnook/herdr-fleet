@@ -34,7 +34,7 @@
 
 2. `LandingTools` の本物は `GitLanding`(`#[derive(Debug, Clone)]`、`new()`、`Default`、`with_github(GitHub)`)にする。テストの偽物 `FakeLanding` と対になる名前で、`GitHub` の `new()`・`with_program` と同じ形にそろえた。12 の method は `crate::thread` の関数と `GitHub::read_pull_request` をそのまま呼ぶ。`fleet/mod.rs` の `pub use landing::GitLanding;` は #339 で足す。それまでは struct と inherent impl に `#[allow(dead_code, reason = …)]` を付ける。`#[expect]` にしないのは、re-export を足す別の変更で expect が満たされなくなり、ビルドが失敗するため(ADR `0256-orchestrator-foundation` と同じ理由)。この行が最初に要るのは LIVE(#270)で、#270 にコメントした。
 
-3. lead の手順は、`landing.rs` の `send_lead_step` で、`outbox.send_now` と `submit_when_free` を組み合わせて送る。TypeScript と同じく、手順を run に書く前に `turn_in_flight` を確かめ、進行中なら `run_busy` で断る。`submit_when_free` の lock の中の確認は、この確認のあとに別の worker が始めたターンを見つけるためのもの。送信がエラーで終わったとき(`run_busy`、outbox に書けない、`Cancelled` など)は、run の `landing.at` がまだ自分の書いた値なら、書く前の `landing` に戻す。`submit` が failed や blocked の run を返したときは、TypeScript と同じく `sent: true` の手順を残す。merge の手順も、outbox に入れられなかったときは同じく戻す。TypeScript はどちらの場合も手順を残すが、残った `sent: true` の lead の手順は、lead の次の関係のないターンの決着で、行われたものとして消える(`/code-review` の指摘)。architect は `run_busy` のときだけ戻す案を答えたが、この指摘を受けて、エラーのとき全般に広げた。
+3. lead の手順は、`landing.rs` の `send_lead_step` で、`outbox.send_now` と `submit_when_free` を組み合わせて送る。TypeScript と同じく、手順を run に書く前に `turn_in_flight` を確かめ、進行中なら `run_busy` で断る。`submit_when_free` の lock の中の確認は、この確認のあとに別の worker が始めたターンを見つけるためのもの。送信がエラーで終わったとき(`run_busy`、outbox に書けない、`Cancelled` など)は、run の `landing.at` がまだ自分の書いた値なら、書く前の `landing` に戻す。`submit` が failed や blocked の run を返したときは、TypeScript と同じく `sent: true` の手順を残す。merge の手順も、outbox に入れられなかったときは同じく戻す。TypeScript はどちらの場合も手順を残すが、残った `sent: true` の lead の手順は、lead の次の関係のないターンの決着で、行われたものとして消える(`/code-review` の指摘)。architect は `run_busy` のときだけ戻す案を答えたが、この指摘を受けて、エラーのとき全般に広げた。ただし、手順が lead に打ち込まれたあとで outbox が手順を消せなかっただけのとき(`send_now` の後片付けの失敗)は、手順は届いているので戻さず、outbox のエラーをログに書いて、`land` は lead の run を返す(codex のレビューの指摘)。`send_now` の戻り値ではこの 2 つを区別できず、`outbox.rs` は #266 の書くパスの外なので、`send_lead_step` が `submit_when_free` の結果を受け取って区別する
 
    architect は、`notify_now` の `self.submit(` を `self.submit_when_free(` に変え、`landing.rs` から `notify_now` を呼ぶ形を勧めた。TypeScript で `notifyNow` を呼ぶ 3 か所(`:811`→`:814`、`:896`→`:899`、`:1125-1130`)は、どれも直前に進行中でないことを確かめており、Rust では 3 か所とも `submit_when_free` が要るため。しかし、#266 の thread への指示は「書くパスの外を変えない」で、`notices.rs` はその外にある。そのため architect が示した代わりの案を取り、`notify_now` を変えて写しを置き換える Issue を #340 として開いた。
 
@@ -58,9 +58,11 @@
    | `on_lead(&self, id, work)`(thread の lock の中で lead を読み直し、landed なら何もしない) | #266 | #268 |
    | `merged_on_github(&self, id, &reading)` | #266 | #268 |
 
-9. run の `base_branch` が空の文字列なら、記録がないものとして扱い、main のチェックアウトのブランチを読む(TypeScript の `run.baseBranch ? … : gitBranch(…)`)。`close_thread` は、run に repository かブランチの記録がないときも、ペインを閉じたあとで thread を閉じる(`landed` と `resolved_at` を書く)。worktree とブランチは消さない
+9. run の `base_branch` が空の文字列なら、記録がないものとして扱い、main のチェックアウトのブランチを読む(TypeScript の `run.baseBranch ? … : gitBranch(…)`)。constructor の未送信の手順の移行も、空の `base_branch` を記録なしとして main にする(TypeScript の `run.baseBranch ?? "main"` は空の文字列をそのまま使い、`Merge into  for thread …` を書く。codex のレビューの指摘)。`close_thread` は、run に repository かブランチの記録がないときも、ペインを閉じたあとで thread を閉じる(`landed` と `resolved_at` を書く)。worktree とブランチは消さない
 
-10. `land` の future が `start_project` の future をそのまま持つと、debug ビルドのテストのスレッド(2 MiB)でスタックが溢れることがあった(1 回観測)。`land_step` の中の `start_project` は box して await する。`land` の future は 15,664 バイトになった。
+10. 1 つの thread の pull request の読み取りは重なりうる(決着、定期の読み直し、`checks`、知らせのあとの読み取り)。`read_pull_request` は始めるときに番号を取り(`landing::State` の `latest_read`)、その thread で最後に始めた読み取りだけが、読んだ値を run の `pr` に保存する。先に始めて後に終わった読み取りは、古い答えで新しい値を上書きしない。読んだ値は呼んだ側には返す(codex のレビューの指摘)
+
+11. `land` の future が `start_project` の future をそのまま持つと、debug ビルドのテストのスレッド(2 MiB)でスタックが溢れることがあった(1 回観測)。`land_step` の中の `start_project` は box して await する。`land` の future は 15,664 バイトになった。
 
 ## 検討した代わり
 
@@ -88,6 +90,7 @@ Linux(Omarchy、kernel 7.2.15)、`rust/` で、2026-11-11 に実行した。
 - 実装の前に、`tests/landing.rs` の 19 件(移した 16 件と、Discard だけがサーバー自身で消すこと、#240 の 2、#176 の 7 の 3 件)を `cargo test --locked -p herdr-fleet-orchestrator --test landing` で走らせ、18 件が失敗した。15 件は stub の `todo!` の panic(例: `panicked at crates/orchestrator/src/fleet/landing.rs:44:9`)、3 件は期待値との違い(#176 の 7 は `GitHub is still asked` で `left: 0` / `right: 1`、ほかに `timed out: the saved merges after the restart` と、知らせに merge の手順がない差)。`start a thread on the branch the main checkout is on` の 1 件は、O3(#262)の `start_thread` と O1 の `read_thread_work` がすでに満たしているので、先に失敗させられない
 - 実装のあとで、同じコマンドで 19 件が通った。20 回続けて走らせ、20 回とも通った
 - `/code-review high` の指摘で 2 件を足した。outbox に書けないときに手順を thread に残さない件と、空の `base_branch` を記録なしとして読む件。直しの前の `landing.rs` では、前者は `left: Some(LandingStep { action: Pr, …, sent: Some(true), error: None })` / `right: None`、後者は手順の文が `Merge into  for thread …` になって失敗し、直したあとは通った。21 件が通る
+- codex のレビュー(head `6638aed`、FAIL)の指摘で 3 件を足した。重なった読み取りの件、outbox の後片付けだけが失敗した件、再起動で空の `base_branch` の手順を渡す件。`6638aed` の `landing.rs` では、順に `left: None` / `right: Some(PullRequest { number: 70, … })`、`land` が Err を返す、手順の文が `Merge into  for thread …` になる、で失敗し、直したあとは通った。24 件が通る
 - `GitLanding` は、`landing.rs` の `#[cfg(test)]` のテストで、一時のフォルダーに `git init -b trunk` したリポジトリに対して `git_root`、`git_branch`、`is_merged` を trait を通して呼び、存在しない `gh` で `read_pull_request` がエラーになることを確かめた
 - スタックの余裕: `RUST_MIN_STACK` を 1 MiB にすると `tests/landing.rs` は通り、512 KiB にすると溢れた。既存の `tests/notices.rs`、`tests/threads.rs`、`tests/turns.rs` も 512 KiB で溢れるので、この crate の既存のテストと同じ余裕である
 - `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` が通った

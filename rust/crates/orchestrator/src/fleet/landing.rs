@@ -10,9 +10,10 @@
 //! step happened. The only thing it removes by itself, at the press of a step, is a discarded
 //! thread's panes, worktree and branch; a merged thread's go once git or GitHub shows the merge.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use protocol::{
     AgentRun, AgentState, DiffStat, LandAction, Landed, LandingChecks, LandingStep, LineComment,
@@ -38,11 +39,14 @@ const LANDING_SLOT: &str = "landing";
 const STEPS_SECTION: &str = "steps";
 
 /// What landing keeps while this server runs: the threads GitHub is being asked about after their
-/// turn's news (#176's 7), one read at a time per thread. The steps are on the runs, and the merges
-/// waiting for the coordinator in the outbox.
+/// turn's news (#176's 7), one read at a time per thread; and per thread, the pull request read
+/// started last, which alone keeps what it read on the run. The steps are on the runs, and the
+/// merges waiting for the coordinator in the outbox.
 #[derive(Debug, Default)]
 pub(crate) struct State {
     asking: HashSet<String>,
+    latest_read: HashMap<String, u64>,
+    next_read: u64,
 }
 
 /// The landing steps a thread's lead takes on its branch (`LEAD_STEPS`).
@@ -398,19 +402,42 @@ impl Orchestrator {
             });
         });
         let id = run.id.as_str();
-        let sent = self
+        // what the send came to, apart from the outbox's own writes: an outbox that took the step
+        // but could not let it go after it was typed is no reason to take the step back
+        let submitted = Mutex::new(None);
+        let written = self
             .inner
             .outbox
-            .send_now(id, &text, |each| async move {
-                self.submit_when_free(id, &each, cancel).await
+            .send_now(id, &text, |each| {
+                let submitted = &submitted;
+                async move {
+                    let sent = self.submit_when_free(id, &each, cancel).await;
+                    *locked(submitted) = Some(sent);
+                }
             })
-            .await
-            .map_err(OrchestratorError::from)
-            .and_then(|sent| sent);
-        if sent.is_err() {
-            self.restore_step(id, at, previous);
+            .await;
+        let submitted = submitted
+            .into_inner()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        match (submitted, written) {
+            (Some(Ok(sent)), written) => {
+                if let Err(error) = written {
+                    eprintln!("herdr-fleet: the outbox file could not be written: {error}");
+                }
+                Ok(sent)
+            }
+            (Some(Err(error)), _) => {
+                self.restore_step(id, at, previous);
+                Err(error)
+            }
+            (None, written) => {
+                // the outbox did not take the step, which then was not typed
+                self.restore_step(id, at, previous);
+                Err(written
+                    .err()
+                    .map_or_else(|| run_not_found(id).into(), OrchestratorError::from))
+            }
         }
-        sent
     }
 
     /// The step written at `at` taken back, as nothing reached its agent: the run's step goes back
@@ -462,13 +489,31 @@ impl Orchestrator {
         let Some((project, branch)) = place(&run) else {
             return Ok(None);
         };
+        // reads of one thread may overlap (a settlement, the polling, the checks, the read after a
+        // turn's news): one that started earlier and ends later does not put back what it read
+        let started = {
+            let mut landing = locked(&self.inner.landing);
+            landing.next_read += 1;
+            let started = landing.next_read;
+            landing.latest_read.insert(id.to_owned(), started);
+            started
+        };
         let reading = self
             .tools()
             .read_pull_request(Path::new(project), branch)
-            .await?;
+            .await;
+        let latest = {
+            let mut landing = locked(&self.inner.landing);
+            let latest = landing.latest_read.get(id) == Some(&started);
+            if latest {
+                landing.latest_read.remove(id);
+            }
+            latest
+        };
+        let reading = reading?;
         let pr = reading.as_ref().map(|reading| reading.pr.clone());
         // read again after the await
-        if self.registry().get(id).is_some_and(|run| run.pr != pr) {
+        if latest && self.registry().get(id).is_some_and(|run| run.pr != pr) {
             let now = self.now();
             self.change(id, |run| {
                 run.pr = pr;
@@ -871,7 +916,7 @@ impl Orchestrator {
             let Some(at) = run.landing.as_ref().map(|step| step.at) else {
                 continue;
             };
-            let base = run.base_branch.as_deref().unwrap_or("main");
+            let base = given(run.base_branch.as_deref()).unwrap_or("main");
             let put = self.inner.outbox.put(NoticeInput {
                 about: run.id.clone(),
                 slot: LANDING_SLOT.to_owned(),

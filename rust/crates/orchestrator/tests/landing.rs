@@ -1243,3 +1243,105 @@ async fn an_empty_base_branch_on_the_thread_is_read_from_the_checkout() {
         [STEPS_HEADER, &merge_step(&thread, "main")].join("\n")
     );
 }
+
+// codex's review of #266: two reads of one thread's pull request overlap, and the one started first
+// ends last. The read after a PR-less thread's turn (#176's 7) stops at GitHub and answers that the
+// branch has no pull request; meanwhile the checks read it open. The expected value is the open
+// pull request GitHub showed last: the earlier read does not put back its older answer.
+#[tokio::test(start_paused = true)]
+async fn an_earlier_read_of_the_pull_request_that_ends_later_does_not_put_back_its_older_answer() {
+    let p = project_with(SetupOptions {
+        config: Some(json!({ "autonomous": true })),
+        ..SetupOptions::default()
+    });
+    let gate = Arc::new(Semaphore::new(0));
+    let first = Arc::new(AtomicBool::new(true));
+    let (held, once) = (gate.clone(), first.clone());
+    p.landing.answers().read_pull_request = answer(move |_: (PathBuf, String)| {
+        let (held, once) = (held.clone(), once.clone());
+        async move {
+            if once.swap(false, Ordering::SeqCst) {
+                let _ = held.acquire().await;
+                return Ok(None);
+            }
+            Ok(Some(reading(
+                PullRequestState::Open,
+                ChecksState::Pending,
+                "c0ffee",
+            )))
+        }
+    });
+    let (_, thread) = p.ready().await;
+    assert!(
+        !first.load(Ordering::SeqCst),
+        "the read after the turn started"
+    );
+    let checks = p.s.fleet.checks(&thread.id, None).await.unwrap();
+    assert_eq!(
+        checks.pr,
+        Some(pr(PullRequestState::Open, ChecksState::Pending))
+    );
+    gate.close();
+    sleep_ms(30).await;
+    assert_eq!(
+        p.run(&thread).pr,
+        Some(pr(PullRequestState::Open, ChecksState::Pending))
+    );
+}
+
+// codex's review of #266: the outbox takes the step and the lead gets it, and only letting the
+// step go from the outbox after it was typed fails (a folder stands where the file goes, as
+// `tests/notices.rs` makes it). The step reached the lead, so it stays on the thread as sent, and
+// `land` answers with the lead at work, as orchestrator.ts's `landStep` does when the prompt went.
+#[tokio::test(start_paused = true)]
+async fn a_step_typed_before_the_outbox_failed_to_let_it_go_stays_on_the_thread() {
+    let p = project();
+    let (_, thread) = p.ready().await;
+    let outbox = p.s.root.join("fleet-outbox.json");
+    p.s.runtime.on_prompt(move |_, _, _| {
+        let outbox = outbox.clone();
+        async move {
+            let _ = fs::remove_file(&outbox);
+            fs::create_dir(&outbox).unwrap();
+            Ok(AgentState::Working)
+        }
+    });
+    let sent = p.land(&thread, LandAction::Pr).await.unwrap();
+    assert_eq!(sent.state, AgentState::Working);
+    let step = p.run(&thread).landing.unwrap();
+    assert_eq!(
+        (step.action, step.sent, step.error),
+        (LandAction::Pr, Some(true), None)
+    );
+}
+
+// codex's review of #266: a merge step saved before the outbox kept, on a thread whose base branch
+// is recorded empty, is handed on onto main after a restart, as `base_branch_of` reads an empty
+// branch (TypeScript's `run.baseBranch ? … : …`) and the constructor falls back to main.
+#[tokio::test(start_paused = true)]
+async fn a_saved_merge_step_of_a_thread_with_an_empty_base_branch_is_handed_on_onto_main() {
+    let p = project();
+    let (coordinator, thread) = p.ready().await;
+    p.turn(&coordinator, AgentState::Working).await;
+    p.s.fleet.stop();
+    rewrite_runs(&p.s.root, |run| {
+        if run["id"] == thread.id.as_str() {
+            run["baseBranch"] = json!("");
+            run["landing"] = json!({ "action": "merge", "at": 1, "sent": false });
+        }
+        true
+    });
+    let restarted = restart(&p, FakeLanding::new());
+    p.states.set(&coordinator, AgentState::Idle);
+    restarted.reconcile_all().await;
+    until(
+        || p.to(&coordinator).len() == 2,
+        "the saved merge after the restart",
+    )
+    .await;
+    assert_eq!(
+        p.to(&coordinator)[1],
+        [STEPS_HEADER, &merge_step(&thread, "main")].join("\n")
+    );
+    restarted.stop();
+}
