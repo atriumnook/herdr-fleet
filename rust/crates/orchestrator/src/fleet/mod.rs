@@ -429,7 +429,6 @@ pub(crate) enum TimerKind {
     /// looks at a run again after the grace period (`settleChecks`)
     SettleCheck,
     /// tries the threads' questions again after the person's draft (`draftRetries`)
-    #[allow(dead_code, reason = "stub: #264 sets it")]
     DraftRetry,
     /// closes a non-interactive pane left without a report after the quiet period (#189's 4)
     UnreportedClose,
@@ -481,7 +480,6 @@ impl Timers {
         }
     }
 
-    #[allow(dead_code, reason = "#264's draft retry asks it")]
     pub(crate) fn has(&self, kind: TimerKind, id: &str) -> bool {
         self.lock().contains_key(&(kind, id.to_owned()))
     }

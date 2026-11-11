@@ -21,8 +21,10 @@ impl Orchestrator {
         config: &FleetConfig,
         restart_error: Option<String>,
     ) {
-        // stub: #266
-        let _ = (id, config, restart_error);
+        // stub: #266 — the landing step, the pull request and merged_without_person go before the
+        // news, saved on the run: the news quotes the pull request and whether the thread closed.
+        // The call below is #264's (ADR 0264-notices).
+        self.queue_turn_news(id, config, restart_error.as_deref());
     }
 
     /// The coordinator's turn ended: the merges it was handed, checked, and the threads that landed
