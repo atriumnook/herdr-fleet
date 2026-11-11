@@ -494,7 +494,8 @@ fn candidates_of(
 }
 
 /// The person's fleet.json as written; none yet is an empty one. One that is not a JSON object is
-/// not overwritten.
+/// not overwritten. Unlike `JSON.parse`, serde_json refuses a number past f64 and an unpaired
+/// surrogate escape, and such a file is unreadable here (ADR 0260-settings-store, "読む形").
 fn read_user_file(file: &Path) -> Result<Map<String, Value>, FleetError> {
     let unreadable = |message: String| FleetError::new("settings_unreadable", message);
     let bytes = match fs::read(file) {

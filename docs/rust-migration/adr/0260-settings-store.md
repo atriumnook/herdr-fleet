@@ -55,6 +55,15 @@ TypeScript が実行時に調べる型(候補の CLI が知っている名前か
 - 最上位の項目と候補の `model` の `null` は、項目がないものとして読まれる(`absent.rs` の決まり)。TypeScript は `invalid_settings` で断る(`settings.ts:171`、`:175`、`:179`、`:184`、`:201`、`:224-225`)
 - `roles: {"nobody": 5}` は、TypeScript では 404 の `unknown_role`、Rust では読めない patch として 400 の `invalid_settings` になる
 
+### 読む形
+
+fleet.json は serde_json で読む。Bun の `JSON.parse` が読み、serde_json が断る 2 つの形(f64 の範囲を超える数と、対のないサロゲートのエスケープ)は、crate のほかの読み手と同じく読めない値として扱う(ADR `0193-phase-2-dependencies` の「`JSON.stringify` と serde_json」)。そのような fleet.json は `read` も `update` も `settings_unreadable` で答え、ファイルは書き換えない。TypeScript との違いは次のとおりで、Bun 1.4.4 で TypeScript の store を動かして確かめた。
+
+- `{"maxConcurrent":1e400}`: TypeScript は `Infinity` として読み(`read` の答えの JSON では `"maxConcurrent":null`)、ほかの項目の `update` で `"maxConcurrent": null` と書き戻す
+- `{"unknown":"\ud800"}`: TypeScript は読み、`update` でも `"unknown": "\ud800"` のまま残す
+
+TypeScript に合わせるには、`serde_json::Value` が持てない値(`Infinity` と、対のないサロゲートを含む文字列)を持ち、書くときに同じ形に戻す JSON の読み手と書き手が要る。f64 の範囲を超える数は、手で書き換えないかぎり fleet.json に入らない(TypeScript の store が書く数は、項目ごとに 1 から 100・1440・32 までの整数に限られる)。対のないサロゲートのエスケープは、手で書き換えるか、TypeScript の store にそれを含む setup や model を送ったときだけ入る。Rust の store は patch も serde_json で読むので、書くことはない。そのため写さず、使う人がファイルを直すまで設定の画面からは変えられないことを受け入れる。
+
 ### 書く形
 
 - 書くバイト列は TypeScript と同じ `JSON.stringify(raw, null, 2)` と改行にする。`protocol::js::stringify_pretty` が数を JavaScript と同じ形で書き(`2.0` は `2`、`1e21` は `1e+21`)、整数に読める key を JavaScript と同じく前に並べる。知らない key は、ファイルにあった順のまま残す(serde_json の `preserve_order`)。key を消すときは順を保つ `shift_remove` を使う
@@ -69,7 +78,9 @@ TypeScript が実行時に調べる型(候補の CLI が知っている名前か
 
 ### 役割の並び
 
-`ROLE_FLOW` の順のあとの役割は、TypeScript の `a.name.localeCompare(b.name)` の順に並べる。Bun 1.4.4 の en-US の並びを `locale_compare` に写した。同じ規則が `usage/tracker.rs` にもある。#260 は `tracker.rs` を書けないので写し、1 つにまとめる Issue を #330 で開いた。
+`ROLE_FLOW` の順のあとの役割は、TypeScript の `a.name.localeCompare(b.name)` の順に並べる。Bun 1.4.4 の en-US の並びを `locale_compare` に写した。写したのは ASCII の文字の並びだけで、ASCII でない文字は英字のあとに code point の順で並べる。そのため、ASCII でない文字を含む名前の役割は TypeScript と違う順になる(Bun 1.4.4 で `zeta, éclair, eclair, Ångström, alpha` は `alpha, Ångström, eclair, éclair, zeta`、Rust は `alpha, eclair, zeta, Ångström, éclair`)。locale の照合を写すには照合の crate(icu4x の `icu_collator` など)が要り、manifest を書けない #260 では足せない。
+
+同じ規則が `usage/tracker.rs` にもある。#260 は `tracker.rs` を書けないので写し、1 つにまとめる Issue を #330 で開いた。ASCII でない文字の並びも #330 で扱う。Bun の並びを期待値にしたテスト `lists_role_names_past_ascii_as_locale_compare_does` を `#[ignore]` で置いた。
 
 ## 検討した代わり
 
@@ -94,6 +105,6 @@ TypeScript が実行時に調べる型(候補の CLI が知っている名前か
 ## 確かめたこと
 
 - Arch Linux(Linux 7.2)、Rust 1.99.1、Bun 1.4.4
-- `cargo test --locked -p herdr-fleet-orchestrator --test settings`: 16 件が通る。`settings.test.ts` の 9 件の `it` と、TypeScript が書いたバイト列との比較、TypeScript が書いたファイルの読み取り、0600 と一時ファイルが残らないこと、agy の判定、project の `spawning` を反映した `skip`、書けないときの `internal_error`
+- `cargo test --locked -p herdr-fleet-orchestrator --test settings`: 17 件が通り、1 件(ASCII でない名前の並び、#330)は `#[ignore]`。`settings.test.ts` の 9 件の `it` と、TypeScript が書いたバイト列との比較、TypeScript が書いたファイルの読み取り、0600 と一時ファイルが残らないこと、agy の判定、project の `spawning` を反映した `skip`、書けないときの `internal_error`、serde_json が断る fleet.json を書き換えないこと
 - TypeScript の書くバイト列と読む値は、TypeScript の `FleetSettingsStore` を Bun で動かして取った(`HERDR_*` を外して実行。テストのコメントに手順を書いた)
 - 並びの期待値は `bun -e` の `localeCompare` で取った(`LANG=en_US.UTF-8`)

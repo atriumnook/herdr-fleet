@@ -268,6 +268,31 @@ fn lists_the_persons_roles_by_name_as_locale_compare_does() {
     );
 }
 
+// Names past ASCII as Bun 1.4.4 orders them (LANG=en_US.UTF-8, `bun -e`: ["zeta","éclair","eclair",
+// "Ångström","alpha"].sort((a, b) => a.localeCompare(b)) gives ["alpha","Ångström","eclair",
+// "éclair","zeta"]). The store weighs a character past ASCII by its code point after the letters
+// (ADR 0260-settings-store, "役割の並び"); weighing it as the locale does needs a collation crate,
+// which #330 takes up with the one comparator for this store and the usage list.
+#[test]
+#[ignore = "#330: names past ASCII are not yet ordered as localeCompare orders them"]
+fn lists_role_names_past_ascii_as_locale_compare_does() {
+    let s = setup();
+    let names = ["zeta", "éclair", "eclair", "Ångström", "alpha"];
+    let store = FleetSettingsStore::new(FleetSettingsDeps {
+        agents: agents(names.iter().map(|name| role(name)).collect()),
+        usage: None,
+        user_dir: s.user_dir.clone(),
+    });
+    let listed: Vec<_> = store
+        .read(&s.repo)
+        .unwrap()
+        .roles
+        .into_iter()
+        .map(|each| each.name)
+        .collect();
+    assert_eq!(listed, ["alpha", "Ångström", "eclair", "éclair", "zeta"]);
+}
+
 // settings.test.ts: "write a role's candidates into fleet.json, keeping what the page does not set,
 // and the fleet starts the role on them"
 #[tokio::test(start_paused = true)]
@@ -522,6 +547,34 @@ fn refuses_what_the_fleet_could_not_use_and_leaves_an_unreadable_fleet_json_as_i
     assert_eq!(fs::read_to_string(&s.file).unwrap(), "{ not json");
     let error = s.store.read(&s.repo).unwrap_err();
     assert!(error.to_string().contains("is not valid JSON"), "{error}");
+}
+
+// Two fleet.json files Bun's `JSON.parse` reads and serde_json refuses (ADR 0193-phase-2-dependencies,
+// "`JSON.stringify` と serde_json"), which ADR 0260-settings-store keeps as a difference: the store
+// answers `settings_unreadable` and leaves the file as it is. Under Bun 1.4.4 TypeScript's store
+// reads `{"maxConcurrent":1e400}` as `Infinity` (its `read` answers `"maxConcurrent":null`), and
+// `update("/", {closeOnSettle: true})` writes it back as `"maxConcurrent": null`; it reads
+// `{"unknown":"\ud800"}` and keeps `"unknown": "\ud800"` through the same update.
+#[test]
+fn leaves_a_fleet_json_serde_json_cannot_hold_as_it_is() {
+    let s = setup();
+    for text in [r#"{"maxConcurrent":1e400}"#, r#"{"unknown":"\ud800"}"#] {
+        s.write_file(text);
+        assert_eq!(
+            s.store
+                .read(&s.repo)
+                .map_err(|error| error.code)
+                .unwrap_err(),
+            "settings_unreadable",
+            "{text}"
+        );
+        assert_eq!(
+            s.update(json!({ "closeOnSettle": true })).unwrap_err(),
+            "settings_unreadable",
+            "{text}"
+        );
+        assert_eq!(fs::read_to_string(&s.file).unwrap(), text);
+    }
 }
 
 /// A fleet.json with keys the page does not know (`BEFORE`), a patch over it (`PATCH`), and the
