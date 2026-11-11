@@ -10,6 +10,7 @@
 //! step happened. The only thing it removes by itself, at the press of a step, is a discarded
 //! thread's panes, worktree and branch; a merged thread's go once git or GitHub shows the merge.
 
+use std::collections::HashSet;
 use std::future::Future;
 use std::path::{Path, PathBuf};
 
@@ -22,8 +23,8 @@ use tokio_util::sync::CancellationToken;
 use super::autonomy::MergeSeen;
 use super::notices::{STEPS_HEADER, thread_label};
 use super::{
-    BoxFuture, LandingTools, Orchestrator, OrchestratorError, is_live, is_thread, state_name,
-    thread_id,
+    BoxFuture, LandingTools, Orchestrator, OrchestratorError, is_live, is_thread, locked,
+    state_name, thread_id,
 };
 use crate::config::FleetConfig;
 use crate::error::FleetError;
@@ -36,10 +37,13 @@ const LANDING_SLOT: &str = "landing";
 /// The outbox's section the merge steps go under.
 const STEPS_SECTION: &str = "steps";
 
-/// What landing keeps while this server runs: nothing; the steps are on the runs, and the merges
+/// What landing keeps while this server runs: the threads GitHub is being asked about after their
+/// turn's news (#176's 7), one read at a time per thread. The steps are on the runs, and the merges
 /// waiting for the coordinator in the outbox.
 #[derive(Debug, Default)]
-pub(crate) struct State {}
+pub(crate) struct State {
+    asking: HashSet<String>,
+}
 
 /// The landing steps a thread's lead takes on its branch (`LEAD_STEPS`).
 fn is_lead_step(action: LandAction) -> bool {
@@ -128,7 +132,7 @@ impl Orchestrator {
     /// The branch the thread lands on: the one it recorded at its start, or the one the main
     /// checkout is on now, or main (`baseBranchOf`).
     async fn base_branch_of(&self, run: &AgentRun) -> String {
-        if let Some(base) = run.base_branch.as_deref() {
+        if let Some(base) = given(run.base_branch.as_deref()) {
             return base.to_owned();
         }
         let project = run.project.as_deref().unwrap_or_default();
@@ -305,6 +309,7 @@ impl Orchestrator {
                 .map(|run| (run, None));
         }
         let at = self.now();
+        let previous = run.landing.clone();
         let step = LandingStep {
             action,
             at,
@@ -316,13 +321,18 @@ impl Orchestrator {
             .ok_or_else(|| run_not_found(id))?;
         let text = coordinator_step(&run, &base_branch);
         if let Some(coordinator) = self.project_coordinator(&project) {
-            self.inner.outbox.put(NoticeInput {
+            let queued = self.inner.outbox.put(NoticeInput {
                 about: run.id.clone(),
                 slot: LANDING_SLOT.to_owned(),
                 section: STEPS_SECTION.to_owned(),
                 text,
                 landing_at: Some(at),
-            })?;
+            });
+            if let Err(error) = queued {
+                // a step no coordinator will hear of is not left waiting on the thread
+                self.restore_step(&run.id, at, previous);
+                return Err(error.into());
+            }
             return Ok((run, Some(coordinator.id)));
         }
         // no coordinator lives: a new one starts with the step as its first task
@@ -394,17 +404,24 @@ impl Orchestrator {
             .send_now(id, &text, |each| async move {
                 self.submit_when_free(id, &each, cancel).await
             })
-            .await?;
-        if let Err(error) = &sent
-            && error.code() == "run_busy"
-        {
-            self.change(id, |run| {
-                if run.landing.as_ref().is_some_and(|landing| landing.at == at) {
-                    run.landing = previous;
-                }
-            });
+            .await
+            .map_err(OrchestratorError::from)
+            .and_then(|sent| sent);
+        if sent.is_err() {
+            self.restore_step(id, at, previous);
         }
         sent
+    }
+
+    /// The step written at `at` taken back, as nothing reached its agent: the run's step goes back
+    /// to `previous` while it is still the one written then. A step left sent would be settled by
+    /// the agent's next turn as if it had been taken.
+    fn restore_step(&self, id: &str, at: i64, previous: Option<LandingStep>) {
+        self.change(id, |run| {
+            if run.landing.as_ref().is_some_and(|landing| landing.at == at) {
+                run.landing = previous;
+            }
+        });
     }
 
     /// `work` once the thread's landing steps and restarts before it ended, and before the ones
@@ -673,21 +690,24 @@ impl Orchestrator {
             });
             self.settle_waiters(&member.id);
         }
-        let Some((project, branch)) = place(&thread) else {
-            return;
+        // a thread with no repository or branch recorded has no worktree to remove; it closes all
+        // the same, as its panes did
+        let kept = match place(&thread) {
+            Some((project, branch)) => {
+                let project = Path::new(project);
+                let worktree = worktree_path(project, thread_id(&thread));
+                let options = RemoveOptions {
+                    force: how == Landed::Discarded,
+                    branch_merged,
+                };
+                self.tools()
+                    .remove_thread(project, &worktree, branch, options)
+                    .await
+                    .err()
+                    .filter(|kept| !kept.is_empty())
+            }
+            None => None,
         };
-        let project = Path::new(project);
-        let worktree = worktree_path(project, thread_id(&thread));
-        let options = RemoveOptions {
-            force: how == Landed::Discarded,
-            branch_merged,
-        };
-        let kept = self
-            .tools()
-            .remove_thread(project, &worktree, branch, options)
-            .await
-            .err()
-            .filter(|kept| !kept.is_empty());
         let now = self.now();
         self.change(id, |run| {
             run.landed = Some(how);
@@ -757,11 +777,14 @@ impl Orchestrator {
     /// queued (#176's 7): a merge read here is one no news of the turn quotes, so the supervision
     /// hears of it as one read outside a settlement (`MergeSeen::Polled`; ADR 0266-landing).
     async fn ask_after_turn(&self, id: &str) {
-        if self.is_stopped() {
+        // one read per thread at a time: the turns a lead ends while gh is slow ask once
+        if self.is_stopped() || !locked(&self.inner.landing).asking.insert(id.to_owned()) {
             return;
         }
+        let read = self.read_pull_request(id).await;
+        locked(&self.inner.landing).asking.remove(id);
         // GitHub could not be asked: the next turn's end or the polling asks again
-        let Some(reading) = self.read_pull_request(id).await.ok().flatten() else {
+        let Ok(Some(reading)) = read else {
             return;
         };
         let Some(run) = self.registry().get(id) else {
@@ -966,7 +989,7 @@ fn coordinator_step(run: &AgentRun, base_branch: &str) -> String {
 /// to GitHub: [`GitHub`] only reads.
 #[allow(
     dead_code,
-    reason = "the core builds it (LIVE, #270); `pub use landing::GitLanding` waits for #265's fleet/mod.rs (ADR 0266-landing)"
+    reason = "the core builds it (LIVE, #270); #339 adds `pub use landing::GitLanding` to fleet/mod.rs (ADR 0266-landing)"
 )]
 #[derive(Debug, Clone)]
 pub struct GitLanding {
@@ -975,7 +998,7 @@ pub struct GitLanding {
 
 #[allow(
     dead_code,
-    reason = "the core builds it (LIVE, #270); `pub use landing::GitLanding` waits for #265's fleet/mod.rs (ADR 0266-landing)"
+    reason = "the core builds it (LIVE, #270); #339 adds `pub use landing::GitLanding` to fleet/mod.rs (ADR 0266-landing)"
 )]
 impl GitLanding {
     /// git, and `gh` as the server's `PATH` finds it.

@@ -1208,3 +1208,38 @@ async fn a_thread_without_a_pull_request_tells_its_coordinator_and_waiters_witho
     assert_eq!(asked, 1, "GitHub is still asked");
     gh.close();
 }
+
+// /code-review's finding on #266: a step that reached no agent is not left on the thread as sent or
+// queued, or the agent's next turn would settle it as if it had been taken. The outbox file here
+// cannot be written (a folder stands where it goes), as `tests/notices.rs` makes it; the expected
+// value is the thread's step as it was before the press (none).
+#[tokio::test(start_paused = true)]
+async fn a_step_the_outbox_could_not_take_is_not_left_on_the_thread() {
+    let p = project();
+    let (coordinator, thread) = p.ready().await;
+    let outbox = p.s.root.join("fleet-outbox.json");
+    let _ = fs::remove_file(&outbox);
+    fs::create_dir(&outbox).unwrap();
+    assert!(p.land(&thread, LandAction::Pr).await.is_err());
+    assert_eq!(p.run(&thread).landing, None);
+    assert_eq!(p.to(&thread).len(), 1, "{:?}", p.to(&thread));
+    p.turn(&coordinator, AgentState::Working).await;
+    assert!(p.land(&thread, LandAction::Merge).await.is_err());
+    assert_eq!(p.run(&thread).landing, None);
+}
+
+// /code-review's finding on #266: an empty base branch on the run is none, as TypeScript's
+// `run.baseBranch ? … : gitBranch(…)` reads it; the step names the branch the checkout is on.
+#[tokio::test(start_paused = true)]
+async fn an_empty_base_branch_on_the_thread_is_read_from_the_checkout() {
+    let p = project();
+    let (coordinator, thread) = p.ready().await;
+    p.s.registry
+        .update(&thread.id, |run| run.base_branch = Some(String::new()))
+        .unwrap();
+    p.land(&thread, LandAction::Merge).await.unwrap();
+    assert_eq!(
+        p.to(&coordinator).pop().unwrap(),
+        [STEPS_HEADER, &merge_step(&thread, "main")].join("\n")
+    );
+}
