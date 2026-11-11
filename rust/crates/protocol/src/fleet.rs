@@ -55,6 +55,30 @@ pub enum FleetAgentKind {
     Opencode,
 }
 
+impl FleetAgentKind {
+    /// Every kind, in the order of `server/fleet/adapters.ts`'s `AGENT_KINDS`.
+    pub const ALL: [FleetAgentKind; 6] = [
+        FleetAgentKind::Pi,
+        FleetAgentKind::Claude,
+        FleetAgentKind::Codex,
+        FleetAgentKind::Cursor,
+        FleetAgentKind::Agy,
+        FleetAgentKind::Opencode,
+    ];
+
+    /// The kind as herdr, the settings and the records name it: its serde name.
+    pub const fn name(self) -> &'static str {
+        match self {
+            FleetAgentKind::Pi => "pi",
+            FleetAgentKind::Claude => "claude",
+            FleetAgentKind::Codex => "codex",
+            FleetAgentKind::Cursor => "cursor",
+            FleetAgentKind::Agy => "agy",
+            FleetAgentKind::Opencode => "opencode",
+        }
+    }
+}
+
 /// A spawn candidate passed over before the one a run started on, and why.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SkippedCandidate {
