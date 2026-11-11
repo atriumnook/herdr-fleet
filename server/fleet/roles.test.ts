@@ -79,11 +79,12 @@ const PROJECT_ROLES: Record<string, { budget: number; rules: Record<string, RegE
       "plans, designs, briefs, checks and decides": /You plan, design, write the briefs, check the results and decide/,
       "writes code itself only for a design decision or security": /Write code yourself only for a design decision or a change that touches security/,
       "hands every other change to a worker": /Every other change goes to a `worker` \(`spawn --role worker --write <paths>`\)/,
+      "hands the fixes of rules 6 and 7 to a worker too": /including the fixes rules 6 and 7 call for/,
       "hands a broad investigation to a scout": /a broad investigation \(reading many files, tracing callers, checking dependencies\) goes to a `scout` \(`spawn --role scout --read-only`\)/,
       "briefs with goal, context, done and verify": /Brief each with `--goal`, `--context`, `--done` and `--verify`/,
-      "waits in the same turn and checks the result": /`wait <agent>` for it in the same turn, and check its result before you go on/,
+      "waits in the same turn and checks the result": /`wait <agent>` for each in the same turn, and check its result before you go on/,
       "runs independent changes on separate workers side by side": /Changes that do not depend on each other go to separate workers with separate `--write` paths, side by side/,
-      "sends a failed result back once before writing it itself": /fails its checks, start a worker on it again with the same brief and what failed; write the change yourself only after a second failure, and say so in your report/,
+      "sends a failed result back once before writing it itself": /fails its checks, or the worker ends `failed`, start a worker on it again with the same brief and what failed; write the change yourself only after a second failure, and say so in your report/,
     },
     dropped: {
       "does the work itself by default": /Do the work yourself/,
@@ -97,10 +98,17 @@ const project = discoverAgents(resolve(import.meta.dir, "..", ".."), [], { bundl
 describe("project roles", () => {
   for (const [name, { budget, rules, dropped = {} }] of Object.entries(PROJECT_ROLES)) {
     describe(name, () => {
-      const role = () => findAgent(project, name)!;
+      const role = () => {
+        const found = findAgent(project, name);
+        if (!found) throw new Error(`no project role ${name} in .herdr-fleet/agents/`);
+        return found;
+      };
       const body = () => role().systemPrompt.replace(/\s+/g, " ");
       it("is read from .herdr-fleet/agents/", () => {
         expect(role().source).toBe("project");
+      });
+      it("may start helpers", () => {
+        expect(role().spawning).toBe(true);
       });
       for (const [rule, pattern] of Object.entries(rules)) {
         it(`states: ${rule}`, () => {
