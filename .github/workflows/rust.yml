@@ -68,9 +68,15 @@ jobs:
       # ADR 0110-workspace-and-ci: tests that read the corpus or write temporary
       # files live in tests/ and allow the banned APIs there; src/ never does.
       # ADR 0225-nonblocking-image-open excepts one file: transcript's
-      # nonblocking_open.rs may expect disallowed_methods once, for
-      # custom_flags(O_NONBLOCK), and nothing else; O_NONBLOCK there is 0o4000
-      # (Linux) or 0x4 (Apple). A folder grep cannot read fails the step too.
+      # nonblocking_open.rs may expect disallowed_methods once, for custom_flags
+      # with O_NONBLOCK alone, and nothing else. ADR 0318-rustix-open-flags takes
+      # that value from rustix: custom_flags is passed
+      # OFlags::NONBLOCK.bits().cast_signed(), and outside comments the parsing
+      # crates' src/ names rustix only in that file's `use rustix::fs::OFlags;`,
+      # so no rustix function opens, writes or removes a file there; neither
+      # crate may depend on rustix under another name (`package = "rustix"`),
+      # which src/ could call without naming rustix. A folder grep cannot read
+      # fails the step too.
       - name: Parsing crates allow their banned APIs only in tests
         run: |
           exception=crates/transcript/src/nonblocking_open.rs
@@ -93,15 +99,40 @@ jobs:
           fi
           if [ "$(grep -c 'clippy::disallowed_methods' "$exception")" -ne 1 ] ||
              [ "$(grep -c 'custom_flags(' "$exception")" -ne 1 ] ||
-             ! grep -q 'custom_flags(O_NONBLOCK)' "$exception"; then
-            echo "::error::$exception may allow clippy::disallowed_methods once, for custom_flags(O_NONBLOCK) alone"
+             ! grep -qxE '[[:space:]]*options\.custom_flags\(OFlags::NONBLOCK\.bits\(\)\.cast_signed\(\)\);' "$exception"; then
+            echo "::error::$exception may allow clippy::disallowed_methods once, for custom_flags(OFlags::NONBLOCK.bits().cast_signed()) alone"
             exit 1
           fi
-          values=$(grep -E '^const O_NONBLOCK\b' "$exception" || true)
-          if [ -z "$values" ] ||
-             printf '%s\n' "$values" | grep -vxE 'const O_NONBLOCK: i32 = (0o4000|0x4);' | grep -q .; then
-            printf '%s\n' "$values"
-            echo "::error::O_NONBLOCK in $exception is 0o4000 (Linux) or 0x4 (Apple), as libc 0.2.191 defines it"
+          status=0
+          uses=$(grep -rnwE 'rustix' crates/screen/src crates/transcript/src) || status=$?
+          if [ "$status" -gt 1 ]; then
+            echo "::error::grep could not read crates/screen/src or crates/transcript/src"
+            exit 1
+          fi
+          found=$(printf '%s\n' "$uses" | awk -v prefix="$exception:" '
+            !NF { next }
+            {
+              code = $0
+              sub(/^[^:]*:[0-9]+:/, "", code)
+              if (code ~ /^[[:space:]]*\/\//) next
+              if (index($0, prefix) == 1 && code ~ /^[[:space:]]*use rustix::fs::OFlags;$/) next
+              print
+            }')
+          if [ -n "$found" ]; then
+            printf '%s\n' "$found"
+            echo "::error::screen and transcript name rustix only in $exception, as use rustix::fs::OFlags;"
+            exit 1
+          fi
+          renamed=$(cargo metadata --locked --format-version 1 --no-deps | jq -r '
+            .packages[]
+            | select(.name == "herdr-fleet-screen" or .name == "herdr-fleet-transcript")
+            | .name as $crate
+            | .dependencies[]
+            | select(.name == "rustix" and .rename != null)
+            | "\($crate) depends on rustix as \(.rename)"')
+          if [ -n "$renamed" ]; then
+            printf '%s\n' "$renamed"
+            echo "::error::screen and transcript depend on rustix by its own name only"
             exit 1
           fi
 

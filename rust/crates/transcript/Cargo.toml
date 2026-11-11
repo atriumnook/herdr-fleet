@@ -13,5 +13,10 @@ serde.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 
+# src/nonblocking_open.rs opens a Codex local image without waiting for a FIFO's writer, with
+# O_NONBLOCK's value from rustix (ADR 0318-rustix-open-flags); off unix it opens with File::open.
+[target.'cfg(unix)'.dependencies]
+rustix = { workspace = true, features = ["fs"] }
+
 [lints]
 workspace = true

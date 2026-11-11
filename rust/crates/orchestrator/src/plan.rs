@@ -5,7 +5,7 @@
 //! [`plan_answer_message`] hands them to the lead as one message.
 
 use std::collections::HashMap;
-use std::fs::{self, File};
+use std::fs;
 use std::io::{self, Read as _, Write as _};
 use std::path::{Component, Path, PathBuf};
 use std::sync::LazyLock;
@@ -19,6 +19,7 @@ use regex::Regex;
 use serde_json::{Map, Value};
 
 use crate::FleetError;
+use crate::safe_open::open_no_follow;
 
 /// The largest file a code exhibit reads lines of.
 const CODE_FILE_MAX_BYTES: u64 = 2 * 1024 * 1024;
@@ -628,57 +629,6 @@ pub fn plan_answer_message(plan: &Plan, answer: &PlanAnswer) -> String {
     out.join("\n")
 }
 
-// `O_NOFOLLOW` and `O_NONBLOCK` of the targets the plan builds for, as their C libraries define
-// them: std exports neither, and this crate depends on no libc binding. The same values as
-// `report.rs`, from libc 0.2.191 (src/unix/linux_like/linux/gnu/b64/x86_64/mod.rs:448 and :294,
-// aarch64/mod.rs:359 and :206, src/unix/bsd/mod.rs:276 and :275); #284 moves both to rustix.
-#[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-const O_NOFOLLOW: i32 = 0x20000;
-#[cfg(all(target_os = "linux", target_arch = "aarch64"))]
-const O_NOFOLLOW: i32 = 0x8000;
-#[cfg(target_vendor = "apple")]
-const O_NOFOLLOW: i32 = 0x100;
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
-const O_NONBLOCK: i32 = 0o4000;
-#[cfg(target_vendor = "apple")]
-const O_NONBLOCK: i32 = 0x4;
-#[cfg(all(
-    unix,
-    not(any(
-        all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ),
-        target_vendor = "apple",
-    ))
-))]
-compile_error!(
-    "add this target's O_NOFOLLOW and O_NONBLOCK, taken from libc, to orchestrator's src/plan.rs"
-);
-
-/// `path` opened for reading, as plan.ts opens it: a symlink in the last place fails, and a FIFO
-/// opens without waiting for a writer (the `fstat` then turns it down).
-#[cfg(unix)]
-fn open_no_follow(path: &Path) -> io::Result<File> {
-    use std::os::unix::fs::OpenOptionsExt as _;
-    fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(O_NOFOLLOW | O_NONBLOCK)
-        .open(path)
-}
-
-/// Off unix there is no `O_NOFOLLOW`: a symlink is turned down before the file is opened.
-#[cfg(not(unix))]
-fn open_no_follow(path: &Path) -> io::Result<File> {
-    if fs::symlink_metadata(path)?.file_type().is_symlink() {
-        return Err(io::Error::other("a symlink"));
-    }
-    File::open(path)
-}
-
 #[cfg(test)]
 mod tests {
     use super::{posix_basename, win32_basename};
@@ -709,5 +659,61 @@ mod tests {
             assert_eq!(win32_basename(path), win32, "win32 {path:?}");
             assert_eq!(posix_basename(path), posix, "posix {path:?}");
         }
+    }
+
+    /// plan.ts opens both files with `O_NONBLOCK`, so a FIFO in the plan file's place, or one that
+    /// a code exhibit names, opens without a writer and its `fstat` turns it down: `readPlan` throws
+    /// `unreadable("not a file")` and `readCodeLines` throws `${path} is not a file`
+    /// (server/fleet/plan.ts:55-58 and :121-125). The 2-second limit makes a missing `O_NONBLOCK` a
+    /// failure rather than a hang.
+    #[cfg(unix)]
+    #[test]
+    fn turns_a_fifo_down_without_waiting_for_a_writer() {
+        let dir = std::env::temp_dir().join(format!("herdr-plan-fifo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        // create_dir, not create_dir_all: a path someone else made in its place fails the test
+        std::fs::create_dir(&dir).unwrap();
+        let made = std::process::Command::new("mkfifo")
+            .arg(dir.join("plan.json"))
+            .arg(dir.join("code.rs"))
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let plan = dir.join("plan.json");
+        let root = dir.clone();
+        let (plan_read, code_read) = within_2_seconds(move || {
+            (
+                super::read_plan(&plan),
+                super::read_code_lines(&root, "code.rs", 1, 1),
+            )
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            plan_read,
+            Err(crate::FleetError::new(
+                "plan_unreadable",
+                "The kept plan cannot be read back (not a file); the lead can hand it over again."
+            ))
+        );
+        assert_eq!(
+            code_read,
+            Err(crate::FleetError::new(
+                "invalid_plan",
+                "code.rs is not a file"
+            ))
+        );
+    }
+
+    /// `read`'s answer, or a panic when it does not come within 2 seconds.
+    #[cfg(unix)]
+    fn within_2_seconds<T: Send + 'static>(read: impl FnOnce() -> T + Send + 'static) -> T {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        // A thread stuck in `open` cannot be stopped; the test process ends it.
+        std::thread::spawn(move || {
+            let _ = sender.send(read());
+        });
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("the read answers within 2 seconds")
     }
 }
