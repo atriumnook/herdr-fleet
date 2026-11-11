@@ -584,7 +584,7 @@ impl Orchestrator {
                 write_private(&result_dir.join(TASK_FILE), task)?;
             }
             if let Some(takeover) = takeover {
-                self.carry_files(&takeover.from, run);
+                self.carry_files(&takeover.from, run)?;
             }
         }
         // a project's coordinator talks with the person, who reads its reply: no agent reads a handoff of it

@@ -4,6 +4,7 @@
 //! (ADR 0267-restart).
 
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 use protocol::{AgentRun, AgentState, FleetAgentKind, TurnOutcome, js};
@@ -298,21 +299,17 @@ impl Orchestrator {
 
     /// What a lead that takes a thread over starts from in its result folder: the run before's
     /// contract, as its own to bring up to date (read as a result is, never through a symlink),
-    /// and the thread's plan (`carryFiles`). A file that cannot be written is logged: the new run
-    /// starts without it.
-    pub(crate) fn carry_files(&self, from: &AgentRun, to: &AgentRun) {
+    /// and the thread's plan (`carryFiles`). A contract that cannot be written fails the new run's
+    /// start: it is told its contract starts as the run before's.
+    pub(crate) fn carry_files(&self, from: &AgentRun, to: &AgentRun) -> io::Result<()> {
         if let Some(contract) = read_result(&self.result_dir(&from.id).join(CONTRACT_FILE)) {
             let file = self.result_dir(&to.id).join(CONTRACT_FILE);
-            if let Err(error) = write_private(&file, &format!("{contract}\n")) {
-                eprintln!(
-                    "herdr-fleet: the contract of {} was not carried: {error}",
-                    to.id
-                );
-            }
+            write_private(&file, &format!("{contract}\n"))?;
         }
         let plan = |id: &str| self.plans_dir().join(format!("{id}.json"));
         // the thread has no plan when there is none to copy
         let _ = fs::copy(plan(&from.id), plan(&to.id));
+        Ok(())
     }
 }
 
