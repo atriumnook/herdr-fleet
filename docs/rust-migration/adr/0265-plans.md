@@ -10,7 +10,7 @@
 
 #265 の本文は、#240 の 3 を Rust 版に写さないよう求めている。欠陥は、TypeScript の `finalize`(`:1434`)がターンの報告があるときだけ `closeStalePlan` を呼ぶため、報告のないターンのあと起動し直しもすべての候補で失敗すると、進んだ計画が答えを待ったまま残ること。Rust 版の期待は「起動し直しがすべての候補で失敗しても、進んだ計画の回答待ちが残らない」で、ADR `0242-phase-3-split` は #240 の 3 を O5 と O7(#267)に割り当てている。ところが、`close_stale_plan` を呼ぶ条件は O1 の `turns.rs` の `finalize`(`:710-724`)にあり、#265 の書くパスの外にある。
 
-決める前に architect(fleet の run `6dbcddf2`)に聞き、答えに従った。
+決める前に architect(fleet の run `6dbcddf2`)に #240 の 3 の直しの置き場所を聞き、その答え(選択肢 A)を下の「決定」と「検討した代わり」に書いた。
 
 ## 決定
 
@@ -26,7 +26,7 @@
 - 計画ファイルの読み取りと書き込み、run の計画の印(`PlanMark`)の保存は、plans の `Mutex`(`plans::State`)の中で 1 つの手順として行う。TypeScript は同期の処理なので、2 つの `submitPlan` が同じ版の番号を数えることはない。Rust のサーバーは tokio のマルチスレッドの runtime で動くので、lock がないと、同時に出された 2 つの計画が同じ版の番号になりうる。`fleet/mod.rs` の冒頭の決まり(確認と実行を、その cluster の lock の両側に分けない)に従った。lock は await をまたいで持たない。lead が答えを打ち込まれている間に次の計画を出せるようにするため(テスト「leave a newer plan the lead handed over while the answers went out as it is」)
 - `answer_plan` の送信は `notify_now` ではなく、outbox の `send_now` と `submit_when_free` で行う。TypeScript は「fleet のターンが進行中でない」ことを確かめてから、await を挟まずに `notifyNow` を呼ぶ(`:897-899`)。`notify_now` は `submit` を使うので、Rust では確認と新しいターンの登録の間に、別のスレッドの送信が入りうる。`submit_when_free` は、確認と登録を turns の lock の中で 1 つの手順にし、進行中なら TypeScript と同じ文の `run_busy` で断る(ADR `0264-notices` の配達と同じ扱い)
 - `close_stale_plan` が計画ファイルを読めないか書けないときは、標準エラーに書き、計画を開いたままにする。hook は値を返さない(ADR `0264-notices` の outbox と同じ扱い)。TypeScript は、読めないときは黙って戻り、書けないときは投げて `finalize` の残りが飛ぶ。`submit_plan` と `answer_plan` で計画ファイルに書けなかったときは、TypeScript と同じく呼び出し元にエラー(`internal_error`)を返す
-- `answer_plan` は、TypeScript と次の 2 点で違う(`/code-review` の指摘)。どちらも、答えが lead に 2 回届くことを防ぐため
+- `answer_plan` は、TypeScript と次の 2 点で違う(`/code-review` の指摘)。どちらも、lead に同じ答えが 2 回届くことを防ぐ。1 点目は、古い版への答えを送ることも防ぐ
   - 決着を待ったあと計画を読み直し、待つ前と同じ確認(版が答えと合うか、答え済みか、閉じているか)をもう一度行う。答えを送ったあと計画に印を付けるのも、その版がまだ開いているときだけにする。TypeScript は待つ前にしか調べないので、待つ間に別の答えが届いて lead のターンが終わると 2 つ目の答えも送り、待つ間に lead が新しい版を出すと古い版への答えを送る
   - 答えが lead に届いたあと、outbox から送信中の知らせか thread の質問を消せなかったときは、標準エラーに書いて計画に印を付ける。TypeScript は投げるので、計画が答えを待ったまま残り、使う人がもう一度押すと同じ答えが再び届く。計画ファイルに書けなかったときは、答えた印を残す場所がないので、TypeScript と同じくエラーを返す
 - #240 の 3 の直し(`close_stale_plan` を呼ぶ条件)は `turns.rs` の `finalize` に置き、`turns.rs` だけを書く #338 が書く。#265 は書かない。条件は、報告がある場合の今の条件に加え、報告がなく `restart_error.is_some()`(新しい run が thread を引き継がなかった)ときにも呼ぶ、とする。起動し直しを試みなかった場合(報告がなく `needs_restart` が偽、つまり thread が landing 済みのとき)は、TypeScript と同じく閉じない。#267 は #338 を待ち、TypeScript の `orchestrator.test.ts:1402-1430` を移すときに、`:1429` の期待(`closedAt` が `undefined`)を、`closedAt` が数値であることに変える。根拠は #240、#265、#267 の本文
