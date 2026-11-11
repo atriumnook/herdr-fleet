@@ -1,5 +1,6 @@
 {
   "about": "agy (gemini-4-argon-high, 2026-11-12) asked to read a skill file outside its workspace mid-review. Synthesized: the real screen was gone, so this one is written from its strings (File access, Read: <path>, Reason: outside workspace, Allow access to this file?) in the layout of asks-to-read-a-file-outside-the-workspace-1, which was captured",
   "adapter": "agy",
-  "check": "question"
+  "check": "question",
+  "expected": "Antigravity CLI asks to read a file outside its workspace."
 }
