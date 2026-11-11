@@ -45,6 +45,16 @@ fn coordinator() -> AgentDefinition {
     }
 }
 
+/// `{ title, task: "t", cwd }`, as most of orchestrator.test.ts's starts are.
+fn titled(title: &str, cwd: &str) -> ThreadRequest {
+    ThreadRequest {
+        title: title.to_owned(),
+        task: Some("t".to_owned()),
+        cwd: Some(cwd.to_owned()),
+        ..ThreadRequest::default()
+    }
+}
+
 /// `fleet.startThread(...)`.
 async fn start_thread(
     fleet: &Orchestrator,
@@ -84,6 +94,15 @@ fn git_root_under_repo() -> Arc<FakeLanding> {
 
 fn tools(landing: &Arc<FakeLanding>) -> Option<Arc<dyn LandingTools>> {
     Some(landing.clone())
+}
+
+/// A setup of `agents` over the fake git `landing`.
+fn with(agents: Vec<AgentDefinition>, landing: &Arc<FakeLanding>) -> common::Setup {
+    setup(SetupOptions {
+        agents: Some(agents),
+        landing: tools(landing),
+        ..SetupOptions::default()
+    })
 }
 
 /// The calls the fake git took of `method`, with their arguments.
@@ -154,17 +173,9 @@ async fn start_a_lead_in_a_workspace_named_by_the_title_on_a_worktree_of_its_own
         "Fix the duplicate notification."
     );
     // each thread is a fleet of its own
-    let second = start_thread(
-        &s.fleet,
-        ThreadRequest {
-            title: "Docs".to_owned(),
-            task: Some("t".to_owned()),
-            cwd: Some("/repo".to_owned()),
-            ..ThreadRequest::default()
-        },
-    )
-    .await
-    .unwrap();
+    let second = start_thread(&s.fleet, titled("Docs", "/repo"))
+        .await
+        .unwrap();
     assert_ne!(second.group, run.group);
 }
 
@@ -172,11 +183,7 @@ async fn start_a_lead_in_a_workspace_named_by_the_title_on_a_worktree_of_its_own
 #[tokio::test(start_paused = true)]
 async fn belong_to_the_run_that_starts_them_and_to_the_repository_they_work_in() {
     let landing = git_root_always("/repo");
-    let s = setup(SetupOptions {
-        agents: Some(vec![lead(), coordinator()]),
-        landing: tools(&landing),
-        ..SetupOptions::default()
-    });
+    let s = with(vec![lead(), coordinator()], &landing);
     let coordinator = s
         .fleet
         .spawn(
@@ -232,22 +239,14 @@ async fn belong_to_the_run_that_starts_them_and_to_the_repository_they_work_in()
 #[tokio::test(start_paused = true)]
 async fn are_listed_for_their_project_with_the_last_report_and_the_contracts_state() {
     let landing = git_root_under_repo();
-    let s = setup(SetupOptions {
-        agents: Some(vec![lead(), role("worker")]),
-        landing: tools(&landing),
-        ..SetupOptions::default()
-    });
-    let at = |title: &str, cwd: &str| ThreadRequest {
-        title: title.to_owned(),
-        task: Some("t".to_owned()),
-        cwd: Some(cwd.to_owned()),
-        ..ThreadRequest::default()
-    };
-    let fixed = start_thread(&s.fleet, at("Fix", "/repo")).await.unwrap();
-    let fresh = start_thread(&s.fleet, at("Docs", "/repo/docs"))
+    let s = with(vec![lead(), role("worker")], &landing);
+    let fixed = start_thread(&s.fleet, titled("Fix", "/repo"))
         .await
         .unwrap();
-    start_thread(&s.fleet, at("Elsewhere", "/other"))
+    let fresh = start_thread(&s.fleet, titled("Docs", "/repo/docs"))
+        .await
+        .unwrap();
+    start_thread(&s.fleet, titled("Elsewhere", "/other"))
         .await
         .unwrap();
     spawn(
@@ -311,22 +310,10 @@ async fn carry_what_the_leads_turn_left_the_contract_and_the_change_since_the_co
             files: 2,
         })
     });
-    let s = setup(SetupOptions {
-        agents: Some(vec![lead()]),
-        landing: tools(&landing),
-        ..SetupOptions::default()
-    });
-    let thread = start_thread(
-        &s.fleet,
-        ThreadRequest {
-            title: "Fix".to_owned(),
-            task: Some("t".to_owned()),
-            cwd: Some("/repo".to_owned()),
-            ..ThreadRequest::default()
-        },
-    )
-    .await
-    .unwrap();
+    let s = with(vec![lead()], &landing);
+    let thread = start_thread(&s.fleet, titled("Fix", "/repo"))
+        .await
+        .unwrap();
     assert_eq!(thread.base.as_deref(), Some("abc1234"));
     fs::write(s.result_dir(&thread.id).join("handoff.md"), "PASS — done").unwrap();
     fs::write(
@@ -364,22 +351,10 @@ async fn carry_what_the_leads_turn_left_the_contract_and_the_change_since_the_co
 #[tokio::test(start_paused = true)]
 async fn are_marked_done_by_the_person_and_open_again_once_their_lead_works_again() {
     let landing = git_root_always("/repo");
-    let s = setup(SetupOptions {
-        agents: Some(vec![lead(), role("worker")]),
-        landing: tools(&landing),
-        ..SetupOptions::default()
-    });
-    let thread = start_thread(
-        &s.fleet,
-        ThreadRequest {
-            title: "Fix".to_owned(),
-            task: Some("t".to_owned()),
-            cwd: Some("/repo".to_owned()),
-            ..ThreadRequest::default()
-        },
-    )
-    .await
-    .unwrap();
+    let s = with(vec![lead(), role("worker")], &landing);
+    let thread = start_thread(&s.fleet, titled("Fix", "/repo"))
+        .await
+        .unwrap();
     s.runtime.set_get_status(AgentState::Idle);
     tokio::time::sleep(GRACE + std::time::Duration::from_millis(5)).await;
     s.fleet.on_pane_status(&thread.pane_id);
@@ -418,11 +393,7 @@ async fn are_marked_done_by_the_person_and_open_again_once_their_lead_works_agai
 #[tokio::test(start_paused = true)]
 async fn are_listed_for_the_calling_runs_project_wherever_it_asks_from() {
     let landing = git_root_under_repo();
-    let s = setup(SetupOptions {
-        agents: Some(vec![lead(), coordinator()]),
-        landing: tools(&landing),
-        ..SetupOptions::default()
-    });
+    let s = with(vec![lead(), coordinator()], &landing);
     let coordinator = start_project(&s.fleet, "hello", "/repo").await.unwrap();
     let thread = start_thread(
         &s.fleet,
@@ -465,17 +436,9 @@ async fn fail_before_the_lead_starts_when_the_setup_command_fails_and_close_the_
         landing: tools(&landing),
         ..SetupOptions::default()
     });
-    let error = start_thread(
-        &s.fleet,
-        ThreadRequest {
-            title: "t".to_owned(),
-            task: Some("t".to_owned()),
-            cwd: Some("/repo".to_owned()),
-            ..ThreadRequest::default()
-        },
-    )
-    .await
-    .unwrap_err();
+    let error = start_thread(&s.fleet, titled("t", "/repo"))
+        .await
+        .unwrap_err();
     assert_eq!(error.code(), "setup_failed");
     assert!(
         error.to_string().contains("npm ERR! missing script"),
@@ -496,17 +459,9 @@ async fn work_in_a_plain_workspace_outside_a_repository_with_no_setup_and_no_bra
         landing: tools(&landing),
         ..SetupOptions::default()
     });
-    let run = start_thread(
-        &s.fleet,
-        ThreadRequest {
-            title: "Notes".to_owned(),
-            task: Some("t".to_owned()),
-            cwd: Some("/notes".to_owned()),
-            ..ThreadRequest::default()
-        },
-    )
-    .await
-    .unwrap();
+    let run = start_thread(&s.fleet, titled("Notes", "/notes"))
+        .await
+        .unwrap();
     assert!(!run.worktree);
     assert_eq!(run.branch, None);
     let location = s.runtime.locations()[0].clone();
@@ -553,22 +508,10 @@ fn turns(events: &[FleetEvent]) -> Vec<(String, bool)> {
 #[tokio::test(start_paused = true)]
 async fn after_a_done_working_done_flicker() {
     let landing = git_root_always("/repo");
-    let s = setup(SetupOptions {
-        agents: Some(vec![lead()]),
-        landing: tools(&landing),
-        ..SetupOptions::default()
-    });
-    let thread = start_thread(
-        &s.fleet,
-        ThreadRequest {
-            title: "Fix".to_owned(),
-            task: Some("t".to_owned()),
-            cwd: Some("/repo".to_owned()),
-            ..ThreadRequest::default()
-        },
-    )
-    .await
-    .unwrap();
+    let s = with(vec![lead()], &landing);
+    let thread = start_thread(&s.fleet, titled("Fix", "/repo"))
+        .await
+        .unwrap();
     fs::write(s.result_dir(&thread.id).join("handoff.md"), HANDOFF).unwrap();
     flicker(&s.fleet, &s.runtime).await;
     assert_eq!(turns(&s.events()), vec![(thread.id.clone(), true)]);
@@ -598,23 +541,11 @@ impl Restarted {
 
 async fn restart_after_send(prompt_status: AgentState) -> AfterSend {
     let landing = git_root_always("/repo");
-    let s = setup(SetupOptions {
-        agents: Some(vec![lead()]),
-        landing: tools(&landing),
-        ..SetupOptions::default()
-    });
+    let s = with(vec![lead()], &landing);
     s.runtime.set_prompt_status(prompt_status);
-    let thread = start_thread(
-        &s.fleet,
-        ThreadRequest {
-            title: "Fix".to_owned(),
-            task: Some("t".to_owned()),
-            cwd: Some("/repo".to_owned()),
-            ..ThreadRequest::default()
-        },
-    )
-    .await
-    .unwrap();
+    let thread = start_thread(&s.fleet, titled("Fix", "/repo"))
+        .await
+        .unwrap();
     s.fleet.stop();
     AfterSend { s, thread }
 }
