@@ -14,7 +14,8 @@ const SPACES_AND_PUNCTUATION: &str = "\t\n\u{0B}\u{0C}\r _-,;:!?.'\"()[]{}@*/\\&
 /// then lower case before upper case, character by character. The other control characters of
 /// ASCII are ignored, as the locale ignores them, so strings that differ only in those are
 /// `Equal`. A character past ASCII is weighed after the letters by its code point, where the
-/// locale would weigh `é` next to `e`: copying that needs a collation crate.
+/// locale would weigh `é` next to `e`, ignore U+200B and U+00AD, and weigh a combining accent
+/// after its letter: copying that needs a collation crate (#356).
 pub fn locale_compare(a: &str, b: &str) -> Ordering {
     weights(a)
         .cmp(weights(b))

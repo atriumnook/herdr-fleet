@@ -36,7 +36,7 @@ architect が、前の 2 つの写しが ASCII の範囲でも Bun 1.4.4 と違�
 
 ### 引き継ぐこと
 
-ASCII でない文字は、前と同じく英字のあとに code point の順で並ぶ。ロケールは `é` を `e` の隣に置くので、そこが TypeScript と違う。合わせるには照合の crate(icu4x の `icu_collator` など)と manifest の変更が要り、#330 の書くパスにないので、#356 に分けた。ADR `0260-settings-store` が「ASCII でない文字の並びも #330 で扱う」と書いた件と、`rust/crates/orchestrator/tests/settings.rs` の `lists_role_names_past_ascii_as_locale_compare_does` の `#[ignore = "#330: …"]` は、#356 が引き継ぐ。
+ASCII でない文字は、前と同じく英字のあとに code point の順で並ぶ。ロケールは `é` を `e` の隣に置き、U+200B と U+00AD を無視し(Bun で `"a\u200bb"` と `"ab"`、`"a\u00adb"` と `"ab"` は 0)、結合文字のアクセントは前の文字のあとに比べる(`"e\u0301"` と `"e"` は 1)ので、そこが TypeScript と違う。ASCII でない大文字(`É`)も小文字として扱う。合わせるには照合の crate(icu4x の `icu_collator` など)と manifest の変更が要り、#330 の書くパスにないので、#356 に分けた。ADR `0260-settings-store` が「ASCII でない文字の並びも #330 で扱う」と書いた件と、`rust/crates/orchestrator/tests/settings.rs` の `lists_role_names_past_ascii_as_locale_compare_does` の `#[ignore = "#330: …"]` は、#356 が引き継ぐ。
 
 ## 検討した代わり
 
@@ -58,7 +58,7 @@ ASCII でない文字は、前と同じく英字のあとに code point の順�
 
 2026-11-12、Linux(Omarchy、kernel 7.2.15)、Bun 1.4.4(`HERDR_*` を外し、`LANG=en_US.UTF-8`)、`rust/` で確かめた。
 
-- 期待値は Bun の `bun -e` で取った: ASCII の 128 文字を U+007F から U+0000 の順に並べた配列の `.sort((a, b) => a.localeCompare(b))`、23 個の語の並び、14 組の `a.localeCompare(b)`
+- 期待値は Bun の `bun -e` で取った: ASCII の 128 文字を U+007F から U+0000 の順と U+0000 から U+007F の順に並べた配列の `.sort((a, b) => a.localeCompare(b))`(無視する文字が入力の順のまま残ることを両方の向きで確かめる)、23 個の語の並び、14 組の `a.localeCompare(b)`
 - `cargo test --locked -p herdr-fleet-protocol --test js`: 関数が `todo!()` の stub のとき、足した 3 件が失敗した(`panicked at crates/protocol/src/js/locale.rs:4:5`)。前の規則を写した実装では、制御文字と空白の 2 件が失敗した(`panicked at crates/protocol/tests/js.rs:160:5` と `218:9`)。この ADR の実装で 10 件が通った
 - `cargo test --locked -p herdr-fleet-orchestrator --test settings --test usage`: `lists_the_persons_roles_by_name_as_locale_compare_does` と `lists_the_accounts_in_the_order_of_locale_compare` が期待値を変えずに通った
 - `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`

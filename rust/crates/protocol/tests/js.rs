@@ -149,11 +149,17 @@ fn lists_integer_keys_first_and_indents_by_two() {
     assert_eq!(pretty("[]"), "[]");
 }
 
-// Bun 1.4.4 under LANG=en_US.UTF-8: the 128 characters of ASCII from U+007F down to U+0000, each a
-// string, .sort((a, b) => a.localeCompare(b)).join(""). The ignored control characters tie, so a
-// stable sort keeps them in the order given.
+// Bun 1.4.4 under LANG=en_US.UTF-8: the 128 characters of ASCII from U+007F down to U+0000, and
+// from U+0000 up to U+007F, each a string, .sort((a, b) => a.localeCompare(b)).join(""). The
+// ignored control characters tie, so a stable sort keeps them in the order given.
 #[test]
 fn orders_ascii_characters_as_locale_compare_does() {
+    let ignored_up = "\u{00}\u{01}\u{02}\u{03}\u{04}\u{05}\u{06}\u{07}\u{08}\u{0E}\u{0F}\u{10}\u{11}\u{12}\u{13}\u{14}\u{15}\u{16}\u{17}\u{18}\u{19}\u{1A}\u{1B}\u{1C}\u{1D}\u{1E}\u{1F}\u{7F}";
+    let rest = "\t\n\u{0B}\u{0C}\r _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ";
+    let mut chars: Vec<String> = (0..128u8).map(|b| char::from(b).to_string()).collect();
+    chars.sort_by(|a, b| js::locale_compare(a, b));
+    assert_eq!(chars.concat(), format!("{ignored_up}{rest}"));
+
     let order = "\u{7F}\u{1F}\u{1E}\u{1D}\u{1C}\u{1B}\u{1A}\u{19}\u{18}\u{17}\u{16}\u{15}\u{14}\u{13}\u{12}\u{11}\u{10}\u{0F}\u{0E}\u{08}\u{07}\u{06}\u{05}\u{04}\u{03}\u{02}\u{01}\u{00}\t\n\u{0B}\u{0C}\r _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ";
     let mut chars: Vec<String> = (0..128u8)
         .rev()
