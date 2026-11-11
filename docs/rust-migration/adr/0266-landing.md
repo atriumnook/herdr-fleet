@@ -17,7 +17,7 @@
 - main の欠陥 #176 の 7(人のいない project で、pull request のない thread のターンの終わりごとに `gh pr view` を待つため、coordinator への知らせと `wait` が遅れる)を作らない形と、受け入れ条件の「`settleThreadTurn` は、知らせの文を作る前に hook を await する」との関係
 - main の欠陥 #240 の 2(landing の手順の送信が、決着がまだ読んでいない report.json を消す)の、landing の側の扱い
 
-決める前に architect(fleet の run `5c055b5b`)に聞き、答えに従った。答えと違う形を取ったのは、`notify_now` の 1 行の変更だけで、理由は「決定」の 3 に書いた。
+決める前に architect(fleet の run `5c055b5b`)に聞き、答えに従った。従わなかったのは、`notify_now` の 1 行を変える案だけで、理由は「決定」の 3 に書いた。
 
 ## 決定
 
