@@ -29,6 +29,8 @@
 - `answer_plan` は、TypeScript と次の 2 点で違う(`/code-review` の指摘)。どちらも、lead に同じ答えが 2 回届くことを防ぐ。1 点目は、古い版への答えを送ることも防ぐ
   - 決着を待ったあと計画を読み直し、待つ前と同じ確認(版が答えと合うか、答え済みか、閉じているか)をもう一度行う。答えを送ったあと計画に印を付けるのも、その版がまだ開いているときだけにする。TypeScript は待つ前にしか調べないので、待つ間に別の答えが届いて lead のターンが終わると 2 つ目の答えも送り、待つ間に lead が新しい版を出すと古い版への答えを送る
   - 答えが lead に届いたあと、outbox から送信中の知らせか thread の質問を消せなかったときは、標準エラーに書いて計画に印を付ける。TypeScript は投げるので、計画が答えを待ったまま残り、使う人がもう一度押すと同じ答えが再び届く。計画ファイルに書けなかったときは、答えた印を残す場所がないので、TypeScript と同じくエラーを返す
+- 待ったあとの確認から `submit_when_free` が turn を登録するまでの間に、別のスレッドの `submit_plan` が新しい版を保存すると、古い版への答えが lead に届き、新しい版は開いたまま残る(codex のレビューの指摘)。この状態は、TypeScript でも lead が答えの打ち込み中に新しい版を出したときに同じになり、テスト「leave a newer plan the lead handed over while the answers went out as it is」がそれを正しいとしている。Rust で増えるのはその間の数マイクロ秒だけで、行き着く状態は増えない。確認と登録を 1 つの手順にするには、turns の lock の中で確認を走らせる口が `turns.rs` に要るので、この Issue では直さない
+- 版の番号が `u32` の上限(4294967295)に達したあとの計画は `invalid_plan` で断る。TypeScript は 1 を足し続けるが、Rust の `read_plan` は上限を超えた版を読めず、上限で止めると 2 つの計画が同じ版になり、答えがどちらの版のものか区別できない(codex のレビューの指摘)
 - #240 の 3 の直し(`close_stale_plan` を呼ぶ条件)は `turns.rs` の `finalize` に置き、`turns.rs` だけを書く #338 が書く。#265 は書かない。条件は、報告がある場合の今の条件に加え、報告がなく `restart_error.is_some()`(新しい run が thread を引き継がなかった)ときにも呼ぶ、とする。起動し直しを試みなかった場合(報告がなく `needs_restart` が偽、つまり thread が landing 済みのとき)は、TypeScript と同じく閉じない。#267 は #338 を待ち、TypeScript の `orchestrator.test.ts:1402-1430` を移すときに、`:1429` の期待(`closedAt` が `undefined`)を、`closedAt` が数値であることに変える。根拠は #240、#265、#267 の本文
 - #267 との約束: `restart_thread` は、新しい run が thread を引き継がなかったときにだけ `Some` を返し、中断では返さない。中断で `Some` を返すと、サーバーの停止で計画が閉じる。TypeScript は中断を投げ直し、`closeStalePlan` まで進まない(`:1564`)
 
@@ -44,11 +46,10 @@
 
 ## 結果
 
-- `/api/fleet` の router(#269)は、`submit_plan`、`plan`、`answer_plan` を呼べる。`answer_plan` は中断のために `CancellationToken` を受け取る(`fleet/mod.rs` の冒頭の「Cancelling」)
 - 「計画を閉じる」判定の一部(どのターンで呼ぶか)は、TypeScript と同じく `turns.rs` に残る。時刻の比較(計画の `writtenAt` がターンの `submitted_at` より前なら閉じる)は `plans.rs` にある
 - 閉じた計画に答えると、`answer_plan` は lead が失敗していても `plan_closed`(「The lead of X went on without answers to version N of its plan.」)を返す。TypeScript と同じく `closedAt` を `isLive` より先に調べるため。#338 が入ると失敗した lead の計画も閉じるので、この文は事実と合わなくなる。文を変えるかは #267 が決める
 
 ## 確かめたこと
 
-- `cargo test --locked -p herdr-fleet-orchestrator --test plans`: 実装の前は 12 件すべてが stub の `todo!("#265")` で失敗し、実装のあとは 12 件すべてが通った(Linux、Rust 1.99.1)
+- `cargo test --locked -p herdr-fleet-orchestrator --test plans`: 実装の前は 12 件すべてが stub の `todo!("#265")` で失敗し、実装のあとは 12 件すべてが通った(Linux、Rust 1.99.1)。版の上限のテストは、直す前に `submit_plan` が成功して失敗し、直したあと通った
 - `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` が通った
