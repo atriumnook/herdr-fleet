@@ -1017,6 +1017,57 @@ async fn a_lead_that_merged_in_its_first_turn_and_waits_for_a_helper_keeps_its_t
     assert_eq!(p.removed(), vec![thread.branch.clone().unwrap()]);
 }
 
+// /code-review's finding on #268: a turn that ends on the lead's question has only the question for
+// news (orchestrator.ts's `threadQuestion` goes first), which quotes no pull request. The thread
+// closes as TypeScript closed it (a blocked report does not go on), and the coordinator hears of
+// the merge in a line of its own (ADR 0268-autonomy, decision 1). The question's line is
+// `threadQuestion`'s, the merge's the line decision 2 gives.
+#[tokio::test(start_paused = true)]
+async fn a_merge_read_as_a_turn_ends_on_the_leads_question_reaches_the_coordinator_beside_it() {
+    let p = project();
+    let coordinator = p.start_project("go").await;
+    p.turn(&coordinator, AgentState::Idle).await;
+    let thread = p.start_thread("Port", &coordinator).await;
+    p.set_pr(Some(pull_request(
+        8,
+        PullRequestState::Open,
+        ChecksState::Pass,
+    )));
+    p.report(&thread, "ready", "Opened #8.");
+    p.turn(&thread, AgentState::Idle).await;
+    p.turn(&coordinator, AgentState::Idle).await;
+    assert!(p.run(&thread).pr.is_some());
+    p.send(&thread, "merge it").await;
+    p.set_pr(Some(merged(8)));
+    let report = json!({ "state": "blocked", "summary": "Close the issue?", "evidence": [], "human_action": "Close the issue?" });
+    fs::write(
+        p.s.result_dir(&thread.id).join("report.json"),
+        report.to_string(),
+    )
+    .unwrap();
+    p.handoff(&thread, "## HANDOFF\nClose the issue?", None);
+    p.turn(&thread, AgentState::Idle).await;
+    assert_eq!(p.run(&thread).landed, Some(Landed::Merged));
+    until(
+        || p.to(&coordinator).concat().contains("Close the issue?"),
+        "the coordinator hears of the turn",
+    )
+    .await;
+    p.turn(&coordinator, AgentState::Idle).await;
+    let heard = p.to(&coordinator)[2..].join("\n");
+    assert!(
+        heard.contains(&format!(
+            "- {} asks the person: Close the issue?\n  ## HANDOFF\n  Close the issue?",
+            label(&thread)
+        )),
+        "{heard}"
+    );
+    assert!(
+        heard.contains(&closed_on_merge(&thread, 8, "blocked")),
+        "{heard}"
+    );
+}
+
 // main's defect #176's 2: the polling's merge news took the place of news the coordinator had not
 // heard yet (a thread's question). Issue #268's expected behaviour: both reach the coordinator, in
 // one message once it is free. The question's line is orchestrator.ts's `threadQuestion`, the

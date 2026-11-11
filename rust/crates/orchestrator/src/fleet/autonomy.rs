@@ -17,7 +17,7 @@ use std::sync::Mutex;
 use protocol::{AgentRun, AgentState, PullRequestState, ReportState, TurnOutcome};
 use tokio_util::sync::CancellationToken;
 
-use super::notices::thread_label;
+use super::notices::{thread_label, thread_question};
 use super::{
     BoxFuture, Orchestrator, PROJECT_ROLE, is_completed, is_live, is_thread, locked, state_name,
 };
@@ -82,13 +82,27 @@ impl Orchestrator {
         };
         match seen {
             MergeSeen::TurnEnded => {
-                // the turn's news says it all: a merge notice not heard yet would say it twice
-                locked(&self.inner.autonomy)
-                    .merge_told
-                    .insert(super::thread_id(&run).to_owned());
-                log_unwritten(self.inner.outbox.discard(thread, MERGE_SLOT));
-                if run.landed.is_none() && !goes_on(&run) {
-                    self.merged_on_github(thread, reading).await;
+                // under the thread's lock, as a polled merge closes it: one of the two closes it
+                // (the settlement holds the run's lock, and the coordinator's settlement takes the
+                // two in the same order)
+                let closed = self
+                    .on_lead(thread, |lead| async move {
+                        if goes_on(&lead) {
+                            return None;
+                        }
+                        self.close_on_merge(&lead.id, reading).await
+                    })
+                    .await
+                    .flatten();
+                // the turn's news quotes the pull request and whether the thread closed, unless it
+                // is the lead's question, which quotes neither: then the merge is told apart
+                if thread_question(&run).is_some() {
+                    self.tell_merge(thread, closed);
+                } else {
+                    locked(&self.inner.autonomy)
+                        .merge_told
+                        .insert(super::thread_id(&run).to_owned());
+                    log_unwritten(self.inner.outbox.discard(thread, MERGE_SLOT));
                 }
             }
             MergeSeen::Polled => {
@@ -97,30 +111,42 @@ impl Orchestrator {
                         if self.fleet_at_work(&lead.group) || !finished(&lead) {
                             return None;
                         }
-                        self.merged_on_github(&lead.id, reading).await;
-                        self.registry().get(&lead.id)
+                        self.close_on_merge(&lead.id, reading).await
                     })
                     .await
                     .flatten();
-                let (about, text) = match closed {
-                    Some(closed) => (closed.id.clone(), thread_closed_on_merge(&closed)),
-                    None => {
-                        let Ok(lead) = self.get(thread, None) else {
-                            return;
-                        };
-                        let first = locked(&self.inner.autonomy)
-                            .merge_told
-                            .insert(super::thread_id(&lead).to_owned());
-                        if lead.landed.is_some() || !first {
-                            return;
-                        }
-                        (lead.id.clone(), thread_merged(&lead))
-                    }
-                };
-                self.queue_merge(&about, text);
-                self.spawn_tell(&about);
+                self.tell_merge(thread, closed);
             }
         }
+    }
+
+    /// The thread `id` closed on its merge: the run as closed, or none when it did not close (no
+    /// repository or branch recorded, or the run went away).
+    async fn close_on_merge(&self, id: &str, reading: &PullRequestReading) -> Option<AgentRun> {
+        self.merged_on_github(id, reading).await;
+        self.registry().get(id).filter(|run| run.landed.is_some())
+    }
+
+    /// The coordinator hears of the thread's merge, apart from the turn's news: that the fleet
+    /// closed it, or, once per thread, that it closes once its lead's turn ends (`threadMerged`).
+    fn tell_merge(&self, thread: &str, closed: Option<AgentRun>) {
+        let (about, text) = match closed {
+            Some(closed) => (closed.id.clone(), thread_closed_on_merge(&closed)),
+            None => {
+                let Ok(lead) = self.get(thread, None) else {
+                    return;
+                };
+                let first = locked(&self.inner.autonomy)
+                    .merge_told
+                    .insert(super::thread_id(&lead).to_owned());
+                if lead.landed.is_some() || !first {
+                    return;
+                }
+                (lead.id.clone(), thread_merged(&lead))
+            }
+        };
+        self.queue_merge(&about, text);
+        self.spawn_tell(&about);
     }
 
     /// The projects run without the person, looked after (the server calls this after
@@ -159,11 +185,11 @@ impl Orchestrator {
                 closed_in.insert(project.clone());
             }
         }
-        let coordinators: Vec<AgentRun> = self
-            .list(None)
-            .into_iter()
-            .filter(|run| run.role == PROJECT_ROLE && run.project.is_some() && is_live(run))
-            .collect();
+        // one reading of the runs after the reads above
+        let runs = self.list(None);
+        let coordinators = runs
+            .iter()
+            .filter(|run| run.role == PROJECT_ROLE && run.project.is_some() && is_live(run));
         for coordinator in coordinators {
             if !self.config(&coordinator.cwd).autonomous {
                 continue;
@@ -176,21 +202,20 @@ impl Orchestrator {
                     .insert(coordinator.id.clone(), now);
                 continue;
             }
-            let open: Vec<AgentRun> = self
-                .list(None)
-                .into_iter()
+            let open: Vec<AgentRun> = runs
+                .iter()
                 .filter(|run| {
                     is_thread(run)
                         && run.project.as_deref() == Some(project.as_str())
                         && is_live(run)
                         && run.landed.is_none()
                 })
+                .cloned()
                 .collect();
             let groups: HashSet<&str> = std::iter::once(coordinator.group.as_str())
                 .chain(open.iter().map(|run| run.group.as_str()))
                 .collect();
-            let members: Vec<(bool, bool)> = self
-                .list(None)
+            let members: Vec<(bool, bool)> = runs
                 .iter()
                 .filter(|run| groups.contains(run.group.as_str()) && is_live(run))
                 .map(|run| (run.id == coordinator.id, self.at_work(run)))
@@ -228,6 +253,28 @@ impl Orchestrator {
                 }));
             }
         }
+        self.forget_ended();
+    }
+
+    /// What the supervision kept about runs that ended or threads that closed goes.
+    fn forget_ended(&self) {
+        let open: Vec<AgentRun> = self
+            .list(None)
+            .into_iter()
+            .filter(|run| is_live(run) && run.landed.is_none())
+            .collect();
+        let ids: HashSet<&str> = open.iter().map(|run| run.id.as_str()).collect();
+        let threads: HashSet<&str> = open.iter().map(super::thread_id).collect();
+        let mut state = locked(&self.inner.autonomy);
+        state.quiet_since.retain(|id, _| ids.contains(id.as_str()));
+        state.andon_sent.retain(|id| ids.contains(id.as_str()));
+        state
+            .settled_since
+            .retain(|id, _| ids.contains(id.as_str()));
+        state
+            .reconciled_at
+            .retain(|id, _| ids.contains(id.as_str()));
+        state.merge_told.retain(|id| threads.contains(id.as_str()));
     }
 
     /// A settled thread's pull request, read once per quiet period: merged on GitHub, the thread
@@ -267,8 +314,7 @@ impl Orchestrator {
                 if self.fleet_at_work(&lead.group) {
                     return None;
                 }
-                self.merged_on_github(&lead.id, reading).await;
-                self.registry().get(&lead.id)
+                self.close_on_merge(&lead.id, reading).await
             })
             .await
             .flatten();

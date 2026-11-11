@@ -19,7 +19,7 @@
 
 ## 決定
 
-1. **ターンの決着の中で読んだマージ(`TurnEnded`)。** lead の report が `progress` か `waiting`(lead がまだ続ける)と言うときは、thread を閉じない。それ以外(report がないときを含む)は、TypeScript と同じく `merged_on_github` で閉じる。lead がマージしたあとで helper を待つためにターンを切ると、report は `waiting` になる。このとき thread を閉じると、lead が Issue を閉じる前に thread が閉じる(#176 の 1)。hook は coordinator への知らせを入れない。続くターンの知らせが、`Pull request #N: MERGED` と、閉じたときは `, and the thread is closed` を引用するため。同じ thread について、まだ届けていないマージの知らせ(決定 4 の slot)があれば消す。ターンの知らせと同じことを 2 回伝えないため。
+1. **ターンの決着の中で読んだマージ(`TurnEnded`)。** lead の report が `progress` か `waiting`(lead がまだ続ける)と言うときは、thread を閉じない。それ以外(report がないときを含む)は、TypeScript と同じく `merged_on_github` で閉じる。lead がマージしたあとで helper を待つためにターンを切ると、report は `waiting` になる。このとき thread を閉じると、lead が Issue を閉じる前に thread が閉じる(#176 の 1)。hook は coordinator への知らせを入れない。続くターンの知らせが、`Pull request #N: MERGED` と、閉じたときは `, and the thread is closed` を引用するため。同じ thread について、まだ届けていないマージの知らせ(決定 4 の slot)があれば消す。ターンの知らせと同じことを 2 回伝えないため。ただし、ターンの知らせが lead の質問(`threadQuestion`。report が `blocked` か `human_action` を持つとき)なら、質問は pull request も閉じたことも引用しないので、決定 2 と同じ文(閉じたとき)か `threadMerged`(閉じないとき)を、別の行で伝える(`/code-review` の指摘)。`TurnEnded` で閉じるときも、`Polled` で閉じるときと同じく thread の lock(`on_lead`)の中で閉じる。2 つが同時に同じ thread を閉じないため。
 
 2. **決着の外で読んだマージ(`Polled`)。** TypeScript の `refreshPullRequests` と同じく、thread を閉じずに、coordinator に `threadMerged` を 1 回だけ伝える(同じ thread について 2 回目は伝えない)。ただし、thread の fleet(lead と helper)のどの run も働いておらず、lead の最後の report が `ready` か `dropped`(lead の作業が終わった)のときは、thread を閉じ、次の文を伝える。
 
@@ -27,7 +27,9 @@
    "<title>" (<id>, <branch>): GitHub shows pull request #<N> merged and its lead's last report says <state>, so the fleet closed the thread. Close its issue if it is still open.
    ```
 
-   閉じる場合を足したのは、#266 が pull request のない thread のターンのあとの読み取りを `Polled` にしたためである。TypeScript は、lead が 1 つのターンで pull request を開いてマージした thread を、そのターンの終わりに閉じていた(`orchestrator.test.ts` の describe `a project run without the person` の 2 件目と 3 件目)。`Polled` で閉じないと、この最も多い場合で、thread とそのペインが静かな時間(15 分)だけ残る。文は `threadClosedAfterMerge` の形にそろえた。`threadMerged` の「the thread closes once its lead's turn ends」は、閉じたあとには当たらないため。
+   「閉じた」と伝えるのは、閉じたあとで run を読み直し、`landed` が書かれていたときだけである(repository かブランチの記録がないと、`merged_on_github` は閉じずに戻る。`/code-review` の指摘)。
+
+   閉じる場合を足したのは、#266 が pull request のない thread のターンのあとの読み取りを `Polled` にしたためである。TypeScript は、lead が 1 つのターンで pull request を開いてマージした thread を、そのターンの終わりに閉じていた(`orchestrator.test.ts` の describe `a project run without the person` の 2 件目と 3 件目)。`Polled` で閉じないと、lead が 1 つのターンで pull request を開いてマージするたびに、thread とそのペインが静かな時間(15 分)だけ残る。文は `threadClosedAfterMerge` の形にそろえた。`threadMerged` の「the thread closes once its lead's turn ends」は、閉じたあとには当たらないため。
 
 3. **静かな時間のあとの照合(`reconcileThread`)。**
    - thread が「落ち着いている」と見るのは、lead だけでなく、thread の fleet のどの run も働いていない(fleet のターンが進行中でなく、herdr の状態が `working` でも `starting` でもない)ときにする。TypeScript は lead の状態だけを見るので、helper の結果を待つ lead が静かな時間を越えると、helper が働いていても thread を閉じた(#176 の 1)
@@ -44,6 +46,8 @@
    - TypeScript の reviewer は agy で動く。Rust の fleet は agy の reviewer を断る(main の #190、ADR `0248-launch-adapters`)ので、pi で動かす。11 件のどれも CLI の種類に依らない
    - 2 件目と 3 件目は、coordinator が聞く文が決定 2 のとおり 2 行に分かれる(#266 の #176 の 7 による)
    - 3 件目と 11 件目は、fleet が送っていないターンの決着(`settle_unsent_turn`、#267 の stub)を使うので、`#[ignore]` にした。11 件目の振る舞いは、最後のターンを fleet が送ったターンにした件で確かめる。#267 が入ったら `#[ignore]` を外す。#267 にコメントした
+
+8. **監督が覚えていること。** 静かになった時刻、停滞を伝えたこと、thread が落ち着いた時刻、GitHub に聞いた時刻、マージを伝えたことは、監督のたびの終わりに、終わった run と閉じた thread の分を消す(`/code-review` の指摘)。
 
 ## 検討した代わり
 
@@ -69,5 +73,6 @@ Linux(Omarchy、kernel 7.2.15)、`rust/` で、2026-11-11 に実行した。
 
 - 実装の前に、`supervise_projects` を `todo!` の stub にして `cargo test --locked -p herdr-fleet-orchestrator --test autonomy` を走らせ、16 件のうち 13 件が失敗した(`not yet implemented: #268`、`timed out: the thread closed`、`left: None` / `right: Some(Merged)` など)。先に通った 3 件(1 件目、4 件目、8 件目)は、#264 と turns がすでに満たしている
 - 実装のあとで、同じコマンドで 16 件が通り、2 件が ignored になった。20 回続けて走らせ、20 回とも通った
+- `/code-review high` の指摘で、質問で終わったターンでマージを読んだ件を足した。直す前のコードでは、coordinator が閉じたことを聞かずに失敗し(`tests/autonomy.rs:1065` の assert)、直したあとは通った。17 件が通り、2 件が ignored
 - #176 の 5 の件は、`tell_when_free` を TypeScript と同じ形(配達の lock を持たず、`submit` で送る)に一時的に戻すと、coordinator に 2 つのメッセージが入って失敗し、戻すと通った
-- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`(1027 件が通り、14 件が ignored)が通った
+- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`(1028 件が通り、14 件が ignored)が通った
