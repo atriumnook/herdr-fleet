@@ -94,6 +94,6 @@ TypeScript が実行時に調べる型(候補の CLI が知っている名前か
 ## 確かめたこと
 
 - Arch Linux(Linux 7.2)、Rust 1.99.1、Bun 1.4.4
-- `cargo test --locked -p herdr-fleet-orchestrator --test settings`: 15 件が通る。`settings.test.ts` の 9 件の `it` と、TypeScript が書いたバイト列との比較、TypeScript が書いたファイルの読み取り、0600 と一時ファイルが残らないこと、agy の判定、書けないときの `internal_error`
+- `cargo test --locked -p herdr-fleet-orchestrator --test settings`: 16 件が通る。`settings.test.ts` の 9 件の `it` と、TypeScript が書いたバイト列との比較、TypeScript が書いたファイルの読み取り、0600 と一時ファイルが残らないこと、agy の判定、project の `spawning` を反映した `skip`、書けないときの `internal_error`
 - TypeScript の書くバイト列と読む値は、TypeScript の `FleetSettingsStore` を Bun で動かして取った(`HERDR_*` を外して実行。テストのコメントに手順を書いた)
 - 並びの期待値は `bun -e` の `localeCompare` で取った(`LANG=en_US.UTF-8`)
