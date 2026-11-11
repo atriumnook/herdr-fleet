@@ -745,9 +745,28 @@ fn sh_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
 }
 
+/// Writes `body` as an executable `/bin/sh` script at `file`.
+///
+/// A shell writes the file, not this process: a file this process held open for writing would be
+/// inherited by a child another test forks at that moment, and executing it before that child's
+/// own exec closes it fails with ETXTBSY ("Text file busy", issue #336). Writing to another name
+/// and renaming it would not help, as the child holds the same file.
 fn write_script(file: &Path, body: &str) {
-    fs::write(file, format!("#!/bin/sh\n{body}\n")).unwrap();
-    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
+    let status = std::process::Command::new("/bin/sh")
+        .args([
+            "-c",
+            r#"printf '#!/bin/sh\n%s\n' "$2" > "$1" && chmod 755 "$1""#,
+            "sh",
+        ])
+        .arg(file)
+        .arg(body)
+        .status()
+        .unwrap_or_else(|error| panic!("{}: {error}", file.display()));
+    assert!(
+        status.success(),
+        "{}: could not write the fake",
+        file.display()
+    );
 }
 
 fn read(file: impl AsRef<Path>) -> String {
