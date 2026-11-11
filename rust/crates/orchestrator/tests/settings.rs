@@ -268,6 +268,29 @@ fn lists_the_persons_roles_by_name_as_locale_compare_does() {
     );
 }
 
+// Names past ASCII as the store orders them now, which ADR 0260-settings-store ("役割の並び") keeps
+// as a difference from `localeCompare` until #330: a character past ASCII is weighed after the
+// letters by its code point. Worked out by hand from that rule: the ASCII names by their letters
+// (alpha, eclair, zeta), then `Å` (U+00C5) before `é` (U+00E9).
+#[test]
+fn lists_role_names_past_ascii_after_the_ascii_ones_by_code_point() {
+    let s = setup();
+    let names = ["zeta", "éclair", "eclair", "Ångström", "alpha"];
+    let store = FleetSettingsStore::new(FleetSettingsDeps {
+        agents: agents(names.iter().map(|name| role(name)).collect()),
+        usage: None,
+        user_dir: s.user_dir.clone(),
+    });
+    let listed: Vec<_> = store
+        .read(&s.repo)
+        .unwrap()
+        .roles
+        .into_iter()
+        .map(|each| each.name)
+        .collect();
+    assert_eq!(listed, ["alpha", "eclair", "zeta", "Ångström", "éclair"]);
+}
+
 // Names past ASCII as Bun 1.4.4 orders them (LANG=en_US.UTF-8, `bun -e`: ["zeta","éclair","eclair",
 // "Ångström","alpha"].sort((a, b) => a.localeCompare(b)) gives ["alpha","Ångström","eclair",
 // "éclair","zeta"]). The store weighs a character past ASCII by its code point after the letters

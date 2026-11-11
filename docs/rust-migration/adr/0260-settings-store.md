@@ -80,7 +80,7 @@ TypeScript に合わせるには、`serde_json::Value` が持てない値(`Infin
 
 `ROLE_FLOW` の順のあとの役割は、TypeScript の `a.name.localeCompare(b.name)` の順に並べる。Bun 1.4.4 の en-US の並びを `locale_compare` に写した。写したのは ASCII の文字の並びだけで、ASCII でない文字は英字のあとに code point の順で並べる。そのため、ASCII でない文字を含む名前の役割は TypeScript と違う順になる(Bun 1.4.4 で `zeta, éclair, eclair, Ångström, alpha` は `alpha, Ångström, eclair, éclair, zeta`、Rust は `alpha, eclair, zeta, Ångström, éclair`)。locale の照合を写すには照合の crate(icu4x の `icu_collator` など)が要り、manifest を書けない #260 では足せない。
 
-同じ規則が `usage/tracker.rs` にもある。#260 は `tracker.rs` を書けないので写し、1 つにまとめる Issue を #330 で開いた。ASCII でない文字の並びも #330 で扱う。Bun の並びを期待値にしたテスト `lists_role_names_past_ascii_as_locale_compare_does` を `#[ignore]` で置いた。
+同じ規則が `usage/tracker.rs` にもある。#260 は `tracker.rs` を書けないので写し、1 つにまとめる Issue を #330 で開いた。ASCII でない文字の並びも #330 で扱う。いまの並びは `lists_role_names_past_ascii_after_the_ascii_ones_by_code_point` が確かめる。Bun の並びを期待値にしたテスト `lists_role_names_past_ascii_as_locale_compare_does` は、#330 で通るまで `#[ignore]` にした。
 
 ## 検討した代わり
 
@@ -105,6 +105,6 @@ TypeScript に合わせるには、`serde_json::Value` が持てない値(`Infin
 ## 確かめたこと
 
 - Arch Linux(Linux 7.2)、Rust 1.99.1、Bun 1.4.4
-- `cargo test --locked -p herdr-fleet-orchestrator --test settings`: 17 件が通り、1 件(ASCII でない名前の並び、#330)は `#[ignore]`。`settings.test.ts` の 9 件の `it` と、TypeScript が書いたバイト列との比較、TypeScript が書いたファイルの読み取り、0600 と一時ファイルが残らないこと、agy の判定、project の `spawning` を反映した `skip`、書けないときの `internal_error`、serde_json が断る fleet.json を書き換えないこと
+- `cargo test --locked -p herdr-fleet-orchestrator --test settings`: 18 件が通り、1 件(ASCII でない名前の Bun の並び、#330)は `#[ignore]`。`settings.test.ts` の 9 件の `it` と、TypeScript が書いたバイト列との比較、TypeScript が書いたファイルの読み取り、0600 と一時ファイルが残らないこと、agy の判定、project の `spawning` を反映した `skip`、書けないときの `internal_error`、serde_json が断る fleet.json を書き換えないこと、ASCII でない名前のいまの並び
 - TypeScript の書くバイト列と読む値は、TypeScript の `FleetSettingsStore` を Bun で動かして取った(`HERDR_*` を外して実行。テストのコメントに手順を書いた)
 - 並びの期待値は `bun -e` の `localeCompare` で取った(`LANG=en_US.UTF-8`)
