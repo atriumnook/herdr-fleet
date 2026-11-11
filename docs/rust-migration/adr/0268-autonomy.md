@@ -45,7 +45,7 @@
 7. **テスト。** `orchestrator.test.ts` の describe `a project run without the person` の 11 件を `tests/autonomy.rs` に移した。次の点が TypeScript と違う。
    - TypeScript の reviewer は agy で動く。Rust の fleet は agy の reviewer を断る(main の #190、ADR `0248-launch-adapters`)ので、pi で動かす。11 件のどれも CLI の種類に依らない
    - 2 件目と 3 件目は、coordinator が聞く文が決定 2 のとおり 2 行に分かれる(#266 の #176 の 7 による)
-   - 3 件目と 11 件目は、fleet が送っていないターンの決着(`settle_unsent_turn`、#267 の stub)を使うので、`#[ignore]` にした。11 件目の振る舞いは、最後のターンを fleet が送ったターンにした件で確かめる。#267 が入ったら `#[ignore]` を外す。#267 にコメントした
+   - 3 件目と 11 件目は、fleet が送っていないターンの決着(`settle_unsent_turn`、#267)を使う。#267 が入る前は `#[ignore]` にし、#267 が rust に入ったあとで外した。11 件目は、最後のターンを fleet が送ったターンにした件でも確かめる
 
 8. **監督が覚えていること。** 静かになった時刻、停滞を伝えたこと、thread が落ち着いた時刻、GitHub に聞いた時刻、マージを伝えたことは、監督のたびの終わりに、終わった run と閉じた thread の分を消す(`/code-review` の指摘)。
 
@@ -63,7 +63,6 @@
 ## 結果
 
 - core(LIVE、#270)と API(#269)は、`refresh_pull_requests` のあとで `supervise_projects` を呼ぶ(TypeScript のサーバーと同じ順)
-- #267 は、`settle_unsent_turn` を書いたら、`tests/autonomy.rs` の `#[ignore]` の 2 件を外す
 - #340 は、`autonomy.rs` の `tell_when_free` の送信と `draft_in_input` も、`notify_now` と `notices.rs` の確認に置き換えられる。#340 の書くパスには `autonomy.rs` がないので、置き換えるときは書くパスに足す
 - 人のいない project で thread が閉じる時期は、lead の report に依る。lead が report を書かずにターンを終えると、`TurnEnded` では閉じ、`Polled` では閉じない
 
@@ -74,5 +73,6 @@ Linux(Omarchy、kernel 7.2.15)、`rust/` で、2026-11-11 に実行した。
 - 実装の前に、`supervise_projects` を `todo!` の stub にして `cargo test --locked -p herdr-fleet-orchestrator --test autonomy` を走らせ、16 件のうち 13 件が失敗した(`not yet implemented: #268`、`timed out: the thread closed`、`left: None` / `right: Some(Merged)` など)。先に通った 3 件(1 件目、4 件目、8 件目)は、#264 と turns がすでに満たしている
 - 実装のあとで、同じコマンドで 16 件が通り、2 件が ignored になった。20 回続けて走らせ、20 回とも通った
 - `/code-review high` の指摘で、質問で終わったターンでマージを読んだ件を足した。直す前のコードでは、coordinator が閉じたことを聞かずに失敗し(`tests/autonomy.rs:1065` の assert)、直したあとは通った。17 件が通り、2 件が ignored
+- #267 が rust に入ったあとで rust を取り込み、`#[ignore]` の 2 件を外した。同じコマンドで 19 件すべてが通った
 - #176 の 5 の件は、`tell_when_free` を TypeScript と同じ形(配達の lock を持たず、`submit` で送る)に一時的に戻すと、coordinator に 2 つのメッセージが入って失敗し、戻すと通った
-- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`(1028 件が通り、14 件が ignored)が通った
+- `cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` が通った(#267 を取り込んだあとで 1053 件が通り、13 件が ignored。ignored に `tests/autonomy.rs` の件はない)

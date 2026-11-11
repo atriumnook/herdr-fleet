@@ -405,7 +405,6 @@ async fn closes_a_thread_whose_lead_merged_its_own_pull_request_as_the_leads_tur
 // As above, the merge reaches the coordinator in a line of its own (#176's 7, ADR 0266-landing; ADR
 // 0268-autonomy, decision 2).
 #[tokio::test(start_paused = true)]
-#[ignore = "#267 settles a turn the fleet did not send (settle_unsent_turn is its stub)"]
 async fn tells_the_coordinator_of_a_turn_the_threads_agent_started_itself_as_its_helpers_results_woke_it()
  {
     let p = project();
@@ -829,7 +828,6 @@ async fn closes_a_thread_github_shows_merged_once_its_lead_stayed_settled_throug
 
 // orchestrator.test.ts: "leaves a thread whose pull request the polling finds merged open for its lead to finish, tells the coordinator, and closes it as the lead's turn ends"
 #[tokio::test(start_paused = true)]
-#[ignore = "#267 settles a turn the fleet did not send (settle_unsent_turn is its stub)"]
 async fn leaves_a_thread_whose_pull_request_the_polling_finds_merged_open_for_its_lead_to_finish_tells_the_coordinator_and_closes_it_as_the_leads_turn_ends()
  {
     let p = project();
@@ -884,8 +882,8 @@ async fn polled_merge(p: &Project) -> (AgentRun, AgentRun) {
     (coordinator, thread)
 }
 
-// The `it` above with the lead's next turn one the fleet sent, which settles before #267 lands: the
-// same expected values (orchestrator.test.ts:2367-2398).
+// The `it` above with the lead's next turn one the fleet sent: the same expected values
+// (orchestrator.test.ts:2367-2398).
 #[tokio::test(start_paused = true)]
 async fn a_thread_the_polling_found_merged_closes_as_the_next_turn_the_fleet_sent_its_lead_ends() {
     let p = project();
