@@ -41,7 +41,7 @@ const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> =
       "briefs a scout or a worker in full": /Brief both with `--goal`, `--context`, `--done` and `--verify`/,
       "checks each helper's result before going on": /Check each result before you go on/,
       "runs independent changes on separate workers side by side": /Changes that do not depend on each other go to separate workers with separate `--write` paths, side by side/,
-      "sends a failed change back once, then writes it itself and reports it": /send it back with what failed; only when it fails a second time do you write it yourself, and say so in your report/,
+      "restarts a failed change once with what failed, then writes it itself and reports it": /start a new worker with what failed in `--context`; only when that fails too do you write it yourself, and say so in your report/,
       "asks an architect how to build": /spawn --role architect --read-only/,
       "asks the person what to build when it cannot be undone": /When the assumption would be hard to undo, do not guess/,
       "ends a turn with the contract's state": /Contract: A1/,
