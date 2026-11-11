@@ -354,9 +354,17 @@ export class Orchestrator {
     return this.deps.agents(cwd);
   }
 
-  /** The fleet a saved run in this pane belongs to; an unknown, non-fleet pane has none. */
-  groupForPane(paneId: string): string | undefined {
-    return this.deps.registry.byPane(paneId)?.group;
+  /**
+   * The fleet agent calling: its run (HERDR_FLEET_RUN), else the saved run in its herdr pane, which a
+   * resumed session that lost the fleet environment still has; none for a person's pane. A run and a
+   * pane of two agents are refused: neither may act in the other's name.
+   */
+  caller(callerRun?: string, paneId?: string): AgentRun | undefined {
+    const byRun = callerRun ? this.deps.registry.get(callerRun) : undefined;
+    if (callerRun && !byRun) throw new FleetError("run_not_found", `Unknown calling run: ${callerRun}`);
+    const byPane = paneId ? this.deps.registry.byPane(paneId) : undefined;
+    if (byRun && byPane && byRun.id !== byPane.id) throw new FleetError("caller_mismatch", "The calling run and pane do not belong to the same fleet agent.");
+    return byRun ?? byPane;
   }
 
   /** A run of `group`, or a thread a run of `group` started: each thread is a fleet of its own, which its owner still reaches. */
@@ -396,12 +404,8 @@ export class Orchestrator {
     const title = request.title.trim();
     if (!title || title.length > 120) throw new FleetError("invalid_title", "A thread needs a title of up to 120 characters.");
     const cwd = resolve(request.cwd ?? process.cwd());
-    const runOwner = request.callerRun ? this.deps.registry.get(request.callerRun) : undefined;
-    if (request.callerRun && !runOwner) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
-    const paneOwner = request.callerPaneId ? this.deps.registry.byPane(request.callerPaneId) : undefined;
-    if (runOwner && paneOwner && runOwner.id !== paneOwner.id) throw new FleetError("caller_mismatch", "The calling run and pane do not belong to the same fleet agent.");
-    const owner = runOwner ?? paneOwner;
-    const callerDepth = !request.callerRun && paneOwner ? paneOwner.depth : request.depth;
+    const owner = this.caller(request.callerRun, request.callerPaneId);
+    const callerDepth = !request.callerRun && owner ? owner.depth : request.depth;
     const repo = await (this.deps.gitRoot ?? gitRoot)(cwd);
     if (repo) await (this.deps.excludeWorktrees ?? excludeWorktrees)(repo);
     const base = repo ? await (this.deps.gitHead ?? gitHead)(repo) : null;
@@ -443,9 +447,8 @@ export class Orchestrator {
   }
 
   /** The threads of the caller's project (the calling run's, or the repository `cwd` lies in), oldest first. */
-  async threads(request: { callerRun?: string; cwd?: string }): Promise<ThreadSummary[]> {
-    const caller = request.callerRun ? this.deps.registry.get(request.callerRun) : undefined;
-    if (request.callerRun && !caller) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
+  async threads(request: { callerRun?: string; callerPaneId?: string; cwd?: string }): Promise<ThreadSummary[]> {
+    const caller = this.caller(request.callerRun, request.callerPaneId);
     const cwd = resolve(request.cwd ?? process.cwd());
     const project = caller?.project ?? await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
     return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project && !run.replacedBy).map((run) => {

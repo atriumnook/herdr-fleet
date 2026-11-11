@@ -16,6 +16,14 @@ import { ModelCatalog } from "./models.ts";
 const resultsRoot = mkdtempSync(join(tmpdir(), "fleet-api-"));
 afterAll(() => rmSync(resultsRoot, { recursive: true, force: true }));
 
+/** A repository with one commit: a thread started in it is a thread of its project. */
+function repository(name: string): string {
+  const repo = join(resultsRoot, name);
+  Bun.spawnSync(["git", "init", "-q", "-b", "main", repo]);
+  Bun.spawnSync(["git", "-C", repo, "-c", "user.email=t@example.invalid", "-c", "user.name=t", "commit", "-q", "--allow-empty", "-m", "base"]);
+  return repo;
+}
+
 function fleet() {
   let panes = 0;
   const state: { get: AgentState } = { get: "working" };
@@ -51,7 +59,21 @@ function fleet() {
     const response = await handleFleetRequest(new Request(url, { method, headers, ...(body === undefined ? {} : { body: JSON.stringify(body) }) }), url, orchestrator, usage, settings, entrances, models, report);
     return { status: response.status, body: await response.json() as Record<string, any> };
   };
-  return { call, state, usage, probes: () => probes, reports };
+  // the real fleet command against this fleet, in an environment of its own: HERDR_* are only those given
+  const cli = async (args: string[], env: Record<string, string>, cwd = resultsRoot) => {
+    const server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: (request) => handleFleetRequest(request, new URL(request.url), orchestrator, usage, settings, entrances, models, report) });
+    try {
+      const base = Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("HERDR_"))) as Record<string, string>;
+      const child = Bun.spawn([process.execPath, join(import.meta.dir, "../../bin/fleet.ts"), ...args], {
+        cwd, env: { ...base, HERDR_FLEET_URL: `http://127.0.0.1:${server.port}`, ...env }, stdout: "pipe", stderr: "pipe",
+      });
+      const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
+      return { code, out: stdout + stderr };
+    } finally {
+      server.stop(true);
+    }
+  };
+  return { call, cli, state, usage, probes: () => probes, reports };
 }
 
 describe("fleet API", () => {
@@ -159,6 +181,81 @@ describe("fleet API", () => {
       title: "Mismatched caller", cwd: resultsRoot, depth: coordinator.depth, caller_run: coordinator.id, caller_pane_id: other.paneId,
       brief: { goal: "must not start", write: [], context: "none", done: "never", verify: "none" },
     })).toMatchObject({ status: 400, body: { error: { code: "caller_mismatch" } } });
+  });
+
+  it("takes a resumed coordinator's every command, run through the fleet command with only its pane, to its own fleet and threads", async () => {
+    const { call, cli, state } = fleet();
+    const repoRoot = repository("resumed");
+    const coordinator = (await call("POST", "/projects", { task: "coordinate", cwd: repoRoot })).body["run"];
+    const lead = (await call("POST", "/threads", {
+      title: "Owned thread", cwd: repoRoot, depth: coordinator.depth, caller_run: coordinator.id,
+      brief: { goal: "do it", write: [], context: "none", done: "done", verify: "test" },
+    })).body["run"];
+    // a helper the coordinator started while its environment was whole: its fleet is the coordinator's
+    const helper = (await call("POST", "/spawn", {
+      role: "worker", cwd: repoRoot, group: coordinator.group, depth: coordinator.depth,
+      brief: { goal: "help", write: [], context: "none", done: "helped", verify: "none" },
+    })).body["run"];
+    state.get = "done";
+    expect((await call("POST", `/runs/${helper.id}/wait`, { group: coordinator.group })).body["run"]).toMatchObject({ state: "done" });
+    const resumed = { HERDR_PANE_ID: coordinator.paneId };
+    // a folder of another project: the coordinator's threads are its project's, not this folder's
+    const elsewhere = mkdtempSync(join(resultsRoot, "elsewhere-"));
+
+    // the values come from the acceptance contract: what the same commands do with HERDR_FLEET_GROUP / RUN / DEPTH set
+    const spawned = await cli(["spawn", "--role", "worker", "--goal", "check it", "--read-only", "--context", "none", "--done", "checked", "--verify", "none", "--json"], resumed);
+    expect(spawned.code).toBe(0);
+        expect((await call("GET", `/runs/${JSON.parse(spawned.out).id}`)).body["run"]).toMatchObject({ group: coordinator.group, depth: coordinator.depth + 1 });
+    const threads = await cli(["threads", "--json"], resumed, elsewhere);
+    expect(threads.code).toBe(0);
+    expect(JSON.parse(threads.out).map((thread: { run: { id: string } }) => thread.run.id)).toEqual([lead.id]);
+    expect(await cli(["wait", lead.id, "--json"], resumed)).toMatchObject({ code: 0, out: expect.stringContaining(`"id": "${lead.id}"`) });
+    expect(await cli(["read", lead.id], resumed)).toEqual({ code: 0, out: "recent output\n" });
+    const listed = await cli(["list", "--json"], resumed);
+    expect(listed.code).toBe(0);
+    expect(JSON.parse(listed.out).map((run: { id: string }) => run.id)).toContain(coordinator.id);
+    for (const command of ["interrupt", "focus"]) {
+      expect(await cli([command, lead.id, "--json"], resumed)).toMatchObject({ code: 0, out: expect.stringContaining(`"id": "${lead.id}"`) });
+    }
+
+    // another coordinator's pane reaches none of it
+    const other = (await call("POST", "/spawn", { role: "coordinator", task: "other", group: "other", cwd: resultsRoot })).body["run"];
+    const intruder = { HERDR_PANE_ID: other.paneId };
+    for (const args of [["wait", lead.id], ["read", lead.id], ["interrupt", lead.id], ["focus", lead.id], ["send", lead.id, "not yours"]]) {
+      expect(await cli(args, intruder)).toMatchObject({ code: 1, out: expect.stringContaining("run_not_found") });
+    }
+    expect(JSON.parse((await cli(["list", "--json"], intruder)).out).map((run: { id: string }) => run.id)).toEqual([other.id]);
+    expect(await cli(["close-done", "--json"], intruder)).toEqual({ code: 0, out: "[]\n" });
+
+    // a calling run and a pane of two agents are refused whatever the command
+    const mismatched = { HERDR_PANE_ID: other.paneId, HERDR_FLEET_RUN: coordinator.id };
+    for (const args of [["spawn", "--role", "worker", "--task", "t"], ["threads"], ["wait", lead.id], ["read", lead.id], ["list"], ["interrupt", lead.id], ["focus", lead.id], ["close-done"], ["send", lead.id, "m"]]) {
+      expect(await cli(args, mismatched)).toMatchObject({ code: 1, out: expect.stringContaining("caller_mismatch") });
+    }
+
+    // close-done last: it closes the coordinator's finished helper, and only that
+    const closed = await cli(["close-done", "--json"], resumed);
+    expect(closed.code).toBe(0);
+    expect(JSON.parse(closed.out).map((run: { id: string }) => run.id)).toEqual([helper.id]);
+  });
+
+  it("lets a resumed thread's lead hand over its plan from its pane, and no other agent's pane in its name", async () => {
+    const { call, cli } = fleet();
+    const repoRoot = repository("resumed-plan");
+    const coordinator = (await call("POST", "/projects", { task: "coordinate", cwd: repoRoot })).body["run"];
+    const lead = (await call("POST", "/threads", {
+      title: "Planned thread", cwd: repoRoot, depth: coordinator.depth, caller_run: coordinator.id,
+      brief: { goal: "plan it", write: [], context: "none", done: "planned", verify: "test" },
+    })).body["run"];
+    const file = join(mkdtempSync(join(resultsRoot, "plan-")), "plan.json");
+    writeFileSync(file, JSON.stringify({ title: "Retry limit", claims: [{ text: "A failed send is tried three times.", exhibit: { kind: "list", items: ["three"] } }] }));
+
+    expect(await cli(["plan", file], { HERDR_PANE_ID: lead.paneId })).toMatchObject({ code: 0, out: expect.stringContaining('plan "Retry limit" version 1') });
+    expect((await call("GET", `/runs/${lead.id}/plan`)).body["plan"]).toMatchObject({ title: "Retry limit", version: 1 });
+    expect(await cli(["plan", file], { HERDR_PANE_ID: coordinator.paneId, HERDR_FLEET_RUN: lead.id })).toMatchObject({ code: 1, out: expect.stringContaining("caller_mismatch") });
+    // the coordinator's own pane names the coordinator, which is no thread's lead
+    expect(await cli(["plan", file], { HERDR_PANE_ID: coordinator.paneId })).toMatchObject({ code: 1, out: expect.stringContaining("not_a_thread") });
+    expect((await call("GET", `/runs/${lead.id}/plan`)).body["plan"]).toMatchObject({ version: 1 });
   });
 
   it("puts the fleet skill into a skill folder and takes it out, on a request with the header", async () => {
