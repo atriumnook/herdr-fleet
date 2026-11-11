@@ -3,6 +3,12 @@
 # crate only (it looks in the crate's folder first), and the CI runs clippy
 # with -D warnings, so a use of these fails the check. Reading (File::open,
 # std::fs::read, metadata, read_dir) stays allowed.
+# std::os::unix does not exist on a Windows target, where clippy warns that its
+# paths are not reachable; allow-invalid = true keeps that quiet, and on Unix
+# the paths resolve and are banned as the others are. It also hides a path
+# that stops resolving on Unix (a typo, a rename in std), which would then ban
+# nothing: after changing one of these entries, run clippy on Linux once
+# without allow-invalid and see that it gives no "not reachable" warning.
 disallowed-types = [
   { path = "std::fs::DirBuilder", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
   { path = "std::process::Command", reason = "herdr-fleet-transcript starts no process (ADR 0107-crate-split)" },
@@ -10,9 +16,9 @@ disallowed-types = [
   { path = "std::net::TcpStream", reason = "herdr-fleet-transcript does no network I/O (ADR 0107-crate-split)" },
   { path = "std::net::TcpListener", reason = "herdr-fleet-transcript does no network I/O (ADR 0107-crate-split)" },
   { path = "std::net::UdpSocket", reason = "herdr-fleet-transcript does no network I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::net::UnixStream", reason = "herdr-fleet-transcript does no socket I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::net::UnixListener", reason = "herdr-fleet-transcript does no socket I/O (ADR 0107-crate-split)" },
-  { path = "std::os::unix::net::UnixDatagram", reason = "herdr-fleet-transcript does no socket I/O (ADR 0107-crate-split)" },
+  { path = "std::os::unix::net::UnixStream", reason = "herdr-fleet-transcript does no socket I/O (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::net::UnixListener", reason = "herdr-fleet-transcript does no socket I/O (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::net::UnixDatagram", reason = "herdr-fleet-transcript does no socket I/O (ADR 0107-crate-split)", allow-invalid = true },
 ]
 disallowed-methods = [
   { path = "std::fs::write", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
@@ -36,14 +42,14 @@ disallowed-methods = [
   { path = "std::fs::OpenOptions::truncate", reason = "herdr-fleet-transcript opens files for reading only (ADR 0107-crate-split)" },
   { path = "std::fs::OpenOptions::create", reason = "herdr-fleet-transcript opens files for reading only (ADR 0107-crate-split)" },
   { path = "std::fs::OpenOptions::create_new", reason = "herdr-fleet-transcript opens files for reading only (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::symlink", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
+  { path = "std::os::unix::fs::symlink", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)", allow-invalid = true },
   { path = "std::fs::soft_link", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::chown", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::fchown", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::lchown", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::chroot", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)" },
-  { path = "std::os::unix::fs::OpenOptionsExt::custom_flags", reason = "herdr-fleet-transcript opens files for reading only (ADR 0107-crate-split); src/nonblocking_open.rs alone passes O_NONBLOCK (ADR 0225-nonblocking-image-open)" },
-  { path = "std::os::unix::fs::OpenOptionsExt::mode", reason = "herdr-fleet-transcript opens files for reading only (ADR 0107-crate-split)" },
+  { path = "std::os::unix::fs::chown", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::fs::fchown", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::fs::lchown", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::fs::chroot", reason = "herdr-fleet-transcript writes no file (ADR 0107-crate-split)", allow-invalid = true },
+  { path = "std::os::unix::fs::OpenOptionsExt::custom_flags", reason = "herdr-fleet-transcript opens files for reading only (ADR 0107-crate-split); src/nonblocking_open.rs alone passes O_NONBLOCK (ADR 0225-nonblocking-image-open)", allow-invalid = true },
+  { path = "std::os::unix::fs::OpenOptionsExt::mode", reason = "herdr-fleet-transcript opens files for reading only (ADR 0107-crate-split)", allow-invalid = true },
   { path = "std::net::ToSocketAddrs::to_socket_addrs", reason = "herdr-fleet-transcript does no network I/O (ADR 0107-crate-split)" },
   { path = "std::process::exit", reason = "herdr-fleet-transcript uses no std::process (ADR 0107-crate-split)" },
   { path = "std::process::abort", reason = "herdr-fleet-transcript uses no std::process (ADR 0107-crate-split)" },
