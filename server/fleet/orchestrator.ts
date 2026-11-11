@@ -64,6 +64,8 @@ export interface ThreadRequest {
   depth?: number;
   /** the run that starts the thread (HERDR_FLEET_RUN), which then owns it: its results and questions go there */
   callerRun?: string;
+  /** the caller's herdr pane: recovers its run when a resumed session lost the fleet environment */
+  callerPaneId?: string;
 }
 
 const THREAD_ROLE = "lead";
@@ -352,6 +354,11 @@ export class Orchestrator {
     return this.deps.agents(cwd);
   }
 
+  /** The fleet a saved run in this pane belongs to; an unknown, non-fleet pane has none. */
+  groupForPane(paneId: string): string | undefined {
+    return this.deps.registry.byPane(paneId)?.group;
+  }
+
   /** A run of `group`, or a thread a run of `group` started: each thread is a fleet of its own, which its owner still reaches. */
   get(target: string, group?: string): AgentRun {
     const owned = (run: AgentRun | undefined) => run?.owner && this.deps.registry.get(run.owner)?.group === group ? run : undefined;
@@ -389,14 +396,18 @@ export class Orchestrator {
     const title = request.title.trim();
     if (!title || title.length > 120) throw new FleetError("invalid_title", "A thread needs a title of up to 120 characters.");
     const cwd = resolve(request.cwd ?? process.cwd());
-    const owner = request.callerRun ? this.deps.registry.get(request.callerRun) : undefined;
-    if (request.callerRun && !owner) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
+    const runOwner = request.callerRun ? this.deps.registry.get(request.callerRun) : undefined;
+    if (request.callerRun && !runOwner) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
+    const paneOwner = request.callerPaneId ? this.deps.registry.byPane(request.callerPaneId) : undefined;
+    if (runOwner && paneOwner && runOwner.id !== paneOwner.id) throw new FleetError("caller_mismatch", "The calling run and pane do not belong to the same fleet agent.");
+    const owner = runOwner ?? paneOwner;
+    const callerDepth = !request.callerRun && paneOwner ? paneOwner.depth : request.depth;
     const repo = await (this.deps.gitRoot ?? gitRoot)(cwd);
     if (repo) await (this.deps.excludeWorktrees ?? excludeWorktrees)(repo);
     const base = repo ? await (this.deps.gitHead ?? gitHead)(repo) : null;
     const baseBranch = repo ? await this.tools.gitBranch(repo) : null;
     return this.launch({
-      role: THREAD_ROLE, name: title, task: request.task, brief: request.brief, cwd, depth: request.depth,
+      role: THREAD_ROLE, name: title, task: request.task, brief: request.brief, cwd, depth: callerDepth,
       group: makeGroupId(), worktree: repo !== null, interactive: true,
     }, signal, { repo, ...(owner ? { owner: owner.id } : {}), ...(base ? { base } : {}), ...(baseBranch ? { baseBranch } : {}) });
   }

@@ -227,7 +227,7 @@ async function main(argv: string[]): Promise<number> {
     case "thread": {
       const brief = briefOf(values);
       if (!values.title || (!values.task && !brief)) throw new CliError("fleet thread: --title and --task (or a brief) are required", 2);
-      const { run } = await call<{ run: Run }>("POST", "/threads", { title: values.title, task: values.task, brief, cwd: values.cwd ?? process.cwd(), depth, caller_run: callerRun });
+      const { run } = await call<{ run: Run }>("POST", "/threads", { title: values.title, task: values.task, brief, cwd: values.cwd ?? process.cwd(), depth, caller_run: callerRun, caller_pane_id: paneId });
       print(json, run, () => [describe(run), run.lastError ? `note: ${run.lastError}` : ""].filter(Boolean).join("\n"));
       return run.state === "blocked" ? 4 : 0;
     }
@@ -263,7 +263,7 @@ async function main(argv: string[]): Promise<number> {
     case "send": {
       const message = positionals.slice(1).join(" ");
       if (!message) throw new CliError("fleet send: give the message", 2);
-      const { run } = await call<{ run: Run }>("POST", `/runs/${enc(target())}/send`, { message, group });
+      const { run } = await call<{ run: Run }>("POST", `/runs/${enc(target())}/send`, { message, group, caller_pane_id: paneId });
       print(json, run, () => describe(run));
       return run.state === "failed" ? 1 : run.state === "blocked" ? 4 : 0;
     }
