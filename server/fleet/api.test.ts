@@ -136,6 +136,31 @@ describe("fleet API", () => {
     }
   });
 
+  it("recovers a resumed coordinator from its pane when its fleet environment is missing", async () => {
+    const { call } = fleet();
+    const coordinator = (await call("POST", "/projects", { task: "coordinate", cwd: resultsRoot })).body["run"];
+    const fallbackGroup = `fleet-${coordinator.paneId.toLowerCase().replace(/[^a-z0-9_-]+/g, "-")}`;
+
+    // The acceptance contract supplies these values: the coordinator owns what it starts and can send to its lead.
+    const started = await call("POST", "/threads", {
+      title: "Fix resumed ownership", cwd: resultsRoot, depth: 0, caller_pane_id: coordinator.paneId,
+      brief: { goal: "fix it", write: [], context: "none", done: "fixed", verify: "test" },
+    });
+    expect(started).toMatchObject({ status: 201, body: { run: { owner: coordinator.id, depth: coordinator.depth + 1 } } });
+    expect(await call("POST", `/runs/${started.body["run"].id}/send`, {
+      message: "continue", group: fallbackGroup, caller_pane_id: coordinator.paneId,
+    })).toMatchObject({ status: 200, body: { run: { id: started.body["run"].id } } });
+
+    const other = (await call("POST", "/spawn", { role: "coordinator", task: "other", group: "other", cwd: resultsRoot })).body["run"];
+    expect(await call("POST", `/runs/${started.body["run"].id}/send`, {
+      message: "not yours", group: "other", caller_pane_id: other.paneId,
+    })).toMatchObject({ status: 404, body: { error: { code: "run_not_found" } } });
+    expect(await call("POST", "/threads", {
+      title: "Mismatched caller", cwd: resultsRoot, depth: coordinator.depth, caller_run: coordinator.id, caller_pane_id: other.paneId,
+      brief: { goal: "must not start", write: [], context: "none", done: "never", verify: "none" },
+    })).toMatchObject({ status: 400, body: { error: { code: "caller_mismatch" } } });
+  });
+
   it("puts the fleet skill into a skill folder and takes it out, on a request with the header", async () => {
     const { call } = fleet();
     const state = (body: Record<string, any>, id: string) => body["entrances"].find((entrance: { id: string }) => entrance.id === id).state;

@@ -22,12 +22,12 @@ export type FactoryReporter = (cwd: string, hours: number, planned?: string) => 
  *  GET  /api/fleet/roles[?cwd=]                      -> { roles: [{ name, description, agent, source }] }
  *  GET  /api/fleet/runs[?group=]                     -> { runs: AgentRun[] }
  *  POST /api/fleet/spawn         SpawnRequest        -> 201 { run }
- *  POST /api/fleet/threads       { title, task|brief, cwd?, depth?, caller_run? } -> 201 { run }
+ *  POST /api/fleet/threads       { title, task|brief, cwd?, depth?, caller_run?, caller_pane_id? } -> 201 { run }
  *  GET  /api/fleet/threads[?caller_run=&cwd=]        -> { threads: ThreadSummary[] }; the caller's project's
  *  POST /api/fleet/projects      { task, cwd?, from_pane? } -> 201 { run }; the project's coordinator, started or told the task
  *                                                       (from_pane: the herdr pane whose conversation sent it)
  *  GET  /api/fleet/runs/:target[?group=]             -> { run }
- *  POST /api/fleet/runs/:target/send   { message, group? }     -> { run }
+ *  POST /api/fleet/runs/:target/send   { message, group?, caller_pane_id? } -> { run }
  *  POST /api/fleet/runs/:target/wait   { timeout_ms?, group? } -> { run }; 408 wait_timeout with { run }
  *  GET  /api/fleet/runs/:target/read[?lines=&group=] -> { text }
  *  POST /api/fleet/runs/:target/interrupt { group? } -> { run }
@@ -59,7 +59,9 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
     const query = url.searchParams;
     const group = (body?: Record<string, unknown>) => {
       const value = body?.["group"] ?? query.get("group");
-      return typeof value === "string" && value !== "" ? value : undefined;
+      const requested = typeof value === "string" && value !== "" ? value : undefined;
+      const paneId = body ? callerPaneId(body) : undefined;
+      return paneId ? fleet.groupForPane(paneId) ?? requested : requested;
     };
     const readBody = async (): Promise<Record<string, unknown>> => {
       let parsed: unknown;
@@ -271,7 +273,15 @@ function threadRequest(body: Record<string, unknown>): ThreadRequest {
   const depth = body["depth"];
   if (depth !== undefined && (typeof depth !== "number" || !Number.isInteger(depth) || depth < 0)) throw new FleetError("invalid_body", "depth must be a whole number");
   const callerRun = text("caller_run");
-  return { title, task, cwd: text("cwd"), ...(brief ? { brief } : {}), ...(depth !== undefined ? { depth: depth as number } : {}), ...(callerRun ? { callerRun } : {}) };
+  const callerPane = callerPaneId(body);
+  return { title, task, cwd: text("cwd"), ...(brief ? { brief } : {}), ...(depth !== undefined ? { depth: depth as number } : {}), ...(callerRun ? { callerRun } : {}), ...(callerPane ? { callerPaneId: callerPane } : {}) };
+}
+
+function callerPaneId(body: Record<string, unknown>): string | undefined {
+  const value = body["caller_pane_id"];
+  if (value === undefined || value === null) return undefined;
+  if (typeof value !== "string" || !/^[\w:.-]{1,64}$/.test(value)) throw new FleetError("invalid_body", "caller_pane_id must be a herdr pane id");
+  return value;
 }
 
 /** The brief's fields as given, each checked for its type; which are missing is the orchestrator's to say. */
