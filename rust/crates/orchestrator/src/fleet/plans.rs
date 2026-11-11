@@ -100,26 +100,7 @@ impl Orchestrator {
         let file = self.plan_file(&run.id);
         let plan = self.plan(&run.id, None)?;
         let answer = check_answer(&plan, value)?;
-        if plan.answered_at.is_some() {
-            return Err(FleetError::new(
-                "plan_answered",
-                format!(
-                    "The person already answered version {} of the plan of {}.",
-                    plan.version, run.name
-                ),
-            )
-            .into());
-        }
-        if plan.closed_at.is_some() {
-            return Err(FleetError::new(
-                "plan_closed",
-                format!(
-                    "The lead of {} went on without answers to version {} of its plan.",
-                    run.name, plan.version
-                ),
-            )
-            .into());
-        }
+        still_open(&plan, &run)?;
         if !is_live(&run) {
             return Err(run_ended(&run).into());
         }
@@ -133,6 +114,13 @@ impl Orchestrator {
         }
         if !is_live(&run) {
             return Err(run_ended(&run).into());
+        }
+        // another answer, or a close, may have marked this version during the wait: the lead hears
+        // it once (TypeScript checks only before the wait)
+        if let Ok(Some(kept)) = read_plan(&file)
+            && kept.version == plan.version
+        {
+            still_open(&kept, &run)?;
         }
         // the check that no turn is in flight and the new turn are one step, so a second answer
         // finds the lead busy (`run_busy`); the plan counts as answered once the message reached
@@ -174,11 +162,18 @@ impl Orchestrator {
             .into());
         }
         // the question the coordinator was still to hear was this plan: the person answered it
-        self.inner.outbox.discard(&run.id, NEWS)?;
-        // the lead may have handed over a newer plan meanwhile: only the version answered is marked
+        // the answers arrived: an outbox that cannot be written does not leave the plan open for
+        // them again
+        if let Err(error) = self.inner.outbox.discard(&run.id, NEWS) {
+            eprintln!("herdr-fleet: the outbox file could not be written: {error}");
+        }
+        // the lead may have handed over a newer plan meanwhile: only the version answered is marked,
+        // and only while it is open (a settlement may have closed it since the answers went out)
         let _plans = locked(&self.inner.plans);
         let current = read_plan(&file).ok().flatten();
-        let Some(current) = current.filter(|current| current.version == plan.version) else {
+        let Some(current) = current.filter(|current| {
+            current.version == plan.version && plan_open(current.answered_at, current.closed_at)
+        }) else {
             return Ok(self.registry().get(&run.id).unwrap_or(run));
         };
         let answered_at = self.now();
@@ -204,8 +199,8 @@ impl Orchestrator {
     /// answers (someone sent it another task, or decided in its chat): the lead went on, and the
     /// plan, no longer what it builds to, takes no answers (`closeStalePlan`). `submitted_at` is
     /// when the turn's prompt was handed to herdr, none for a turn a restart took over. A plan file
-    /// that cannot be written is logged, and the plan stays open: the hook returns nothing
-    /// (ADR 0264-notices, ADR 0265-plans).
+    /// that cannot be read back or written is logged, and the plan stays open: the hook returns
+    /// nothing (ADR 0264-notices, ADR 0265-plans).
     pub(crate) fn close_stale_plan(&self, id: &str, submitted_at: Option<i64>) {
         let Some(submitted_at) = submitted_at else {
             return;
@@ -220,8 +215,13 @@ impl Orchestrator {
             return;
         };
         let file = self.plan_file(id);
-        let Ok(Some(plan)) = read_plan(&file) else {
-            return;
+        let plan = match read_plan(&file) {
+            Ok(Some(plan)) => plan,
+            Ok(None) => return,
+            Err(error) => {
+                eprintln!("herdr-fleet: the plan of {id} stays open: {error}");
+                return;
+            }
         };
         if plan.version != mark.version || plan.written_at >= submitted_at {
             return;
@@ -247,6 +247,30 @@ impl Orchestrator {
 /// How many decisions the plan asks the person for.
 fn asks(plan: &Plan) -> u32 {
     u32::try_from(plan_asks(&plan.claims).len()).unwrap_or(u32::MAX)
+}
+
+/// The plan still takes answers: refused when the person answered it, or the lead went on without
+/// them.
+fn still_open(plan: &Plan, run: &AgentRun) -> Result<(), FleetError> {
+    if plan.answered_at.is_some() {
+        return Err(FleetError::new(
+            "plan_answered",
+            format!(
+                "The person already answered version {} of the plan of {}.",
+                plan.version, run.name
+            ),
+        ));
+    }
+    if plan.closed_at.is_some() {
+        return Err(FleetError::new(
+            "plan_closed",
+            format!(
+                "The lead of {} went on without answers to version {} of its plan.",
+                run.name, plan.version
+            ),
+        ));
+    }
+    Ok(())
 }
 
 /// The lead ended: nothing more reaches it.
