@@ -37,7 +37,7 @@ pub struct ThreadRequest {
 pub(crate) struct State {}
 
 /// `value` unless it is empty: JavaScript's `value ? … : …` on an optional string.
-fn given(value: Option<&str>) -> Option<&str> {
+pub(super) fn given(value: Option<&str>) -> Option<&str> {
     value.filter(|value| !value.is_empty())
 }
 
@@ -69,7 +69,7 @@ impl Orchestrator {
         let (base, base_branch) = match &repo {
             Some(repo) => {
                 landing.exclude_worktrees(repo).await?;
-                (landing.git_head(repo).await, landing.git_branch(repo).await)
+                tokio::join!(landing.git_head(repo), landing.git_branch(repo))
             }
             None => (None, None),
         };
@@ -179,11 +179,18 @@ impl Orchestrator {
             }
             None => None,
         };
-        // read again after the await: only the two fields this read owns change
-        self.change(id, |run| {
-            run.contract = contract;
-            run.diff = diff;
-        });
+        // read again after the await: only the two fields this read owns change, and a run whose
+        // contract and change are as they were is not saved again
+        let unchanged = self
+            .registry()
+            .get(id)
+            .is_none_or(|run| run.contract == contract && run.diff == diff);
+        if !unchanged {
+            self.change(id, |run| {
+                run.contract = contract;
+                run.diff = diff;
+            });
+        }
     }
 
     /// The run `id` that calls, as a thread's or a listing's caller names it.

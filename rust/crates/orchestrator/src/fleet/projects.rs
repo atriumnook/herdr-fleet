@@ -7,6 +7,7 @@ use protocol::{AgentRun, FROM_PANE, js};
 use tokio_util::sync::CancellationToken;
 
 use super::spawn::{SpawnRequest, ThreadPlace, absolute};
+use super::threads::given;
 use super::{Orchestrator, OrchestratorError, PROJECT_ROLE, is_live};
 use crate::error::FleetError;
 use crate::events::{FleetEvent, PersonEvent};
@@ -31,7 +32,7 @@ impl Orchestrator {
         if js::trim(task).is_empty() {
             return Err(FleetError::new("missing_task", "task is required").into());
         }
-        let task = match from_pane.filter(|pane| !pane.is_empty()) {
+        let task = match given(from_pane) {
             Some(pane) => format!("{FROM_PANE}{pane}]\n\n{task}"),
             None => task.to_owned(),
         };
