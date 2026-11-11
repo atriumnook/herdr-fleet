@@ -7,14 +7,13 @@ mod common;
 
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 
 use common::{
     FakeLanding, Folder, GRACE, SetupOptions, answer, request, role, setup, sleep_ms, spawn,
 };
-use herdr_fleet_orchestrator::Clock;
 use herdr_fleet_orchestrator::agents::AgentDefinition;
 use herdr_fleet_orchestrator::fleet::{
     LandingTools, Orchestrator, OrchestratorError, ThreadRequest, Timings,
@@ -43,42 +42,23 @@ fn agents() -> Vec<AgentDefinition> {
 /// The describe's `PLAN` (orchestrator.test.ts:2746-2750): one claim on the code of
 /// src/retry.ts, with one decision.
 fn plan_value() -> Value {
-    json!({
-        "title": "Retry limit",
-        "claims": [{
-            "text": "A failed send is tried three times.",
-            "exhibit": { "kind": "code", "path": "src/retry.ts", "start": 1 },
-            "ask": {
-                "id": "limit",
-                "question": "How many?",
-                "options": [{ "value": "three", "label": "3" }, { "value": "five", "label": "5" }],
-                "recommended": "three"
-            }
-        }]
-    })
+    json!({ "title": "Retry limit", "claims": [{
+        "text": "A failed send is tried three times.",
+        "exhibit": { "kind": "code", "path": "src/retry.ts", "start": 1 },
+        "ask": { "id": "limit", "question": "How many?", "recommended": "three",
+            "options": [{ "value": "three", "label": "3" }, { "value": "five", "label": "5" }] }
+    }] })
+}
+
+/// `gitRoot: async () => "/repo"`.
+fn in_repo() -> Option<Arc<dyn LandingTools>> {
+    let landing = FakeLanding::new();
+    landing.answers().git_root = answer(|_: PathBuf| async { Some(PathBuf::from("/repo")) });
+    Some(landing)
 }
 
 /// What herdr says for each pane, by its agent's name (`states`); `working` when unsaid.
-#[derive(Clone, Default)]
-struct States(Arc<Mutex<HashMap<String, AgentState>>>);
-
-impl States {
-    fn set(&self, run: &AgentRun, state: AgentState) {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .insert(run.herdr_name.clone(), state);
-    }
-
-    fn of(&self, name: &str) -> AgentState {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .get(name)
-            .copied()
-            .unwrap_or(AgentState::Working)
-    }
-}
+type States = Arc<Mutex<HashMap<String, AgentState>>>;
 
 /// The describe's `project()` (orchestrator.test.ts:2752-2777): a setup in the repository /repo,
 /// whose threads' worktree is a real folder holding src/retry.ts (the plan's code is read from it),
@@ -97,12 +77,9 @@ fn project() -> Project {
         "export const RETRIES = 3;\n",
     )
     .unwrap();
-    let landing = FakeLanding::new();
-    landing.answers().git_root = answer(|_: PathBuf| async { Some(PathBuf::from("/repo")) });
-    let landing: Arc<dyn LandingTools> = landing;
     let s = setup(SetupOptions {
         agents: Some(agents()),
-        landing: Some(landing),
+        landing: in_repo(),
         ..SetupOptions::default()
     });
     let worktree = tree.path().to_string_lossy().into_owned();
@@ -122,21 +99,15 @@ fn project() -> Project {
     });
     let states = States::default();
     let read = states.clone();
-    s.runtime
-        .on_get(move |name| std::future::ready(Ok(read.of(&name))));
+    s.runtime.on_get(move |name| {
+        let states = read.lock().unwrap_or_else(PoisonError::into_inner);
+        std::future::ready(Ok(*states.get(&name).unwrap_or(&AgentState::Working)))
+    });
     Project {
         s,
         states,
         _tree: tree,
     }
-}
-
-/// A coordinator, and a thread whose lead handed over a plan and ended its turn blocked
-/// (`planned`).
-struct Planned {
-    coordinator: AgentRun,
-    thread: AgentRun,
-    plan: protocol::Plan,
 }
 
 impl Project {
@@ -146,7 +117,8 @@ impl Project {
 
     /// herdr says `state` for the run's pane, and sends the event (`turn`).
     async fn turn(&self, run: &AgentRun, state: AgentState) {
-        self.states.set(run, state);
+        (self.states.lock().unwrap_or_else(PoisonError::into_inner))
+            .insert(run.herdr_name.clone(), state);
         sleep_ms(GRACE.as_millis() as u64 + 5).await;
         self.s.fleet.on_pane_status(&run.pane_id);
         sleep_ms(30).await;
@@ -175,6 +147,24 @@ impl Project {
             report.to_string(),
         )
         .unwrap();
+    }
+
+    /// The lead's turn ends blocked on its plan (orchestrator.test.ts:2775).
+    fn ask_plan(&self, run: &AgentRun) {
+        let action = Some("Answer the plan in the Plan tab.");
+        self.report(run, "blocked", "The plan waits for the person.", action);
+    }
+
+    /// The describe's `PLAN` handed over by the lead of `run`.
+    fn submit(&self, run: &AgentRun) -> protocol::Plan {
+        self.fleet()
+            .submit_plan(&run.id, &plan_value(), None)
+            .unwrap()
+    }
+
+    /// The code `answer_plan` refuses `value` with.
+    async fn refused(&self, run: &AgentRun, value: Value) -> String {
+        code(self.answer(run, value).await)
     }
 
     /// The plan file the fleet keeps for the run, as JSON.
@@ -234,43 +224,47 @@ impl Project {
 
     /// The last news about `run` waiting in the outbox (`noticeOf`, orchestrator.test.ts:106).
     fn notice_of(&self, run: &AgentRun) -> Option<String> {
-        notice_of(&self.s.root, &self.s.clock, run)
-    }
-
-    /// orchestrator.test.ts:2767-2775.
-    async fn planned(&self) -> Planned {
-        let coordinator = self.start_project("fix the retry").await;
-        self.turn(&coordinator, AgentState::Idle).await;
-        let thread = self.start_thread(&coordinator).await;
-        let plan = self
-            .fleet()
-            .submit_plan(&thread.id, &plan_value(), None)
-            .unwrap();
-        self.report(
-            &thread,
-            "blocked",
-            "The plan waits for the person.",
-            Some("Answer the plan in the Plan tab."),
-        );
-        self.turn(&thread, AgentState::Idle).await;
-        Planned {
-            coordinator,
-            thread,
-            plan,
-        }
-    }
-}
-
-fn notice_of(root: &Path, clock: &Arc<dyn Clock>, run: &AgentRun) -> Option<String> {
-    Outbox::open(Some(root.join("fleet-outbox.json")), clock.clone())
+        Outbox::open(
+            Some(self.s.root.join("fleet-outbox.json")),
+            self.s.clock.clone(),
+        )
         .unwrap()
         .pending_where(|notice| notice.about == run.id && notice.slot == "news")
         .pop()
         .map(|notice| notice.text)
+    }
+
+    /// A coordinator, and a thread whose lead handed over a plan and ended its turn blocked
+    /// (`planned`, orchestrator.test.ts:2767-2775).
+    async fn planned(&self) -> (AgentRun, AgentRun, protocol::Plan) {
+        let coordinator = self.start_project("fix the retry").await;
+        self.turn(&coordinator, AgentState::Idle).await;
+        let thread = self.start_thread(&coordinator).await;
+        let plan = self.submit(&thread);
+        self.ask_plan(&thread);
+        self.turn(&thread, AgentState::Idle).await;
+        (coordinator, thread, plan)
+    }
 }
 
-fn code_of(error: OrchestratorError) -> String {
-    error.code().to_owned()
+/// Five retries picked on version 1, the decision opened (orchestrator.test.ts:2888, :2908).
+fn five() -> Value {
+    json!({ "version": 1, "choices": { "limit": "five" }, "seen": ["limit"] })
+}
+
+/// An open plan's mark: version `version`, with the one decision of `PLAN`.
+fn open_mark(version: u32) -> PlanMark {
+    PlanMark {
+        version,
+        asks: 1,
+        answered_at: None,
+        closed_at: None,
+    }
+}
+
+/// The code of the error `result` holds.
+fn code<T: std::fmt::Debug>(result: Result<T, OrchestratorError>) -> String {
+    result.unwrap_err().code().to_owned()
 }
 
 // orchestrator.test.ts: "are kept beside the lead's result file with the code read from its worktree, and the thread waits on the person"
@@ -278,7 +272,7 @@ fn code_of(error: OrchestratorError) -> String {
 async fn are_kept_beside_the_leads_result_file_with_the_code_read_from_its_worktree_and_the_thread_waits_on_the_person()
  {
     let p = project();
-    let Planned { thread, plan, .. } = p.planned().await;
+    let (_, thread, plan) = p.planned().await;
     assert_eq!(plan.version, 1);
     match &plan.claims[0].exhibit {
         Some(PlanExhibit::Code { lines, .. }) => assert_eq!(
@@ -289,23 +283,9 @@ async fn are_kept_beside_the_leads_result_file_with_the_code_read_from_its_workt
     }
     assert_eq!(p.kept(&thread), serde_json::to_value(&plan).unwrap());
     assert_eq!(p.fleet().plan(&thread.id, None).unwrap(), plan);
-    assert_eq!(
-        p.run(&thread).plan,
-        Some(PlanMark {
-            version: 1,
-            asks: 1,
-            answered_at: None,
-            closed_at: None
-        })
-    );
+    assert_eq!(p.run(&thread).plan, Some(open_mark(1)));
     assert_eq!(thread_state(&p.run(&thread)), ThreadState::Waiting);
-    assert_eq!(
-        p.fleet()
-            .submit_plan(&thread.id, &plan_value(), None)
-            .unwrap()
-            .version,
-        2
-    );
+    assert_eq!(p.submit(&thread).version, 2);
     p.fleet().stop();
 }
 
@@ -313,7 +293,7 @@ async fn are_kept_beside_the_leads_result_file_with_the_code_read_from_its_workt
 #[tokio::test(start_paused = true)]
 async fn send_the_coordinator_to_the_plan_tab_rather_than_have_it_answer() {
     let p = project();
-    let Planned { coordinator, .. } = p.planned().await;
+    let (coordinator, _, _) = p.planned().await;
     assert!(p.to(&coordinator)[1].contains("waits for the person in the thread's Plan tab on the Fleet screen: point them there, and do not answer it yourself."));
     p.fleet().stop();
 }
@@ -322,7 +302,7 @@ async fn send_the_coordinator_to_the_plan_tab_rather_than_have_it_answer() {
 #[tokio::test(start_paused = true)]
 async fn reach_the_lead_as_its_next_task_once_answered_and_only_once() {
     let p = project();
-    let Planned { thread, .. } = p.planned().await;
+    let (_, thread, _) = p.planned().await;
     p.answer(
         &thread,
         json!({ "version": 1, "choices": { "limit": "five" }, "seen": ["limit"], "comments": [] }),
@@ -339,8 +319,10 @@ async fn reach_the_lead_as_its_next_task_once_answered_and_only_once() {
     assert_eq!(kept["answer"]["choices"], json!({ "limit": "five" }));
     assert_eq!(kept["answer"]["seen"], json!(["limit"]));
     assert_eq!(thread_state(&p.run(&thread)), ThreadState::Working);
-    let again = p.answer(&thread, json!({ "version": 1 })).await;
-    assert_eq!(again.map_err(code_of).unwrap_err(), "plan_answered");
+    assert_eq!(
+        p.refused(&thread, json!({ "version": 1 })).await,
+        "plan_answered"
+    );
     p.fleet().stop();
 }
 
@@ -348,19 +330,19 @@ async fn reach_the_lead_as_its_next_task_once_answered_and_only_once() {
 #[tokio::test(start_paused = true)]
 async fn wait_for_the_leads_turn_to_end_and_refuse_an_answer_to_an_older_version() {
     let p = project();
-    let Planned { thread, .. } = p.planned().await;
-    p.fleet()
-        .submit_plan(&thread.id, &plan_value(), None)
-        .unwrap();
-    let outdated = p.answer(&thread, json!({ "version": 1 })).await;
-    assert_eq!(outdated.map_err(code_of).unwrap_err(), "plan_outdated");
+    let (_, thread, _) = p.planned().await;
+    p.submit(&thread);
+    assert_eq!(
+        p.refused(&thread, json!({ "version": 1 })).await,
+        "plan_outdated"
+    );
     p.send(&thread, "one more thing").await.unwrap();
-    let busy = p.answer(&thread, json!({ "version": 2 })).await;
-    assert_eq!(busy.map_err(code_of).unwrap_err(), "run_busy");
+    assert_eq!(
+        p.refused(&thread, json!({ "version": 2 })).await,
+        "run_busy"
+    );
     // in that turn the lead writes version 3, which then waits for the person
-    p.fleet()
-        .submit_plan(&thread.id, &plan_value(), None)
-        .unwrap();
+    p.submit(&thread);
     p.turn(&thread, AgentState::Idle).await;
     let prompts = p.s.runtime.prompts().len();
     p.answer(&thread, json!({ "version": 3 })).await.unwrap();
@@ -376,9 +358,7 @@ async fn hold_the_thread_waiting_only_through_the_blocked_turn_a_lead_that_did_n
     let coordinator = p.start_project("go").await;
     p.turn(&coordinator, AgentState::Idle).await;
     let thread = p.start_thread(&coordinator).await;
-    p.fleet()
-        .submit_plan(&thread.id, &plan_value(), None)
-        .unwrap();
+    p.submit(&thread);
     p.report(&thread, "ready", "Built without waiting.", None);
     p.turn(&thread, AgentState::Idle).await;
     assert_eq!(thread_state(&p.run(&thread)), ThreadState::Review);
@@ -391,11 +371,7 @@ async fn hold_the_thread_waiting_only_through_the_blocked_turn_a_lead_that_did_n
 #[tokio::test(start_paused = true)]
 async fn close_when_the_leads_next_turn_ends_without_the_answers_and_take_none_then() {
     let p = project();
-    let Planned {
-        coordinator,
-        thread,
-        ..
-    } = p.planned().await;
+    let (coordinator, thread, _) = p.planned().await;
     // the coordinator passes on a decision the person made in its conversation instead
     p.send(&thread, "The person chose five retries.")
         .await
@@ -406,8 +382,10 @@ async fn close_when_the_leads_next_turn_ends_without_the_answers_and_take_none_t
     assert!(run.plan.as_ref().unwrap().closed_at.is_some());
     assert!(p.kept(&thread)["closedAt"].is_number());
     assert_eq!(thread_state(&run), ThreadState::Review);
-    let closed = p.answer(&thread, json!({ "version": 1 })).await;
-    assert_eq!(closed.map_err(code_of).unwrap_err(), "plan_closed");
+    assert_eq!(
+        p.refused(&thread, json!({ "version": 1 })).await,
+        "plan_closed"
+    );
     // a blocked turn after it asks about something else: the closed plan is not pointed to again
     p.send(&thread, "go on").await.unwrap();
     p.report(&thread, "blocked", "Which branch?", Some("Which branch?"));
@@ -427,15 +405,8 @@ async fn answered_before_the_coordinator_heard_of_them_are_not_passed_on_to_it_a
     let coordinator = p.start_project("go").await;
     // the coordinator is at work, so the thread's question waits for it
     let thread = p.start_thread(&coordinator).await;
-    p.fleet()
-        .submit_plan(&thread.id, &plan_value(), None)
-        .unwrap();
-    p.report(
-        &thread,
-        "blocked",
-        "The plan waits for the person.",
-        Some("Answer the plan in the Plan tab."),
-    );
+    p.submit(&thread);
+    p.ask_plan(&thread);
     p.turn(&thread, AgentState::Idle).await;
     assert!(
         p.notice_of(&thread)
@@ -453,16 +424,10 @@ async fn answered_before_the_coordinator_heard_of_them_are_not_passed_on_to_it_a
 async fn stay_unanswered_when_the_answers_do_not_reach_the_lead_on_its_approval_screen_or_a_prompt_that_failed()
  {
     let p = project();
-    let Planned { thread, .. } = p.planned().await;
+    let (_, thread, _) = p.planned().await;
     p.s.runtime
         .on_prompt(|_, _, _| std::future::ready(Err(RuntimeError::Blocked)));
-    let blocked = p
-        .answer(
-            &thread,
-            json!({ "version": 1, "choices": { "limit": "five" }, "seen": ["limit"] }),
-        )
-        .await;
-    assert_eq!(blocked.map_err(code_of).unwrap_err(), "agent_blocked");
+    assert_eq!(p.refused(&thread, five()).await, "agent_blocked");
     assert_eq!(p.kept(&thread).get("answeredAt"), None);
     assert_eq!(p.run(&thread).plan.unwrap().answered_at, None);
     // the person answered the approval: the same answers go now
@@ -471,8 +436,10 @@ async fn stay_unanswered_when_the_answers_do_not_reach_the_lead_on_its_approval_
         .unwrap();
     p.s.runtime
         .on_prompt(|_, _, _| std::future::ready(Err(RuntimeError::NotFound)));
-    let failed = p.answer(&thread, json!({ "version": 1 })).await;
-    assert_eq!(failed.map_err(code_of).unwrap_err(), "answer_not_delivered");
+    assert_eq!(
+        p.refused(&thread, json!({ "version": 1 })).await,
+        "answer_not_delivered"
+    );
     assert_eq!(p.kept(&thread).get("answeredAt"), None);
     p.fleet().stop();
 }
@@ -481,7 +448,7 @@ async fn stay_unanswered_when_the_answers_do_not_reach_the_lead_on_its_approval_
 #[tokio::test(start_paused = true)]
 async fn leave_a_newer_plan_the_lead_handed_over_while_the_answers_went_out_as_it_is() {
     let p = project();
-    let Planned { thread, .. } = p.planned().await;
+    let (_, thread, _) = p.planned().await;
     // the lead writes version 2 while the answers to version 1 are being typed into its pane
     let (fleet, id) = (p.fleet().clone(), thread.id.clone());
     p.s.runtime.on_prompt(move |_, _, _| {
@@ -490,25 +457,12 @@ async fn leave_a_newer_plan_the_lead_handed_over_while_the_answers_went_out_as_i
         fleet.submit_plan(&id, &again, None).unwrap();
         std::future::ready(Ok(AgentState::Working))
     });
-    p.answer(
-        &thread,
-        json!({ "version": 1, "choices": { "limit": "five" }, "seen": ["limit"] }),
-    )
-    .await
-    .unwrap();
+    p.answer(&thread, five()).await.unwrap();
     let kept = p.kept(&thread);
     assert_eq!(kept["version"], json!(2));
     assert_eq!(kept["title"], json!("Retry limit, again"));
     assert_eq!(kept.get("answeredAt"), None);
-    assert_eq!(
-        p.run(&thread).plan,
-        Some(PlanMark {
-            version: 2,
-            asks: 1,
-            answered_at: None,
-            closed_at: None
-        })
-    );
+    assert_eq!(p.run(&thread).plan, Some(open_mark(2)));
     p.fleet().stop();
 }
 
@@ -517,11 +471,7 @@ async fn leave_a_newer_plan_the_lead_handed_over_while_the_answers_went_out_as_i
 async fn are_kept_where_the_lead_does_not_write_and_one_that_does_not_hold_together_is_refused_not_drawn()
  {
     let p = project();
-    let Planned {
-        coordinator,
-        thread,
-        ..
-    } = p.planned().await;
+    let (coordinator, thread, _) = p.planned().await;
     // a plan.json the lead wrote into its own result folder is not the fleet's
     fs::write(
         p.s.result_dir(&thread.id).join("plan.json"),
@@ -542,28 +492,19 @@ async fn are_kept_where_the_lead_does_not_write_and_one_that_does_not_hold_toget
         p.fleet().plan(&thread.id, None).unwrap_err().code,
         "plan_unreadable"
     );
-    let unreadable = p.answer(&thread, json!({ "version": 1 })).await;
-    assert_eq!(unreadable.map_err(code_of).unwrap_err(), "plan_unreadable");
+    assert_eq!(
+        p.refused(&thread, json!({ "version": 1 })).await,
+        "plan_unreadable"
+    );
     let threads = p
         .fleet()
         .threads(Some(&coordinator.id), None)
         .await
         .unwrap();
-    assert_eq!(
-        threads
-            .iter()
-            .map(|each| each.run.id.clone())
-            .collect::<Vec<_>>(),
-        vec![thread.id.clone()]
-    );
+    let ids: Vec<&String> = threads.iter().map(|each| &each.run.id).collect();
+    assert_eq!(ids, [&thread.id]);
     // the lead hands it over again: the next version
-    assert_eq!(
-        p.fleet()
-            .submit_plan(&thread.id, &plan_value(), None)
-            .unwrap()
-            .version,
-        2
-    );
+    assert_eq!(p.submit(&thread).version, 2);
     p.fleet().stop();
 }
 
@@ -571,14 +512,17 @@ async fn are_kept_where_the_lead_does_not_write_and_one_that_does_not_hold_toget
 #[tokio::test(start_paused = true)]
 async fn come_only_from_a_threads_lead_and_only_plans_that_hold_together() {
     let p = project();
-    let Planned { thread, .. } = p.planned().await;
+    let (_, thread, _) = p.planned().await;
     let mut asked = request();
     asked.role = "reviewer".to_owned();
     let helper = spawn(p.fleet(), asked).await.unwrap();
-    let not_thread = p
-        .fleet()
-        .submit_plan(&helper.id, &plan_value(), Some(&helper.group));
-    assert_eq!(not_thread.map_err(code_of).unwrap_err(), "not_a_thread");
+    assert_eq!(
+        code(
+            p.fleet()
+                .submit_plan(&helper.id, &plan_value(), Some(&helper.group))
+        ),
+        "not_a_thread"
+    );
     let outside = p.fleet().submit_plan(
         &thread.id,
         &json!({ "title": "Retry limit", "claims": [{ "text": "x", "exhibit": { "kind": "code", "path": "../../etc/passwd", "start": 1 } }] }),
@@ -589,10 +533,13 @@ async fn come_only_from_a_threads_lead_and_only_plans_that_hold_together() {
         message.contains("../../etc/passwd is not a file in the thread's worktree"),
         "{message}"
     );
-    let empty = p
-        .fleet()
-        .submit_plan(&thread.id, &json!({ "title": "t", "claims": [] }), None);
-    assert_eq!(empty.map_err(code_of).unwrap_err(), "invalid_plan");
+    assert_eq!(
+        code(
+            p.fleet()
+                .submit_plan(&thread.id, &json!({ "title": "t", "claims": [] }), None)
+        ),
+        "invalid_plan"
+    );
     assert_eq!(p.fleet().plan(&thread.id, None).unwrap().version, 1);
     p.fleet().stop();
 }
@@ -616,12 +563,9 @@ async fn flicker(fleet: &Orchestrator, runtime: &common::FakeRuntime) {
 /// `restartAfterSend()` (orchestrator.test.ts:1121-1138): a thread whose task the fleet sent, the
 /// server stopped.
 async fn restart_after_send() -> (common::Setup, AgentRun) {
-    let landing = FakeLanding::new();
-    landing.answers().git_root = answer(|_: PathBuf| async { Some(PathBuf::from("/repo")) });
-    let landing: Arc<dyn LandingTools> = landing;
     let s = setup(SetupOptions {
         agents: Some(vec![lead()]),
-        landing: Some(landing),
+        landing: in_repo(),
         ..SetupOptions::default()
     });
     s.runtime.set_prompt_status(AgentState::Working);
