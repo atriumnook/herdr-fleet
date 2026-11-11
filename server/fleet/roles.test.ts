@@ -15,6 +15,7 @@ const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> =
     rules: {
       "edits no file": /You change no file/,
       "hands work to threads": /thread --title/,
+      "names the thread and cwd when it starts that thread's reviewer": /spawn --role reviewer --name "review:<thread id>" --cwd "<thread cwd>"/,
       "leaves a plan to the person on the Fleet screen": /Do not answer a plan yourself/,
       "never answers an approval on a thread's screen": /Never answer an approval on a thread's screen/,
       "leaves restarting a failed thread to the fleet": /do not restart it yourself/,
