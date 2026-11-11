@@ -12,6 +12,7 @@ mod fake_herdr;
 
 use std::collections::BTreeMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use fake_herdr::{FakeHerdr, Reply};
@@ -107,10 +108,12 @@ fn count(fake: &FakeHerdr, name: &str) -> usize {
     fake.requests().iter().filter(|r| method(r) == name).count()
 }
 
-/// Timings short enough that a test of the start's waits takes well under a second.
+/// Short polls and retries, so a test of the start's waits takes well under a second. The
+/// timeout stays long enough for a test that expects the agent ready to get there on a loaded
+/// machine; the test of the timeout passes its own.
 fn quick() -> StartTimings {
     StartTimings {
-        timeout: Duration::from_millis(300),
+        timeout: Duration::from_secs(10),
         ready_poll: Duration::from_millis(10),
         failure_poll: Duration::from_millis(20),
         retry_step: Duration::from_millis(5),
@@ -589,8 +592,13 @@ mod start {
     #[tokio::test]
     async fn not_ready_within_the_timeout_is_not_ready() {
         let fake = agent_get_sequence(vec![agent_info("unknown", Some(false), true)]);
+        let timings = StartTimings {
+            timeout: Duration::from_millis(300),
+            ..quick()
+        };
 
-        let error = quick_runtime(&fake)
+        let error = runtime(&fake)
+            .with_start_timings(timings)
             .start(start_options(no_startup_error))
             .await
             .unwrap_err();
@@ -703,29 +711,49 @@ mod start {
     }
 
     #[tokio::test]
-    async fn waits_longer_before_each_retry() {
-        let calls = AtomicUsize::new(0);
-        let fake = FakeHerdr::start(move |request| match method(request) {
-            "agent.start" if calls.fetch_add(1, Ordering::SeqCst) < 2 => {
-                Reply::error(request, "x", "not an available shell")
+    async fn waits_one_more_step_before_each_retry() {
+        let tries = Arc::new(Mutex::new(Vec::new()));
+        let fake = FakeHerdr::start({
+            let tries = tries.clone();
+            move |request| match method(request) {
+                "agent.start" => {
+                    let mut tries = tries.lock().unwrap();
+                    tries.push(Instant::now());
+                    if tries.len() <= 2 {
+                        Reply::error(request, "x", "not an available shell")
+                    } else {
+                        Reply::result(request, agent_started())
+                    }
+                }
+                "agent.get" => Reply::result(request, agent_info("idle", Some(true), false)),
+                _ => Reply::error(request, "unexpected", "not scripted"),
             }
-            "agent.start" => Reply::result(request, agent_started()),
-            "agent.get" => Reply::result(request, agent_info("idle", Some(true), false)),
-            _ => Reply::error(request, "unexpected", "not scripted"),
         });
-        let began = Instant::now();
+        let step = Duration::from_millis(150);
+        let timings = StartTimings {
+            retry_step: step,
+            ..quick()
+        };
 
         runtime(&fake)
+            .with_start_timings(timings)
             .start(start_options(no_startup_error))
             .await
             .unwrap();
 
-        // 300 ms, then 600 ms
-        assert!(
-            began.elapsed() >= Duration::from_millis(900),
-            "{:?}",
-            began.elapsed()
-        );
+        // TypeScript waits `300 * (attempt + 1)` ms: one step before the first retry, two before
+        // the second. The bound above each wait is less than a step, so neither a constant wait
+        // nor one step too many passes.
+        let tries = tries.lock().unwrap().clone();
+        assert_eq!(tries.len(), 3);
+        for (n, pair) in tries.windows(2).enumerate() {
+            let waited = pair[1] - pair[0];
+            let at_least = step * (u32::try_from(n).unwrap() + 1);
+            assert!(
+                waited >= at_least && waited < at_least + Duration::from_millis(120),
+                "wait {n}: {waited:?}"
+            );
+        }
     }
 
     #[tokio::test]
@@ -1139,24 +1167,53 @@ mod live {
         serde_json::from_value(value).expect("params of the schema")
     }
 
-    /// The workspaces and folders a test made, closed and removed when it ends.
+    /// The workspaces and folders a test made, closed and removed when it is dropped: at the end
+    /// of the test, or while a failed assertion unwinds it.
     struct Cleanup {
         herdr: Herdr,
         workspaces: Vec<String>,
         folders: Vec<std::path::PathBuf>,
     }
 
-    impl Cleanup {
-        async fn run(self) {
-            for id in &self.workspaces {
-                let _ = self
-                    .herdr
-                    .rpc::<methods::WorkspaceClose>(params(json!({ "workspace_id": id })))
-                    .await;
-            }
+    impl Drop for Cleanup {
+        fn drop(&mut self) {
+            let herdr = self.herdr.clone();
+            let workspaces = std::mem::take(&mut self.workspaces);
+            // the test's own runtime cannot be blocked on from its drop: a thread of its own
+            let closed = std::thread::spawn(move || {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .expect("a runtime to close the workspaces");
+                runtime.block_on(async {
+                    // the newest first: herdr closes a repository's workspace only after its
+                    // worktrees' (workspace_group_close_required)
+                    for id in workspaces.into_iter().rev() {
+                        let _ = herdr
+                            .rpc::<methods::WorkspaceClose>(params(json!({ "workspace_id": id })))
+                            .await;
+                    }
+                });
+            });
+            let _ = closed.join();
             for folder in &self.folders {
                 let _ = std::fs::remove_dir_all(folder);
             }
+        }
+    }
+
+    async fn workspace_ids(herdr: &Herdr) -> Vec<String> {
+        match herdr
+            .rpc::<methods::WorkspaceList>(herdr_api::EmptyParams {})
+            .await
+            .unwrap()
+        {
+            herdr_api::ResponseResult::WorkspaceList(list) => list
+                .workspaces
+                .into_iter()
+                .map(|workspace| workspace.workspace_id)
+                .collect(),
+            other => panic!("workspace.list answered {other:?}"),
         }
     }
 
@@ -1224,7 +1281,7 @@ mod live {
             created.root_pane.tab_id
         );
 
-        cleanup.run().await;
+        drop(cleanup);
     }
 
     // runtime.herdr.test.ts: "puts a thread's worktree where it is told: inside the repository"
@@ -1268,17 +1325,21 @@ mod live {
         options.cwd = repo_text;
         options.label = "thread".to_owned();
         options.env = BTreeMap::new();
+        let before = workspace_ids(&herdr).await;
         let created = HerdrRuntime::new(herdr.clone())
             .create_location(options, &CancellationToken::new())
+            .await;
+        // herdr opens a workspace for the repository beside the worktree's: both go
+        cleanup.workspaces = workspace_ids(&herdr)
             .await
-            .unwrap();
-        if let Some(id) = &created.workspace_id {
-            cleanup.workspaces.push(id.clone());
-        }
+            .into_iter()
+            .filter(|id| !before.contains(id))
+            .collect();
+        let created = created.unwrap();
 
         assert_eq!(created.cwd, path_text);
         assert!(path.join(".git").exists());
-        cleanup.run().await;
+        drop(cleanup);
     }
 
     // runtime.herdr.test.ts: "regression: reads the live bottom with its colors while the pane is
@@ -1328,6 +1389,6 @@ mod live {
         let screen = runtime.screen(&pane).await.unwrap();
 
         assert!(screen.contains("\u{1b}[2mdim placeholder"), "{screen:?}");
-        cleanup.run().await;
+        drop(cleanup);
     }
 }
