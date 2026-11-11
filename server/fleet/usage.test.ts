@@ -193,6 +193,8 @@ describe("rateLimitUntil", () => {
     expect(rateLimitUntil("rate limit exceeded; resets 2026-10-04T09:30:00Z", NOW)).toBe(Date.parse("2026-10-04T09:30:00Z"));
     expect(rateLimitUntil("Rate limit reached. Try again in 2h 5m.", NOW)).toBe(NOW + 2 * HOUR + 5 * 60_000);
     expect(rateLimitUntil("quota exhausted, retry in 30 minutes", NOW)).toBe(NOW + 30 * 60_000);
+    // agy's quota warning writes the time with no space between its parts: 75 h + 7 min + 14 s = 270 434 s
+    expect(rateLimitUntil("Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 75h7m14s.", NOW)).toBe(NOW + 270_434_000);
     const clock = rateLimitUntil("usage limit reached, try again at 3:45 PM", NOW)!;
     const at = new Date(clock);
     expect([at.getHours(), at.getMinutes()]).toEqual([15, 45]);

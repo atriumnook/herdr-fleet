@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { opencodeGitEnv } from "./opencode-config.ts";
 import { AGY_DENY, adapterFor, cursorUsage, type PaneContext, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
 import { rateLimitUntil } from "./usage.ts";
@@ -250,6 +251,19 @@ describe("agy adapter", () => {
     for (const line of ["git push --force origin main", "git push -f origin x", "git push --force-with-lease", "git push --mirror", "git push --delete origin x", "git push -d origin x", "git push --prune origin"]) expect(refused(line)).toBe(true);
     for (const line of ["git push", "git push -u origin fleet/t1", "git push origin HEAD:refs/heads/x", "git status --force", "git pushd -f"]) expect(refused(line)).toBe(false);
   });
+
+  const screen = (name: string) => readFileSync(join(import.meta.dir, "../../fixtures/screens/agy", name, "screen.txt"), "utf8");
+  const QUOTA = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 75h7m14s.";
+
+  it("fails a turn that ended on the quota warning, wrapped onto the next lines or not, and not one the agent worked on after it", () => {
+    expect(agy.turnError(screen("ends-the-turn-on-individual-quota-reached-1"))).toBe(QUOTA);
+    const wrapped = "● Explored 2 files\n\n⚠ Individual quota reached. Please upgrade your subscription to\n  increase your limits. Resets in 75h7m14s.\nError ID: abc-43\n\n──────\n>\n──────\n? for shortcuts    auto · Gemini 4 Argon · high";
+    expect(agy.turnError(wrapped)).toBe(QUOTA);
+    // a later turn ran: the warning is the scrollback of an earlier one
+    const after = `⚠ ${QUOTA}\nError ID: abc-43\n\n──────\n> go on\n\n● Explored 2 files\n\n──────\n>\n──────\n? for shortcuts`;
+    expect(agy.turnError(after)).toBeUndefined();
+  });
+
 
 });
 

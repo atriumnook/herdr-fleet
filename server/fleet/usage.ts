@@ -118,7 +118,7 @@ const RATE_LIMITED = /rate.?limit|usage limit|limit reached|quota|too many reque
 
 /**
  * A failure message that says a limit was hit, and until when if it says: an ISO time, "in 2h 5m"
- * / "in 30 minutes", or a clock time ("at 3:45 PM", the next one to come). null when it is not a
+ * / "in 75h7m14s" (agy's) / "in 30 minutes", or a clock time ("at 3:45 PM", the next one to come). null when it is not a
  * rate limit, undefined when it is one with no time in it.
  */
 export function rateLimitUntil(message: string, now = Date.now()): number | undefined | null {
@@ -128,7 +128,7 @@ export function rateLimitUntil(message: string, now = Date.now()): number | unde
     const at = Date.parse(iso[0]);
     if (Number.isFinite(at) && at > now) return at;
   }
-  const relative = /\bin\s+((?:\d+\s*(?:d|days?|h|hours?|hrs?|m|mins?|minutes?|s|secs?|seconds?)\b[\s,]*(?:and\s+)?)+)/i.exec(message);
+  const relative = /\bin\s+((?:\d+\s*(?:d|days?|h|hours?|hrs?|m|mins?|minutes?|s|secs?|seconds?)(?=\d|\b)[\s,]*(?:and\s+)?)+)/i.exec(message);
   if (relative) {
     const unit: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 60_000, s: 1_000 };
     let total = 0;

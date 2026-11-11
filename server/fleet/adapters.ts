@@ -394,6 +394,25 @@ const AGY_INPUT = /^\s*>(?:\s+Auto mode: .*)?\s*$/m;
  */
 const AGY_SANDBOX_NOTE = "Your terminal runs in Antigravity CLI's sandbox, which hides the repository's git data and the tools installed under the home folder: git, the project's test runner and build, and the fleet command fail there. Do not look for ways around it or ask to run outside the sandbox. Read files with your file tools, work from the diff and the check output your caller gives you, and say in your HANDOFF which checks you could not run, so your caller runs them.";
 
+/**
+ * agy ends a turn its account has no quota left for on `⚠ Individual quota reached. … Resets in
+ * 75h7m14s.` and an `Error ID:` line, the warning wrapping onto the next lines on a narrow pane.
+ * One with the agent's work after it (a `●` or `○` line) is the scrollback of an earlier turn.
+ */
+export function agyQuotaReached(output: string | undefined): string | undefined {
+  if (!output) return undefined;
+  const lines = stripVTControlCharacters(output).split("\n").map((line) => line.trim());
+  for (let at = lines.length - 1; at >= 0; at--) {
+    if (/^[●○]/.test(lines[at]!)) return undefined;
+    const head = /^⚠\s+(.+)$/.exec(lines[at]!);
+    if (!head) continue;
+    let warning = head[1]!;
+    for (let next = at + 1; next < lines.length && lines[next] !== "" && !/^(?:Error ID:|[─>●○⚠])/.test(lines[next]!); next++) warning = `${warning} ${lines[next]}`;
+    if (/quota reached/i.test(warning)) return warning;
+  }
+  return undefined;
+}
+
 /** an agy model id that names its level, as all in its model list do */
 const AGY_MODEL_LEVEL = /-(?:low|medium|high|xhigh|max)$/;
 
@@ -461,7 +480,8 @@ export const agyAdapter: AgentAdapter = {
     return conflict ? `The model ${conflict[1]} does not take the level ${conflict[2]}: Antigravity CLI would run its default model instead.` : undefined;
   },
   turnError(output) {
-    return lastMatch(output, /^\s*(?:Error|error): (.+)$/gm);
+    // the quota warning names when it resets, which rateLimitUntil turns into the cooldown
+    return agyQuotaReached(output) ?? lastMatch(output, /^\s*(?:Error|error): (.+)$/gm);
   },
 };
 
