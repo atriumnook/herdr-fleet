@@ -64,6 +64,8 @@ export interface AgentRun {
   turnTree?: string;
   /** a reviewer's: the fleet read its last turn settle, and that turn changed nothing in the worktree; nothing ran in it since */
   reviewClean?: true;
+  /** a reviewer the coordinator started: the first lead run of the thread its name and cwd identified at spawn */
+  reviewThread?: string;
   reportedHead?: string;
   /** a thread lead's: every CLI and model that wrote in the thread so far (its lead runs, helpers that edit, a reviewer whose turn saw the branch move) */
   writers?: Writer[];

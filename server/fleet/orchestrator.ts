@@ -354,9 +354,17 @@ export class Orchestrator {
     return this.deps.agents(cwd);
   }
 
-  /** The fleet a saved run in this pane belongs to; an unknown, non-fleet pane has none. */
-  groupForPane(paneId: string): string | undefined {
-    return this.deps.registry.byPane(paneId)?.group;
+  /**
+   * The fleet agent calling: its run (HERDR_FLEET_RUN), else the saved run in its herdr pane, which a
+   * resumed session that lost the fleet environment still has; none for a person's pane. A run and a
+   * pane of two agents are refused: neither may act in the other's name.
+   */
+  caller(callerRun?: string, paneId?: string): AgentRun | undefined {
+    const byRun = callerRun ? this.deps.registry.get(callerRun) : undefined;
+    if (callerRun && !byRun) throw new FleetError("run_not_found", `Unknown calling run: ${callerRun}`);
+    const byPane = paneId ? this.deps.registry.byPane(paneId) : undefined;
+    if (byRun && byPane && byRun.id !== byPane.id) throw new FleetError("caller_mismatch", "The calling run and pane do not belong to the same fleet agent.");
+    return byRun ?? byPane;
   }
 
   /** A run of `group`, or a thread a run of `group` started: each thread is a fleet of its own, which its owner still reaches. */
@@ -396,12 +404,8 @@ export class Orchestrator {
     const title = request.title.trim();
     if (!title || title.length > 120) throw new FleetError("invalid_title", "A thread needs a title of up to 120 characters.");
     const cwd = resolve(request.cwd ?? process.cwd());
-    const runOwner = request.callerRun ? this.deps.registry.get(request.callerRun) : undefined;
-    if (request.callerRun && !runOwner) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
-    const paneOwner = request.callerPaneId ? this.deps.registry.byPane(request.callerPaneId) : undefined;
-    if (runOwner && paneOwner && runOwner.id !== paneOwner.id) throw new FleetError("caller_mismatch", "The calling run and pane do not belong to the same fleet agent.");
-    const owner = runOwner ?? paneOwner;
-    const callerDepth = !request.callerRun && paneOwner ? paneOwner.depth : request.depth;
+    const owner = this.caller(request.callerRun, request.callerPaneId);
+    const callerDepth = !request.callerRun && owner ? owner.depth : request.depth;
     const repo = await (this.deps.gitRoot ?? gitRoot)(cwd);
     if (repo) await (this.deps.excludeWorktrees ?? excludeWorktrees)(repo);
     const base = repo ? await (this.deps.gitHead ?? gitHead)(repo) : null;
@@ -443,9 +447,8 @@ export class Orchestrator {
   }
 
   /** The threads of the caller's project (the calling run's, or the repository `cwd` lies in), oldest first. */
-  async threads(request: { callerRun?: string; cwd?: string }): Promise<ThreadSummary[]> {
-    const caller = request.callerRun ? this.deps.registry.get(request.callerRun) : undefined;
-    if (request.callerRun && !caller) throw new FleetError("run_not_found", `Unknown calling run: ${request.callerRun}`);
+  async threads(request: { callerRun?: string; callerPaneId?: string; cwd?: string }): Promise<ThreadSummary[]> {
+    const caller = this.caller(request.callerRun, request.callerPaneId);
     const cwd = resolve(request.cwd ?? process.cwd());
     const project = caller?.project ?? await (this.deps.gitRoot ?? gitRoot)(cwd) ?? cwd;
     return this.list().filter((run) => run.role === THREAD_ROLE && run.project === project && !run.replacedBy).map((run) => {
@@ -541,6 +544,7 @@ export class Orchestrator {
     const id = makeId();
     const herdrName = makeHerdrName(request.group, definition.name, id);
     const displayName = request.name?.trim() || definition.name;
+    const reviewThread = definition.name === REVIEWER_ROLE ? this.reviewTarget(request.name, request.cwd, request.group) : undefined;
     const takeover = request.thread?.takeover;
     // a lead that takes a thread over works on the thread's branch; a thread's first lead gets one of its own
     const branch = takeover ? takeover.from.branch : worktree && request.thread ? `fleet/${id}` : undefined;
@@ -579,6 +583,7 @@ export class Orchestrator {
         ...(branch && request.thread?.baseBranch ? { baseBranch: request.thread.baseBranch } : {}),
         ...(takeover ? carried(takeover, request.avoid) : {}),
         ...(skipped.length ? { skipped } : {}), ...(request.write ? { write: request.write } : {}),
+        ...(reviewThread ? { reviewThread } : {}),
         ...(definition.edits === false ? { readOnly: true as const } : {}),
       };
       if (definition.name === THREAD_ROLE && request.thread) run.writers = withWriters(run.writers, run);
@@ -1623,7 +1628,7 @@ export class Orchestrator {
     // a review of neither commit, by a reviewer that wrote nothing: not a writer, and no review the gate takes (no reportedHead)
     if ((still || anothers) && run.outcome?.report) run.reviewClean = true;
     else delete run.reviewClean;
-    if (opened && !still && !anothers) this.noteWriter(run.group, run);
+    if (opened && !still && !anothers) this.noteWriter(run.group, run, run.reviewThread);
     delete run.turnHead;
     delete run.turnTree;
   }
@@ -1634,7 +1639,7 @@ export class Orchestrator {
    * CLI as a writer: what that turn did to the worktree is not known.
    */
   private async openReview(run: AgentRun): Promise<void> {
-    if (run.turnHead !== undefined) this.noteWriter(run.group, run);
+    if (run.turnHead !== undefined) this.noteWriter(run.group, run, run.reviewThread);
     delete run.reviewClean;
     // the turn's git commands alone: none recorded means none known, not none run
     rmSync(join(this.resultDir(run), GIT_TRACE_FILE), { force: true });
@@ -1647,15 +1652,25 @@ export class Orchestrator {
   /** A run that ended without the fleet reading its turn: a reviewer not known clean may have written. */
   private closeUnread(run: AgentRun): void {
     if (run.role !== REVIEWER_ROLE || run.reviewClean) return;
-    this.noteWriter(run.group, run);
+    this.noteWriter(run.group, run, run.reviewThread);
     delete run.turnHead;
     delete run.turnTree;
   }
 
-  /** `writer`'s CLI and model wrote in the thread `group` belongs to: kept on the thread's lead, so it outlives the run's record. */
-  private noteWriter(group: string, writer: Writer): void {
+  /** The thread a coordinator-started reviewer explicitly names, only when its worktree agrees. */
+  private reviewTarget(name: string | undefined, cwd: string, group: string): string | undefined {
+    const id = /^review:([a-z0-9_-]+)$/i.exec(name?.trim() ?? "")?.[1];
+    if (!id) return undefined;
+    const lead = this.deps.registry.all().find((run) => isThread(run) && !run.replacedBy && threadId(run) === id);
+    const coordinator = lead && this.deps.registry.all().find((run) => run.role === PROJECT_ROLE && run.group === group && run.project === lead.project);
+    return lead?.cwd === cwd && coordinator ? id : undefined;
+  }
+
+  /** `writer`'s CLI and model, kept on its named thread (or the caller's group) so it outlives the run. */
+  private noteWriter(group: string, writer: Writer, reviewThread?: string): void {
     // the newest lead run: one that is taking the thread over may not be named on the run before yet
-    const lead = this.deps.registry.all().filter((run) => run.group === group && isThread(run) && !run.replacedBy).sort((a, b) => b.startedAt - a.startedAt)[0];
+    const lead = this.deps.registry.all().filter((run) => isThread(run) && !run.replacedBy
+      && (reviewThread ? threadId(run) === reviewThread : run.group === group)).sort((a, b) => b.startedAt - a.startedAt)[0];
     if (!lead) return;
     const writers = withWriters(lead.writers, writer);
     if (writers.length === lead.writers?.length) return;
@@ -1797,7 +1812,8 @@ export class Orchestrator {
     const baseBranch = await this.baseBranchOf(thread);
     const [head, reading] = await Promise.all([this.tools.headCommit(run.cwd), this.readPullRequest(thread).catch(() => null)]);
     const compared = reading?.state === "OPEN" ? await this.tools.compareOnGitHub(thread.project, baseBranch, reading.head) : null;
-    const members = this.deps.registry.all().filter((member) => member.group === run.group);
+    const id = threadId(run);
+    const members = this.deps.registry.all().filter((member) => member.group === run.group || member.reviewThread === id);
     const result = evaluateGate(authority, {
       report: run.outcome?.report?.state,
       contract: run.contract ?? [],

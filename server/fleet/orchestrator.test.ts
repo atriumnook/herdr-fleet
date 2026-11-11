@@ -3738,6 +3738,84 @@ describe("merge authority", () => {
     expect(to(coordinator)).toEqual(["port"]);
   });
 
+  it("count a coordinator-started reviewer for the thread's current commit", async () => {
+    const { fleet, registry, root, git, turn, to } = project();
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const reviewer = await fleet.spawn({ role: "reviewer", name: `review:${thread.id}`, task: "review", group: coordinator.group, cwd: thread.cwd, avoid: ["claude"] });
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    await turn(reviewer, "idle");
+    writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 parses — evidence: cargo test\n");
+    writeReport(root, thread.id, "ready", "Opened #12.");
+    git.pr = { ...PR };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")!.ok).toBe(true);
+    expect(to(coordinator).at(-1)).toStartWith(GATE);
+  });
+
+  it("take a coordinator-started review only for its named thread", async () => {
+    const { fleet, registry, root, git, turn } = project();
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const other = await fleet.startThread({ title: "Docs", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const otherReviewer = await fleet.spawn({ role: "reviewer", name: `review:${other.id}`, task: "review docs", group: coordinator.group, cwd: other.cwd, avoid: ["claude"] });
+    writeReport(root, otherReviewer.id, "ready", "No findings.");
+    await turn(otherReviewer, "idle");
+    const helperReviewer = await fleet.spawn({ role: "reviewer", name: `review:${thread.id}`, task: "review port", group: other.group, cwd: thread.cwd, avoid: ["claude"] });
+    writeReport(root, helperReviewer.id, "ready", "No findings.");
+    await turn(helperReviewer, "idle");
+    expect(registry.get(helperReviewer.id)!.reviewThread).toBeUndefined();
+    writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 parses — evidence: cargo test\n");
+    writeReport(root, thread.id, "ready", "Opened #12.");
+    git.pr = { ...PR };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({
+      ok: false, detail: "No review by a model from a company other than Anthropic passed.",
+    });
+  });
+
+  it("take a coordinator-started review only for the commit it reviewed", async () => {
+    const { fleet, registry, root, git, turn } = project();
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const reviewer = await fleet.spawn({ role: "reviewer", name: `review:${thread.id}`, task: "review port", group: coordinator.group, cwd: thread.cwd, avoid: ["claude"] });
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    await turn(reviewer, "idle");
+    expect(registry.get(reviewer.id)).toMatchObject({ reviewThread: thread.id, reportedHead: "c0ffee", reviewClean: true });
+    git.head = "d00d";
+    git.pr = { ...PR, head: "d00d" };
+    writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 parses — evidence: cargo test\n");
+    writeReport(root, thread.id, "ready", "Opened #12.");
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({
+      ok: false, detail: "The review by pi:google/gemini-3-pro was of another commit than the branch's latest.",
+    });
+  });
+
+  it("count a coordinator-started reviewer that may have written as the reviewed thread's writer", async () => {
+    const { fleet, registry, root, git, turn } = project();
+    const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });
+    await turn(coordinator, "idle");
+    const thread = await fleet.startThread({ title: "Port", task: "t", cwd: "/repo", callerRun: coordinator.id });
+    const reviewer = await fleet.spawn({ role: "reviewer", name: `review:${thread.id}`, task: "review", group: coordinator.group, cwd: thread.cwd, avoid: ["claude"] });
+    writeFileSync(join(root, "results", reviewer.id, "git-trace.jsonl"), [...TRACE.status, ...TRACE.commit].join("\n") + "\n");
+    git.head = "d00d";
+    writeReport(root, reviewer.id, "ready", "No findings.");
+    await turn(reviewer, "idle");
+    expect(registry.get(thread.id)!.writers).toEqual([{ agent: "claude" }, { agent: "pi", model: GEMINI }]);
+    expect(registry.get(reviewer.id)!.reportedHead).toBeUndefined();
+    writeFileSync(join(root, "results", thread.id, "contract.md"), "- [x] A1 parses — evidence: cargo test\n");
+    writeReport(root, thread.id, "ready", "Opened #12.");
+    git.pr = { ...PR, head: "d00d" };
+    await turn(thread, "idle");
+    expect(registry.get(thread.id)!.gate!.checks.find((check) => check.id === "review")).toMatchObject({
+      ok: false, detail: "No review by a model from a company other than Anthropic, Google passed.",
+    });
+  });
+
   it("take no review from a codex turn that codex switched to another model on usage limits, though it reported ready", async () => {
     const { fleet, registry, root, runtime, git, turn, to } = project(undefined, [agents[0]!, agents[1]!, role("reviewer", { agent: "codex" })]);
     const coordinator = await fleet.startProject({ task: "port", cwd: "/repo" });

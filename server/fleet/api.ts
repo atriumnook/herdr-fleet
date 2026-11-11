@@ -18,16 +18,19 @@ export type FactoryReporter = (cwd: string, hours: number, planned?: string) => 
 /**
  * Fleet HTTP API, behind the same gate as the rest of /api. Changes need X-Herdr-Fleet: 1: a page
  * on another site cannot send that header without a CORS preflight this server never answers.
+ * A request that names an agent or acts in a group may name its caller, in the body or the query:
+ * caller_run (HERDR_FLEET_RUN) and caller_pane_id (HERDR_PANE_ID). A caller the fleet knows acts in its
+ * own fleet, whatever group is given (`scope`); a run and a pane of two agents get 400 caller_mismatch.
  *
  *  GET  /api/fleet/roles[?cwd=]                      -> { roles: [{ name, description, agent, source }] }
  *  GET  /api/fleet/runs[?group=]                     -> { runs: AgentRun[] }
  *  POST /api/fleet/spawn         SpawnRequest        -> 201 { run }
  *  POST /api/fleet/threads       { title, task|brief, cwd?, depth?, caller_run?, caller_pane_id? } -> 201 { run }
- *  GET  /api/fleet/threads[?caller_run=&cwd=]        -> { threads: ThreadSummary[] }; the caller's project's
+ *  GET  /api/fleet/threads[?caller_run=&caller_pane_id=&cwd=] -> { threads: ThreadSummary[] }; the caller's project's
  *  POST /api/fleet/projects      { task, cwd?, from_pane? } -> 201 { run }; the project's coordinator, started or told the task
  *                                                       (from_pane: the herdr pane whose conversation sent it)
  *  GET  /api/fleet/runs/:target[?group=]             -> { run }
- *  POST /api/fleet/runs/:target/send   { message, group?, caller_pane_id? } -> { run }
+ *  POST /api/fleet/runs/:target/send   { message, group? } -> { run }
  *  POST /api/fleet/runs/:target/wait   { timeout_ms?, group? } -> { run }; 408 wait_timeout with { run }
  *  GET  /api/fleet/runs/:target/read[?lines=&group=] -> { text }
  *  POST /api/fleet/runs/:target/interrupt { group? } -> { run }
@@ -57,12 +60,23 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
   try {
     if (method !== "GET" && request.headers.get("x-herdr-fleet") !== "1") return jsonResponse({ error: { code: "invalid_fleet_request", message: "Send X-Herdr-Fleet: 1" } }, 403);
     const query = url.searchParams;
-    const group = (body?: Record<string, unknown>) => {
-      const value = body?.["group"] ?? query.get("group");
+    // the body's field, else the query's: a GET names its caller in the query
+    const field = (body: Record<string, unknown> | undefined, key: string): unknown => body?.[key] ?? query.get(key) ?? undefined;
+    /**
+     * Who calls and where it acts: the calling agent (Orchestrator.caller: its run, else its pane's, for a
+     * session resumed without the fleet environment) acts in its own fleet and from its own depth; anyone
+     * else in the group the request names.
+     */
+    const scope = (body?: Record<string, unknown>): { group?: string; depth?: number } => {
+      const value = field(body, "group");
       const requested = typeof value === "string" && value !== "" ? value : undefined;
-      const paneId = body ? callerPaneId(body) : undefined;
-      return paneId ? fleet.groupForPane(paneId) ?? requested : requested;
+      const callerRun = callerRunOf(field(body, "caller_run"));
+      const caller = fleet.caller(callerRun, callerPaneId(field(body, "caller_pane_id")));
+      if (!caller) return { group: requested };
+      // HERDR_FLEET_DEPTH went with the rest of the environment when only the pane names the caller
+      return { group: caller.group, ...(callerRun ? {} : { depth: caller.depth }) };
     };
+    const group = (body?: Record<string, unknown>) => scope(body).group;
     const readBody = async (): Promise<Record<string, unknown>> => {
       let parsed: unknown;
       try { parsed = await request.json(); } catch { throw new FleetError("invalid_json", "request body must be JSON"); }
@@ -80,7 +94,7 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
       return jsonResponse({ run }, 201);
     }
     if (parts[0] === "threads" && parts.length === 1 && method === "GET") {
-      const threads = await fleet.threads({ callerRun: query.get("caller_run") || undefined, cwd: query.get("cwd") || undefined });
+      const threads = await fleet.threads({ callerRun: callerRunOf(query.get("caller_run") ?? undefined), callerPaneId: callerPaneId(query.get("caller_pane_id") ?? undefined), cwd: query.get("cwd") || undefined });
       return jsonResponse({ threads });
     }
     if (parts[0] === "projects" && parts.length === 1 && method === "POST") {
@@ -97,7 +111,7 @@ export async function handleFleetRequest(request: Request, url: URL, fleet: Orch
     }
     if (parts[0] === "spawn" && parts.length === 1 && method === "POST") {
       const body = await readBody();
-      const run = await fleet.spawn(spawnRequest(body), request.signal);
+      const run = await fleet.spawn({ ...spawnRequest(body), ...scope(body) }, request.signal);
       return jsonResponse({ run }, 201);
     }
     if (parts[0] === "report" && parts.length === 1 && method === "GET" && report) {
@@ -272,14 +286,19 @@ function threadRequest(body: Record<string, unknown>): ThreadRequest {
   if (!brief && !task?.trim()) throw new FleetError("missing_task", "task is required");
   const depth = body["depth"];
   if (depth !== undefined && (typeof depth !== "number" || !Number.isInteger(depth) || depth < 0)) throw new FleetError("invalid_body", "depth must be a whole number");
-  const callerRun = text("caller_run");
-  const callerPane = callerPaneId(body);
+  const callerRun = callerRunOf(body["caller_run"]);
+  const callerPane = callerPaneId(body["caller_pane_id"]);
   return { title, task, cwd: text("cwd"), ...(brief ? { brief } : {}), ...(depth !== undefined ? { depth: depth as number } : {}), ...(callerRun ? { callerRun } : {}), ...(callerPane ? { callerPaneId: callerPane } : {}) };
 }
 
-function callerPaneId(body: Record<string, unknown>): string | undefined {
-  const value = body["caller_pane_id"];
-  if (value === undefined || value === null) return undefined;
+function callerRunOf(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  if (typeof value !== "string") throw new FleetError("invalid_body", "caller_run must be a string");
+  return value;
+}
+
+function callerPaneId(value: unknown): string | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
   if (typeof value !== "string" || !/^[\w:.-]{1,64}$/.test(value)) throw new FleetError("invalid_body", "caller_pane_id must be a herdr pane id");
   return value;
 }
