@@ -165,12 +165,10 @@ impl Orchestrator {
     /// The thread is the new run `next`'s: the old run points to it, gives it the landing step and
     /// its notices, and its pane closes.
     async fn hand_over(&self, run: &AgentRun, next: &AgentRun) {
-        let Some(old) = self.change(&run.id, |old| old.replaced_by = Some(next.id.clone())) else {
-            return;
-        };
+        let old = self.change(&run.id, |old| old.replaced_by = Some(next.id.clone()));
         // the new run took the landing step over as it started: a step marked sent meanwhile goes
         // as marked
-        if let Some(step) = old.landing.clone() {
+        if let Some(step) = old.and_then(|old| old.landing) {
             self.change(&next.id, |lead| {
                 if lead
                     .landing
@@ -185,11 +183,13 @@ impl Orchestrator {
         // landed too, and a merge step the coordinator has not heard yet waits for it as the new
         // run's
         let outbox = &self.inner.outbox;
-        let moved = outbox
-            .discard(&run.id, NEWS)
-            .and_then(|()| outbox.move_notices(&run.id, &next.id));
-        if let Err(error) = moved {
-            eprintln!("herdr-fleet: the outbox file could not be written: {error}");
+        for written in [
+            outbox.discard(&run.id, NEWS),
+            outbox.move_notices(&run.id, &next.id),
+        ] {
+            if let Err(error) = written {
+                eprintln!("herdr-fleet: the outbox file could not be written: {error}");
+            }
         }
         self.change(&run.id, |old| old.landing = None);
         let _ = self.deps().runtime.close_pane(&run.pane_id).await;
@@ -251,7 +251,12 @@ impl Orchestrator {
         avoid: Option<&[FleetAgentKind]>,
         run: &mut AgentRun,
     ) {
-        let from = &takeover.from;
+        // the run before as it stands now, as TypeScript reads its record here: what changed on it
+        // since the restart began (a plan answered, a pull request read) goes on with the thread
+        let from = self
+            .registry()
+            .get(&takeover.from.id)
+            .unwrap_or_else(|| takeover.from.clone());
         run.thread = Some(takeover.thread.clone());
         if let Some(avoid) = avoid.filter(|avoid| !avoid.is_empty()) {
             run.avoid = Some(avoid.to_vec());
