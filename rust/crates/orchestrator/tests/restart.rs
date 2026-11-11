@@ -1041,6 +1041,76 @@ async fn hides_a_candidate_that_failed_to_start_in_a_restart_behind_the_run_that
     assert_eq!(t.threads().await, vec![next.id.clone()]);
 }
 
+/// Folders made in `dir` from now on are not writable, whatever mode they are made with: `dir`
+/// takes the default ACL `setfacl -d -m u::r-x,g::-,o::-` would give it, written as the
+/// `system.posix_acl_default` value of the kernel's include/uapi/linux/posix_acl_xattr.h.
+#[cfg(target_os = "linux")]
+fn deny_new_folders(dir: &std::path::Path) {
+    use std::os::unix::fs::DirBuilderExt;
+    // version 2, then a (tag, permissions, id) entry for the owner, the group and others, in
+    // the order of their tags
+    let mut acl = 2u32.to_le_bytes().to_vec();
+    for (tag, permissions) in [(0x01u16, 0o5u16), (0x04, 0), (0x20, 0)] {
+        acl.extend(tag.to_le_bytes());
+        acl.extend(permissions.to_le_bytes());
+        acl.extend(u32::MAX.to_le_bytes());
+    }
+    rustix::fs::setxattr(
+        dir,
+        "system.posix_acl_default",
+        &acl,
+        rustix::fs::XattrFlags::empty(),
+    )
+    .expect("the folder takes a default ACL");
+    // the setup holds: a folder made there with a result folder's mode takes no file
+    let probe = dir.join("probe");
+    fs::DirBuilder::new().mode(0o700).create(&probe).unwrap();
+    let written = fs::write(probe.join("file"), "");
+    fs::remove_dir(&probe).unwrap();
+    assert_eq!(
+        written.map_err(|error| error.kind()),
+        Err(std::io::ErrorKind::PermissionDenied),
+        "a folder made in {} takes no file",
+        dir.display()
+    );
+}
+
+// #347, not an `it` of the describe: TypeScript's `carryFiles` throws when the contract cannot be
+// written, and the candidate's `spawnAttempt` fails
+#[cfg(target_os = "linux")]
+#[tokio::test(start_paused = true)]
+async fn fails_the_new_run_and_sends_it_no_task_when_the_contract_cannot_be_carried_to_its_result_folder()
+ {
+    let t = thread();
+    let first = t.start_thread("Fix", "t", None).await;
+    t.write(&first, "contract.md", "- [ ] A1 no duplicate — evidence:\n");
+    // without the thread's task, no task.md goes to the new run's result folder before the
+    // contract: the contract is the file that cannot be written there
+    fs::remove_file(t.root.join("results").join(&first.id).join("task.md")).unwrap();
+    deny_new_folders(&t.root.join("results"));
+    t.turn(&first, AgentState::Idle).await;
+    let candidate = t
+        .registry
+        .all()
+        .into_iter()
+        .find(|run| run.agent == FleetAgentKind::Codex)
+        .expect("a candidate took the thread over");
+    assert_eq!(candidate.state, AgentState::Failed);
+    assert!(t.runtime.closed().contains(&candidate.pane_id));
+    assert_eq!(t.to(&candidate), Vec::<String>::new());
+    // no run took the thread over: it stays with its lead, and the restart says why
+    assert_eq!(t.run(&first.id).replaced_by, None);
+    let errors: Vec<Option<String>> = t.restarts().into_iter().map(|e| e.error).collect();
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(
+        errors[0]
+            .as_deref()
+            .is_some_and(|error| error.contains("the contract was not carried to")
+                && error.contains("Permission denied")),
+        "{errors:?}"
+    );
+}
+
 // orchestrator.test.ts: "closes a carried plan when the new run went on to a report other than blocked, and keeps it open when a turn failed and no run could take over" (its first half)
 #[tokio::test(start_paused = true)]
 async fn closes_a_carried_plan_when_the_new_run_went_on_to_a_report_other_than_blocked() {
