@@ -710,4 +710,59 @@ mod tests {
             assert_eq!(posix_basename(path), posix, "posix {path:?}");
         }
     }
+
+    /// plan.ts opens both files with `O_NONBLOCK`, so a FIFO in the plan file's place, or one that
+    /// a code exhibit names, opens without a writer and its `fstat` turns it down: `readPlan` throws
+    /// `unreadable("not a file")` and `readCodeLines` throws `${path} is not a file`
+    /// (server/fleet/plan.ts:55-58 and :121-125). The 2-second limit makes a missing `O_NONBLOCK` a
+    /// failure rather than a hang.
+    #[cfg(unix)]
+    #[test]
+    fn turns_a_fifo_down_without_waiting_for_a_writer() {
+        let dir = std::env::temp_dir().join(format!("herdr-plan-fifo-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let made = std::process::Command::new("mkfifo")
+            .arg(dir.join("plan.json"))
+            .arg(dir.join("code.rs"))
+            .status()
+            .unwrap();
+        assert!(made.success());
+        let plan = dir.join("plan.json");
+        let root = dir.clone();
+        let (plan_read, code_read) = within_2_seconds(move || {
+            (
+                super::read_plan(&plan),
+                super::read_code_lines(&root, "code.rs", 1, 1),
+            )
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(
+            plan_read,
+            Err(crate::FleetError::new(
+                "plan_unreadable",
+                "The kept plan cannot be read back (not a file); the lead can hand it over again."
+            ))
+        );
+        assert_eq!(
+            code_read,
+            Err(crate::FleetError::new(
+                "invalid_plan",
+                "code.rs is not a file"
+            ))
+        );
+    }
+
+    /// `read`'s answer, or a panic when it does not come within 2 seconds.
+    #[cfg(unix)]
+    fn within_2_seconds<T: Send + 'static>(read: impl FnOnce() -> T + Send + 'static) -> T {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        // A thread stuck in `open` cannot be stopped; the test process ends it.
+        std::thread::spawn(move || {
+            let _ = sender.send(read());
+        });
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .expect("the read answers within 2 seconds")
+    }
 }
