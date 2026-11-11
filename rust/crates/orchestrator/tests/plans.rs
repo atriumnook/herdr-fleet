@@ -50,6 +50,17 @@ fn plan_value() -> Value {
     }] })
 }
 
+/// `{ title: "Fix", task: "t", cwd: "/repo", callerRun }`.
+fn fix(caller: Option<&AgentRun>) -> ThreadRequest {
+    ThreadRequest {
+        title: "Fix".to_owned(),
+        task: Some("t".to_owned()),
+        cwd: Some("/repo".to_owned()),
+        caller_run: caller.map(|run| run.id.clone()),
+        ..ThreadRequest::default()
+    }
+}
+
 /// `gitRoot: async () => "/repo"`.
 fn in_repo() -> Option<Arc<dyn LandingTools>> {
     let landing = FakeLanding::new();
@@ -169,12 +180,11 @@ impl Project {
 
     /// The plan file the fleet keeps for the run, as JSON.
     fn kept(&self, run: &AgentRun) -> Value {
-        let file = self
-            .s
-            .root
-            .join("fleet-plans")
-            .join(format!("{}.json", run.id));
-        serde_json::from_str(&fs::read_to_string(file).unwrap()).unwrap()
+        serde_json::from_str(&fs::read_to_string(self.plan_file(run)).unwrap()).unwrap()
+    }
+
+    fn plan_file(&self, run: &AgentRun) -> PathBuf {
+        self.s.root.join(format!("fleet-plans/{}.json", run.id))
     }
 
     fn run(&self, run: &AgentRun) -> AgentRun {
@@ -192,20 +202,9 @@ impl Project {
 
     /// `fleet.startThread({ title: "Fix", task: "t", cwd: "/repo", callerRun })`.
     async fn start_thread(&self, coordinator: &AgentRun) -> AgentRun {
-        self.s
-            .fleet
-            .start_thread(
-                ThreadRequest {
-                    title: "Fix".to_owned(),
-                    task: Some("t".to_owned()),
-                    cwd: Some("/repo".to_owned()),
-                    caller_run: Some(coordinator.id.clone()),
-                    ..ThreadRequest::default()
-                },
-                &CancellationToken::new(),
-            )
-            .await
-            .unwrap()
+        let cancel = CancellationToken::new();
+        let started = self.s.fleet.start_thread(fix(Some(coordinator)), &cancel);
+        started.await.unwrap()
     }
 
     async fn send(&self, run: &AgentRun, message: &str) -> Result<AgentRun, OrchestratorError> {
@@ -484,7 +483,7 @@ async fn are_kept_where_the_lead_does_not_write_and_one_that_does_not_hold_toget
     );
     // the kept file, broken: refused as unreadable, and the rest of the fleet reads on
     fs::write(
-        p.s.root.join("fleet-plans").join(format!("{}.json", thread.id)),
+        p.plan_file(&thread),
         json!({ "version": 1, "writtenAt": 1, "title": "t", "claims": [{ "text": { "html": "<b>" } }] }).to_string(),
     )
     .unwrap();
@@ -516,13 +515,11 @@ async fn come_only_from_a_threads_lead_and_only_plans_that_hold_together() {
     let mut asked = request();
     asked.role = "reviewer".to_owned();
     let helper = spawn(p.fleet(), asked).await.unwrap();
-    assert_eq!(
-        code(
-            p.fleet()
-                .submit_plan(&helper.id, &plan_value(), Some(&helper.group))
-        ),
-        "not_a_thread"
+    let refused = code(
+        p.fleet()
+            .submit_plan(&helper.id, &plan_value(), Some(&helper.group)),
     );
+    assert_eq!(refused, "not_a_thread");
     let outside = p.fleet().submit_plan(
         &thread.id,
         &json!({ "title": "Retry limit", "claims": [{ "text": "x", "exhibit": { "kind": "code", "path": "../../etc/passwd", "start": 1 } }] }),
@@ -533,13 +530,12 @@ async fn come_only_from_a_threads_lead_and_only_plans_that_hold_together() {
         message.contains("../../etc/passwd is not a file in the thread's worktree"),
         "{message}"
     );
-    assert_eq!(
-        code(
-            p.fleet()
-                .submit_plan(&thread.id, &json!({ "title": "t", "claims": [] }), None)
-        ),
-        "invalid_plan"
-    );
+    let refused = code(p.fleet().submit_plan(
+        &thread.id,
+        &json!({ "title": "t", "claims": [] }),
+        None,
+    ));
+    assert_eq!(refused, "invalid_plan");
     assert_eq!(p.fleet().plan(&thread.id, None).unwrap().version, 1);
     p.fleet().stop();
 }
@@ -569,19 +565,8 @@ async fn restart_after_send() -> (common::Setup, AgentRun) {
         ..SetupOptions::default()
     });
     s.runtime.set_prompt_status(AgentState::Working);
-    let thread = s
-        .fleet
-        .start_thread(
-            ThreadRequest {
-                title: "Fix".to_owned(),
-                task: Some("t".to_owned()),
-                cwd: Some("/repo".to_owned()),
-                ..ThreadRequest::default()
-            },
-            &CancellationToken::new(),
-        )
-        .await
-        .unwrap();
+    let cancel = CancellationToken::new();
+    let thread = s.fleet.start_thread(fix(None), &cancel).await.unwrap();
     s.fleet.stop();
     (s, thread)
 }

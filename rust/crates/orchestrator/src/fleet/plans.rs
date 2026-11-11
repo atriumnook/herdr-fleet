@@ -7,6 +7,7 @@
 //! two plans handed over at once count two versions, and an answer or a close marks the version it
 //! read (ADR 0265-plans).
 
+use std::io;
 use std::path::{Path, PathBuf};
 
 use protocol::{AgentRun, AgentState, Plan, PlanMark, plan_asks, plan_open};
@@ -99,7 +100,7 @@ impl Orchestrator {
         let run = self.planner(target, group)?;
         let file = self.plan_file(&run.id);
         let plan = self.plan(&run.id, None)?;
-        let answer = check_answer(&plan, value)?;
+        check_answer(&plan, value)?;
         still_open(&plan, &run)?;
         if !is_live(&run) {
             return Err(run_ended(&run).into());
@@ -115,25 +116,42 @@ impl Orchestrator {
         if !is_live(&run) {
             return Err(run_ended(&run).into());
         }
-        // another answer, or a close, may have marked this version during the wait: the lead hears
-        // it once (TypeScript checks only before the wait)
-        if let Ok(Some(kept)) = read_plan(&file)
-            && kept.version == plan.version
-        {
-            still_open(&kept, &run)?;
-        }
+        // the plan may have changed during the wait: another answer or a close marked it, or the
+        // lead handed over a newer version. The checks run again, so the lead hears an answer once
+        // and only to the plan it keeps (TypeScript makes them only before the wait)
+        let plan = self.plan(&run.id, None)?;
+        let answer = check_answer(&plan, value)?;
+        still_open(&plan, &run)?;
         // the check that no turn is in flight and the new turn are one step, so a second answer
         // finds the lead busy (`run_busy`); the plan counts as answered once the message reached
         // the lead
         let message = plan_answer_message(&plan, &answer);
         let id = run.id.as_str();
-        let sent = self
+        let mut delivered = None;
+        let slot = &mut delivered;
+        let written = self
             .inner
             .outbox
             .send_now(id, &message, |text| async move {
-                self.submit_when_free(id, &text, cancel).await
+                *slot = Some(self.submit_when_free(id, &text, cancel).await);
             })
-            .await??;
+            .await;
+        let sent = match delivered {
+            Some(sent) => {
+                // the answers went out: an outbox that did not let them go after is logged
+                if let Err(error) = written {
+                    eprintln!("herdr-fleet: the outbox file could not be written: {error}");
+                }
+                sent?
+            }
+            // the outbox did not take the answers, which then were not sent
+            None => {
+                let error = written.err();
+                return Err(error
+                    .unwrap_or_else(|| io::Error::other("the answers were not sent"))
+                    .into());
+            }
+        };
         // submit answers a refusal without an error: herdr would not type into a lead on its
         // approval screen, or the prompt failed. The answers did not arrive, so the plan still
         // takes them. (a prompt typed that left the lead on an approval screen did arrive: its turn

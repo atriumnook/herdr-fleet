@@ -27,8 +27,8 @@
 - `answer_plan` の送信は `notify_now` ではなく、outbox の `send_now` と `submit_when_free` で行う。TypeScript は「fleet のターンが進行中でない」ことを確かめてから、await を挟まずに `notifyNow` を呼ぶ(`:897-899`)。`notify_now` は `submit` を使うので、Rust では確認と新しいターンの登録の間に、別のスレッドの送信が入りうる。`submit_when_free` は、確認と登録を turns の lock の中で 1 つの手順にし、進行中なら TypeScript と同じ文の `run_busy` で断る(ADR `0264-notices` の配達と同じ扱い)
 - `close_stale_plan` が計画ファイルを読めないか書けないときは、標準エラーに書き、計画を開いたままにする。hook は値を返さない(ADR `0264-notices` の outbox と同じ扱い)。TypeScript は、読めないときは黙って戻り、書けないときは投げて `finalize` の残りが飛ぶ。`submit_plan` と `answer_plan` で計画ファイルに書けなかったときは、TypeScript と同じく呼び出し元にエラー(`internal_error`)を返す
 - `answer_plan` は、TypeScript と次の 2 点で違う(`/code-review` の指摘)。どちらも、答えが lead に 2 回届くことを防ぐため
-  - 決着を待ったあと、同じ版の計画を読み直し、答え済みか閉じていれば `plan_answered` か `plan_closed` で断る。答えを送ったあと計画に印を付けるのも、その版がまだ開いているときだけにする。TypeScript は待つ前にしか調べないので、待つ間に別の答えが届いて lead のターンが終わると、2 つ目の答えも送る
-  - 答えが lead に届いたあと、outbox の知らせを消せなかったときは、標準エラーに書いて計画に印を付ける。TypeScript は投げるので、計画が答えを待ったまま残り、使う人がもう一度押すと同じ答えが再び届く
+  - 決着を待ったあと計画を読み直し、待つ前と同じ確認(版が答えと合うか、答え済みか、閉じているか)をもう一度行う。答えを送ったあと計画に印を付けるのも、その版がまだ開いているときだけにする。TypeScript は待つ前にしか調べないので、待つ間に別の答えが届いて lead のターンが終わると 2 つ目の答えも送り、待つ間に lead が新しい版を出すと古い版への答えを送る
+  - 答えが lead に届いたあと、outbox から送信中の知らせか thread の質問を消せなかったときは、標準エラーに書いて計画に印を付ける。TypeScript は投げるので、計画が答えを待ったまま残り、使う人がもう一度押すと同じ答えが再び届く。計画ファイルに書けなかったときは、答えた印を残す場所がないので、TypeScript と同じくエラーを返す
 - #240 の 3 の直し(`close_stale_plan` を呼ぶ条件)は `turns.rs` の `finalize` に置き、`turns.rs` だけを書く #338 が書く。#265 は書かない。条件は、報告がある場合の今の条件に加え、報告がなく `restart_error.is_some()`(新しい run が thread を引き継がなかった)ときにも呼ぶ、とする。起動し直しを試みなかった場合(報告がなく `needs_restart` が偽、つまり thread が landing 済みのとき)は、TypeScript と同じく閉じない。#267 は #338 を待ち、TypeScript の `orchestrator.test.ts:1402-1430` を移すときに、`:1429` の期待(`closedAt` が `undefined`)を、`closedAt` が数値であることに変える。根拠は #240、#265、#267 の本文
 - #267 との約束: `restart_thread` は、新しい run が thread を引き継がなかったときにだけ `Some` を返し、中断では返さない。中断で `Some` を返すと、サーバーの停止で計画が閉じる。TypeScript は中断を投げ直し、`closeStalePlan` まで進まない(`:1564`)
 
@@ -37,7 +37,6 @@
 - #265 が `turns.rs` の直しの Issue を待つ案(architect の選択肢 B)。`restart.rs` の `needs_restart` は #267 まで stub で常に `false` を返すので、#265 のテストではこの条件を確かめられない。待っても #265 の検査は増えず、着手が遅れるだけなので取らなかった
 - `restart.rs` が、起動し直しに失敗したときに `plans.rs` を呼ぶ案(選択肢 C)。`restart_thread` は `submitted_at` を受け取らず、`finalize` は起動し直しの前に進行中のターンを消すので、`restart.rs` からは読めない。計画を閉じる判定が `turns.rs` と `restart.rs` の 2 つのファイルに分かれるので取らなかった
 - 判定をすべて `plans.rs` に移し、`finalize` は `settle_plan(id, pending, restart_failed)` だけを呼ぶ案。O1 が最終の signature で置いた hook を変えることになり、同じく `turns.rs` の Issue が要る。得られるのは条件の 1 つの腕の移動だけなので取らなかった
-- `answer_plan` が `notify_now` をそのまま使う案。上の「決定」の理由で、確認と送信の間に別の送信が入りうるので取らなかった
 
 ## 依存
 
@@ -47,7 +46,6 @@
 
 - `/api/fleet` の router(#269)は、`submit_plan`、`plan`、`answer_plan` を呼べる。`answer_plan` は中断のために `CancellationToken` を受け取る(`fleet/mod.rs` の冒頭の「Cancelling」)
 - 「計画を閉じる」判定の一部(どのターンで呼ぶか)は、TypeScript と同じく `turns.rs` に残る。時刻の比較(計画の `writtenAt` がターンの `submitted_at` より前なら閉じる)は `plans.rs` にある
-- #338 は、先に失敗するテストなしで入る。公開の口からの確認は #267 のテストが受け持つ
 - 閉じた計画に答えると、`answer_plan` は lead が失敗していても `plan_closed`(「The lead of X went on without answers to version N of its plan.」)を返す。TypeScript と同じく `closedAt` を `isLive` より先に調べるため。#338 が入ると失敗した lead の計画も閉じるので、この文は事実と合わなくなる。文を変えるかは #267 が決める
 
 ## 確かめたこと
