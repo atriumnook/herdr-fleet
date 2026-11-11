@@ -29,16 +29,6 @@ const FAILURE_TTL_MS: i64 = 60_000;
 /// (`SPAWN_WAIT_MS`, `server/fleet/models.ts:11`).
 const SPAWN_WAIT: Duration = Duration::from_secs(3);
 
-/// `AGENT_KINDS`, `server/fleet/adapters.ts:480`: the order [`ModelCatalog::list_all`] answers in.
-const AGENT_KINDS: [FleetAgentKind; 6] = [
-    FleetAgentKind::Pi,
-    FleetAgentKind::Claude,
-    FleetAgentKind::Codex,
-    FleetAgentKind::Cursor,
-    FleetAgentKind::Agy,
-    FleetAgentKind::Opencode,
-];
-
 /// Where the catalog runs the CLIs, and what a test stands in for.
 pub struct CatalogOptions {
     /// the folder holding a folder per CLI (`<stateDir>/model-list`), each emptied before the CLI
@@ -187,7 +177,7 @@ impl ModelCatalog {
                             agent,
                             models: Vec::new(),
                             complete: false,
-                            error: Some(format!("{} could not be asked", kind_name(agent))),
+                            error: Some(format!("{} could not be asked", agent.name())),
                         },
                     }
                 }
@@ -228,7 +218,7 @@ impl ModelCatalog {
         };
         let started = (self.inner.sources)(agent).map(|source| {
             let options = ListOptions::new(
-                self.inner.work_dir.join(kind_name(agent)),
+                self.inner.work_dir.join(agent.name()),
                 self.inner.env.clone(),
             );
             (source.complete, (source.list)(options))
@@ -249,7 +239,7 @@ impl ModelCatalog {
                             agent,
                             models,
                             complete: false,
-                            error: Some(format!("{} listed no models", kind_name(agent))),
+                            error: Some(format!("{} listed no models", agent.name())),
                         },
                         Ok(models) => ModelListing {
                             agent,
@@ -281,9 +271,10 @@ impl ModelCatalog {
         Start::Waiting(answer)
     }
 
-    /// Every kind's list, in the order of `AGENT_KINDS` (`listAll`, `server/fleet/models.ts:55`).
+    /// Every kind's list, in the order of [`FleetAgentKind::ALL`] (`listAll`,
+    /// `server/fleet/models.ts:55`).
     pub async fn list_all(&self) -> Vec<ModelListing> {
-        let asks: Vec<_> = AGENT_KINDS
+        let asks: Vec<_> = FleetAgentKind::ALL
             .iter()
             .map(|&agent| self.list(agent, false))
             .collect();
@@ -314,7 +305,7 @@ impl ModelCatalog {
         }
         Some(format!(
             "{} does not offer a model named {model}",
-            kind_name(agent)
+            agent.name()
         ))
     }
 }
@@ -324,17 +315,5 @@ async fn within<T>(deadline: Option<Instant>, future: impl Future<Output = T>) -
     match deadline {
         Some(deadline) => tokio::time::timeout_at(deadline, future).await.ok(),
         None => Some(future.await),
-    }
-}
-
-/// The kind's name as the API and herdr write it: the CLI's folder, and the start of the messages.
-fn kind_name(kind: FleetAgentKind) -> &'static str {
-    match kind {
-        FleetAgentKind::Pi => "pi",
-        FleetAgentKind::Claude => "claude",
-        FleetAgentKind::Codex => "codex",
-        FleetAgentKind::Cursor => "cursor",
-        FleetAgentKind::Agy => "agy",
-        FleetAgentKind::Opencode => "opencode",
     }
 }
