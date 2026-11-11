@@ -17,6 +17,7 @@ const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> =
       "hands work to threads": /thread --title/,
       "leaves a plan to the person on the Fleet screen": /Do not answer a plan yourself/,
       "never answers an approval on a thread's screen": /Never answer an approval on a thread's screen/,
+      "never asks the person to answer an agy screen": /Never ask the person to answer an agy screen for a thread's helper/,
       "leaves restarting a failed thread to the fleet": /do not restart it yourself/,
       "merges only what the person pressed, that merge only": /person pressed Merge .* approval for that merge only/,
       "does not force a merge that is in the way": /do not force it/,
@@ -24,7 +25,7 @@ const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> =
     },
   },
   lead: {
-    budget: 6_000,
+    budget: 6_200,
     rules: {
       "writes an acceptance contract first": /contract\.md/,
       "hands a large change to the person as a plan and stops": /Before a large change .* run `plan <file\.json>`.* `blocked` report whose `human_action`/,
@@ -32,6 +33,7 @@ const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> =
       "takes expected values from outside the code under test": /Never compute it the way the code does/,
       "has every change reviewed on another CLI": /Every change gets a review, on another CLI than the one that wrote it \(`--avoid`/,
       "gives an agy reviewer the diff and checks as files": /reviewer on agy cannot run git/,
+      "never asks the person to answer an agy screen": /An agy helper that stops at a file outside its folders fails.*never ask the person to answer one/,
       "waits for an agent it started in the same turn, or reports first": /wait for it with `wait <agent>` in the same turn: do not end your turn to wait, and if you must end it, write your report first/,
       "hands broad investigation to a scout": /Broad investigation .* `spawn --role scout --read-only`/,
       "hands an independent, fully specified mechanical change to a worker": /independent, fully specified mechanical change .* `spawn --role worker` with its `--write` paths/,
