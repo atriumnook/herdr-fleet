@@ -11,14 +11,14 @@ import { BUNDLED_AGENTS_DIR, discoverAgents, findAgent } from "./agents.ts";
  */
 const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> = {
   coordinator: {
-    budget: 4_500,
+    budget: 4_700,
     rules: {
       "edits no file": /You change no file/,
       "hands work to threads": /thread --title/,
       "names the thread and cwd when it starts that thread's reviewer": /spawn --role reviewer --name "review:<thread id>" --cwd "<thread cwd>"/,
       "leaves a plan to the person on the Fleet screen": /Do not answer a plan yourself/,
       "never answers an approval on a thread's screen": /Never answer an approval on a thread's screen/,
-      "never asks the person to answer an agy screen": /Never ask the person to answer an agy screen for a thread's helper/,
+      "never asks the person to answer an agy screen": /Never ask the person to answer an agy screen either: a helper stopped at one fails, and whoever started it starts another/,
       "leaves restarting a failed thread to the fleet": /do not restart it yourself/,
       "merges only what the person pressed, that merge only": /person pressed Merge .* approval for that merge only/,
       "does not force a merge that is in the way": /do not force it/,
