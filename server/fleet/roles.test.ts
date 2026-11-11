@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { resolve } from "node:path";
 import { BUNDLED_AGENTS_DIR, discoverAgents, findAgent } from "./agents.ts";
 
 /**
@@ -66,6 +67,57 @@ const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> =
     },
   },
 };
+
+/**
+ * The same for this repository's own roles (`.herdr-fleet/agents/`), which replace the bundled ones of
+ * the same name for the agents working on it. Only the roles listed here are checked.
+ */
+const PROJECT_ROLES: Record<string, { budget: number; rules: Record<string, RegExp>; dropped?: Record<string, RegExp> }> = {
+  lead: {
+    budget: 6_000,
+    rules: {
+      "plans, designs, briefs, checks and decides": /You plan, design, write the briefs, check the results and decide/,
+      "writes code itself only for a design decision or security": /Write code yourself only for a design decision or a change that touches security/,
+      "hands every other change to a worker": /Every other change goes to a `worker` \(`spawn --role worker --write <paths>`\)/,
+      "hands a broad investigation to a scout": /a broad investigation \(reading many files, tracing callers, checking dependencies\) goes to a `scout` \(`spawn --role scout --read-only`\)/,
+      "briefs with goal, context, done and verify": /Brief each with `--goal`, `--context`, `--done` and `--verify`/,
+      "waits in the same turn and checks the result": /`wait <agent>` for it in the same turn, and check its result before you go on/,
+      "runs independent changes on separate workers side by side": /Changes that do not depend on each other go to separate workers with separate `--write` paths, side by side/,
+      "sends a failed result back once before writing it itself": /fails its checks, start a worker on it again with the same brief and what failed; write the change yourself only after a second failure, and say so in your report/,
+    },
+    dropped: {
+      "does the work itself by default": /Do the work yourself/,
+      "hands on only when that gains something": /Hand a part to another agent only when that gains something/,
+    },
+  },
+};
+
+const project = discoverAgents(resolve(import.meta.dir, "..", ".."), [], { bundled: "/nonexistent", user: "/nonexistent" });
+
+describe("project roles", () => {
+  for (const [name, { budget, rules, dropped = {} }] of Object.entries(PROJECT_ROLES)) {
+    describe(name, () => {
+      const role = () => findAgent(project, name)!;
+      const body = () => role().systemPrompt.replace(/\s+/g, " ");
+      it("is read from .herdr-fleet/agents/", () => {
+        expect(role().source).toBe("project");
+      });
+      for (const [rule, pattern] of Object.entries(rules)) {
+        it(`states: ${rule}`, () => {
+          expect(body()).toMatch(pattern);
+        });
+      }
+      for (const [rule, pattern] of Object.entries(dropped)) {
+        it(`no longer states: ${rule}`, () => {
+          expect(body()).not.toMatch(pattern);
+        });
+      }
+      it(`stays within ${budget} bytes`, () => {
+        expect(Buffer.byteLength(role().systemPrompt, "utf8")).toBeLessThanOrEqual(budget);
+      });
+    });
+  }
+});
 
 /** the roles the fleet must never give to agy: they run the fleet command, which agy's sandbox hides (CLAUDE.md) */
 const NEVER_ON_AGY = ["coordinator", "lead"];
