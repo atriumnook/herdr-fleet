@@ -671,7 +671,8 @@ mod tests {
     fn turns_a_fifo_down_without_waiting_for_a_writer() {
         let dir = std::env::temp_dir().join(format!("herdr-plan-fifo-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        std::fs::create_dir_all(&dir).unwrap();
+        // create_dir, not create_dir_all: a path someone else made in its place fails the test
+        std::fs::create_dir(&dir).unwrap();
         let made = std::process::Command::new("mkfifo")
             .arg(dir.join("plan.json"))
             .arg(dir.join("code.rs"))
