@@ -1,5 +1,5 @@
 //! Opens a regular file for reading without waiting for a FIFO's writer (ADR
-//! 0225-nonblocking-image-open).
+//! 0225-nonblocking-image-open; the flag's value from rustix, ADR 0318-rustix-open-flags).
 //!
 //! `clippy.toml` bans `OpenOptionsExt::custom_flags`, because a flag such as `O_TRUNC` would let
 //! this crate open a file for more than reading (ADR 0107-crate-split). This module is the one
@@ -11,33 +11,6 @@
 use std::fs::{File, Metadata};
 use std::io;
 use std::path::Path;
-
-// `O_NONBLOCK` of the target, as its C library defines it: std does not export it, and this
-// crate depends on no libc binding (ADR 0225-nonblocking-image-open). Only the targets the plan
-// builds for are listed.
-// libc 0.2.191: src/unix/linux_like/linux/gnu/b64/x86_64/mod.rs:294 and aarch64/mod.rs:206 say
-// 2048.
-#[cfg(all(
-    target_os = "linux",
-    any(target_arch = "x86_64", target_arch = "aarch64")
-))]
-const O_NONBLOCK: i32 = 0o4000;
-// libc 0.2.191: src/unix/bsd/mod.rs:275 says 0x4 (Apple's targets among them).
-#[cfg(target_vendor = "apple")]
-const O_NONBLOCK: i32 = 0x4;
-#[cfg(all(
-    unix,
-    not(any(
-        all(
-            target_os = "linux",
-            any(target_arch = "x86_64", target_arch = "aarch64")
-        ),
-        target_vendor = "apple",
-    ))
-))]
-compile_error!(
-    "add this target's O_NONBLOCK, taken from libc, to src/nonblocking_open.rs (ADR 0225-nonblocking-image-open)"
-);
 
 /// The file `path` names, opened for reading, and its `fstat`, when it is a regular file; a FIFO
 /// answers `InvalidInput` without waiting for a writer, as does anything else that is not a
@@ -53,6 +26,7 @@ pub(crate) fn open_regular_file(path: &Path) -> io::Result<(File, Metadata)> {
 
 #[cfg(unix)]
 fn open_without_waiting(path: &Path) -> io::Result<File> {
+    use rustix::fs::OFlags;
     use std::os::unix::fs::OpenOptionsExt as _;
     let mut options = std::fs::OpenOptions::new();
     options.read(true);
@@ -62,7 +36,9 @@ fn open_without_waiting(path: &Path) -> io::Result<File> {
         clippy::disallowed_methods,
         reason = "custom_flags with O_NONBLOCK alone opens for reading only (ADR 0225-nonblocking-image-open)"
     )]
-    options.custom_flags(O_NONBLOCK);
+    // rustix holds each target's value as its C library defines it; std adds O_CLOEXEC
+    // (ADR 0318-rustix-open-flags).
+    options.custom_flags(OFlags::NONBLOCK.bits().cast_signed());
     options.open(path)
 }
 

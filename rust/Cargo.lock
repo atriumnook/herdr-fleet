@@ -340,6 +340,7 @@ dependencies = [
  "base64",
  "herdr-fleet-protocol",
  "regex",
+ "rustix",
  "serde",
  "serde_json",
  "sha2",
