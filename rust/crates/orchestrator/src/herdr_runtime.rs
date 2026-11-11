@@ -93,6 +93,9 @@ impl HerdrRuntime {
             caller_pane_id,
             env,
         } = options;
+        // an empty name is no name, as TypeScript's truthiness tests have it
+        let given = |value: Option<String>| value.filter(|value| !value.is_empty());
+        let (branch, path, caller_pane_id) = (given(branch), given(path), given(caller_pane_id));
         if worktree {
             let Some(branch) = branch else {
                 return Err(internal("A worktree run needs a branch name."));

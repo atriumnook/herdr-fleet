@@ -264,66 +264,73 @@ mod create_location {
 
     #[tokio::test]
     async fn a_worktree_run_without_a_path_lets_herdr_place_it_and_splits_the_way_asked() {
-        let fake = FakeHerdr::start(|request| match method(request) {
-            "worktree.create" => Reply::result(
-                request,
-                json!({
-                    "type": "worktree_created", "workspace": workspace("w7"), "tab": tab("w7"),
-                    "root_pane": pane("root1", "w7", None),
-                    "worktree": {
-                        "path": "/wt/fleet-t1", "label": "helper", "is_bare": false,
-                        "is_detached": false, "is_linked_worktree": true, "is_prunable": false,
-                    },
-                }),
-            ),
-            "pane.split" => Reply::result(request, pane_info(pane("p2", "w7", None))),
-            "pane.close" => Reply::result(request, ok()),
-            _ => Reply::error(request, "unexpected", "not scripted"),
-        });
-        let options = location(
-            true,
-            Some("agents/scout-a1"),
-            None,
-            Some(SplitDirection::Down),
-            None,
-        );
+        // TypeScript's `options.path ? { path } : {}`: an empty path is none either
+        for path in [None, Some("")] {
+            let fake = FakeHerdr::start(|request| match method(request) {
+                "worktree.create" => Reply::result(
+                    request,
+                    json!({
+                        "type": "worktree_created", "workspace": workspace("w7"), "tab": tab("w7"),
+                        "root_pane": pane("root1", "w7", None),
+                        "worktree": {
+                            "path": "/wt/fleet-t1", "label": "helper", "is_bare": false,
+                            "is_detached": false, "is_linked_worktree": true, "is_prunable": false,
+                        },
+                    }),
+                ),
+                "pane.split" => Reply::result(request, pane_info(pane("p2", "w7", None))),
+                "pane.close" => Reply::result(request, ok()),
+                _ => Reply::error(request, "unexpected", "not scripted"),
+            });
+            let options = location(
+                true,
+                Some("agents/scout-a1"),
+                path,
+                Some(SplitDirection::Down),
+                None,
+            );
 
-        let created = runtime(&fake)
-            .create_location(options, &CancellationToken::new())
-            .await
-            .unwrap();
+            let created = runtime(&fake)
+                .create_location(options, &CancellationToken::new())
+                .await
+                .unwrap();
 
-        assert_eq!(created.cwd, "/wt/fleet-t1");
-        let requests = calls(&fake);
-        assert_eq!(
-            requests[0].1,
-            json!({ "cwd": "/repo", "branch": "agents/scout-a1", "label": "helper", "focus": false })
-        );
-        assert_eq!(requests[1].1["direction"], json!("down"));
-        assert_eq!(requests[1].1["cwd"], json!("/wt/fleet-t1"));
+            assert_eq!(created.cwd, "/wt/fleet-t1");
+            let requests = calls(&fake);
+            assert_eq!(
+                requests[0].1,
+                json!({ "cwd": "/repo", "branch": "agents/scout-a1", "label": "helper", "focus": false })
+            );
+            assert_eq!(requests[1].1["direction"], json!("down"));
+            assert_eq!(requests[1].1["cwd"], json!("/wt/fleet-t1"));
+        }
     }
 
     #[tokio::test]
     async fn a_worktree_run_needs_a_branch_and_asks_herdr_nothing_without_one() {
-        let fake = FakeHerdr::start(|request| Reply::error(request, "unexpected", "not scripted"));
+        // TypeScript's `if (!options.branch)`: an empty name is none either
+        for branch in [None, Some("")] {
+            let fake =
+                FakeHerdr::start(|request| Reply::error(request, "unexpected", "not scripted"));
 
-        let error = runtime(&fake)
-            .create_location(
-                location(true, None, None, None, None),
-                &CancellationToken::new(),
-            )
-            .await
-            .unwrap_err();
+            let error = runtime(&fake)
+                .create_location(
+                    location(true, branch, None, None, None),
+                    &CancellationToken::new(),
+                )
+                .await
+                .unwrap_err();
 
-        // a plain Error in TypeScript, which /api/fleet answers as internal_error
-        assert_eq!(
-            error,
-            RuntimeError::Herdr {
-                code: "internal_error".to_owned(),
-                message: "A worktree run needs a branch name.".to_owned(),
-            }
-        );
-        assert!(fake.requests().is_empty());
+            // a plain Error in TypeScript, which /api/fleet answers as internal_error
+            assert_eq!(
+                error,
+                RuntimeError::Herdr {
+                    code: "internal_error".to_owned(),
+                    message: "A worktree run needs a branch name.".to_owned(),
+                }
+            );
+            assert!(fake.requests().is_empty());
+        }
     }
 
     #[tokio::test]
@@ -411,43 +418,46 @@ mod create_location {
 
     #[tokio::test]
     async fn without_a_caller_the_agent_gets_a_workspace_of_its_own() {
-        let fake = FakeHerdr::start(|request| match method(request) {
-            "workspace.create" => Reply::result(
-                request,
-                json!({
-                    "type": "workspace_created", "workspace": workspace("w5"), "tab": tab("w5"),
-                    "root_pane": pane("p5", "w5", None),
-                }),
-            ),
-            _ => Reply::error(request, "unexpected", "not scripted"),
-        });
+        // TypeScript's `if (options.callerPaneId)`: an empty caller is none either
+        for caller in [None, Some("")] {
+            let fake = FakeHerdr::start(|request| match method(request) {
+                "workspace.create" => Reply::result(
+                    request,
+                    json!({
+                        "type": "workspace_created", "workspace": workspace("w5"), "tab": tab("w5"),
+                        "root_pane": pane("p5", "w5", None),
+                    }),
+                ),
+                _ => Reply::error(request, "unexpected", "not scripted"),
+            });
 
-        let created = runtime(&fake)
-            .create_location(
-                location(false, None, None, Some(SplitDirection::Right), None),
-                &CancellationToken::new(),
-            )
-            .await
-            .unwrap();
+            let created = runtime(&fake)
+                .create_location(
+                    location(false, None, None, Some(SplitDirection::Right), caller),
+                    &CancellationToken::new(),
+                )
+                .await
+                .unwrap();
 
-        assert_eq!(
-            created,
-            RuntimeLocation {
-                pane_id: "p5".to_owned(),
-                workspace_id: Some("w5".to_owned()),
-                cwd: "/repo".to_owned(),
-            }
-        );
-        assert_eq!(
-            calls(&fake),
-            vec![(
-                "workspace.create".to_owned(),
-                json!({
-                    "cwd": "/repo", "label": "helper", "env": { "HERDR_FLEET_GROUP": "g1" },
-                    "focus": false,
-                })
-            )]
-        );
+            assert_eq!(
+                created,
+                RuntimeLocation {
+                    pane_id: "p5".to_owned(),
+                    workspace_id: Some("w5".to_owned()),
+                    cwd: "/repo".to_owned(),
+                }
+            );
+            assert_eq!(
+                calls(&fake),
+                vec![(
+                    "workspace.create".to_owned(),
+                    json!({
+                        "cwd": "/repo", "label": "helper", "env": { "HERDR_FLEET_GROUP": "g1" },
+                        "focus": false,
+                    })
+                )]
+            );
+        }
     }
 
     #[tokio::test]
@@ -729,7 +739,7 @@ mod start {
                 _ => Reply::error(request, "unexpected", "not scripted"),
             }
         });
-        let step = Duration::from_millis(150);
+        let step = Duration::from_millis(250);
         let timings = StartTimings {
             retry_step: step,
             ..quick()
@@ -742,18 +752,14 @@ mod start {
             .unwrap();
 
         // TypeScript waits `300 * (attempt + 1)` ms: one step before the first retry, two before
-        // the second. The bound above each wait is less than a step, so neither a constant wait
-        // nor one step too many passes.
+        // the second. A whole step of slack above the first wait still turns down one step too
+        // many, and the second exceeding the first by half a step turns down a constant wait.
         let tries = tries.lock().unwrap().clone();
         assert_eq!(tries.len(), 3);
-        for (n, pair) in tries.windows(2).enumerate() {
-            let waited = pair[1] - pair[0];
-            let at_least = step * (u32::try_from(n).unwrap() + 1);
-            assert!(
-                waited >= at_least && waited < at_least + Duration::from_millis(120),
-                "wait {n}: {waited:?}"
-            );
-        }
+        let (first, second) = (tries[1] - tries[0], tries[2] - tries[1]);
+        assert!(first >= step && first < step * 2, "first wait: {first:?}");
+        assert!(second >= step * 2, "second wait: {second:?}");
+        assert!(second >= first + step / 2, "{first:?}, then {second:?}");
     }
 
     #[tokio::test]
