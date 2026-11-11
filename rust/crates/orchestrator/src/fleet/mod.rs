@@ -456,6 +456,9 @@ impl Timers {
         let key = (kind, id.to_owned());
         let timers = Arc::clone(self);
         let fired = key.clone();
+        // the table stays locked until the handle is in it: a task that fires at once waits for
+        // the lock, and then finds its own entry to take out
+        let mut handles = self.lock();
         let task = tokio::spawn(async move {
             tokio::time::sleep(after).await;
             {
@@ -466,7 +469,7 @@ impl Timers {
             }
             work.await;
         });
-        if let Some((_, previous)) = self.lock().insert(key, (seq, task.abort_handle())) {
+        if let Some((_, previous)) = handles.insert(key, (seq, task.abort_handle())) {
             previous.abort();
         }
     }
@@ -512,6 +515,8 @@ pub(crate) struct Inner {
     pub(crate) spawn_gate: tokio::sync::Mutex<()>,
     pub(crate) timers: Arc<Timers>,
     pub(crate) stopped: AtomicBool,
+    /// numbers the waiters of `wait`
+    pub(crate) next_waiter: AtomicU64,
     /// each run's state as last saved: a save that changes it is an event
     pub(crate) saved_states: Mutex<HashMap<String, AgentState>>,
     pub(crate) turns: Mutex<turns::State>,
@@ -559,6 +564,7 @@ impl Orchestrator {
                 spawn_gate: tokio::sync::Mutex::new(()),
                 timers: Arc::new(Timers::default()),
                 stopped: AtomicBool::new(false),
+                next_waiter: AtomicU64::new(0),
                 saved_states: Mutex::new(HashMap::new()),
                 turns: Mutex::new(turns::State::default()),
                 candidates: Mutex::new(candidates::State::default()),

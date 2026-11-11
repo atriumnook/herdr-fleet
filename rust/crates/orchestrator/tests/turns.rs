@@ -475,3 +475,23 @@ async fn reads_the_turn_s_report_before_anything_it_awaits_can_clear_it() {
         other => panic!("the report was lost: {other:?}"),
     }
 }
+
+// /code-review: a run that failed while herdr was asked about it (its start failed and its pane
+// closed) keeps the verdict when herdr then answers that it knows no such agent.
+#[tokio::test(start_paused = true)]
+async fn keeps_a_failed_verdict_reached_while_herdr_was_asked() {
+    let s = setup(SetupOptions::default());
+    let run = spawn(&s.fleet, request()).await.unwrap();
+    let (registry, id) = (s.registry.clone(), run.id.clone());
+    s.runtime.on_get(move |_| {
+        registry
+            .update(&id, |run| run.state = AgentState::Failed)
+            .unwrap();
+        async { Err(RuntimeError::NotFound) }
+    });
+    s.fleet.reconcile_all().await;
+    assert_eq!(
+        s.fleet.get(&run.id, None).unwrap().state,
+        AgentState::Failed
+    );
+}

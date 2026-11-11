@@ -82,6 +82,23 @@ TypeScript と同じく、報告なしで決着したペインはすぐには閉
 - `/api/fleet` が `tokio::spawn` で動かす method の future が `Send` であることを、テスト `the_futures_the_api_spawns_are_send` が確かめる
 - まだ呼ばれない stub と土台の項目には、`#[expect]` ではなく `#[allow(dead_code, reason = …)]` を付ける。満たされない `expect` は、呼び出しを足す Issue(そのファイルの持ち主ではない)で失敗するため
 
+### レビューで直した点
+
+`/code-review high` の指摘で、次を直した。
+
+- `wait` は、ターンがもう答えるかの判定と待つ者の登録を、`turns::State` の 1 つの lock の中で行う。2 つに分けると、別の worker の決着がその間に入り、待つ者が時間切れまで起こされない。時間切れか取り消しで終わった待つ者は、表から外す
+- `reconcile_run` で herdr が run を知らないと答えたとき、読み直した run が生きているかを確かめる。起動の失敗で `failed` になった run を `stopped` で上書きしない(テスト `keeps_a_failed_verdict_reached_while_herdr_was_asked`)
+- `close_done` は、run の決着の lock の中で、herdr の状態を聞いたあとにもう一度ターンが進行中でないかを確かめてから閉じる
+- ペインを作ったあとでサーバー自身のファイル(結果フォルダー、指示文)が書けなかったときも、起動の失敗と同じく run を `failed` にしてペインを閉じる。`AgentRun` は JSON を通さず直接組み立てる(テスト `fails_the_run_and_closes_its_pane_when_its_result_folder_cannot_be_made`)
+- `submit` は、herdr が `working` を見たという印を上書きせず、足す(`|=`)
+- timer の表は、task を起動してからその handle を入れるまで lock を持つ。すぐに発火した task が自分の項目を消せずに残すことを防ぐ
+
+次の 3 件は直さず、理由を PR に書いた。
+
+- `RuntimeError::NotFound` が herdr の 3 つのコードを 1 つにまとめ、`code()` が `agent_not_found` を返す。variant の形は ADR `0242-phase-3-split` と #256 の受け入れ条件が決めている。`focus` や `interrupt` で herdr の元のコードと文を CLI に出すかは、fleet CLI の契約と照らして HR(#261)と CC(#274)が確かめる
+- spawn の gate の中で `registry.all()` がすべての run を複製する。TypeScript も同じ所で `registry.all()` を呼ぶ。registry の口は L5 のもの
+- `state_name` が `AgentState` の綴りを手で持つ。protocol は O1 の書くパスの外で、variant が増えればコンパイラが気づく
+
 ## 検討した代わり
 
 - `ThreadTools` という 2 つ目の trait に 5 つの関数を置き、本物の impl を O1 が書く案。1 つの操作が 2 つの port に分かれ、呼ぶ者のない本物の impl が 2 つ目のファイルにできるので取らなかった
@@ -110,4 +127,5 @@ Linux(Omarchy、kernel 7.2.15)、`rust/` で、2026-11-11 に実行した。
 - 実装の前に、移したテストと足したテスト(この時点の 48 件)を `cargo test --locked --no-fail-fast -p herdr-fleet-orchestrator --test spawn --test turns --test result_files --test agent_kinds` で走らせ、すべてが stub の `todo!("#256")` の panic で失敗した(`panicked at crates/orchestrator/src/fleet/spawn.rs:100:9: not yet implemented: #256`)
 - main の欠陥の 4 件のテストは、実装を TypeScript の振る舞い(#240 の 2: 画面の await のあとでファイルを読む、#189 の 4: timer を張らない、#176 の 4: 送っていないターンでファイルを消さない、再起動で timer を張り直さない)に一時的に戻すと、それぞれ失敗し、戻すと通った
 - architect の答えのあとで 2 件を足した。再起動のあとの #189 の 4 のテストは、上のとおり timer の張り直しを外すと失敗することで確かめた。future が `Send` であることのテストは型の検査なので、先に失敗させられない
-- 同じコマンドで、spawn 15 件、turns 18 件、result_files 7 件、agent_kinds 10 件の計 50 件がすべて通った。`cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` も通った
+- `/code-review high` の指摘を直したあとで 2 件を足した(下の「レビューで直した点」)。どちらも、直しを外すと失敗し、戻すと通った
+- 同じコマンドで、spawn 16 件、turns 19 件、result_files 7 件、agent_kinds 10 件の計 52 件がすべて通った。`cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace` も通った

@@ -466,34 +466,54 @@ impl Orchestrator {
                 .await?;
             let now = self.now();
             let thread = request.thread.as_ref();
-            let mut run: AgentRun = serde_json::from_value(serde_json::json!({
-                "id": id, "name": display_name, "role": definition.name, "agent": attempt.kind,
-                "group": request.group, "herdrName": herdr_name, "paneId": location.pane_id,
-                "cwd": location.cwd, "state": AgentState::Starting, "depth": depth,
-                "interactive": interactive, "worktree": takeover.map_or(worktree, |t| t.from.worktree),
-                "startedAt": now, "updatedAt": now,
-            }))
-            .map_err(|error| io::Error::other(error.to_string()))?;
-            run.workspace_id = location.workspace_id;
-            run.model = attempt.model.clone();
-            run.thinking = attempt.thinking;
-            run.fallback_from = attempt.fallback_from.clone();
-            run.branch = branch.clone();
-            run.project = thread
-                .and_then(|thread| thread.repo.as_ref())
-                .map(|repo| repo.to_string_lossy().into_owned());
-            run.owner = thread.and_then(|thread| thread.owner.clone());
-            run.base = thread
-                .and_then(|thread| thread.base.clone())
-                .filter(|_| branch.is_some());
-            run.base_branch = thread
-                .and_then(|thread| thread.base_branch.clone())
-                .filter(|_| branch.is_some());
+            let branch_base = |value: Option<String>| value.filter(|_| branch.is_some());
+            let mut run = AgentRun {
+                id: id.clone(),
+                name: display_name.clone(),
+                role: definition.name.clone(),
+                agent: attempt.kind,
+                group: request.group.clone(),
+                herdr_name: herdr_name.clone(),
+                pane_id: location.pane_id,
+                workspace_id: location.workspace_id,
+                cwd: location.cwd,
+                model: attempt.model.clone(),
+                thinking: attempt.thinking,
+                state: AgentState::Starting,
+                depth,
+                interactive,
+                worktree: takeover.map_or(worktree, |takeover| takeover.from.worktree),
+                started_at: now,
+                updated_at: now,
+                last_output: None,
+                last_error: None,
+                result: None,
+                outcome: None,
+                fallback_from: attempt.fallback_from.clone(),
+                replaced_by: None,
+                thread: None,
+                avoid: None,
+                skipped: (!attempt.skipped.is_empty()).then(|| attempt.skipped.clone()),
+                branch: branch.clone(),
+                project: thread
+                    .and_then(|thread| thread.repo.as_ref())
+                    .map(|repo| repo.to_string_lossy().into_owned()),
+                owner: thread.and_then(|thread| thread.owner.clone()),
+                write: request.write.clone(),
+                notice: None,
+                base: branch_base(thread.and_then(|thread| thread.base.clone())),
+                contract: None,
+                diff: None,
+                resolved_at: None,
+                base_branch: branch_base(thread.and_then(|thread| thread.base_branch.clone())),
+                pr: None,
+                landing: None,
+                landed: None,
+                plan: None,
+            };
             if let Some(takeover) = takeover {
                 self.carry_over(takeover, request.avoid.as_deref(), &mut run);
             }
-            run.skipped = (!attempt.skipped.is_empty()).then(|| attempt.skipped.clone());
-            run.write = request.write.clone();
             self.insert(run.clone());
             run
         };
@@ -515,7 +535,12 @@ impl Orchestrator {
                 drop(prompt);
                 started
             }
-            Err(error) => Err(error),
+            Err(error) => {
+                // the server's own files failed after the pane exists: the run fails, and its
+                // empty pane does not stay behind
+                self.fail_spawn(&run, &error).await;
+                Err(error)
+            }
         };
         match started {
             Err(OrchestratorError::Runtime(RuntimeError::Cancelled)) => {
@@ -716,16 +741,8 @@ impl Orchestrator {
                 )
             }
             Err(error) => {
-                let now = self.now();
-                let message = error.to_string();
-                self.drop_undelivered(&run.id);
-                self.change(&run.id, |run| {
-                    run.state = AgentState::Failed;
-                    run.last_error = Some(message);
-                    run.updated_at = now;
-                });
                 // the agent never started: an empty pane left behind would be an orphan
-                let _ = deps.runtime.close_pane(&run.pane_id).await;
+                self.fail_spawn(&run, &error).await;
                 return Err(error);
             }
         };
@@ -935,6 +952,20 @@ impl Orchestrator {
             ]);
         }
         lines.join("\n")
+    }
+
+    /// A spawn that failed after its pane exists, before its agent started: the run fails and its
+    /// pane closes.
+    async fn fail_spawn(&self, run: &AgentRun, error: &OrchestratorError) {
+        let now = self.now();
+        let message = error.to_string();
+        self.drop_undelivered(&run.id);
+        self.change(&run.id, |run| {
+            run.state = AgentState::Failed;
+            run.last_error = Some(message);
+            run.updated_at = now;
+        });
+        let _ = self.deps().runtime.close_pane(&run.pane_id).await;
     }
 
     /// A spawn cancelled after its pane exists: the pane closes and the run stops (`abandonSpawn`).

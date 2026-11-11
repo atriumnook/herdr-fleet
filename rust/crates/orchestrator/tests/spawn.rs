@@ -37,14 +37,15 @@ fn brief(write: &[&str]) -> BriefDraft {
 #[tokio::test(start_paused = true)]
 async fn starts_the_roles_agent_beside_the_caller_with_its_instructions_in_a_file_then_hands_it_the_task()
  {
+    let setup_ = setup(SetupOptions::default());
     let Setup {
         fleet,
         runtime,
         root,
         ..
-    } = setup(SetupOptions::default());
+    } = &setup_;
     let run = spawn(
-        &fleet,
+        fleet,
         SpawnRequest {
             caller_pane_id: Some("w0:p1".to_owned()),
             name: Some("impl".to_owned()),
@@ -112,7 +113,7 @@ async fn starts_the_roles_agent_beside_the_caller_with_its_instructions_in_a_fil
         (run.herdr_name.as_str(), "do it")
     );
     // the instruction file is gone once the agent has read it at startup
-    let left: Vec<_> = fs::read_dir(&root)
+    let left: Vec<_> = fs::read_dir(root)
         .unwrap()
         .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
         .filter(|name| name.starts_with("herdr-fleet-"))
@@ -124,9 +125,10 @@ async fn starts_the_roles_agent_beside_the_caller_with_its_instructions_in_a_fil
 #[tokio::test(start_paused = true)]
 async fn asks_an_agent_caller_for_a_full_brief_before_any_pane_and_hands_its_helper_the_brief_as_the_task()
  {
-    let Setup { fleet, runtime, .. } = setup(SetupOptions::default());
+    let setup_ = setup(SetupOptions::default());
+    let Setup { fleet, runtime, .. } = &setup_;
     let refused = spawn(
-        &fleet,
+        fleet,
         SpawnRequest {
             depth: Some(1),
             ..request()
@@ -145,7 +147,7 @@ async fn asks_an_agent_caller_for_a_full_brief_before_any_pane_and_hands_its_hel
         ..BriefDraft::default()
     };
     let run = spawn(
-        &fleet,
+        fleet,
         SpawnRequest {
             depth: Some(1),
             task: None,
@@ -167,19 +169,20 @@ async fn asks_an_agent_caller_for_a_full_brief_before_any_pane_and_hands_its_hel
 #[tokio::test(start_paused = true)]
 async fn refuses_a_second_writer_of_paths_a_working_agent_holds_and_lets_it_in_once_that_agents_turn_settles()
  {
+    let setup_ = setup(SetupOptions::default());
     let Setup {
         fleet,
         runtime,
         registry,
         ..
-    } = setup(SetupOptions::default());
+    } = &setup_;
     let with = |write: &[&str]| SpawnRequest {
         depth: Some(1),
         brief: Some(brief(write)),
         ..request()
     };
-    let first = spawn(&fleet, with(&["src"])).await.unwrap();
-    let error = spawn(&fleet, with(&["src/retry.ts"])).await.unwrap_err();
+    let first = spawn(fleet, with(&["src"])).await.unwrap();
+    let error = spawn(fleet, with(&["src/retry.ts"])).await.unwrap_err();
     assert_eq!(code(&error), "scope_conflict");
     assert!(
         error.to_string().contains(&format!(
@@ -190,9 +193,9 @@ async fn refuses_a_second_writer_of_paths_a_working_agent_holds_and_lets_it_in_o
     );
     assert_eq!(runtime.locations().len(), 1);
     // a reader holds nothing, and a worktree run writes its own checkout
-    spawn(&fleet, with(&[])).await.unwrap();
+    spawn(fleet, with(&[])).await.unwrap();
     let worktree = spawn(
-        &fleet,
+        fleet,
         SpawnRequest {
             worktree: Some(true),
             ..with(&["src"])
@@ -204,7 +207,7 @@ async fn refuses_a_second_writer_of_paths_a_working_agent_holds_and_lets_it_in_o
     registry
         .update(&first.id, |run| run.state = AgentState::Idle)
         .unwrap();
-    spawn(&fleet, with(&["src/retry.ts"])).await.unwrap();
+    spawn(fleet, with(&["src/retry.ts"])).await.unwrap();
 }
 
 // orchestrator.test.ts: "gives every agent the standing orders of the folder it starts in, and no section without any"
@@ -213,14 +216,15 @@ async fn gives_every_agent_the_standing_orders_of_the_folder_it_starts_in_and_no
  {
     let asked = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
     let record = asked.clone();
-    let Setup { fleet, runtime, .. } = setup(SetupOptions {
+    let setup_ = setup(SetupOptions {
         standing_orders: Some(Arc::new(move |cwd| {
             record.lock().unwrap().push(cwd.to_path_buf());
             "1. Ask before a push.".to_owned()
         })),
         ..SetupOptions::default()
     });
-    spawn(&fleet, request()).await.unwrap();
+    let Setup { fleet, runtime, .. } = &setup_;
+    spawn(fleet, request()).await.unwrap();
     assert_eq!(*asked.lock().unwrap(), vec![PathBuf::from("/work")]);
     assert!(runtime.instructions()[0].contains("## Standing orders"));
     assert!(runtime.instructions()[0].contains("1. Ask before a push."));
@@ -319,11 +323,12 @@ fn event_run(event: &FleetEvent) -> &str {
 #[tokio::test(start_paused = true)]
 async fn tells_every_agent_the_persons_language_when_the_config_sets_one_and_writes_no_section_without_it()
  {
-    let Setup { fleet, runtime, .. } = setup(SetupOptions {
+    let setup_ = setup(SetupOptions {
         config: Some(json!({ "language": "Japanese" })),
         ..SetupOptions::default()
     });
-    spawn(&fleet, request()).await.unwrap();
+    let Setup { fleet, runtime, .. } = &setup_;
+    spawn(fleet, request()).await.unwrap();
     let instructions = &runtime.instructions()[0];
     assert!(instructions.contains("## The person's language"));
     assert!(instructions.contains("The person reads Japanese. Write in Japanese what the person reads: your replies to the person, a plan, a question for the person"));
@@ -336,14 +341,15 @@ async fn tells_every_agent_the_persons_language_when_the_config_sets_one_and_wri
 // orchestrator.test.ts: "names the fleet command in every spawning instruction"
 #[tokio::test(start_paused = true)]
 async fn names_the_fleet_command_in_every_spawning_instruction() {
-    let Setup { fleet, runtime, .. } = setup(SetupOptions {
+    let setup_ = setup(SetupOptions {
         agents: Some(vec![AgentDefinition {
             spawning: Some(true),
             ..role("worker")
         }]),
         ..SetupOptions::default()
     });
-    spawn(&fleet, request()).await.unwrap();
+    let Setup { fleet, runtime, .. } = &setup_;
+    spawn(fleet, request()).await.unwrap();
     assert!(runtime.instructions()[0].contains("(fleet list shows each agent's CLI)"));
     assert!(!runtime.instructions()[0].contains("${"));
 }
@@ -351,10 +357,11 @@ async fn names_the_fleet_command_in_every_spawning_instruction() {
 // orchestrator.test.ts: "records the idle herdr shows right after a prompt as working"
 #[tokio::test(start_paused = true)]
 async fn records_the_idle_herdr_shows_right_after_a_prompt_as_working() {
-    let Setup { fleet, runtime, .. } = setup(SetupOptions::default());
+    let setup_ = setup(SetupOptions::default());
+    let Setup { fleet, runtime, .. } = &setup_;
     runtime.set_prompt_status(AgentState::Idle);
     assert_eq!(
-        spawn(&fleet, request()).await.unwrap().state,
+        spawn(fleet, request()).await.unwrap().state,
         AgentState::Working
     );
 }
@@ -362,9 +369,10 @@ async fn records_the_idle_herdr_shows_right_after_a_prompt_as_working() {
 // orchestrator.test.ts: "refuses an unknown role, an invalid thinking level and a caller too deep, before any pane"
 #[tokio::test(start_paused = true)]
 async fn refuses_an_unknown_role_an_invalid_thinking_level_and_a_caller_too_deep_before_any_pane() {
-    let Setup { fleet, runtime, .. } = setup(SetupOptions::default());
+    let setup_ = setup(SetupOptions::default());
+    let Setup { fleet, runtime, .. } = &setup_;
     let unknown = spawn(
-        &fleet,
+        fleet,
         SpawnRequest {
             role: "nobody".to_owned(),
             ..request()
@@ -377,7 +385,7 @@ async fn refuses_an_unknown_role_an_invalid_thinking_level_and_a_caller_too_deep
         "{unknown}"
     );
     let thinking = spawn(
-        &fleet,
+        fleet,
         SpawnRequest {
             thinking: Some("turbo".to_owned()),
             ..request()
@@ -390,7 +398,7 @@ async fn refuses_an_unknown_role_an_invalid_thinking_level_and_a_caller_too_deep
         "{thinking}"
     );
     let deep = spawn(
-        &fleet,
+        fleet,
         SpawnRequest {
             depth: Some(3),
             ..request()
@@ -400,7 +408,7 @@ async fn refuses_an_unknown_role_an_invalid_thinking_level_and_a_caller_too_deep
     .unwrap_err();
     assert_eq!(code(&deep), "depth_limit");
     let group = spawn(
-        &fleet,
+        fleet,
         SpawnRequest {
             group: Some("bad group".to_owned()),
             ..request()
@@ -415,19 +423,20 @@ async fn refuses_an_unknown_role_an_invalid_thinking_level_and_a_caller_too_deep
 // orchestrator.test.ts: "closes the pane when the agent does not start, and records the failure"
 #[tokio::test(start_paused = true)]
 async fn closes_the_pane_when_the_agent_does_not_start_and_records_the_failure() {
+    let setup_ = setup(SetupOptions::default());
     let Setup {
         fleet,
         runtime,
         registry,
         ..
-    } = setup(SetupOptions::default());
+    } = &setup_;
     runtime.on_start(|_| async {
         Err(RuntimeError::Herdr {
             code: "agent_start_failed_herdr".to_owned(),
             message: "boom".to_owned(),
         })
     });
-    let error = spawn(&fleet, request()).await.unwrap_err();
+    let error = spawn(fleet, request()).await.unwrap_err();
     assert!(error.to_string().contains("boom"), "{error}");
     assert_eq!(runtime.closed(), vec!["w1:p1".to_owned()]);
     let run = &registry.all()[0];
@@ -440,9 +449,10 @@ async fn closes_the_pane_when_the_agent_does_not_start_and_records_the_failure()
 // orchestrator.test.ts: "leaves the task unsent when the agent stops at a question while starting"
 #[tokio::test(start_paused = true)]
 async fn leaves_the_task_unsent_when_the_agent_stops_at_a_question_while_starting() {
-    let Setup { fleet, runtime, .. } = setup(SetupOptions::default());
+    let setup_ = setup(SetupOptions::default());
+    let Setup { fleet, runtime, .. } = &setup_;
     runtime.on_start(|_| async { Ok(AgentState::Blocked) });
-    let run = spawn(&fleet, request()).await.unwrap();
+    let run = spawn(fleet, request()).await.unwrap();
     assert_eq!(run.state, AgentState::Blocked);
     assert!(run.last_error.as_deref().unwrap().contains("not been sent"));
     assert!(runtime.prompts().is_empty());
@@ -452,10 +462,11 @@ async fn leaves_the_task_unsent_when_the_agent_stops_at_a_question_while_startin
 #[tokio::test(start_paused = true)]
 async fn leaves_the_task_unsent_when_the_agent_never_became_ready_whatever_state_herdr_reads_afterwards()
  {
-    let Setup { fleet, runtime, .. } = setup(SetupOptions::default());
+    let setup_ = setup(SetupOptions::default());
+    let Setup { fleet, runtime, .. } = &setup_;
     runtime.on_start(|_| async { Err(RuntimeError::NotReady("not ready within 30s".to_owned())) });
     runtime.set_get_status(AgentState::Idle);
-    let run = spawn(&fleet, request()).await.unwrap();
+    let run = spawn(fleet, request()).await.unwrap();
     assert_eq!(run.state, AgentState::Idle);
     assert!(run.last_error.as_deref().unwrap().contains("not been sent"));
     assert!(runtime.prompts().is_empty());
@@ -465,10 +476,11 @@ async fn leaves_the_task_unsent_when_the_agent_never_became_ready_whatever_state
 #[tokio::test(start_paused = true)]
 async fn checks_the_concurrency_budget_one_spawn_at_a_time_so_parallel_spawns_cannot_overshoot_it()
 {
-    let Setup { fleet, runtime, .. } = setup(SetupOptions {
+    let setup_ = setup(SetupOptions {
         config: Some(json!({ "maxConcurrent": 2 })),
         ..SetupOptions::default()
     });
+    let Setup { fleet, runtime, .. } = &setup_;
     let counted = runtime.clone();
     runtime.on_create_location(move |options, _| {
         let pane = format!("w1:p{}", counted.locations().len());
@@ -482,9 +494,9 @@ async fn checks_the_concurrency_budget_one_spawn_at_a_time_so_parallel_spawns_ca
         }
     });
     let (a, b, c) = tokio::join!(
-        spawn(&fleet, request()),
-        spawn(&fleet, request()),
-        spawn(&fleet, request())
+        spawn(fleet, request()),
+        spawn(fleet, request()),
+        spawn(fleet, request())
     );
     let results = [a, b, c];
     assert_eq!(results.iter().filter(|result| result.is_ok()).count(), 2);
@@ -499,12 +511,13 @@ async fn checks_the_concurrency_budget_one_spawn_at_a_time_so_parallel_spawns_ca
 #[tokio::test(start_paused = true)]
 async fn cancels_a_spawn_during_pane_creation_without_leaving_a_run_and_during_start_by_closing_the_pane()
  {
+    let setup_ = setup(SetupOptions::default());
     let Setup {
         fleet,
         runtime,
         registry,
         ..
-    } = setup(SetupOptions::default());
+    } = &setup_;
     let at = |cwd: &str| SpawnRequest {
         task: Some("t".to_owned()),
         cwd: Some(cwd.to_owned()),
@@ -569,4 +582,24 @@ fn the_futures_the_api_spawns_are_send() {
         send(&s.fleet.close_done(None));
         send(&s.fleet.reconcile_all());
     });
+}
+
+// /code-review: the server's own files failing after the pane exists (here the results folder is
+// a file) fail the run and close its pane, as a start that failed does
+// (orchestrator.ts:600-607); nothing counts against the budget afterwards.
+#[tokio::test(start_paused = true)]
+async fn fails_the_run_and_closes_its_pane_when_its_result_folder_cannot_be_made() {
+    let setup_ = setup(SetupOptions::default());
+    let Setup {
+        fleet,
+        runtime,
+        registry,
+        root,
+        ..
+    } = &setup_;
+    fs::write(root.join("results"), "not a folder").unwrap();
+    let error = spawn(fleet, request()).await.unwrap_err();
+    assert_eq!(code(&error), "internal_error");
+    assert_eq!(runtime.closed(), vec!["w1:p1".to_owned()]);
+    assert_eq!(registry.all()[0].state, AgentState::Failed);
 }

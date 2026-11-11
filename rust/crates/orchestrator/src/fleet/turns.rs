@@ -53,7 +53,7 @@ pub(crate) struct State {
     pending: HashMap<String, PendingTurn>,
     generations: HashMap<String, u64>,
     /// callers waiting for a run's turn to settle or block
-    waiters: HashMap<String, Vec<oneshot::Sender<AgentRun>>>,
+    waiters: HashMap<String, Vec<(u64, oneshot::Sender<AgentRun>)>>,
 }
 
 /// The handoff a run's agent wrote in `file`, up to [`RESULT_MAX_BYTES`] (`readResult`). Only a
@@ -101,6 +101,26 @@ fn open_no_follow(path: &Path) -> io::Result<File> {
         return Err(io::Error::other("a symlink"));
     }
     File::open(path)
+}
+
+/// A waiter of `wait`, taken back from the table when the wait ends by its timeout or cancel (or
+/// its future is dropped); a settled waiter is gone already.
+struct WaiterGuard<'a> {
+    fleet: &'a Orchestrator,
+    id: &'a str,
+    waiter: u64,
+}
+
+impl Drop for WaiterGuard<'_> {
+    fn drop(&mut self) {
+        let mut turns = locked(&self.fleet.inner.turns);
+        if let Some(waiters) = turns.waiters.get_mut(self.id) {
+            waiters.retain(|(each, _)| *each != self.waiter);
+            if waiters.is_empty() {
+                turns.waiters.remove(self.id);
+            }
+        }
+    }
 }
 
 /// Whether the turn's outcome is a report (`run.outcome?.report`).
@@ -198,19 +218,48 @@ impl Orchestrator {
         cancel: &CancellationToken,
     ) -> Result<AgentRun, OrchestratorError> {
         let run = self.get(target, group)?;
-        let pending = self.pending(&run.id);
-        let answered = match &pending {
-            Some(pending) => {
-                !pending.armed || (run.state == AgentState::Blocked && pending.blocked_reported)
+        // whether the turn already answers, and the waiter if it does not, in one step: a
+        // settlement on another worker in between would find no waiter to wake
+        let (sender, settled) = oneshot::channel();
+        let waiter = self
+            .inner
+            .next_waiter
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let waits = {
+            let mut turns = locked(&self.inner.turns);
+            let pending = turns.pending.get(&run.id).cloned();
+            let state = self
+                .registry()
+                .get(&run.id)
+                .map_or(run.state, |run| run.state);
+            let answered = match &pending {
+                Some(pending) => {
+                    !pending.armed || (state == AgentState::Blocked && pending.blocked_reported)
+                }
+                None => true,
+            };
+            if !answered {
+                turns
+                    .waiters
+                    .entry(run.id.clone())
+                    .or_default()
+                    .push((waiter, sender));
             }
-            None => true,
+            !answered
         };
-        if answered {
-            if is_live(&run) && pending.is_none() {
+        if !waits {
+            if is_live(&run) && !self.turn_in_flight(&run.id) {
                 self.live_state(&run.id).await;
             }
             return Ok(self.registry().get(&run.id).unwrap_or(run));
         }
+        // a wait that ends otherwise takes its waiter back
+        let run_id = run.id.clone();
+        let _waiting = WaiterGuard {
+            fleet: self,
+            id: &run_id,
+            waiter,
+        };
         #[expect(
             clippy::cast_possible_truncation,
             clippy::cast_sign_loss,
@@ -218,12 +267,6 @@ impl Orchestrator {
         )]
         let timeout_ms = timeout_ms
             .unwrap_or_else(|| self.config(&run.cwd).default_wait_timeout_ms.max(0.0) as u64);
-        let (sender, settled) = oneshot::channel();
-        locked(&self.inner.turns)
-            .waiters
-            .entry(run.id.clone())
-            .or_default()
-            .push(sender);
         // a wait is a good moment to look: an event may have been missed
         self.spawn_reconcile(&run.id);
         tokio::select! {
@@ -283,12 +326,21 @@ impl Orchestrator {
             if run.interactive || run.state != AgentState::Done || self.turn_in_flight(&run.id) {
                 continue;
             }
-            if self.live_state(&run.id).await != Some(AgentState::Done) {
-                continue;
-            }
-            if self.close_settled_pane(&run.id).await
-                && let Some(run) = self.registry().get(&run.id)
-            {
+            // inside the run's settlement lock, which `send` waits for, and checked again after
+            // herdr answered: a turn handed over meanwhile keeps its pane
+            let id = run.id.clone();
+            let close = async {
+                if self.live_state(&id).await != Some(AgentState::Done) || self.turn_in_flight(&id)
+                {
+                    return None;
+                }
+                if self.close_settled_pane(&id).await {
+                    self.registry().get(&id)
+                } else {
+                    None
+                }
+            };
+            if let Some(run) = self.inner.reconcile_locks.run(run.id.clone(), close).await {
                 closed.push(run);
             }
         }
@@ -403,7 +455,8 @@ impl Orchestrator {
                 {
                     pending.armed = true;
                     pending.submitted_at = Some(now);
-                    pending.saw_working = submitted == AgentState::Working;
+                    // a reconcile on another worker may have seen it working already
+                    pending.saw_working |= submitted == AgentState::Working;
                 }
                 // a turn fast enough to settle before the TUI ever flips may send no further event
                 if submitted != AgentState::Working {
@@ -502,7 +555,8 @@ impl Orchestrator {
         let reported = match self.deps().runtime.get(&run.herdr_name).await {
             Ok(reported) => reported,
             Err(RuntimeError::NotFound) => {
-                let Some(run) = self.registry().get(id) else {
+                // a run that failed or stopped meanwhile keeps that verdict
+                let Some(run) = self.registry().get(id).filter(is_live) else {
                     return;
                 };
                 if run.state == AgentState::Starting && self.now() - run.started_at < START_GRACE_MS
@@ -652,6 +706,8 @@ impl Orchestrator {
         }
         let now = self.now();
         let Some(run) = self.change(id, |run| run.updated_at = now) else {
+            // the record went away: its waiters hear at once rather than at their timeout
+            self.settle_waiters(id);
             return;
         };
         if run.role == PROJECT_ROLE {
@@ -914,7 +970,7 @@ impl Orchestrator {
         let Some(run) = self.registry().get(id) else {
             return;
         };
-        for waiter in waiters {
+        for (_, waiter) in waiters {
             let _ = waiter.send(run.clone());
         }
     }
