@@ -41,7 +41,9 @@
 - 配達の lock: TypeScript の `delivering`(`Set`)を、`notices::State` の集合と、drop で外れる guard(`Delivering`)にした。確認と取得は notices の `Mutex` の中の 1 つの手順で行う
 - 配達の送信は `submit` ではなく `submit_when_free` で行う。TypeScript は「fleet のターンが進行中でない」ことを確かめたあと、画面の読み取り(`hasDraft`)を await してから `submit` する(`orchestrator.ts:1318-1324`)。その await の間に `send` や landing の手順が新しいターンを始めると、TypeScript は 2 つ目の指示文を入れる。Rust では `submit_when_free` が確認と新しいターンの登録を 1 つの lock の中で行い、進行中なら `run_busy` で断る(0256 の「`submit_when_free`」)。断られた知らせは outbox に残り、coordinator の次の決着で届く。`fleet/mod.rs` の冒頭の決まり(確認と実行を、その cluster の lock の両側に分けない)に従った
 - draft のある間の再試行は、`Timers` の `TimerKind::DraftRetry` で張る。張った timer があれば張らない(TypeScript の `draftRetries.has`)。`stop` は他の timer と同じく止める
-- outbox のファイルに書けなかったとき(`queue_news`、配達のあとの削除、`stale_step` による掃除)は、標準エラーに書いて続ける。TypeScript は投げて、`finalize` の残りが飛ぶ(`reconcileRun` の catch)。Rust の hook は値を返さないので、`notices.rs` の中の 1 か所で扱う。outbox はファイルに書いてからメモリーを変えるので、書けなかった知らせは TypeScript でも Rust でも届かない。違いは、Rust では `finalize` の残り(waiter への知らせ、ペインを閉じること)が動くことだけ
+- outbox のファイルに書けなかったとき(`queue_news`、配達のあとの削除、`stale_step` による掃除)は、標準エラーに書いて続ける。TypeScript は投げて、`finalize` の残りが飛ぶ(`reconcileRun` の catch)。Rust の hook は値を返さないので、`notices.rs` の中の 1 か所で扱う。outbox はファイルに書いてからメモリーを変えるので、書けなかった知らせは TypeScript でも Rust でも届かない。違いは、Rust では `finalize` の残り(waiter への知らせ、ペインを閉じること)が動くことだけ。例外は `restore_notices` で、outbox に書けなかった知らせは run の `notice` に残し、次の起動で入れ直す(TypeScript では constructor が投げ、`delete run.notice` が書かれずに残る)
+- `due_to` は、`stale_step` で古い手順を選ぶのも、知らせを聞く run を探すのも、outbox の lock の外で行い、そのあと番号で outbox から消す。#266 が `stale_step` で registry を読むようになっても、outbox の lock の中で registry の lock を取らない
+- 配達の送信が `run_busy` 以外の理由で断られたときは、標準エラーに書く
 - 古いサーバーが run に残した知らせ(`run.notice`)の移行(`restore_notices`)は、TypeScript の `upsert` と同じく、run の変更を listener に知らせずに書き戻す。constructor の `resume_turns` が `result` を書き戻すときと同じ書き方
 - news の slot は thread ごとに 1 つで、`queue_news` は前の文を置き換える。#268 が `merged_without_person` の `TurnEnded` で自分の知らせを入れても、このあとの `queue_turn_news` で置き換わる。#268 が知らせたいことは、`thread_turn_ended` が引く run の項目に書くか、#268 で別の形を決める
 
@@ -69,4 +71,6 @@ Linux(Omarchy、kernel 7.2.15)、`rust/` で、2026-11-11 に実行した。
 
 - 実装の前に、`tests/notices.rs` の 12 件(移した 9 件と、配達の lock、`run.notice` の移行、outbox に残った landing の手順の 3 件)を `cargo test --locked -p herdr-fleet-orchestrator --test notices` で走らせ、11 件が期待値との違いで失敗した(例: `left: ["fix the retry"]` / `right: ["fix the retry", "[fleet] Threads ask the person. …"]`)。`are only questions` の 1 件は、知らせを送らないことを確かめる件で、何もしない stub の振る舞いが期待値と同じなので、先に失敗させられない
 - 配達の lock のテストは、herdr が coordinator の画面を返すのに 40 ms かかる runtime の包みで、2 つの thread が同時に coordinator に知らせる。lock と `submit_when_free` の両方を外すと、coordinator に 2 つ目の指示文が入って失敗し、どちらか一方を残すと通った
-- 実装のあとで、同じコマンドで 12 件が通った。`cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`(953 件が通り、失敗 0、既存の ignore が 11)も通った
+- 実装のあとで、同じコマンドで 12 件が通った
+- `/code-review high` の指摘で 2 件を足した。outbox に書けないときに `run.notice` を残す件と、人のいない project で coordinator が thread のターンの終わりを聞く件(期待値は `orchestrator.test.ts:2144-2162`)。どちらも、直しを戻すと失敗し(前者は `notice` が消え、後者は見出しを入れ替えると違う)、戻すと通った
+- 14 件が通り、`cargo fmt --check`、`cargo clippy --locked --workspace --all-targets -- -D warnings`、`cargo test --locked --workspace`(955 件が通り、失敗 0、既存の ignore が 11)も通った

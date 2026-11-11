@@ -780,6 +780,84 @@ async fn hand_a_queued_merge_step_to_the_projects_coordinator_and_mark_it_sent()
     restarted.stop();
 }
 
+// A question a run saved before the outbox kept stays on the run when the outbox file cannot take
+// it, for the next start: TypeScript's `queueNews` threw in the constructor before `delete
+// run.notice` was written (orchestrator.ts:264-268).
+#[tokio::test(start_paused = true)]
+async fn keep_a_question_a_run_saved_before_the_outbox_kept_when_the_outbox_cannot_be_written() {
+    let p = project();
+    let coordinator = p.start_project("go").await;
+    let thread = p.start_thread("Fix", &coordinator).await;
+    p.s.fleet.stop();
+    rewrite_runs(&p.s.root, |run| {
+        if run["id"] == thread.id.as_str() {
+            run["notice"] = json!("an old question");
+        }
+    });
+    // a folder where the outbox file goes: it reads as empty, and no write reaches it
+    let outbox = p.s.root.join("fleet-outbox.json");
+    let _ = fs::remove_file(&outbox);
+    fs::create_dir(&outbox).unwrap();
+    let restarted = restart(&p.s.runtime, &p.s.root, &p.s.clock);
+    restarted.stop();
+    let saved = RunRegistry::open(Some(p.s.root.join("runs.json")), p.s.clock.as_ref());
+    assert_eq!(
+        saved.get(&thread.id).unwrap().notice.as_deref(),
+        Some("an old question")
+    );
+}
+
+// In a project run without the person, the coordinator hears every turn a thread ends, under its
+// own header: the expected message is orchestrator.test.ts's describe `a project run without the
+// person`, "tells the coordinator every turn a thread ends, with its report and contract, not only
+// its questions" (orchestrator.test.ts:2144-2162), which #268 ports with the rest of the describe.
+#[tokio::test(start_paused = true)]
+async fn tell_the_coordinator_of_a_project_run_without_the_person_every_turn_a_thread_ends() {
+    let p = project_with(SetupOptions {
+        config: Some(json!({ "autonomous": true })),
+        ..SetupOptions::default()
+    });
+    // the coordinator's own turn is still running while both threads end
+    let coordinator = p.start_project("port the parser").await;
+    let done = p.start_thread("Done", &coordinator).await;
+    let issues = p.start_thread("Issues", &coordinator).await;
+    p.handoff(&done, "## HANDOFF\nOutcome: parses");
+    fs::write(
+        p.s.result_dir(&done.id).join("contract.md"),
+        "- [x] A1 parses — evidence: test\n- [!] A2 fast — evidence: none",
+    )
+    .unwrap();
+    p.report(
+        &done,
+        &json!({ "state": "ready", "summary": "cargo test: 40 pass", "evidence": ["cargo test"] }),
+    );
+    p.report(
+        &issues,
+        &json!({ "state": "failed", "summary": "2 cases fail", "evidence": ["cargo test"] }),
+    );
+    p.turn(&done, AgentState::Idle).await;
+    p.turn(&issues, AgentState::Idle).await;
+    p.turn(&coordinator, AgentState::Idle).await;
+    assert_eq!(
+        p.to(&coordinator)[1],
+        [
+            "[fleet] Threads ended a turn. These come from the fleet, not from the person.",
+            &format!(
+                "- \"Done\" ({}, fleet/{}) ended its turn: ready — cargo test: 40 pass\n  Contract: A1 ✓ A2 ✗",
+                done.id, done.id
+            ),
+            &format!(
+                "- \"Issues\" ({}, fleet/{}) ended its turn: failed — 2 cases fail",
+                issues.id, issues.id
+            ),
+        ]
+        .join("\n")
+    );
+    for run in [&done, &issues] {
+        assert_eq!(p.notice_of(run), None, "{}", run.name);
+    }
+}
+
 /// runs.json with each run changed by `change`, as a server from before would have left it.
 fn rewrite_runs(root: &Path, change: impl Fn(&mut Value)) {
     let file = root.join("runs.json");

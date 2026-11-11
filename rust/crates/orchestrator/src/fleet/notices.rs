@@ -10,6 +10,7 @@
 //! and the supervision (#268).
 
 use std::collections::{HashMap, HashSet};
+use std::io;
 
 use protocol::{
     AgentRun, AgentState, ContractState, Landed, PullRequestState, ReportState, TurnOutcome, js,
@@ -101,7 +102,12 @@ impl Orchestrator {
     /// back the news not yet sent (`queueNews`). An outbox file that cannot be written is logged:
     /// the hooks that queue news return nothing, and the news then is not kept (ADR 0264-notices).
     pub(crate) fn queue_news(&self, thread: &str, text: Option<String>) {
-        let written = match text.filter(|text| !text.is_empty()) {
+        log_unwritten("outbox", self.put_news(thread, text));
+    }
+
+    /// `queue_news`, with the outbox file's error handed back.
+    fn put_news(&self, thread: &str, text: Option<String>) -> io::Result<()> {
+        match text.filter(|text| !text.is_empty()) {
             Some(text) => self
                 .inner
                 .outbox
@@ -114,9 +120,6 @@ impl Orchestrator {
                 })
                 .map(|_| ()),
             None => self.inner.outbox.discard(thread, NEWS),
-        };
-        if let Err(error) = written {
-            eprintln!("herdr-fleet: the outbox file could not be written: {error}");
         }
     }
 
@@ -227,11 +230,19 @@ impl Orchestrator {
                 // a turn sent since the checks above (a landing step, the person's send) goes
                 // first: the check and the new turn are one step, and the notices wait for the
                 // coordinator's next settlement
-                let Ok(sent) = self
+                let sent = match self
                     .submit_when_free(coordinator, &text, &CancellationToken::new())
                     .await
-                else {
-                    return false;
+                {
+                    Ok(sent) => sent,
+                    Err(error) => {
+                        if error.code() != "run_busy" {
+                            eprintln!(
+                                "herdr-fleet: the notices could not be sent to {coordinator}: {error}"
+                            );
+                        }
+                        return false;
+                    }
                 };
                 if !self.typed(coordinator, &sent) {
                     return false;
@@ -240,19 +251,26 @@ impl Orchestrator {
                 true
             })
             .await;
-        if let Err(error) = delivered {
-            eprintln!("herdr-fleet: the outbox file could not be written: {error}");
-        }
+        log_unwritten("outbox", delivered.map(|_| ()));
     }
 
     /// The queued notices `coordinator` hears now, in the order written; the merge steps no thread
     /// waits on any more leave the outbox first.
     fn due_to(&self, coordinator: &str) -> Vec<Notice> {
         let outbox = &self.inner.outbox;
-        if let Err(error) = outbox.prune(|notice| !self.stale_step(notice)) {
-            eprintln!("herdr-fleet: the outbox file could not be written: {error}");
+        // the steps and the hearers are read from the registry outside the outbox's lock
+        let stale: HashSet<u64> = outbox
+            .pending()
+            .into_iter()
+            .filter(|notice| self.stale_step(notice))
+            .map(|notice| notice.seq)
+            .collect();
+        if !stale.is_empty() {
+            log_unwritten(
+                "outbox",
+                outbox.prune(|notice| !stale.contains(&notice.seq)),
+            );
         }
-        // the hearers are read from the registry outside the outbox's lock
         outbox
             .pending()
             .into_iter()
@@ -336,17 +354,33 @@ impl Orchestrator {
 
     /// A thread's news kept on its run by a server from before the outbox, queued as a notice
     /// (the constructor's migration of `run.notice`). The run is written back without it, as
-    /// TypeScript's `upsert`: nothing about it changed that a listener hears of.
+    /// TypeScript's `upsert`: nothing about it changed that a listener hears of. A notice the outbox
+    /// file did not take stays on the run for the next start, as TypeScript's throw left it.
     pub(crate) fn restore_notices(&self) {
         for run in self.registry().all() {
             let Some(notice) = run.notice else {
                 continue;
             };
-            self.queue_news(&run.id, Some(notice));
-            if let Err(error) = self.registry().update(&run.id, |run| run.notice = None) {
-                eprintln!("herdr-fleet: the runs file could not be written: {error}");
+            let queued = self.put_news(&run.id, Some(notice));
+            if queued.is_err() {
+                log_unwritten("outbox", queued);
+                continue;
             }
+            log_unwritten(
+                "runs",
+                self.registry()
+                    .update(&run.id, |run| run.notice = None)
+                    .map(|_| ()),
+            );
         }
+    }
+}
+
+/// A file of the server's own that could not be written, logged: the hooks that write it return
+/// nothing (ADR 0264-notices).
+fn log_unwritten(file: &str, written: io::Result<()>) {
+    if let Err(error) = written {
+        eprintln!("herdr-fleet: the {file} file could not be written: {error}");
     }
 }
 
