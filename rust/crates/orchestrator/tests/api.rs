@@ -672,7 +672,7 @@ async fn spawns_lists_within_the_callers_fleet_reads_sends_and_waits() {
 
 /// `timeout_ms` goes to a timer of JavaScript's in TypeScript, and Bun 1.4.4 turns one past
 /// 2^31 - 1 ms into 1 ms (`TimeoutOverflowWarning: 2147483648 does not fit into a 32-bit signed
-/// integer. Timeout duration was set to 1.`; 2147483647.5 too), and keeps 2147483647 as it is
+/// integer. Timeout duration was set to 1.`; 2147483647.5 too), and keeps 2147483647 as it is.
 #[tokio::test(start_paused = true)]
 async fn waits_as_a_javascript_timer_does_for_a_timeout_past_its_limit() {
     let api = Api::new(false);
@@ -705,9 +705,29 @@ async fn waits_as_a_javascript_timer_does_for_a_timeout_past_its_limit() {
             (408, "wait_timeout"),
             "{timeout}"
         );
-        waited.push(started.elapsed() >= Duration::from_millis(2_147_483_647));
+        // the clock is paused, so the elapsed time is the timer's own: 1 ms, or 2147483647 ms
+        let elapsed = started.elapsed();
+        waited.push((
+            timeout.to_string(),
+            if elapsed < Duration::from_secs(1) {
+                "under 1 s"
+            } else if elapsed >= Duration::from_millis(2_147_483_647) {
+                "2147483647 ms or more"
+            } else {
+                "between"
+            },
+        ));
     }
-    assert_eq!(waited, [false, false, false, true]);
+    let expected = [
+        ("2147483648", "under 1 s"),
+        ("2147483647.5", "under 1 s"),
+        ("1e+300", "under 1 s"),
+        ("2147483647", "2147483647 ms or more"),
+    ];
+    assert_eq!(
+        waited,
+        expected.map(|(timeout, waited)| (timeout.to_owned(), waited))
+    );
 }
 
 /// api.test.ts: "lists usage without running a CLI, refreshes stale probes (all with all: true)
