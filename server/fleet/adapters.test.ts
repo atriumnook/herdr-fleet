@@ -264,6 +264,17 @@ describe("agy adapter", () => {
     expect(agy.turnError(after)).toBeUndefined();
   });
 
+  it("reads a quota warning as the turn's only with its Error ID line and no newer prompt after it", () => {
+    // a later prompt was answered without a ● or ○ line, then the turn ended
+    expect(agy.turnError("⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h.\nError ID: abc-43\n\n──────\n> go on\n\nDone, nothing left.\n\n──────\n>\n──────\n? for shortcuts")).toBeUndefined();
+    // another warning, not the individual quota's
+    expect(agy.turnError("⚠ Tool quota reached.\nError ID: abc-43\n\n──────\n>\n──────\n? for shortcuts")).toBeUndefined();
+    // the individual quota's warning without the Error ID line agy writes under it
+    expect(agy.turnError("⚠ Individual quota reached. Resets in 1h.\n\n──────\n>\n──────\n? for shortcuts")).toBeUndefined();
+    // a draft in the input box is not a newer prompt
+    expect(agy.turnError("⚠ Individual quota reached. Resets in 1h.\nError ID: abc-43\n\n──────\n> a draft the person typed\n──────\n? for shortcuts")).toBe("Individual quota reached. Resets in 1h.");
+  });
+
   it("names a file access screen as one nobody answers, with the file it asks for, and nothing else", () => {
     const reason = agy.unanswerable?.(screen("asks-to-read-a-skill-outside-the-workspace-1"));
     expect(reason).toContain("/home/someone/.claude/skills/clarify-ja/SKILL.md");

@@ -404,19 +404,29 @@ const AGY_FILE_ACCESS = "Antigravity CLI asks to read a file outside its workspa
 
 /**
  * agy ends a turn its account has no quota left for on `⚠ Individual quota reached. … Resets in
- * 75h7m14s.` and an `Error ID:` line, the warning wrapping onto the next lines on a narrow pane.
- * One with the agent's work after it (a `●` or `○` line) is the scrollback of an earlier turn.
+ * 75h7m14s.` and an `Error ID:` line, the warning wrapping onto the next lines on a narrow pane, so
+ * only a warning whose block is followed by that line counts. One with a newer turn's line after it
+ * (a `>` line other than the input box, which may hold a draft, or a `●` or `○` line) is the
+ * scrollback of an earlier turn.
  */
 export function agyQuotaReached(output: string | undefined): string | undefined {
   if (!output) return undefined;
   const lines = stripVTControlCharacters(output).split("\n").map((line) => line.trim());
+  let input = false;
   for (let at = lines.length - 1; at >= 0; at--) {
+    if (lines[at]!.startsWith(">")) {
+      if (input) return undefined;
+      input = true;
+      continue;
+    }
     if (/^[●○]/.test(lines[at]!)) return undefined;
     const head = /^⚠\s+(.+)$/.exec(lines[at]!);
     if (!head) continue;
     let warning = head[1]!;
-    for (let next = at + 1; next < lines.length && lines[next] !== "" && !/^(?:Error ID:|[─>●○⚠])/.test(lines[next]!); next++) warning = `${warning} ${lines[next]}`;
-    if (/quota reached/i.test(warning)) return warning;
+    let next = at + 1;
+    for (; next < lines.length && lines[next] !== "" && !/^(?:Error ID:|[─>●○⚠])/.test(lines[next]!); next++) warning = `${warning} ${lines[next]}`;
+    if (!warning.startsWith("Individual quota reached") || !/^Error ID:/.test(lines[next] ?? "")) continue;
+    return warning;
   }
   return undefined;
 }
