@@ -22,6 +22,7 @@ use serde_json::{Map, Number, Value};
 use sha2::{Digest, Sha256};
 
 use crate::config::{RoleOverride, agent_kind, find_project_path, parse_thinking_level};
+use crate::launch::RoleFit;
 
 /// Where a role file came from; a later one of the same name replaces an earlier one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
@@ -73,6 +74,19 @@ impl AgentDefinition {
     /// that may start agents is told to run the fleet command (`fleet spawn`, `fleet wait`).
     pub fn may_spawn(&self, over: &RoleOverride) -> bool {
         over.spawning.or(self.spawning).unwrap_or(false)
+    }
+
+    /// What the role asks of the CLI it runs on, with `over` from fleet.json (ADR 0248-launch-adapters,
+    /// "断る役割"): it edits no file (`edits: false`), it runs the fleet command (`may_spawn`), and it
+    /// reads files outside its folders, which only the reviewer does: the role file has no key for that
+    /// yet, so the role is known by its name. The settings store and the choice of candidates both ask
+    /// this, so the rule lives here once.
+    pub fn role_fit(&self, over: &RoleOverride) -> RoleFit {
+        RoleFit {
+            read_only: self.edits == Some(false),
+            spawning: self.may_spawn(over),
+            reads_outside_folders: self.name == "reviewer",
+        }
     }
 }
 

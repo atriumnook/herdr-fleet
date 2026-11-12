@@ -761,6 +761,17 @@ impl Orchestrator {
         (result, outcome)
     }
 
+    /// The handoff and report a turn the fleet did not send left, read under the lock a turn the
+    /// fleet sends takes to clear them; none once such a turn is in flight: its settlement reads
+    /// them, and this turn's are gone (#344, ADR 0267-restart).
+    pub(crate) fn read_unsent_turn_files(
+        &self,
+        run: &AgentRun,
+    ) -> Option<(Option<String>, Option<TurnOutcome>)> {
+        let turns = locked(&self.inner.turns);
+        (!turns.pending.contains_key(&run.id)).then(|| self.read_turn_files(run))
+    }
+
     /// What a settled turn left: the screen, the handoff and report read before, and the API
     /// failure it may have ended on (`readTurn`).
     pub(crate) async fn read_turn(

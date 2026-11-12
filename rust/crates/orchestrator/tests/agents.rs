@@ -516,6 +516,62 @@ fn may_spawn_by_the_override_then_the_role_file() {
     drop(fixture.root);
 }
 
+// Not in agents.test.ts: what a role asks of the CLI it runs on (ADR 0248-launch-adapters, issue
+// #329): read_only is edits: false, spawning is may_spawn, and reads_outside_folders is the role
+// named reviewer.
+#[test]
+fn role_fit_from_the_role_file_and_the_override() {
+    let fixture = fixture(
+        &[
+            ("plain-ro.md", "---\nname: plain-ro\nedits: false\n---\nx"),
+            ("reviewer.md", "---\nname: reviewer\nedits: false\n---\nx"),
+        ],
+        &[],
+    );
+    let agents = fixture.discover();
+    let none = RoleOverride::default();
+    let off = RoleOverride {
+        spawning: Some(false),
+        ..RoleOverride::default()
+    };
+    let on = RoleOverride {
+        spawning: Some(true),
+        ..RoleOverride::default()
+    };
+    let lead = find(&agents, "lead").role_fit(&none);
+    assert_eq!(
+        (lead.read_only, lead.spawning, lead.reads_outside_folders),
+        (false, true, false)
+    );
+    assert!(!find(&agents, "lead").role_fit(&off).spawning);
+    let worker = find(&agents, "worker").role_fit(&on);
+    assert_eq!((worker.spawning, worker.read_only), (true, false));
+    let coordinator = find(&agents, "coordinator").role_fit(&none);
+    assert_eq!(
+        (
+            coordinator.read_only,
+            coordinator.spawning,
+            coordinator.reads_outside_folders
+        ),
+        (true, true, false)
+    );
+    let plain = find(&agents, "plain-ro").role_fit(&none);
+    assert_eq!(
+        (plain.read_only, plain.spawning, plain.reads_outside_folders),
+        (true, false, false)
+    );
+    let reviewer = find(&agents, "reviewer").role_fit(&none);
+    assert_eq!(
+        (
+            reviewer.read_only,
+            reviewer.spawning,
+            reviewer.reads_outside_folders
+        ),
+        (true, false, true)
+    );
+    drop(fixture.root);
+}
+
 // Not in agents.test.ts: merge keys and tags read as Bun 1.4.4 reads them. Each expected value is
 // what TypeScript's `discoverAgents` printed for the same file: `<<` (quoted or not, or through an
 // alias) is expanded, the mapping's own keys and an earlier merged mapping winning; a quoted scalar
