@@ -1,5 +1,5 @@
 //! `protocol::js` against JavaScript: the expected values are what Bun 1.4.4 answers
-//! (`/\s/.test`, `/^.$/u.test`, `trim`, `trimStart`, `trimEnd`, `length` and `slice`).
+//! (`/\s/.test`, `/^.$/u.test`, `trim`, `trimStart`, `trimEnd`, `Number`, `length` and `slice`).
 
 use herdr_fleet_protocol::js;
 use regex::Regex;
@@ -147,4 +147,167 @@ fn lists_integer_keys_first_and_indents_by_two() {
     );
     assert_eq!(pretty("{}"), "{}");
     assert_eq!(pretty("[]"), "[]");
+}
+
+// Bun 1.4.4 under LANG=en_US.UTF-8: the 128 characters of ASCII from U+007F down to U+0000, and
+// from U+0000 up to U+007F, each a string, .sort((a, b) => a.localeCompare(b)).join(""). The
+// ignored control characters tie, so a stable sort keeps them in the order given.
+#[test]
+fn orders_ascii_characters_as_locale_compare_does() {
+    let ignored_up = "\u{00}\u{01}\u{02}\u{03}\u{04}\u{05}\u{06}\u{07}\u{08}\u{0E}\u{0F}\u{10}\u{11}\u{12}\u{13}\u{14}\u{15}\u{16}\u{17}\u{18}\u{19}\u{1A}\u{1B}\u{1C}\u{1D}\u{1E}\u{1F}\u{7F}";
+    let rest = "\t\n\u{0B}\u{0C}\r _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ";
+    let mut chars: Vec<String> = (0..128u8).map(|b| char::from(b).to_string()).collect();
+    chars.sort_by(|a, b| js::locale_compare(a, b));
+    assert_eq!(chars.concat(), format!("{ignored_up}{rest}"));
+
+    let order = "\u{7F}\u{1F}\u{1E}\u{1D}\u{1C}\u{1B}\u{1A}\u{19}\u{18}\u{17}\u{16}\u{15}\u{14}\u{13}\u{12}\u{11}\u{10}\u{0F}\u{0E}\u{08}\u{07}\u{06}\u{05}\u{04}\u{03}\u{02}\u{01}\u{00}\t\n\u{0B}\u{0C}\r _-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$0123456789aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxXyYzZ";
+    let mut chars: Vec<String> = (0..128u8)
+        .rev()
+        .map(|b| char::from(b).to_string())
+        .collect();
+    chars.sort_by(|a, b| js::locale_compare(a, b));
+    assert_eq!(chars.concat(), order);
+}
+
+// Bun 1.4.4 under LANG=en_US.UTF-8: [...words].sort((a, b) => a.localeCompare(b)).
+#[test]
+fn orders_words_as_locale_compare_does() {
+    let expected = [
+        "a b",
+        "a_b",
+        "a-b",
+        "a:b",
+        "a1",
+        "a10",
+        "a9",
+        "ab",
+        "Ab",
+        "agy",
+        "agy:gemini",
+        "b",
+        "B",
+        "ba",
+        "bA",
+        "Ba",
+        "beta",
+        "Beta",
+        "claude",
+        "codex",
+        "pi:anthropic",
+        "pi:openai",
+        "Zeta",
+    ];
+    let mut words = expected.to_vec();
+    words.reverse();
+    words.sort_by(|a, b| js::locale_compare(a, b));
+    assert_eq!(words, expected);
+}
+
+// Bun 1.4.4 under LANG=en_US.UTF-8: a.localeCompare(b) of each pair. The control characters other
+// than \t, \n, \v, \f and \r are ignored, and those five and a space weigh differently.
+#[test]
+fn compares_pairs_as_locale_compare_does() {
+    use std::cmp::Ordering::{Equal, Greater, Less};
+    for (a, b, expected) in [
+        ("a", "a", Equal),
+        ("a", "A", Less),
+        ("A", "a", Greater),
+        ("ab", "aB", Less),
+        ("", "a", Less),
+        ("a b", "ab", Less),
+        ("a\tz", "a b", Less),
+        ("a\u{0B}b", "aab", Less),
+        ("a\u{01}b", "ab", Equal),
+        ("a\u{7F}b", "ab", Equal),
+        ("x", "x\u{00}", Equal),
+        ("a\u{01}B", "ab", Greater),
+        ("a\u{01}b", "aB", Less),
+        ("\u{01}", "", Equal),
+    ] {
+        assert_eq!(js::locale_compare(a, b), expected, "{a:?} vs {b:?}");
+    }
+}
+
+#[test]
+fn reads_text_as_javascript_number_does() {
+    // each value as `Number(text)` gives it in Bun 1.4.4 and the ECMAScript grammar
+    assert_eq!(js::number(""), 0.0);
+    assert_eq!(js::number(" 6 "), 6.0);
+    assert_eq!(js::number("0x10"), 16.0);
+    assert_eq!(js::number("1e2"), 100.0);
+    assert_eq!(js::number(".5"), 0.5);
+    assert_eq!(js::number("-Infinity"), f64::NEG_INFINITY);
+    assert!(js::number("inf").is_nan());
+    assert!(js::number("1_000").is_nan());
+    assert!(js::number("6h").is_nan());
+    assert!(js::number("-0x10").is_nan());
+    // signs and fractions
+    assert_eq!(js::number("+Infinity"), f64::INFINITY);
+    assert_eq!(js::number("+.5"), 0.5);
+    assert_eq!(js::number("5."), 5.0);
+    assert_eq!(js::number("1.e3"), 1000.0);
+    assert_eq!(js::number("-.5e1"), -5.0);
+    // radix prefixes
+    assert_eq!(js::number("0x1F"), 31.0);
+    assert_eq!(js::number("0XfF"), 255.0);
+    assert_eq!(js::number("0o17"), 15.0);
+    assert_eq!(js::number("0b101"), 5.0);
+    // not a number
+    assert!(js::number("0x").is_nan(), "0x");
+    assert!(js::number("0b").is_nan(), "0b");
+    assert!(js::number("1e").is_nan(), "1e");
+    assert!(js::number("infinity").is_nan(), "infinity");
+    assert!(js::number("+-1").is_nan(), "+-1");
+    assert!(js::number("00x1").is_nan(), "00x1");
+    // whitespace of trim
+    assert!(js::number("\u{180e}1").is_nan(), "U+180E is not whitespace");
+    assert_eq!(js::number("\u{2028}1\u{2029}"), 1.0);
+    assert_eq!(js::number("\u{feff}7\u{3000}"), 7.0);
+    // integers past 2^53 and past 128 bits
+    assert_eq!(js::number("0x1fffffffffffff1"), 144115188075855860.0);
+    let past_u128 = format!("0x1{}", "0".repeat(32));
+    assert_eq!(js::number(&past_u128), 3.402823669209385e38, "{past_u128}");
+    let past_160_bits = format!("0x{}", "f".repeat(40));
+    assert_eq!(
+        js::number(&past_160_bits),
+        1.461501637330903e48,
+        "{past_160_bits}"
+    );
+    // Bun's JavaScriptCore sums the digits of a 0x/0o/0b integer from the last one once the
+    // running value reaches 2^53; the nearest double, which ECMAScript's RoundMVResult asks for,
+    // would be the next one up for these three.
+    for (text, bits) in [
+        ("0xd87a1cbe50f2943", 0x43ab_0f43_97ca_1e52u64),
+        ("0o333700432603437010426", 0x43cb_7c08_d60e_3e08),
+        (
+            "0b1010010000000101001001010010100010010101000110111000101110110010",
+            0x43e4_80a4_a512_a372,
+        ),
+    ] {
+        assert_eq!(js::number(text).to_bits(), bits, "{text}");
+    }
+    let past_max_digits = "f".repeat(255);
+    assert_eq!(
+        js::number(&format!("0x{past_max_digits}")).to_bits(),
+        0x7fb0_0000_0000_0000,
+        "0x{past_max_digits}"
+    );
+    let past_max_with_leading_one = format!("0x1{}", "0".repeat(256));
+    assert_eq!(
+        js::number(&past_max_with_leading_one),
+        f64::INFINITY,
+        "{past_max_with_leading_one}"
+    );
+    let past_max_and_a_bit = "f".repeat(256);
+    assert_eq!(
+        js::number(&format!("0x{past_max_and_a_bit}")),
+        f64::INFINITY,
+        "0x{past_max_and_a_bit}"
+    );
+    // the offsets of a cursor that transcript's paging reads, which had a reader of its own
+    assert_eq!(js::number("12"), 12.0);
+    assert_eq!(js::number(" 12 "), 12.0);
+    assert_eq!(js::number("1e3"), 1000.0);
+    assert!(js::number("12a").is_nan(), "12a");
+    assert_eq!(js::number("Infinity"), f64::INFINITY);
 }

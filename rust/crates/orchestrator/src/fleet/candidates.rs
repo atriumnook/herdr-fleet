@@ -23,7 +23,7 @@ use super::{
 };
 use crate::config::{FleetConfig, parse_thinking_level, role_candidates};
 use crate::error::FleetError;
-use crate::launch::{RoleFit, adapter_for};
+use crate::launch::adapter_for;
 use crate::models::ModelCatalog;
 use crate::runtime::RuntimeError;
 use crate::usage::UsageTracker;
@@ -140,11 +140,7 @@ impl Orchestrator {
         let fallbacks = fallbacks.unwrap_or_else(|| role.fallbacks.clone());
         let candidates = role_candidates(role.kind, role.primary.as_deref(), &fallbacks);
         // the role's facts a CLI may not fit (ADR 0248-launch-adapters)
-        let fit = RoleFit {
-            read_only: role.definition.edits == Some(false),
-            spawning: role.definition.may_spawn(&role.over),
-            reads_outside_folders: role.definition.name == "reviewer",
-        };
+        let fit = role.definition.role_fit(&role.over);
         let usage = self.deps().usage.as_deref();
         let models = self.deps().models.as_deref();
         let mut failures: Vec<String> = Vec::new();

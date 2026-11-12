@@ -10,11 +10,11 @@ use std::path::{Path, PathBuf};
 use protocol::{AgentRun, AgentState, FleetAgentKind, TurnOutcome, js};
 use tokio_util::sync::CancellationToken;
 
-use super::Orchestrator;
 use super::spawn::{PlannedSpawn, TASK_FILE, Takeover, ThreadPlace, write_private};
 use super::threads::CONTRACT_FILE;
 use super::turns::read_result;
-use super::{THREAD_ROLE, is_live, is_thread, locked, thread_id};
+use super::{BoxFuture, Orchestrator, THREAD_ROLE, is_live, is_thread, locked, thread_id};
+use crate::config::FleetConfig;
 use crate::events::{FleetEvent, RestartEvent, RestartWhy};
 
 /// The check before any outside action that a lead taking a thread over is told to make
@@ -27,6 +27,46 @@ const NEWS: &str = "news";
 #[derive(Debug, Default)]
 pub(crate) struct State {}
 
+/// What became of a thread whose lead a settlement found in need of a new run (`restart_thread`).
+#[derive(Debug, PartialEq)]
+enum Restart {
+    /// it needs none any more, a new run took it over, or the restart was cancelled
+    Done,
+    /// a turn the fleet sent the lead is on its way: that turn's settlement decides, and settles
+    /// the thread; the turn before is left to it (ADR 0358-settlement-and-sent-turn)
+    Deferred,
+    /// no new run could take it over, for this reason
+    Failed(String),
+}
+
+impl Restart {
+    /// Why the thread could not start again, for its news.
+    fn error(self) -> Option<String> {
+        match self {
+            Restart::Failed(error) => Some(error),
+            Restart::Done | Restart::Deferred => None,
+        }
+    }
+}
+
+/// A turn of a thread's lead, read by its settlement, as the thread's part of that settlement needs
+/// it (`settle_lead_turn`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct LeadTurn {
+    /// what the fleet sent for it, which a new run hears as the fleet's last message
+    pub text: Option<String>,
+    /// for the plan it went past; none for a turn the fleet did not send
+    pub sent: Option<SentTurn>,
+}
+
+/// A turn the fleet sent, as the plan it went past needs it (`LeadTurn`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SentTurn {
+    pub generation: u64,
+    /// when its prompt was handed to herdr; none for a turn a restart took over
+    pub submitted_at: Option<i64>,
+}
+
 /// A thread's settled lead whose run failed or whose turn left no report, and the thread still
 /// open: it goes on in a new run (`needsRestart`).
 pub(crate) fn needs_restart(run: &AgentRun) -> bool {
@@ -38,23 +78,33 @@ pub(crate) fn needs_restart(run: &AgentRun) -> bool {
 }
 
 impl Orchestrator {
-    /// The thread of the lead `id` goes on in a new run; why it could not, if it could not
-    /// (`restartThread`). `last_message` is what the fleet last sent the run, when it sent it.
+    /// The thread of the lead `id` goes on in a new run (`restartThread`). `last_message` is what
+    /// the fleet last sent the run, when it sent it.
     ///
     /// A landing step pressed before goes first, under the thread's lock: a discard leaves nothing
-    /// to start again. The run is read again under the lock, and `Some` comes back only when no
+    /// to start again. The run is read again under the lock, and `Failed` comes back only when no
     /// new run took the thread over, never for a cancel (ADR 0265-plans).
-    pub(crate) async fn restart_thread(
-        &self,
-        id: &str,
-        last_message: Option<&str>,
-    ) -> Option<String> {
-        let thread = thread_id(&self.registry().get(id)?).to_owned();
+    ///
+    /// A turn the fleet sent the run since the settlement read `turn` (a landing step, which holds
+    /// this lock until it is sent) leaves the thread as it is: that turn's settlement decides
+    /// whether it starts again, and the run keeps its pane meanwhile. That turn keeps `turn`, for
+    /// when it is dropped before it reaches the lead (ADR 0358-settlement-and-sent-turn).
+    async fn restart_thread(&self, id: &str, turn: &LeadTurn) -> Restart {
+        let Some(run) = self.registry().get(id) else {
+            return Restart::Done;
+        };
         self.inner
             .thread_locks
-            .run(thread, async {
-                let run = self.registry().get(id).filter(needs_restart)?;
-                self.start_thread_again(run, last_message).await
+            .run(thread_id(&run).to_owned(), async {
+                let Some(run) = self.registry().get(id).filter(needs_restart) else {
+                    return Restart::Done;
+                };
+                if self.leave_restart(id, turn) {
+                    return Restart::Deferred;
+                }
+                self.start_thread_again(run, turn.text.as_deref())
+                    .await
+                    .map_or(Restart::Done, Restart::Failed)
             })
             .await
     }
@@ -235,7 +285,8 @@ impl Orchestrator {
     /// A thread's turn the fleet did not send ended: its agent started it itself (a helper's
     /// result woke it after a turn that broke off to wait) or the person typed in its pane. Without
     /// the person, nothing else tells the coordinator, which waits for this news to go on
-    /// (`settleUnsentTurn`).
+    /// (`settleUnsentTurn`). Called only under the run's `reconcile_locks`, as `finalize` is: one
+    /// settlement at a time per run (ADR 0358-settlement-and-sent-turn).
     pub(crate) async fn settle_unsent_turn(&self, id: &str) {
         let Some(run) = self.registry().get(id) else {
             return;
@@ -245,31 +296,110 @@ impl Orchestrator {
             return;
         }
         // once a turn the fleet sends is on its way, it cleared these files for its own: its
-        // settlement reads them, and this turn's are gone (ADR 0267-restart)
-        if self.turn_in_flight(id) {
+        // settlement reads them, and this turn's are gone. The check and the read are one step
+        // under the lock that turn takes (ADR 0267-restart, #344)
+        let Some((generation, files)) = self.read_unsent_turn_files(&run) else {
             return;
-        }
-        let files = self.read_turn_files(&run);
+        };
         self.read_turn(id, &config, files).await;
         self.read_thread_work(id).await;
-        let restart_error = match self.registry().get(id) {
-            Some(run) if needs_restart(&run) => self.restart_thread(id, None).await,
-            _ => None,
+        let turn = LeadTurn {
+            text: None,
+            sent: None,
         };
-        if self
-            .registry()
-            .get(id)
-            .is_some_and(|run| run.replaced_by.is_none())
-        {
-            self.settle_thread_turn(id, &config, restart_error).await;
-        }
+        self.settle_lead_turn(id, &config, turn, true).await;
         let now = self.now();
         self.change(id, |run| run.updated_at = now);
-        self.settle_waiters(id);
+        // a turn the fleet sent meanwhile keeps its own waiters
+        self.settle_turn_waiters(id, generation);
         if self.inner.outbox.holds(id) {
             let (fleet, id) = (self.clone(), id.to_owned());
             tokio::spawn(async move { fleet.tell_coordinator(&id).await });
         }
+    }
+
+    /// The thread's part of the settlement of its lead's `turn`, once the turn is read: a lead
+    /// whose run failed or whose turn left no report goes on in a new run, from the contract and
+    /// change the turn left; then, while no new run took the thread over, the plan the turn went
+    /// past closes, and the thread's turn settles (its landing step and news). A turn the fleet
+    /// sent the lead since takes all of it over (`Restart::Deferred`, ADR
+    /// 0358-settlement-and-sent-turn). Without `may_restart`, the lead stays as it is (it waits on
+    /// a question, or its pane ended).
+    pub(crate) async fn settle_lead_turn(
+        &self,
+        id: &str,
+        config: &FleetConfig,
+        turn: LeadTurn,
+        may_restart: bool,
+    ) {
+        let restart = match self.registry().get(id) {
+            Some(run) if may_restart && needs_restart(&run) => self.restart_thread(id, &turn).await,
+            // a lead left as it is: a turn the fleet sent it since takes the thread's part over
+            _ if !may_restart && self.leave_restart(id, &turn) => Restart::Deferred,
+            _ => Restart::Done,
+        };
+        if restart == Restart::Deferred {
+            return;
+        }
+        let Some(run) = self
+            .registry()
+            .get(id)
+            .filter(|run| is_thread(run) && run.replaced_by.is_none())
+        else {
+            return;
+        };
+        let restart_error = restart.error();
+        if let Some(SentTurn {
+            generation,
+            submitted_at,
+        }) = turn.sent
+        {
+            // a turn that failed or left no report went nowhere; a lead taking a thread over starts
+            // with its plan still open, and keeps it so while it reports blocked on it
+            let passed = match &run.outcome {
+                Some(TurnOutcome::Report(report)) => {
+                    !(generation == 1
+                        && run.thread.is_some()
+                        && report.state == protocol::ReportState::Blocked)
+                }
+                _ => restart_error.is_some(),
+            };
+            if passed {
+                self.close_stale_plan(id, submitted_at);
+            }
+        }
+        self.settle_thread_turn(id, config, restart_error).await;
+    }
+
+    /// The turn the fleet sent the lead `id`, to which a settlement left the restart of the thread,
+    /// was dropped before it reached the lead: no settlement of it follows, so the thread's part of
+    /// the settlement of `turn`, the turn before it, runs now, in a task of its own and under the
+    /// run's `reconcile_locks`, one settlement at a time per run; without `may_restart`, it leaves
+    /// the lead as it is (ADR 0358-settlement-and-sent-turn). Nothing runs once the fleet stops.
+    /// Boxed, so the send's type does not depend on it.
+    pub(crate) fn settle_left_restart(&self, id: &str, turn: LeadTurn, may_restart: bool) {
+        let task: BoxFuture<'static, ()> = {
+            let (fleet, id) = (self.clone(), id.to_owned());
+            Box::pin(async move {
+                let settle = async {
+                    if fleet.is_stopped() {
+                        return;
+                    }
+                    let Some(run) = fleet.registry().get(&id) else {
+                        return;
+                    };
+                    let config = fleet.config(&run.cwd);
+                    fleet
+                        .settle_lead_turn(&id, &config, turn, may_restart)
+                        .await;
+                };
+                fleet.inner.reconcile_locks.run(id.clone(), settle).await;
+                if !fleet.is_stopped() && fleet.inner.outbox.holds(&id) {
+                    fleet.tell_coordinator(&id).await;
+                }
+            })
+        };
+        tokio::spawn(task);
     }
 
     /// What a lead that takes a thread over carries on its new run from the run before: the
