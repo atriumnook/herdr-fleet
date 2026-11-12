@@ -13,7 +13,7 @@ use protocol::{AgentRun, AgentState, TurnOutcome, js};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use super::restart::{Restart, needs_restart};
+use super::restart::LeadTurn;
 use super::spawn::{RESULT_FILE, read_lines};
 use super::{
     BoxFuture, Orchestrator, OrchestratorError, PROJECT_ROLE, START_GRACE_MS, TimerKind,
@@ -45,15 +45,23 @@ pub(crate) struct PendingTurn {
     /// what the fleet sent: a thread's next lead run hears it if this one fails; unknown for a turn
     /// a restart took over
     pub text: Option<String>,
+    /// the turn before, whose settlement left the restart of the run's thread to this turn: if this
+    /// turn is dropped before it reaches the lead, no settlement of it follows, and the turn before
+    /// is settled then (ADR 0358-settlement-and-sent-turn)
+    pub restart_left: Option<LeadTurn>,
 }
+
+/// The handoff and report a settled turn left, as its settlement read them.
+type TurnFiles = (Option<String>, Option<TurnOutcome>);
 
 /// What the turns keep while this server runs (`pending`, `generations`, `waiters`).
 #[derive(Debug, Default)]
 pub(crate) struct State {
     pending: HashMap<String, PendingTurn>,
     generations: HashMap<String, u64>,
-    /// callers waiting for a run's turn to settle or block
-    waiters: HashMap<String, Vec<(u64, oneshot::Sender<AgentRun>)>>,
+    /// callers waiting for a run's turn to settle or block: the waiter, the generation of the turn
+    /// it waits on, and where it hears
+    waiters: HashMap<String, Vec<(u64, u64, oneshot::Sender<AgentRun>)>>,
 }
 
 /// The handoff a run's agent wrote in `file`, up to [`RESULT_MAX_BYTES`] (`readResult`). Only a
@@ -127,7 +135,7 @@ impl Drop for WaiterGuard<'_> {
     fn drop(&mut self) {
         let mut turns = locked(&self.fleet.inner.turns);
         if let Some(waiters) = turns.waiters.get_mut(self.id) {
-            waiters.retain(|(each, _)| *each != self.waiter);
+            waiters.retain(|(each, _, _)| *each != self.waiter);
             if waiters.is_empty() {
                 turns.waiters.remove(self.id);
             }
@@ -180,6 +188,7 @@ impl Orchestrator {
                             resumed_at: Some(now),
                             saw_working: false,
                             text: None,
+                            restart_left: None,
                         },
                     );
                 }
@@ -250,12 +259,12 @@ impl Orchestrator {
                 }
                 None => true,
             };
-            if !answered {
-                turns
-                    .waiters
-                    .entry(run.id.clone())
-                    .or_default()
-                    .push((waiter, sender));
+            if let Some(pending) = pending.filter(|_| !answered) {
+                turns.waiters.entry(run.id.clone()).or_default().push((
+                    waiter,
+                    pending.generation,
+                    sender,
+                ));
             }
             !answered
         };
@@ -416,6 +425,12 @@ impl Orchestrator {
             self.clear_settle_check(id);
             let generation = turns.generations.get(id).copied().unwrap_or(0) + 1;
             turns.generations.insert(id.to_owned(), generation);
+            // a turn sent over one still in flight takes over the restart left to that one, which
+            // will not be settled
+            let restart_left = turns
+                .pending
+                .get(id)
+                .and_then(|pending| pending.restart_left.clone());
             turns.pending.insert(
                 id.to_owned(),
                 PendingTurn {
@@ -426,6 +441,7 @@ impl Orchestrator {
                     resumed_at: None,
                     saw_working: false,
                     text: Some(text.to_owned()),
+                    restart_left,
                 },
             );
             // the files a settlement still reads are this turn's only once the turn is in the table:
@@ -484,8 +500,10 @@ impl Orchestrator {
                 Ok(self.registry().get(id).unwrap_or(run))
             }
             Err(error) => {
-                self.drop_pending(id);
-                match error {
+                let restart_left = self
+                    .drop_pending(id)
+                    .and_then(|pending| pending.restart_left);
+                let sent = match error {
                     RuntimeError::Cancelled => Err(error.into()),
                     RuntimeError::Blocked => {
                         // herdr refused before typing anything: nothing is in flight; the caller
@@ -505,7 +523,13 @@ impl Orchestrator {
                         });
                         Ok(self.registry().get(id).unwrap_or(run))
                     }
+                };
+                // the turn never reached the lead: the restart a settlement left to it is that
+                // settlement's again (ADR 0358-settlement-and-sent-turn)
+                if let Some(turn) = restart_left {
+                    self.settle_left_restart(id, turn);
                 }
+                sent
             }
         }
     }
@@ -699,37 +723,11 @@ impl Orchestrator {
         self.read_turn(id, &config, files).await;
         if self.registry().get(id).is_some_and(|run| is_thread(&run)) {
             self.read_thread_work(id).await;
-        }
-        // a thread whose lead run failed or left no report goes on in a new run first, from the
-        // contract and change the turn left: what it leaves undone is the new run's
-        let restart = match self.registry().get(id) {
-            Some(run) if needs_restart(&run) => {
-                self.restart_thread(id, pending.text.as_deref()).await
-            }
-            _ => Restart::Done,
-        };
-        // a restart left to a turn sent meanwhile leaves that turn its plan, landing step and news
-        let deferred = restart == Restart::Deferred;
-        let restart_error = restart.error();
-        if let Some(run) = self.registry().get(id)
-            && is_thread(&run)
-            && run.replaced_by.is_none()
-            && !deferred
-        {
-            // a turn that failed or left no report went nowhere; a lead taking a thread over starts
-            // with its plan still open, and keeps it so while it reports blocked on it
-            let passed = match &run.outcome {
-                Some(TurnOutcome::Report(report)) => {
-                    !(pending.generation == 1
-                        && run.thread.is_some()
-                        && report.state == protocol::ReportState::Blocked)
-                }
-                _ => restart_error.is_some(),
+            let turn = LeadTurn {
+                text: pending.text.clone(),
+                sent: Some((pending.generation, pending.submitted_at)),
             };
-            if passed {
-                self.close_stale_plan(id, pending.submitted_at);
-            }
-            self.settle_thread_turn(id, &config, restart_error).await;
+            self.settle_lead_turn(id, &config, turn).await;
         }
         let now = self.now();
         let Some(run) = self.change(id, |run| run.updated_at = now) else {
@@ -749,7 +747,8 @@ impl Orchestrator {
         }
         // a helper's failed first turn starts again on the next configured model
         self.respawn_after_failure(id, pending.generation).await;
-        self.settle_waiters(id);
+        // a turn sent meanwhile keeps its own waiters (ADR 0358-settlement-and-sent-turn)
+        self.settle_turn_waiters(id, pending.generation);
         self.close_on_settle(id, &config).await;
         if self.inner.outbox.holds(id) {
             let (fleet, id) = (self.clone(), id.to_owned());
@@ -768,13 +767,12 @@ impl Orchestrator {
 
     /// The handoff and report a turn the fleet did not send left, read under the lock a turn the
     /// fleet sends takes to clear them; none once such a turn is in flight: its settlement reads
-    /// them, and this turn's are gone (#344, ADR 0267-restart).
-    pub(crate) fn read_unsent_turn_files(
-        &self,
-        run: &AgentRun,
-    ) -> Option<(Option<String>, Option<TurnOutcome>)> {
+    /// them, and this turn's are gone (#344, ADR 0267-restart). With them, the generation of the
+    /// last turn the fleet sent: a turn it sends after has waiters of its own.
+    pub(crate) fn read_unsent_turn_files(&self, run: &AgentRun) -> Option<(u64, TurnFiles)> {
         let turns = locked(&self.inner.turns);
-        (!turns.pending.contains_key(&run.id)).then(|| self.read_turn_files(run))
+        let generation = turns.generations.get(&run.id).copied().unwrap_or(0);
+        (!turns.pending.contains_key(&run.id)).then(|| (generation, self.read_turn_files(run)))
     }
 
     /// What a settled turn left: the screen, the handoff and report read before, and the API
@@ -876,7 +874,7 @@ impl Orchestrator {
             run.last_output = output;
             run.updated_at = now;
         });
-        self.settle_waiters(id);
+        self.settle_turn_waiters(id, generation);
     }
 
     /// A non-interactive run's pane, once its turn settled with its report written. A turn that
@@ -1002,13 +1000,36 @@ impl Orchestrator {
             .waiters
             .remove(id)
             .unwrap_or_default();
+        self.wake(id, waiters);
+    }
+
+    /// Those waiting on the run `id`'s turns up to `generation` hear it as it is now; the waiters
+    /// of a turn the fleet sent since wait on for that turn (ADR 0358-settlement-and-sent-turn).
+    pub(crate) fn settle_turn_waiters(&self, id: &str, generation: u64) {
+        let woken = {
+            let mut turns = locked(&self.inner.turns);
+            let (woken, kept): (Vec<_>, Vec<_>) = turns
+                .waiters
+                .remove(id)
+                .unwrap_or_default()
+                .into_iter()
+                .partition(|(_, turn, _)| *turn <= generation);
+            if !kept.is_empty() {
+                turns.waiters.insert(id.to_owned(), kept);
+            }
+            woken
+        };
+        self.wake(id, woken);
+    }
+
+    fn wake(&self, id: &str, waiters: Vec<(u64, u64, oneshot::Sender<AgentRun>)>) {
         if waiters.is_empty() {
             return;
         }
         let Some(run) = self.registry().get(id) else {
             return;
         };
-        for (_, waiter) in waiters {
+        for (_, _, waiter) in waiters {
             let _ = waiter.send(run.clone());
         }
     }
@@ -1036,10 +1057,23 @@ impl Orchestrator {
         self.inner.timers.clear(TimerKind::SettleCheck, id);
     }
 
-    /// The run's turn is no longer the fleet's to follow.
-    pub(crate) fn drop_pending(&self, id: &str) {
-        locked(&self.inner.turns).pending.remove(id);
+    /// The run's turn is no longer the fleet's to follow: the turn as it was, when one was.
+    pub(crate) fn drop_pending(&self, id: &str) -> Option<PendingTurn> {
+        let dropped = locked(&self.inner.turns).pending.remove(id);
         self.clear_settle_check(id);
+        dropped
+    }
+
+    /// The restart of the run `id`'s thread, which the settlement of `turn` found due, left to the
+    /// turn the fleet sent the run since, when one is in flight; that turn keeps `turn` for when it
+    /// is dropped unsettled (ADR 0358-settlement-and-sent-turn).
+    pub(crate) fn leave_restart(&self, id: &str, turn: &LeadTurn) -> bool {
+        let mut turns = locked(&self.inner.turns);
+        let Some(pending) = turns.pending.get_mut(id) else {
+            return false;
+        };
+        pending.restart_left = Some(turn.clone());
+        true
     }
 
     /// The run `id` in `state`, saved; `output` replaces its last output when given
