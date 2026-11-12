@@ -353,17 +353,21 @@ impl Orchestrator {
 
     /// The turn the fleet sent the lead `id`, to which a settlement left the restart of the thread,
     /// was dropped before it reached the lead: no settlement of it follows, so the thread's part of
-    /// the settlement of `turn`, the turn before it, runs now, in a task of its own (ADR
+    /// the settlement of `turn`, the turn before it, runs now, in a task of its own and under the
+    /// run's `reconcile_locks`, one settlement at a time per run (ADR
     /// 0358-settlement-and-sent-turn). Boxed, so the send's type does not depend on it.
     pub(crate) fn settle_left_restart(&self, id: &str, turn: LeadTurn) {
         let task: BoxFuture<'static, ()> = {
             let (fleet, id) = (self.clone(), id.to_owned());
             Box::pin(async move {
-                let Some(run) = fleet.registry().get(&id) else {
-                    return;
+                let settle = async {
+                    let Some(run) = fleet.registry().get(&id) else {
+                        return;
+                    };
+                    let config = fleet.config(&run.cwd);
+                    fleet.settle_lead_turn(&id, &config, turn).await;
                 };
-                let config = fleet.config(&run.cwd);
-                fleet.settle_lead_turn(&id, &config, turn).await;
+                fleet.inner.reconcile_locks.run(id.clone(), settle).await;
                 if fleet.inner.outbox.holds(&id) {
                     fleet.tell_coordinator(&id).await;
                 }

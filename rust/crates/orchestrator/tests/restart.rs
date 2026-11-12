@@ -1114,13 +1114,12 @@ async fn settles_a_steps_turn_that_ended_while_a_turn_before_it_was_settled_afte
     assert!(t.runtime.closed().is_empty());
 }
 
-// codex's review of #358: a lead that started a thread of its own hears that thread's news, which
-// the fleet types into it once the lead's turn ended. That turn left no report, and its settlement
-// leaves the restart to the news's turn; the news never reaches the lead (herdr fails the prompt),
-// so no settlement of that turn follows: the thread starts again as the turn is dropped.
-#[tokio::test(start_paused = true)]
-async fn starts_the_thread_again_when_the_turn_a_settlement_left_the_restart_to_never_reached_the_lead()
- {
+/// A lead that started a thread of its own hears that thread's news, which the fleet types into it
+/// once the lead's turn ended (codex's review of #358). That turn left no report, and its
+/// settlement leaves the restart to the news's turn; herdr then answers the prompt with `error`.
+async fn news_refused_while_a_turn_that_left_no_report_was_settled(
+    error: RuntimeError,
+) -> (Thread, AgentRun) {
     let (looked, screen, typed) = (Hold::new(), Hold::new(), Hold::new());
     let t = thread_with(None, Some(json!({ "autonomous": true })), |_| {});
     let first = t.start_thread("Fix", "t", None).await;
@@ -1147,14 +1146,13 @@ async fn starts_the_thread_again_when_the_turn_a_settlement_left_the_restart_to_
         }
     });
     let (hold, name, runtime) = (typed.clone(), lead.clone(), Arc::downgrade(&t.runtime));
+    let error = Arc::new(Mutex::new(Some(error)));
     t.runtime.on_prompt(move |asked, text, _| {
-        let (hold, runtime, mine) = (hold.clone(), runtime.clone(), asked == name);
+        let (hold, runtime, mine, error) =
+            (hold.clone(), runtime.clone(), asked == name, error.clone());
         async move {
             if mine && hold.pass().await {
-                return Err(RuntimeError::Herdr {
-                    code: "server_error".to_owned(),
-                    message: "herdr went away".to_owned(),
-                });
+                return Err(error.lock().unwrap().take().unwrap());
             }
             let runtime = runtime.upgrade().unwrap();
             let mut recorded = runtime.recorded();
@@ -1189,12 +1187,39 @@ async fn starts_the_thread_again_when_the_turn_a_settlement_left_the_restart_to_
     sleep_ms(100).await;
     assert!(t.restarts().is_empty());
     assert!(t.runtime.closed().is_empty());
-    // herdr fails the prompt: no turn of the news follows, and the thread starts again
     typed.gate.open();
     sleep_ms(1000).await;
+    (t, first)
+}
+
+// codex's review of #358: herdr fails the prompt, so no turn of the news follows and no settlement
+// of it: the thread starts again as the turn is dropped.
+#[tokio::test(start_paused = true)]
+async fn starts_the_thread_again_when_the_turn_a_settlement_left_the_restart_to_never_reached_the_lead()
+ {
+    let (t, first) =
+        news_refused_while_a_turn_that_left_no_report_was_settled(RuntimeError::Herdr {
+            code: "server_error".to_owned(),
+            message: "herdr went away".to_owned(),
+        })
+        .await;
     assert_eq!(t.restarts().len(), 1, "{:?}", t.run(&first.id));
     assert_eq!(t.next(&first).branch, first.branch);
     assert_eq!(t.runtime.closed(), vec![first.pane_id.clone()]);
+}
+
+// /code-review of #358: herdr refuses the prompt because the lead waits on a question. The lead
+// goes on once the person answers, and that turn's settlement decides; the thread does not start
+// again over the question, whose pane stays open.
+#[tokio::test(start_paused = true)]
+async fn keeps_a_lead_that_waits_on_a_question_when_the_turn_a_settlement_left_the_restart_to_is_refused()
+ {
+    let (t, first) =
+        news_refused_while_a_turn_that_left_no_report_was_settled(RuntimeError::Blocked).await;
+    assert!(t.restarts().is_empty());
+    assert_eq!(t.run(&first.id).state, AgentState::Blocked);
+    assert_eq!(t.run(&first.id).replaced_by, None);
+    assert!(t.runtime.closed().is_empty());
 }
 
 // codex's review of #358: a wait on the lead once the fleet sent it Create PR, while the turn

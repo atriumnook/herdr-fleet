@@ -503,6 +503,7 @@ impl Orchestrator {
                 let restart_left = self
                     .drop_pending(id)
                     .and_then(|pending| pending.restart_left);
+                let refused_blocked = matches!(error, RuntimeError::Blocked);
                 let sent = match error {
                     RuntimeError::Cancelled => Err(error.into()),
                     RuntimeError::Blocked => {
@@ -525,8 +526,9 @@ impl Orchestrator {
                     }
                 };
                 // the turn never reached the lead: the restart a settlement left to it is that
-                // settlement's again (ADR 0358-settlement-and-sent-turn)
-                if let Some(turn) = restart_left {
+                // settlement's again. A lead herdr found waiting on a question goes on once a person
+                // answers, and that turn's settlement decides (ADR 0358-settlement-and-sent-turn)
+                if let Some(turn) = restart_left.filter(|_| !refused_blocked) {
                     self.settle_left_restart(id, turn);
                 }
                 sent
