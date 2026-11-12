@@ -44,6 +44,11 @@ impl Orchestrator {
     /// A landing step pressed before goes first, under the thread's lock: a discard leaves nothing
     /// to start again. The run is read again under the lock, and `Some` comes back only when no
     /// new run took the thread over, never for a cancel (ADR 0265-plans).
+    ///
+    /// A turn the fleet sent the run since the settlement read its turn (a landing step, which
+    /// holds this lock until it is sent) leaves the thread as it is: that turn's settlement decides
+    /// whether it starts again, and the run keeps its pane meanwhile (ADR
+    /// 0358-settlement-and-sent-turn).
     pub(crate) async fn restart_thread(
         &self,
         id: &str,
@@ -53,7 +58,10 @@ impl Orchestrator {
         self.inner
             .thread_locks
             .run(thread, async {
-                let run = self.registry().get(id).filter(needs_restart)?;
+                let run = self
+                    .registry()
+                    .get(id)
+                    .filter(|run| needs_restart(run) && !self.turn_in_flight(&run.id))?;
                 self.start_thread_again(run, last_message).await
             })
             .await
