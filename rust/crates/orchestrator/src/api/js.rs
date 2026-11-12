@@ -92,10 +92,10 @@ fn is_decimal_literal(text: &str) -> bool {
 }
 
 /// `Buffer.byteLength(JSON.stringify(value))`, which api.ts measures a plan with (api.ts:160): the
-/// value as JavaScript writes it again, with no whitespace. Strings and keys are written as
-/// serde_json writes them (both escape `"`, `\` and the control characters alike); a number is
+/// value as JavaScript writes it again, with no whitespace, for a value serde_json read. A number is
 /// written in `Number::toString`'s form, not as it was sent (`1.0` is `1`), which has its length
-/// ([`number_text`]).
+/// ([`number_text`]). Text that `JSON.parse` reads and serde_json does not (`1e999`, a lone
+/// surrogate) never gets here: the body is refused as `invalid_json` first (ADR 0269-fleet-api).
 pub(crate) fn stringify_len(value: &Value) -> usize {
     match value {
         Value::Null => "null".len(),
@@ -119,9 +119,19 @@ pub(crate) fn stringify_len(value: &Value) -> usize {
     }
 }
 
-/// The length of `text` as a JSON string, quotes and escapes included.
+/// The length in bytes of `text` as `JSON.stringify` writes a string, quotes included: `"` and `\`
+/// and the five control characters with a short escape take two bytes, any other control
+/// character six (`\u001f`), and every other character its UTF-8 bytes. A `str` holds no lone
+/// surrogate, the one other character JavaScript escapes.
 fn quoted_len(text: &str) -> usize {
-    serde_json::to_string(text).map_or(0, |quoted| quoted.len())
+    2 + text
+        .chars()
+        .map(|character| match character {
+            '"' | '\\' | '\u{8}' | '\u{c}' | '\n' | '\r' | '\t' => 2,
+            '\0'..='\u{1f}' => 6,
+            other => other.len_utf8(),
+        })
+        .sum::<usize>()
 }
 
 /// A finite `x` in the form of ECMAScript's `Number::toString(x)` in radix 10: the shortest digits
@@ -215,6 +225,12 @@ mod tests {
         assert_eq!(
             length(r#"{ "s": "a\"\u0001あ", "n": null, "t": [true, false, {}] }"#),
             49
+        );
+        // the escapes JavaScript writes (`\b \f \n \r \t \\` and `\u001f`), and what it writes as
+        // it is (`/`, U+007F, U+2028, emoji): 39 bytes in Bun
+        assert_eq!(
+            length("{\"k\\n\": \"\\b\\f\\n\\r\\t\\\\\\/\\u001f\\u007f\u{2028}😀é\"}"),
+            39
         );
         let filler = vec!["1.0"; 20_000].join(",");
         assert_eq!(length(&format!(r#"{{"filler":[{filler}]}}"#)), 40_012);
