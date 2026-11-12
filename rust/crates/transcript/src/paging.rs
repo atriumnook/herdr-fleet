@@ -1121,7 +1121,7 @@ fn parse_cursor(stream: &Stream, cursor: &str) -> Result<u64, ConversationError>
     if cursor[..separator] != stream.id {
         return Err(ConversationError::HistoryChanged);
     }
-    let offset = js_number(&cursor[separator + 1..]);
+    let offset = js::number(&cursor[separator + 1..]);
     const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
     if !offset.is_finite()
         || offset.fract() != 0.0
@@ -1132,45 +1132,6 @@ fn parse_cursor(stream: &Stream, cursor: &str) -> Result<u64, ConversationError>
         return Err(ConversationError::HistoryChanged);
     }
     Ok(offset as u64)
-}
-
-/// `Number(text)` of JavaScript, for the offset of a cursor: NaN for what it does not read.
-fn js_number(text: &str) -> f64 {
-    let text = js::trim(text);
-    if text.is_empty() {
-        return 0.0;
-    }
-    for (prefix, radix) in [
-        ("0x", 16),
-        ("0X", 16),
-        ("0o", 8),
-        ("0O", 8),
-        ("0b", 2),
-        ("0B", 2),
-    ] {
-        if let Some(digits) = text.strip_prefix(prefix) {
-            return if !digits.is_empty() && digits.chars().all(|c| c.is_digit(radix)) {
-                digits.chars().fold(0.0, |value, c| {
-                    value * f64::from(radix) + f64::from(c.to_digit(radix).unwrap_or(0))
-                })
-            } else {
-                f64::NAN
-            };
-        }
-    }
-    match text {
-        "Infinity" | "+Infinity" => return f64::INFINITY,
-        "-Infinity" => return f64::NEG_INFINITY,
-        _ => {}
-    }
-    // Rust also reads `inf` and `nan`, which JavaScript does not
-    if !text
-        .bytes()
-        .all(|byte| byte.is_ascii_digit() || matches!(byte, b'+' | b'-' | b'.' | b'e' | b'E'))
-    {
-        return f64::NAN;
-    }
-    text.parse().unwrap_or(f64::NAN)
 }
 
 fn find(bytes: &[u8], byte: u8, from: usize) -> Option<usize> {
@@ -1191,19 +1152,6 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // Expected values: JavaScript's Number(text) for each (ECMAScript StringToNumber), by hand.
-    #[test]
-    fn reads_an_offset_as_javascript_number_does() {
-        assert_eq!(js_number("12"), 12.0);
-        assert_eq!(js_number(" 12 "), 12.0);
-        assert_eq!(js_number(""), 0.0);
-        assert_eq!(js_number("0x10"), 16.0);
-        assert_eq!(js_number("1e3"), 1000.0);
-        assert!(js_number("inf").is_nan());
-        assert!(js_number("12a").is_nan());
-        assert_eq!(js_number("Infinity"), f64::INFINITY);
-    }
 
     #[test]
     fn writes_numbers_in_base_36() {
