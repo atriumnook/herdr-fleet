@@ -1210,7 +1210,8 @@ async fn starts_the_thread_again_when_the_turn_a_settlement_left_the_restart_to_
 
 // /code-review of #358: herdr refuses the prompt because the lead waits on a question. The lead
 // goes on once the person answers, and that turn's settlement decides; the thread does not start
-// again over the question, whose pane stays open.
+// again over the question, whose pane stays open. The turn that left no report is the
+// coordinator's news all the same.
 #[tokio::test(start_paused = true)]
 async fn keeps_a_lead_that_waits_on_a_question_when_the_turn_a_settlement_left_the_restart_to_is_refused()
  {
@@ -1220,6 +1221,54 @@ async fn keeps_a_lead_that_waits_on_a_question_when_the_turn_a_settlement_left_t
     assert_eq!(t.run(&first.id).state, AgentState::Blocked);
     assert_eq!(t.run(&first.id).replaced_by, None);
     assert!(t.runtime.closed().is_empty());
+    let news = t.news(&first);
+    assert!(
+        news.len() == 1 && news[0].contains("ended its turn: no report"),
+        "{news:?}"
+    );
+}
+
+// /code-review of #358: a send whose prompt is cancelled drops its own turn only. A turn sent over
+// it while it was typed stays the fleet's, and its report is read when it ends.
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_send_leaves_the_turn_sent_over_it_to_be_settled() {
+    let typed = Hold::new();
+    let t = thread();
+    let first = t.start_thread("Fix", "t", None).await;
+    t.report_state(&first, "waiting", "Waiting for the helper.");
+    t.turn(&first, AgentState::Idle).await;
+    let (hold, runtime) = (typed.clone(), Arc::downgrade(&t.runtime));
+    t.runtime.on_prompt(move |asked, text, _| {
+        let (hold, runtime) = (hold.clone(), runtime.clone());
+        async move {
+            if hold.pass().await {
+                return Err(RuntimeError::Cancelled);
+            }
+            let runtime = runtime.upgrade().unwrap();
+            let mut recorded = runtime.recorded();
+            recorded.prompts.push(Prompted { name: asked, text });
+            Ok(recorded.prompt_status)
+        }
+    });
+    t.states.set(&first, AgentState::Working);
+    typed.held.raise();
+    let (fleet, id) = (t.fleet.clone(), first.id.clone());
+    let cancelled = tokio::spawn(async move {
+        fleet
+            .send(&id, "go on", None, &CancellationToken::new())
+            .await
+    });
+    until(|| typed.reached.up(), "the first message being typed").await;
+    t.send(&first.id, "go on, with this").await;
+    typed.gate.open();
+    assert!(cancelled.await.unwrap().is_err());
+    t.report_state(&first, "ready", "Went on with this.");
+    t.turn(&first, AgentState::Idle).await;
+    let summary = match &t.run(&first.id).outcome {
+        Some(TurnOutcome::Report(report)) => report.summary.clone(),
+        other => format!("{other:?}"),
+    };
+    assert_eq!(summary, "Went on with this.");
 }
 
 // codex's review of #358: a wait on the lead once the fleet sent it Create PR, while the turn

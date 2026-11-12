@@ -55,9 +55,16 @@ impl Restart {
 pub(crate) struct LeadTurn {
     /// what the fleet sent for it, which a new run hears as the fleet's last message
     pub text: Option<String>,
-    /// its generation and when its prompt was handed to herdr, for the plan it went past; none for
-    /// a turn the fleet did not send
-    pub sent: Option<(u64, Option<i64>)>,
+    /// for the plan it went past; none for a turn the fleet did not send
+    pub sent: Option<SentTurn>,
+}
+
+/// A turn the fleet sent, as the plan it went past needs it (`LeadTurn`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct SentTurn {
+    pub generation: u64,
+    /// when its prompt was handed to herdr; none for a turn a restart took over
+    pub submitted_at: Option<i64>,
 }
 
 /// A thread's settled lead whose run failed or whose turn left no report, and the thread still
@@ -300,7 +307,7 @@ impl Orchestrator {
             text: None,
             sent: None,
         };
-        self.settle_lead_turn(id, &config, turn).await;
+        self.settle_lead_turn(id, &config, turn, true).await;
         let now = self.now();
         self.change(id, |run| run.updated_at = now);
         // a turn the fleet sent meanwhile keeps its own waiters
@@ -316,10 +323,17 @@ impl Orchestrator {
     /// change the turn left; then, while no new run took the thread over, the plan the turn went
     /// past closes, and the thread's turn settles (its landing step and news). A turn the fleet
     /// sent the lead since takes all of it over (`Restart::Deferred`, ADR
-    /// 0358-settlement-and-sent-turn).
-    pub(crate) async fn settle_lead_turn(&self, id: &str, config: &FleetConfig, turn: LeadTurn) {
+    /// 0358-settlement-and-sent-turn). Without `may_restart`, the lead stays as it is (it waits on
+    /// a question).
+    pub(crate) async fn settle_lead_turn(
+        &self,
+        id: &str,
+        config: &FleetConfig,
+        turn: LeadTurn,
+        may_restart: bool,
+    ) {
         let restart = match self.registry().get(id) {
-            Some(run) if needs_restart(&run) => self.restart_thread(id, &turn).await,
+            Some(run) if may_restart && needs_restart(&run) => self.restart_thread(id, &turn).await,
             _ => Restart::Done,
         };
         if restart == Restart::Deferred {
@@ -333,7 +347,11 @@ impl Orchestrator {
             return;
         };
         let restart_error = restart.error();
-        if let Some((generation, submitted_at)) = turn.sent {
+        if let Some(SentTurn {
+            generation,
+            submitted_at,
+        }) = turn.sent
+        {
             // a turn that failed or left no report went nowhere; a lead taking a thread over starts
             // with its plan still open, and keeps it so while it reports blocked on it
             let passed = match &run.outcome {
@@ -354,21 +372,27 @@ impl Orchestrator {
     /// The turn the fleet sent the lead `id`, to which a settlement left the restart of the thread,
     /// was dropped before it reached the lead: no settlement of it follows, so the thread's part of
     /// the settlement of `turn`, the turn before it, runs now, in a task of its own and under the
-    /// run's `reconcile_locks`, one settlement at a time per run (ADR
-    /// 0358-settlement-and-sent-turn). Boxed, so the send's type does not depend on it.
-    pub(crate) fn settle_left_restart(&self, id: &str, turn: LeadTurn) {
+    /// run's `reconcile_locks`, one settlement at a time per run; without `may_restart`, it leaves
+    /// the lead as it is (ADR 0358-settlement-and-sent-turn). Nothing runs once the fleet stops.
+    /// Boxed, so the send's type does not depend on it.
+    pub(crate) fn settle_left_restart(&self, id: &str, turn: LeadTurn, may_restart: bool) {
         let task: BoxFuture<'static, ()> = {
             let (fleet, id) = (self.clone(), id.to_owned());
             Box::pin(async move {
                 let settle = async {
+                    if fleet.is_stopped() {
+                        return;
+                    }
                     let Some(run) = fleet.registry().get(&id) else {
                         return;
                     };
                     let config = fleet.config(&run.cwd);
-                    fleet.settle_lead_turn(&id, &config, turn).await;
+                    fleet
+                        .settle_lead_turn(&id, &config, turn, may_restart)
+                        .await;
                 };
                 fleet.inner.reconcile_locks.run(id.clone(), settle).await;
-                if fleet.inner.outbox.holds(&id) {
+                if !fleet.is_stopped() && fleet.inner.outbox.holds(&id) {
                     fleet.tell_coordinator(&id).await;
                 }
             })
