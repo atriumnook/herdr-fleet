@@ -260,8 +260,8 @@ pub fn check(
 
 /// The check `handleFleetRequest` makes first: anything but a GET carries `X-Herdr-Fleet: 1`.
 pub fn check_fleet(method: &Method, headers: &HeaderMap) -> Result<(), Refusal> {
-    let header = header(headers, protocol::FLEET_HEADER);
-    if *method != Method::GET && header.as_deref() != Some(protocol::FLEET_HEADER_VALUE) {
+    let sent = header(headers, protocol::FLEET_HEADER);
+    if *method != Method::GET && sent.as_deref() != Some(protocol::FLEET_HEADER_VALUE) {
         return Err(Refusal::InvalidFleetRequest);
     }
     Ok(())
@@ -354,11 +354,11 @@ mod tests {
     // bracketed address only hex digits, `:` and `.`
     #[test]
     fn reads_a_port_and_a_bracketed_address_as_the_expression_does() {
-        for host in ["localhost:1", "localhost:99999", "[::1]", "127.0.0.1:"] {
-            let expected = host != "127.0.0.1:";
-            assert_eq!(is_loopback_host(host), expected, "{host}");
+        for host in ["localhost:1", "localhost:99999", "[::1]"] {
+            assert!(is_loopback_host(host), "{host}");
         }
         for host in [
+            "127.0.0.1:",
             "localhost:123456",
             "[::1]x",
             "[::1]:",
