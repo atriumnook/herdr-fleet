@@ -78,6 +78,7 @@ use crate::thread::{BranchState, DiffText, RemoveOptions, SetupOutcome};
 
 pub use autonomy::MergeSeen;
 pub use candidates::apply_model_policy;
+pub use landing::GitLanding;
 pub use spawn::SpawnRequest;
 pub use threads::ThreadRequest;
 pub use turns::{RESULT_MAX_BYTES, read_result};
