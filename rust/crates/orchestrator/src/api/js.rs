@@ -4,6 +4,7 @@
 //! in JavaScript).
 
 use protocol::js::trim;
+use serde_json::Value;
 
 /// `Number(text)`: StringToNumber of ECMAScript. Whitespace and line terminators around the
 /// number are ignored, the empty string is 0, `0x`, `0o` and `0b` prefix an integer in that radix
@@ -90,9 +91,78 @@ fn is_decimal_literal(text: &str) -> bool {
     at == bytes.len()
 }
 
+/// `Buffer.byteLength(JSON.stringify(value))`, which api.ts measures a plan with (api.ts:160): the
+/// value as JavaScript writes it again, with no whitespace. Strings and keys are written as
+/// serde_json writes them (both escape `"`, `\` and the control characters alike); a number is
+/// written as `Number::toString` writes it, not as it was sent (`1.0` is `1`).
+pub(crate) fn stringify_len(value: &Value) -> usize {
+    match value {
+        Value::Null => "null".len(),
+        Value::Bool(true) => "true".len(),
+        Value::Bool(false) => "false".len(),
+        // serde_json reads only finite numbers
+        Value::Number(number) => number_to_string(number.as_f64().unwrap_or(0.0)).len(),
+        Value::String(text) => quoted_len(text),
+        // `[a,b]`
+        Value::Array(items) => {
+            2 + items.len().saturating_sub(1) + items.iter().map(stringify_len).sum::<usize>()
+        }
+        // `{"k":v,"l":w}`
+        Value::Object(fields) => {
+            2 + fields.len().saturating_sub(1)
+                + fields
+                    .iter()
+                    .map(|(key, value)| quoted_len(key) + 1 + stringify_len(value))
+                    .sum::<usize>()
+        }
+    }
+}
+
+/// The length of `text` as a JSON string, quotes and escapes included.
+fn quoted_len(text: &str) -> usize {
+    serde_json::to_string(text).map_or(0, |quoted| quoted.len())
+}
+
+/// `Number::toString(x)` of ECMAScript in radix 10, for a finite `x`: the shortest digits that
+/// read back as `x`, written in full from 1e-6 up to 1e21 and in exponent form (`1e+21`, `1e-7`)
+/// outside that range.
+fn number_to_string(x: f64) -> String {
+    if x == 0.0 {
+        // -0 too
+        return "0".to_owned();
+    }
+    let sign = if x < 0.0 { "-" } else { "" };
+    // Rust's `{:e}` writes the shortest round-trip digits: `1.2345e23`, `1e-7`
+    let exponential = format!("{:e}", x.abs());
+    let (mantissa, exponent) = exponential.split_once('e').unwrap_or((&exponential, "0"));
+    let digits: String = mantissa.chars().filter(char::is_ascii_digit).collect();
+    let k = digits.len() as i64;
+    // x = 0.d1d2… × 10^n
+    let n = exponent.parse::<i64>().unwrap_or(0) + 1;
+    let written = if k <= n && n <= 21 {
+        format!("{digits}{}", "0".repeat((n - k) as usize))
+    } else if 0 < n && n <= 21 {
+        format!("{}.{}", &digits[..n as usize], &digits[n as usize..])
+    } else if -6 < n && n <= 0 {
+        format!("0.{}{digits}", "0".repeat((-n) as usize))
+    } else {
+        let power = n - 1;
+        let power_sign = if power < 0 { '-' } else { '+' };
+        let (first, rest) = digits.split_at(1);
+        let rest = if rest.is_empty() {
+            String::new()
+        } else {
+            format!(".{rest}")
+        };
+        format!("{first}{rest}e{power_sign}{}", power.abs())
+    };
+    format!("{sign}{written}")
+}
+
 #[cfg(test)]
 mod tests {
-    use super::number;
+    use super::{number, number_to_string, stringify_len};
+    use serde_json::Value;
 
     #[test]
     fn reads_text_as_javascript_number_does() {
@@ -107,5 +177,38 @@ mod tests {
         assert!(number("1_000").is_nan());
         assert!(number("6h").is_nan());
         assert!(number("-0x10").is_nan());
+    }
+
+    #[test]
+    fn measures_a_value_as_javascript_writes_it() {
+        // each text as Bun 1.4.4 writes `JSON.stringify(JSON.parse(text))`, and its length in
+        // bytes
+        let cases = [
+            ("1.0", "1"),
+            ("100000.0", "100000"),
+            ("1e21", "1e+21"),
+            ("1e-7", "1e-7"),
+            ("1.5e-7", "1.5e-7"),
+            ("123456789012345678901234", "1.2345678901234569e+23"),
+            ("-0.0", "0"),
+            ("0.1", "0.1"),
+            ("1e300", "1e+300"),
+            ("-1.25e-10", "-1.25e-10"),
+            ("12345678901234567890", "12345678901234567000"),
+        ];
+        for (text, written) in cases {
+            let value: Value = serde_json::from_str(text).unwrap();
+            assert_eq!(number_to_string(value.as_f64().unwrap()), written, "{text}");
+            assert_eq!(stringify_len(&value), written.len(), "{text}");
+        }
+        let length = |text: &str| stringify_len(&serde_json::from_str(text).unwrap());
+        assert_eq!(length(r#"{"a":[1.0,2.50,3e2]}"#), 17);
+        assert_eq!(length(r#"{"filler":[1.0,1.0,1.0]}"#), 18);
+        assert_eq!(
+            length(r#"{ "s": "a\"\u0001あ", "n": null, "t": [true, false, {}] }"#),
+            49
+        );
+        let filler = vec!["1.0"; 20_000].join(",");
+        assert_eq!(length(&format!(r#"{{"filler":[{filler}]}}"#)), 40_012);
     }
 }

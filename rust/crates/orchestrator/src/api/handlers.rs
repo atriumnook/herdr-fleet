@@ -41,16 +41,18 @@ fn given<'a>(query: &'a Pairs, key: &str) -> Option<&'a str> {
     first(query, key).filter(|value| !value.is_empty())
 }
 
-/// `process.cwd()`: the server's folder, read at each request as the orchestrator reads it.
-fn server_folder() -> PathBuf {
-    std::env::current_dir().unwrap_or_default()
+/// `process.cwd()`: the server's folder, read at each request as the orchestrator reads it. A
+/// folder that cannot be read (it was removed) is a server error, as `process.cwd()` throws then.
+fn server_folder() -> Result<PathBuf, ApiError> {
+    std::env::current_dir().map_err(|error| ApiError::Internal(error.to_string()))
 }
 
 /// `value || process.cwd()`.
-fn folder_or_servers(value: Option<&str>) -> PathBuf {
-    value
-        .filter(|value| !value.is_empty())
-        .map_or_else(server_folder, PathBuf::from)
+fn folder_or_servers(value: Option<&str>) -> Result<PathBuf, ApiError> {
+    match value.filter(|value| !value.is_empty()) {
+        Some(value) => Ok(PathBuf::from(value)),
+        None => server_folder(),
+    }
 }
 
 /// The group of a GET: the query's.
@@ -69,7 +71,7 @@ fn ok_as<T: serde::Serialize>(value: &T) -> Answer {
 }
 
 pub(super) async fn roles(State(api): State<super::State>, query: Pairs) -> Answer {
-    let cwd = folder_or_servers(first(&query, "cwd"));
+    let cwd = folder_or_servers(first(&query, "cwd"))?;
     // the role files are read from disk
     let roles = blocking(move || Ok(api.fleet.roles(&cwd))).await?;
     let roles: Vec<Value> = roles
@@ -177,7 +179,7 @@ pub(super) async fn settings(State(api): State<super::State>, query: Pairs) -> A
     if api.settings.is_none() {
         return Err(ApiError::NotFound);
     }
-    let cwd = folder_or_servers(first(&query, "cwd"));
+    let cwd = folder_or_servers(first(&query, "cwd"))?;
     let read = blocking(move || Ok(settings_of(&api)?.read(&cwd)?)).await?;
     ok(json!({ "settings": read }))
 }
@@ -187,8 +189,10 @@ pub(super) async fn change_settings(State(api): State<super::State>, bytes: Byte
         return Err(ApiError::NotFound);
     }
     let body = body::read_body(&bytes)?;
-    let cwd = folder_or_servers(body::optional_string(&body, "cwd")?.as_deref());
+    let cwd = body::optional_string(&body, "cwd")?;
     let patch = body::settings_patch(&body)?;
+    // api.ts reads `process.cwd()` only once the patch was checked
+    let cwd = folder_or_servers(cwd.as_deref())?;
     let changed = blocking(move || Ok(settings_of(&api)?.update(&cwd, &patch)?)).await?;
     ok(json!({ "settings": changed }))
 }
@@ -293,7 +297,7 @@ pub(super) async fn submit_plan(
     let body = body::read_body(&bytes)?;
     let plan = body.get("plan").unwrap_or(&Value::Null);
     // `Buffer.byteLength(JSON.stringify(plan ?? null))`
-    if serde_json::to_string(plan).map_or(0, |text| text.len()) > PLAN_MAX_BYTES {
+    if js::stringify_len(plan) > PLAN_MAX_BYTES {
         return Err(FleetError::new(
             "invalid_plan",
             format!("The plan is larger than {PLAN_MAX_BYTES} bytes."),

@@ -342,13 +342,22 @@ async fn call(
     path: &str,
     body: Option<Value>,
 ) -> (u16, Value) {
+    let bytes = body.map(|body| serde_json::to_vec(&body).unwrap());
+    call_with_bytes(router, method, path, bytes).await
+}
+
+/// `method path` with `bytes` as they are (none: an empty body), the status and the body read as
+/// JSON.
+async fn call_with_bytes(
+    router: &axum::Router,
+    method: &str,
+    path: &str,
+    bytes: Option<Vec<u8>>,
+) -> (u16, Value) {
     let request = Request::builder()
         .method(method)
         .uri(path)
-        .body(match body {
-            Some(body) => Body::from(serde_json::to_vec(&body).unwrap()),
-            None => Body::empty(),
-        })
+        .body(bytes.map_or_else(Body::empty, Body::from))
         .unwrap();
     let response = router.clone().oneshot(request).await.unwrap();
     let status = response.status().as_u16();
@@ -1057,6 +1066,40 @@ async fn takes_a_thread_leads_plan_and_shows_it_the_persons_answers_wait_for_the
     .unwrap();
     let (status, body) = api.call("GET", &at(""), None).await;
     assert_eq!((status, code(&body)), (409, "plan_unreadable"));
+}
+
+/// api.ts measures a plan as `Buffer.byteLength(JSON.stringify(plan))`: the length of the plan as
+/// JavaScript writes it again, not as it was sent
+#[tokio::test]
+async fn measures_a_plan_as_javascript_writes_it() {
+    let api = Api::new(true);
+    let repo = api.root.join("plan");
+    repository(&repo);
+    let (_, body) = api
+        .call(
+            "POST",
+            "/threads",
+            Some(json!({ "title": "Fix", "task": "t", "cwd": repo })),
+        )
+        .await;
+    let id = body["run"]["id"].as_str().unwrap().to_owned();
+    // 20,000 times `1.0`, which JavaScript writes as `1`: 40,012 bytes in Bun for the filler alone
+    let filler = vec!["1.0"; 20_000].join(",");
+    let plan = format!(
+        r#"{{ "plan": {{ "title": "Retry limit", "claims": [{{ "text": "A failed send is tried three times." }}], "filler": [{filler}] }} }}"#
+    );
+    let (status, body) = call_with_bytes(
+        &api.router,
+        "POST",
+        &format!("/runs/{id}/plan"),
+        Some(plan.into_bytes()),
+    )
+    .await;
+    assert_eq!(
+        (status, &body["plan"]["version"]),
+        (201, &json!(1)),
+        "{body}"
+    );
 }
 
 /// api.test.ts: "reads the settings, and writes a change only with the fleet header"
