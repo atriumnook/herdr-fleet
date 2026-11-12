@@ -108,22 +108,37 @@ pub fn number(text: &str) -> f64 {
     }
 }
 
-/// The digits of a `0x`/`0o`/`0b` literal, rounded to the nearest double; NaN when one is not a
-/// digit of the radix.
+/// The digits of a `0x`/`0o`/`0b` literal, NaN when one is not a digit of the radix. Bun 1.4.4's
+/// JavaScriptCore, not the nearest double that ECMAScript's RoundMVResult asks for up to 20
+/// significant digits: it sums the digits left to right in a double, and once that reaches 2^53 it
+/// sums them again from the last one, whose terms are the ones a double keeps
+/// (`parseIntOverflow`). `0xd87a1cbe50f2943` is the double below the nearest one for that reason.
+/// The TypeScript fleet runs on Bun.
 fn integer_in_radix(digits: &str, radix: u32) -> f64 {
-    let mut exact: Option<u128> = Some(0);
-    let mut rounded = 0.0f64;
+    let mut folded = 0.0f64;
     for c in digits.chars() {
         let Some(digit) = c.to_digit(radix) else {
             return f64::NAN;
         };
-        exact = exact
-            .and_then(|v| v.checked_mul(radix as u128))
-            .and_then(|v| v.checked_add(digit as u128));
-        rounded = rounded * radix as f64 + digit as f64;
+        folded = folded * f64::from(radix) + f64::from(digit);
     }
-    // u128 to f64 rounds to the nearest double; past 128 bits the running product is close enough
-    exact.map(|v| v as f64).unwrap_or(rounded)
+    // 2^53: the doubles from here on are not every integer
+    if folded < 9_007_199_254_740_992.0 {
+        return folded;
+    }
+    let mut number = 0.0f64;
+    let mut multiplier = 1.0f64;
+    for c in digits.chars().rev() {
+        // the loop above has already answered NaN for what is not a digit of the radix
+        let digit = c.to_digit(radix).unwrap_or(0);
+        // Past the 1024th power of the radix the multiplier is infinite: a non-zero digit then
+        // makes the sum infinite, and a zero digit adds nothing.
+        if digit != 0 {
+            number += f64::from(digit) * multiplier;
+        }
+        multiplier *= f64::from(radix);
+    }
+    number
 }
 
 /// StrUnsignedDecimalLiteral with an optional sign: digits with an optional fraction, or a

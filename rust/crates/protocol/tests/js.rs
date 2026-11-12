@@ -273,4 +273,41 @@ fn reads_text_as_javascript_number_does() {
         1.461501637330903e48,
         "{past_160_bits}"
     );
+    // Bun's JavaScriptCore sums the digits of a 0x/0o/0b integer from the last one once the
+    // running value reaches 2^53; the nearest double, which ECMAScript's RoundMVResult asks for,
+    // would be the next one up for these three.
+    for (text, bits) in [
+        ("0xd87a1cbe50f2943", 0x43ab_0f43_97ca_1e52u64),
+        ("0o333700432603437010426", 0x43cb_7c08_d60e_3e08),
+        (
+            "0b1010010000000101001001010010100010010101000110111000101110110010",
+            0x43e4_80a4_a512_a372,
+        ),
+    ] {
+        assert_eq!(js::number(text).to_bits(), bits, "{text}");
+    }
+    let past_max_digits = "f".repeat(255);
+    assert_eq!(
+        js::number(&format!("0x{past_max_digits}")).to_bits(),
+        0x7fb0_0000_0000_0000,
+        "0x{past_max_digits}"
+    );
+    let past_max_with_leading_one = format!("0x1{}", "0".repeat(256));
+    assert_eq!(
+        js::number(&past_max_with_leading_one),
+        f64::INFINITY,
+        "{past_max_with_leading_one}"
+    );
+    let past_max_and_a_bit = "f".repeat(256);
+    assert_eq!(
+        js::number(&format!("0x{past_max_and_a_bit}")),
+        f64::INFINITY,
+        "0x{past_max_and_a_bit}"
+    );
+    // the offsets of a cursor that transcript's paging reads, which had a reader of its own
+    assert_eq!(js::number("12"), 12.0);
+    assert_eq!(js::number(" 12 "), 12.0);
+    assert_eq!(js::number("1e3"), 1000.0);
+    assert!(js::number("12a").is_nan(), "12a");
+    assert_eq!(js::number("Infinity"), f64::INFINITY);
 }
