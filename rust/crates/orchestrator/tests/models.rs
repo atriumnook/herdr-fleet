@@ -1116,6 +1116,7 @@ fn fake_opencode(dir: &Path, behaviour: &str) -> PathBuf {
 pwd > {cwd}
 ls -A > {ls}
 printf '%s\n' "$*" >> {args}
+readlink /proc/$$/fd/1 /proc/$$/fd/2 >> {pipes}
 echo $$ >> {pids}
 if [ "$1" = service ]; then {status}; fi
 if [ "$1" = api ]; then n=$(cat {n} 2>/dev/null || echo 0); echo $((n+1)) > {n}; if [ "$n" = 0 ]; then echo '{{"data":[]}}'; else echo '{{"data":[{{"providerID":"anthropic","id":"claude-sonnet-5-5"}},{{"providerID":"opencode","id":"big-pickle"}}]}}'; fi; exit 0; fi
@@ -1125,6 +1126,7 @@ exit 1"#,
             ls = q("ls"),
             args = q("args"),
             pids = q("pids"),
+            pipes = q("pipes"),
         ),
     );
     file
@@ -1194,20 +1196,21 @@ async fn opencode_asks_again_once_two_seconds_after_an_empty_list() {
         (models, tokio::time::Instant::now())
     });
 
-    // the first ask's two CLIs (service status, then api GET) have ended and been reaped (`kill
-    // -0` finds a process until it is reaped, a zombie too); what the listing still waits on of
-    // them is output already in the pipes, which each turn's poll of the runtime's I/O reads, so
-    // it goes to sleep within a few turns, with the clock still where it started
+    // the wait's deadline is set, at 2 seconds from the clock still where it started, once the
+    // first ask's two CLIs (service status, then api GET) have been reaped (`kill -0` finds a
+    // process until it is reaped, a zombie too) and this process holds no end of their pipes: the
+    // runner's `run` returns in the poll that has both the exit status and the output to its end,
+    // and in that poll the listing goes on to call `sleep`, which sets its deadline when called
+    // (`Instant::now() + duration`, tokio's `time::sleep`), not when the timer is registered
     let pids = noted(&opencode, "pids");
+    let pipes = noted(&opencode, "pipes");
     until("the first ask's end", || {
         let pids = fs::read_to_string(&pids).unwrap_or_default();
         let pids: Vec<&str> = pids.lines().collect();
-        pids.len() == 2 && !process_exists(pids[1])
+        // each CLI notes its pipes before its pid
+        pids.len() == 2 && !process_exists(pids[1]) && !holds_any(&read(&pipes))
     })
     .await;
-    for _ in 0..100 {
-        tokio::task::yield_now().await;
-    }
     assert_eq!(
         read(noted(&opencode, "args")),
         "service status\napi GET /api/model\n"
@@ -1253,6 +1256,20 @@ async fn until(what: &str, mut done: impl FnMut() -> bool) {
         std::thread::sleep(Duration::from_millis(1));
         tokio::task::yield_now().await;
     }
+}
+
+/// Whether this process holds an end of any of `pipes`, one a line as `/proc/<pid>/fd` names them
+/// (`pipe:[<inode>]`).
+fn holds_any(pipes: &str) -> bool {
+    let pipes: Vec<&str> = pipes.lines().collect();
+    assert!(
+        !pipes.is_empty() && pipes.iter().all(|pipe| pipe.starts_with("pipe:[")),
+        "the CLIs' pipes: {pipes:?}"
+    );
+    fs::read_dir("/proc/self/fd")
+        .expect("/proc/self/fd")
+        .filter_map(|entry| fs::read_link(entry.ok()?.path()).ok())
+        .any(|target| pipes.iter().any(|pipe| target.as_os_str() == *pipe))
 }
 
 /// Whether a process `pid` exists, not yet reaped (`kill -0`, which sends no signal).
