@@ -1032,19 +1032,11 @@ fn coordinator_step(run: &AgentRun, base_branch: &str) -> String {
 
 /// git and GitHub as they are: `thread`'s functions and `gh` (`LANDING_TOOLS`). It writes nothing
 /// to GitHub: [`GitHub`] only reads.
-#[allow(
-    dead_code,
-    reason = "the core builds it (LIVE, #270); #339 adds `pub use landing::GitLanding` to fleet/mod.rs (ADR 0266-landing)"
-)]
 #[derive(Debug, Clone)]
 pub struct GitLanding {
     github: GitHub,
 }
 
-#[allow(
-    dead_code,
-    reason = "the core builds it (LIVE, #270); #339 adds `pub use landing::GitLanding` to fleet/mod.rs (ADR 0266-landing)"
-)]
 impl GitLanding {
     /// git, and `gh` as the server's `PATH` finds it.
     pub fn new() -> Self {
