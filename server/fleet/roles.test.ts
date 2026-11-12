@@ -26,21 +26,27 @@ const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> =
     },
   },
   lead: {
-    budget: 6_200,
+    // 6,000 until a lead handed every change to workers: its retry rule must say what to do with the failed worker's edits;
+    // 6,300 since it says an agy helper stopped at a screen fails, so the person is not asked to answer agy's screen
+    budget: 6_300,
     rules: {
       "writes an acceptance contract first": /contract\.md/,
       "hands a large change to the person as a plan and stops": /Before a large change .* run `plan <file\.json>`.* `blocked` report whose `human_action`/,
       "sees a check fail before changing behaviour": /see it fail/,
+      "has a worker show the same of its checks": /where their expected values come from \(brief a worker to do the same\)/,
       "takes expected values from outside the code under test": /Never compute it the way the code does/,
       "has every change reviewed on another CLI": /Every change gets a review, on another CLI than the one that wrote it \(`--avoid`/,
       "gives an agy reviewer the diff and checks as files": /reviewer on agy cannot run git/,
       "never asks the person to answer an agy screen": /An agy helper that stops at a file outside its folders fails.*never ask the person to answer one/,
       "waits for an agent it started in the same turn, or reports first": /wait for it with `wait <agent>` in the same turn: do not end your turn to wait, and if you must end it, write your report first/,
-      "hands broad investigation to a scout": /Broad investigation .* `spawn --role scout --read-only`/,
-      "hands an independent, fully specified mechanical change to a worker": /independent, fully specified mechanical change .* `spawn --role worker` with its `--write` paths/,
+      "plans, designs, briefs, checks and decides rather than implementing": /You plan, design, brief, check results and decide/,
+      "writes code only for a design judgement or a security change": /You write code yourself only for a change that needs a design judgement or touches security/,
+      "hands every other change to a worker by default": /Every other change goes to a worker: `spawn --role worker` with its `--write` paths/,
+      "hands broad investigation to a scout": /Broad investigation .* goes to a scout: `spawn --role scout --read-only`/,
       "briefs a scout or a worker in full": /Brief both with `--goal`, `--context`, `--done` and `--verify`/,
-      "writes a change that needs a design judgement or touches security itself": /needs a design judgement or touches security you write yourself/,
-      "checks a worker's change and has it reviewed": /You check a worker's change, and it gets a review like any other/,
+      "checks each helper's result before going on": /Check each result before you go on/,
+      "runs independent changes on separate workers side by side": /Independent changes go to separate workers with separate `--write` paths, side by side/,
+      "restarts a failed change once with what failed, then writes it itself and reports it": /start a new worker with what failed and whether to fix or revert its edits; only when that fails too do you write it yourself, and say so in your report/,
       "asks an architect how to build": /spawn --role architect --read-only/,
       "asks the person what to build when it cannot be undone": /When the assumption would be hard to undo, do not guess/,
       "ends a turn with the contract's state": /Contract: A1/,
@@ -99,6 +105,12 @@ describe("bundled roles", () => {
       });
     });
   }
+
+  // #305 made handing work on optional, and leads then wrote every change themselves
+  it("does not let a lead do the work itself by default", () => {
+    const lead = findAgent(bundled, "lead")!;
+    expect(`${lead.description} ${lead.systemPrompt}`.replace(/\s+/g, " ")).not.toMatch(/do the work yourself|only what gains from another agent|only when that gains something/i);
+  });
 
   it("never puts the coordinator or a lead on agy, first or as a fallback", () => {
     for (const name of NEVER_ON_AGY) {

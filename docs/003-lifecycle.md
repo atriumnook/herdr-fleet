@@ -19,7 +19,8 @@ Built, by the lead's role file:
 - It writes its acceptance contract before changing anything.
 - Before a large change it hands the person a plan and ends its turn waiting for the answers.
 - It shows that each check can fail before it changes the behaviour the check covers.
-- It hands a part to a helper only when that gains something, with a brief, and has every change reviewed on another CLI than the one that wrote it.
+- It plans, designs, briefs, checks results and decides, and writes code itself only for a change that needs a design judgement or touches security.
+- It hands every other change to a worker and broad investigation to a scout, each with a brief; independent changes go to separate workers side by side. When a worker's change fails, it starts a new worker with what failed and whether to fix or revert its edits, and writes the change itself only when that fails too, saying so in its report. Every change is reviewed on another CLI than the one that wrote it.
 - It commits on its branch, and ends the turn with a report.
 
 A question on how to build something goes to an architect; a question on what to build goes to the person, with the architect's view.
