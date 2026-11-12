@@ -158,8 +158,9 @@ pub fn router(deps: FleetApiDeps) -> axum::Router
   - 本文の JSON のうち、`serde_json` が読めず `JSON.parse` が読むもの(f64 の範囲を超える数 `1e999`、単独のサロゲート `"\ud800"`)は `invalid_json` になる。TypeScript では、`1e999` は `Infinity` として読まれ、項目の検査(例: `timeout_ms` の `invalid_timeout`)で断られる。CLI はこうした本文を送らない
   - `?lines=` の小数(`2.5`)は切り捨てて 2 行にする。TypeScript は 2.5 をそのまま runtime に渡す。`timeout_ms` の小数も切り捨てる(1 以上の値だけを受けるので、0 にはならない)
   - herdr 自身が返した code `internal_error` のエラーは 500 になる。TypeScript は 502 を返す。上の「エラーと状態コードの表」の理由による違いで、#362 で直す
-  - `POST /runs/:target/land` の line comment の `line` は、`u32` の範囲(4,294,967,295 まで)だけを受け、それより大きい整数は `invalid_body` で断る。TypeScript は `Number.isInteger` で、2^53 までの正の整数を受ける。受けた値を渡す先の `LineComment.line`(`landing` の型)が `u32` で、#269 の書くパスの外にある。この違いが出るのは、4,294,967,295 行を超えるファイルの diff に comment を付けるときだけ。型を変えるかは #366 で決める
+  - `POST /runs/:target/land` の line comment の `line` は、`u32` の範囲(4,294,967,295 まで)だけを受け、それより大きい整数は `invalid_body` で断る。TypeScript は `Number.isInteger` で検査し、整数の値を持つ正の数をすべて受ける(`4294967296` も `1e300` も)。受けた値を渡す先の `LineComment.line`(`landing` の型)が `u32` で、#269 の書くパスの外にある。この違いが出るのは、4,294,967,295 行を超えるファイルの diff に comment を付けるときだけ。#366 で直す
   - サーバーのフォルダーが読めないとき、`cwd` がないか相対パスの spawn、thread、project の要求は、`/` を基準に進む。TypeScript は 500 `internal_error` を返す。orchestrator の `fleet/spawn.rs` の `absolute()` と `config.rs` が `current_dir()` の失敗を空のパスにするためで、どちらも #269 の書くパスの外なので #367 に分けた
+  - 上の 3 件(#362、#366、#367)は、coordinator の判断で、#269 では違いとして受け入れ、段階 3 の関門(#271)の前に直す
   - usage の読み取りの `readAt` などの JavaScript の数は、整数でも `1.0` と書かれる(protocol の型が `f64` のため)。JSON を読む側(JavaScript の `JSON.parse` など)は、どちらも同じ数として読む
 - `api/js.rs` の `number` は `cli::js::number` の写しで、2 か所に同じ規則がある。protocol に移して写しを消す作業は #352 にある
 
