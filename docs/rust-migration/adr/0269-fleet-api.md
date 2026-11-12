@@ -160,6 +160,7 @@ pub fn router(deps: FleetApiDeps) -> axum::Router
   - herdr 自身が返した code `internal_error` のエラーは 500 になる。TypeScript は 502 を返す。上の「エラーと状態コードの表」の理由による違いで、#362 で直す
   - `POST /runs/:target/land` の line comment の `line` は、`u32` の範囲(4,294,967,295 まで)だけを受け、それより大きい整数は `invalid_body` で断る。TypeScript は `Number.isInteger` で検査し、整数の値を持つ正の数をすべて受ける(`4294967296` も `1e300` も)。受けた値を渡す先の `LineComment.line`(`landing` の型)が `u32` で、#269 の書くパスの外にある。この違いが出るのは、4,294,967,295 行を超えるファイルの diff に comment を付けるときだけ。#366 で直す
   - サーバーのフォルダーが読めないとき、`cwd` がないか相対パスの spawn、thread、project の要求は、`/` を基準に進む。TypeScript は 500 `internal_error` を返す。orchestrator の `fleet/spawn.rs` の `absolute()` と `config.rs` が `current_dir()` の失敗を空のパスにするためで、どちらも #269 の書くパスの外なので #367 に分けた
+  - `timeout_ms` が 2,147,483,647(2^31 − 1)を超えるとき、TypeScript の `setTimeout` は 1 ms で終わる(Bun 1.4.4 で確かめた)。`api/body.rs` でこの値を 1 にして同じにした。残る違いは 2 つで、config の `defaultWaitTimeoutMs` がこの値を超えると Rust はその時間を待つこと、408 の文が要求した値ではなく補正し切り捨てたあとの値(`after 1ms`)を書くこと。どちらも直すところが `fleet/turns.rs` で、#269 の書くパスの外なので #370 に分けた
   - 上の 3 件(#362、#366、#367)は、coordinator の判断で、#269 では違いとして受け入れ、段階 3 の関門(#271)の前に直す
   - usage の読み取りの `readAt` などの JavaScript の数は、整数でも `1.0` と書かれる(protocol の型が `f64` のため)。JSON を読む側(JavaScript の `JSON.parse` など)は、どちらも同じ数として読む
 - `api/js.rs` の `number` は `cli::js::number` の写しで、2 か所に同じ規則がある。protocol に移して写しを消す作業は #352 にある
@@ -189,4 +190,6 @@ PC は Linux 7.2.15(omarchy)、`rust/` で `HERDR_*` を外して実行した。
   - `stringify_len` の doc が、serde_json の読めない入力(`1e999`、単独のサロゲート)にも当たるように読める: serde_json が読んだ値だけを扱い、それ以外は `invalid_json` で先に断られると doc に書いた
   - 子プロセスのテストが、libtest の出力の `1 passed` を見る: 残した。名前の綴りを誤ったときに 0 件が通ってしまうのを止めるためで、cargo test の出力の形に頼る
   - `number_text` が文字列の整形と分解で作られ、末尾の数字が ECMAScript と違いうる: 残した。doc に長さだけが正しいと書いてあり、private で、呼び手は `stringify_len` だけ。数字の列も、等距離の場合を除けば Bun と一致することをテストで確かめている
-- 足したテストを含め、`cargo test --locked -p herdr-fleet-orchestrator --test api` が 22 件通った
+- codex の 3 回目のレビュー(run `4b43b0b9`、head `2c5c086`)の 1 件の指摘を、次のとおり扱った。以前の指摘は、#362、#366、#367 の記録が妥当で、`number_text` と `current_dir()` の 2 件は解決済みと判定された
+  - `timeout_ms` が 2^31 − 1 を超えると、TypeScript は 1 ms で終わり、Rust はその時間を待つ: `api/body.rs` で 1 にした。仮想時計で待った時間を測るテストを足し、直す前に `left: [true, true, true, true]`、`right: [false, false, false, true]` で失敗することを見た。config の既定値と 408 の文の違いは #370 に分けた(「結果」)
+- 足したテストを含め、`cargo test --locked -p herdr-fleet-orchestrator --test api` が 23 件通った
