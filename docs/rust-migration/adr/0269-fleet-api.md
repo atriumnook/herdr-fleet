@@ -159,6 +159,7 @@ pub fn router(deps: FleetApiDeps) -> axum::Router
   - `?lines=` の小数(`2.5`)は切り捨てて 2 行にする。TypeScript は 2.5 をそのまま runtime に渡す。`timeout_ms` の小数も切り捨てる(1 以上の値だけを受けるので、0 にはならない)
   - herdr 自身が返した code `internal_error` のエラーは 500 になる。TypeScript は 502 を返す。上の「エラーと状態コードの表」の理由による違いで、#362 で直す
   - `POST /runs/:target/land` の line comment の `line` は、`u32` の範囲(4,294,967,295 まで)だけを受け、それより大きい整数は `invalid_body` で断る。TypeScript は `Number.isInteger` で、2^53 までの正の整数を受ける。受けた値を渡す先の `LineComment.line`(`landing` の型)が `u32` で、#269 の書くパスの外にある。この違いが出るのは、4,294,967,295 行を超えるファイルの diff に comment を付けるときだけ。型を変えるかは #366 で決める
+  - サーバーのフォルダーが読めないとき、`cwd` がないか相対パスの spawn、thread、project の要求は、`/` を基準に進む。TypeScript は 500 `internal_error` を返す。orchestrator の `fleet/spawn.rs` の `absolute()` と `config.rs` が `current_dir()` の失敗を空のパスにするためで、どちらも #269 の書くパスの外なので #367 に分けた
   - usage の読み取りの `readAt` などの JavaScript の数は、整数でも `1.0` と書かれる(protocol の型が `f64` のため)。JSON を読む側(JavaScript の `JSON.parse` など)は、どちらも同じ数として読む
 - `api/js.rs` の `number` は `cli::js::number` の写しで、2 か所に同じ規則がある。protocol に移して写しを消す作業は #352 にある
 
@@ -181,4 +182,10 @@ PC は Linux 7.2.15(omarchy)、`rust/` で `HERDR_*` を外して実行した。
   - line comment の `line` の上限(1 回目の 3 件目): #366 に分けた。protocol の型を変えるため、architect に問う必要がある
   - `number_to_string` が、等距離の 2 つの候補で ECMAScript と違う末尾の数字を選ぶ(`137839762462415.625` を Bun は `…62`、Rust は `…63` と書く): 関数を `number_text` に改め、長さは常に `Number::toString` と同じで、末尾の数字は違いうると doc に書いた。この値の長さ(Bun で 18 バイト)をテストに足した。`stringify_len` が使うのは長さだけなので、計画の判定は変わらない
 - 1 回目の 4 件目(`current_dir()` の失敗)のテストを足した。プロセスのフォルダーはほかのテストと共有なので、テストの実行ファイルを子プロセスで起こし、その中でフォルダーを消して要求する。修正を `unwrap_or_default()` に戻すと、このテストは `left: (200, "")` で失敗する
+- `/code-review high`(`8c200af..6db25dd`)の 5 件の指摘を、次のとおり扱った
+  - orchestrator の `absolute()` と `config.rs` が、`current_dir()` の失敗を空のパスにする: #367 に分けた(「結果」)
+  - `quoted_len` が、長さを測るためだけに文字列を作り、serialize の失敗を長さ 0 にする: 文字を数える形に直した。エスケープを含む文字列の長さ(Bun で 39 バイト)をテストに足した。制御文字を 2 バイトと数える変異を入れると、テストが `left: 45, right: 49` で失敗することを見た
+  - `stringify_len` の doc が、serde_json の読めない入力(`1e999`、単独のサロゲート)にも当たるように読める: serde_json が読んだ値だけを扱い、それ以外は `invalid_json` で先に断られると doc に書いた
+  - 子プロセスのテストが、libtest の出力の `1 passed` を見る: 残した。名前の綴りを誤ったときに 0 件が通ってしまうのを止めるためで、cargo test の出力の形に頼る
+  - `number_text` が文字列の整形と分解で作られ、末尾の数字が ECMAScript と違いうる: 残した。doc に長さだけが正しいと書いてあり、private で、呼び手は `stringify_len` だけ。数字の列も、等距離の場合を除けば Bun と一致することをテストで確かめている
 - 足したテストを含め、`cargo test --locked -p herdr-fleet-orchestrator --test api` が 22 件通った
