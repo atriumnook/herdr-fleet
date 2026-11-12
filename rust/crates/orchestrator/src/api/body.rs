@@ -19,6 +19,10 @@ pub(crate) type Body = Map<String, Value>;
 /// The most line comments one landing step takes (`COMMENTS_MAX`).
 const COMMENTS_MAX: usize = 200;
 
+/// The longest wait a timer of JavaScript's keeps, 2^31 - 1 ms (`TIMEOUT_MAX` of Node, which Bun
+/// follows: `setTimeout` waits 1 ms for one past it).
+const TIMER_MAX_MS: f64 = 2_147_483_647.0;
+
 /// `readBody`: the body as a JSON object. Neither the content type nor the method is looked at. A
 /// UTF-8 byte order mark before it is dropped, as the Fetch standard's `json()` decodes the bytes.
 pub(crate) fn read_body(bytes: &[u8]) -> Result<Body, FleetError> {
@@ -270,11 +274,18 @@ pub(crate) fn message(body: &Body) -> Result<String, FleetError> {
 
 /// `timeout_ms` of `POST /runs/:target/wait`: absent, or a finite number of at least 1, in whole
 /// milliseconds (a fraction is dropped; a timer of JavaScript's fires on the next millisecond too).
+/// One past [`TIMER_MAX_MS`] waits 1 ms, as TypeScript's `setTimeout` does with it.
 pub(crate) fn timeout_ms(body: &Body) -> Result<Option<u64>, FleetError> {
     match body.get("timeout_ms") {
         None => Ok(None),
         Some(value) => match value.as_f64() {
-            Some(timeout) if timeout.is_finite() && timeout >= 1.0 => Ok(Some(timeout as u64)),
+            Some(timeout) if timeout.is_finite() && timeout >= 1.0 => {
+                Ok(Some(if timeout > TIMER_MAX_MS {
+                    1
+                } else {
+                    timeout as u64
+                }))
+            }
             _ => Err(FleetError::new(
                 "invalid_timeout",
                 "timeout_ms must be a positive number",

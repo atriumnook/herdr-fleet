@@ -670,6 +670,46 @@ async fn spawns_lists_within_the_callers_fleet_reads_sends_and_waits() {
     );
 }
 
+/// `timeout_ms` goes to a timer of JavaScript's in TypeScript, and Bun 1.4.4 turns one past
+/// 2^31 - 1 ms into 1 ms (`TimeoutOverflowWarning: 2147483648 does not fit into a 32-bit signed
+/// integer. Timeout duration was set to 1.`; 2147483647.5 too), and keeps 2147483647 as it is
+#[tokio::test(start_paused = true)]
+async fn waits_as_a_javascript_timer_does_for_a_timeout_past_its_limit() {
+    let api = Api::new(false);
+    let (status, spawned) = api
+        .call(
+            "POST",
+            "/spawn",
+            Some(json!({ "role": "worker", "task": "build it", "group": "g1", "cwd": "/w", "caller_pane_id": "w0:p1", "depth": 0 })),
+        )
+        .await;
+    assert_eq!(status, 201, "{spawned}");
+    let id = spawned["run"]["id"].as_str().unwrap().to_owned();
+    let mut waited = Vec::new();
+    for timeout in [
+        json!(2_147_483_648_u64),
+        json!(2_147_483_647.5),
+        json!(1e300),
+        json!(2_147_483_647_u64),
+    ] {
+        let started = tokio::time::Instant::now();
+        let (status, timed_out) = api
+            .call(
+                "POST",
+                &format!("/runs/{id}/wait"),
+                Some(json!({ "group": "g1", "timeout_ms": timeout })),
+            )
+            .await;
+        assert_eq!(
+            (status, code(&timed_out)),
+            (408, "wait_timeout"),
+            "{timeout}"
+        );
+        waited.push(started.elapsed() >= Duration::from_millis(2_147_483_647));
+    }
+    assert_eq!(waited, [false, false, false, true]);
+}
+
 /// api.test.ts: "lists usage without running a CLI, refreshes stale probes (all with all: true)
 /// only on a POST, and clears cooldowns"
 #[tokio::test(start_paused = true)]
