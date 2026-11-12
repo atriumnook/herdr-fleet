@@ -294,6 +294,19 @@ impl Thread {
         self.registry.get(id).unwrap()
     }
 
+    /// The news about `run` waiting in the outbox.
+    fn news(&self, run: &AgentRun) -> Vec<String> {
+        herdr_fleet_orchestrator::outbox::Outbox::open(
+            Some(self.root.join("fleet-outbox.json")),
+            self.clock.clone(),
+        )
+        .unwrap()
+        .pending_where(|notice| notice.about == run.id && notice.slot == "news")
+        .into_iter()
+        .map(|notice| notice.text)
+        .collect()
+    }
+
     /// The run that took the thread over from `run`.
     fn next(&self, run: &AgentRun) -> AgentRun {
         let id = self.run(&run.id).replaced_by.expect("a new run took over");
@@ -930,6 +943,437 @@ async fn leaves_the_files_of_a_turn_its_lead_started_itself_to_a_step_the_fleet_
     assert!(t.restarts().is_empty());
     assert_eq!(t.run(&first.id).replaced_by, None);
     assert!(t.runtime.closed().is_empty());
+}
+
+/// Where the settlement of a turn a lead started itself waits while the fleet sends that lead
+/// Create PR: at its look at the screen, once it read the turn's files, or at the thread's lock,
+/// which the step holds while it reads the base branch.
+#[derive(Clone, Copy, PartialEq)]
+enum HeldAt {
+    Screen,
+    ThreadLock,
+}
+
+/// A fake call held once `held` is raised: it raises `reached` and waits for `gate`, once.
+#[derive(Clone)]
+struct Hold {
+    gate: Gate,
+    held: Flag,
+    reached: Flag,
+}
+
+impl Hold {
+    fn new() -> Hold {
+        let (gate, held, reached) = (Gate::new(), Flag::default(), Flag::default());
+        Hold {
+            gate,
+            held,
+            reached,
+        }
+    }
+
+    /// Whether the call was held, once it was let go.
+    async fn pass(&self) -> bool {
+        if !self.held.up() {
+            return false;
+        }
+        self.held.lower();
+        self.reached.raise();
+        self.gate.pass().await;
+        true
+    }
+}
+
+/// A thread without the person whose lead, on claude, ended a turn it started itself without a
+/// report, and Create PR sent to that lead while that turn's settlement waits `at` (#358). The
+/// lead works on the step when this returns; with `HeldAt::Screen`, the settlement still waits
+/// for the gate that comes back.
+async fn create_pr_sent_while_settling(at: HeldAt) -> (Thread, AgentRun, Gate) {
+    let (branch, screen) = (Hold::new(), Hold::new());
+    let hold = branch.clone();
+    let t = thread_with(None, Some(json!({ "autonomous": true })), move |a| {
+        a.git_branch = answer(move |_: PathBuf| {
+            let hold = hold.clone();
+            // none at the start: the thread records no base, and a step reads it
+            async move { hold.pass().await.then(|| "main".to_owned()) }
+        });
+    });
+    let hold = screen.clone();
+    t.runtime.on_read(move |_| {
+        let hold = hold.clone();
+        async move {
+            // on claude, which herdr reports right, the settlement's first look at the screen is
+            // once it read the turn's files
+            hold.pass().await;
+            Ok("agent output".to_owned())
+        }
+    });
+    let first = t.start_thread("Fix", "t", None).await;
+    t.report_state(&first, "waiting", "Waiting for the helper.");
+    t.turn(&first, AgentState::Idle).await;
+    // the helper's result wakes the lead, and the person presses Create PR, which reads the branch
+    // under the thread's lock
+    t.turn(&first, AgentState::Working).await;
+    branch.held.raise();
+    let pressed = t.land_task(&first.id, LandAction::Pr);
+    until(|| branch.reached.up(), "the base branch being read").await;
+    // the woken turn ends without a report
+    match at {
+        HeldAt::Screen => {
+            screen.held.raise();
+            t.turn(&first, AgentState::Idle).await;
+            until(|| screen.reached.up(), "the screen being read").await;
+        }
+        HeldAt::ThreadLock => {
+            t.turn(&first, AgentState::Idle).await;
+            // the settlement read the turn and went as far as it could: to the lock the step
+            // holds, before it starts the thread again
+            assert_eq!(
+                t.run(&first.id).outcome,
+                Some(TurnOutcome::NoReport {
+                    problem: "report.json is missing.".to_owned()
+                })
+            );
+            assert!(t.restarts().is_empty());
+        }
+    }
+    branch.gate.open();
+    pressed.await.unwrap().unwrap();
+    assert!(t.to(&first).last().unwrap().contains("gh pr create"));
+    t.states.set(&first, AgentState::Working);
+    (t, first, screen.gate)
+}
+
+// Not in TypeScript, whose `settleUnsentTurn` starts the thread again whatever the fleet sent
+// meanwhile (#358): a turn that left no report is settled while the fleet sends its lead Create
+// PR. Whether the thread starts again is that step's turn's to settle: the run before keeps its
+// pane, and once that turn ends without a report too, its settlement starts the thread again with
+// the step as the fleet's last message.
+#[tokio::test(start_paused = true)]
+async fn leaves_the_restart_to_the_turn_of_a_step_the_fleet_sent_while_a_turn_that_left_no_report_was_settled()
+ {
+    let (t, first, read_screen) = create_pr_sent_while_settling(HeldAt::Screen).await;
+    read_screen.open();
+    sleep_ms(1000).await;
+    assert!(t.restarts().is_empty());
+    assert_eq!(t.run(&first.id).replaced_by, None);
+    assert!(t.runtime.closed().is_empty());
+    // nor is the turn before news while the step's turn runs: the news is still of the turn
+    // before it
+    let news = t.news(&first);
+    assert!(
+        news.len() == 1 && news[0].contains("ended its turn: waiting"),
+        "{news:?}"
+    );
+    // the step's turn ends without a report too
+    t.turn(&first, AgentState::Idle).await;
+    let next = t.next(&first);
+    let task = t.to(&next)[0].clone();
+    assert!(
+        task.contains("The fleet's last message to the run before:\n\n"),
+        "{task}"
+    );
+    assert!(task.contains("gh pr create"), "{task}");
+    assert_eq!(t.runtime.closed(), vec![first.pane_id.clone()]);
+}
+
+// Not in TypeScript (#358): the step is sent once the settlement read the turn that left no report,
+// while it waits for the thread's lock to start the thread again. The settlement looks under that
+// lock: a turn of the fleet's is on its way, and the thread does not start again under it.
+#[tokio::test(start_paused = true)]
+async fn starts_the_thread_again_under_its_lock_only_when_no_step_went_out_while_the_settlement_waited_for_it()
+ {
+    let (t, first, _) = create_pr_sent_while_settling(HeldAt::ThreadLock).await;
+    sleep_ms(1000).await;
+    assert!(t.restarts().is_empty());
+    assert_eq!(t.run(&first.id).replaced_by, None);
+    assert!(t.runtime.closed().is_empty());
+}
+
+// #358's first finding: the settlement of a turn its lead started itself writes the turn it read
+// once it looked at the screen. A step's turn that ends meanwhile is settled only after it, one
+// settlement at a time per run (ADR 0358-settlement-and-sent-turn): the step's report is the one
+// the run keeps.
+#[tokio::test(start_paused = true)]
+async fn settles_a_steps_turn_that_ended_while_a_turn_before_it_was_settled_after_that_settlement()
+{
+    let (t, first, read_screen) = create_pr_sent_while_settling(HeldAt::Screen).await;
+    t.report_state(&first, "ready", "Opened the pull request.");
+    t.turn(&first, AgentState::Idle).await;
+    // the step's turn waits for the settlement before it
+    let summary = |run: &AgentRun| match &run.outcome {
+        Some(TurnOutcome::Report(report)) => report.summary.clone(),
+        other => format!("{other:?}"),
+    };
+    assert_eq!(summary(&t.run(&first.id)), "Waiting for the helper.");
+    read_screen.open();
+    sleep_ms(1000).await;
+    assert_eq!(summary(&t.run(&first.id)), "Opened the pull request.");
+    assert!(t.restarts().is_empty());
+    assert_eq!(t.run(&first.id).replaced_by, None);
+    assert!(t.runtime.closed().is_empty());
+}
+
+// /code-review of #358: the lead's pane ends during the step's turn, to which the settlement of the
+// turn that left no report left the restart. The run stops and does not start again (the person
+// may have closed the pane), and the turn that left no report is the coordinator's news.
+#[tokio::test(start_paused = true)]
+async fn tells_of_the_turn_that_left_no_report_when_the_leads_pane_ends_during_the_step_it_left_the_restart_to()
+ {
+    let (t, first, read_screen) = create_pr_sent_while_settling(HeldAt::Screen).await;
+    read_screen.open();
+    sleep_ms(1000).await;
+    assert!(t.restarts().is_empty());
+    t.fleet.on_pane_ended(&first.pane_id);
+    sleep_ms(1000).await;
+    assert!(t.restarts().is_empty());
+    assert_eq!(t.run(&first.id).state, AgentState::Stopped);
+    let news = t.news(&first);
+    assert!(
+        news.len() == 1 && news[0].contains("ended its turn: no report"),
+        "{news:?}"
+    );
+}
+
+/// A lead that started a thread of its own hears that thread's news, which the fleet types into it
+/// once the lead's turn ended (codex's review of #358). That turn left no report, and its
+/// settlement leaves the restart to the news's turn; herdr then answers the prompt with `error`.
+async fn news_refused_while_a_turn_that_left_no_report_was_settled(
+    error: RuntimeError,
+) -> (Thread, AgentRun) {
+    let (looked, screen, typed) = (Hold::new(), Hold::new(), Hold::new());
+    let t = thread_with(None, Some(json!({ "autonomous": true })), |_| {});
+    let first = t.start_thread("Fix", "t", None).await;
+    let lead = first.herdr_name.clone();
+    // herdr as the states say; the lead's state, screen and prompt are held once their flag is up
+    let (states, hold, name) = (t.states.clone(), looked.clone(), lead.clone());
+    t.runtime.on_get(move |asked| {
+        let (states, hold, mine) = (states.clone(), hold.clone(), asked == name);
+        async move {
+            if mine {
+                hold.pass().await;
+            }
+            Ok(states.of(&asked))
+        }
+    });
+    let (hold, name) = (screen.clone(), lead.clone());
+    t.runtime.on_read(move |asked| {
+        let (hold, mine) = (hold.clone(), asked == name);
+        async move {
+            if mine {
+                hold.pass().await;
+            }
+            Ok("agent output".to_owned())
+        }
+    });
+    let (hold, name, runtime) = (typed.clone(), lead.clone(), Arc::downgrade(&t.runtime));
+    let error = Arc::new(Mutex::new(Some(error)));
+    t.runtime.on_prompt(move |asked, text, _| {
+        let (hold, runtime, mine, error) =
+            (hold.clone(), runtime.clone(), asked == name, error.clone());
+        async move {
+            if mine && hold.pass().await {
+                return Err(error.lock().unwrap().take().unwrap());
+            }
+            let runtime = runtime.upgrade().unwrap();
+            let mut recorded = runtime.recorded();
+            recorded.prompts.push(Prompted { name: asked, text });
+            Ok(recorded.prompt_status)
+        }
+    });
+    t.report_state(&first, "waiting", "Waiting for the helper.");
+    t.turn(&first, AgentState::Idle).await;
+    // the lead starts a thread of its own, and a helper's result wakes the lead
+    let sub = t.start_thread("Sub", "s", Some(&first)).await;
+    t.turn(&first, AgentState::Working).await;
+    // the other thread's turn ends: its news goes to the lead, whose state is read first
+    looked.held.raise();
+    t.report_state(&sub, "waiting", "Waiting on CI.");
+    t.turn(&sub, AgentState::Idle).await;
+    until(
+        || looked.reached.up(),
+        "the lead's state being read for the news",
+    )
+    .await;
+    // the lead's own turn ends without a report, and its settlement looks at the screen
+    screen.held.raise();
+    t.turn(&first, AgentState::Idle).await;
+    until(|| screen.reached.up(), "the screen being read").await;
+    // the news is typed into the lead, and herdr has yet to answer
+    typed.held.raise();
+    looked.gate.open();
+    until(|| typed.reached.up(), "the news being typed").await;
+    // the settlement leaves the restart to the news's turn
+    screen.gate.open();
+    sleep_ms(100).await;
+    assert!(t.restarts().is_empty());
+    assert!(t.runtime.closed().is_empty());
+    typed.gate.open();
+    sleep_ms(1000).await;
+    (t, first)
+}
+
+// codex's review of #358: herdr fails the prompt, so no turn of the news follows and no settlement
+// of it: the thread starts again as the turn is dropped.
+#[tokio::test(start_paused = true)]
+async fn starts_the_thread_again_when_the_turn_a_settlement_left_the_restart_to_never_reached_the_lead()
+ {
+    let (t, first) =
+        news_refused_while_a_turn_that_left_no_report_was_settled(RuntimeError::Herdr {
+            code: "server_error".to_owned(),
+            message: "herdr went away".to_owned(),
+        })
+        .await;
+    assert_eq!(t.restarts().len(), 1, "{:?}", t.run(&first.id));
+    assert_eq!(t.next(&first).branch, first.branch);
+    assert_eq!(t.runtime.closed(), vec![first.pane_id.clone()]);
+}
+
+// /code-review of #358: herdr refuses the prompt because the lead waits on a question. The lead
+// goes on once the person answers, and that turn's settlement decides; the thread does not start
+// again over the question, whose pane stays open. The turn that left no report is the
+// coordinator's news all the same.
+#[tokio::test(start_paused = true)]
+async fn keeps_a_lead_that_waits_on_a_question_when_the_turn_a_settlement_left_the_restart_to_is_refused()
+ {
+    let (t, first) =
+        news_refused_while_a_turn_that_left_no_report_was_settled(RuntimeError::Blocked).await;
+    assert!(t.restarts().is_empty());
+    assert_eq!(t.run(&first.id).state, AgentState::Blocked);
+    assert_eq!(t.run(&first.id).replaced_by, None);
+    assert!(t.runtime.closed().is_empty());
+    let news = t.news(&first);
+    assert!(
+        news.len() == 1 && news[0].contains("ended its turn: no report"),
+        "{news:?}"
+    );
+}
+
+/// A send whose prompt herdr answers with `error` once a second send went over it while it was
+/// typed; the lead then ends the second send's turn with a report. What the run keeps of it.
+async fn summary_of_a_turn_sent_over_a_send_that_failed(error: RuntimeError) -> String {
+    let typed = Hold::new();
+    let t = thread();
+    let first = t.start_thread("Fix", "t", None).await;
+    t.report_state(&first, "waiting", "Waiting for the helper.");
+    t.turn(&first, AgentState::Idle).await;
+    let (hold, runtime) = (typed.clone(), Arc::downgrade(&t.runtime));
+    let error = Arc::new(Mutex::new(Some(error)));
+    t.runtime.on_prompt(move |asked, text, _| {
+        let (hold, runtime, error) = (hold.clone(), runtime.clone(), error.clone());
+        async move {
+            if hold.pass().await {
+                return Err(error.lock().unwrap().take().unwrap());
+            }
+            let runtime = runtime.upgrade().unwrap();
+            let mut recorded = runtime.recorded();
+            recorded.prompts.push(Prompted { name: asked, text });
+            Ok(recorded.prompt_status)
+        }
+    });
+    t.states.set(&first, AgentState::Working);
+    typed.held.raise();
+    let (fleet, id) = (t.fleet.clone(), first.id.clone());
+    let failing = tokio::spawn(async move {
+        fleet
+            .send(&id, "go on", None, &CancellationToken::new())
+            .await
+    });
+    until(|| typed.reached.up(), "the first message being typed").await;
+    t.send(&first.id, "go on, with this").await;
+    typed.gate.open();
+    let _ = failing.await.unwrap();
+    t.report_state(&first, "ready", "Went on with this.");
+    t.turn(&first, AgentState::Idle).await;
+    match &t.run(&first.id).outcome {
+        Some(TurnOutcome::Report(report)) => report.summary.clone(),
+        other => format!("{other:?} in {:?}", t.run(&first.id).state),
+    }
+}
+
+// /code-review of #358: a send whose prompt is cancelled drops its own turn only. A turn sent over
+// it while it was typed stays the fleet's, and its report is read when it ends.
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_send_leaves_the_turn_sent_over_it_to_be_settled() {
+    let summary = summary_of_a_turn_sent_over_a_send_that_failed(RuntimeError::Cancelled).await;
+    assert_eq!(summary, "Went on with this.");
+}
+
+// codex's second review of #358: a send whose prompt herdr fails after a second send went over it
+// leaves the run to that second send: the run does not fail under the turn in flight, and that
+// turn's report is read when it ends.
+#[tokio::test(start_paused = true)]
+async fn a_failed_send_leaves_the_run_to_the_turn_sent_over_it() {
+    let summary = summary_of_a_turn_sent_over_a_send_that_failed(RuntimeError::Herdr {
+        code: "server_error".to_owned(),
+        message: "herdr went away".to_owned(),
+    })
+    .await;
+    assert_eq!(summary, "Went on with this.");
+}
+
+// codex's review of #358: a wait on the lead once the fleet sent it Create PR, while the turn
+// before is settled, waits for that step's turn. The settlement of the turn before wakes the
+// waiters of that turn only.
+#[tokio::test(start_paused = true)]
+async fn wakes_a_waiter_on_a_step_sent_while_the_turn_before_was_settled_once_the_steps_turn_settles()
+ {
+    let (branch, screen) = (Hold::new(), Hold::new());
+    let hold = branch.clone();
+    let t = thread_with(None, None, move |a| {
+        a.git_branch = answer(move |_: PathBuf| {
+            let hold = hold.clone();
+            async move { hold.pass().await.then(|| "main".to_owned()) }
+        });
+    });
+    let hold = screen.clone();
+    t.runtime.on_read(move |_| {
+        let hold = hold.clone();
+        async move {
+            hold.pass().await;
+            Ok("agent output".to_owned())
+        }
+    });
+    let first = t.start_thread("Fix", "t", None).await;
+    t.report_state(&first, "waiting", "Waiting for the helper.");
+    t.turn(&first, AgentState::Idle).await;
+    // the fleet sends the lead a turn, and the person presses Create PR, which reads the branch
+    t.states.set(&first, AgentState::Working);
+    t.send(&first.id, "go on").await;
+    branch.held.raise();
+    let pressed = t.land_task(&first.id, LandAction::Pr);
+    until(|| branch.reached.up(), "the base branch being read").await;
+    // the sent turn ends with a report, and its settlement looks at the screen
+    t.report_state(&first, "waiting", "Still waiting for the helper.");
+    screen.held.raise();
+    t.turn(&first, AgentState::Idle).await;
+    until(|| screen.reached.up(), "the screen being read").await;
+    // Create PR goes out, and the coordinator waits on the lead
+    branch.gate.open();
+    pressed.await.unwrap().unwrap();
+    assert!(t.to(&first).last().unwrap().contains("gh pr create"));
+    t.states.set(&first, AgentState::Working);
+    let (fleet, id) = (t.fleet.clone(), first.id.clone());
+    let waiting = tokio::spawn(async move {
+        fleet
+            .wait(&id, Some(600_000), None, &CancellationToken::new())
+            .await
+    });
+    sleep_ms(10).await;
+    screen.gate.open();
+    sleep_ms(1000).await;
+    assert!(
+        !waiting.is_finished(),
+        "the wait ended before the step's turn did"
+    );
+    t.report_state(&first, "ready", "Opened the pull request.");
+    t.turn(&first, AgentState::Idle).await;
+    let run = waiting.await.unwrap().unwrap();
+    assert!(
+        matches!(&run.outcome, Some(TurnOutcome::Report(report)) if report.summary == "Opened the pull request."),
+        "{:?}",
+        run.outcome
+    );
 }
 
 // orchestrator.test.ts: "hands a landing step its lead did not finish to the new run, unjudged, and judges it when that run's turn ends"
