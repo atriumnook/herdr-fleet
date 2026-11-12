@@ -1020,6 +1020,24 @@ describe("agent kinds", () => {
       expect(await fleet.wait(run.id, 50, "g1")).toMatchObject({ state: "failed" });
     });
 
+    it("fails on the screen it saw, though the pane cannot be read again right after", async () => {
+      const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy", fallbackModels: ["claude:sonnet"] })] });
+      runtime.output = READY;
+      const run = await spawn(fleet);
+      const waiting = fleet.wait(run.id, 2000, "g1");
+      runtime.getStatus = "done";
+      runtime.output = FILE_ACCESS;
+      // the read that sees the screen succeeds, the next one fails once
+      let reads = 0;
+      const read = runtime.read.bind(runtime);
+      runtime.read = async () => { reads += 1; if (reads === 2) throw new Error("read failed"); return read(); };
+      await Bun.sleep(GRACE + 10);
+      fleet.onPaneStatus(run.paneId);
+      const failed = await waiting;
+      expect(failed.state).toBe("failed");
+      expect(failed.lastError).toContain("/home/someone/notes.md");
+    });
+
     it("keeps an interactive agy run blocked at it, for the person who watches that pane", async () => {
       const { waiting } = await stopAtFileAccess([role("worker", { agent: "agy", interactive: true })]);
       expect(await waiting).toMatchObject({ state: "blocked" });

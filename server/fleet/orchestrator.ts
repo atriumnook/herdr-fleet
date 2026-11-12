@@ -1531,11 +1531,10 @@ export class Orchestrator {
         // settlement. The check scheduled at submission (or at a restart) looks again after the grace period.
         const since = pending?.submittedAt ?? pending?.resumedAt;
         if (pending?.armed && !pending.sawWorking && isCompleted(reported) && since !== undefined && Date.now() - since < this.grace) return;
-        const current = await this.observed(run, reported);
+        const { state: current, screen } = await this.observe(run, reported);
         if (!isLive(run)) return;
         // a helper at a question nobody answers fails as it stands: blocked, its caller would wait on a person
-        const unanswered = pending?.armed && current === "blocked" ? await this.unanswered(run) : undefined;
-        if (!isLive(run)) return;
+        const unanswered = pending?.armed && current === "blocked" ? this.unanswered(run, screen) : undefined;
         if (pending && unanswered) { await this.settleTurn(run, () => this.finalize(run, pending, unanswered)); return; }
         const previous = run.state;
         // a turn the fleet did not send starts (a helper's result woke the agent, or the person typed)
@@ -2069,10 +2068,15 @@ export class Orchestrator {
    * approval screens): while one shows, the run is blocked, at startup and mid-turn alike.
    */
   private async observed(run: AgentRun, reported: AgentState): Promise<AgentState> {
+    return (await this.observe(run, reported)).state;
+  }
+
+  /** observed(), with the screen it was read from: what is asked there is judged on that read, not another */
+  private async observe(run: AgentRun, reported: AgentState): Promise<{ state: AgentState; screen: string }> {
     const adapter = adapterFor(run.agent);
-    if (!isCompleted(reported) || !adapter.question) return reported;
+    if (!isCompleted(reported) || !adapter.question) return { state: reported, screen: "" };
     const screen = await this.deps.runtime.read(run.herdrName, this.deps.config(run.cwd).recentReadLines).catch(() => "");
-    return adapter.question(screen) ? "blocked" : reported;
+    return { state: adapter.question(screen) ? "blocked" : reported, screen };
   }
 
   /**
@@ -2082,10 +2086,8 @@ export class Orchestrator {
    * configured candidate, as after any failed first turn. An interactive run stays blocked: a
    * person watches it.
    */
-  private async unanswered(run: AgentRun): Promise<string | undefined> {
-    const adapter = adapterFor(run.agent);
-    if (run.interactive || !adapter.unanswerable) return undefined;
-    return adapter.unanswerable(await this.deps.runtime.read(run.herdrName, this.deps.config(run.cwd).recentReadLines).catch(() => ""));
+  private unanswered(run: AgentRun, screen: string): string | undefined {
+    return run.interactive ? undefined : adapterFor(run.agent).unanswerable?.(screen);
   }
 
   /** herdr's state for the run now; undefined when herdr cannot say (never a reason to close a pane). */
