@@ -1102,6 +1102,53 @@ async fn measures_a_plan_as_javascript_writes_it() {
     );
 }
 
+/// Set in the child process of `answers_a_server_error_once_the_servers_folder_is_gone`.
+const FOLDER_GONE: &str = "FLEET_API_TEST_FOLDER_GONE";
+
+/// `process.cwd()` throws once the server's folder is removed, and api.ts answers that as 500
+/// `internal_error`. The folder is the process's, which the other tests share, so the requests
+/// are made in a child process that runs only this test.
+#[tokio::test]
+async fn answers_a_server_error_once_the_servers_folder_is_gone() {
+    let name = "answers_a_server_error_once_the_servers_folder_is_gone";
+    if std::env::var_os(FOLDER_GONE).is_none() {
+        let output = StdCommand::new(std::env::current_exe().unwrap())
+            .args([name, "--exact", "--nocapture", "--test-threads=1"])
+            .env(FOLDER_GONE, "1")
+            .output()
+            .unwrap();
+        let printed = String::from_utf8_lossy(&output.stdout);
+        assert!(
+            output.status.success() && printed.contains("1 passed"),
+            "{printed}{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        return;
+    }
+    let api = Api::new(false);
+    let gone = api.root.join("gone");
+    fs::create_dir(&gone).unwrap();
+    std::env::set_current_dir(&gone).unwrap();
+    fs::remove_dir(&gone).unwrap();
+    let (status, body) = api.call("GET", "/roles", None).await;
+    assert_eq!((status, code(&body)), (500, "internal_error"), "{body}");
+    let (status, body) = api.call("GET", "/settings", None).await;
+    assert_eq!((status, code(&body)), (500, "internal_error"), "{body}");
+    // api.ts reads `process.cwd()` only once the patch was checked
+    let (status, body) = api
+        .call(
+            "POST",
+            "/settings",
+            Some(json!({ "patch": { "maxConcurrent": "three" } })),
+        )
+        .await;
+    assert_eq!((status, code(&body)), (400, "invalid_settings"), "{body}");
+    let (status, body) = api
+        .call("POST", "/settings", Some(json!({ "patch": {} })))
+        .await;
+    assert_eq!((status, code(&body)), (500, "internal_error"), "{body}");
+}
+
 /// api.test.ts: "reads the settings, and writes a change only with the fleet header"
 #[tokio::test(start_paused = true)]
 async fn reads_the_settings_and_writes_a_change() {

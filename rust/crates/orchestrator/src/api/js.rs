@@ -94,14 +94,15 @@ fn is_decimal_literal(text: &str) -> bool {
 /// `Buffer.byteLength(JSON.stringify(value))`, which api.ts measures a plan with (api.ts:160): the
 /// value as JavaScript writes it again, with no whitespace. Strings and keys are written as
 /// serde_json writes them (both escape `"`, `\` and the control characters alike); a number is
-/// written as `Number::toString` writes it, not as it was sent (`1.0` is `1`).
+/// written in `Number::toString`'s form, not as it was sent (`1.0` is `1`), which has its length
+/// ([`number_text`]).
 pub(crate) fn stringify_len(value: &Value) -> usize {
     match value {
         Value::Null => "null".len(),
         Value::Bool(true) => "true".len(),
         Value::Bool(false) => "false".len(),
         // serde_json reads only finite numbers
-        Value::Number(number) => number_to_string(number.as_f64().unwrap_or(0.0)).len(),
+        Value::Number(number) => number_text(number.as_f64().unwrap_or(0.0)).len(),
         Value::String(text) => quoted_len(text),
         // `[a,b]`
         Value::Array(items) => {
@@ -123,10 +124,13 @@ fn quoted_len(text: &str) -> usize {
     serde_json::to_string(text).map_or(0, |quoted| quoted.len())
 }
 
-/// `Number::toString(x)` of ECMAScript in radix 10, for a finite `x`: the shortest digits that
-/// read back as `x`, written in full from 1e-6 up to 1e21 and in exponent form (`1e+21`, `1e-7`)
-/// outside that range.
-fn number_to_string(x: f64) -> String {
+/// A finite `x` in the form of ECMAScript's `Number::toString(x)` in radix 10: the shortest digits
+/// that read back as `x`, written in full from 1e-6 up to 1e21 and in exponent form (`1e+21`,
+/// `1e-7`) outside that range. Its length is always `Number::toString`'s, which is what
+/// [`stringify_len`] needs; its last digit may not be. When two shortest digit strings are as near
+/// to `x` as each other, ECMAScript takes the one that ends in an even digit, and Rust's `{:e}`
+/// may take the other (`137839762462415.625` is `…415.62` in Bun 1.4.4, `…415.63` here).
+fn number_text(x: f64) -> String {
     if x == 0.0 {
         // -0 too
         return "0".to_owned();
@@ -161,8 +165,8 @@ fn number_to_string(x: f64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{number, number_to_string, stringify_len};
-    use serde_json::Value;
+    use super::{number, number_text, stringify_len};
+    use serde_json::{Value, json};
 
     #[test]
     fn reads_text_as_javascript_number_does() {
@@ -198,9 +202,13 @@ mod tests {
         ];
         for (text, written) in cases {
             let value: Value = serde_json::from_str(text).unwrap();
-            assert_eq!(number_to_string(value.as_f64().unwrap()), written, "{text}");
+            assert_eq!(number_text(value.as_f64().unwrap()), written, "{text}");
             assert_eq!(stringify_len(&value), written.len(), "{text}");
         }
+        // `137839762462415.625` exactly, as near to `…415.62` as to `…415.63`: Bun writes
+        // `137839762462415.62`, 18 bytes, and Rust picks the other last digit
+        let tie = f64::from_bits(0x42df_5754_84f5_b3e8);
+        assert_eq!(stringify_len(&json!(tie)), 18);
         let length = |text: &str| stringify_len(&serde_json::from_str(text).unwrap());
         assert_eq!(length(r#"{"a":[1.0,2.50,3e2]}"#), 17);
         assert_eq!(length(r#"{"filler":[1.0,1.0,1.0]}"#), 18);
