@@ -25,7 +25,8 @@ const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> =
     },
   },
   lead: {
-    budget: 6_000,
+    // 6,000 until a lead handed every change to workers: its retry rule must say what to do with the failed worker's edits
+    budget: 6_100,
     rules: {
       "writes an acceptance contract first": /contract\.md/,
       "hands a large change to the person as a plan and stops": /Before a large change .* run `plan <file\.json>`.* `blocked` report whose `human_action`/,
@@ -42,7 +43,7 @@ const ROLES: Record<string, { budget: number; rules: Record<string, RegExp> }> =
       "briefs a scout or a worker in full": /Brief both with `--goal`, `--context`, `--done` and `--verify`/,
       "checks each helper's result before going on": /Check each result before you go on/,
       "runs independent changes on separate workers side by side": /Independent changes go to separate workers with separate `--write` paths, side by side/,
-      "restarts a failed change once with what failed, then writes it itself and reports it": /start a new worker with what failed in `--context`; only when that fails too do you write it yourself, and say so in your report/,
+      "restarts a failed change once with what failed, then writes it itself and reports it": /start a new worker with what failed and whether to fix or revert its edits; only when that fails too do you write it yourself, and say so in your report/,
       "asks an architect how to build": /spawn --role architect --read-only/,
       "asks the person what to build when it cannot be undone": /When the assumption would be hard to undo, do not guess/,
       "ends a turn with the contract's state": /Contract: A1/,
