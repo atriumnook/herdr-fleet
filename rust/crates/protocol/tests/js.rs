@@ -241,4 +241,36 @@ fn reads_text_as_javascript_number_does() {
     assert!(js::number("1_000").is_nan());
     assert!(js::number("6h").is_nan());
     assert!(js::number("-0x10").is_nan());
+    // signs and fractions
+    assert_eq!(js::number("+Infinity"), f64::INFINITY);
+    assert_eq!(js::number("+.5"), 0.5);
+    assert_eq!(js::number("5."), 5.0);
+    assert_eq!(js::number("1.e3"), 1000.0);
+    assert_eq!(js::number("-.5e1"), -5.0);
+    // radix prefixes
+    assert_eq!(js::number("0x1F"), 31.0);
+    assert_eq!(js::number("0XfF"), 255.0);
+    assert_eq!(js::number("0o17"), 15.0);
+    assert_eq!(js::number("0b101"), 5.0);
+    // not a number
+    assert!(js::number("0x").is_nan(), "0x");
+    assert!(js::number("0b").is_nan(), "0b");
+    assert!(js::number("1e").is_nan(), "1e");
+    assert!(js::number("infinity").is_nan(), "infinity");
+    assert!(js::number("+-1").is_nan(), "+-1");
+    assert!(js::number("00x1").is_nan(), "00x1");
+    // whitespace of trim
+    assert!(js::number("\u{180e}1").is_nan(), "U+180E is not whitespace");
+    assert_eq!(js::number("\u{2028}1\u{2029}"), 1.0);
+    assert_eq!(js::number("\u{feff}7\u{3000}"), 7.0);
+    // integers past 2^53 and past 128 bits
+    assert_eq!(js::number("0x1fffffffffffff1"), 144115188075855860.0);
+    let past_u128 = format!("0x1{}", "0".repeat(32));
+    assert_eq!(js::number(&past_u128), 3.402823669209385e38, "{past_u128}");
+    let past_160_bits = format!("0x{}", "f".repeat(40));
+    assert_eq!(
+        js::number(&past_160_bits),
+        1.461501637330903e48,
+        "{past_160_bits}"
+    );
 }
