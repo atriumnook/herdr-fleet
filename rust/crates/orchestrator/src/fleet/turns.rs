@@ -13,7 +13,7 @@ use protocol::{AgentRun, AgentState, TurnOutcome, js};
 use tokio::sync::oneshot;
 use tokio_util::sync::CancellationToken;
 
-use super::restart::needs_restart;
+use super::restart::{Restart, needs_restart};
 use super::spawn::{RESULT_FILE, read_lines};
 use super::{
     BoxFuture, Orchestrator, OrchestratorError, PROJECT_ROLE, START_GRACE_MS, TimerKind,
@@ -676,7 +676,8 @@ impl Orchestrator {
     }
 
     /// A settled turn of the fleet's: what it left is read, the other clusters settle their part,
-    /// the waiters hear of it, and a finished pane closes (`finalize`).
+    /// the waiters hear of it, and a finished pane closes (`finalize`). Called only under the run's
+    /// `reconcile_locks`: one settlement at a time per run (ADR 0358-settlement-and-sent-turn).
     async fn finalize(&self, id: &str, pending: &PendingTurn) {
         let Some(run) = self.registry().get(id) else {
             return;
@@ -701,17 +702,19 @@ impl Orchestrator {
         }
         // a thread whose lead run failed or left no report goes on in a new run first, from the
         // contract and change the turn left: what it leaves undone is the new run's
-        let restart_error = match self.registry().get(id) {
+        let restart = match self.registry().get(id) {
             Some(run) if needs_restart(&run) => {
                 self.restart_thread(id, pending.text.as_deref()).await
             }
-            _ => None,
+            _ => Restart::Done,
         };
         // a restart left to a turn sent meanwhile leaves that turn its plan, landing step and news
+        let deferred = restart == Restart::Deferred;
+        let restart_error = restart.error();
         if let Some(run) = self.registry().get(id)
             && is_thread(&run)
             && run.replaced_by.is_none()
-            && !self.restart_deferred(id)
+            && !deferred
         {
             // a turn that failed or left no report went nowhere; a lead taking a thread over starts
             // with its plan still open, and keeps it so while it reports blocked on it

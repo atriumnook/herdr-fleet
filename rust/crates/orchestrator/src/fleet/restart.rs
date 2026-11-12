@@ -27,6 +27,28 @@ const NEWS: &str = "news";
 #[derive(Debug, Default)]
 pub(crate) struct State {}
 
+/// What became of a thread whose lead a settlement found in need of a new run (`restart_thread`).
+#[derive(Debug, PartialEq)]
+pub(crate) enum Restart {
+    /// it needs none any more, a new run took it over, or the restart was cancelled
+    Done,
+    /// a turn the fleet sent the lead is on its way: that turn's settlement decides, and settles
+    /// the thread (ADR 0358-settlement-and-sent-turn)
+    Deferred,
+    /// no new run could take it over, for this reason
+    Failed(String),
+}
+
+impl Restart {
+    /// Why the thread could not start again, for its news.
+    pub(crate) fn error(self) -> Option<String> {
+        match self {
+            Restart::Failed(error) => Some(error),
+            Restart::Done | Restart::Deferred => None,
+        }
+    }
+}
+
 /// A thread's settled lead whose run failed or whose turn left no report, and the thread still
 /// open: it goes on in a new run (`needsRestart`).
 pub(crate) fn needs_restart(run: &AgentRun) -> bool {
@@ -38,43 +60,35 @@ pub(crate) fn needs_restart(run: &AgentRun) -> bool {
 }
 
 impl Orchestrator {
-    /// The thread of the lead `id` goes on in a new run; why it could not, if it could not
-    /// (`restartThread`). `last_message` is what the fleet last sent the run, when it sent it.
+    /// The thread of the lead `id` goes on in a new run (`restartThread`). `last_message` is what
+    /// the fleet last sent the run, when it sent it.
     ///
     /// A landing step pressed before goes first, under the thread's lock: a discard leaves nothing
-    /// to start again. The run is read again under the lock, and `Some` comes back only when no
+    /// to start again. The run is read again under the lock, and `Failed` comes back only when no
     /// new run took the thread over, never for a cancel (ADR 0265-plans).
     ///
     /// A turn the fleet sent the run since the settlement read its turn (a landing step, which
     /// holds this lock until it is sent) leaves the thread as it is: that turn's settlement decides
     /// whether it starts again, and the run keeps its pane meanwhile (ADR
     /// 0358-settlement-and-sent-turn).
-    pub(crate) async fn restart_thread(
-        &self,
-        id: &str,
-        last_message: Option<&str>,
-    ) -> Option<String> {
-        let thread = thread_id(&self.registry().get(id)?).to_owned();
+    pub(crate) async fn restart_thread(&self, id: &str, last_message: Option<&str>) -> Restart {
+        let Some(run) = self.registry().get(id) else {
+            return Restart::Done;
+        };
         self.inner
             .thread_locks
-            .run(thread, async {
-                let run = self
-                    .registry()
-                    .get(id)
-                    .filter(|run| needs_restart(run) && !self.turn_in_flight(&run.id))?;
-                self.start_thread_again(run, last_message).await
+            .run(thread_id(&run).to_owned(), async {
+                let Some(run) = self.registry().get(id).filter(needs_restart) else {
+                    return Restart::Done;
+                };
+                if self.turn_in_flight(id) {
+                    return Restart::Deferred;
+                }
+                self.start_thread_again(run, last_message)
+                    .await
+                    .map_or(Restart::Done, Restart::Failed)
             })
             .await
-    }
-
-    /// The lead `id` still needs a new run while a turn the fleet sent it is on its way:
-    /// `restart_thread` left the thread to that turn's settlement.
-    pub(crate) fn restart_deferred(&self, id: &str) -> bool {
-        self.turn_in_flight(id)
-            && self
-                .registry()
-                .get(id)
-                .is_some_and(|run| needs_restart(&run))
     }
 
     /// The thread goes on in a new run of its lead, on a CLI none of its runs failed on since its
@@ -253,7 +267,8 @@ impl Orchestrator {
     /// A thread's turn the fleet did not send ended: its agent started it itself (a helper's
     /// result woke it after a turn that broke off to wait) or the person typed in its pane. Without
     /// the person, nothing else tells the coordinator, which waits for this news to go on
-    /// (`settleUnsentTurn`).
+    /// (`settleUnsentTurn`). Called only under the run's `reconcile_locks`, as `finalize` is: one
+    /// settlement at a time per run (ADR 0358-settlement-and-sent-turn).
     pub(crate) async fn settle_unsent_turn(&self, id: &str) {
         let Some(run) = self.registry().get(id) else {
             return;
@@ -270,25 +285,26 @@ impl Orchestrator {
         };
         self.read_turn(id, &config, files).await;
         self.read_thread_work(id).await;
-        let restart_error = match self.registry().get(id) {
+        let restart = match self.registry().get(id) {
             Some(run) if needs_restart(&run) => self.restart_thread(id, None).await,
-            _ => None,
+            _ => Restart::Done,
         };
         // a restart left to a turn the fleet sent meanwhile: its landing step, news and waiters
         // are that turn's settlement's too
-        if self.restart_deferred(id) {
-            return;
-        }
-        if self
-            .registry()
-            .get(id)
-            .is_some_and(|run| run.replaced_by.is_none())
+        let deferred = restart == Restart::Deferred;
+        if !deferred
+            && self
+                .registry()
+                .get(id)
+                .is_some_and(|run| run.replaced_by.is_none())
         {
-            self.settle_thread_turn(id, &config, restart_error).await;
+            self.settle_thread_turn(id, &config, restart.error()).await;
         }
         let now = self.now();
         self.change(id, |run| run.updated_at = now);
-        self.settle_waiters(id);
+        if !deferred {
+            self.settle_waiters(id);
+        }
         if self.inner.outbox.holds(id) {
             let (fleet, id) = (self.clone(), id.to_owned());
             tokio::spawn(async move { fleet.tell_coordinator(&id).await });
