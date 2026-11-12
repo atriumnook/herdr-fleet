@@ -1,5 +1,5 @@
 //! `protocol::js` against JavaScript: the expected values are what Bun 1.4.4 answers
-//! (`/\s/.test`, `/^.$/u.test`, `trim`, `trimStart`, `trimEnd`, `length` and `slice`).
+//! (`/\s/.test`, `/^.$/u.test`, `trim`, `trimStart`, `trimEnd`, `Number`, `length` and `slice`).
 
 use herdr_fleet_protocol::js;
 use regex::Regex;
@@ -226,4 +226,19 @@ fn compares_pairs_as_locale_compare_does() {
     ] {
         assert_eq!(js::locale_compare(a, b), expected, "{a:?} vs {b:?}");
     }
+}
+
+#[test]
+fn reads_text_as_javascript_number_does() {
+    // each value as `Number(text)` gives it in Bun 1.4.4 and the ECMAScript grammar
+    assert_eq!(js::number(""), 0.0);
+    assert_eq!(js::number(" 6 "), 6.0);
+    assert_eq!(js::number("0x10"), 16.0);
+    assert_eq!(js::number("1e2"), 100.0);
+    assert_eq!(js::number(".5"), 0.5);
+    assert_eq!(js::number("-Infinity"), f64::NEG_INFINITY);
+    assert!(js::number("inf").is_nan());
+    assert!(js::number("1_000").is_nan());
+    assert!(js::number("6h").is_nan());
+    assert!(js::number("-0x10").is_nan());
 }

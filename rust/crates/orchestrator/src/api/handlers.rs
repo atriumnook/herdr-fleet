@@ -135,7 +135,7 @@ pub(super) async fn report(State(api): State<super::State>, query: Pairs) -> Ans
     let Some(cwd) = given(&query, "cwd") else {
         return Err(FleetError::new("missing_cwd", "cwd is required").into());
     };
-    let hours = first(&query, "hours").map_or(24.0, js::number);
+    let hours = first(&query, "hours").map_or(24.0, protocol::js::number);
     if !hours.is_finite() || hours <= 0.0 {
         return Err(FleetError::new("invalid_hours", "hours must be a positive number").into());
     }
@@ -335,7 +335,7 @@ pub(super) async fn read(
 ) -> Answer {
     // `lines ? Math.max(1, Math.min(10_000, Number(lines) || 0)) : undefined`
     let lines = given(&query, "lines").map(|lines| {
-        let number = js::number(lines);
+        let number = protocol::js::number(lines);
         let number = if number.is_nan() { 0.0 } else { number };
         number.clamp(1.0, 10_000.0) as u32
     });
