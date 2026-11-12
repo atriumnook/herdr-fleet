@@ -513,13 +513,15 @@ impl Orchestrator {
                 Ok(self.registry().get(id).unwrap_or(run))
             }
             Err(error) => {
-                // a turn sent over this one while it was typed stays the fleet's
-                let restart_left = self
-                    .drop_turn(id, generation)
-                    .and_then(|pending| pending.restart_left);
+                // a turn sent over this one while it was typed stays the fleet's, and the run is as
+                // that turn's send left it
+                let dropped = self.drop_turn(id, generation);
+                let superseded = dropped.is_none() && self.turn_in_flight(id);
+                let restart_left = dropped.and_then(|pending| pending.restart_left);
                 let refused_blocked = matches!(error, RuntimeError::Blocked);
                 let sent = match error {
                     RuntimeError::Cancelled => Err(error.into()),
+                    _ if superseded => Ok(self.registry().get(id).unwrap_or(run)),
                     RuntimeError::Blocked => {
                         // herdr refused before typing anything: nothing is in flight; the caller
                         // retries once a person answered

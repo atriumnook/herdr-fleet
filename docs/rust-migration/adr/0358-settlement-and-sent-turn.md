@@ -22,7 +22,7 @@
 - 起動し直しを任せるとき、`restart_thread` は決着が読んだターン(`LeadTurn`)を、送ったターンの `PendingTurn` の `restart_left` に預ける
   - 送ったターンが lead に届かずに捨てられたとき(`submit_with` で prompt が失敗した、取り消された)は、そのターンの決着が来ない。そのため、預けたターンの `settle_lead_turn` を、その場で別の task で、run の `reconcile_locks` の中で走らせる(`settle_left_restart`)。決着は run ごとに 1 つずつで、fleet が止まったあとは走らせない
   - herdr が、lead が質問の画面で待っているとして prompt を断ったとき(`RuntimeError::Blocked`)は、起動し直さずに thread の決着だけをする(`may_restart` が偽)。起動し直すと、質問の画面ごとペインを閉じるため。報告のないターンのニュースは、このとき coordinator に届く。人が答えれば lead はそのターンを続け、その終わりの決着が起動し直すかを決める。このときも、ほかの送ったターンが進行中なら、thread の決着はそのターンに預ける(`/code-review high` の指摘)
-  - 捨てるのは自分の generation のターンだけで、送信の途中に別の送信が置き換えたターンは残す(`drop_turn`)。今までの `drop_pending` は、置き換えたターンまで捨てていた。送ったターンが進行中のまま別の送信がそれを置き換えたときは、新しいターンが預けたターン(`restart_left`)を引き継ぐ
+  - 捨てるのは自分の generation のターンだけで、送信の途中に別の送信が置き換えたターンは残す(`drop_turn`)。今までの `drop_pending` は、置き換えたターンまで捨てていた。置き換えられた送信が失敗しても、run を `failed` にも `blocked` にもしない。run は置き換えたターンの送信が残した状態のままにする(codex の 2 回目のレビューの指摘。`failed` にすると run が live でなくなり、置き換えたターンが決着しない)。送ったターンが進行中のまま別の送信がそれを置き換えたときは、新しいターンが預けたターン(`restart_left`)を引き継ぐ
   - 送信の途中に決着が入りうるのは、thread のロックを持たず、`wait_idle` のあとで await を挟む送信である。lead が自分で始めた thread のニュースを lead に届ける `deliver_notices` がそれに当たる(codex のレビューの指摘)。`land` は送信を終えるまでロックを持つので、ロックの中で見る送ったターンは、届いたか捨てられたかのどちらかである
 - waiter は、待ったターンの generation を持つ。`finalize` と `report_blocked` は、決着したターンまでの waiter だけを起こし、`settle_unsent_turn` は、決着が読んだ時点で最後に送ったターンまでの waiter だけを起こす。決着の途中で送ったターンの waiter は、そのターンが決着するまで待つ。run の id だけで起こすと、`fleet wait` が、送ったばかりの Create PR のターンの途中で返る(codex のレビューの指摘)。ペインが終わったとき、thread を閉じたときは、今までどおりすべての waiter を起こす
 - 1 は直さない。`finalize` と `settle_unsent_turn` の doc に、run の `reconcile_locks` の中からだけ呼ぶことを書いた。同じ run の決着は `reconcile_locks` で 1 つずつ走る(`finalize` と `settle_unsent_turn` を呼ぶのは `reconcile_now` だけで、`reconcile_now` は `reconcile_run` がこのロックの中で呼ぶ)。決着が画面を読む間に送ったターンが終わっても、そのターンの決着は前の決着が終わってから走り、あとから書く
@@ -42,6 +42,7 @@
 - 送ったターンが lead に届かなければ、預けたターンの決着がその場で thread を起動し直す。起動し直せなければ、ニュースにその理由が載る。lead が質問の画面で待っていたときは起動し直さず、報告のないターンのニュースだけを coordinator に送る。起動し直すかは、人が答えたあとのターンの決着が決める
 - 送ったターンの途中でペインが終わると(`on_pane_ended`、`reconcile_now` の `NotFound`)、送信が届く前か後かによらず、run は `stopped` になり、預けた起動し直しはしない。ペインが終わったのは、エージェントが終わったか、人が閉じたかで、どのターンの途中でも run を止めるのが今までの振る舞いである。預けたターンの thread の決着は、起動し直さずに行う(`drop_ended_turn`)ので、報告のないターンのニュースは coordinator に届く。この変更の前は、同じ順序なら、ペインが終わる前に決着が thread を起動し直していた。ここだけは振る舞いが変わる
 - `finalize` の残りのうち `close_on_settle` は `turn_in_flight` で、`respawn_after_failure` は generation で止まるので、送ったターンの途中のペインを閉じない
+- 起動し直しの途中(`restart_thread` が送ったターンがないと確かめてから、新しい run の spawn を終えるまで)に、`deliver_notices` が前の lead にお知らせを打つと、そのお知らせは失われる。`deliver_notices` が thread のロックを取らないためで、この変更の前は決着の途中のどの時点でも起きていた。直すには `notices.rs` を変えるので、#371 に分けた
 - 1 が起きないことは、決着が run ごとに直列であることに依る。`reconcile_locks` の外から決着を呼ぶ変更をするときは、1 を考え直す
 
 ## 確かめたこと
@@ -54,4 +55,5 @@
 - その後の `/code-review high` のあと、`keeps_a_lead_that_waits_on_a_question_when_the_turn_a_settlement_left_the_restart_to_is_refused`(herdr が `Blocked` で断る)を足し、実装の前に `assertion failed: t.restarts().is_empty()` で失敗することを確かめた
 - 5 回目の `/code-review high` のあと、そのテストにニュースの assert を、`a_cancelled_send_leaves_the_turn_sent_over_it_to_be_settled`(送信の途中に別の送信が置き換え、前の送信が取り消される)を足した。実装を一時的に前の形に戻すと、前者はニュースの assert で、後者は `left: "Waiting for the helper."`、`right: "Went on with this."` で失敗した
 - 6 回目の `/code-review high` のあと、`tells_of_the_turn_that_left_no_report_when_the_leads_pane_ends_during_the_step_it_left_the_restart_to`(任せた送ったターンの途中でペインが終わる)を足し、実装の前に、ニュースが前のターンのまま(`ended its turn: waiting`)であることで失敗することを確かめた
+- codex の 2 回目のレビュー(head `38c7100`)のあと、`a_failed_send_leaves_the_run_to_the_turn_sent_over_it`(置き換えられた送信を herdr が失敗させる)を足し、実装の前に `left: "Waiting for the helper."`、`right: "Went on with this."` で失敗することを確かめた
 - 実装のあと、`cargo test --locked -p herdr-fleet-orchestrator` がすべて通った(Linux、rustc は `rust/rust-toolchain.toml` の版)

@@ -1249,21 +1249,21 @@ async fn keeps_a_lead_that_waits_on_a_question_when_the_turn_a_settlement_left_t
     );
 }
 
-// /code-review of #358: a send whose prompt is cancelled drops its own turn only. A turn sent over
-// it while it was typed stays the fleet's, and its report is read when it ends.
-#[tokio::test(start_paused = true)]
-async fn a_cancelled_send_leaves_the_turn_sent_over_it_to_be_settled() {
+/// A send whose prompt herdr answers with `error` once a second send went over it while it was
+/// typed; the lead then ends the second send's turn with a report. What the run keeps of it.
+async fn summary_of_a_turn_sent_over_a_send_that_failed(error: RuntimeError) -> String {
     let typed = Hold::new();
     let t = thread();
     let first = t.start_thread("Fix", "t", None).await;
     t.report_state(&first, "waiting", "Waiting for the helper.");
     t.turn(&first, AgentState::Idle).await;
     let (hold, runtime) = (typed.clone(), Arc::downgrade(&t.runtime));
+    let error = Arc::new(Mutex::new(Some(error)));
     t.runtime.on_prompt(move |asked, text, _| {
-        let (hold, runtime) = (hold.clone(), runtime.clone());
+        let (hold, runtime, error) = (hold.clone(), runtime.clone(), error.clone());
         async move {
             if hold.pass().await {
-                return Err(RuntimeError::Cancelled);
+                return Err(error.lock().unwrap().take().unwrap());
             }
             let runtime = runtime.upgrade().unwrap();
             let mut recorded = runtime.recorded();
@@ -1274,7 +1274,7 @@ async fn a_cancelled_send_leaves_the_turn_sent_over_it_to_be_settled() {
     t.states.set(&first, AgentState::Working);
     typed.held.raise();
     let (fleet, id) = (t.fleet.clone(), first.id.clone());
-    let cancelled = tokio::spawn(async move {
+    let failing = tokio::spawn(async move {
         fleet
             .send(&id, "go on", None, &CancellationToken::new())
             .await
@@ -1282,13 +1282,33 @@ async fn a_cancelled_send_leaves_the_turn_sent_over_it_to_be_settled() {
     until(|| typed.reached.up(), "the first message being typed").await;
     t.send(&first.id, "go on, with this").await;
     typed.gate.open();
-    assert!(cancelled.await.unwrap().is_err());
+    let _ = failing.await.unwrap();
     t.report_state(&first, "ready", "Went on with this.");
     t.turn(&first, AgentState::Idle).await;
-    let summary = match &t.run(&first.id).outcome {
+    match &t.run(&first.id).outcome {
         Some(TurnOutcome::Report(report)) => report.summary.clone(),
-        other => format!("{other:?}"),
-    };
+        other => format!("{other:?} in {:?}", t.run(&first.id).state),
+    }
+}
+
+// /code-review of #358: a send whose prompt is cancelled drops its own turn only. A turn sent over
+// it while it was typed stays the fleet's, and its report is read when it ends.
+#[tokio::test(start_paused = true)]
+async fn a_cancelled_send_leaves_the_turn_sent_over_it_to_be_settled() {
+    let summary = summary_of_a_turn_sent_over_a_send_that_failed(RuntimeError::Cancelled).await;
+    assert_eq!(summary, "Went on with this.");
+}
+
+// codex's second review of #358: a send whose prompt herdr fails after a second send went over it
+// leaves the run to that second send: the run does not fail under the turn in flight, and that
+// turn's report is read when it ends.
+#[tokio::test(start_paused = true)]
+async fn a_failed_send_leaves_the_run_to_the_turn_sent_over_it() {
+    let summary = summary_of_a_turn_sent_over_a_send_that_failed(RuntimeError::Herdr {
+        code: "server_error".to_owned(),
+        message: "herdr went away".to_owned(),
+    })
+    .await;
     assert_eq!(summary, "Went on with this.");
 }
 
