@@ -128,7 +128,9 @@ export function rateLimitUntil(message: string, now = Date.now()): number | unde
     const at = Date.parse(iso[0]);
     if (Number.isFinite(at) && at > now) return at;
   }
-  const relative = /\bin\s+((?:\d+\s*(?:d|days?|h|hours?|hrs?|m|mins?|minutes?|s|secs?|seconds?)(?=\d|\b)[\s,]*(?:and\s+)?)+)/i.exec(message);
+  // agy writes the time with no space between its parts: 75h7m14s, every part with its unit
+  const compact = /\bin\s+((?:\d+[dhms]){2,})\b/i.exec(message);
+  const relative = compact ?? /\bin\s+((?:\d+\s*(?:d|days?|h|hours?|hrs?|m|mins?|minutes?|s|secs?|seconds?)\b[\s,]*(?:and\s+)?)+)/i.exec(message);
   if (relative) {
     const unit: Record<string, number> = { d: 86_400_000, h: 3_600_000, m: 60_000, s: 1_000 };
     let total = 0;

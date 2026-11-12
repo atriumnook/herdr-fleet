@@ -187,6 +187,9 @@ describe("rateLimitUntil", () => {
     expect(rateLimitUntil("model not found", NOW)).toBeNull();
     expect(rateLimitUntil("429 Too Many Requests", NOW)).toBeUndefined();
     expect(rateLimitUntil("You've hit your usage limit.", NOW)).toBeUndefined();
+    // no readable time: a compact time needs its unit on every part
+    expect(rateLimitUntil("quota retry in 2h30x", NOW)).toBeUndefined();
+    expect(rateLimitUntil("quota retry in 2h30 requests", NOW)).toBeUndefined();
   });
 
   it("takes an ISO time, a relative one or the next clock time", () => {
