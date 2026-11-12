@@ -2,11 +2,14 @@
 //! TypeScript: the whitespace of `trim` and `\s`, the line terminators of `.` and the `m` flag,
 //! and lengths in UTF-16 code units. What one crate alone needs stays in that crate.
 //! The rules: docs/rust-migration/adr/0193-phase-2-dependencies.md. `JSON.stringify` and the way
-//! JavaScript writes a number: `json` (ADR 0244-phase-3-dependencies).
+//! JavaScript writes a number: `json` (ADR 0244-phase-3-dependencies). The order of `localeCompare`:
+//! `locale` (ADR 0330-locale-compare).
 
 mod json;
+mod locale;
 
 pub use json::{number_to_string, stringify_pretty};
+pub use locale::locale_compare;
 
 /// `String.prototype.trim`'s set and the regular expression `\s`: WhiteSpace and LineTerminator of
 /// ECMAScript. Rust's `char::is_whitespace` differs: it has U+0085 and lacks U+FEFF.

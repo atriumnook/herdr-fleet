@@ -245,11 +245,11 @@ impl Orchestrator {
             return;
         }
         // once a turn the fleet sends is on its way, it cleared these files for its own: its
-        // settlement reads them, and this turn's are gone (ADR 0267-restart)
-        if self.turn_in_flight(id) {
+        // settlement reads them, and this turn's are gone. The check and the read are one step
+        // under the lock that turn takes (ADR 0267-restart, #344)
+        let Some(files) = self.read_unsent_turn_files(&run) else {
             return;
-        }
-        let files = self.read_turn_files(&run);
+        };
         self.read_turn(id, &config, files).await;
         self.read_thread_work(id).await;
         let restart_error = match self.registry().get(id) {

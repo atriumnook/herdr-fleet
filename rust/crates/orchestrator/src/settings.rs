@@ -3,13 +3,13 @@
 //! changes written back into it. Keys the page does not know stay as they are. The interface:
 //! docs/rust-migration/adr/0260-settings-store.md.
 
-use std::cmp::Ordering;
 use std::fs::{self, OpenOptions};
 use std::io::{self, ErrorKind, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering as AtomicOrdering};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use protocol::js::locale_compare;
 use protocol::{
     FleetAgentKind, FleetSettings, FleetSettingsPatch, ProjectPatch, ProjectSetup, RoleCandidate,
     RoleCandidateSetting, RoleCandidates, RolePatch, RoleSettings,
@@ -127,7 +127,7 @@ impl FleetSettingsStore {
                     .roles
                     .get(&definition.name)
                     .unwrap_or(&no_override);
-                let fit = role_fit(&definition, project_over);
+                let fit = definition.role_fit(project_over);
                 let own = candidates_of(&definition, &no_override, &defaults);
                 let chosen = candidates_of(&definition, over, &user);
                 let candidates = chosen
@@ -275,11 +275,7 @@ fn apply_patch(
                 spawning: kept.get("spawning").and_then(Value::as_bool),
                 ..RoleOverride::default()
             };
-            kept.extend(role_entry(
-                definition,
-                &role_fit(definition, &over),
-                change,
-            )?);
+            kept.extend(role_entry(definition, &definition.role_fit(&over), change)?);
             roles.insert(name.clone(), Value::Object(kept));
         }
         next.insert("roles".to_owned(), Value::Object(roles));
@@ -391,17 +387,6 @@ fn sets_role(entry: Option<&Value>) -> bool {
     matches!(entry, Some(Value::Object(role)) if ROLE_KEYS.iter().any(|key| role.contains_key(*key)))
 }
 
-/// What the role asks of the CLI it runs on, with `over` from the person's fleet.json: it edits no
-/// file, it runs the fleet command (`may_spawn`), and it reads files outside its folders, which
-/// only the reviewer does (ADR 0248-launch-adapters, "断る役割").
-fn role_fit(definition: &AgentDefinition, over: &RoleOverride) -> RoleFit {
-    RoleFit {
-        read_only: definition.edits == Some(false),
-        spawning: definition.may_spawn(over),
-        reads_outside_folders: definition.name == "reviewer",
-    }
-}
-
 /// The CLIs a role that edits no file can run on: those the fleet can keep from editing.
 fn read_only_agents() -> Vec<FleetAgentKind> {
     KINDS
@@ -424,39 +409,6 @@ fn by_flow(mut definitions: Vec<AgentDefinition>) -> Vec<AgentDefinition> {
             .then_with(|| locale_compare(&a.name, &b.name))
     });
     definitions
-}
-
-/// `a.localeCompare(b)` as Bun 1.4.4 orders ASCII names in the en-US locale: by the characters'
-/// primary weights first (spaces, then punctuation and symbols in the order below, digits, then
-/// letters with case set aside), then lower case before upper case. A character past ASCII is
-/// weighed after the letters by its code point, where the locale would weigh `é` next to `e`. The
-/// same order as the usage tracker's `list()` (`usage/tracker.rs`).
-fn locale_compare(a: &str, b: &str) -> Ordering {
-    /// The punctuation and symbols of ASCII in the order of the locale's collation (the Unicode
-    /// collation's default table), after a space and before the digits.
-    const PUNCTUATION: &str = "_-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
-    let weight = |c: char| -> u32 {
-        if c.is_ascii_whitespace() {
-            0
-        } else if let Some(index) = PUNCTUATION.find(c) {
-            1 + index as u32
-        } else if c.is_ascii_digit() {
-            100 + u32::from(c as u8 - b'0')
-        } else if c.is_ascii_alphabetic() {
-            200 + u32::from(c.to_ascii_lowercase() as u8 - b'a')
-        } else {
-            300 + u32::from(c)
-        }
-    };
-    a.chars()
-        .map(weight)
-        .cmp(b.chars().map(weight))
-        .then_with(|| {
-            a.chars()
-                .map(|c| c.is_ascii_uppercase())
-                .cmp(b.chars().map(|c| c.is_ascii_uppercase()))
-        })
-        .then_with(|| a.cmp(b))
 }
 
 /// A role's candidates in the order the orchestrator tries them (its `spawn_with_fallbacks`): the

@@ -713,11 +713,15 @@ impl Orchestrator {
         {
             // a turn that failed or left no report went nowhere; a lead taking a thread over starts
             // with its plan still open, and keeps it so while it reports blocked on it
-            if let Some(TurnOutcome::Report(report)) = &run.outcome
-                && !(pending.generation == 1
-                    && run.thread.is_some()
-                    && report.state == protocol::ReportState::Blocked)
-            {
+            let passed = match &run.outcome {
+                Some(TurnOutcome::Report(report)) => {
+                    !(pending.generation == 1
+                        && run.thread.is_some()
+                        && report.state == protocol::ReportState::Blocked)
+                }
+                _ => restart_error.is_some(),
+            };
+            if passed {
                 self.close_stale_plan(id, pending.submitted_at);
             }
             self.settle_thread_turn(id, &config, restart_error).await;
@@ -755,6 +759,17 @@ impl Orchestrator {
         let result = read_result(&dir.join(RESULT_FILE));
         let outcome = (run.role != PROJECT_ROLE).then(|| read_report(&dir));
         (result, outcome)
+    }
+
+    /// The handoff and report a turn the fleet did not send left, read under the lock a turn the
+    /// fleet sends takes to clear them; none once such a turn is in flight: its settlement reads
+    /// them, and this turn's are gone (#344, ADR 0267-restart).
+    pub(crate) fn read_unsent_turn_files(
+        &self,
+        run: &AgentRun,
+    ) -> Option<(Option<String>, Option<TurnOutcome>)> {
+        let turns = locked(&self.inner.turns);
+        (!turns.pending.contains_key(&run.id)).then(|| self.read_turn_files(run))
     }
 
     /// What a settled turn left: the screen, the handoff and report read before, and the API

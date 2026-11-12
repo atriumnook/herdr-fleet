@@ -847,6 +847,91 @@ async fn reads_no_report_from_a_turn_its_lead_started_itself_and_ended_without_o
     assert!(t.run(&first.id).replaced_by.is_some());
 }
 
+// Not in TypeScript, whose `settleUnsentTurn` reads the files whatever the fleet sent meanwhile
+// (ADR 0267-restart, #344): a step the fleet sends while the end of a turn it did not send is
+// read cleared the turn's files for its own turn. That turn's settlement reads them; the turn
+// before is not read as one that left no report, and the thread does not start again under it.
+#[tokio::test(start_paused = true)]
+async fn leaves_the_files_of_a_turn_its_lead_started_itself_to_a_step_the_fleet_sent_before_that_turn_is_settled()
+ {
+    const READY: &str = "→ Plan, search, build anything";
+    let (read_branch, hold_branch, reading_branch) =
+        (Gate::new(), Flag::default(), Flag::default());
+    let (gate, held, raised) = (
+        read_branch.clone(),
+        hold_branch.clone(),
+        reading_branch.clone(),
+    );
+    // a lead on cursor, whose turn's end is read from its screen before it is settled
+    let cursor_lead = AgentDefinition {
+        agent: FleetAgentKind::Cursor,
+        ..lead()
+    };
+    let t = thread_with(
+        Some(vec![cursor_lead, coordinator()]),
+        Some(json!({ "autonomous": true })),
+        move |a| {
+            a.git_branch = answer(move |_: PathBuf| {
+                let (gate, held, raised) = (gate.clone(), held.clone(), raised.clone());
+                async move {
+                    // none at the start: the thread records no base, and a step reads it
+                    if !held.up() {
+                        return None;
+                    }
+                    raised.raise();
+                    gate.pass().await;
+                    Some("main".to_owned())
+                }
+            });
+        },
+    );
+    let (read_screen, hold_screen, reading_screen) =
+        (Gate::new(), Flag::default(), Flag::default());
+    let (gate, held, raised) = (
+        read_screen.clone(),
+        hold_screen.clone(),
+        reading_screen.clone(),
+    );
+    t.runtime.on_read(move |_| {
+        let (gate, held, raised) = (gate.clone(), held.clone(), raised.clone());
+        async move {
+            // only the first read once held: the settlement's look at the screen
+            if held.up() {
+                held.lower();
+                raised.raise();
+                gate.pass().await;
+            }
+            Ok(READY.to_owned())
+        }
+    });
+    let first = t.start_thread("Fix", "t", None).await;
+    t.report_state(&first, "waiting", "Waiting for the helper.");
+    t.turn(&first, AgentState::Idle).await;
+    // the helper's result wakes the lead, and the person presses Create PR, which reads the branch
+    t.turn(&first, AgentState::Working).await;
+    hold_branch.raise();
+    let pressed = t.land_task(&first.id, LandAction::Pr);
+    until(|| reading_branch.up(), "the base branch being read").await;
+    // the woken turn ends, and its end is read while the step goes out
+    hold_screen.raise();
+    t.turn(&first, AgentState::Idle).await;
+    until(|| reading_screen.up(), "the screen being read").await;
+    read_branch.open();
+    pressed.await.unwrap().unwrap();
+    assert!(t.to(&first).last().unwrap().contains("gh pr create"));
+    t.states.set(&first, AgentState::Working);
+    read_screen.open();
+    sleep_ms(1000).await;
+    assert!(
+        matches!(t.run(&first.id).outcome, Some(TurnOutcome::Report(_))),
+        "{:?}",
+        t.run(&first.id).outcome
+    );
+    assert!(t.restarts().is_empty());
+    assert_eq!(t.run(&first.id).replaced_by, None);
+    assert!(t.runtime.closed().is_empty());
+}
+
 // orchestrator.test.ts: "hands a landing step its lead did not finish to the new run, unjudged, and judges it when that run's turn ends"
 #[tokio::test(start_paused = true)]
 async fn hands_a_landing_step_its_lead_did_not_finish_to_the_new_run_unjudged_and_judges_it_when_that_runs_turn_ends()
@@ -1130,9 +1215,8 @@ async fn closes_a_carried_plan_when_the_new_run_went_on_to_a_report_other_than_b
 // The expected value differs from TypeScript's (`:1429` expects `closedAt` undefined): a plan the
 // lead went on from stays answerable when no run could take the thread over, which is #240's 3, a
 // defect of main's fleet that #265 and #267 ask the Rust version not to copy. #338 closes the plan
-// in `turns.rs`'s `finalize` (ADR 0265-plans); until it lands, this test waits for it.
+// in `turns.rs`'s `finalize` (ADR 0265-plans).
 #[tokio::test(start_paused = true)]
-#[ignore = "waits on #338: finalize closes the plan when no run could take the thread over (#240's 3)"]
 async fn closes_a_plan_the_lead_went_on_from_when_a_turn_failed_and_no_run_could_take_over() {
     let t = thread();
     let _tree = with_tree(&t);
@@ -1152,6 +1236,21 @@ async fn closes_a_plan_the_lead_went_on_from_when_a_turn_failed_and_no_run_could
     t.turn(&other, AgentState::Idle).await;
     assert_eq!(t.run(&other.id).state, AgentState::Failed);
     assert!(t.run(&other.id).plan.unwrap().closed_at.is_some());
+}
+
+// #338: a landed thread is not restarted, so a turn without a report does not close its plan.
+#[tokio::test(start_paused = true)]
+async fn keeps_a_plan_open_when_a_landed_thread_ends_a_turn_without_a_report() {
+    let t = thread();
+    let _tree = with_tree(&t);
+    let run = t.start_thread("Other", "t", None).await;
+    t.fleet.submit_plan(&run.id, &plan_value(), None).unwrap();
+    t.registry
+        .update(&run.id, |run| run.landed = Some(Landed::Merged))
+        .unwrap();
+    t.turn(&run, AgentState::Idle).await;
+    assert_eq!(t.run(&run.id).replaced_by, None);
+    assert_eq!(t.run(&run.id).plan.unwrap().closed_at, None);
 }
 
 // orchestrator.test.ts: "hands Merge into main the coordinator has not heard yet to it once, though the thread started again meanwhile"

@@ -745,9 +745,28 @@ fn sh_quote(path: &Path) -> String {
     format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
 }
 
+/// Writes `body` as an executable `/bin/sh` script at `file`.
+///
+/// A shell writes the file, not this process: a file this process held open for writing would be
+/// inherited by a child another test forks at that moment, and executing it before that child's
+/// own exec closes it fails with ETXTBSY ("Text file busy", issue #336). Writing to another name
+/// and renaming it would not help, as the child holds the same file.
 fn write_script(file: &Path, body: &str) {
-    fs::write(file, format!("#!/bin/sh\n{body}\n")).unwrap();
-    fs::set_permissions(file, fs::Permissions::from_mode(0o755)).unwrap();
+    let status = std::process::Command::new("/bin/sh")
+        .args([
+            "-c",
+            r#"printf '#!/bin/sh\n%s\n' "$2" > "$1" && chmod 755 "$1""#,
+            "sh",
+        ])
+        .arg(file)
+        .arg(body)
+        .status()
+        .unwrap_or_else(|error| panic!("{}: {error}", file.display()));
+    assert!(
+        status.success(),
+        "{}: could not write the fake",
+        file.display()
+    );
 }
 
 fn read(file: impl AsRef<Path>) -> String {
@@ -1079,7 +1098,10 @@ async fn each_listing_passes_its_arguments_and_fails_on_an_error_exit() {
 
 /// `fakeOpencode` of models.test.ts: `service status` says where the service is (or nothing, or
 /// fails as 1.x does for a command it does not know), `api GET` answers an empty list the first
-/// time and the models after, like a place the service has not loaded.
+/// time and the models after, like a place the service has not loaded. Each run notes its process
+/// id in `<file>.pids`, and before it the pipes of its standard output and error in `<file>.pipes`,
+/// read in a command substitution: dash, Ubuntu's `/bin/sh`, opens a simple command's redirection
+/// in the shell itself, whose fd 1 would then be the file.
 fn fake_opencode(dir: &Path, behaviour: &str) -> PathBuf {
     let file = dir.join("opencode");
     let q = |ending: &str| sh_quote(&noted(&file, ending));
@@ -1096,6 +1118,8 @@ fn fake_opencode(dir: &Path, behaviour: &str) -> PathBuf {
 pwd > {cwd}
 ls -A > {ls}
 printf '%s\n' "$*" >> {args}
+pipes=$(readlink /proc/$$/fd/1 /proc/$$/fd/2); printf '%s\n' "$pipes" >> {pipes}
+echo $$ >> {pids}
 if [ "$1" = service ]; then {status}; fi
 if [ "$1" = api ]; then n=$(cat {n} 2>/dev/null || echo 0); echo $((n+1)) > {n}; if [ "$n" = 0 ]; then echo '{{"data":[]}}'; else echo '{{"data":[{{"providerID":"anthropic","id":"claude-sonnet-5-5"}},{{"providerID":"opencode","id":"big-pickle"}}]}}'; fi; exit 0; fi
 exit 1"#,
@@ -1103,6 +1127,8 @@ exit 1"#,
             cwd = q("cwd"),
             ls = q("ls"),
             args = q("args"),
+            pids = q("pids"),
+            pipes = q("pipes"),
         ),
     );
     file
@@ -1151,24 +1177,117 @@ async fn opencode_lists_from_the_running_service_by_opencode_api_asking_again_on
 /// opencode asks again 2 seconds after an empty list when the options name no other wait
 /// (`retryAfterMs ?? 2000`, `server/fleet/model-lists.ts:115`), and only once: a second empty
 /// list is no list.
-#[tokio::test]
+///
+/// The 2 seconds are tokio's paused clock, not the wall's, which a loaded machine stretches
+/// (issue #327). The CLIs run in real time meanwhile: a blocking task under way keeps the clock
+/// from jumping by itself to the CLIs' time limit while the runtime waits on them, so the clock
+/// moves only when the test advances it.
+#[tokio::test(start_paused = true)]
 async fn opencode_asks_again_once_two_seconds_after_an_empty_list() {
     let dir = TempDir::new("opencode-wait");
     let opencode = fake_opencode(dir.path(), "running");
     let first = options(&dir.path().join("model-list").join("opencode"), &opencode);
     assert_eq!(first.retry_after, Duration::from_secs(2));
-    let started = Instant::now();
-    assert_eq!(
-        listed(FleetAgentKind::Opencode, first)
-            .await
-            .map(|m| m.len()),
-        Ok(2)
-    );
-    let waited = started.elapsed();
-    assert!(waited >= Duration::from_secs(2), "{waited:?}");
-    assert!(waited < Duration::from_secs(10), "{waited:?}");
+    let (release, held) = std::sync::mpsc::channel::<()>();
+    let hold = tokio::task::spawn_blocking(move || {
+        let _ = held.recv();
+    });
+    let started = tokio::time::Instant::now();
+    let listing = tokio::spawn(async move {
+        let models = listed(FleetAgentKind::Opencode, first).await;
+        (models, tokio::time::Instant::now())
+    });
 
-    // a service that answers [] twice: asked twice, and no list
+    // the wait's deadline is set, at 2 seconds from the clock still where it started, once the
+    // first ask's two CLIs (service status, then api GET) have been reaped (`kill -0` finds a
+    // process until it is reaped, a zombie too) and this process holds no end of their pipes: the
+    // runner's `run` returns in the poll that has both the exit status and the output to its end,
+    // and in that poll the listing goes on to call `sleep`, which sets its deadline when called
+    // (`Instant::now() + duration`, tokio's `time::sleep`), not when the timer is registered
+    let pids = noted(&opencode, "pids");
+    let pipes = noted(&opencode, "pipes");
+    until("the first ask's end", || {
+        let pids = fs::read_to_string(&pids).unwrap_or_default();
+        let pids: Vec<&str> = pids.lines().collect();
+        // each CLI notes its pipes before its pid
+        pids.len() == 2 && !process_exists(pids[1]) && !holds_any(&read(&pipes))
+    })
+    .await;
+    assert_eq!(
+        read(noted(&opencode, "args")),
+        "service status\napi GET /api/model\n"
+    );
+
+    // a millisecond short of 2 seconds, it has not asked again
+    tokio::time::advance(Duration::from_millis(1999)).await;
+    let real = Instant::now();
+    while real.elapsed() < Duration::from_millis(100) {
+        std::thread::sleep(Duration::from_millis(1));
+        tokio::task::yield_now().await;
+    }
+    assert_eq!(
+        read(noted(&opencode, "args")),
+        "service status\napi GET /api/model\n"
+    );
+    assert!(!listing.is_finished());
+
+    // at 2 seconds it asks again, and the list it gets is the answer
+    tokio::time::advance(Duration::from_millis(1)).await;
+    until("the listing's end", || listing.is_finished()).await;
+    let (models, finished) = listing.await.unwrap();
+    assert_eq!(models.map(|m| m.len()), Ok(2));
+    assert_eq!(finished - started, Duration::from_secs(2));
+    assert_eq!(
+        read(noted(&opencode, "args")),
+        "service status\napi GET /api/model\nservice status\napi GET /api/model\n"
+    );
+    drop(release);
+    hold.await.unwrap();
+}
+
+/// Yields to the runtime until `done` holds, the thread sleeping a millisecond between tries:
+/// the CLIs, and the runtime's reading of what they wrote, go on in real time while tokio's clock
+/// is paused. A wait that never ends fails after a minute instead of hanging the run.
+async fn until(what: &str, mut done: impl FnMut() -> bool) {
+    let real = Instant::now();
+    while !done() {
+        assert!(
+            real.elapsed() < Duration::from_secs(60),
+            "{what} did not come"
+        );
+        std::thread::sleep(Duration::from_millis(1));
+        tokio::task::yield_now().await;
+    }
+}
+
+/// Whether this process holds an end of any of `pipes`, one a line as `/proc/<pid>/fd` names them
+/// (`pipe:[<inode>]`).
+fn holds_any(pipes: &str) -> bool {
+    let pipes: Vec<&str> = pipes.lines().collect();
+    assert!(
+        !pipes.is_empty() && pipes.iter().all(|pipe| pipe.starts_with("pipe:[")),
+        "the CLIs' pipes: {pipes:?}"
+    );
+    fs::read_dir("/proc/self/fd")
+        .expect("/proc/self/fd")
+        .filter_map(|entry| fs::read_link(entry.ok()?.path()).ok())
+        .any(|target| pipes.iter().any(|pipe| target.as_os_str() == *pipe))
+}
+
+/// Whether a process `pid` exists, not yet reaped (`kill -0`, which sends no signal).
+fn process_exists(pid: &str) -> bool {
+    std::process::Command::new("/bin/sh")
+        .args(["-c", r#"kill -0 "$1" 2>/dev/null"#, "sh", pid])
+        .status()
+        .unwrap_or_else(|error| panic!("kill -0 {pid}: {error}"))
+        .success()
+}
+
+/// opencode gives no list when the service answers an empty list twice: it asks twice
+/// (`server/fleet/model-lists.ts:115`).
+#[tokio::test]
+async fn opencode_gives_no_list_when_the_service_answers_an_empty_list_twice() {
+    let dir = TempDir::new("opencode-empty");
     let empty = dir.path().join("opencode-empty");
     let args = sh_quote(&noted(&empty, "args"));
     write_script(

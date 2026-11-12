@@ -8,7 +8,7 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use jiff::tz::TimeZone;
-use protocol::js::{cut_utf16, number_to_string};
+use protocol::js::{cut_utf16, locale_compare, number_to_string};
 use protocol::{Cooldown, FleetAgentKind, UsageEntry, UsageReading, UsageWindow};
 use serde_json::Value;
 use tokio::sync::watch;
@@ -146,38 +146,6 @@ fn current(window: &UsageWindow, reading: &UsageReading, now: f64) -> bool {
     }
 }
 
-/// What `list()` sorts by: the order `a.key.localeCompare(b.key)` gives in Bun 1.4.4 to the keys the tracker holds (CLI names,
-/// `agy:gemini`, `pi:<provider>`) in the en-US locale: by the characters' primary weights first
-/// (spaces, then punctuation and symbols in the order below, digits, then letters with case set
-/// aside), then lower case before upper case. A character past ASCII is weighed after the letters
-/// by its code point, where the locale would weigh `é` next to `e`.
-fn locale_key(key: &str) -> (Vec<u32>, Vec<bool>, String) {
-    (
-        key.chars().map(primary_weight).collect(),
-        key.chars().map(|c| c.is_ascii_uppercase()).collect(),
-        key.to_owned(),
-    )
-}
-
-/// The punctuation and symbols of ASCII in the order of the locale's collation (the Unicode
-/// collation's default table), after a space and before the digits.
-const PUNCTUATION: &str = "_-,;:!?.'\"()[]{}@*/\\&#%`^+<=>|~$";
-
-fn primary_weight(c: char) -> u32 {
-    let ascii_after = |base: u32, offset: usize| base + offset as u32;
-    if c.is_ascii_whitespace() {
-        0
-    } else if let Some(index) = PUNCTUATION.find(c) {
-        ascii_after(1, index)
-    } else if c.is_ascii_digit() {
-        ascii_after(100, (c as u8 - b'0') as usize)
-    } else if c.is_ascii_alphabetic() {
-        ascii_after(200, (c.to_ascii_lowercase() as u8 - b'a') as usize)
-    } else {
-        300 + u32::from(c)
-    }
-}
-
 impl UsageTracker {
     /// A tracker with what `options.file` holds: an entry, or a part of one, that does not have
     /// the shape this code reads is dropped, and a file that cannot be read is no file.
@@ -213,10 +181,10 @@ impl UsageTracker {
         self.inner.clock.now_ms() as f64
     }
 
-    /// Every account known, by key.
+    /// Every account known, in the order `a.key.localeCompare(b.key)` gives them.
     pub fn list(&self) -> Vec<UsageEntry> {
         let mut entries = self.state().entries.clone();
-        entries.sort_by_cached_key(|entry| locale_key(&entry.key));
+        entries.sort_by(|a, b| locale_compare(&a.key, &b.key));
         entries
     }
 
