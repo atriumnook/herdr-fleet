@@ -2,8 +2,8 @@
 //! ADR 0242-phase-3-split, "Rust の core が thread を 1 つ起動して終える").
 //!
 //! The test starts a headless herdr of its own, the core (`herdr-fleet`) and, with the Rust fleet
-//! CLI (`fleet`), a thread whose lead is a real `claude` agent on the model alias `haiku` (the
-//! `.herdr-fleet/fleet.json` of a temporary git repository). The lead is asked to write a
+//! CLI (`fleet`), a thread whose lead is a real `pi` agent on `opencode-go/deepseek-v4.1-flash`
+//! (the `.herdr-fleet/fleet.json` of a temporary git repository). The lead is asked to write a
 //! `report.json` that says state `ready`, with a summary and evidence, and to end its turn. Then:
 //!
 //! - `fleet wait` returns once that turn has ended;
@@ -11,33 +11,52 @@
 //! - `POST /api/fleet/runs/<id>/land {"action":"discard"}` ends the thread;
 //! - its worktree, its branch and its pane are gone.
 //!
+//! The lead is pi, not the `claude:haiku` the issue names: claude asks "Is this a project you
+//! created or one you trust?" in a repository it was not told to trust, and the lead then stops
+//! at that question before its first prompt. A linked worktree of a repository claude trusts would
+//! not ask, but herdr 0.9.1 refuses `worktree.create` from a linked worktree
+//! (`linked_worktree_source`), and answering the question instead would write the person's
+//! `~/.claude.json`, which this test must not do. Pi has no trust or approval screen.
+//!
 //! The requests of the CLI (`fleet thread` is a POST, `fleet wait` and `fleet list` are GETs) all go
 //! through the core's access control; the discard is a POST of a raw HTTP/1.1 request.
 //!
-//! The test is `#[ignore]`: CI has no herdr, and the lead is a real agent that uses a little of the
-//! person's claude subscription (the `claude` CLI; no API key). Run it by hand, from `rust/`:
+//! `live_thread` is `#[ignore]`: CI has no herdr, and the lead is a real agent that uses a little of
+//! the person's `opencode-go` subscription (the `pi` CLI; no API key). Run it by hand, from `rust/`:
 //!
 //! ```text
 //! env $(env | grep -oE '^HERDR[A-Z_]*' | sed 's/^/-u /') \
 //!   cargo test --locked -p herdr-fleet-core --test live_thread -- --ignored --nocapture
 //! ```
 //!
-//! `--nocapture` prints each command, its exit status and its output. The output can hold what
-//! claude's screen shows (`last_output` of the run), such as the account's name or email: read it
-//! before it goes into a pull request.
+//! `--nocapture` prints each command, its exit status and its output. The output can hold what the
+//! lead's screen shows (`last_output` of the run), such as an account's name or email or a folder's
+//! path: read it before it goes into a pull request.
+//!
+//! The other tests here start neither herdr nor an agent, and run with the rest: they read a run's
+//! JSON, name the variables a child does not get, and check which roles and standing orders the
+//! run's folder gives the lead.
+//!
+//! The core looks for the nearest `.herdr-fleet/agents` and `.herdr-fleet/standing.md` from the
+//! working folder upward, without stopping at a repository's root. The run folder lies in this
+//! checkout, which has the Rust project's own lead role and standing orders, so the run folder has
+//! an empty `standing.md` and an empty `agents/` of its own under `.herdr-fleet/`: they are the
+//! nearer ones, and the lead gets neither of the checkout's.
 //!
 //! Isolation (`.herdr-fleet/standing.md`, "The factory must keep running"):
 //!
-//! - no `*_API_KEY` variable reaches a child: the agent runs on the subscription;
-//! - no `HERDR_*` variable reaches a child, as the pane this runs in carries variables that point at
-//!   the person's herdr and their running fleet; the core and the CLI get only the ones this test
-//!   sets (`HERDR_FLEET_URL`, `HERDR_FLEET_STATE_DIR`, `HERDR_SOCKET`, `HERDR_FLEET_GROUP`);
+//! - no variable of `removed_variables` reaches a child: `HERDR_*`, as the pane this runs in
+//!   carries variables that point at the person's herdr and their running fleet, and the model
+//!   providers' settings and keys (`ANTHROPIC_*`, `OPENAI_*`, `GEMINI_*`, `GOOGLE_*`, `AWS_*`,
+//!   `CLAUDE_CODE_USE_*`, `*_API_KEY`), so that the agent runs on the subscription; the core and
+//!   the CLI get only the `HERDR_*` ones this test sets (`HERDR_FLEET_URL`,
+//!   `HERDR_FLEET_STATE_DIR`, `HERDR_SOCKET`, `HERDR_FLEET_GROUP`);
 //! - herdr runs as the session `herdr-fleet-rs-<run id>` (`<run id>` is `<pid>-<unix seconds>`),
 //!   every herdr command names it with `--session`, and it is stopped at the end, also when an
 //!   assertion fails;
 //! - the core listens on a port from 7400 to 7499, never the running fleet's 7317;
-//! - the state folder, the repository and the logs are in `rust/.dev-state/<run id>/`, which stays
-//!   after the run as its evidence;
+//! - the state folder, the repository, the logs and the empty `.herdr-fleet/` are in
+//!   `rust/.dev-state/<run id>/`, which stays after the run as its evidence;
 //! - `XDG_CONFIG_HOME` is never the person's `~/.config`. The core's is `<run folder>/config`, where
 //!   it looks for the person's fleet config, roles and standing orders
 //!   (`$XDG_CONFIG_HOME/herdr-fleet`, issue #270). Every other child's, herdr's and so its panes'
@@ -68,13 +87,17 @@ const TASK: &str = concat!(
     "strings, then end your turn. Do nothing else: no code, no commits, no other agents.",
 );
 
-/// The repository's `.herdr-fleet/fleet.json`: the thread's lead on claude's `haiku`, with no
-/// fallback to another CLI.
-const FLEET_JSON: &str =
-    r#"{"roles":{"lead":{"agent":"claude","model":"haiku","fallbackModels":[]}}}"#;
+/// The repository's `.herdr-fleet/fleet.json`: the thread's lead on pi's
+/// `opencode-go/deepseek-v4.1-flash`, with no fallback to another CLI or model.
+const FLEET_JSON: &str = r#"{"roles":{"lead":{"agent":"pi","model":"opencode-go/deepseek-v4.1-flash","fallbackModels":[]}}}"#;
 
 /// A Unix socket's path ends at 107 bytes on Linux and 103 on macOS.
 const SOCKET_PATH_MAX: usize = 103;
+
+/// Where the core puts the worktree of the thread `id` in the repository `repo`.
+fn thread_worktree(repo: &Path, id: &str) -> PathBuf {
+    repo.join(".herdr-fleet").join("worktrees").join(id)
+}
 
 /// What this run started, and where. Dropping it stops what it started, so that a failed assertion
 /// cleans up as a passed run does.
@@ -85,7 +108,8 @@ struct Live {
     /// (see the top of this file), and removed after a passed run.
     config_home: PathBuf,
     /// `rust/.dev-state/<run id>/`: `state/` (`HERDR_FLEET_STATE_DIR`), `config/` (the core's
-    /// `XDG_CONFIG_HOME`), `zsh/` (`ZDOTDIR`), `repo/`, and the logs of herdr and the core. Kept.
+    /// `XDG_CONFIG_HOME`), `zsh/` (`ZDOTDIR`), `repo/`, `.herdr-fleet/` (empty, see the top of this
+    /// file), and the logs of herdr and the core. Kept.
     base: PathBuf,
     herdr: Option<Child>,
     core: Option<Child>,
@@ -99,14 +123,7 @@ impl Live {
             .nth(2)
             .expect("rust/crates/core is two folders below rust/");
         let base = rust_dir.join(".dev-state").join(run_id);
-        for folder in ["state", "config", "zsh", "repo"] {
-            let path = base.join(folder);
-            fs::create_dir_all(&path)
-                .unwrap_or_else(|error| panic!("cannot create {}: {error}", path.display()));
-        }
-        // empty, so that zsh does not ask its new-user questions in herdr's panes; `ZDOTDIR` keeps
-        // those panes from reading the person's zsh files
-        fs::write(base.join("zsh").join(".zshrc"), "").expect("an empty .zshrc");
+        make_run_folders(&base);
         let base = fs::canonicalize(&base).expect("the run's folder is there");
         let config_home = PathBuf::from(format!("/tmp/hfrs-{run_id}"));
         // 0700 as `mkdtemp` makes it: herdr's socket is in it, and a socket is a way into its panes
@@ -123,8 +140,8 @@ impl Live {
         }
     }
 
-    /// A command of this run: the test's own environment without any `HERDR_*` or `*_API_KEY`
-    /// variable, and with `XDG_CONFIG_HOME` on this run's own folder.
+    /// A command of this run: the test's own environment without the variables of
+    /// [`removed_variables`], and with `XDG_CONFIG_HOME` on this run's own folder.
     fn command(&self, program: impl AsRef<OsStr>) -> Command {
         let mut command = Command::new(program);
         for name in removed_variables() {
@@ -155,6 +172,22 @@ impl Live {
             .join(&self.session)
             .join("herdr.sock")
     }
+}
+
+/// Makes the folders of a run in `base` (see [`Live::base`]), which are empty or hold only what
+/// this run puts there.
+fn make_run_folders(base: &Path) {
+    for folder in ["state", "config", "zsh", "repo", ".herdr-fleet/agents"] {
+        let path = base.join(folder);
+        fs::create_dir_all(&path)
+            .unwrap_or_else(|error| panic!("cannot create {}: {error}", path.display()));
+    }
+    // empty, so that zsh does not ask its new-user questions in herdr's panes; `ZDOTDIR` keeps
+    // those panes from reading the person's zsh files
+    fs::write(base.join("zsh").join(".zshrc"), "").expect("an empty .zshrc");
+    // empty: the core finds the nearest `.herdr-fleet/standing.md` and `.herdr-fleet/agents` from
+    // the working folder upward, so without these it would find this checkout's own
+    fs::write(base.join(".herdr-fleet").join("standing.md"), "").expect("an empty standing.md");
 }
 
 impl Drop for Live {
@@ -199,15 +232,36 @@ impl Drop for Live {
     }
 }
 
-/// The names of the variables no child of this run gets: `HERDR_*`, and `*_API_KEY` (standing
-/// orders: the agents run on the person's subscriptions only).
+/// The prefixes of the variables no child of this run gets. `server/cli-child.ts` passes a CLI a
+/// short list of names only, so none of these reaches it: `HERDR_*` points at the person's herdr
+/// and their running fleet, and the others are a model provider's keys and settings (a project, a
+/// region, the switch to Bedrock or Vertex), which would send an agent somewhere other than the
+/// person's subscription (standing orders: the agents run on the person's subscriptions only).
+const REMOVED_PREFIXES: [&str; 7] = [
+    "HERDR_",
+    "ANTHROPIC_",
+    "OPENAI_",
+    "GEMINI_",
+    "GOOGLE_",
+    "AWS_",
+    "CLAUDE_CODE_USE_",
+];
+
+/// Does no child of this run get the variable `name`? That is so for a name that starts with one
+/// of [`REMOVED_PREFIXES`] and for any `*_API_KEY`, in any case.
+fn is_removed(name: &str) -> bool {
+    let upper = name.to_ascii_uppercase();
+    REMOVED_PREFIXES
+        .iter()
+        .any(|prefix| upper.starts_with(prefix))
+        || upper.ends_with("_API_KEY")
+}
+
+/// The names of the variables no child of this run gets (see [`is_removed`]).
 fn removed_variables() -> Vec<String> {
     let mut names: Vec<String> = std::env::vars_os()
         .map(|(name, _)| name.to_string_lossy().into_owned())
-        .filter(|name| {
-            let upper = name.to_ascii_uppercase();
-            upper.starts_with("HERDR_") || upper.ends_with("_API_KEY")
-        })
+        .filter(|name| is_removed(name))
         .collect();
     names.sort();
     names
@@ -443,8 +497,35 @@ fn json_of(what: &str, finished: &Finished) -> Value {
         .unwrap_or_else(|error| panic!("{what} did not print JSON ({error})"))
 }
 
+/// What the test reads of a run, as `fleet thread --json` and `fleet list --json` print it: the
+/// core's `AgentRun`, whose keys are camelCase.
+struct ListedRun<'a> {
+    id: &'a str,
+    /// the thread's own fleet, which `fleet wait` and `fleet list` name
+    group: &'a str,
+    pane_id: &'a str,
+    /// the repository the thread works for: the run's repository
+    project: &'a str,
+    /// the thread's branch
+    branch: &'a str,
+    /// `outcome.report.state`: what the lead's last settled turn reported, if it reported
+    report_state: Option<&'a str>,
+}
+
+/// The fields of a run that the test reads; fails with the whole run when one is missing or empty.
+fn listed_run(run: &Value) -> ListedRun<'_> {
+    ListedRun {
+        id: text(run, "id"),
+        group: text(run, "group"),
+        pane_id: text(run, "paneId"),
+        project: text(run, "project"),
+        branch: text(run, "branch"),
+        report_state: run.pointer("/outcome/report/state").and_then(Value::as_str),
+    }
+}
+
 #[test]
-#[ignore = "starts herdr and a real claude agent (haiku); run by hand"]
+#[ignore = "starts herdr and a real pi agent (opencode-go/deepseek-v4.1-flash); run by hand"]
 fn live_thread() {
     // 14. each command is printed with its exit status and output by `execute`, a command that
     // stays up by `spawn_logged` (its output is in the run's folder), the raw request by `post_json`
@@ -527,7 +608,7 @@ fn live_thread() {
         },
     );
 
-    // 6. a repository with the fleet's config and one commit
+    // 6. a repository of its own, with the fleet's config and one commit
     let repo = live.base.join("repo");
     let git = |args: &[&str]| {
         let mut command = live.command("git");
@@ -535,8 +616,6 @@ fn live_thread() {
         run_ok("git", command, Duration::from_secs(60))
     };
     git(&["init", "-b", "main"]);
-    git(&["config", "user.name", "live thread"]);
-    git(&["config", "user.email", "live-thread@example.invalid"]);
     fs::create_dir_all(repo.join(".herdr-fleet")).expect("the .herdr-fleet folder");
     fs::write(repo.join(".herdr-fleet").join("fleet.json"), FLEET_JSON).expect("fleet.json");
     fs::write(
@@ -545,8 +624,13 @@ fn live_thread() {
     )
     .expect("README.md");
     git(&["add", "-A"]);
-    // no signing and no hooks of the person's own git config, which the repository would not have
+    // the author is given to this commit alone, so that no `git config` is written. No signing and
+    // no hooks of the person's own git config, which the repository would not have.
     git(&[
+        "-c",
+        "user.name=live thread",
+        "-c",
+        "user.email=live-thread@example.invalid",
         "-c",
         "commit.gpgsign=false",
         "-c",
@@ -607,8 +691,8 @@ fn live_thread() {
         Duration::from_secs(300),
     );
     let first = json_of("fleet thread --json", &started);
-    let id = text(&first, "id").to_owned();
-    let group = text(&first, "group").to_owned();
+    let first_run = listed_run(&first);
+    let (id, group) = (first_run.id.to_owned(), first_run.group.to_owned());
 
     // 10. the turn the thread handed its lead ends
     let waited = run(
@@ -634,12 +718,13 @@ fn live_thread() {
         .and_then(|runs| runs.iter().find(|run| run["id"] == id.as_str()))
         .unwrap_or_else(|| panic!("fleet list --json has no run {id}: {runs:#}"));
     println!("run {id}:\n{run:#}");
+    let lead = listed_run(run);
     assert_eq!(
-        run.pointer("/outcome/report/state").and_then(Value::as_str),
+        lead.report_state,
         Some("ready"),
         "the lead's report is not `ready`: see its outcome in the run above"
     );
-    let pane_id = text(run, "pane_id");
+    let pane_id = lead.pane_id;
 
     // 12. the thread ends. While it lives its pane is listed: otherwise "not listed" after the
     // discard would prove nothing.
@@ -662,12 +747,8 @@ fn live_thread() {
 
     // 13. nothing of the thread is left: no worktree, no branch, no pane (herdr closes it after
     // the answer, so that is polled)
-    let project = text(run, "project");
-    let branch = text(run, "branch");
-    let worktree = Path::new(project)
-        .join(".herdr-fleet")
-        .join("worktrees")
-        .join(&id);
+    let (project, branch) = (lead.project, lead.branch);
+    let worktree = thread_worktree(Path::new(project), &id);
     assert!(
         !worktree.exists(),
         "the worktree {} is still there",
@@ -702,4 +783,151 @@ fn live_thread() {
          worktree {} and its branch {branch} are gone",
         worktree.display()
     );
+}
+
+/// A run as `fleet thread --json` printed it in the first live run of this test (the core's
+/// `AgentRun`, camelCase keys), with its paths shortened. Its lead was a claude agent on `haiku`
+/// then, before the lead became pi. The lead had not reported in that run, so `outcome` is written
+/// as `protocol::TurnOutcome` documents its wire form: `{ report: {…} }`.
+const RUN: &str = r#"{
+  "id": "1ac7c234",
+  "name": "live thread",
+  "role": "lead",
+  "agent": "claude",
+  "group": "fleet-7f683341",
+  "herdrName": "f7f683341-lead-1ac7",
+  "paneId": "w2:p2",
+  "workspaceId": "w2",
+  "cwd": "/work/repo/.herdr-fleet/worktrees/1ac7c234",
+  "model": "haiku",
+  "thinking": "high",
+  "state": "blocked",
+  "depth": 1,
+  "interactive": true,
+  "worktree": true,
+  "startedAt": 1794474108625,
+  "updatedAt": 1794474112501,
+  "outcome": { "report": { "state": "ready", "summary": "done", "evidence": ["wrote report.json"] } },
+  "branch": "fleet/1ac7c234",
+  "project": "/work/repo",
+  "base": "e314485361b8a997a483b4f268a9f7a632a131ab",
+  "baseBranch": "main"
+}"#;
+
+#[test]
+fn a_run_is_read_by_the_keys_the_core_writes() {
+    let run: Value = serde_json::from_str(RUN).expect("the sample is JSON");
+    let read = listed_run(&run);
+    assert_eq!(read.id, "1ac7c234");
+    assert_eq!(read.group, "fleet-7f683341");
+    assert_eq!(read.pane_id, "w2:p2");
+    assert_eq!(read.project, "/work/repo");
+    assert_eq!(read.branch, "fleet/1ac7c234");
+    assert_eq!(read.report_state, Some("ready"));
+}
+
+#[test]
+fn a_run_that_has_not_reported_has_no_report_state() {
+    let mut run: Value = serde_json::from_str(RUN).expect("the sample is JSON");
+    run.as_object_mut()
+        .expect("the sample is an object")
+        .remove("outcome");
+    assert_eq!(listed_run(&run).report_state, None);
+}
+
+#[test]
+fn herdr_and_provider_variables_are_removed_and_the_others_kept() {
+    // the prefixes and the suffix as the person's instruction lists them
+    for name in [
+        "HERDR_SOCKET",
+        "HERDR_FLEET_URL",
+        "ANTHROPIC_BASE_URL",
+        "ANTHROPIC_AUTH_TOKEN",
+        "OPENAI_ORG_ID",
+        "GEMINI_MODEL",
+        "GOOGLE_CLOUD_PROJECT",
+        "AWS_REGION",
+        "CLAUDE_CODE_USE_BEDROCK",
+        "CLAUDE_CODE_USE_VERTEX",
+        "ANTHROPIC_API_KEY",
+        "SOME_API_KEY",
+        "some_api_key",
+    ] {
+        assert!(is_removed(name), "{name} reaches a child");
+    }
+    for name in [
+        "PATH",
+        "HOME",
+        "XDG_CONFIG_HOME",
+        "CLAUDE_CONFIG_DIR",
+        "GOOGLE",
+        "AWS",
+        "API_KEYS",
+    ] {
+        assert!(!is_removed(name), "{name} is removed from a child");
+    }
+}
+
+/// A folder of the test's own in the system's temporary folder, removed when it is dropped.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new() -> Scratch {
+        let path = std::env::temp_dir().join(format!("hfrs-scratch-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&path);
+        fs::create_dir_all(&path)
+            .unwrap_or_else(|error| panic!("cannot create {}: {error}", path.display()));
+        Scratch(path)
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+#[test]
+fn the_run_folder_has_the_nearest_roles_and_standing_orders() {
+    let scratch = Scratch::new();
+    // the checkout's own `.herdr-fleet/`, in a folder above the run's
+    let checkout_fleet = scratch.0.join(".herdr-fleet");
+    fs::create_dir_all(checkout_fleet.join("agents")).expect("the checkout's agents folder");
+    fs::write(
+        checkout_fleet.join("agents").join("lead.md"),
+        "---\nname: lead\n---\nthe checkout's lead\n",
+    )
+    .expect("the checkout's lead role");
+    fs::write(
+        checkout_fleet.join("standing.md"),
+        "the checkout's orders\n",
+    )
+    .expect("the checkout's standing orders");
+    let base = scratch.0.join("rust").join(".dev-state").join("1-2");
+    make_run_folders(&base);
+    // where the core looks from for a thread of the run: the folder the CLI runs in, and the
+    // thread's worktree below it
+    for cwd in [
+        base.join("repo"),
+        thread_worktree(&base.join("repo"), "abc12345"),
+    ] {
+        assert_eq!(
+            orchestrator::config::find_project_path(&cwd, "agents"),
+            Some(base.join(".herdr-fleet").join("agents")),
+            "the roles of {} are not the run's own",
+            cwd.display()
+        );
+        assert_eq!(
+            orchestrator::config::find_project_path(&cwd, "standing.md"),
+            Some(base.join(".herdr-fleet").join("standing.md")),
+            "the standing orders of {} are not the run's own",
+            cwd.display()
+        );
+        let user_dir = base.join("config").join("herdr-fleet");
+        assert_eq!(
+            orchestrator::config::load_standing_orders(&cwd, &user_dir),
+            "",
+            "the lead gets standing orders"
+        );
+    }
 }
