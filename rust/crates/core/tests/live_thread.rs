@@ -9,7 +9,9 @@
 //! - `fleet wait` returns once that turn has ended;
 //! - `fleet list --json` shows the run with `outcome.report.state == "ready"`;
 //! - `POST /api/fleet/runs/<id>/land {"action":"discard"}` ends the thread;
-//! - its worktree, its branch and its pane are gone.
+//! - its worktree, its branch and its pane are gone: herdr's `pane list` is JSON, and its pane ids
+//!   are compared whole (`w2:p2` is not `w2:p20`);
+//! - the core, sent SIGTERM, ends with status 0 within 10 s.
 //!
 //! The lead is pi, not the `claude:haiku` the issue names: claude asks "Is this a project you
 //! created or one you trust?" in a repository it was not told to trust, and the lead then stops
@@ -34,8 +36,9 @@
 //! path: read it before it goes into a pull request.
 //!
 //! The other tests here start neither herdr nor an agent, and run with the rest: they read a run's
-//! JSON, name the variables a child does not get, and check which roles and standing orders the
-//! run's folder gives the lead.
+//! JSON and herdr's pane list, name the variables a child does not get, decide which folder a
+//! failed run keeps, stop a shell with SIGTERM as the last step does the core, and check which roles
+//! and standing orders the run's folder gives the lead.
 //!
 //! The core looks for the nearest `.herdr-fleet/agents` and `.herdr-fleet/standing.md` from the
 //! working folder upward, without stopping at a repository's root. The run folder lies in this
@@ -46,10 +49,11 @@
 //! Isolation (`.herdr-fleet/standing.md`, "The factory must keep running"):
 //!
 //! - no variable of `removed_variables` reaches a child: `HERDR_*`, as the pane this runs in
-//!   carries variables that point at the person's herdr and their running fleet, and the model
+//!   carries variables that point at the person's herdr and their running fleet; the model
 //!   providers' settings and keys (`ANTHROPIC_*`, `OPENAI_*`, `GEMINI_*`, `GOOGLE_*`, `AWS_*`,
-//!   `CLAUDE_CODE_USE_*`, `*_API_KEY`), so that the agent runs on the subscription; the core and
-//!   the CLI get only the `HERDR_*` ones this test sets (`HERDR_FLEET_URL`,
+//!   `CLAUDE_CODE_USE_*`, `*_API_KEY`), so that the agent runs on the subscription; and the
+//!   person's credentials (`*_TOKEN`, `*_SECRET`, `*_PASSWORD`, `GH_*`, `GITHUB_*`, `OPENCODE_*`).
+//!   The core and the CLI get only the `HERDR_*` ones this test sets (`HERDR_FLEET_URL`,
 //!   `HERDR_FLEET_STATE_DIR`, `HERDR_SOCKET`, `HERDR_FLEET_GROUP`);
 //! - herdr runs as the session `herdr-fleet-rs-<run id>` (`<run id>` is `<pid>-<unix seconds>`),
 //!   every herdr command names it with `--session`, and it is stopped at the end, also when an
@@ -63,16 +67,18 @@
 //!   included, is a short folder of this run's own under `/tmp`, where herdr puts the session's
 //!   socket: a Unix socket's path ends at 107 bytes (103 on macOS), and herdr's socket under
 //!   `<run folder>/config` would be about 160 bytes in a worktree
-//!   (`server/reattach.contract.test.ts` has the same reason).
+//!   (`server/reattach.contract.test.ts` has the same reason). It is removed at the end, unless
+//!   herdr ran and the run failed or herdr did not stop (`keeps_session_folder`).
 
 #![cfg(unix)]
 
 use std::ffi::OsStr;
 use std::fs::{self, DirBuilder, File};
-use std::io::{Read, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::os::unix::fs::DirBuilderExt;
 use std::os::unix::net::UnixStream;
+use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
@@ -105,7 +111,7 @@ struct Live {
     /// The herdr session, `herdr-fleet-rs-<run id>`.
     session: String,
     /// `XDG_CONFIG_HOME` of every child but the core: herdr's session folder is under it. Short
-    /// (see the top of this file), and removed after a passed run.
+    /// (see the top of this file), and removed unless [`keeps_session_folder`] says to keep it.
     config_home: PathBuf,
     /// `rust/.dev-state/<run id>/`: `state/` (`HERDR_FLEET_STATE_DIR`), `config/` (the core's
     /// `XDG_CONFIG_HOME`), `zsh/` (`ZDOTDIR`), `repo/`, `.herdr-fleet/` (empty, see the top of this
@@ -197,6 +203,7 @@ impl Drop for Live {
             let _ = core.kill();
             let _ = core.wait();
         }
+        let herdr_started = self.herdr.is_some();
         let mut stopped = true;
         if let Some(mut server) = self.herdr.take() {
             let _ = execute(
@@ -220,24 +227,33 @@ impl Drop for Live {
                 print_tail(&self.base.join(log), 40);
             }
         }
-        if stopped && !failed {
-            let _ = fs::remove_dir_all(&self.config_home);
-        } else {
+        if keeps_session_folder(herdr_started, stopped, failed) {
             println!(
                 "kept for the evidence: {} and herdr's session folder {}",
                 self.base.display(),
                 self.config_home.display()
             );
+        } else {
+            let _ = fs::remove_dir_all(&self.config_home);
         }
     }
 }
 
+/// Does a run leave `/tmp/hfrs-<run id>`, herdr's session folder, as evidence? Only when herdr ran
+/// and the run failed or herdr did not stop: a run that never started it has nothing of the
+/// session to keep.
+fn keeps_session_folder(herdr_started: bool, herdr_stopped: bool, failed: bool) -> bool {
+    herdr_started && (failed || !herdr_stopped)
+}
+
 /// The prefixes of the variables no child of this run gets. `server/cli-child.ts` passes a CLI a
 /// short list of names only, so none of these reaches it: `HERDR_*` points at the person's herdr
-/// and their running fleet, and the others are a model provider's keys and settings (a project, a
-/// region, the switch to Bedrock or Vertex), which would send an agent somewhere other than the
-/// person's subscription (standing orders: the agents run on the person's subscriptions only).
-const REMOVED_PREFIXES: [&str; 7] = [
+/// and their running fleet; `ANTHROPIC_*` to `CLAUDE_CODE_USE_*` are a model provider's keys and
+/// settings (a project, a region, the switch to Bedrock or Vertex), which would send an agent
+/// somewhere other than the person's subscription (standing orders: the agents run on the
+/// person's subscriptions only); `GH_*`, `GITHUB_*` and `OPENCODE_*` are the person's GitHub and
+/// OpenCode settings and tokens.
+const REMOVED_PREFIXES: [&str; 10] = [
     "HERDR_",
     "ANTHROPIC_",
     "OPENAI_",
@@ -245,16 +261,25 @@ const REMOVED_PREFIXES: [&str; 7] = [
     "GOOGLE_",
     "AWS_",
     "CLAUDE_CODE_USE_",
+    "GH_",
+    "GITHUB_",
+    "OPENCODE_",
 ];
 
+/// The endings of the variables no child of this run gets, whatever they are for: a key, a token,
+/// a secret or a password (`CLAUDE_CODE_MESSAGING_TOKEN` of a Claude Code pane is one).
+const REMOVED_SUFFIXES: [&str; 4] = ["_API_KEY", "_TOKEN", "_SECRET", "_PASSWORD"];
+
 /// Does no child of this run get the variable `name`? That is so for a name that starts with one
-/// of [`REMOVED_PREFIXES`] and for any `*_API_KEY`, in any case.
+/// of [`REMOVED_PREFIXES`] and for one that ends with one of [`REMOVED_SUFFIXES`], in any case.
 fn is_removed(name: &str) -> bool {
     let upper = name.to_ascii_uppercase();
     REMOVED_PREFIXES
         .iter()
         .any(|prefix| upper.starts_with(prefix))
-        || upper.ends_with("_API_KEY")
+        || REMOVED_SUFFIXES
+            .iter()
+            .any(|suffix| upper.ends_with(suffix))
 }
 
 /// The names of the variables no child of this run gets (see [`is_removed`]).
@@ -471,16 +496,51 @@ fn post_json(port: u16, path: &str, body: &str, limit: Duration) -> (u16, String
     (status, body.to_owned())
 }
 
-/// Does `text` name `id` as a whole? `w1:p1` is in `[w1:p1]` and in `"w1:p1"`, but not in `w1:p12`.
-/// Any character that is not a letter or a digit ends a name, so a doubtful match counts as a
-/// mention.
-fn mentions(text: &str, id: &str) -> bool {
-    text.match_indices(id).any(|(at, _)| {
-        let before = text[..at].chars().next_back();
-        let after = text[at + id.len()..].chars().next();
-        !before.is_some_and(|c| c.is_ascii_alphanumeric())
-            && !after.is_some_and(|c| c.is_ascii_alphanumeric())
-    })
+/// Is `id` the id of a pane in `listed`, the standard output of `herdr pane list`? That is one JSON
+/// object, `{"id":"cli:pane:list","result":{"panes":[{"pane_id":"w1:p1",…},…],"type":"pane_list"}}`.
+/// The ids are compared whole: `w2:p2` is not `w2:p20`, and the id that another field of a pane
+/// shows (its tab, its title) is not a pane. Output of another shape, or a pane without its id
+/// (nothing could be told gone from it), is an error that shows the output.
+fn lists_pane(listed: &str, id: &str) -> Result<bool, String> {
+    let json: Value = serde_json::from_str(listed.trim())
+        .map_err(|error| format!("herdr's pane list is not JSON ({error}): {listed}"))?;
+    let panes = json
+        .pointer("/result/panes")
+        .and_then(Value::as_array)
+        .ok_or_else(|| format!("herdr's pane list has no result.panes array: {listed}"))?;
+    let ids = panes
+        .iter()
+        .map(|pane| {
+            pane["pane_id"]
+                .as_str()
+                .ok_or_else(|| format!("a pane of herdr's pane list has no pane_id: {listed}"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(ids.contains(&id))
+}
+
+/// Stops `child` with SIGTERM, as `kill <pid>` does (the crate has no libc to send it itself), and
+/// waits up to `limit` for it to end: how it ended, or why it could not be stopped.
+fn terminate(child: &mut Child, limit: Duration) -> Result<ExitStatus, String> {
+    let pid = child.id().to_string();
+    let mut kill = Command::new("kill");
+    kill.args(["-TERM", &pid]);
+    let sent = execute(kill, Duration::from_secs(10))?;
+    if !sent.status.success() {
+        return Err(format!(
+            "kill -TERM {pid} ended with {}",
+            status_text(sent.status)
+        ));
+    }
+    let deadline = Instant::now() + limit;
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status),
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(50)),
+            Ok(None) => return Err(format!("still running {limit:?} after SIGTERM")),
+            Err(error) => return Err(format!("cannot wait for it: {error}")),
+        }
+    }
 }
 
 /// A string field of a run's JSON; fails with the whole run when it is missing or empty.
@@ -734,7 +794,7 @@ fn live_thread() {
         Duration::from_secs(30),
     );
     assert!(
-        mentions(&open.stdout, pane_id),
+        lists_pane(&open.stdout, pane_id).unwrap_or_else(|problem| panic!("{problem}")),
         "herdr's pane list does not name the lead's pane {pane_id} while its thread lives"
     );
     let (status, body) = post_json(
@@ -773,15 +833,31 @@ fn live_thread() {
             )
             .is_ok_and(|listed| {
                 listed.status.success()
-                    && !mentions(&listed.stdout, pane_id)
-                    && !mentions(&listed.stderr, pane_id)
+                    && !lists_pane(&listed.stdout, pane_id)
+                        .unwrap_or_else(|problem| panic!("{problem}"))
             })
         },
     );
+
+    // 15. the core stops on SIGTERM, as the person's `kill` stops it: it ends within 10 s, with 0
+    // (`main.rs` ends the process 2 s after the first signal at the latest). The guard's `kill` is
+    // for a failed run: it finds the core already gone after this.
+    let status = terminate(
+        live.core.as_mut().expect("the core was started"),
+        Duration::from_secs(10),
+    )
+    .unwrap_or_else(|problem| panic!("the core did not stop on SIGTERM: {problem}"));
+    println!("the core ended with {} after SIGTERM", status_text(status));
+    assert!(
+        status.success(),
+        "the core ended with {} after SIGTERM, not with 0",
+        status_text(status)
+    );
     println!(
         "live_thread: thread {id} reported ready and was discarded; its pane {pane_id}, its \
-         worktree {} and its branch {branch} are gone",
-        worktree.display()
+         worktree {} and its branch {branch} are gone; the core ended with {} on SIGTERM",
+        worktree.display(),
+        status_text(status)
     );
 }
 
@@ -852,28 +928,46 @@ fn herdr_and_provider_variables_are_removed_and_the_others_kept() {
         "ANTHROPIC_API_KEY",
         "SOME_API_KEY",
         "some_api_key",
+        // the person's credentials: a name that ends in `_TOKEN`, `_SECRET` or `_PASSWORD`, and
+        // GitHub's and OpenCode's own
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+        "SOME_TOKEN",
+        "some_token",
+        "SOME_SECRET",
+        "SOME_PASSWORD",
+        "GH_TOKEN",
+        "GH_HOST",
+        "GITHUB_TOKEN",
+        "GITHUB_ACTIONS",
+        "OPENCODE_CONFIG_CONTENT",
+        "OPENCODE_DISABLE_AUTOUPDATE",
     ] {
         assert!(is_removed(name), "{name} reaches a child");
     }
     for name in [
         "PATH",
         "HOME",
+        "TERM",
         "XDG_CONFIG_HOME",
         "CLAUDE_CONFIG_DIR",
         "GOOGLE",
         "AWS",
         "API_KEYS",
+        // near misses: the prefix without its `_`, and a word that is in the name but does not end it
+        "GHOSTTY_RESOURCES_DIR",
+        "PASSWORD_STORE_DIR",
     ] {
         assert!(!is_removed(name), "{name} is removed from a child");
     }
 }
 
-/// A folder of the test's own in the system's temporary folder, removed when it is dropped.
+/// A folder of the test's own in the system's temporary folder, removed when it is dropped. Each
+/// test names its own, as tests run side by side in one process.
 struct Scratch(PathBuf);
 
 impl Scratch {
-    fn new() -> Scratch {
-        let path = std::env::temp_dir().join(format!("hfrs-scratch-{}", std::process::id()));
+    fn new(name: &str) -> Scratch {
+        let path = std::env::temp_dir().join(format!("hfrs-scratch-{}-{name}", std::process::id()));
         let _ = fs::remove_dir_all(&path);
         fs::create_dir_all(&path)
             .unwrap_or_else(|error| panic!("cannot create {}: {error}", path.display()));
@@ -888,8 +982,33 @@ impl Drop for Scratch {
 }
 
 #[test]
+fn a_run_that_failed_before_herdr_started_leaves_no_session_folder() {
+    let scratch = Scratch::new("never-started");
+    let config_home = scratch.0.join("hfrs-1-2");
+    fs::create_dir(&config_home).expect("the session folder");
+    let live = Live {
+        session: "herdr-fleet-rs-1-2".to_owned(),
+        config_home: config_home.clone(),
+        base: scratch.0.join("base"),
+        herdr: None,
+        core: None,
+    };
+    // a failed assertion unwinds through the guard, as in a failed run
+    let outcome = catch_unwind(AssertUnwindSafe(move || {
+        let _live = live;
+        panic!("the build failed");
+    }));
+    assert!(outcome.is_err(), "the run did not fail");
+    assert!(
+        !config_home.exists(),
+        "{} is kept though herdr never started",
+        config_home.display()
+    );
+}
+
+#[test]
 fn the_run_folder_has_the_nearest_roles_and_standing_orders() {
-    let scratch = Scratch::new();
+    let scratch = Scratch::new("roles");
     // the checkout's own `.herdr-fleet/`, in a folder above the run's
     let checkout_fleet = scratch.0.join(".herdr-fleet");
     fs::create_dir_all(checkout_fleet.join("agents")).expect("the checkout's agents folder");
@@ -928,6 +1047,132 @@ fn the_run_folder_has_the_nearest_roles_and_standing_orders() {
             orchestrator::config::load_standing_orders(&cwd, &user_dir),
             "",
             "the lead gets standing orders"
+        );
+    }
+}
+
+/// What `herdr pane list` printed in the last live run, with its paths and names shortened and
+/// some fields (the agent's session, the stripped title) left out: one JSON object. The panes are
+/// the run's own shell, `w1:p1`, and the lead's, `w2:p2`. Their tabs (`w1:t1`) and the thread's id
+/// (`6fc7a85b`, in the lead's title) are in the text, but are not panes.
+const PANE_LIST: &str = concat!(
+    r#"{"id":"cli:pane:list","result":{"panes":["#,
+    r#"{"agent_status":"unknown","cwd":"/work/repo","focused":true,"foreground_cwd":"/work/repo","#,
+    r#""pane_id":"w1:p1","revision":1,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"#,
+    r#""viewport_rows":40},"tab_id":"w1:t1","terminal_id":"term_660112214c4ad1","#,
+    r#""terminal_title":"user@host:~/work/repo","workspace_id":"w1"},"#,
+    r#"{"agent":"pi","agent_status":"done","cwd":"/work/repo/.herdr-fleet/worktrees/6fc7a85b","#,
+    r#""display_agent":"lead: live thread","focused":false,"#,
+    r#""foreground_cwd":"/work/repo/.herdr-fleet/worktrees/6fc7a85b","pane_id":"w2:p2","revision":3,"#,
+    r#""scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":40},"#,
+    r#""tab_id":"w2:t1","terminal_id":"term_660112214d2753","#,
+    r#""terminal_title":"π - fleet:live thread - 6fc7a85b","title":"live thread","#,
+    r#""tokens":{"fleet":"9844a16f","model":"deepseek-v4.1-flash","role":"lead"},"workspace_id":"w2"}"#,
+    r#"],"type":"pane_list"}}"#,
+);
+
+#[test]
+fn a_pane_is_listed_by_the_pane_id_herdr_prints() {
+    assert_eq!(lists_pane(PANE_LIST, "w1:p1"), Ok(true));
+    assert_eq!(lists_pane(PANE_LIST, "w2:p2"), Ok(true));
+    assert_eq!(lists_pane(PANE_LIST, "w3:p3"), Ok(false));
+    // in the text, in other fields than `pane_id`
+    assert_eq!(lists_pane(PANE_LIST, "w1:t1"), Ok(false));
+    assert_eq!(lists_pane(PANE_LIST, "6fc7a85b"), Ok(false));
+}
+
+#[test]
+fn a_pane_id_that_starts_another_is_a_different_pane() {
+    let long =
+        r#"{"id":"cli:pane:list","result":{"panes":[{"pane_id":"w2:p20"}],"type":"pane_list"}}"#;
+    let short =
+        r#"{"id":"cli:pane:list","result":{"panes":[{"pane_id":"w2:p2"}],"type":"pane_list"}}"#;
+    assert_eq!(lists_pane(long, "w2:p20"), Ok(true));
+    assert_eq!(lists_pane(long, "w2:p2"), Ok(false));
+    assert_eq!(lists_pane(short, "w2:p2"), Ok(true));
+    assert_eq!(lists_pane(short, "w2:p20"), Ok(false));
+}
+
+#[test]
+fn a_pane_list_that_is_not_herdrs_json_is_an_error_that_shows_it() {
+    for listed in [
+        // text that names the ids, as the old text search would have found them
+        "w1:p1 w2:p2",
+        // JSON, but not the list: an error, or a pane without its id (nothing could be told gone)
+        r#"{"id":"cli:pane:list","error":{"code":"no_server"}}"#,
+        r#"{"id":"cli:pane:list","result":{"panes":[{"title":"w2:p2"}],"type":"pane_list"}}"#,
+    ] {
+        let problem = lists_pane(listed, "w2:p2")
+            .expect_err("a list of another shape is an error, not an answer");
+        assert!(
+            problem.contains(listed),
+            "the error does not show the output: {problem}"
+        );
+    }
+}
+
+/// Starts `sh -c <script>` and returns once the script has printed a line: the traps it sets
+/// before that are in place.
+fn spawn_ready(script: &str) -> Child {
+    let mut child = Command::new("sh")
+        .args(["-c", script])
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("sh starts");
+    let mut line = String::new();
+    BufReader::new(child.stdout.as_mut().expect("a stdout pipe"))
+        .read_line(&mut line)
+        .expect("the script prints a line");
+    assert_eq!(line.trim(), "ready");
+    child
+}
+
+#[test]
+fn a_process_that_exits_0_on_sigterm_is_stopped_with_its_status() {
+    let mut child = spawn_ready("trap 'exit 0' TERM; echo ready; while :; do sleep 0.05; done");
+    let status = terminate(&mut child, Duration::from_secs(10));
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(
+        status.expect("it ends after SIGTERM").success(),
+        "it did not exit with 0"
+    );
+}
+
+#[test]
+fn a_process_that_ignores_sigterm_is_an_error_after_the_limit() {
+    // `exec`: the process that ignores the signal is the one the test holds
+    let mut child = spawn_ready("trap '' TERM; echo ready; exec sleep 60");
+    let started = Instant::now();
+    let outcome = terminate(&mut child, Duration::from_millis(300));
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(
+        outcome.is_err(),
+        "{outcome:?} for a process that did not end"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "it waited far past its limit"
+    );
+}
+
+#[test]
+fn the_session_folder_is_kept_only_when_herdr_ran_and_the_run_failed_or_herdr_did_not_stop() {
+    // (herdr was started, herdr stopped, the run failed, the folder is kept)
+    for (started, stopped, failed, kept) in [
+        (false, true, false, false),
+        (false, true, true, false), // failed before herdr: nothing of the session to keep
+        (true, true, false, false),
+        (true, true, true, true),
+        (true, false, false, true), // herdr did not stop
+        (true, false, true, true),
+    ] {
+        assert_eq!(
+            keeps_session_folder(started, stopped, failed),
+            kept,
+            "herdr started {started}, stopped {stopped}; the run failed {failed}"
         );
     }
 }
