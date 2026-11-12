@@ -158,7 +158,7 @@ pub fn router(deps: FleetApiDeps) -> axum::Router
   - 本文の JSON のうち、`serde_json` が読めず `JSON.parse` が読むもの(f64 の範囲を超える数 `1e999`、単独のサロゲート `"\ud800"`)は `invalid_json` になる。TypeScript では、`1e999` は `Infinity` として読まれ、項目の検査(例: `timeout_ms` の `invalid_timeout`)で断られる。CLI はこうした本文を送らない
   - `?lines=` の小数(`2.5`)は切り捨てて 2 行にする。TypeScript は 2.5 をそのまま runtime に渡す。`timeout_ms` の小数も切り捨てる(1 以上の値だけを受けるので、0 にはならない)
   - herdr 自身が返した code `internal_error` のエラーは 500 になる。TypeScript は 502 を返す。上の「エラーと状態コードの表」の理由による違いで、#362 で直す
-  - `POST /runs/:target/land` の line comment の `line` は、`u32` の範囲(4,294,967,295 まで)だけを受け、それより大きい整数は `invalid_body` で断る。TypeScript は `Number.isInteger` で、2^53 までの正の整数を受ける。受けた値を渡す先の `LineComment.line`(`landing` の型)が `u32` で、#269 の書くパスの外にある。この違いが出るのは、4,294,967,295 行を超えるファイルの diff に comment を付けるときだけ
+  - `POST /runs/:target/land` の line comment の `line` は、`u32` の範囲(4,294,967,295 まで)だけを受け、それより大きい整数は `invalid_body` で断る。TypeScript は `Number.isInteger` で、2^53 までの正の整数を受ける。受けた値を渡す先の `LineComment.line`(`landing` の型)が `u32` で、#269 の書くパスの外にある。この違いが出るのは、4,294,967,295 行を超えるファイルの diff に comment を付けるときだけ。型を変えるかは #366 で決める
   - usage の読み取りの `readAt` などの JavaScript の数は、整数でも `1.0` と書かれる(protocol の型が `f64` のため)。JSON を読む側(JavaScript の `JSON.parse` など)は、どちらも同じ数として読む
 - `api/js.rs` の `number` は `cli::js::number` の写しで、2 か所に同じ規則がある。protocol に移して写しを消す作業は #352 にある
 
@@ -173,7 +173,12 @@ PC は Linux 7.2.15(omarchy)、`rust/` で `HERDR_*` を外して実行した。
 - `/code-review high` の指摘で、`RuntimeError::Blocked` を 409 から 502 に、code が `internal_error` の `RuntimeError::Herdr` を 502 から 500 に直し、BOM のある本文を読めるようにした。直す前に、足したテストが `(409, "agent_blocked")` と、BOM のある本文の 400 で失敗することを見た
 - codex のレビュー(run `0cf0f0d7`、head `8c200af`)の 4 件の指摘を、次のとおり扱った
   - 計画の大きさを `serde_json::to_string` の長さで測っていたため、JavaScript と数の書き方が違った(`1.0` を `1.0` と書く。JavaScript は `1`)。`api/js.rs` の `stringify_len` で、数を ECMAScript の `Number::toString` の形にして測るよう直した。期待値は Bun 1.4.4 の `Buffer.byteLength(JSON.stringify(JSON.parse(text)))` で求めた。直す前に、足したテストが `left: 3, right: 1` と、`1.0` を 20,000 個持つ計画の `invalid_plan` で失敗することを見た
-  - `std::env::current_dir()` の失敗を空のパスにしていた → 500 `internal_error` にした。このテストはない。テストはプロセスのフォルダーを共有して並行に走るので、フォルダーを消すテストはほかのテストを壊す
+  - `std::env::current_dir()` の失敗を空のパスにしていた → 500 `internal_error` にした
   - herdr 自身の `internal_error` が 500 になる → #362 に分けた(「結果」)
   - line comment の `line` の上限 → 型が `u32` のため残した(「結果」)
-- 足したテストを含め、`cargo test --locked -p herdr-fleet-orchestrator --test api` が 21 件通った
+- codex の 2 回目のレビュー(run `b844c266`、head `eb6ab9e`)の 3 件の指摘を、次のとおり扱った
+  - herdr 自身の `internal_error` が 500 になる(1 回目の 1 件目): #362 のまま残した。直すには `runtime.rs` と `herdr_runtime.rs` を変える必要があり、どちらも #269 の書くパスの外にある
+  - line comment の `line` の上限(1 回目の 3 件目): #366 に分けた。protocol の型を変えるため、architect に問う必要がある
+  - `number_to_string` が、等距離の 2 つの候補で ECMAScript と違う末尾の数字を選ぶ(`137839762462415.625` を Bun は `…62`、Rust は `…63` と書く): 関数を `number_text` に改め、長さは常に `Number::toString` と同じで、末尾の数字は違いうると doc に書いた。この値の長さ(Bun で 18 バイト)をテストに足した。`stringify_len` が使うのは長さだけなので、計画の判定は変わらない
+- 1 回目の 4 件目(`current_dir()` の失敗)のテストを足した。プロセスのフォルダーはほかのテストと共有なので、テストの実行ファイルを子プロセスで起こし、その中でフォルダーを消して要求する。修正を `unwrap_or_default()` に戻すと、このテストは `left: (200, "")` で失敗する
+- 足したテストを含め、`cargo test --locked -p herdr-fleet-orchestrator --test api` が 22 件通った
