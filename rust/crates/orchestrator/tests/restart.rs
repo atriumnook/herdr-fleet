@@ -294,6 +294,19 @@ impl Thread {
         self.registry.get(id).unwrap()
     }
 
+    /// The news about `run` waiting in the outbox.
+    fn news(&self, run: &AgentRun) -> Vec<String> {
+        herdr_fleet_orchestrator::outbox::Outbox::open(
+            Some(self.root.join("fleet-outbox.json")),
+            self.clock.clone(),
+        )
+        .unwrap()
+        .pending_where(|notice| notice.about == run.id && notice.slot == "news")
+        .into_iter()
+        .map(|notice| notice.text)
+        .collect()
+    }
+
     /// The run that took the thread over from `run`.
     fn next(&self, run: &AgentRun) -> AgentRun {
         let id = self.run(&run.id).replaced_by.expect("a new run took over");
@@ -941,49 +954,57 @@ enum HeldAt {
     ThreadLock,
 }
 
+/// A fake call held once `held` is raised: it raises `reached` and waits for `gate`, once.
+#[derive(Clone)]
+struct Hold {
+    gate: Gate,
+    held: Flag,
+    reached: Flag,
+}
+
+impl Hold {
+    fn new() -> Hold {
+        let (gate, held, reached) = (Gate::new(), Flag::default(), Flag::default());
+        Hold {
+            gate,
+            held,
+            reached,
+        }
+    }
+
+    /// Whether the call was held, once it was let go.
+    async fn pass(&self) -> bool {
+        if !self.held.up() {
+            return false;
+        }
+        self.held.lower();
+        self.reached.raise();
+        self.gate.pass().await;
+        true
+    }
+}
+
 /// A thread without the person whose lead, on claude, ended a turn it started itself without a
 /// report, and Create PR sent to that lead while that turn's settlement waits `at` (#358). The
 /// lead works on the step when this returns; with `HeldAt::Screen`, the settlement still waits
 /// for the gate that comes back.
 async fn create_pr_sent_while_settling(at: HeldAt) -> (Thread, AgentRun, Gate) {
-    let (read_branch, hold_branch, reading_branch) =
-        (Gate::new(), Flag::default(), Flag::default());
-    let (gate, held, raised) = (
-        read_branch.clone(),
-        hold_branch.clone(),
-        reading_branch.clone(),
-    );
+    let (branch, screen) = (Hold::new(), Hold::new());
+    let hold = branch.clone();
     let t = thread_with(None, Some(json!({ "autonomous": true })), move |a| {
         a.git_branch = answer(move |_: PathBuf| {
-            let (gate, held, raised) = (gate.clone(), held.clone(), raised.clone());
-            async move {
-                // none at the start: the thread records no base, and a step reads it
-                if !held.up() {
-                    return None;
-                }
-                raised.raise();
-                gate.pass().await;
-                Some("main".to_owned())
-            }
+            let hold = hold.clone();
+            // none at the start: the thread records no base, and a step reads it
+            async move { hold.pass().await.then(|| "main".to_owned()) }
         });
     });
-    let (read_screen, hold_screen, reading_screen) =
-        (Gate::new(), Flag::default(), Flag::default());
-    let (gate, held, raised) = (
-        read_screen.clone(),
-        hold_screen.clone(),
-        reading_screen.clone(),
-    );
+    let hold = screen.clone();
     t.runtime.on_read(move |_| {
-        let (gate, held, raised) = (gate.clone(), held.clone(), raised.clone());
+        let hold = hold.clone();
         async move {
-            // only the first read once held: on claude, which herdr reports right, the
-            // settlement's look at the screen once it read the turn's files
-            if held.up() {
-                held.lower();
-                raised.raise();
-                gate.pass().await;
-            }
+            // on claude, which herdr reports right, the settlement's first look at the screen is
+            // once it read the turn's files
+            hold.pass().await;
             Ok("agent output".to_owned())
         }
     });
@@ -993,33 +1014,34 @@ async fn create_pr_sent_while_settling(at: HeldAt) -> (Thread, AgentRun, Gate) {
     // the helper's result wakes the lead, and the person presses Create PR, which reads the branch
     // under the thread's lock
     t.turn(&first, AgentState::Working).await;
-    hold_branch.raise();
+    branch.held.raise();
     let pressed = t.land_task(&first.id, LandAction::Pr);
-    until(|| reading_branch.up(), "the base branch being read").await;
+    until(|| branch.reached.up(), "the base branch being read").await;
     // the woken turn ends without a report
     match at {
         HeldAt::Screen => {
-            hold_screen.raise();
+            screen.held.raise();
             t.turn(&first, AgentState::Idle).await;
-            until(|| reading_screen.up(), "the screen being read").await;
+            until(|| screen.reached.up(), "the screen being read").await;
         }
         HeldAt::ThreadLock => {
             t.turn(&first, AgentState::Idle).await;
-            // the settlement read the turn, and waits for the lock the step holds to start the
-            // thread again
+            // the settlement read the turn and went as far as it could: to the lock the step
+            // holds, before it starts the thread again
             assert_eq!(
                 t.run(&first.id).outcome,
                 Some(TurnOutcome::NoReport {
                     problem: "report.json is missing.".to_owned()
                 })
             );
+            assert!(t.restarts().is_empty());
         }
     }
-    read_branch.open();
+    branch.gate.open();
     pressed.await.unwrap().unwrap();
     assert!(t.to(&first).last().unwrap().contains("gh pr create"));
     t.states.set(&first, AgentState::Working);
-    (t, first, read_screen)
+    (t, first, screen.gate)
 }
 
 // Not in TypeScript, whose `settleUnsentTurn` starts the thread again whatever the fleet sent
@@ -1036,6 +1058,13 @@ async fn leaves_the_restart_to_the_turn_of_a_step_the_fleet_sent_while_a_turn_th
     assert!(t.restarts().is_empty());
     assert_eq!(t.run(&first.id).replaced_by, None);
     assert!(t.runtime.closed().is_empty());
+    // nor is the turn before news while the step's turn runs: the news is still of the turn
+    // before it
+    let news = t.news(&first);
+    assert!(
+        news.len() == 1 && news[0].contains("ended its turn: waiting"),
+        "{news:?}"
+    );
     // the step's turn ends without a report too
     t.turn(&first, AgentState::Idle).await;
     let next = t.next(&first);

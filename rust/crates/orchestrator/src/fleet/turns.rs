@@ -707,9 +707,11 @@ impl Orchestrator {
             }
             _ => None,
         };
+        // a restart left to a turn sent meanwhile leaves that turn its plan, landing step and news
         if let Some(run) = self.registry().get(id)
             && is_thread(&run)
             && run.replaced_by.is_none()
+            && !self.restart_deferred(id)
         {
             // a turn that failed or left no report went nowhere; a lead taking a thread over starts
             // with its plan still open, and keeps it so while it reports blocked on it

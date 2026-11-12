@@ -67,6 +67,16 @@ impl Orchestrator {
             .await
     }
 
+    /// The lead `id` still needs a new run while a turn the fleet sent it is on its way:
+    /// `restart_thread` left the thread to that turn's settlement.
+    pub(crate) fn restart_deferred(&self, id: &str) -> bool {
+        self.turn_in_flight(id)
+            && self
+                .registry()
+                .get(id)
+                .is_some_and(|run| needs_restart(&run))
+    }
+
     /// The thread goes on in a new run of its lead, on a CLI none of its runs failed on since its
     /// last report, in the same worktree, branch and fleet. Once the new run has the task, the old
     /// run's pane closes, so one lead works in the worktree; its news is dropped and its other
@@ -264,6 +274,11 @@ impl Orchestrator {
             Some(run) if needs_restart(&run) => self.restart_thread(id, None).await,
             _ => None,
         };
+        // a restart left to a turn the fleet sent meanwhile: its landing step, news and waiters
+        // are that turn's settlement's too
+        if self.restart_deferred(id) {
+            return;
+        }
         if self
             .registry()
             .get(id)
