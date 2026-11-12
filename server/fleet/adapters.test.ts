@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { opencodeGitEnv } from "./opencode-config.ts";
 import { AGY_DENY, adapterFor, cursorUsage, type PaneContext, isAgentKind, piTurnError, splitThinking, tomlString, withThinking } from "./adapters.ts";
 import { rateLimitUntil } from "./usage.ts";
@@ -249,6 +250,39 @@ describe("agy adapter", () => {
     const refused = (line: string) => words.some((rule) => rule.every((word, i) => line.split(/\s+/)[i] === word));
     for (const line of ["git push --force origin main", "git push -f origin x", "git push --force-with-lease", "git push --mirror", "git push --delete origin x", "git push -d origin x", "git push --prune origin"]) expect(refused(line)).toBe(true);
     for (const line of ["git push", "git push -u origin fleet/t1", "git push origin HEAD:refs/heads/x", "git status --force", "git pushd -f"]) expect(refused(line)).toBe(false);
+  });
+
+  const screen = (name: string) => readFileSync(join(import.meta.dir, "../../fixtures/screens/agy", name, "screen.txt"), "utf8");
+  const QUOTA = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 75h7m14s.";
+
+  it("fails a turn that ended on the quota warning, wrapped onto the next lines or not, and not one the agent worked on after it", () => {
+    expect(agy.turnError(screen("ends-the-turn-on-individual-quota-reached-1"))).toBe(QUOTA);
+    const wrapped = "● Explored 2 files\n\n⚠ Individual quota reached. Please upgrade your subscription to\n  increase your limits. Resets in 75h7m14s.\nError ID: abc-43\n\n──────\n>\n──────\n? for shortcuts    auto · Gemini 4 Argon · high";
+    expect(agy.turnError(wrapped)).toBe(QUOTA);
+    // a later turn ran: the warning is the scrollback of an earlier one
+    const after = `⚠ ${QUOTA}\nError ID: abc-43\n\n──────\n> go on\n\n● Explored 2 files\n\n──────\n>\n──────\n? for shortcuts`;
+    expect(agy.turnError(after)).toBeUndefined();
+  });
+
+  it("reads a quota warning as the turn's only with its Error ID line and no newer prompt after it", () => {
+    // a later prompt was answered without a ● or ○ line, then the turn ended
+    expect(agy.turnError("⚠ Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 1h.\nError ID: abc-43\n\n──────\n> go on\n\nDone, nothing left.\n\n──────\n>\n──────\n? for shortcuts")).toBeUndefined();
+    // another warning, not the individual quota's
+    expect(agy.turnError("⚠ Tool quota reached.\nError ID: abc-43\n\n──────\n>\n──────\n? for shortcuts")).toBeUndefined();
+    // the individual quota's warning without the Error ID line agy writes under it
+    expect(agy.turnError("⚠ Individual quota reached. Resets in 1h.\n\n──────\n>\n──────\n? for shortcuts")).toBeUndefined();
+    // a draft in the input box is not a newer prompt
+    expect(agy.turnError("⚠ Individual quota reached. Resets in 1h.\nError ID: abc-43\n\n──────\n> a draft the person typed\n──────\n? for shortcuts")).toBe("Individual quota reached. Resets in 1h.");
+  });
+
+  it("names a file access screen as one nobody answers, with the file it asks for, and nothing else", () => {
+    const reason = agy.unanswerable?.(screen("asks-to-read-a-skill-outside-the-workspace-1"));
+    expect(reason).toContain("/home/someone/.claude/skills/clarify-ja/SKILL.md");
+    expect(reason).toContain("outside its workspace");
+    expect(agy.unanswerable?.(screen("asks-to-read-a-file-outside-the-workspace-1"))).toContain("/elsewhere/note.txt");
+    // asked, answered and the input drawn again: nothing is open
+    expect(agy.unanswerable?.(`${screen("asks-to-read-a-skill-outside-the-workspace-1")}\n● Explored 1 file\n\n──────\n>\n──────\n? for shortcuts`)).toBeUndefined();
+    expect(agy.unanswerable?.("Requesting permission for:\n  rm -rf build\nRun this command?")).toBeUndefined();
   });
 
 });

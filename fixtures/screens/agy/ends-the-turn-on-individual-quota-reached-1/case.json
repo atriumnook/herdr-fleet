@@ -1,0 +1,6 @@
+{
+  "about": "agy (gemini-4-argon-high, 2026-11-12) ran out of its Gemini quota mid-turn and ended the turn on this warning; herdr reported the pane done. Read through herdr as the fleet reads it (the last 14 lines), from the real pane, read-only: a failed turn whose 'Resets in' sets the cooldown",
+  "adapter": "agy",
+  "check": "turnError",
+  "expected": "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 75h7m14s."
+}

@@ -979,6 +979,94 @@ describe("agent kinds", () => {
     expect(await settled).toMatchObject({ state: "idle" });
   });
 
+  describe("an agy helper at a screen nobody answers", () => {
+    const READY = ">\n? for shortcuts    auto · Gemini 4 Argon · high";
+    const FILE_ACCESS = "● Used ReadFile (ctrl+o to expand)\n\nFile access\n──────\n\nRead: /home/someone/notes.md\nReason: outside workspace\n\nAllow access to this file?\n> 1. Yes, allow access\n  2. Yes, and always allow non-workspace access\n  3. No, deny access\n\n  ↑/↓ Navigate\nesc to cancel    auto · Gemini 4 Argon · high";
+
+    async function stopAtFileAccess(agents: AgentDefinition[]) {
+      const { fleet, runtime } = setup({ agents });
+      runtime.output = READY;
+      const run = await spawn(fleet);
+      const sent = runtime.prompts.length;
+      const waiting = fleet.wait(run.id, 2000, "g1");
+      // herdr reports agy's file access screen as done
+      runtime.getStatus = "done";
+      runtime.output = FILE_ACCESS;
+      await Bun.sleep(GRACE + 10);
+      fleet.onPaneStatus(run.paneId);
+      return { fleet, runtime, run, sent, waiting };
+    }
+
+    it("fails at a file access screen with nothing typed into it, and the wait follows the next candidate", async () => {
+      const { fleet, runtime, run, sent, waiting } = await stopAtFileAccess([role("worker", { agent: "agy", fallbackModels: ["claude:sonnet"] })]);
+      const failed = await waiting;
+      expect(failed.state).toBe("failed");
+      expect(failed.lastError).toContain("/home/someone/notes.md");
+      expect(fleet.get(failed.replacedBy!, "g1")).toMatchObject({ agent: "claude", model: "sonnet" });
+      // no choice, no Esc, no text to the agy pane, and its pane stays where the person can see it
+      expect(runtime.interrupts).toBe(0);
+      expect(runtime.prompts.slice(sent).filter((prompt) => prompt.name === run.herdrName)).toEqual([]);
+      expect(runtime.closed).not.toContain(run.paneId);
+      await Bun.sleep(20);
+      expect(fleet.get(run.id, "g1").state).toBe("failed");
+    });
+
+    it("fails with the reason when no candidate is left, so its caller's wait returns", async () => {
+      const { fleet, waiting, run } = await stopAtFileAccess([role("worker", { agent: "agy" })]);
+      const failed = await waiting;
+      expect(failed).toMatchObject({ state: "failed" });
+      expect(failed.replacedBy).toBeUndefined();
+      expect(failed.lastError).toContain("/home/someone/notes.md");
+      expect(await fleet.wait(run.id, 50, "g1")).toMatchObject({ state: "failed" });
+    });
+
+    it("fails on the screen it saw, though the pane cannot be read again right after", async () => {
+      const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy", fallbackModels: ["claude:sonnet"] })] });
+      runtime.output = READY;
+      const run = await spawn(fleet);
+      const waiting = fleet.wait(run.id, 2000, "g1");
+      runtime.getStatus = "done";
+      runtime.output = FILE_ACCESS;
+      // the read that sees the screen succeeds, the next one fails once
+      let reads = 0;
+      const read = runtime.read.bind(runtime);
+      runtime.read = async () => { reads += 1; if (reads === 2) throw new Error("read failed"); return read(); };
+      await Bun.sleep(GRACE + 10);
+      fleet.onPaneStatus(run.paneId);
+      const failed = await waiting;
+      expect(failed.state).toBe("failed");
+      expect(failed.lastError).toContain("/home/someone/notes.md");
+    });
+
+    it("keeps an interactive agy run blocked at it, for the person who watches that pane", async () => {
+      const { waiting } = await stopAtFileAccess([role("worker", { agent: "agy", interactive: true })]);
+      expect(await waiting).toMatchObject({ state: "blocked" });
+    });
+
+    it("fails a turn that ended on the quota warning, cools agy's Gemini models down until it resets, and re-spawns past them", async () => {
+      const usage = new UsageTracker({ file: null });
+      const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy", model: "gemini-4-argon-high", fallbackModels: ["agy:gemini-4-argon-medium", "claude:sonnet"] })], usage });
+      runtime.output = READY;
+      const run = await spawn(fleet);
+      const waiting = fleet.wait(run.id, 2000, "g1");
+      runtime.getStatus = "done";
+      runtime.output = readFileSync(join(import.meta.dir, "../../fixtures/screens/agy/ends-the-turn-on-individual-quota-reached-1/screen.txt"), "utf8");
+      const before = Date.now();
+      await Bun.sleep(GRACE + 10);
+      fleet.onPaneStatus(run.paneId);
+      const failed = await waiting;
+      expect(failed).toMatchObject({ state: "failed", lastError: "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 75h7m14s." });
+      // the medium model draws on the same Gemini quota: the replacement skips it
+      const replacement = fleet.get(failed.replacedBy!, "g1");
+      expect(replacement).toMatchObject({ agent: "claude", model: "sonnet", fallbackFrom: "agy:gemini-4-argon-medium" });
+      expect(replacement.skipped).toEqual([{ candidate: "agy:gemini-4-argon-medium", reason: expect.stringContaining("agy:gemini is cooling down") }]);
+      // Resets in 75h7m14s = 270 434 s from when the turn was read
+      const until = usage.list().find((entry) => entry.key === "agy:gemini")!.cooldown!.until;
+      expect(until).toBeGreaterThanOrEqual(before + 270_434_000);
+      expect(until).toBeLessThanOrEqual(Date.now() + 270_434_000);
+    });
+  });
+
   it("treats a start that ignored the model as a failed start, so the next model is tried", async () => {
     const { fleet, runtime } = setup({ agents: [role("worker", { agent: "agy", model: "no-such", fallbackModels: ["gemini-pro"] })] });
     runtime.startImpl = async (options) => {

@@ -60,6 +60,11 @@ export interface AgentAdapter {
    * ready and whenever a turn seems to settle, so the run blocks instead of passing for done.
    */
   question?(screen: string): string | undefined;
+  /**
+   * A question on the screen the fleet never answers and no agent may (one whose answer can change
+   * the CLI's settings for good): why a non-interactive run fails on it instead of waiting.
+   */
+  unanswerable?(screen: string): string | undefined;
   /** the screen once herdr calls the agent ready: a start that did not go as asked (an unknown model swapped for the default one) */
   readyError?(screen: string): string | undefined;
   /** herdr calls the CLI ready before it draws its input or its questions: the screen once it has */
@@ -394,6 +399,38 @@ const AGY_INPUT = /^\s*>(?:\s+Auto mode: .*)?\s*$/m;
  */
 const AGY_SANDBOX_NOTE = "Your terminal runs in Antigravity CLI's sandbox, which hides the repository's git data and the tools installed under the home folder: git, the project's test runner and build, and the fleet command fail there. Do not look for ways around it or ask to run outside the sandbox. Read files with your file tools, work from the diff and the check output your caller gives you, and say in your HANDOFF which checks you could not run, so your caller runs them.";
 
+/** what agy's file access screen asks, as `question` says it */
+const AGY_FILE_ACCESS = "Antigravity CLI asks to read a file outside its workspace.";
+
+/**
+ * agy ends a turn its account has no quota left for on `⚠ Individual quota reached. … Resets in
+ * 75h7m14s.` and an `Error ID:` line, the warning wrapping onto the next lines on a narrow pane, so
+ * only a warning whose block is followed by that line counts. One with a newer turn's line after it
+ * (a `>` line other than the input box, which may hold a draft, or a `●` or `○` line) is the
+ * scrollback of an earlier turn.
+ */
+export function agyQuotaReached(output: string | undefined): string | undefined {
+  if (!output) return undefined;
+  const lines = stripVTControlCharacters(output).split("\n").map((line) => line.trim());
+  let input = false;
+  for (let at = lines.length - 1; at >= 0; at--) {
+    if (lines[at]!.startsWith(">")) {
+      if (input) return undefined;
+      input = true;
+      continue;
+    }
+    if (/^[●○]/.test(lines[at]!)) return undefined;
+    const head = /^⚠\s+(.+)$/.exec(lines[at]!);
+    if (!head) continue;
+    let warning = head[1]!;
+    let next = at + 1;
+    for (; next < lines.length && lines[next] !== "" && !/^(?:Error ID:|[─>●○⚠])/.test(lines[next]!); next++) warning = `${warning} ${lines[next]}`;
+    if (!warning.startsWith("Individual quota reached") || !/^Error ID:/.test(lines[next] ?? "")) continue;
+    return warning;
+  }
+  return undefined;
+}
+
 /** an agy model id that names its level, as all in its model list do */
 const AGY_MODEL_LEVEL = /-(?:low|medium|high|xhigh|max)$/;
 
@@ -451,8 +488,14 @@ export const agyAdapter: AgentAdapter = {
       [/You are currently not signed in/, "Antigravity CLI is not signed in."],
       [/Requesting permission for:/, "Antigravity CLI asks for permission to use a tool."],
       // asked in auto mode too, for a file outside the run's folders and the ones given with --add-dir
-      [/Allow access to this file\?/, "Antigravity CLI asks to read a file outside its workspace."],
+      [/Allow access to this file\?/, AGY_FILE_ACCESS],
     ]);
+  },
+  // any answer may be "always allow", which agy keeps in its settings: a helper whose caller waits on it fails instead
+  unanswerable(screen) {
+    if (this.question?.(screen) !== AGY_FILE_ACCESS) return undefined;
+    const file = lastMatch(screen, /^\s*Read: (.+)$/gm) ?? "a file";
+    return `Antigravity CLI asked to read ${file}, outside its workspace and the result folders. The fleet answers nothing on that screen, since an answer can change agy's settings for good, so the run failed: put what it needs in your result folder and name it in --context, or start it on another CLI.`;
   },
   readyError(screen) {
     const unknown = /model (\S+) is not recognized as a known model/.exec(screen);
@@ -461,7 +504,8 @@ export const agyAdapter: AgentAdapter = {
     return conflict ? `The model ${conflict[1]} does not take the level ${conflict[2]}: Antigravity CLI would run its default model instead.` : undefined;
   },
   turnError(output) {
-    return lastMatch(output, /^\s*(?:Error|error): (.+)$/gm);
+    // the quota warning names when it resets, which rateLimitUntil turns into the cooldown
+    return agyQuotaReached(output) ?? lastMatch(output, /^\s*(?:Error|error): (.+)$/gm);
   },
 };
 

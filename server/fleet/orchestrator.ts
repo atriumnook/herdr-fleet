@@ -1531,8 +1531,11 @@ export class Orchestrator {
         // settlement. The check scheduled at submission (or at a restart) looks again after the grace period.
         const since = pending?.submittedAt ?? pending?.resumedAt;
         if (pending?.armed && !pending.sawWorking && isCompleted(reported) && since !== undefined && Date.now() - since < this.grace) return;
-        const current = await this.observed(run, reported);
+        const { state: current, screen } = await this.observe(run, reported);
         if (!isLive(run)) return;
+        // a helper at a question nobody answers fails as it stands: blocked, its caller would wait on a person
+        const unanswered = pending?.armed && current === "blocked" ? this.unanswered(run, screen) : undefined;
+        if (pending && unanswered) { await this.settleTurn(run, () => this.finalize(run, pending, unanswered)); return; }
         const previous = run.state;
         // a turn the fleet did not send starts (a helper's result woke the agent, or the person typed)
         if (!pending && current === "working" && (isCompleted(previous) || previous === "blocked")) this.clearTurnFiles(run);
@@ -1573,11 +1576,12 @@ export class Orchestrator {
     this.followReport(run);
   }
 
-  private async finalize(run: AgentRun, pending: PendingTurn): Promise<void> {
+  /** `unanswered`: the run stopped at a question nobody answers, and fails on it (unanswered()) */
+  private async finalize(run: AgentRun, pending: PendingTurn, unanswered?: string): Promise<void> {
     if (this.pending.get(run.id)?.generation !== pending.generation) return;
     this.dropPending(run.id);
     const config = this.deps.config(run.cwd);
-    await this.readTurn(run, config);
+    await this.readTurn(run, config, unanswered);
     if (isThread(run)) await this.readThreadWork(run);
     // a thread whose lead run failed or left no report goes on in a new run first, from the contract
     // and change the turn left: what it leaves undone (a landing step, an open plan, the coordinator's
@@ -1674,7 +1678,7 @@ export class Orchestrator {
   }
 
   /** What a settled turn left: the screen, the handoff, and the API failure it may have ended on. */
-  private async readTurn(run: AgentRun, config: FleetConfig): Promise<void> {
+  private async readTurn(run: AgentRun, config: FleetConfig, unanswered?: string): Promise<void> {
     this.waitingLeads.delete(run.id);
     run.lastOutput = await this.deps.runtime.read(run.herdrName, config.recentReadLines).catch(() => undefined);
     // taken before the reads: a file written while they run differs from it, and is read again (followReport)
@@ -1691,6 +1695,11 @@ export class Orchestrator {
     // an API failure (auth, rate limit, outage) ends a turn like any other once the CLI's own retries
     // are spent; a turn that wrote its report did its work, whatever its screen quotes, unless the
     // CLI moved to another model by itself on a usage limit: that work ran on a model nobody chose
+    if (unanswered) {
+      run.state = "failed";
+      run.lastError = unanswered;
+      return;
+    }
     const adapter = adapterFor(run.agent);
     const turnError = adapter.modelSwitch?.(run.lastOutput, run.model) ?? (!run.outcome?.report ? adapter.turnError(run.lastOutput, run.model) : undefined);
     if (turnError && isCompleted(run.state)) {
@@ -2059,10 +2068,26 @@ export class Orchestrator {
    * approval screens): while one shows, the run is blocked, at startup and mid-turn alike.
    */
   private async observed(run: AgentRun, reported: AgentState): Promise<AgentState> {
+    return (await this.observe(run, reported)).state;
+  }
+
+  /** observed(), with the screen it was read from: what is asked there is judged on that read, not another */
+  private async observe(run: AgentRun, reported: AgentState): Promise<{ state: AgentState; screen: string }> {
     const adapter = adapterFor(run.agent);
-    if (!isCompleted(reported) || !adapter.question) return reported;
+    if (!isCompleted(reported) || !adapter.question) return { state: reported, screen: "" };
     const screen = await this.deps.runtime.read(run.herdrName, this.deps.config(run.cwd).recentReadLines).catch(() => "");
-    return adapter.question(screen) ? "blocked" : reported;
+    return { state: adapter.question(screen) ? "blocked" : reported, screen };
+  }
+
+  /**
+   * Why a non-interactive run at a question fails on it: one the fleet never answers and no agent
+   * may (agy's file access screen, whose answer can change agy's settings for good). Nothing is
+   * typed into the pane, which stays for the person to see; a first turn starts again on the next
+   * configured candidate, as after any failed first turn. An interactive run stays blocked: a
+   * person watches it.
+   */
+  private unanswered(run: AgentRun, screen: string): string | undefined {
+    return run.interactive ? undefined : adapterFor(run.agent).unanswerable?.(screen);
   }
 
   /** herdr's state for the run now; undefined when herdr cannot say (never a reason to close a pane). */
