@@ -570,7 +570,7 @@ impl Orchestrator {
         let Some(run) = self.registry().by_pane(pane_id).filter(is_live) else {
             return;
         };
-        self.drop_pending(&run.id);
+        self.drop_ended_turn(&run.id);
         let now = self.now();
         self.change(&run.id, |run| {
             run.state = AgentState::Stopped;
@@ -622,7 +622,7 @@ impl Orchestrator {
                 {
                     return;
                 }
-                self.drop_pending(id);
+                self.drop_ended_turn(id);
                 let now = self.now();
                 self.change(id, |run| {
                     run.state = AgentState::Stopped;
@@ -1073,6 +1073,18 @@ impl Orchestrator {
     pub(crate) fn drop_pending(&self, id: &str) {
         locked(&self.inner.turns).pending.remove(id);
         self.clear_settle_check(id);
+    }
+
+    /// The run's pane ended under the turn the fleet sent it: the turn is dropped, and a turn before
+    /// it whose restart a settlement left to it is settled now, as news for whoever hears the
+    /// thread. A lead whose pane ended does not start again: the person may have closed it (ADR
+    /// 0358-settlement-and-sent-turn).
+    fn drop_ended_turn(&self, id: &str) {
+        let dropped = locked(&self.inner.turns).pending.remove(id);
+        self.clear_settle_check(id);
+        if let Some(turn) = dropped.and_then(|pending| pending.restart_left) {
+            self.settle_left_restart(id, turn, false);
+        }
     }
 
     /// The run's turn of `generation` is no longer the fleet's to follow: the turn as it was, when

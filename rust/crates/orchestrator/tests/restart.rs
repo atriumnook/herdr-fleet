@@ -1114,6 +1114,27 @@ async fn settles_a_steps_turn_that_ended_while_a_turn_before_it_was_settled_afte
     assert!(t.runtime.closed().is_empty());
 }
 
+// /code-review of #358: the lead's pane ends during the step's turn, to which the settlement of the
+// turn that left no report left the restart. The run stops and does not start again (the person
+// may have closed the pane), and the turn that left no report is the coordinator's news.
+#[tokio::test(start_paused = true)]
+async fn tells_of_the_turn_that_left_no_report_when_the_leads_pane_ends_during_the_step_it_left_the_restart_to()
+ {
+    let (t, first, read_screen) = create_pr_sent_while_settling(HeldAt::Screen).await;
+    read_screen.open();
+    sleep_ms(1000).await;
+    assert!(t.restarts().is_empty());
+    t.fleet.on_pane_ended(&first.pane_id);
+    sleep_ms(1000).await;
+    assert!(t.restarts().is_empty());
+    assert_eq!(t.run(&first.id).state, AgentState::Stopped);
+    let news = t.news(&first);
+    assert!(
+        news.len() == 1 && news[0].contains("ended its turn: no report"),
+        "{news:?}"
+    );
+}
+
 /// A lead that started a thread of its own hears that thread's news, which the fleet types into it
 /// once the lead's turn ended (codex's review of #358). That turn left no report, and its
 /// settlement leaves the restart to the news's turn; herdr then answers the prompt with `error`.

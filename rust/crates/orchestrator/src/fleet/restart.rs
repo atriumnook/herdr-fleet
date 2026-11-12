@@ -324,7 +324,7 @@ impl Orchestrator {
     /// past closes, and the thread's turn settles (its landing step and news). A turn the fleet
     /// sent the lead since takes all of it over (`Restart::Deferred`, ADR
     /// 0358-settlement-and-sent-turn). Without `may_restart`, the lead stays as it is (it waits on
-    /// a question).
+    /// a question, or its pane ended).
     pub(crate) async fn settle_lead_turn(
         &self,
         id: &str,
@@ -334,6 +334,8 @@ impl Orchestrator {
     ) {
         let restart = match self.registry().get(id) {
             Some(run) if may_restart && needs_restart(&run) => self.restart_thread(id, &turn).await,
+            // a lead left as it is: a turn the fleet sent it since takes the thread's part over
+            _ if !may_restart && self.leave_restart(id, &turn) => Restart::Deferred,
             _ => Restart::Done,
         };
         if restart == Restart::Deferred {
