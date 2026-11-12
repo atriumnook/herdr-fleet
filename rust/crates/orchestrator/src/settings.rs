@@ -127,7 +127,7 @@ impl FleetSettingsStore {
                     .roles
                     .get(&definition.name)
                     .unwrap_or(&no_override);
-                let fit = role_fit(&definition, project_over);
+                let fit = definition.role_fit(project_over);
                 let own = candidates_of(&definition, &no_override, &defaults);
                 let chosen = candidates_of(&definition, over, &user);
                 let candidates = chosen
@@ -275,11 +275,7 @@ fn apply_patch(
                 spawning: kept.get("spawning").and_then(Value::as_bool),
                 ..RoleOverride::default()
             };
-            kept.extend(role_entry(
-                definition,
-                &role_fit(definition, &over),
-                change,
-            )?);
+            kept.extend(role_entry(definition, &definition.role_fit(&over), change)?);
             roles.insert(name.clone(), Value::Object(kept));
         }
         next.insert("roles".to_owned(), Value::Object(roles));
@@ -389,17 +385,6 @@ fn object(value: Option<&Value>) -> Map<String, Value> {
 /// A role entry of a fleet.json sets the candidates or the thinking level.
 fn sets_role(entry: Option<&Value>) -> bool {
     matches!(entry, Some(Value::Object(role)) if ROLE_KEYS.iter().any(|key| role.contains_key(*key)))
-}
-
-/// What the role asks of the CLI it runs on, with `over` from the person's fleet.json: it edits no
-/// file, it runs the fleet command (`may_spawn`), and it reads files outside its folders, which
-/// only the reviewer does (ADR 0248-launch-adapters, "断る役割").
-fn role_fit(definition: &AgentDefinition, over: &RoleOverride) -> RoleFit {
-    RoleFit {
-        read_only: definition.edits == Some(false),
-        spawning: definition.may_spawn(over),
-        reads_outside_folders: definition.name == "reviewer",
-    }
 }
 
 /// The CLIs a role that edits no file can run on: those the fleet can keep from editing.
