@@ -161,7 +161,7 @@ pub fn router(deps: FleetApiDeps) -> axum::Router
   - `POST /runs/:target/land` の line comment の `line` は、`u32` の範囲(4,294,967,295 まで)だけを受け、それより大きい整数は `invalid_body` で断る。TypeScript は `Number.isInteger` で検査し、整数の値を持つ正の数をすべて受ける(`4294967296` も `1e300` も)。受けた値を渡す先の `LineComment.line`(`landing` の型)が `u32` で、#269 の書くパスの外にある。この違いが出るのは、4,294,967,295 行を超えるファイルの diff に comment を付けるときだけ。#366 で直す
   - サーバーのフォルダーが読めないとき、`cwd` がないか相対パスの spawn、thread、project の要求は、`/` を基準に進む。TypeScript は 500 `internal_error` を返す。orchestrator の `fleet/spawn.rs` の `absolute()` と `config.rs` が `current_dir()` の失敗を空のパスにするためで、どちらも #269 の書くパスの外なので #367 に分けた
   - #362、#366、#367 の 3 件は、coordinator の判断で、#269 では違いとして受け入れ、段階 3 の関門(#271)の前に直す
-  - `timeout_ms` が 2,147,483,647(2^31 − 1)を超えるとき、TypeScript の `setTimeout` は 1 ms で終わる(Bun 1.4.4 で確かめた)。`api/body.rs` でこの値を 1 にして同じにした。残る違いは 2 つで、config の `defaultWaitTimeoutMs` がこの値を超えると Rust はその時間を待つこと、408 の文が要求した値ではなく補正し切り捨てたあとの値(`after 1ms`)を書くこと。どちらも直すところが `fleet/turns.rs` で、#269 の書くパスの外なので #370 に分けた。#370 を #271 の前に直すかは、coordinator の判断を待つ
+  - `timeout_ms` が 2,147,483,647(2^31 − 1)を超えるとき、TypeScript の `setTimeout` は 1 ms で終わる(Bun 1.4.4 で確かめた)。`api/body.rs` でこの値を 1 にして同じにした。残る違いは 2 つで、config の `defaultWaitTimeoutMs` がこの値を超えると Rust はその時間を待つこと、408 の文が要求した値ではなく補正し切り捨てたあとの値(`after 1ms`)を書くこと。どちらも直すところが `fleet/turns.rs` で、#269 の書くパスの外なので #370 に分けた。#370 も、coordinator の判断で、#269 では違いとして受け入れ、#271 の前に直す
   - usage の読み取りの `readAt` などの JavaScript の数は、整数でも `1.0` と書かれる(protocol の型が `f64` のため)。JSON を読む側(JavaScript の `JSON.parse` など)は、どちらも同じ数として読む
 - `api/js.rs` の `number` は `cli::js::number` の写しで、2 か所に同じ規則がある。protocol に移して写しを消す作業は #352 にある
 
@@ -198,5 +198,5 @@ PC は Linux 7.2.15(omarchy)、`rust/` で `HERDR_*` を外して実行した。
   - 小数の扱いにテストがない: 残した。小数を切り捨てる違いは以前から「結果」に書いてある。JavaScript のタイマーも 1 ms 単位で動き、1 ms 未満の差はテストで見分けられない。2147483647 と 2147483648 の間の値は、f64 で正確に表せ、比較も正確
   - テストが、待った時間を真偽の列でしか見ず、1 ms と 1 時間を見分けず、どの値で失敗したかを示さない: 値ごとに、1 秒未満、2147483647 ms 以上、その間、のどれかを並べて比べる形に直した。補正を外すと、4 件とも `2147483647 ms or more` になって失敗することを見た
   - テストの doc の文に句点がない: 足した
-  - 「上の 3 件」の前に #370 の行が入り、#370 の扱いが読み取れない: #370 の行を「3 件」の行のあとに移し、#271 の前に直すかは coordinator の判断を待つと書いた
+  - 「上の 3 件」の前に #370 の行が入り、#370 の扱いが読み取れない: #370 の行を「3 件」の行のあとに移し、#370 の扱いを書いた(のちの coordinator の判断で、#271 の前に直す)
 - 足したテストを含め、`cargo test --locked -p herdr-fleet-orchestrator --test api` が 23 件通った
