@@ -8,13 +8,15 @@
 use std::collections::{BTreeMap, HashSet};
 use std::ffi::OsString;
 use std::future::Future;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+use axum::Router;
 use herdr::Herdr;
 use herdr::herdr_api::{AgentStatus, PaneInfo};
-use herdr::pane_status::{PaneStatusHandler, PaneStatusOptions, Replay};
+use herdr::pane_status::{PaneStatus, PaneStatusHandler, PaneStatusOptions, Replay};
 use orchestrator::agents::{AgentDirs, discover_agents};
 use orchestrator::api::{FleetApiDeps, router};
 use orchestrator::config::{load_config, load_standing_orders};
@@ -127,8 +129,9 @@ fn shell_word(text: &str) -> String {
 /// (`server/index.ts:354-560`, `:1047-1083`, `:2048-2062`).
 ///
 /// The address is taken first, so that a port in use is reported before a file of the state folder
-/// is touched. Once `shutdown` has resolved and [`app::serve`] has returned, the poll, the
-/// subscription to herdr and the orchestrator's timers are stopped.
+/// is touched. The moment `shutdown` resolves, the poll, the subscription to herdr and the
+/// orchestrator's timers are stopped; the server then waits for the connections still open
+/// ([`serve_stopping`]).
 pub async fn run(
     settings: Settings,
     shutdown: impl Future<Output = ()> + Send + 'static,
@@ -230,22 +233,83 @@ async fn run_on(
     let polling = poll_every(PULL_REQUEST_POLL, {
         let fleet = fleet.clone();
         move || {
-            let fleet = fleet.clone();
-            async move {
-                fleet.refresh_pull_requests().await;
-                fleet.supervise_projects().await;
-            }
+            let (refresh, supervise) = (fleet.clone(), fleet.clone());
+            in_order(
+                async move { refresh.refresh_pull_requests().await },
+                async move { supervise.supervise_projects().await },
+            )
         }
     });
     // runs from before a restart: read back from herdr, so the finished ones are not counted as
     // working (server/index.ts:2061-2062)
     reconcile_all_in_background(&fleet);
 
-    let served = app::serve(listener, app::routes(api), shutdown).await;
-    polling.abort();
-    pane_status.stop();
-    fleet.stop();
-    served.map_err(|error| format!("cannot serve on 127.0.0.1:{port}: {error}"))
+    let background = Background {
+        polling,
+        pane_status,
+        fleet,
+    };
+    serve_stopping(background, listener, app::routes(api), shutdown)
+        .await
+        .map_err(|error| format!("cannot serve on 127.0.0.1:{port}: {error}"))
+}
+
+/// What [`run_on`] starts beside the server and stops together, as `stop` of `createServer` does
+/// (`server/index.ts:2067-2077`).
+struct Background {
+    /// the pull request poll
+    polling: JoinHandle<()>,
+    /// the subscription to herdr's pane status
+    pane_status: PaneStatus,
+    /// the orchestrator: its timers, and the settlements and starts it would begin
+    fleet: Orchestrator,
+}
+
+impl Background {
+    /// Stops the poll, the subscription and the fleet, in the order of the TypeScript `stop`.
+    /// Calling it again does nothing.
+    fn stop(&self) {
+        self.polling.abort();
+        self.pane_status.stop();
+        self.fleet.stop();
+    }
+}
+
+/// [`app::serve`] of `routes` on `listener` until `shutdown` resolves, with `background` stopped the
+/// moment it has: in the future handed to `serve`, which runs before `serve` waits for the
+/// connections still open. A `fleet wait` can be open for minutes and `main.rs` ends the process 2 s
+/// after the signal, so stopping after `serve` returned would leave the orchestrator settling turns
+/// and starting panes for those 2 s, and then cut it off in the middle of one. The TypeScript `stop`
+/// stops the work before it calls `server.stop(true)` (`server/index.ts:2067-2077`).
+async fn serve_stopping(
+    background: Background,
+    listener: TcpListener,
+    routes: Router,
+    shutdown: impl Future<Output = ()> + Send + 'static,
+) -> io::Result<()> {
+    let background = Arc::new(background);
+    let served = app::serve(listener, routes, {
+        let background = Arc::clone(&background);
+        async move {
+            shutdown.await;
+            background.stop();
+        }
+    })
+    .await;
+    // `serve` ends once `shutdown` has resolved; if it ended otherwise, the work stops here
+    background.stop();
+    served
+}
+
+/// `first`, then `second`, each in a task of its own: a panic of either ends that task, and the
+/// round goes on. The `.catch(() => undefined)` after each of the two calls of a poll round in
+/// `server/index.ts:2054-2055` does the same, so the second runs whatever the first did.
+async fn in_order(
+    first: impl Future<Output = ()> + Send + 'static,
+    second: impl Future<Output = ()> + Send + 'static,
+) {
+    let _ = tokio::spawn(first).await;
+    let _ = tokio::spawn(second).await;
 }
 
 /// Calls `round` every `period` as JavaScript's `setInterval` does, with the guard of
@@ -331,6 +395,9 @@ impl PaneStatusHandler for PaneStatusReceiver {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use axum::routing::post;
+    use herdr::herdr_api::Subscription;
+    use herdr::{EventSender, EventSource, EventStream, SnapshotFuture};
     use orchestrator::config::FleetConfig;
     use orchestrator::runtime::{
         AgentMetadata, AgentRuntime, CreateLocationOptions, RuntimeFuture, RuntimeLocation,
@@ -339,7 +406,8 @@ mod tests {
     use protocol::AgentState;
     use std::io::{Read, Write};
     use std::sync::Mutex;
-    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use tokio::sync::Notify;
     use tokio_util::sync::CancellationToken;
 
     const EXE: &str = "/opt/x/herdr-fleet";
@@ -698,6 +766,55 @@ mod tests {
         poller.abort();
     }
 
+    /// A future that writes `what` into `log` when it runs.
+    fn note(
+        log: &Arc<Mutex<Vec<&'static str>>>,
+        what: &'static str,
+    ) -> impl Future<Output = ()> + Send + 'static {
+        let log = log.clone();
+        async move { log.lock().unwrap().push(what) }
+    }
+
+    // server/index.ts:2054-2055: one call after the other, as `.then(() => fleet.superviseProjects())`
+    // starts the second when the first has ended, not beside it
+    #[tokio::test]
+    async fn runs_the_second_call_when_the_first_has_ended() {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let first = {
+            let log = log.clone();
+            async move {
+                log.lock().unwrap().push("first starts");
+                tokio::time::sleep(Duration::from_millis(30)).await;
+                log.lock().unwrap().push("first ends");
+            }
+        };
+        in_order(first, note(&log, "second")).await;
+        assert_eq!(
+            *log.lock().unwrap(),
+            ["first starts", "first ends", "second"]
+        );
+    }
+
+    // server/index.ts:2054-2055: each call has a `.catch(() => undefined)` after it, so
+    // `superviseProjects()` runs whatever `refreshPullRequests()` did, and a call that fails ends the
+    // round, not the process
+    #[tokio::test]
+    async fn runs_the_second_call_whatever_became_of_the_first() {
+        let ran = Arc::new(AtomicBool::new(false));
+        let second = {
+            let ran = ran.clone();
+            async move { ran.store(true, Ordering::SeqCst) }
+        };
+        in_order(async { panic!("the first call fails") }, second).await;
+        assert!(
+            ran.load(Ordering::SeqCst),
+            "the second call did not run after the first one panicked"
+        );
+
+        // a second call that fails ends the round: the caller does not see the panic
+        in_order(async {}, async { panic!("the second call fails") }).await;
+    }
+
     /// Waits, up to ten seconds, until `condition` holds.
     async fn eventually(what: &str, condition: impl Fn() -> bool) {
         let waited = tokio::time::timeout(Duration::from_secs(10), async {
@@ -719,6 +836,11 @@ mod tests {
     impl AskedRuntime {
         fn asked(&self, name: &str) -> bool {
             self.asked.lock().unwrap().iter().any(|asked| asked == name)
+        }
+
+        /// How many times herdr was asked about any agent.
+        fn times_asked(&self) -> usize {
+            self.asked.lock().unwrap().len()
         }
     }
 
@@ -841,5 +963,188 @@ mod tests {
             fleet.get("r2", None).expect("r2").state,
             AgentState::Stopped
         );
+    }
+
+    /// Sets its flag when it is dropped.
+    struct DropFlag(Arc<AtomicBool>);
+
+    impl Drop for DropFlag {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    /// herdr's events as far as the subscription to the pane status asks of them: it keeps the
+    /// sending end of each subscription it hands out, so that a test sees whether the collector
+    /// dropped them, and its snapshot never answers.
+    #[derive(Default)]
+    struct QuietHerdr {
+        subscriptions: Mutex<Vec<EventSender>>,
+    }
+
+    impl QuietHerdr {
+        fn opened(&self) -> usize {
+            self.subscriptions.lock().unwrap().len()
+        }
+
+        /// Every subscription it handed out was dropped, and there was one.
+        fn all_dropped(&self) -> bool {
+            let subscriptions = self.subscriptions.lock().unwrap();
+            !subscriptions.is_empty() && subscriptions.iter().all(EventSender::is_closed)
+        }
+    }
+
+    impl EventSource for QuietHerdr {
+        fn subscribe(&self, _: Vec<Subscription>) -> EventStream {
+            let (sender, stream) = EventStream::channel();
+            self.subscriptions.lock().unwrap().push(sender);
+            stream
+        }
+
+        fn snapshot(&self) -> SnapshotFuture {
+            Box::pin(std::future::pending())
+        }
+    }
+
+    /// The head of a `POST /hold` with a body of 6 bytes, and the first 3 of them, on a connection
+    /// that stays open: the server holds the request in its handler until the rest comes.
+    fn send_all_but_the_end(port: u16) -> std::net::TcpStream {
+        let mut stream = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let request = format!(
+            "POST /hold HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nConnection: close\r\nContent-Length: 6\r\n\r\nabc"
+        );
+        stream.write_all(request.as_bytes()).unwrap();
+        stream
+    }
+
+    /// The last 3 bytes of the body of [`send_all_but_the_end`]'s request, and the answer: its
+    /// status and its body.
+    async fn send_the_end(mut stream: std::net::TcpStream) -> (u16, String) {
+        tokio::task::spawn_blocking(move || {
+            stream
+                .set_read_timeout(Some(Duration::from_secs(10)))
+                .unwrap();
+            stream.write_all(b"def").unwrap();
+            let mut answer = String::new();
+            stream.read_to_string(&mut answer).unwrap();
+            let (head, body) = answer.split_once("\r\n\r\n").unwrap_or((&answer, ""));
+            (head[9..12].parse().unwrap(), body.to_owned())
+        })
+        .await
+        .unwrap()
+    }
+
+    // server/index.ts:2067-2077: `stop` clears the pull request timer and stops the collector and
+    // the fleet first, and only then calls `server.stop(true)`. Axum's graceful shutdown waits for
+    // the connections still open, and a `fleet wait` can be open for minutes (main.rs ends the
+    // process 2 s after the signal): the work stops at the signal, not when the server returns.
+    // The request that holds the server open is in its handler when the signal comes, and it is
+    // answered after the work stopped.
+    #[tokio::test]
+    async fn stops_the_work_at_the_signal_not_after_the_open_connections() {
+        let listener = free_listener().await;
+        let port = listener.local_addr().unwrap().port();
+        let reached = Arc::new(Notify::new());
+        let routes = Router::new().route(
+            "/hold",
+            post({
+                let reached = reached.clone();
+                move |request: axum::extract::Request| {
+                    let reached = reached.clone();
+                    async move {
+                        reached.notify_one();
+                        // the whole body: it waits for the end of it
+                        match axum::body::to_bytes(request.into_body(), usize::MAX).await {
+                            Ok(body) => body.len().to_string(),
+                            Err(error) => format!("cut: {error}"),
+                        }
+                    }
+                }
+            }),
+        );
+
+        // each part of the work, with something a test sees of it
+        let runtime = Arc::new(AskedRuntime::default());
+        let fleet = fleet_over(runtime.clone());
+        let poll_dropped = Arc::new(AtomicBool::new(false));
+        let polling = poll_every(PULL_REQUEST_POLL, {
+            let guard = DropFlag(poll_dropped.clone());
+            move || {
+                let _guard = &guard;
+                async {}
+            }
+        });
+        let source = Arc::new(QuietHerdr::default());
+        let pane_status = herdr::pane_status::start(
+            source.clone(),
+            Arc::new(PaneStatusReceiver {
+                fleet: fleet.clone(),
+            }),
+            PaneStatusOptions::default(),
+        );
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let served = tokio::spawn(serve_stopping(
+            Background {
+                polling,
+                pane_status,
+                fleet: fleet.clone(),
+            },
+            listener,
+            routes,
+            async {
+                let _ = stopped.await;
+            },
+        ));
+
+        let held = send_all_but_the_end(port);
+        tokio::time::timeout(Duration::from_secs(10), reached.notified())
+            .await
+            .expect("the request reaches its handler");
+        // what the signal changes: before it, the subscriptions are open, the poll is running, and
+        // the fleet reads its runs back from herdr
+        eventually("the subscriptions to herdr", || source.opened() > 0).await;
+        assert!(!source.all_dropped(), "a subscription was dropped early");
+        assert!(!poll_dropped.load(Ordering::SeqCst), "the poll ended early");
+        fleet.reconcile_all().await;
+        assert!(
+            runtime.asked("r1-name") && runtime.asked("r2-name"),
+            "the fleet did not read its runs back"
+        );
+
+        stop.send(()).unwrap();
+        // the request is still open
+        eventually("the subscriptions to herdr to be dropped", || {
+            source.all_dropped()
+        })
+        .await;
+        eventually("the poll to end", || poll_dropped.load(Ordering::SeqCst)).await;
+        // a stopped fleet starts no settlement: a read-back of every run asks herdr nothing
+        let stopped_reading = tokio::time::timeout(Duration::from_secs(10), async {
+            loop {
+                let before = runtime.times_asked();
+                fleet.reconcile_all().await;
+                if runtime.times_asked() == before {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await;
+        assert!(
+            stopped_reading.is_ok(),
+            "timed out waiting for the fleet to stop reading its runs back"
+        );
+
+        // the server still waited for the request, and it answers it
+        assert!(
+            !served.is_finished(),
+            "the server ended before the open request did"
+        );
+        assert_eq!(send_the_end(held).await, (200, "6".to_owned()));
+        let ended = tokio::time::timeout(Duration::from_secs(10), served)
+            .await
+            .expect("the server ends once the request is answered")
+            .expect("it does not panic");
+        assert!(ended.is_ok());
     }
 }
