@@ -1099,7 +1099,9 @@ async fn each_listing_passes_its_arguments_and_fails_on_an_error_exit() {
 /// `fakeOpencode` of models.test.ts: `service status` says where the service is (or nothing, or
 /// fails as 1.x does for a command it does not know), `api GET` answers an empty list the first
 /// time and the models after, like a place the service has not loaded. Each run notes its process
-/// id in `<file>.pids`.
+/// id in `<file>.pids`, and before it the pipes of its standard output and error in `<file>.pipes`,
+/// read in a command substitution: dash, Ubuntu's `/bin/sh`, opens a simple command's redirection
+/// in the shell itself, whose fd 1 would then be the file.
 fn fake_opencode(dir: &Path, behaviour: &str) -> PathBuf {
     let file = dir.join("opencode");
     let q = |ending: &str| sh_quote(&noted(&file, ending));
@@ -1116,7 +1118,7 @@ fn fake_opencode(dir: &Path, behaviour: &str) -> PathBuf {
 pwd > {cwd}
 ls -A > {ls}
 printf '%s\n' "$*" >> {args}
-readlink /proc/$$/fd/1 /proc/$$/fd/2 >> {pipes}
+pipes=$(readlink /proc/$$/fd/1 /proc/$$/fd/2); printf '%s\n' "$pipes" >> {pipes}
 echo $$ >> {pids}
 if [ "$1" = service ]; then {status}; fi
 if [ "$1" = api ]; then n=$(cat {n} 2>/dev/null || echo 0); echo $((n+1)) > {n}; if [ "$n" = 0 ]; then echo '{{"data":[]}}'; else echo '{{"data":[{{"providerID":"anthropic","id":"claude-sonnet-5-5"}},{{"providerID":"opencode","id":"big-pickle"}}]}}'; fi; exit 0; fi
